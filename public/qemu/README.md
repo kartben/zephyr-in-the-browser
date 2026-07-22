@@ -169,6 +169,13 @@ No patch ships for this. Disabling the JIT would slow every guest down and still
 does not make the samples work. It wants reporting upstream to ktock/qemu-wasm,
 with the reproducer above.
 
+**Zephyr's own QEMU patches do not help either** — worth stating, since the SDK
+maintaining a fork makes it a natural thing to reach for. `sdk-ng` builds
+`zephyrproject-rtos/qemu`, which is v10.0.2 plus 20 commits: five xtensa, two RX,
+a Renesas CMT timer, a MIPS bootloader tweak, an APIC fallthrough, and build
+plumbing. None touch ARM, Cortex-M, SysTick or stellaris. Consistent with stock
+Ubuntu 8.2.2, carrying no Zephyr patches, running the sample correctly.
+
 ## Known limits
 
 Verified by testing, not assumed:
