@@ -78,7 +78,8 @@ jobs:
               || { echo "::error::emulator release did not contain out.js"; exit 1; }
             ls dist/qemu/*.wasm >/dev/null 2>&1 \
               || { echo "::error::emulator release did not contain a .wasm"; exit 1; }
-            ls dist/qemu/zephyr/*.elf >/dev/null 2>&1 \
+            # Images live at zephyr/<board>/<app>.elf, so this has to recurse.
+            [ -n "$(find dist/qemu/zephyr -name '*.elf' -print -quit)" ] \
               || { echo "::error::emulator release did not contain a guest image"; exit 1; }
           fi
           du -sh dist
