@@ -1,4 +1,5 @@
 import { attach as attachHostSensor, detach as detachHostSensor } from '@/hostSensor'
+import { get as getGuestImage } from '@/guestImage'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -138,7 +139,7 @@ async function assertAsset(file: string) {
 export function createQemuBackend(): PtyBackend {
   return {
     id: 'qemu',
-    label: 'qemu-wasm',
+    label: 'QEMU',
 
     // Only true once the document has been committed to one QEMU instance.
     // Before that the session can be remounted normally, and forcing a page
@@ -176,11 +177,17 @@ export function createQemuBackend(): PtyBackend {
 
       // preRun cannot await, so the guest image is fetched here and written
       // synchronously once the filesystem exists.
-      onStatus({ status: 'loading', detail: 'fetching guest image' })
+      // A user-supplied image replaces the board's kernel; everything else the
+      // board preloads (firmware blobs, say) still comes from public/qemu/.
+      const custom = getGuestImage()
+      onStatus({
+        status: 'loading',
+        detail: custom ? `loading ${custom.name}` : 'fetching guest image',
+      })
       const preloaded = await Promise.all(
-        board.preloadFiles.map(async (f) => ({
+        board.preloadFiles.map(async (f, i) => ({
           fsPath: f.fsPath,
-          bytes: await fetchAsset(f.asset),
+          bytes: custom && i === 0 ? custom.bytes : await fetchAsset(f.asset),
         })),
       )
       if (signal.aborted) return

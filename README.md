@@ -75,6 +75,23 @@ script to `index.html` before the app bundle. Hosts where you *can* set headers
 directly (Netlify `_headers`, Vercel `headers`, Cloudflare Pages, any real web
 server) do not need the shim.
 
+## Booting your own ELF
+
+Drop one anywhere on the window, or pick **Load ELF…** from the board dropdown.
+It replaces the board's stock guest image; the board still selects the *machine*,
+so the ELF has to be built for it. The chip beside the dropdown shows what is
+running, and its ✕ goes back to the stock image.
+
+Anything QEMU can boot with `-kernel` works — it does not have to be Zephyr.
+
+The file is checked for ELF magic before anything else happens, so dropping the
+wrong thing gives you a message rather than a guest that silently never boots.
+
+An Emscripten module is single-shot per document, so swapping the image once
+QEMU is running costs a page reload. The bytes are handed across it through
+IndexedDB and deleted as soon as they are claimed — a one-shot buffer rather
+than persistence, so a failed boot cannot trap the page in a reload loop.
+
 ## Deploying to GitHub Pages
 
 `.github/workflows/pages.yml` builds and deploys. It is `workflow_dispatch`

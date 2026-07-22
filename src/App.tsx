@@ -1,7 +1,16 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
 import { SensorPanel } from '@/components/SensorPanel'
+import { DropOverlay } from '@/components/DropOverlay'
+import {
+  clear as clearGuestImage,
+  get as getGuestImage,
+  readFile as readGuestImage,
+  set as setGuestImage,
+  stash as stashGuestImage,
+  subscribe as subscribeGuestImage,
+} from '@/guestImage'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { BOARDS, DEFAULT_BOARD_ID, getBoard } from '@/boards'
@@ -27,6 +36,7 @@ export default function App() {
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
   const [nonce, setNonce] = useState(0)
+  const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
 
   // Current selection, readable from the mount-once terminal callbacks without
   // making them change identity (which would remount the terminal).
@@ -98,6 +108,38 @@ export default function App() {
     [applySelection],
   )
 
+  /**
+   * Boot a user-supplied ELF. If QEMU has already committed this document the
+   * bytes have to survive a reload, so they go through the IndexedDB handoff;
+   * otherwise the session can just be remounted around them.
+   */
+  const handleLoadElf = useCallback(async (file: File) => {
+    try {
+      const image = await readGuestImage(file)
+      if (backendRef.current?.resetRequiresReload) {
+        await stashGuestImage(image)
+        location.reload()
+        return
+      }
+      setGuestImage(image)
+      setNonce((n) => n + 1)
+    } catch (err) {
+      setStatus({
+        status: 'error',
+        detail: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }, [])
+
+  const handleClearImage = useCallback(() => {
+    clearGuestImage()
+    if (backendRef.current?.resetRequiresReload) {
+      location.reload()
+      return
+    }
+    setNonce((n) => n + 1)
+  }, [])
+
   const handleRestart = useCallback(() => {
     const backend = backendRef.current
     if (backend?.resetRequiresReload) {
@@ -122,6 +164,9 @@ export default function App() {
         detail={detail}
         hardRestart={hardRestart}
         onRestart={handleRestart}
+        onLoadElf={handleLoadElf}
+        customImage={customImage?.name ?? null}
+        onClearImage={handleClearImage}
       />
 
       <main className="relative min-h-0 flex-1 bg-terminal p-4">
@@ -134,6 +179,9 @@ export default function App() {
         {/* Renders nothing unless the running emulator has the sensor device. */}
         <SensorPanel />
       </main>
+
+      {/* Whole-window target, so the drop works wherever the pointer is. */}
+      <DropOverlay onFile={handleLoadElf} />
     </div>
   )
 }

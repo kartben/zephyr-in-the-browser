@@ -2,7 +2,7 @@ import { Cpu, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { StatusPill } from '@/components/StatusPill'
-import { BOARDS } from '@/boards'
+import { BoardSelect } from '@/components/BoardSelect'
 import type { BackendId, BackendStatus } from '@/backends'
 
 interface Props {
@@ -15,6 +15,10 @@ interface Props {
   /** True once the backend can only be restarted by reloading the document. */
   hardRestart: boolean
   onRestart: () => void
+  onLoadElf: (file: File) => void
+  /** Filename of the user-supplied guest image in use, if any. */
+  customImage: string | null
+  onClearImage: () => void
 }
 
 export function TopBar({
@@ -26,6 +30,9 @@ export function TopBar({
   detail,
   hardRestart,
   onRestart,
+  onLoadElf,
+  customImage,
+  onClearImage,
 }: Props) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-5">
@@ -38,18 +45,13 @@ export function TopBar({
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        <Select value={boardId} onValueChange={onBoardChange}>
-          <SelectTrigger className="w-[11.5rem]" aria-label="Board">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BOARDS.map((b) => (
-              <SelectItem key={b.id} value={b.id}>
-                {b.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <BoardSelect
+          boardId={boardId}
+          onBoardChange={onBoardChange}
+          onLoadElf={onLoadElf}
+          customImage={customImage}
+          onClearImage={onClearImage}
+        />
 
         <Select value={backendId} onValueChange={(v) => onBackendChange(v as BackendId)}>
           <SelectTrigger className="w-[8.5rem]" aria-label="Backend">
@@ -57,7 +59,7 @@ export function TopBar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="mock">Mock shell</SelectItem>
-            <SelectItem value="qemu">qemu-wasm</SelectItem>
+            <SelectItem value="qemu">QEMU</SelectItem>
           </SelectContent>
         </Select>
 
