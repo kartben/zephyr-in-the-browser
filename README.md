@@ -20,9 +20,20 @@ Zephyr shell that prints a boot banner, echoes input and answers `help`,
 demonstrable without a 100 MB QEMU build, and it announces itself in the banner
 so nobody mistakes it for a real boot.
 
-To run the real thing, put a qemu-wasm build in `public/qemu/` — see
-[`public/qemu/README.md`](public/qemu/README.md) for the exact file list — and
-restart the dev server. The app switches to the `qemu-wasm` backend on its own.
+To run the real thing, put a qemu-wasm build and a Zephyr image in `public/qemu/`
+— see [`public/qemu/README.md`](public/qemu/README.md) for the exact file list
+and the commands to produce both — and restart the dev server. The app switches
+to the `qemu-wasm` backend on its own, and you get the actual Zephyr shell:
+
+```
+*** Booting Zephyr OS build v4.4.0-8956-gc5d81fa5d424 ***
+uart:~$ kernel version
+Zephyr version 4.4.99
+uart:~$
+```
+
+Those artifacts are gitignored — a ~57 MB third-party GPLv2 emulator and a build
+output — so a fresh clone starts on the mock until you supply them.
 
 ## Cross-origin isolation is not optional
 
@@ -96,14 +107,24 @@ the button says "Restart" and remounts in place; after it, the button says
 ## Guests
 
 Boards live in [`src/boards.ts`](src/boards.ts), one entry per Zephyr QEMU target,
-each carrying the QEMU argv and the artifact basename it needs. Two are defined:
-`qemu_cortex_m3` (default, 32-bit ARMv7-M) and `qemu_riscv32`. Adding another is
-a data change plus a matching qemu-wasm build.
+carrying the QEMU argv, the emulator artifact it needs, and the guest files to
+inject. Adding one is a data change plus a Zephyr build.
 
-qemu-wasm is not the pure interpreter it once was — it runs multi-threaded TCG
-and JITs hot translation blocks into Wasm modules, falling back to TCI for cold
-ones. It is still much slower than native QEMU, so a small 32-bit guest remains
-the right default.
+Only `qemu_cortex_m3` is listed, because it is the only machine verified to work
+on the stock upstream qemu-wasm build. `mps2-an385` and a 64-bit Cortex-A53 guest
+both boot correctly under *native* QEMU with the same argv but produce no console
+output under that Wasm build — so they are absent rather than shipped broken. The
+details, including a JIT error that is noise rather than the cause, are in
+[`public/qemu/README.md`](public/qemu/README.md).
+
+The emulator is an `aarch64-softmmu` build, which in QEMU is a superset of
+arm-softmmu and carries the 32-bit ARM machines too. That is what lets a Cortex-M3
+Zephyr guest run without building a bespoke `arm-softmmu` target.
+
+qemu-wasm is not the pure interpreter it once was — it runs multi-threaded TCG and
+JITs hot translation blocks into Wasm modules, falling back to TCI for cold ones.
+It is still much slower than native QEMU, so a small 32-bit guest is the right
+default.
 
 ## Layout
 

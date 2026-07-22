@@ -14,13 +14,10 @@ import type { PtyBackend, Slave, StartOptions } from './types'
  * mode and echoes itself, which is why qemuBackend does none of this.
  */
 
-const PROMPT = 'uart:~$ '
+/** Bold green, matching what the real Zephyr shell emits. */
+const PROMPT = '\x1b[1;32muart:~$ \x1b[m'
 
-const BANNER = [
-  '',
-  '*** Booting Zephyr OS build v4.2.0 ***',
-  '',
-]
+const BANNER = ['', '*** Booting Zephyr OS build v0.0.0-mock ***', '']
 
 const HELP = [
   'Available commands:',
@@ -85,7 +82,7 @@ export function createMockBackend(): PtyBackend {
             slave.write(`${HELP.join('\n')}\n`)
             break
           case 'version':
-            slave.write('Zephyr version 4.2.0 (mock)\n')
+            slave.write('Zephyr version 0.0.0-mock\n')
             break
           case 'clear':
             // Clear screen + home cursor, same as the real shell's `clear`.
@@ -94,7 +91,7 @@ export function createMockBackend(): PtyBackend {
           case 'kernel':
             slave.write(
               rest[0] === 'version'
-                ? 'Zephyr version 4.2.0 (mock)\n'
+                ? 'Zephyr version 0.0.0-mock\n'
                 : 'kernel - Kernel commands\nSubcommands:\n  version  :Kernel version.\n',
             )
             break
