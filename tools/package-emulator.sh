@@ -28,6 +28,10 @@ done
 # Images live at zephyr/<board>/<app>.elf, so this has to recurse.
 [ -n "$(find "$SRC/zephyr" -name '*.elf' -print -quit 2>/dev/null)" ] \
   || { echo "No guest image — run tools/build-zephyr-image.sh first." >&2; exit 1; }
+for board in qemu_cortex_m3 qemu_cortex_a53; do
+  [ -f "$SRC/zephyr/$board/gnss.elf" ] \
+    || { echo "Missing $board GNSS image — run tools/build-zephyr-image.sh '$board' gnss." >&2; exit 1; }
+done
 
 # README.md is checked in; everything else here is a build output.
 log "Packaging $(cd "$SRC" && ls | grep -v '^README.md$' | tr '\n' ' ')"

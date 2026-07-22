@@ -28,11 +28,13 @@ APP="${2:-all}"
 # that provides fw_cfg + qemu,ramfb.
 case "$BOARD" in
   qemu_cortex_m3)
-    APPS="shell:samples/subsys/shell/shell_module
+    APPS="gnss:samples/drivers/gnss
+shell:samples/subsys/shell/shell_module
 hello_world:samples/hello_world"
     ;;
   qemu_cortex_a53)
-    APPS="display:samples/drivers/display
+    APPS="gnss:samples/drivers/gnss
+display:samples/drivers/display
 hello_world:samples/hello_world"
     ;;
   *)
@@ -76,12 +78,6 @@ else
   log "No board overlay for $BOARD — building stock Zephyr peripherals"
 fi
 
-# Only the Cortex-M overlay declares qemu,host-sensor. Keep its Kconfig fragment
-# separate so display-only boards do not pull in the sensor shell.
-if [ "$BOARD" = "qemu_cortex_m3" ]; then
-  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
-fi
-
 # Selected apps, as "id:path" lines.
 if [ "$APP" = "all" ]; then
   SELECTED="$APPS"
@@ -95,6 +91,16 @@ fi
 
 build_one() {
   local id="$1" sample="$2"
+  local app_cmake_args="$CMAKE_ARGS"
+
+  # Keep app-specific subsystems out of unrelated images. The M3 shell exposes
+  # the host sensor, while the generic GNSS modem backend needs IRQ-driven UART
+  # reception on both boards.
+  if [ "$BOARD" = "qemu_cortex_m3" ] && [ "$id" = "shell" ]; then
+    app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
+  elif [ "$id" = "gnss" ]; then
+    app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE=$MODULE/overlays/gnss-uart.conf"
+  fi
 
   log "Building $id ($sample) for $BOARD"
   docker run --rm \
@@ -103,7 +109,7 @@ build_one() {
     -v "$ROOT:/repo:ro" \
     -w /workdir \
     "$ZEPHYR_IMAGE" \
-    bash -lc "west build -p always -b '$BOARD' 'zephyr/$sample' -d /out/build -- $CMAKE_ARGS"
+    bash -lc "west build -p always -b '$BOARD' 'zephyr/$sample' -d /out/build -- $app_cmake_args"
 
   # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
   # and it is fetched over HTTP on every boot, so strip it. The right strip

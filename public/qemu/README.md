@@ -13,8 +13,8 @@ toolchain — both run in containers.
 
 ```console
 $ tools/build-qemu-wasm.sh            # emulator (slow: compiles glib etc. to wasm)
-$ tools/build-zephyr-image.sh         # Cortex-M3 shell + hello world
-$ tools/build-zephyr-image.sh qemu_cortex_a53  # display + hello world
+$ tools/build-zephyr-image.sh         # Cortex-M3 GNSS + shell + hello world
+$ tools/build-zephyr-image.sh qemu_cortex_a53  # GNSS + display + hello world
 ```
 
 Then restart the dev server. The `qemuAssetProbe` plugin in `vite.config.ts`
@@ -40,9 +40,11 @@ public/qemu/
   vgabios-ramfb.bin           ramfb option ROM
   zephyr/
     qemu_cortex_m3/
+      gnss.elf                stock samples/drivers/gnss
       shell.elf               guest images, injected into the Emscripten FS
       hello_world.elf
     qemu_cortex_a53/
+      gnss.elf
       display.elf
       hello_world.elf
 ```
@@ -94,10 +96,10 @@ wasm64 experiment so the result does not require WebAssembly Memory64.
 
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
 working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
-include the browser terminal bridge; ARM adds the host sensor, and AArch64 adds
-the ramfb bridge.
+include the browser terminal and GNSS UART bridges; ARM adds the host sensor,
+and AArch64 adds the ramfb bridge.
 
-Three browser integrations are supplied by the target-specific patch
+Four browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -107,6 +109,9 @@ directories under `tools/`:
 * The `qemu-host-sensor` device (see the sensor bridge in the top-level README).
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
+* A browser-fed character backend on each machine's second PL011 UART. It
+  accepts NMEA bytes through a lock-free ring and delivers them to the UART from
+  QEMU's own thread.
 
 The dependency image — glib, pixman, zlib and libffi cross-compiled to Wasm — is
 built from `tools/Dockerfile.deps`, vendored from ktock's so this repository does
@@ -164,6 +169,23 @@ Verified by testing, not assumed:
 - **`qemu_cortex_a53` works** with the wasm32 JIT, including its serial console,
   architectural timer, fw_cfg, and `qemu,ramfb` display. Upstream TCI remains a
   build-time fallback.
+- **GNSS works on both boards** with Zephyr's unmodified generic NMEA driver and
+  stock driver sample.
+
+## GNSS input
+
+Both boards attach a `gnss-nmea-generic` devicetree child to their second PL011
+UART at 9600 baud. The browser sends valid GGA and RMC sentences once per second;
+Zephyr receives them through its ordinary interrupt-driven UART and modem
+layers. The GNSS panel edits latitude, longitude, altitude, speed, bearing, and
+satellite count, and can instead follow the browser's Geolocation API when the
+user grants permission.
+
+The UART frontend is only touched on QEMU's runtime thread. JavaScript writes
+bytes into a single-producer/single-consumer ring through an exported function,
+and a virtual-clock timer drains that ring into the character backend. This
+keeps the host bridge independent of the Zephyr sample and avoids a custom guest
+driver.
 
 ## Display output
 

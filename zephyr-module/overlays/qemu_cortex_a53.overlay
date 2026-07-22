@@ -3,10 +3,32 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Zephyr's stock Cortex-A53 ramfb is 1024x768. That is unnecessarily large for
- * the browser demo: every refresh is emulated by QEMU and then color-converted
- * into Canvas ImageData. 600x400 retains a useful 3:2 display while reducing
- * the pixel count by 69.5%.
+ * the browser demo: every refresh is emulated by QEMU and uploaded as a browser
+ * texture. 600x400 retains a useful 3:2 display while reducing the pixel count
+ * by 69.5%.
  */
+
+/ {
+	aliases {
+		gnss = &gnss;
+	};
+
+	soc {
+		uart1: uart@9040000 {
+			compatible = "arm,pl011";
+			reg = <0x0 0x09040000 0x0 0x1000>;
+			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+			interrupt-names = "irq_0";
+			clocks = <&uartclk>;
+			current-speed = <9600>;
+			status = "okay";
+
+			gnss: gnss-nmea-generic {
+				compatible = "gnss-nmea-generic";
+			};
+		};
+	};
+};
 
 &ramfb0 {
 	width = <600>;

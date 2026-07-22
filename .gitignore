@@ -11,7 +11,7 @@ public/qemu/*
 
 # local build scratch for tools/*.sh
 .qemu-wasm-build/
-.zephyr-build/
+.zephyr-build*/
 
 # release bundle produced by tools/package-emulator.sh
 qemu-wasm-artifacts.tar.gz

@@ -82,6 +82,9 @@ jobs:
             # Images live at zephyr/<board>/<app>.elf, so this has to recurse.
             [ -n "$(find dist/qemu/zephyr -name '*.elf' -print -quit)" ] \
               || { echo "::error::emulator release did not contain a guest image"; exit 1; }
+            test -f dist/qemu/zephyr/qemu_cortex_m3/gnss.elf \
+              && test -f dist/qemu/zephyr/qemu_cortex_a53/gnss.elf \
+              || { echo "::error::emulator release did not contain both GNSS images"; exit 1; }
           fi
           du -sh dist
 

@@ -1,5 +1,6 @@
 import { attach as attachHostSensor, detach as detachHostSensor } from '@/hostSensor'
 import { attach as attachHostDisplay, detach as detachHostDisplay } from '@/hostDisplay'
+import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { get as getGuestImage } from '@/guestImage'
 import { sampleAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
@@ -288,6 +289,8 @@ export function createQemuBackend(): PtyBackend {
       // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
       if (board.peripherals?.ramfb) attachHostDisplay(instance)
       else detachHostDisplay()
+      if (board.peripherals?.gnss) attachHostGnss(instance)
+      else detachHostGnss()
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
     },
@@ -295,6 +298,7 @@ export function createQemuBackend(): PtyBackend {
     async reset() {
       detachHostSensor()
       detachHostDisplay()
+      detachHostGnss()
       // Nothing global was touched, so there is nothing to tear down.
       if (!documentTainted) return
       // Emscripten modules cannot be torn down cleanly; a reload is the only

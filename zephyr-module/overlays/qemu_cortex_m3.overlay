@@ -9,11 +9,24 @@
  */
 
 / {
+	aliases {
+		gnss = &gnss;
+	};
+
 	soc {
 		host_sensor: sensor@40060000 {
 			compatible = "qemu,host-sensor";
 			reg = <0x40060000 0x1000>;
 			status = "okay";
 		};
+	};
+};
+
+&uart1 {
+	current-speed = <9600>;
+	status = "okay";
+
+	gnss: gnss-nmea-generic {
+		compatible = "gnss-nmea-generic";
 	};
 };

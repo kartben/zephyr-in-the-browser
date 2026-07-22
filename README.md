@@ -5,8 +5,10 @@ top of [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten.
 The Cortex-M machine uses upstream QEMU 10.1's interpreter; Cortex-A53 uses an
 experimental WebAssembly JIT for hot guest code.
 
-The browser UI includes the serial terminal plus host-backed sensor controls and
-a live framebuffer panel for Zephyr's `qemu,ramfb` display driver.
+The browser UI includes the serial terminal, host-backed sensor controls, an
+editable GNSS fix streamed as standard NMEA over UART, and a live framebuffer
+panel for Zephyr's `qemu,ramfb` display driver. Each peripheral lives in its own
+collapsible, dismissible panel.
 
 ## Run it
 
@@ -27,8 +29,8 @@ server:
 ```console
 npm install
 tools/build-qemu-wasm.sh       # emulator -> public/qemu/   (slow, containerised)
-tools/build-zephyr-image.sh    # Cortex-M3 shell + hello world
-tools/build-zephyr-image.sh qemu_cortex_a53  # display sample + hello world
+tools/build-zephyr-image.sh    # Cortex-M3 GNSS + shell + hello world
+tools/build-zephyr-image.sh qemu_cortex_a53  # GNSS + display + hello world
 npm run dev
 ```
 
@@ -82,12 +84,12 @@ server) do not need the shim.
 Two controls, and they are different kinds of thing:
 
 - **Board** — the machine QEMU emulates.
-- **App** — the program it boots. Cortex-M3 ships Shell and Hello World;
-  Cortex-A53 ships the Display sample and Hello World.
+- **App** — the program it boots. Cortex-M3 ships GNSS, Shell, and Hello World;
+  Cortex-A53 ships GNSS, Display, and Hello World.
   `tools/build-zephyr-image.sh` builds them, and the ids there must match the
   `samples` listed per board in [`src/boards.ts`](src/boards.ts).
-  Cortex-M3 only lists apps that never sleep because its qemu-wasm TCI timing
-  limitation makes code blocking on `k_sleep` hang; Cortex-A53 is unaffected.
+  Cortex-M3 only lists apps verified against its slower qemu-wasm TCI timing;
+  Cortex-A53 is unaffected.
 
 There is no backend selector. The mock exists so a checkout without an emulator
 still runs, not as something worth choosing: QEMU is used whenever it is
@@ -216,9 +218,10 @@ inject. Adding one is a data change plus a Zephyr build.
 
 Two machines are verified: `qemu_cortex_m3` for the interactive shell and host
 sensors, and `qemu_cortex_a53` for the architectural timer, fw_cfg, and
-`qemu,ramfb`. The Cortex-A53 board defaults to Zephyr's stock
-`samples/drivers/display` sample and renders its framebuffer in a collapsible
-panel beside the sensor panel.
+`qemu,ramfb`. Both expose a second PL011 UART backed by editable browser GNSS
+data and ship Zephyr's stock `samples/drivers/gnss` sample. The Cortex-A53 board
+defaults to the stock `samples/drivers/display` sample and renders its
+framebuffer in its own collapsible panel.
 
 The build script produces separate `arm-softmmu` and `aarch64-softmmu`
 artifacts. Cortex-M3 deliberately stays on upstream QEMU's TCG interpreter: the
@@ -238,10 +241,13 @@ src/
     XTerminal.tsx   owns xterm.js imperatively; mounted once, never re-renders
     TopBar.tsx      board + app selectors, status pill, restart
     DisplayPanel.tsx live qemu,ramfb canvas; collapsible and dismissible
+    GnssPanel.tsx   editable NMEA fix and browser geolocation control
     SensorPanel.tsx host sensor controls
+    PeripheralPanels.tsx shared floating stack for peripheral popups
     ui/             shadcn/ui primitives
   boards.ts     guest registry
   hostDisplay.ts qemu,ramfb export bridge
+  hostGnss.ts   NMEA generator and emulated UART bridge
 public/qemu/    drop-in target for qemu-wasm artifacts (gitignored)
 ```
 

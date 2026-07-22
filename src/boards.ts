@@ -36,6 +36,7 @@ export interface Board {
   kernelFsPath: string
   /** Optional browser bridges physically present on this machine. */
   peripherals?: {
+    gnss?: boolean
     hostSensor?: boolean
     ramfb?: boolean
   }
@@ -70,6 +71,12 @@ export interface Board {
  */
 const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
+    id: 'gnss',
+    label: 'GNSS',
+    description: 'Parses browser-fed NMEA fixes over UART',
+    zephyrSample: 'samples/drivers/gnss',
+  },
+  {
     id: 'shell',
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `sensor get`',
@@ -84,6 +91,12 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
 ]
 
 const CORTEX_A53_SAMPLES: GuestSample[] = [
+  {
+    id: 'gnss',
+    label: 'GNSS',
+    description: 'Parses browser-fed NMEA fixes over UART',
+    zephyrSample: 'samples/drivers/gnss',
+  },
   {
     id: 'display',
     label: 'Display',
@@ -115,7 +128,7 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
-    peripherals: { hostSensor: true },
+    peripherals: { gnss: true, hostSensor: true },
     samples: CORTEX_M3_SAMPLES,
     // The shell is the one worth landing on: it is interactive, and it is where
     // the host-sensor bridge is visible.
@@ -148,7 +161,7 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
-    peripherals: { ramfb: true },
+    peripherals: { gnss: true, ramfb: true },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',
     extraFiles: [
