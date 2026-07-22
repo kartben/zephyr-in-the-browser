@@ -1,8 +1,8 @@
 # Zephyr in the Browser
 
 The [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, on
-top of [qemu-wasm](https://github.com/ktock/qemu-wasm) — QEMU compiled to
-WebAssembly with Emscripten.
+top of [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten —
+upstream QEMU 10.1, which gained Emscripten support in that release.
 
 This is v1: a terminal UI and a clean integration seam. The emphasis is on the
 seam being correct, not on features.
@@ -31,7 +31,7 @@ npm run dev
 ```
 
 Neither script needs a local Emscripten or Zephyr toolchain. The app switches to
-the `qemu-wasm` backend on its own once a `.wasm` is present, and you get the
+the QEMU backend on its own once a `.wasm` is present, and you get the
 actual Zephyr shell:
 
 ```
@@ -41,16 +41,16 @@ Zephyr version 4.4.99
 uart:~$
 ```
 
-Those artifacts are gitignored — a ~55 MB GPLv2 emulator and a compiled guest are
+Those artifacts are gitignored — a ~34 MB GPLv2 emulator and compiled guests are
 build outputs, not source — so a fresh clone starts on the mock until you build
 them. [`public/qemu/README.md`](public/qemu/README.md) covers the drop-in
-contract, the four upstream build breakages the script works around, and why a
-purpose-built `arm-softmmu` emulator beats upstream's prebuilt one.
+contract, the build workarounds the script applies, and the two patches this project
+carries on top of upstream QEMU.
 
 ## Cross-origin isolation is not optional
 
 xterm-pty runs the emulator off the main thread and does **blocking** stdin reads
-with `Atomics.wait` on a `SharedArrayBuffer`; qemu-wasm is built with
+with `Atomics.wait` on a `SharedArrayBuffer`; QEMU's Emscripten build uses
 `-pthread -sPROXY_TO_PTHREAD=1` on top of that. `SharedArrayBuffer` is only
 exposed to [cross-origin isolated](https://web.dev/coop-coep/) documents, which
 means every response must carry:
@@ -80,10 +80,12 @@ server) do not need the shim.
 Two controls, and they are different kinds of thing:
 
 - **Board** — the machine QEMU emulates.
-- **App** — the program it boots. Several Zephyr samples ship prebuilt (Shell,
-  Philosophers, Synchronization, Hello World); `tools/build-zephyr-image.sh`
-  builds them, and the ids there must match the `samples` listed per board in
-  [`src/boards.ts`](src/boards.ts).
+- **App** — the program it boots. Two Zephyr samples ship prebuilt, Shell and
+  Hello World; `tools/build-zephyr-image.sh` builds them, and the ids there must
+  match the `samples` listed per board in [`src/boards.ts`](src/boards.ts).
+  Only apps that never sleep are listed — anything blocking on `k_sleep` hangs,
+  an upstream QEMU bug documented in
+  [`public/qemu/README.md`](public/qemu/README.md).
 
 There is no backend selector. The mock exists so a checkout without an emulator
 still runs, not as something worth choosing: QEMU is used whenever it is
@@ -136,14 +138,15 @@ enabled with **GitHub Actions** as the source, and the repo must be public
 (Pages on a private repo needs a paid plan).
 
 The emulator travels as a release asset rather than in git — it is a build
-output, and 53 MB in history is forever. `tools/package-emulator.sh` bundles it
+output, and 34 MB in history is forever. `tools/package-emulator.sh` bundles it
 as a single tarball because release assets are flat and `public/qemu/` has a
 `zephyr/` subdirectory.
 
 **GPL.** That binary is a build of QEMU, so publishing it carries a
 corresponding-source obligation. It is satisfied by this repository being
-public: the source is [ktock/qemu-wasm](https://github.com/ktock/qemu-wasm)
-plus [`tools/qemu-patches/`](tools/qemu-patches), and the release notes say so.
+public: the source is [qemu/qemu](https://github.com/qemu/qemu) at the tag
+`tools/build-qemu-wasm.sh` pins, plus [`tools/qemu-patches/`](tools/qemu-patches),
+and the release notes say so.
 
 ### Why the page reloads itself once
 
@@ -187,8 +190,10 @@ Two implementations:
   `public/qemu/` and wires `Module.pty` to the slave, following the loader shape
   in ktock/qemu-wasm's own example page.
 
-Selection order: `VITE_PTY_BACKEND=mock|qemu`, else qemu when `public/qemu/`
-contains a `.wasm`, else mock. The top-bar dropdown overrides it at runtime.
+Selection order: `VITE_PTY_BACKEND=mock|qemu`, else QEMU when the emulator is
+actually being served (a startup `HEAD` request, so it cannot go stale), else
+mock. There is no UI toggle; a QEMU start that fails before committing the
+document falls back to the mock and says why in the terminal.
 
 ### Restarting
 

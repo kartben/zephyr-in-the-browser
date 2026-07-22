@@ -5,35 +5,38 @@
 #   tools/build-qemu-wasm.sh [target]        # target defaults to arm-softmmu
 #
 # Environment overrides:
-#   QEMU_WASM_REPO     git remote            (default: ktock/qemu-wasm)
-#   QEMU_WASM_REF      branch/tag/sha        (default: master)
-#   QEMU_WASM_WORKDIR  scratch dir           (default: <repo>/.qemu-wasm-build)
-#   JOBS               parallel make jobs    (default: container nproc)
-#   PLATFORM           docker platform       (default: linux/amd64)
+#   QEMU_REPO      git remote            (default: qemu/qemu)
+#   QEMU_REF       tag/branch/sha        (default: v10.1.0)
+#   QEMU_WORKDIR   scratch dir           (default: <repo>/.qemu-wasm-build)
+#   JOBS           parallel build jobs   (default: container nproc)
+#   PLATFORM       docker platform       (default: linux/amd64)
 #
-# This takes a long time — the dependency image alone compiles zlib, libffi,
-# glib and pixman to WebAssembly. Both stages are cached: re-running skips the
-# image build if it already exists, and skips the clone if the source is there.
+# Builds *upstream* QEMU. Emscripten support landed in 10.1, contributed by the
+# same author as the ktock/qemu-wasm fork this project used to build, so the
+# fork is no longer needed. Upstream is TCI-only — the TCG→Wasm JIT is not
+# upstreamed — which is why --enable-tcg-interpreter is mandatory below. The
+# resulting binary is around 34 MB against the fork's 55 MB.
 #
-# Upstream's README does not build cleanly as of 2026-07; every workaround
-# applied by patch_upstream() below is annotated with why it is needed.
+# The dependency image (glib, pixman, zlib, libffi cross-compiled to Wasm) is
+# built from tools/Dockerfile.deps and is the slow part; it is cached, so
+# re-runs skip it.
 
 set -euo pipefail
 
 TARGET="${1:-arm-softmmu}"
-REPO="${QEMU_WASM_REPO:-https://github.com/ktock/qemu-wasm.git}"
-REF="${QEMU_WASM_REF:-master}"
+REPO_URL="${QEMU_REPO:-https://github.com/qemu/qemu.git}"
+REF="${QEMU_REF:-v10.1.0}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK="${QEMU_WASM_WORKDIR:-$ROOT/.qemu-wasm-build}"
-SRC="$WORK/qemu-wasm"
+WORK="${QEMU_WORKDIR:-$ROOT/.qemu-wasm-build}"
+SRC="$WORK/qemu"
 DEST="$ROOT/public/qemu"
 
-# arm-softmmu -> qemu-system-arm, aarch64-softmmu -> qemu-system-aarch64
+# arm-softmmu -> qemu-system-arm
 BINARY="qemu-system-${TARGET%-softmmu}"
 CONTAINER=build-qemu-wasm-$$
-IMAGE=buildqemu
+IMAGE=qemu-wasm-deps
 
 log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
@@ -47,64 +50,47 @@ fetch_source() {
     log "Reusing source at $SRC"
     return
   fi
-  log "Cloning $REPO ($REF)"
+  log "Cloning $REPO_URL ($REF)"
   mkdir -p "$WORK"
-  git clone --depth 1 --branch "$REF" "$REPO" "$SRC"
+  git clone --depth 1 --branch "$REF" "$REPO_URL" "$SRC"
 }
 
-patch_upstream() {
-  log "Applying upstream fixes"
-  cd "$SRC"
-
-  # (1) zlib.net keeps only the *current* release at its root path, so the
-  #     pinned 1.3.1 tarball now 404s. `curl -Ls` cheerfully pipes the HTML
-  #     error page into tar, which fails as "File format not recognized".
-  if grep -q 'zlib.net/zlib-\$ZLIB_VERSION' Dockerfile; then
-    sed -i.bak \
-      's|https://zlib.net/zlib-\$ZLIB_VERSION.tar.xz|https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.xz|' \
-      Dockerfile
-    rm -f Dockerfile.bak
-    echo "  - zlib source URL -> github releases"
-  fi
-
-  # (2) The QEMU source is mounted read-only into the build container, so meson
-  #     cannot clone its subprojects itself ("Git command failed: git init ...").
-  #     Pre-fetch every wrap-git subproject here, where the tree is writable.
-  #     This bites arm-softmmu harder than upstream's tested targets: ARM
-  #     machines require libfdt, so a missing dtc is a hard error rather than a
-  #     skipped optional feature.
+# The QEMU source is mounted read-only into the build container, so meson cannot
+# clone its subprojects itself ("Git command failed: git init ..."). Pre-fetch
+# them here, where the tree is writable. This bites arm-softmmu harder than
+# other targets: ARM machines require libfdt, so a missing dtc is a hard error
+# rather than a skipped optional feature.
+fetch_subprojects() {
+  log "Pre-fetching meson subprojects"
   cd "$SRC/subprojects"
   for wrap in *.wrap; do
     name="${wrap%.wrap}"
     [ "$(head -1 "$wrap" | tr -d '[]')" = "wrap-git" ] || continue
-    [ -d "$name/.git" ] && continue
-    url=$(awk -F' *= *' '/^url/{print $2}' "$wrap")
-    rev=$(awk -F' *= *' '/^revision/{print $2}' "$wrap")
-    echo "  - subproject $name @ ${rev:0:12}"
-    rm -rf "$name"
-    git clone -q "$url" "$name"
-    git -C "$name" checkout -q "$rev"
-  done
-
-  # (3) Wraps declaring patch_directory get their meson.build from
-  #     subprojects/packagefiles/. meson applies that overlay when it downloads
-  #     the wrap itself; because step (2) cloned them by hand, do it here or
-  #     meson fails with "Subproject exists but has no meson.build file".
-  for wrap in *.wrap; do
-    name="${wrap%.wrap}"
+    if [ ! -d "$name/.git" ]; then
+      url=$(awk -F' *= *' '/^url/{print $2}' "$wrap")
+      rev=$(awk -F' *= *' '/^revision/{print $2}' "$wrap")
+      echo "  - $name @ ${rev:0:12}"
+      rm -rf "$name"
+      git clone -q "$url" "$name"
+      git -C "$name" checkout -q "$rev"
+    fi
+    # Wraps declaring patch_directory get their meson.build from
+    # subprojects/packagefiles/, an overlay meson applies only when it downloads
+    # the wrap itself. Pre-fetching by hand skips it.
     patchdir=$(awk -F' *= *' '/^patch_directory/{print $2}' "$wrap")
-    [ -n "$patchdir" ] && [ -d "packagefiles/$patchdir" ] || continue
-    [ -f "$name/meson.build" ] && continue
-    cp -R "packagefiles/$patchdir/." "$name/"
-    echo "  - packagefiles overlay -> $name"
+    if [ -n "$patchdir" ] && [ -d "packagefiles/$patchdir" ] && [ ! -f "$name/meson.build" ]; then
+      cp -R "packagefiles/$patchdir/." "$name/"
+      echo "    + packagefiles overlay"
+    fi
   done
 }
 
-# Patches in tools/qemu-patches/ add devices this project needs and upstream does
-# not have. Applied after the bit-rot fixes so a failure here is unambiguous.
+# Patches in tools/qemu-patches/ add what upstream does not have: the
+# qemu-host-sensor device, and the xterm-pty js-library on the link line.
 apply_local_patches() {
   local dir="$ROOT/tools/qemu-patches"
   [ -d "$dir" ] || return 0
+  log "Applying local patches"
   cd "$SRC"
   for patch in "$dir"/*.patch; do
     [ -e "$patch" ] || continue
@@ -113,7 +99,7 @@ apply_local_patches() {
     elif git apply "$patch"; then
       echo "  - applied: $(basename "$patch")"
     else
-      echo "  ! FAILED to apply $(basename "$patch") — the upstream tree has probably moved." >&2
+      echo "  ! FAILED to apply $(basename "$patch") — QEMU $REF has probably moved." >&2
       exit 1
     fi
   done
@@ -124,8 +110,8 @@ build_dep_image() {
     log "Reusing dependency image '$IMAGE' (delete it to force a rebuild)"
     return
   fi
-  log "Building dependency image (zlib, libffi, glib, pixman -> wasm; slow)"
-  docker build --progress=plain --platform "$PLATFORM" -t "$IMAGE" - < "$SRC/Dockerfile"
+  log "Building dependency image (glib, pixman, zlib, libffi -> wasm; slow)"
+  docker build --progress=plain --platform "$PLATFORM" -t "$IMAGE" - < "$ROOT/tools/Dockerfile.deps"
 }
 
 build_qemu() {
@@ -135,32 +121,26 @@ build_qemu() {
 
   local jobs="${JOBS:-$(docker exec "$CONTAINER" nproc)}"
 
-  # Kept byte-for-byte in step with upstream's README except for --target-list.
-  # The xterm-pty js-library is what makes Module.pty work; TTY and FS in
-  # EXPORTED_RUNTIME_METHODS are what this app's loader needs.
-  local cflags="-O3 -g -Wno-error=unused-command-line-argument -matomics -mbulk-memory"
-  cflags="$cflags -DNDEBUG -DG_DISABLE_ASSERT -D_GNU_SOURCE -sASYNCIFY=1 -pthread"
-  cflags="$cflags -sPROXY_TO_PTHREAD=1 -sFORCE_FILESYSTEM -sALLOW_TABLE_GROWTH"
-  cflags="$cflags -sTOTAL_MEMORY=2300MB -sWASM_BIGINT -sMALLOC=mimalloc"
-  cflags="$cflags --js-library=/build/node_modules/xterm-pty/emscripten-pty.js"
-  cflags="$cflags -sEXPORT_ES6=1 -sASYNCIFY_IMPORTS=ffi_call_js"
-
+  # configure auto-detects Emscripten and pulls in configs/meson/emscripten.txt,
+  # which already carries ASYNCIFY, PROXY_TO_PTHREAD, EXPORT_ES6 and friends —
+  # so unlike the old fork build there is no wall of flags to keep in sync.
+  #   --with-coroutine=wasm      upstream has a real wasm backend (not 'fiber')
+  #   --enable-tcg-interpreter   mandatory: no TCG→Wasm JIT upstream
   log "Configuring for $TARGET"
   docker exec "$CONTAINER" emconfigure /qemu/configure \
-    --static --target-list="$TARGET" --cpu=wasm32 --cross-prefix= \
-    --without-default-features --enable-system --with-coroutine=fiber --enable-virtfs \
-    --extra-cflags="$cflags" --extra-cxxflags="$cflags" \
-    --extra-ldflags="-sEXPORTED_RUNTIME_METHODS=getTempRet0,setTempRet0,addFunction,removeFunction,TTY,FS"
+    --static --target-list="$TARGET" --cross-prefix= \
+    --without-default-features --enable-system \
+    --with-coroutine=wasm --enable-tcg-interpreter
 
-  log "Building $BINARY with -j$jobs (this is the long part)"
-  docker exec "$CONTAINER" emmake make -j "$jobs" "$BINARY"
+  # Note the target is "<binary>.js", not "<binary>" as in the fork.
+  log "Building $BINARY.js with -j$jobs (this is the long part)"
+  docker exec "$CONTAINER" sh -c "cd /build && ninja -j $jobs $BINARY.js"
 
   log "Installing artifacts into public/qemu/"
   mkdir -p "$DEST"
-  # Emscripten's generated JS is named after the binary; this app expects out.js.
-  docker cp "$CONTAINER:/build/$BINARY" "$DEST/out.js"
+  # The loader expects out.js; Emscripten names it after the binary.
+  docker cp "$CONTAINER:/build/$BINARY.js" "$DEST/out.js"
   docker cp "$CONTAINER:/build/$BINARY.wasm" "$DEST/$BINARY.wasm"
-  # Only some Emscripten versions emit a separate pthread worker shim.
   if docker cp "$CONTAINER:/build/$BINARY.worker.js" "$DEST/$BINARY.worker.js" 2>/dev/null; then
     echo "  - $BINARY.worker.js"
   else
@@ -171,7 +151,7 @@ build_qemu() {
 # ---------------------------------------------------------------------------
 
 fetch_source
-patch_upstream
+fetch_subprojects
 apply_local_patches
 build_dep_image
 build_qemu
@@ -181,7 +161,6 @@ ls -la "$DEST"
 cat <<EOF
 
 Next:
-  1. Point a board's qemuBinary at "$BINARY" in src/boards.ts.
-  2. Build a guest image:  tools/build-zephyr-image.sh <board>
-  3. Restart the dev server — the asset probe only scans public/qemu/ at startup.
+  1. Build a guest image:  tools/build-zephyr-image.sh
+  2. Restart the dev server — public/qemu/ is only scanned at startup.
 EOF

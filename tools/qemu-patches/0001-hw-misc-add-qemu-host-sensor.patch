@@ -1,8 +1,8 @@
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index 3ada335..ceacde5 100644
+index 2aa4b5d..539e1e6 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -283,6 +283,7 @@ config STELLARIS
+@@ -223,6 +223,7 @@ config STELLARIS
      depends on TCG && ARM
      imply I2C_DEVICES
      select ARM_V7M
@@ -11,29 +11,29 @@ index 3ada335..ceacde5 100644
      select I2C
      select PL011 # UART
 diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
-index dd90f68..11cedfd 100644
+index 031ea3a..67dc3df 100644
 --- a/hw/arm/stellaris.c
 +++ b/hw/arm/stellaris.c
-@@ -1137,6 +1137,14 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
-         }
-     }
- 
+@@ -1388,6 +1388,14 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+     /* Add dummy regions for the devices we don't implement yet,
+      * so guest accesses don't cause unlogged crashes.
+      */
 +    /*
 +     * Host-backed sensor bridge. Not part of the real LM3S6965; it sits in the
-+     * gap between the last modelled peripheral (0x40048000) and the system
-+     * control block (0x400fc000), so it cannot collide with anything the board
-+     * actually has. The guest finds it via devicetree, not by probing.
++     * gap between the last modelled peripheral (0x40048000) and the hibernation
++     * block (0x400fc000), so it cannot collide with anything the board actually
++     * has. The guest finds it via devicetree, not by probing.
 +     */
 +    sysbus_create_simple("qemu-host-sensor", 0x40060000, NULL);
 +
-     if (board->dc2 & (1 << 12)) {
-         dev = sysbus_create_simple(TYPE_STELLARIS_I2C, 0x40020000,
-                                    qdev_get_gpio_in(nvic, 8));
+     create_unimplemented_device("PWM", 0x40028000, 0x1000);
+     create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
+     create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
 diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
-index cc8a8c1..a55895b 100644
+index 4e35657..46f0a41 100644
 --- a/hw/misc/Kconfig
 +++ b/hw/misc/Kconfig
-@@ -200,4 +200,7 @@ config IOSB
+@@ -235,4 +235,7 @@ config IOSB
  config XLNX_VERSAL_TRNG
      bool
  
@@ -42,23 +42,23 @@ index cc8a8c1..a55895b 100644
 +
  source macio/Kconfig
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 36c20d5..caae80d 100644
+index b1d8d8e..f960504 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -4,6 +4,7 @@ system_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))
- system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
+@@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
  system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
- system_ss.add(when: 'CONFIG_PCA9552', if_true: files('pca9552.c'))
-+system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
++system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
  system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
+ system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
+ system_ss.add(when: 'CONFIG_PVPANIC_COMMON', if_true: files('pvpanic.c'))
 diff --git a/hw/misc/qemu-host-sensor.c b/hw/misc/qemu-host-sensor.c
 new file mode 100644
-index 0000000..86247de
+index 0000000..e502ae2
 --- /dev/null
 +++ b/hw/misc/qemu-host-sensor.c
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,196 @@
 +/*
 + * Host-backed sensor device.
 + *
@@ -85,6 +85,7 @@ index 0000000..86247de
 +#include "hw/sysbus.h"
 +#include "hw/registerfields.h"
 +#include "migration/vmstate.h"
++#include "hw/qdev-properties.h"
 +#include "qom/object.h"
 +
 +#ifdef __EMSCRIPTEN__
@@ -231,11 +232,11 @@ index 0000000..86247de
 +    }
 +};
 +
-+static void qemu_host_sensor_class_init(ObjectClass *klass, void *data)
++static void qemu_host_sensor_class_init(ObjectClass *klass, const void *data)
 +{
 +    DeviceClass *dc = DEVICE_CLASS(klass);
 +
-+    dc->reset = qemu_host_sensor_reset;
++    device_class_set_legacy_reset(dc, qemu_host_sensor_reset);
 +    dc->vmsd = &vmstate_qemu_host_sensor;
 +    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 +}

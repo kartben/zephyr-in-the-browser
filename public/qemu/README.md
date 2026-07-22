@@ -1,7 +1,7 @@
 # qemu-wasm artifacts
 
 This directory holds the emulator and the guest images. It is gitignored — a
-~55 MB GPLv2 emulator and a compiled guest are build outputs, not source.
+~34 MB GPLv2 emulator and compiled guests are build outputs, not source.
 
 The app ships with a **mock backend** and only switches to the real emulator once
 a `.wasm` is present here.
@@ -32,7 +32,9 @@ public/qemu/
   qemu-system-arm.wasm        the emulator
   qemu-system-arm.worker.js   pthread worker shim
   zephyr/
-    qemu_cortex_m3.elf        guest image, injected into the Emscripten FS
+    qemu_cortex_m3/
+      shell.elf               guest images, injected into the Emscripten FS
+      hello_world.elf
 ```
 
 Emscripten names its generated JS after the binary; the loader expects `out.js`,
@@ -47,172 +49,74 @@ backend fetches it over HTTP and writes it into the Emscripten filesystem in
 that genuinely need a bundle (firmware blobs, a root filesystem) can still set
 `usesDataBundle: true` in `src/boards.ts`, and the loader will pull `load.js`.
 
-## Build your own, or borrow upstream's
+## Where the emulator comes from
 
-`tools/build-qemu-wasm.sh` builds `arm-softmmu` from
-[ktock/qemu-wasm](https://github.com/ktock/qemu-wasm). Upstream also publishes
-prebuilt `aarch64` and `x86_64` artifacts on its demo site, which can be dropped
-in here directly:
+`tools/build-qemu-wasm.sh` builds **upstream QEMU** (`qemu/qemu`, pinned to
+`v10.1.0` via `QEMU_REF`). Emscripten support landed in 10.1, contributed by
+Kohei Tokunaga — the same author as the ktock/qemu-wasm fork this project used
+to build against — so the fork is no longer needed.
 
-```console
-$ BASE=https://ktock.github.io/qemu-wasm-demo/images/raspi3ap
-$ for f in out.js qemu-system-aarch64.wasm qemu-system-aarch64.worker.js; do
-    curl -sSf -o "public/qemu/$f" "$BASE/$f"
-  done
-```
-
-QEMU's `aarch64-softmmu` target includes all the 32-bit ARM machines
-(`configs/devices/aarch64-softmmu/default.mak` literally includes
-`../arm-softmmu/default.mak`), so that build *can* run a Cortex-M3 guest and is
-the fastest way to get started.
-
-**But prefer building your own.** Measured on the same Zephyr image, the
-purpose-built `arm-softmmu` binary was strictly better than upstream's prebuilt
-`aarch64` one:
-
-| | prebuilt aarch64 | built arm-softmmu |
-| --- | --- | --- |
-| size | 57.5 MB | 55.0 MB |
-| Zephyr `v4.4.0-8956` | boots | boots |
-| Zephyr `v4.4.0-8888` | **silent** | boots |
-| console errors | `function signature mismatch`, continuously | none |
-
-That middle row is the important one: two Zephyr builds of the *same sample and
-same Kconfig*, a few dozen commits apart, both booting fine under native QEMU —
-and the prebuilt binary runs one but not the other. Whatever is wrong is
-sensitive to the guest instruction stream, not to the machine model. The
-`function signature mismatch` errors are its TCG→Wasm JIT failing to compile
-blocks and falling back to the interpreter; they vanish entirely on the
-purpose-built binary.
-
-Three link flags are load-bearing for this app and must survive any change to
-the build:
+`configure` auto-detects Emscripten and pulls in `configs/meson/emscripten.txt`,
+which already carries ASYNCIFY, PROXY_TO_PTHREAD, EXPORT_ES6 and FORCE_FILESYSTEM.
+Two flags are not optional:
 
 ```
---js-library=.../xterm-pty/emscripten-pty.js   # or Module.pty is ignored and stdio goes nowhere
--sEXPORT_ES6=1                                 # out.js default-exports the factory
--sEXPORTED_RUNTIME_METHODS=...,TTY,FS          # TTY poll patch + the FS_* helpers
+--with-coroutine=wasm      upstream has a real wasm backend (the fork used 'fiber')
+--enable-tcg-interpreter   mandatory: the TCG->Wasm JIT is not upstreamed
 ```
 
-## Upstream does not build clean
-
-As of 2026-07 the ktock/qemu-wasm README does not work as written.
-`tools/build-qemu-wasm.sh` patches all four issues automatically; they are listed
-here so the workarounds are reviewable rather than mysterious.
-
-1. **zlib 404.** `zlib.net` keeps only the current release at its root path, so
-   the pinned 1.3.1 tarball is gone. `curl -Ls` pipes the HTML error page into
-   `tar`, which surfaces as `xz: File format not recognized` rather than a
-   download failure. Repointed at the GitHub release.
-2. **`dtc` unavailable.** QEMU fetches it as a meson wrap, but the source is
-   mounted read-only into the build container, so meson cannot clone into it.
-   This bites `arm-softmmu` harder than upstream's tested targets: ARM machines
-   require libfdt, so a missing dtc is a hard error rather than a skipped
-   optional feature. Pre-fetched on the host.
-3. **`keycodemapdb` unavailable.** Same read-only wrap problem.
-4. **`berkeley-*` subprojects have no `meson.build`.** Wraps declaring
-   `patch_directory` get theirs from `subprojects/packagefiles/`, an overlay
-   meson applies only when it downloads the wrap itself. Pre-fetching by hand
-   skips it, so the script applies the overlay explicitly.
-
-None require source changes — the toolchain is stale, not broken.
-
-## Sleeping guests hang: a qemu-wasm code-generation bug
-
-Anything that blocks on `k_sleep` or a timeout hangs. `samples/synchronization`
-prints one line and stops; `samples/philosophers` paints its first frame and
-freezes. Both are fine on real QEMU, so only non-sleeping apps are listed in
-`src/boards.ts`.
-
-**The guest is not at fault.** The identical stripped ELF runs correctly under
-native QEMU 8.2.2 — the same version ktock's fork is based on — producing 16
-alternating lines in 8 seconds, and under 10.0.2 as well.
-
-**`Timer with period zero, disabling` is a red herring.** It prints on every
-boot, and it is tempting to blame. Native QEMU 8.2.2 prints it too, on a run that
-works perfectly. It is a benign start-up ordering artifact: SysTick's ptimer is
-reset before the Stellaris system clock is calculated, so it briefly sees a zero
-period, and the clock propagation immediately afterwards repairs it. Traced with
-instrumented builds:
-
-```
-Timer with period zero, disabling
-[systick_set_period] ctrl=00000004 src=cpu cpuclk=0     <- reset, clock not yet set
-[ssys_calc] period_ns=80 propagate=1 sysclk=343597383680 <- clock set (80 << 32)
-[cpuclk_update] cpuclk=343597383680                      <- propagation repairs it
-```
-
-The device emulation is in fact correct. Instrumentation confirmed SysTick ticks
-fire, the NVIC pends exception 15, and `CPU_INTERRUPT_HARD` is raised.
-
-**What is actually wrong is the TCG→Wasm JIT.** ktock's backend interprets cold
-translation blocks and compiles hot ones to Wasm modules after
-`INSTANTIATE_NUM` (1500) executions. Raising that constant out of reach, so
-everything stays interpreted, changes the result dramatically and
-deterministically:
-
-| build | lines from `samples/synchronization` |
-| --- | --- |
-| stock (JIT after 1500 executions) | 1 |
-| `INSTANTIATE_NUM` raised (interpreter only) | 14 |
-| native QEMU 8.2.2 | unbounded |
-
-So the JIT miscompiles something the sample relies on. Fourteen lines is not a
-fix though — it still stalls, so there is at least one further defect on the
-interpreter path.
-
-Two hypotheses were tested and **ruled out**: the CPU halting in WFI (making WFI
-never halt changed nothing), and a QEMU-version regression (8.2.2 native is
-fine).
-
-No patch ships for this. Disabling the JIT would slow every guest down and still
-does not make the samples work. It wants reporting upstream to ktock/qemu-wasm,
-with the reproducer above.
-
-### Upstream QEMU can build for Wasm, and it does not fix this
-
-QEMU has had Emscripten support since **10.1**, contributed by ktock himself, so
-the obvious question is whether moving off the fork helps. It was tried, and the
-answer is no — though it is attractive for other reasons.
-
-Upstream v10.1.0 builds and boots Zephyr in the browser:
-
-```console
-$ ./configure --static --target-list=arm-softmmu --cross-prefix= \
-    --without-default-features --enable-system \
-    --with-coroutine=wasm --enable-tcg-interpreter
-```
-
-`configure` auto-detects Emscripten and pulls in `configs/meson/emscripten.txt`
-itself, which already carries the flags this app depends on (ASYNCIFY,
-PROXY_TO_PTHREAD, EXPORT_ES6, FORCE_FILESYSTEM). Upstream is **TCI only** — the
-TCG→Wasm JIT is still not upstreamed — so `--enable-tcg-interpreter` is
-mandatory, and there is a proper `wasm` coroutine backend rather than the fork's
-`fiber`.
-
-Measured against the fork:
+Being TCI-only is the trade. Measured on the same Zephyr image:
 
 | | ktock 8.2.0 fork | upstream v10.1.0 |
 | --- | --- | --- |
 | `.wasm` size | 55 MB | **34 MB** |
-| `Timer with period zero` noise | yes | **no** |
-| Zephyr shell | boots | boots |
-| `samples/synchronization` | 1 line | **14 lines** |
+| `Timer with period zero` noise | yes | **none** |
+| Zephyr shell + host sensor | works | works |
+| `samples/synchronization` | 1 line | 14 lines |
 
-Fourteen is exactly what the fork produces with its JIT disabled. The same
-deterministic stall therefore reproduces on **current upstream QEMU**, across two
-independent versions, which places the remaining defect in the shared TCI path
-rather than in ktock's fork. That makes it filable directly against QEMU.
+The fork's JIT is not a loss worth mourning: it miscompiles, and disabling it
+was what took Synchronization from 1 line to 14 in the first place. See below —
+the remaining stall is an upstream TCI bug and affects both.
 
-Two things upstream deliberately leaves out, which any app must add:
-`--js-library=.../xterm-pty/emscripten-pty.js` (or `Module.pty` is ignored and
-stdio goes nowhere) and the build needs `tomli` in the Python environment. Note
-the js-library has to go into the meson cross file — `--extra-ldflags` does not
-reach the link — and meson snapshots that file at configure time, so it needs a
-reconfigure, not just a relink.
+Two things upstream deliberately leaves out, both supplied by
+`tools/qemu-patches/`:
 
-Migrating is still worth considering for the 38% size drop and for dropping the
-fork entirely; it just is not a fix for sleeping guests.
+* `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
+  the guest's stdio goes nowhere. It has to go in the meson cross file:
+  `--extra-ldflags` does not reach the link, and meson snapshots that file at
+  configure time, so changing it needs a reconfigure rather than a relink.
+* The `qemu-host-sensor` device (see the sensor bridge in the top-level README).
+
+The dependency image — glib, pixman, zlib and libffi cross-compiled to Wasm — is
+built from `tools/Dockerfile.deps`, vendored from ktock's so this repository does
+not depend on that fork at all.
+
+## Build workarounds still needed
+
+`tools/build-qemu-wasm.sh` handles these; listed so the workarounds are
+reviewable rather than mysterious.
+
+1. **meson subprojects cannot be fetched in-container.** The QEMU source is
+   mounted read-only, so meson cannot `git init` into `subprojects/`. They are
+   pre-fetched on the host. This bites `arm-softmmu` harder than most targets:
+   ARM machines require libfdt, so a missing `dtc` is a hard error rather than a
+   skipped optional feature.
+2. **`berkeley-*` subprojects have no `meson.build`.** Wraps declaring
+   `patch_directory` get theirs from `subprojects/packagefiles/`, an overlay
+   meson applies only when it downloads the wrap itself. Pre-fetching by hand
+   skips it, so the script applies the overlay explicitly.
+
+Two more are baked into `tools/Dockerfile.deps`: zlib now comes from its GitHub
+release (zlib.net keeps only the current release at its root path, and `curl`
+pipes the resulting HTML error page into `tar`, which fails as "File format not
+recognized" rather than as a download error), and `tomli` is installed because
+QEMU 10.1's configure requires it.
+
+The stall reproduces identically on the fork with its JIT disabled (14 lines) and
+on upstream (14 lines), across two independent QEMU versions. That places the
+remaining defect in the shared TCI path rather than in any fork, and makes it
+filable directly against QEMU. Two separate bugs, in other words — the JIT one
+is gone now that the JIT is, and this one is not.
 
 **Zephyr's own QEMU patches do not help either** — worth stating, since the SDK
 maintaining a fork makes it a natural thing to reach for. `sdk-ng` builds
