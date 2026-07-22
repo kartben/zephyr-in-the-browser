@@ -1,56 +1,46 @@
 #!/usr/bin/env bash
 #
-# Build a Zephyr sample for a QEMU board and install a stripped ELF into
-# public/qemu/zephyr/, where the qemu backend fetches it at runtime.
+# Build the packaged Zephyr samples for the browser and install stripped ELFs
+# into public/qemu/zephyr/, where the qemu backend fetches them at runtime.
 #
-#   tools/build-zephyr-image.sh [board] [app|all]
-#     board  defaults to qemu_cortex_m3
-#     app    one of the ids in APPS below, or "all" (the default)
+#   tools/build-zephyr-image.sh [board|all] [app|all]
+#     board  a board from tools/samples.manifest, or "all" (the default)
+#     app    an app id from the manifest, or "all" (the default)
+#
+# So a bare `tools/build-zephyr-image.sh` rebuilds every packaged sample for
+# every board. The board/app list lives in tools/samples.manifest — adding a
+# sample is one manifest line plus its entry in src/boards.ts, then a rerun.
 #
 # Images land at public/qemu/zephyr/<board>/<app>.elf, named after the *program*
 # rather than the board — several apps run on one board, so a board-named file
 # said nothing about what would actually boot.
 #
+# Every build applies the browser_bridge shield (zephyr-module/boards/shields/),
+# which adds the browser-fed peripherals — GNSS UART, host sensor with its
+# accel0/temp0/... aliases, browser-sized ramfb — to the plain QEMU boards.
+#
 # Environment overrides:
 #   ZEPHYR_WS     west workspace   (default: ~/zephyrproject)
 #   ZEPHYR_IMAGE  container image  (default: ghcr.io/zephyrproject-rtos/zephyr-build:main)
 #
-# Needs no local Zephyr toolchain — everything runs in the container.
+# Needs no local Zephyr toolchain — everything runs in the container. Build
+# directories are per-app, so independent invocations can run concurrently.
+#
+# To ship the result, bundle public/qemu/ into a release with
+# tools/package-emulator.sh <tag> and point EMULATOR_RELEASE at it (README.md,
+# "Deploying to GitHub Pages").
 
 set -euo pipefail
 
-BOARD="${1:-qemu_cortex_m3}"
-APP="${2:-all}"
+BOARD_FILTER="${1:-all}"
+APP_FILTER="${2:-all}"
 
-# Must stay in step with the samples listed for each board in src/boards.ts.
-# Cortex-M apps that block on k_sleep remain absent because they still stall on
-# qemu-wasm's TCI path. Cortex-A53 uses its architectural timer and is the board
-# that provides fw_cfg + qemu,ramfb.
-case "$BOARD" in
-  qemu_cortex_m3)
-    APPS="gnss:samples/drivers/gnss
-shell:samples/subsys/shell/shell_module
-hello_world:samples/hello_world"
-    ;;
-  qemu_cortex_a53)
-    APPS="gnss:samples/drivers/gnss
-display:samples/drivers/display
-hello_world:samples/hello_world"
-    ;;
-  *)
-    echo "Unsupported board '$BOARD'. Known: qemu_cortex_m3 qemu_cortex_a53" >&2
-    exit 1
-    ;;
-esac
 ZEPHYR_WS="${ZEPHYR_WS:-$HOME/zephyrproject}"
 ZEPHYR_IMAGE="${ZEPHYR_IMAGE:-ghcr.io/zephyrproject-rtos/zephyr-build:main}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK="${ZEPHYR_BUILD_WORKDIR:-$ROOT/.zephyr-build}"
-
-# Board ids carry a slash in hwmv2 (mps2/an385); paths must not.
-BOARD_DIR="$(echo "$BOARD" | tr '/' '_')"
-DEST="$ROOT/public/qemu/zephyr/$BOARD_DIR"
+MANIFEST="$ROOT/tools/samples.manifest"
+SHIELD=browser_bridge
 
 log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
@@ -59,64 +49,66 @@ log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
   exit 1
 }
 
-mkdir -p "$WORK" "$DEST"
+# Manifest lines, comments and blanks stripped.
+ENTRIES="$(grep -Ev '^[[:space:]]*(#|$)' "$MANIFEST")"
 
-# This repo ships an out-of-tree Zephyr module (the qemu,host-sensor driver and
-# its binding) plus board-specific devicetree overlays. Everything below is
-# passed as CMake args; note that current Zephyr *rejects* -DCONFIG_* on the
-# command line, so Kconfig changes have to travel in a .conf file.
+known_boards() { echo "$ENTRIES" | cut -d: -f1 | sort -u | tr '\n' ' '; }
+known_apps()   { echo "$ENTRIES" | awk -F: -v b="$1" '$1 == b {print $2}' | tr '\n' ' '; }
+
+if [ "$BOARD_FILTER" != "all" ] && ! echo "$ENTRIES" | grep -q "^$BOARD_FILTER:"; then
+  echo "Unknown board '$BOARD_FILTER'. Known: $(known_boards)" >&2
+  exit 1
+fi
+
+SELECTED="$(echo "$ENTRIES" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
+  '(b == "all" || $1 == b) && (a == "all" || $2 == a)')"
+[ -n "$SELECTED" ] || {
+  echo "Unknown app '$APP_FILTER' for board '$BOARD_FILTER'." >&2
+  echo "Known apps for $BOARD_FILTER: $(known_apps "$BOARD_FILTER")" >&2
+  exit 1
+}
+
+# This repo ships an out-of-tree Zephyr module: the qemu,host-sensor driver and
+# binding, plus the browser_bridge shield the module's board_root exposes.
+# Everything is passed as CMake args; note that current Zephyr *rejects*
+# -DCONFIG_* on the command line, so Kconfig tweaks travel in .conf fragments
+# listed per app in the manifest.
 MODULE=/repo/zephyr-module
-CMAKE_ARGS="-DZEPHYR_EXTRA_MODULES=$MODULE"
-
-# Board overlays may add a host peripheral or tune an emulated one. Boards
-# without one simply use Zephyr's stock devicetree.
-BOARD_OVERLAY="$ROOT/zephyr-module/overlays/$BOARD_DIR.overlay"
-if [ -f "$BOARD_OVERLAY" ]; then
-  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_DTC_OVERLAY_FILE=$MODULE/overlays/$BOARD_DIR.overlay"
-  log "Including board overlay for $BOARD"
-else
-  log "No board overlay for $BOARD — building stock Zephyr peripherals"
-fi
-
-# Selected apps, as "id:path" lines.
-if [ "$APP" = "all" ]; then
-  SELECTED="$APPS"
-else
-  SELECTED=$(echo "$APPS" | grep "^$APP:" || true)
-  [ -n "$SELECTED" ] || {
-    echo "Unknown app '$APP'. Known: $(echo "$APPS" | cut -d: -f1 | tr '\n' ' ')" >&2
-    exit 1
-  }
-fi
 
 build_one() {
-  local id="$1" sample="$2"
-  local app_cmake_args="$CMAKE_ARGS"
+  local board="$1" id="$2" sample="$3" confs="$4"
 
-  # Keep app-specific subsystems out of unrelated images. The M3 shell exposes
-  # the host sensor and host GPIO, while the generic GNSS modem backend needs
-  # IRQ-driven UART reception on both boards. The two shell overlays are passed
-  # as a single ;-separated EXTRA_CONF_FILE; the quotes keep the ; from splitting
-  # the outer bash -lc command before Zephyr sees the list.
-  if [ "$BOARD" = "qemu_cortex_m3" ] && [ "$id" = "shell" ]; then
-    app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE='$MODULE/overlays/host-sensor.conf;$MODULE/overlays/host-gpio.conf'"
-  elif [ "$id" = "gnss" ]; then
-    app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE=$MODULE/overlays/gnss-uart.conf"
+  # Board ids carry a slash in hwmv2 (mps2/an385); paths must not.
+  local board_dir dest work
+  board_dir="$(echo "$board" | tr '/' '_')"
+  dest="$ROOT/public/qemu/zephyr/$board_dir"
+  # Per-app build dir, so several builds can run at once.
+  work="${ZEPHYR_BUILD_WORKDIR:-$ROOT/.zephyr-build}/$board_dir-$id"
+  mkdir -p "$dest" "$work"
+
+  local cmake_args="-DZEPHYR_EXTRA_MODULES=$MODULE -DSHIELD=$SHIELD"
+  if [ -n "$confs" ]; then
+    # Manifest fragments are relative to zephyr-module/; several join with ';'.
+    # The quotes keep the ; from splitting the outer bash -lc command before
+    # Zephyr sees the list.
+    local conf_list
+    conf_list="$(echo "$confs" | tr ',' '\n' | sed "s|^|$MODULE/|" | paste -sd';' -)"
+    cmake_args="$cmake_args -DEXTRA_CONF_FILE='$conf_list'"
   fi
 
-  log "Building $id ($sample) for $BOARD"
+  log "Building $id ($sample) for $board"
   docker run --rm \
     -v "$ZEPHYR_WS:/workdir" \
-    -v "$WORK:/out" \
+    -v "$work:/out" \
     -v "$ROOT:/repo:ro" \
     -w /workdir \
     "$ZEPHYR_IMAGE" \
-    bash -lc "west build -p always -b '$BOARD' 'zephyr/$sample' -d /out/build -- $app_cmake_args"
+    bash -lc "west build -p always -b '$board' 'zephyr/$sample' -d /out/build -- $cmake_args"
 
   # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
   # and it is fetched over HTTP on every boot, so strip it. The right strip
   # binary depends on the guest arch, so pick it from the ELF's own machine type.
-  docker run --rm -v "$WORK:/out" "$ZEPHYR_IMAGE" bash -lc '
+  docker run --rm -v "$work:/out" "$ZEPHYR_IMAGE" bash -lc '
     set -euo pipefail
     elf=/out/build/zephyr/zephyr.elf
     machine=$(readelf -h "$elf" | awk -F: "/Machine:/ {print \$2}" | xargs)
@@ -132,19 +124,26 @@ build_one() {
     "$strip" -o /out/stripped.elf "$elf"
   '
 
-  cp "$WORK/stripped.elf" "$DEST/$id.elf"
-  printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$DEST/$id.elf" | xargs)"
+  cp "$work/stripped.elf" "$dest/$id.elf"
+  printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$dest/$id.elf" | xargs)"
+
+  # The picker in the UI only shows ids it knows about.
+  grep -q "id: '$id'" "$ROOT/src/boards.ts" \
+    || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2
 }
 
-while IFS=: read -r id sample; do
-  [ -n "$id" ] || continue
-  build_one "$id" "$sample"
+while IFS=: read -r board id sample confs; do
+  build_one "$board" "$id" "$sample" "${confs:-}"
 done <<< "$SELECTED"
 
-log "Done — public/qemu/zephyr/$BOARD_DIR/"
-ls -l "$DEST" | tail -n +2 | awk '{print "   ", $9, $5, "bytes"}'
+log "Done"
+for board_dir in $(echo "$SELECTED" | cut -d: -f1 | tr '/' '_' | sort -u); do
+  echo "  public/qemu/zephyr/$board_dir/"
+  ls -l "$ROOT/public/qemu/zephyr/$board_dir" | tail -n +2 | awk '{print "   ", $9, $5, "bytes"}'
+done
 cat <<EOF
 
-These ids must match the samples listed for this board in src/boards.ts.
+App ids must match the samples listed per board in src/boards.ts.
 Board argv comes from Zephyr's own boards/qemu/<board>/board.cmake.
+Ship it: tools/package-emulator.sh <tag>   (bundles public/qemu/ for Pages)
 EOF

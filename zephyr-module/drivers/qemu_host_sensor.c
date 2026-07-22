@@ -94,6 +94,13 @@ static int qhs_sample_fetch(const struct device *dev, enum sensor_channel chan)
 		return 0;
 	}
 
+	if (chan == SENSOR_CHAN_ACCEL_XYZ) {
+		for (i = 0; i < 3 && i < data->nchan; i++) {
+			qhs_read_channel(dev, i, &data->cache[i]);
+		}
+		return 0;
+	}
+
 	int index = qhs_channel_index(chan);
 
 	if (index < 0 || (uint32_t)index >= data->nchan) {
@@ -109,6 +116,22 @@ static int qhs_channel_get(const struct device *dev, enum sensor_channel chan,
 			   struct sensor_value *val)
 {
 	struct qhs_data *data = dev->data;
+
+	/*
+	 * The three-axis composite is what accelerometer samples actually ask
+	 * for (sensor_channel_get(..., SENSOR_CHAN_ACCEL_XYZ, val[3])); the
+	 * per-axis cases below only cover shell-style single reads.
+	 */
+	if (chan == SENSOR_CHAN_ACCEL_XYZ) {
+		if (data->nchan < 3) {
+			return -ENOTSUP;
+		}
+		val[0] = data->cache[0];
+		val[1] = data->cache[1];
+		val[2] = data->cache[2];
+		return 0;
+	}
+
 	int index = qhs_channel_index(chan);
 
 	if (index < 0 || (uint32_t)index >= data->nchan) {

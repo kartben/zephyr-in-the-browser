@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The "browser bridge" shield: the peripherals a guest gains when the QEMU
+ * machine is qemu-wasm running in a browser tab. It is not a physical shield —
+ * the devices are provided by patched QEMU models fed by page JavaScript (see
+ * tools/qemu-patches/ and tools/qemu-jit-patches/).
+ *
+ * Everything lives in the per-machine files under boards/: the devices sit at
+ * machine-specific addresses (an MMIO gap on the LM3S6965, a spare PL011 slot
+ * on virt), so there is nothing meaningful to add for an arbitrary board.
+ *
+ * boards/qemu_cortex_m3.overlay — GNSS NMEA UART + qemu,host-sensor, with
+ *   accel0 / temp0 / light0 / … aliases so stock sensor samples build against
+ *   the host sensor.
+ * boards/qemu_cortex_a53.overlay — GNSS NMEA UART, browser-sized qemu,ramfb,
+ *   and the same host-sensor node/aliases (device pending in the aarch64
+ *   emulator build — see the note in that overlay).
+ */

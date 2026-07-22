@@ -1,0 +1,12 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+if SHIELD_BROWSER_BRIDGE
+
+# The shield's gnss-nmea-generic node rides Zephyr's modem UART backend, which
+# needs interrupt-driven (or async) reception. Both QEMU PL011s support the
+# interrupt-driven API, so default it on whenever an app enables GNSS.
+config UART_INTERRUPT_DRIVEN
+	default y if GNSS
+
+endif # SHIELD_BROWSER_BRIDGE

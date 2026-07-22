@@ -1,0 +1,34 @@
+# Samples packaged for the browser, one per line:
+#
+#   board:app_id:zephyr_sample_path[:conf,conf,...]
+#
+# - board            Zephyr board target (west build -b ...)
+# - app_id           artifact basename -> public/qemu/zephyr/<board>/<app_id>.elf
+#                    Must match a sample id listed for the board in src/boards.ts.
+# - zephyr_sample_path  relative to the zephyr/ tree
+# - conf             optional Kconfig fragments, relative to zephyr-module/,
+#                    comma-separated
+#
+# Every build also applies the browser_bridge shield (zephyr-module/boards/
+# shields/browser_bridge), which adds the browser-fed peripherals and their
+# aliases (accel0, temp0, ...). Rebuild everything with:
+#
+#   tools/build-zephyr-image.sh
+#
+# Cortex-M3 runs on qemu-wasm's TCI interpreter, where apps that block on
+# k_sleep in steady state stall — only interrupt-driven or run-to-completion
+# samples belong on it. Cortex-A53 uses the wasm JIT and has no such limit.
+
+qemu_cortex_m3:gnss:samples/drivers/gnss
+qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-sensor.conf,conf/host-gpio.conf
+qemu_cortex_m3:hsm:samples/subsys/smf/hsm_psicc2
+qemu_cortex_m3:hello_world:samples/hello_world
+
+qemu_cortex_a53:gnss:samples/drivers/gnss
+qemu_cortex_a53:display:samples/drivers/display
+qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf
+qemu_cortex_a53:accel_chart:samples/modules/lvgl/accelerometer_chart
+qemu_cortex_a53:philosophers:samples/philosophers
+qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf
+qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
+qemu_cortex_a53:hello_world:samples/hello_world

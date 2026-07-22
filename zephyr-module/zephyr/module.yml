@@ -5,3 +5,5 @@ build:
   settings:
     # Makes dts/bindings/ below visible to the devicetree compiler.
     dts_root: .
+    # Makes boards/shields/ below discoverable, i.e. the browser_bridge shield.
+    board_root: .
