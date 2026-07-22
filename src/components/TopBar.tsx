@@ -1,6 +1,13 @@
 import { Cpu, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+} from '@/components/ui/select'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
 import type { BackendId, BackendStatus } from '@/backends'
@@ -53,13 +60,33 @@ export function TopBar({
           onClearImage={onClearImage}
         />
 
+        <label className="hidden text-xs text-muted-foreground lg:inline" htmlFor="backend-select">
+          Runs on
+        </label>
         <Select value={backendId} onValueChange={(v) => onBackendChange(v as BackendId)}>
-          <SelectTrigger className="w-[8.5rem]" aria-label="Backend">
-            <SelectValue />
+          <SelectTrigger id="backend-select" className="w-[8.5rem]" aria-label="Backend">
+            <span className="truncate">{backendId === 'qemu' ? 'QEMU' : 'Mock shell'}</span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="qemu">QEMU</SelectItem>
-            <SelectItem value="mock">Mock shell</SelectItem>
+            <SelectGroup>
+              <SelectLabel>What drives the terminal</SelectLabel>
+              <SelectItem value="qemu">
+                <span className="flex flex-col items-start">
+                  <span>QEMU</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    real emulator, real Zephyr
+                  </span>
+                </span>
+              </SelectItem>
+              <SelectItem value="mock">
+                <span className="flex flex-col items-start">
+                  <span>Mock shell</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    canned replies, no emulator
+                  </span>
+                </span>
+              </SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
 

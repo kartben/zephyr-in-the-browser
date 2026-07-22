@@ -3,10 +3,11 @@ import { FileUp, X } from 'lucide-react'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectSeparator,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { BOARDS } from '@/boards'
@@ -34,19 +35,34 @@ export function BoardSelect({
 
   return (
     <div className="flex shrink-0 items-center gap-2">
+      {/* Naming the control matters: "board" and "backend" are not self-evident
+          side by side, and the dropdown alone gave no hint which was which. */}
+      <label className="hidden text-xs text-muted-foreground lg:inline" htmlFor="board-select">
+        Board
+      </label>
       <Select
         value={boardId}
         onValueChange={(v) => (v === LOAD_ELF ? fileRef.current?.click() : onBoardChange(v))}
       >
-        <SelectTrigger className="w-[11.5rem]" aria-label="Board">
-          <SelectValue />
+        <SelectTrigger id="board-select" className="w-[11.5rem]" aria-label="Board">
+          {/* Explicit, not <SelectValue />: the dropdown items are two-line and
+              would otherwise render that way inside the closed trigger too. */}
+          <span className="truncate">{BOARDS.find((b) => b.id === boardId)?.label}</span>
         </SelectTrigger>
         <SelectContent>
-          {BOARDS.map((b) => (
-            <SelectItem key={b.id} value={b.id}>
-              {b.label}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel>Machine QEMU emulates</SelectLabel>
+            {BOARDS.map((b) => (
+              <SelectItem key={b.id} value={b.id}>
+                <span className="flex flex-col items-start">
+                  <span>{b.label}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {b.arch} · {b.zephyrTarget}
+                  </span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
           <SelectSeparator />
           {/*
             The board still selects the *machine*; this only swaps the image it
