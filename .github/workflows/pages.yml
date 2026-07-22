@@ -1,16 +1,24 @@
 name: Deploy to GitHub Pages
 
-# Manual by default: a deploy ships a ~53 MB emulator, so it should be a
-# deliberate act rather than something every push triggers.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       emulator_release:
         description: >-
-          Release tag holding the qemu-wasm artifacts. Leave empty to deploy
-          with the mock backend only.
+          Release tag holding the qemu-wasm artifacts. Overrides the
+          EMULATOR_RELEASE repository variable for this run. Leave empty to use
+          that variable, or deploy mock-only if it is unset too.
         required: false
         default: ''
+
+# Which release the emulator comes from. A push has no inputs, so it falls back
+# to the repository variable — set EMULATOR_RELEASE once (Settings → Secrets and
+# variables → Actions → Variables) and every push ships the real emulator.
+# Unset, pushes deploy the mock backend alone, which still builds and runs.
+env:
+  RELEASE_TAG: ${{ inputs.emulator_release || vars.EMULATOR_RELEASE }}
 
 permissions:
   contents: read
@@ -43,12 +51,11 @@ jobs:
       # at qemu/ (see tools/package-emulator.sh) to preserve the zephyr/
       # subdirectory.
       - name: Fetch emulator artifacts
-        if: inputs.emulator_release != ''
+        if: env.RELEASE_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.emulator_release }}
         run: |
-          gh release download "$TAG" \
+          gh release download "$RELEASE_TAG" \
             --pattern 'qemu-wasm-artifacts.tar.gz' --dir /tmp --clobber
           tar xzf /tmp/qemu-wasm-artifacts.tar.gz -C public
           echo "--- public/qemu ---"
@@ -66,7 +73,7 @@ jobs:
         run: |
           test -f dist/coi-serviceworker.js \
             || { echo "::error::coi-serviceworker.js missing — the deploy would not be cross-origin isolated"; exit 1; }
-          if [ -n "${{ inputs.emulator_release }}" ]; then
+          if [ -n "$RELEASE_TAG" ]; then
             test -f dist/qemu/out.js \
               || { echo "::error::emulator release did not contain out.js"; exit 1; }
             ls dist/qemu/*.wasm >/dev/null 2>&1 \

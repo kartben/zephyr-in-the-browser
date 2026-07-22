@@ -81,10 +81,20 @@ function loadClassicScript(src: string): Promise<void> {
   })
 }
 
-const MISSING_HINT =
-  'Build one with tools/build-qemu-wasm.sh and tools/build-zephyr-image.sh, then ' +
-  'restart the dev server — public/qemu/ is only scanned at startup, so a server ' +
-  'that was already running will not see new files. See public/qemu/README.md.'
+/* Two different failures need two different fixes, so keep them distinct. */
+
+/** Nothing there: the artifacts have not been built (or were never dropped in). */
+const NOT_BUILT_HINT = 'Run tools/build-qemu-wasm.sh — see public/qemu/README.md.'
+
+/**
+ * An HTML answer is genuinely ambiguous and must not claim to know which cause
+ * it is: Vite serves its SPA index.html at HTTP 200 both for a file that was
+ * never built and for one added under an already-running server, since public/
+ * is only indexed at startup.
+ */
+const NOT_SERVED_HINT =
+  'Either it has not been built (run tools/build-qemu-wasm.sh) or the dev server ' +
+  'needs restarting — public/ is only indexed at startup.'
 
 /**
  * Writes one guest file into the Emscripten filesystem. Must be called from
@@ -111,7 +121,7 @@ function writeGuestFile(mod: QemuModule, fsPath: string, bytes: Uint8Array) {
 async function fetchAsset(file: string): Promise<Uint8Array> {
   const res = await fetch(url(file))
   if (!res.ok) {
-    throw new Error(`${file} is missing from public/qemu/ (HTTP ${res.status}). ${MISSING_HINT}`)
+    throw new Error(`${file} is missing from public/qemu/. ${NOT_BUILT_HINT}`)
   }
   return new Uint8Array(await res.arrayBuffer())
 }
@@ -121,19 +131,16 @@ async function assertAsset(file: string) {
   try {
     res = await fetch(url(file), { method: 'HEAD' })
   } catch (cause) {
-    throw new Error(`Could not reach ${file}. ${MISSING_HINT}`, { cause })
+    throw new Error(`Could not reach ${file}. ${NOT_BUILT_HINT}`, { cause })
   }
   if (!res.ok) {
-    throw new Error(`${file} is missing from public/qemu/ (HTTP ${res.status}). ${MISSING_HINT}`)
+    throw new Error(`${file} is missing from public/qemu/. ${NOT_BUILT_HINT}`)
   }
   // A 200 alone proves nothing: Vite's dev server answers unknown paths with the
   // SPA index.html shell, and most static hosts do the same for a 404 fallback.
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('text/html')) {
-    throw new Error(
-      `${file} is not in public/qemu/ — the server answered with its HTML ` +
-        `fallback instead. ${MISSING_HINT}`,
-    )
+    throw new Error(`${file} is not being served. ${NOT_SERVED_HINT}`)
   }
 }
 

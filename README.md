@@ -94,18 +94,28 @@ than persistence, so a failed boot cannot trap the page in a reload loop.
 
 ## Deploying to GitHub Pages
 
-`.github/workflows/pages.yml` builds and deploys. It is `workflow_dispatch`
-only — a full deploy ships a ~53 MB emulator, so it should be deliberate rather
-than triggered by every push.
+`.github/workflows/pages.yml` deploys on every push to `main`, and on demand.
+
+The emulator is not in git, so the workflow pulls it from a release. Cut one,
+then point the repo at it:
 
 ```console
-$ tools/package-emulator.sh v1            # bundles public/qemu/ and cuts the release
-$ gh workflow run pages.yml -f emulator_release=v1
+$ tools/package-emulator.sh v1     # bundles public/qemu/ and creates the release
+$ gh variable set EMULATOR_RELEASE --body v1
 ```
 
-Omit `emulator_release` and it deploys the mock backend alone — about 750 kB,
-needs no cross-origin isolation, and is a reasonable way to show the UI without
-shipping an emulator.
+From then on every push ships the real emulator. Rebuilding it means re-running
+`package-emulator.sh` with a new tag and updating the variable; the app itself
+redeploys on push regardless.
+
+With `EMULATOR_RELEASE` unset, pushes deploy the mock backend alone — about
+750 kB, needs no cross-origin isolation, and a reasonable way to show the UI
+without shipping an emulator. To try a different release without changing the
+variable:
+
+```console
+$ gh workflow run pages.yml -f emulator_release=v2
+```
 
 Two things need doing once, by hand, in repository settings: Pages must be
 enabled with **GitHub Actions** as the source, and the repo must be public
