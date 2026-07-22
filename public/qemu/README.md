@@ -60,40 +60,45 @@ that genuinely need a bundle (firmware blobs, a root filesystem) can still set
 
 ## Where the emulator comes from
 
-`tools/build-qemu-wasm.sh` builds **upstream QEMU** (`qemu/qemu`, pinned to
-`v10.1.0` via `QEMU_REF`). Emscripten support landed in 10.1, contributed by
-Kohei Tokunaga — the same author as the ktock/qemu-wasm fork this project used
-to build against — so the fork is no longer needed.
+`tools/build-qemu-wasm.sh` uses two pinned QEMU trees:
+
+- `arm-softmmu` builds **upstream QEMU** (`qemu/qemu` at `v10.1.0`) with TCI.
+- `aarch64-softmmu` builds `ktock/qemu-wasm` at the commit named by
+  `QEMU_JIT_REF`, using its experimental wasm32 TCG backend. Set
+  `QEMU_AARCH64_ACCEL=tci` to build upstream QEMU for this target instead.
+
+Emscripten support landed upstream in QEMU 10.1, contributed by Kohei Tokunaga,
+who also maintains the experimental JIT branch.
 
 `configure` auto-detects Emscripten and pulls in `configs/meson/emscripten.txt`,
 which already carries ASYNCIFY, PROXY_TO_PTHREAD, EXPORT_ES6 and FORCE_FILESYSTEM.
-Two flags are not optional:
+The upstream TCI build uses two important flags:
 
 ```
 --with-coroutine=wasm      upstream has a real wasm backend (the fork used 'fiber')
 --enable-tcg-interpreter   mandatory: the TCG->Wasm JIT is not upstreamed
 ```
 
-Being TCI-only is the trade. Measured on the same Zephyr image:
+The JIT does not write executable memory. Translation blocks start in the TCI
+interpreter; after 1,500 executions, the backend emits a small WebAssembly
+module and asks the browser to compile it. On a local Cortex-A53 guest doing 20
+million integer loop iterations, end-to-end time fell from 7.1 seconds on TCI to
+1.1 seconds on JIT (about 6.5×). The stock display sample also boots, completes
+its timer-driven delay, and renders ramfb correctly.
 
-| | ktock 8.2.0 fork | upstream v10.1.0 |
-| --- | --- | --- |
-| ARM `.wasm` size | 55 MB | **34 MB** |
-| `Timer with period zero` noise | yes | **none** |
-| Zephyr shell + host sensor | works | works |
-| `samples/synchronization` | 1 line | 14 lines |
+The scope is deliberately narrow. This JIT family previously miscompiled a hot
+Cortex-M translation block, breaking Zephyr's timer/synchronization paths. The
+ARM artifact therefore stays on upstream TCI; only the verified Cortex-A53
+`virt` machine gets JIT. The wasm32 branch was chosen instead of the newer
+wasm64 experiment so the result does not require WebAssembly Memory64.
 
-The fork's JIT is not a loss worth mourning: it miscompiles, and disabling it
-was what took Synchronization from 1 line to 14 in the first place. See below —
-the remaining stall is an upstream TCI bug and affects both.
+Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
+working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
+include the browser terminal bridge; ARM adds the host sensor, and AArch64 adds
+the ramfb bridge.
 
-Separate targets are intentional: upstream's AArch64 TCI build boots the
-64-bit `virt` guest but not the Cortex-M3 guest in the browser. The ARM artifact
-keeps `lm3s6965evb` working, while the AArch64 artifact supplies the `virt`
-machine. Both include the browser-specific sensor, terminal, and ramfb bridges.
-
-Three browser integrations are supplied by
-`tools/qemu-patches/`:
+Three browser integrations are supplied by the target-specific patch
+directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
   the guest's stdio goes nowhere. It has to go in the meson cross file:
@@ -121,10 +126,11 @@ reviewable rather than mysterious.
    `patch_directory` get theirs from `subprojects/packagefiles/`, an overlay
    meson applies only when it downloads the wrap itself. Pre-fetching by hand
    skips it, so the script applies the overlay explicitly.
-3. **wasm32 normally rejects 64-bit guests.** QEMU's target loop excludes a
+3. **upstream wasm32 normally rejects 64-bit guests.** QEMU's target loop excludes a
    guest wider than the host pointer size. TCI stores guest values independently
    of host pointers, so a small local patch permits this combination when the
-   interpreter is explicitly enabled.
+   interpreter is explicitly enabled. The JIT branch already supports the
+   AArch64-on-wasm32 combination and does not use that patch.
 
 Two more are baked into `tools/Dockerfile.deps`: zlib now comes from its GitHub
 release (zlib.net keeps only the current release at its root path, and `curl`
@@ -132,11 +138,10 @@ pipes the resulting HTML error page into `tar`, which fails as "File format not
 recognized" rather than as a download error), and `tomli` is installed because
 QEMU 10.1's configure requires it.
 
-The stall reproduces identically on the fork with its JIT disabled (14 lines) and
-on upstream (14 lines), across two independent QEMU versions. That places the
-remaining defect in the shared TCI path rather than in any fork, and makes it
-filable directly against QEMU. Two separate bugs, in other words — the JIT one
-is gone now that the JIT is, and this one is not.
+The Cortex-M stall reproduces identically on the fork with its JIT disabled (14
+lines) and on upstream (14 lines), across two independent QEMU versions. That
+places the remaining defect in the shared TCI path rather than in any fork. The
+known Cortex-M JIT miscompile is avoided by never selecting JIT for that target.
 
 **Zephyr's own QEMU patches do not help either** — worth stating, since the SDK
 maintaining a fork makes it a natural thing to reach for. `sdk-ng` builds
@@ -156,8 +161,9 @@ Verified by testing, not assumed:
 - **`mps2-an385` does not**, on *either* binary, despite booting fine under
   native QEMU with identical argv. It is a genuine mps2/qemu-wasm
   incompatibility, not a build artifact.
-- **`qemu_cortex_a53` works** with TCI, including its serial console,
-  architectural timer, fw_cfg, and `qemu,ramfb` display.
+- **`qemu_cortex_a53` works** with the wasm32 JIT, including its serial console,
+  architectural timer, fw_cfg, and `qemu,ramfb` display. Upstream TCI remains a
+  build-time fallback.
 
 ## Display output
 

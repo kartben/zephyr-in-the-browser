@@ -43,7 +43,7 @@ jobs:
 
       - run: npm ci
 
-      # The emulator is not in git: it is a ~53 MB GPLv2 binary rebuilt from
+      # The emulator is not in git: it is a large GPLv2 binary rebuilt from
       # tools/build-qemu-wasm.sh, so it travels as a release asset instead.
       # Without it the build still succeeds and ships the mock backend, which
       # needs no cross-origin isolation.

@@ -6,17 +6,21 @@
 #                                             (arm-softmmu + aarch64-softmmu)
 #
 # Environment overrides:
-#   QEMU_REPO      git remote            (default: qemu/qemu)
-#   QEMU_REF       tag/branch/sha        (default: v10.1.0)
-#   QEMU_WORKDIR   scratch dir           (default: <repo>/.qemu-wasm-build)
-#   JOBS           parallel build jobs   (default: container nproc)
-#   PLATFORM       docker platform       (default: linux/amd64)
+#   QEMU_REPO             upstream git remote      (default: qemu/qemu)
+#   QEMU_REF              upstream tag/branch/sha  (default: v10.1.0)
+#   QEMU_JIT_REPO         JIT git remote           (default: ktock/qemu-wasm)
+#   QEMU_JIT_REF          JIT commit               (pinned below)
+#   QEMU_AARCH64_ACCEL    jit or tci                (default: jit)
+#   QEMU_WORKDIR          scratch dir               (default: <repo>/.qemu-wasm-build)
+#   JOBS                  parallel build jobs       (default: container nproc)
+#   PLATFORM              docker platform           (default: linux/amd64)
 #
-# Builds *upstream* QEMU. Emscripten support landed in 10.1, contributed by the
-# same author as the ktock/qemu-wasm fork this project used to build, so the
-# fork is no longer needed. Upstream is TCI-only — the TCG→Wasm JIT is not
-# upstreamed — which is why --enable-tcg-interpreter is mandatory below. The
-# resulting binary is substantially smaller than the old fork build.
+# The Cortex-M artifact builds upstream QEMU with its TCI interpreter. The
+# Cortex-A53 artifact defaults to ktock/qemu-wasm's experimental wasm32 TCG
+# backend: it starts blocks in TCI, then compiles hot blocks into small Wasm
+# modules. The JIT is not upstream QEMU and previously miscompiled Cortex-M
+# timer paths, so it is deliberately limited to the AArch64 display machine.
+# Set QEMU_AARCH64_ACCEL=tci for the slower all-upstream fallback.
 #
 # The dependency image (glib, pixman, zlib, libffi cross-compiled to Wasm) is
 # built from tools/Dockerfile.deps and is the slow part; it is cached, so
@@ -27,11 +31,15 @@ set -euo pipefail
 TARGET_ARG="${1:-all}"
 REPO_URL="${QEMU_REPO:-https://github.com/qemu/qemu.git}"
 REF="${QEMU_REF:-v10.1.0}"
+JIT_REPO_URL="${QEMU_JIT_REPO:-https://github.com/ktock/qemu-wasm.git}"
+JIT_REF="${QEMU_JIT_REF:-36a7f4334e9e08691d7496809a5d06b23de22e26}"
+AARCH64_ACCEL="${QEMU_AARCH64_ACCEL:-jit}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${QEMU_WORKDIR:-$ROOT/.qemu-wasm-build}"
-SRC="$WORK/qemu"
+TCI_SRC="$WORK/qemu"
+JIT_SRC="$WORK/qemu-jit"
 DEST="$ROOT/public/qemu"
 
 CONTAINER=build-qemu-wasm-$$
@@ -45,13 +53,18 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 
 fetch_source() {
-  if [ -d "$SRC/.git" ]; then
-    log "Reusing source at $SRC"
+  local src="$1" repo_url="$2" ref="$3"
+
+  if [ -d "$src/.git" ]; then
+    log "Reusing source at $src"
     return
   fi
-  log "Cloning $REPO_URL ($REF)"
+  log "Cloning $repo_url ($ref)"
   mkdir -p "$WORK"
-  git clone --depth 1 --branch "$REF" "$REPO_URL" "$SRC"
+  git init -q "$src"
+  git -C "$src" remote add origin "$repo_url"
+  git -C "$src" fetch -q --depth 1 origin "$ref"
+  git -C "$src" checkout -q --detach FETCH_HEAD
 }
 
 # The QEMU source is mounted read-only into the build container, so meson cannot
@@ -60,8 +73,9 @@ fetch_source() {
 # other targets: ARM machines require libfdt, so a missing dtc is a hard error
 # rather than a skipped optional feature.
 fetch_subprojects() {
+  local src="$1"
   log "Pre-fetching meson subprojects"
-  cd "$SRC/subprojects"
+  cd "$src/subprojects"
   for wrap in *.wrap; do
     name="${wrap%.wrap}"
     [ "$(head -1 "$wrap" | tr -d '[]')" = "wrap-git" ] || continue
@@ -84,13 +98,13 @@ fetch_subprojects() {
   done
 }
 
-# Patches in tools/qemu-patches/ add the browser sensor and ramfb bridges and
-# put xterm-pty on the link line.
+# The target-specific patch directory adds the required browser bridges and
+# puts xterm-pty on the link line.
 apply_local_patches() {
-  local dir="$ROOT/tools/qemu-patches"
+  local src="$1" dir="$2" ref="$3"
   [ -d "$dir" ] || return 0
   log "Applying local patches"
-  cd "$SRC"
+  cd "$src"
   for patch in "$dir"/*.patch; do
     [ -e "$patch" ] || continue
     if git apply --reverse --check "$patch" >/dev/null 2>&1; then
@@ -115,11 +129,13 @@ build_dep_image() {
 
 build_qemu() {
   local target="$1"
+  local src="$2"
+  local accel="$3"
   local binary="qemu-system-${target%-softmmu}"
 
   log "Starting build container"
   docker run --rm -d --platform "$PLATFORM" --name "$CONTAINER" \
-    -v "$SRC:/qemu/:ro" "$IMAGE" >/dev/null
+    -v "$src:/qemu/:ro" "$IMAGE" >/dev/null
 
   local jobs="${JOBS:-$(docker exec "$CONTAINER" nproc)}"
 
@@ -127,12 +143,20 @@ build_qemu() {
   # which already carries ASYNCIFY, PROXY_TO_PTHREAD, EXPORT_ES6 and friends —
   # so unlike the old fork build there is no wall of flags to keep in sync.
   #   --with-coroutine=wasm      upstream has a real wasm backend (not 'fiber')
-  #   --enable-tcg-interpreter   mandatory: no TCG→Wasm JIT upstream
-  log "Configuring for $target"
-  docker exec "$CONTAINER" emconfigure /qemu/configure \
-    --static --target-list="$target" --cross-prefix= \
-    --without-default-features --enable-system \
-    --with-coroutine=wasm --enable-tcg-interpreter
+  #   --enable-tcg-interpreter   mandatory for upstream; omitted for the
+  #                              experimental native wasm32 TCG backend
+  log "Configuring for $target ($accel)"
+  if [ "$accel" = "jit" ]; then
+    docker exec "$CONTAINER" emconfigure /qemu/configure \
+      --static --target-list="$target" --cross-prefix= \
+      --without-default-features --enable-system \
+      --with-coroutine=wasm
+  else
+    docker exec "$CONTAINER" emconfigure /qemu/configure \
+      --static --target-list="$target" --cross-prefix= \
+      --without-default-features --enable-system \
+      --with-coroutine=wasm --enable-tcg-interpreter
+  fi
 
   # Note the target is "<binary>.js", not "<binary>" as in the fork.
   log "Building $binary.js with -j$jobs (this is the long part)"
@@ -145,8 +169,8 @@ build_qemu() {
   # The standalone ramfb device registers this tiny option ROM even though the
   # browser reads its mapped pixels directly instead of using a QEMU frontend.
   if [ "$target" = "aarch64-softmmu" ]; then
-    cp "$SRC/pc-bios/vgabios-ramfb.bin" "$DEST/vgabios-ramfb.bin"
-    cp "$SRC/pc-bios/efi-virtio.rom" "$DEST/efi-virtio.rom"
+    cp "$src/pc-bios/vgabios-ramfb.bin" "$DEST/vgabios-ramfb.bin"
+    cp "$src/pc-bios/efi-virtio.rom" "$DEST/efi-virtio.rom"
   fi
   # Only some Emscripten versions emit a separate pthread worker shim.
   if docker cp "$CONTAINER:/build/$binary.worker.js" "$DEST/$binary.worker.js" 2>/dev/null; then
@@ -160,15 +184,41 @@ build_qemu() {
 
 # ---------------------------------------------------------------------------
 
-fetch_source
-fetch_subprojects
-apply_local_patches
+case "$AARCH64_ACCEL" in
+  jit|tci) ;;
+  *) echo "QEMU_AARCH64_ACCEL must be 'jit' or 'tci' (got '$AARCH64_ACCEL')." >&2; exit 1 ;;
+esac
+
 build_dep_image
+
+build_target() {
+  local target="$1" src repo_url ref patches accel
+
+  if [ "$target" = "aarch64-softmmu" ] && [ "$AARCH64_ACCEL" = "jit" ]; then
+    src="$JIT_SRC"
+    repo_url="$JIT_REPO_URL"
+    ref="$JIT_REF"
+    patches="$ROOT/tools/qemu-jit-patches"
+    accel=jit
+  else
+    src="$TCI_SRC"
+    repo_url="$REPO_URL"
+    ref="$REF"
+    patches="$ROOT/tools/qemu-patches"
+    accel=tci
+  fi
+
+  fetch_source "$src" "$repo_url" "$ref"
+  fetch_subprojects "$src"
+  apply_local_patches "$src" "$patches" "$ref"
+  build_qemu "$target" "$src" "$accel"
+}
+
 if [ "$TARGET_ARG" = "all" ]; then
-  build_qemu arm-softmmu
-  build_qemu aarch64-softmmu
+  build_target arm-softmmu
+  build_target aarch64-softmmu
 else
-  build_qemu "$TARGET_ARG"
+  build_target "$TARGET_ARG"
 fi
 
 log "Done"
