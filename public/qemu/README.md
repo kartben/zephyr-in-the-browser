@@ -117,40 +117,57 @@ here so the workarounds are reviewable rather than mysterious.
 
 None require source changes — the toolchain is stale, not broken.
 
-## SysTick does not fire
+## Sleeping guests hang: a qemu-wasm code-generation bug
 
-The single most consequential limitation, and an easy one to miss.
+Anything that blocks on `k_sleep` or a timeout hangs. `samples/synchronization`
+prints one line and stops; `samples/philosophers` paints its first frame and
+freezes. Both are fine on real QEMU, so only non-sleeping apps are listed in
+`src/boards.ts`.
 
-QEMU implements the Cortex-M SysTick as a ptimer. Under qemu-wasm it comes up
-with a period of zero and is disabled — every boot prints `Timer with period
-zero, disabling` before Zephyr's banner — so the tick interrupt never arrives.
+**The guest is not at fault.** The identical stripped ELF runs correctly under
+native QEMU 8.2.2 — the same version ktock's fork is based on — producing 16
+alternating lines in 8 seconds, and under 10.0.2 as well.
 
-What makes it deceptive is that the kernel clock *looks* fine:
+**`Timer with period zero, disabling` is a red herring.** It prints on every
+boot, and it is tempting to blame. Native QEMU 8.2.2 prints it too, on a run that
+works perfectly. It is a benign start-up ordering artifact: SysTick's ptimer is
+reset before the Stellaris system clock is calculated, so it briefly sees a zero
+period, and the clock propagation immediately afterwards repairs it. Traced with
+instrumented builds:
 
 ```
-uart:~$ kernel uptime
-Uptime: 46500 ms
-uart:~$ kernel uptime
-Uptime: 55330 ms
+Timer with period zero, disabling
+[systick_set_period] ctrl=00000004 src=cpu cpuclk=0     <- reset, clock not yet set
+[ssys_calc] period_ns=80 propagate=1 sysclk=343597383680 <- clock set (80 << 32)
+[cpuclk_update] cpuclk=343597383680                      <- propagation repairs it
 ```
 
-`k_uptime_get` reads the timer counter directly, which still works. Only code
-that waits on the interrupt is affected — and that is anything calling `k_sleep`
-or taking a timeout. Such an app prints its first line and then hangs forever.
+The device emulation is in fact correct. Instrumentation confirmed SysTick ticks
+fire, the NVIC pends exception 15, and `CPU_INTERRUPT_HARD` is raised.
 
-Verified against native QEMU with identical argv: `samples/synchronization`
-alternates its two threads correctly there and produces 16 lines in 8 seconds,
-while the same ELF emits one line and stops under qemu-wasm. So this is a
-qemu-wasm defect, not a bad guest build.
+**What is actually wrong is the TCG→Wasm JIT.** ktock's backend interprets cold
+translation blocks and compiles hot ones to Wasm modules after
+`INSTANTIATE_NUM` (1500) executions. Raising that constant out of reach, so
+everything stays interpreted, changes the result dramatically and
+deterministically:
 
-Traced as far as `hw/timer/armv7m_systick.c` calling
-`ptimer_set_period_from_clock(s->ptimer, s->cpuclk, 1)`, which yields a zero
-period; the stellaris sysclk it derives from is a plain `clock_set_ns(5 * div)`
-that is correct natively. Root-causing further needs instrumented rebuilds.
+| build | lines from `samples/synchronization` |
+| --- | --- |
+| stock (JIT after 1500 executions) | 1 |
+| `INSTANTIATE_NUM` raised (interpreter only) | 14 |
+| native QEMU 8.2.2 | unbounded |
 
-Only non-sleeping apps are therefore listed in `src/boards.ts`. Philosophers and
-Synchronization were shipped and withdrawn for exactly this reason; they return
-when SysTick does.
+So the JIT miscompiles something the sample relies on. Fourteen lines is not a
+fix though — it still stalls, so there is at least one further defect on the
+interpreter path.
+
+Two hypotheses were tested and **ruled out**: the CPU halting in WFI (making WFI
+never halt changed nothing), and a QEMU-version regression (8.2.2 native is
+fine).
+
+No patch ships for this. Disabling the JIT would slow every guest down and still
+does not make the samples work. It wants reporting upstream to ktock/qemu-wasm,
+with the reproducer above.
 
 ## Known limits
 

@@ -55,17 +55,19 @@ export interface Board {
 }
 
 /*
- * Only apps that do not sleep. QEMU's Cortex-M SysTick is a ptimer, and under
- * qemu-wasm it comes up with a period of zero and is disabled ("Timer with
- * period zero, disabling" on the console), so the tick interrupt never fires.
- * k_uptime_get still advances because it reads the counter directly, which
- * makes the breakage easy to miss — but anything that blocks on k_sleep or a
- * timeout hangs forever.
+ * Only apps that do not sleep. Anything blocking on k_sleep or a timeout hangs
+ * under qemu-wasm: Philosophers and Synchronization were both shipped here and
+ * both stall, though they run correctly on native QEMU 8.2.2 — the same version
+ * ktock's fork is based on.
  *
- * Philosophers and Synchronization were both shipped here and both hang after
- * their first line. They run correctly under native QEMU with identical argv,
- * so this is a qemu-wasm defect, not a bad build. They come back when it is
- * fixed. See public/qemu/README.md.
+ * The cause is ktock's TCG→Wasm JIT miscompiling something, not the guest and
+ * not the SysTick device: forcing everything to stay interpreted takes
+ * Synchronization from 1 line to 14, deterministically. It still stalls, so
+ * there is a further defect too.
+ *
+ * Note the "Timer with period zero, disabling" line on every boot is *not* the
+ * cause, however much it looks like it — native QEMU prints it too on runs that
+ * work. See public/qemu/README.md for the full trace.
  */
 const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
