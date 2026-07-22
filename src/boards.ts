@@ -38,6 +38,7 @@ export interface Board {
   peripherals?: {
     gnss?: boolean
     hostSensor?: boolean
+    hostGpio?: boolean
     ramfb?: boolean
   }
   samples: GuestSample[]
@@ -79,7 +80,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
-    description: 'Interactive Zephyr shell, with `sensor get`',
+    description: 'Interactive Zephyr shell, with `sensor get` and `gpio`',
     zephyrSample: 'samples/subsys/shell/shell_module',
   },
   {
@@ -128,7 +129,7 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
-    peripherals: { gnss: true, hostSensor: true },
+    peripherals: { gnss: true, hostSensor: true, hostGpio: true },
     samples: CORTEX_M3_SAMPLES,
     // The shell is the one worth landing on: it is interactive, and it is where
     // the host-sensor bridge is visible.

@@ -94,10 +94,12 @@ build_one() {
   local app_cmake_args="$CMAKE_ARGS"
 
   # Keep app-specific subsystems out of unrelated images. The M3 shell exposes
-  # the host sensor, while the generic GNSS modem backend needs IRQ-driven UART
-  # reception on both boards.
+  # the host sensor and host GPIO, while the generic GNSS modem backend needs
+  # IRQ-driven UART reception on both boards. The two shell overlays are passed
+  # as a single ;-separated EXTRA_CONF_FILE; the quotes keep the ; from splitting
+  # the outer bash -lc command before Zephyr sees the list.
   if [ "$BOARD" = "qemu_cortex_m3" ] && [ "$id" = "shell" ]; then
-    app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
+    app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE='$MODULE/overlays/host-sensor.conf;$MODULE/overlays/host-gpio.conf'"
   elif [ "$id" = "gnss" ]; then
     app_cmake_args="$app_cmake_args -DEXTRA_CONF_FILE=$MODULE/overlays/gnss-uart.conf"
   fi
