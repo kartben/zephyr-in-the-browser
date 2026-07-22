@@ -149,6 +149,14 @@ and a `ResizeObserver` driving the fit addon, not through props.
 No virtual peripherals or Web API bridges, no multi-session management, no
 persistence, no auth.
 
+Graphical output is not merely unimplemented — it is not currently reachable.
+Neither published qemu-wasm build has a display backend that can render to a
+canvas, so QEMU has nowhere to put pixels regardless of what this app does. On
+the guest side the path would be `qemu,ramfb` rather than virtio-gpu, which
+Zephyr has no driver for.
+[`public/qemu/README.md`](public/qemu/README.md#display-output-is-not-possible-with-these-artifacts)
+sets out the evidence and the three things that would have to land first.
+
 ## Stack
 
 Vite 8, React 19, TypeScript 7, Tailwind 4, shadcn/ui, `@xterm/xterm` 5.5 with

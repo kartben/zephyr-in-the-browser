@@ -73,6 +73,49 @@ If you need more machines, build `arm-softmmu` yourself rather than fighting the
 prebuilt binary. Expect it to be slow either way — a browser-hosted QEMU running
 mostly interpreted is far from native.
 
+## Display output is not possible with these artifacts
+
+Serial only, and not because the app lacks a window for it. Checked, not assumed:
+
+**qemu-wasm has no display backend.** Both published builds come up empty:
+
+| build | `SDL_` refs in `out.js` | `canvas` refs |
+| --- | --- | --- |
+| aarch64 (used here) | 0 | 0 |
+| x86_64 | 0 | 0 |
+
+Strings in the `.wasm` show `-display none` as the only viable type — no `sdl`,
+`gtk` or `egl-headless`. `vnc` is present but has no socket path to the browser.
+Upstream's tree does carry `ui/sdl2*.c`, but that is stock QEMU source and
+`--without-default-features` leaves it out of the build. QEMU has nowhere to put
+pixels, so nothing on the JS side can help.
+
+**Zephyr has no virtio-gpu driver**, so `-device virtio-gpu` would have nothing
+driving it either. The supported path is `qemu,ramfb`
+(`drivers/display/display_qemu_ramfb.c`, `CONFIG_QEMU_RAMFB_DISPLAY`), already in
+the devicetrees for `qemu_x86`, `qemu_cortex_a53` and `qemu_riscv64`.
+
+**The boards that could do it do not run here.** `lm3s6965evb` — the one machine
+verified working on this Wasm build — has no fw_cfg, PCI or virtio-mmio, so
+neither ramfb nor virtio input exists on it. The boards that do carry them are
+the 64-bit ones that produce no output under this build.
+
+Virtio *input* is real in Zephyr (`drivers/input/input_virtio.c`,
+`CONFIG_INPUT_VIRTIO`, wired on `qemu_cortex_a53` via
+`-device virtio-tablet-device`), but it needs the `virt` machine and is not much
+use without a display.
+
+Getting a framebuffer into the browser therefore needs, in order:
+
+1. A qemu-wasm build with a canvas display path — Emscripten's SDL2 port
+   (`-sUSE_SDL=2`) driving `ui/sdl2.c`. Note this is unproven: canvas calls have
+   to be proxied to the main thread under `-sPROXY_TO_PTHREAD`, and no upstream
+   demo does it.
+2. A 64-bit or x86 guest that actually executes on that build.
+3. Zephyr built with `CONFIG_QEMU_RAMFB_DISPLAY` for that board.
+
+Only then is a display panel in the UI worth building.
+
 ## Building the guest image
 
 Using the Zephyr container, which needs no local toolchain:
