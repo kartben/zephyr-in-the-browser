@@ -1,4 +1,5 @@
 import { attach as attachHostSensor, detach as detachHostSensor } from '@/hostSensor'
+import { attach as attachHostDisplay, detach as detachHostDisplay } from '@/hostDisplay'
 import { get as getGuestImage } from '@/guestImage'
 import { sampleAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
@@ -11,7 +12,7 @@ import type { PtyBackend, Slave, StartOptions } from './types'
  * (examples/riscv64/src/htdocs/index.html on the `master` branch): a global
  * `Module` is populated first, the file_packager stub `load.js` is pulled in as
  * a *classic* script so it can register its preRun hooks onto that global, and
- * only then is the ES-module `out.js` imported and invoked.
+ * only then is the board's generated ES-module imported and invoked.
  *
  * Nothing here is built in this repo — see public/qemu/README.md for the drop-in
  * contract and how to produce the artifacts.
@@ -19,8 +20,6 @@ import type { PtyBackend, Slave, StartOptions } from './types'
 
 const ASSET_BASE = `${import.meta.env.BASE_URL}qemu/`
 
-/** Emscripten's generated JS, renamed to `out.js` by qemu-wasm's own packaging. */
-const MAIN_SCRIPT = 'out.js'
 /** file_packager.py stub that fetches and mounts the .data blob at /pack/. */
 const PACKAGE_SCRIPT = 'load.js'
 
@@ -179,8 +178,9 @@ export function createQemuBackend(): PtyBackend {
       // computed when Vite starts, so it goes stale the moment artifacts are
       // built under a running server. It decides the *default* backend; whether
       // a start can actually succeed is settled here, against the server.
+      const mainScript = `${board.qemuBinary}.js`
       onStatus({ status: 'loading', detail: 'checking assets' })
-      await assertAsset(MAIN_SCRIPT)
+      await assertAsset(mainScript)
       await assertAsset(`${board.qemuBinary}.wasm`)
       if (board.usesDataBundle) await assertAsset(PACKAGE_SCRIPT)
       if (signal.aborted) return
@@ -216,7 +216,7 @@ export function createQemuBackend(): PtyBackend {
         // The hook emscripten-pty.js reads: `$PTY: Module['pty']`.
         pty: slave,
         // pthread workers re-import the main script by absolute URL.
-        mainScriptUrlOrBlob: url(MAIN_SCRIPT),
+        mainScriptUrlOrBlob: url(mainScript),
         // Resolves the .wasm, .data and .worker.js siblings under /qemu/.
         // file_packager's load.js honours this too.
         locateFile: (path) => ASSET_BASE + path,
@@ -251,7 +251,7 @@ export function createQemuBackend(): PtyBackend {
 
       // @vite-ignore keeps Vite from trying to resolve and bundle this at build
       // time — it is a static asset in public/, fetched at runtime.
-      const factory = (await import(/* @vite-ignore */ url(MAIN_SCRIPT))) as {
+      const factory = (await import(/* @vite-ignore */ url(mainScript))) as {
         default: (m: QemuModule) => Promise<QemuModule>
       }
       if (signal.aborted) return
@@ -281,14 +281,20 @@ export function createQemuBackend(): PtyBackend {
         )
       }
 
-      // Optional: only builds carrying the qemu,host-sensor patch export this.
-      attachHostSensor(instance)
+      // Each emulator can contain optional browser bridge exports; board
+      // metadata decides which bridges belong to the selected machine.
+      if (board.peripherals?.hostSensor) attachHostSensor(instance)
+      else detachHostSensor()
+      // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
+      if (board.peripherals?.ramfb) attachHostDisplay(instance)
+      else detachHostDisplay()
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
     },
 
     async reset() {
       detachHostSensor()
+      detachHostDisplay()
       // Nothing global was touched, so there is nothing to tear down.
       if (!documentTainted) return
       // Emscripten modules cannot be torn down cleanly; a reload is the only

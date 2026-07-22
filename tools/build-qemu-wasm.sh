@@ -2,7 +2,8 @@
 #
 # Build a qemu-wasm emulator artifact set into public/qemu/.
 #
-#   tools/build-qemu-wasm.sh [target]        # target defaults to arm-softmmu
+#   tools/build-qemu-wasm.sh [target]        # target defaults to all
+#                                             (arm-softmmu + aarch64-softmmu)
 #
 # Environment overrides:
 #   QEMU_REPO      git remote            (default: qemu/qemu)
@@ -15,7 +16,7 @@
 # same author as the ktock/qemu-wasm fork this project used to build, so the
 # fork is no longer needed. Upstream is TCI-only — the TCG→Wasm JIT is not
 # upstreamed — which is why --enable-tcg-interpreter is mandatory below. The
-# resulting binary is around 34 MB against the fork's 55 MB.
+# resulting binary is substantially smaller than the old fork build.
 #
 # The dependency image (glib, pixman, zlib, libffi cross-compiled to Wasm) is
 # built from tools/Dockerfile.deps and is the slow part; it is cached, so
@@ -23,7 +24,7 @@
 
 set -euo pipefail
 
-TARGET="${1:-arm-softmmu}"
+TARGET_ARG="${1:-all}"
 REPO_URL="${QEMU_REPO:-https://github.com/qemu/qemu.git}"
 REF="${QEMU_REF:-v10.1.0}"
 PLATFORM="${PLATFORM:-linux/amd64}"
@@ -33,8 +34,6 @@ WORK="${QEMU_WORKDIR:-$ROOT/.qemu-wasm-build}"
 SRC="$WORK/qemu"
 DEST="$ROOT/public/qemu"
 
-# arm-softmmu -> qemu-system-arm
-BINARY="qemu-system-${TARGET%-softmmu}"
 CONTAINER=build-qemu-wasm-$$
 IMAGE=qemu-wasm-deps
 
@@ -85,8 +84,8 @@ fetch_subprojects() {
   done
 }
 
-# Patches in tools/qemu-patches/ add what upstream does not have: the
-# qemu-host-sensor device, and the xterm-pty js-library on the link line.
+# Patches in tools/qemu-patches/ add the browser sensor and ramfb bridges and
+# put xterm-pty on the link line.
 apply_local_patches() {
   local dir="$ROOT/tools/qemu-patches"
   [ -d "$dir" ] || return 0
@@ -115,6 +114,9 @@ build_dep_image() {
 }
 
 build_qemu() {
+  local target="$1"
+  local binary="qemu-system-${target%-softmmu}"
+
   log "Starting build container"
   docker run --rm -d --platform "$PLATFORM" --name "$CONTAINER" \
     -v "$SRC:/qemu/:ro" "$IMAGE" >/dev/null
@@ -126,26 +128,34 @@ build_qemu() {
   # so unlike the old fork build there is no wall of flags to keep in sync.
   #   --with-coroutine=wasm      upstream has a real wasm backend (not 'fiber')
   #   --enable-tcg-interpreter   mandatory: no TCG→Wasm JIT upstream
-  log "Configuring for $TARGET"
+  log "Configuring for $target"
   docker exec "$CONTAINER" emconfigure /qemu/configure \
-    --static --target-list="$TARGET" --cross-prefix= \
+    --static --target-list="$target" --cross-prefix= \
     --without-default-features --enable-system \
     --with-coroutine=wasm --enable-tcg-interpreter
 
   # Note the target is "<binary>.js", not "<binary>" as in the fork.
-  log "Building $BINARY.js with -j$jobs (this is the long part)"
-  docker exec "$CONTAINER" sh -c "cd /build && ninja -j $jobs $BINARY.js"
+  log "Building $binary.js with -j$jobs (this is the long part)"
+  docker exec "$CONTAINER" sh -c "cd /build && ninja -j $jobs $binary.js"
 
   log "Installing artifacts into public/qemu/"
   mkdir -p "$DEST"
-  # The loader expects out.js; Emscripten names it after the binary.
-  docker cp "$CONTAINER:/build/$BINARY.js" "$DEST/out.js"
-  docker cp "$CONTAINER:/build/$BINARY.wasm" "$DEST/$BINARY.wasm"
-  if docker cp "$CONTAINER:/build/$BINARY.worker.js" "$DEST/$BINARY.worker.js" 2>/dev/null; then
-    echo "  - $BINARY.worker.js"
-  else
-    echo "  - no $BINARY.worker.js emitted (fine on newer Emscripten)"
+  docker cp "$CONTAINER:/build/$binary.js" "$DEST/$binary.js"
+  docker cp "$CONTAINER:/build/$binary.wasm" "$DEST/$binary.wasm"
+  # The standalone ramfb device registers this tiny option ROM even though the
+  # browser reads its mapped pixels directly instead of using a QEMU frontend.
+  if [ "$target" = "aarch64-softmmu" ]; then
+    cp "$SRC/pc-bios/vgabios-ramfb.bin" "$DEST/vgabios-ramfb.bin"
+    cp "$SRC/pc-bios/efi-virtio.rom" "$DEST/efi-virtio.rom"
   fi
+  # Only some Emscripten versions emit a separate pthread worker shim.
+  if docker cp "$CONTAINER:/build/$binary.worker.js" "$DEST/$binary.worker.js" 2>/dev/null; then
+    echo "  - $binary.worker.js"
+  else
+    echo "  - no $binary.worker.js emitted (fine on newer Emscripten)"
+  fi
+
+  docker rm -f "$CONTAINER" >/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -154,7 +164,12 @@ fetch_source
 fetch_subprojects
 apply_local_patches
 build_dep_image
-build_qemu
+if [ "$TARGET_ARG" = "all" ]; then
+  build_qemu arm-softmmu
+  build_qemu aarch64-softmmu
+else
+  build_qemu "$TARGET_ARG"
+fi
 
 log "Done"
 ls -la "$DEST"

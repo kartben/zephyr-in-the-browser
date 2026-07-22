@@ -4,8 +4,8 @@ The [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, on
 top of [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten —
 upstream QEMU 10.1, which gained Emscripten support in that release.
 
-This is v1: a terminal UI and a clean integration seam. The emphasis is on the
-seam being correct, not on features.
+The browser UI includes the serial terminal plus host-backed sensor controls and
+a live framebuffer panel for Zephyr's `qemu,ramfb` display driver.
 
 ## Run it
 
@@ -26,7 +26,8 @@ server:
 ```console
 npm install
 tools/build-qemu-wasm.sh       # emulator -> public/qemu/   (slow, containerised)
-tools/build-zephyr-image.sh    # guest    -> public/qemu/zephyr/
+tools/build-zephyr-image.sh    # Cortex-M3 shell + hello world
+tools/build-zephyr-image.sh qemu_cortex_a53  # display sample + hello world
 npm run dev
 ```
 
@@ -41,11 +42,11 @@ Zephyr version 4.4.99
 uart:~$
 ```
 
-Those artifacts are gitignored — a ~34 MB GPLv2 emulator and compiled guests are
+Those artifacts are gitignored — the GPLv2 emulator and compiled guests are
 build outputs, not source — so a fresh clone starts on the mock until you build
 them. [`public/qemu/README.md`](public/qemu/README.md) covers the drop-in
-contract, the build workarounds the script applies, and the two patches this project
-carries on top of upstream QEMU.
+contract, upstream/toolchain workarounds, and the patches used by the ARM and
+AArch64 builds.
 
 ## Cross-origin isolation is not optional
 
@@ -80,12 +81,12 @@ server) do not need the shim.
 Two controls, and they are different kinds of thing:
 
 - **Board** — the machine QEMU emulates.
-- **App** — the program it boots. Two Zephyr samples ship prebuilt, Shell and
-  Hello World; `tools/build-zephyr-image.sh` builds them, and the ids there must
-  match the `samples` listed per board in [`src/boards.ts`](src/boards.ts).
-  Only apps that never sleep are listed — anything blocking on `k_sleep` hangs,
-  an upstream QEMU bug documented in
-  [`public/qemu/README.md`](public/qemu/README.md).
+- **App** — the program it boots. Cortex-M3 ships Shell and Hello World;
+  Cortex-A53 ships the Display sample and Hello World.
+  `tools/build-zephyr-image.sh` builds them, and the ids there must match the
+  `samples` listed per board in [`src/boards.ts`](src/boards.ts).
+  Cortex-M3 only lists apps that never sleep because its qemu-wasm TCI timing
+  limitation makes code blocking on `k_sleep` hang; Cortex-A53 is unaffected.
 
 There is no backend selector. The mock exists so a checkout without an emulator
 still runs, not as something worth choosing: QEMU is used whenever it is
@@ -138,9 +139,9 @@ enabled with **GitHub Actions** as the source, and the repo must be public
 (Pages on a private repo needs a paid plan).
 
 The emulator travels as a release asset rather than in git — it is a build
-output, and 34 MB in history is forever. `tools/package-emulator.sh` bundles it
-as a single tarball because release assets are flat and `public/qemu/` has a
-`zephyr/` subdirectory.
+output, and large binaries in history are forever. `tools/package-emulator.sh`
+bundles them as a single tarball because release assets are flat and
+`public/qemu/` has a `zephyr/` subdirectory.
 
 **GPL.** That binary is a build of QEMU, so publishing it carries a
 corresponding-source obligation. It is satisfied by this repository being
@@ -211,21 +212,19 @@ Boards live in [`src/boards.ts`](src/boards.ts), one entry per Zephyr QEMU targe
 carrying the QEMU argv, the emulator artifact it needs, and the guest files to
 inject. Adding one is a data change plus a Zephyr build.
 
-Only `qemu_cortex_m3` is listed, because it is the only machine verified to work
-on the stock upstream qemu-wasm build. `mps2-an385` and a 64-bit Cortex-A53 guest
-both boot correctly under *native* QEMU with the same argv but produce no console
-output under that Wasm build — so they are absent rather than shipped broken. The
-details, including a JIT error that is noise rather than the cause, are in
-[`public/qemu/README.md`](public/qemu/README.md).
+Two machines are verified: `qemu_cortex_m3` for the interactive shell and host
+sensors, and `qemu_cortex_a53` for the architectural timer, fw_cfg, and
+`qemu,ramfb`. The Cortex-A53 board defaults to Zephyr's stock
+`samples/drivers/display` sample and renders its framebuffer in a collapsible
+panel beside the sensor panel.
 
-The emulator is an `aarch64-softmmu` build, which in QEMU is a superset of
-arm-softmmu and carries the 32-bit ARM machines too. That is what lets a Cortex-M3
-Zephyr guest run without building a bespoke `arm-softmmu` target.
+The build script produces separate `arm-softmmu` and `aarch64-softmmu`
+artifacts. Each board selects its matching Emscripten JS/Wasm pair, preserving
+the existing Cortex-M3 shell while adding the 64-bit `virt` machine for ramfb.
 
-qemu-wasm is not the pure interpreter it once was — it runs multi-threaded TCG and
-JITs hot translation blocks into Wasm modules, falling back to TCI for cold ones.
-It is still much slower than native QEMU, so a small 32-bit guest is the right
-default.
+This build deliberately uses QEMU's TCG interpreter. The Wasm JIT path is not
+reliable for the AArch64 guest, while TCI runs both boards consistently. It is
+much slower than native QEMU, so the small 32-bit guest remains the default.
 
 ## Layout
 
@@ -234,9 +233,12 @@ src/
   backends/     PtyBackend seam: types, mock, qemu, selection
   components/
     XTerminal.tsx   owns xterm.js imperatively; mounted once, never re-renders
-    TopBar.tsx      board + backend selectors, status pill, restart
+    TopBar.tsx      board + app selectors, status pill, restart
+    DisplayPanel.tsx live qemu,ramfb canvas; collapsible and dismissible
+    SensorPanel.tsx host sensor controls
     ui/             shadcn/ui primitives
   boards.ts     guest registry
+  hostDisplay.ts qemu,ramfb export bridge
 public/qemu/    drop-in target for qemu-wasm artifacts (gitignored)
 ```
 
@@ -247,16 +249,9 @@ and a `ResizeObserver` driving the fit addon, not through props.
 
 ## Not in v1
 
-No virtual peripherals or Web API bridges, no multi-session management, no
-persistence, no auth.
-
-Graphical output is not merely unimplemented — it is not currently reachable.
-Neither published qemu-wasm build has a display backend that can render to a
-canvas, so QEMU has nowhere to put pixels regardless of what this app does. On
-the guest side the path would be `qemu,ramfb` rather than virtio-gpu, which
-Zephyr has no driver for.
-[`public/qemu/README.md`](public/qemu/README.md#display-output-is-not-possible-with-these-artifacts)
-sets out the evidence and the three things that would have to land first.
+No display input bridge, multi-session management, persistence, or auth. The
+display bridge is framebuffer-only: keyboard input still goes to the serial
+terminal, and there is no virtio mouse/tablet wiring yet.
 
 ## Stack
 
