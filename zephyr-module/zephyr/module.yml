@@ -1,0 +1,7 @@
+name: qemu-host-sensor
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    # Makes dts/bindings/ below visible to the devicetree compiler.
+    dts_root: .

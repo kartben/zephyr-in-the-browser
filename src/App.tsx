@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
+import { SensorPanel } from '@/components/SensorPanel'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { BOARDS, DEFAULT_BOARD_ID, getBoard } from '@/boards'
@@ -123,13 +124,15 @@ export default function App() {
         onRestart={handleRestart}
       />
 
-      <main className="min-h-0 flex-1 bg-terminal p-4">
+      <main className="relative min-h-0 flex-1 bg-terminal p-4">
         {/* Changing board or backend remounts the session, same as Restart. */}
         <XTerminal
           key={`${backendId}:${boardId}:${nonce}`}
           onSession={handleSession}
           onTeardown={handleTeardown}
         />
+        {/* Renders nothing unless the running emulator has the sensor device. */}
+        <SensorPanel />
       </main>
     </div>
   )

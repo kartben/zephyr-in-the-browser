@@ -1,0 +1,256 @@
+diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
+index 3ada335..ceacde5 100644
+--- a/hw/arm/Kconfig
++++ b/hw/arm/Kconfig
+@@ -283,6 +283,7 @@ config STELLARIS
+     depends on TCG && ARM
+     imply I2C_DEVICES
+     select ARM_V7M
++    select QEMU_HOST_SENSOR
+     select CMSDK_APB_WATCHDOG
+     select I2C
+     select PL011 # UART
+diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
+index dd90f68..11cedfd 100644
+--- a/hw/arm/stellaris.c
++++ b/hw/arm/stellaris.c
+@@ -1137,6 +1137,14 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+         }
+     }
+ 
++    /*
++     * Host-backed sensor bridge. Not part of the real LM3S6965; it sits in the
++     * gap between the last modelled peripheral (0x40048000) and the system
++     * control block (0x400fc000), so it cannot collide with anything the board
++     * actually has. The guest finds it via devicetree, not by probing.
++     */
++    sysbus_create_simple("qemu-host-sensor", 0x40060000, NULL);
++
+     if (board->dc2 & (1 << 12)) {
+         dev = sysbus_create_simple(TYPE_STELLARIS_I2C, 0x40020000,
+                                    qdev_get_gpio_in(nvic, 8));
+diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
+index cc8a8c1..a55895b 100644
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -200,4 +200,7 @@ config IOSB
+ config XLNX_VERSAL_TRNG
+     bool
+ 
++config QEMU_HOST_SENSOR
++    bool
++
+ source macio/Kconfig
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index 36c20d5..caae80d 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -4,6 +4,7 @@ system_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))
+ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
+ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+ system_ss.add(when: 'CONFIG_PCA9552', if_true: files('pca9552.c'))
++system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
+ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
+ system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
+diff --git a/hw/misc/qemu-host-sensor.c b/hw/misc/qemu-host-sensor.c
+new file mode 100644
+index 0000000..86247de
+--- /dev/null
++++ b/hw/misc/qemu-host-sensor.c
+@@ -0,0 +1,195 @@
++/*
++ * Host-backed sensor device.
++ *
++ * Exposes sample values supplied by the QEMU *host* to the guest over MMIO.
++ * Under qemu-wasm the host is a browser, so this is what lets page JavaScript
++ * -- real Web sensor APIs or simulated values -- drive a Zephyr sensor driver.
++ * Nothing here is browser-specific though: qemu_host_sensor_set() is an
++ * ordinary C entry point, which is why the device also works under native QEMU
++ * (useful for testing the guest driver without a browser in the loop).
++ *
++ * Values are carried as a Zephyr-shaped pair -- integer part plus millionths --
++ * so the guest driver can hand them to the sensor API without rescaling.
++ *
++ * Copyright (c) 2026
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 or
++ *  (at your option) any later version.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "hw/sysbus.h"
++#include "hw/registerfields.h"
++#include "migration/vmstate.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define TYPE_QEMU_HOST_SENSOR "qemu-host-sensor"
++OBJECT_DECLARE_SIMPLE_TYPE(QemuHostSensorState, QEMU_HOST_SENSOR)
++
++/* "HSEN" -- lets the guest driver confirm the device is really there. */
++#define HOST_SENSOR_MAGIC 0x4853454e
++#define HOST_SENSOR_CHANNELS 8
++
++REG32(ID, 0x00)     /* RO: HOST_SENSOR_MAGIC */
++REG32(NCHAN, 0x04)  /* RO: number of channels */
++REG32(SELECT, 0x08) /* RW: channel the value registers refer to */
++REG32(VAL1, 0x0c)   /* RO: integer part of the selected channel */
++REG32(VAL2, 0x10)   /* RO: millionths part of the selected channel */
++
++struct QemuHostSensorState {
++    SysBusDevice parent_obj;
++    MemoryRegion iomem;
++    uint32_t select;
++};
++
++/*
++ * Sample storage is global rather than per-device so the host entry point below
++ * needs no device handle. One instance per machine is the only sane
++ * configuration for this device, so that is not a real constraint.
++ *
++ * Packed as (val1 << 32) | val2 and written in one 64-bit store: the host may
++ * write while the guest is mid-read, and packing keeps a sample's two halves
++ * from being mixed across updates.
++ */
++static uint64_t host_sensor_values[HOST_SENSOR_CHANNELS];
++
++/*
++ * Host entry point. Under Emscripten this is reachable from page JavaScript as
++ * Module._qemu_host_sensor_set(channel, value).
++ *
++ * Note it runs on whichever thread the host calls it from, while the guest runs
++ * on the QEMU main pthread. That is deliberate: a plain shared-memory store is
++ * what keeps the MMIO read path free of any call back into JavaScript.
++ */
++EMSCRIPTEN_KEEPALIVE
++void qemu_host_sensor_set(int channel, double value)
++{
++    int32_t val1, val2;
++
++    if (channel < 0 || channel >= HOST_SENSOR_CHANNELS) {
++        return;
++    }
++
++    /* Truncate toward zero so val1 and val2 always share a sign. */
++    val1 = (int32_t)value;
++    val2 = (int32_t)((value - (double)val1) * 1000000.0);
++
++    host_sensor_values[channel] =
++        ((uint64_t)(uint32_t)val1 << 32) | (uint32_t)val2;
++}
++
++static uint64_t qemu_host_sensor_read(void *opaque, hwaddr addr, unsigned size)
++{
++    QemuHostSensorState *s = opaque;
++    uint64_t packed;
++
++    switch (addr) {
++    case A_ID:
++        return HOST_SENSOR_MAGIC;
++    case A_NCHAN:
++        return HOST_SENSOR_CHANNELS;
++    case A_SELECT:
++        return s->select;
++    case A_VAL1:
++        packed = host_sensor_values[s->select];
++        return (uint32_t)(packed >> 32);
++    case A_VAL2:
++        packed = host_sensor_values[s->select];
++        return (uint32_t)packed;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-sensor: read from bad offset 0x%" HWADDR_PRIx "\n",
++                      addr);
++        return 0;
++    }
++}
++
++static void qemu_host_sensor_write(void *opaque, hwaddr addr, uint64_t value,
++                                   unsigned size)
++{
++    QemuHostSensorState *s = opaque;
++
++    switch (addr) {
++    case A_SELECT:
++        if (value >= HOST_SENSOR_CHANNELS) {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "qemu-host-sensor: channel %" PRIu64 " out of range\n",
++                          value);
++            return;
++        }
++        s->select = value;
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-sensor: write to read-only/bad offset 0x%"
++                      HWADDR_PRIx "\n", addr);
++        break;
++    }
++}
++
++static const MemoryRegionOps qemu_host_sensor_ops = {
++    .read = qemu_host_sensor_read,
++    .write = qemu_host_sensor_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid.min_access_size = 4,
++    .valid.max_access_size = 4,
++};
++
++static void qemu_host_sensor_reset(DeviceState *dev)
++{
++    QemuHostSensorState *s = QEMU_HOST_SENSOR(dev);
++
++    s->select = 0;
++}
++
++static void qemu_host_sensor_init(Object *obj)
++{
++    QemuHostSensorState *s = QEMU_HOST_SENSOR(obj);
++
++    memory_region_init_io(&s->iomem, obj, &qemu_host_sensor_ops, s,
++                          "qemu-host-sensor", 0x1000);
++    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->iomem);
++}
++
++static const VMStateDescription vmstate_qemu_host_sensor = {
++    .name = "qemu-host-sensor",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT32(select, QemuHostSensorState),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static void qemu_host_sensor_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->reset = qemu_host_sensor_reset;
++    dc->vmsd = &vmstate_qemu_host_sensor;
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++}
++
++static const TypeInfo qemu_host_sensor_info = {
++    .name = TYPE_QEMU_HOST_SENSOR,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(QemuHostSensorState),
++    .instance_init = qemu_host_sensor_init,
++    .class_init = qemu_host_sensor_class_init,
++};
++
++static void qemu_host_sensor_register_types(void)
++{
++    type_register_static(&qemu_host_sensor_info);
++}
++
++type_init(qemu_host_sensor_register_types)

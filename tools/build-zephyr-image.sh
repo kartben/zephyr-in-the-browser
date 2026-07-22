@@ -36,22 +36,31 @@ log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
 mkdir -p "$WORK" "$DEST"
 
-# The stock shell_module sample sets CONFIG_BOOT_BANNER=n, so the guest boots
-# straight to a prompt with nothing identifying it as Zephyr. Note that current
-# Zephyr *rejects* -DCONFIG_* on the CMake command line, so this has to be an
-# overlay file rather than a -D flag.
-cat > "$WORK/overlay.conf" <<'EOF'
-CONFIG_BOOT_BANNER=y
-EOF
+# This repo ships an out-of-tree Zephyr module (the qemu,host-sensor driver and
+# its binding) plus Kconfig and devicetree overlays. Everything below is passed
+# as CMake args; note that current Zephyr *rejects* -DCONFIG_* on the command
+# line, so Kconfig changes have to travel in a .conf file.
+MODULE=/repo/zephyr-module
+CMAKE_ARGS="-DZEPHYR_EXTRA_MODULES=$MODULE"
+CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
+
+# The MMIO address the sensor lives at is board-specific, so the overlay is too.
+# Boards without one simply build without the device.
+if [ -f "$ROOT/zephyr-module/overlays/$(echo "$BOARD" | tr '/' '_').overlay" ]; then
+  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_DTC_OVERLAY_FILE=$MODULE/overlays/$(echo "$BOARD" | tr '/' '_').overlay"
+  log "Including host-sensor overlay for $BOARD"
+else
+  log "No host-sensor overlay for $BOARD — building without the device"
+fi
 
 log "Building $SAMPLE for $BOARD"
 docker run --rm \
   -v "$ZEPHYR_WS:/workdir" \
   -v "$WORK:/out" \
+  -v "$ROOT:/repo:ro" \
   -w /workdir \
   "$ZEPHYR_IMAGE" \
-  bash -lc "west build -p always -b '$BOARD' 'zephyr/$SAMPLE' \
-              -d /out/build -- -DEXTRA_CONF_FILE=/out/overlay.conf"
+  bash -lc "west build -p always -b '$BOARD' 'zephyr/$SAMPLE' -d /out/build -- $CMAKE_ARGS"
 
 # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
 # and it is fetched over HTTP on every boot, so strip it. The right strip binary

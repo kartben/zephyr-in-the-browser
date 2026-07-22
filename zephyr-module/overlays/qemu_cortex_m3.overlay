@@ -1,0 +1,19 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Declares the host-backed sensor that our patched qemu-wasm Stellaris machine
+ * instantiates at 0x40060000 -- an address chosen because it sits in the gap
+ * between the last modelled LM3S6965 peripheral and the system control block,
+ * so it cannot collide with real hardware. See tools/qemu-patches/.
+ */
+
+/ {
+	soc {
+		host_sensor: sensor@40060000 {
+			compatible = "qemu,host-sensor";
+			reg = <0x40060000 0x1000>;
+			status = "okay";
+		};
+	};
+};

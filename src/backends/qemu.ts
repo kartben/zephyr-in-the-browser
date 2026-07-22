@@ -1,3 +1,4 @@
+import { attach as attachHostSensor, detach as detachHostSensor } from '@/hostSensor'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -258,10 +259,14 @@ export function createQemuBackend(): PtyBackend {
         )
       }
 
+      // Optional: only builds carrying the qemu,host-sensor patch export this.
+      attachHostSensor(instance)
+
       onStatus({ status: 'running', detail: board.zephyrTarget })
     },
 
     async reset() {
+      detachHostSensor()
       // Nothing global was touched, so there is nothing to tear down.
       if (!documentTainted) return
       // Emscripten modules cannot be torn down cleanly; a reload is the only

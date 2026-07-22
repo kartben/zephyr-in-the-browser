@@ -1,0 +1,17 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Host-backed sensor exposed by QEMU over MMIO.
+
+  Sample values are written by the QEMU host rather than produced by emulated
+  hardware, which lets a browser feed real or simulated readings to the guest
+  when running under qemu-wasm.
+
+compatible: "qemu,host-sensor"
+
+include: [sensor-device.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true

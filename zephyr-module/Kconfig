@@ -1,0 +1,10 @@
+config QEMU_HOST_SENSOR
+	bool "QEMU host-backed sensor"
+	default y
+	depends on DT_HAS_QEMU_HOST_SENSOR_ENABLED
+	depends on SENSOR
+	help
+	  Sensor driver for the qemu-host-sensor MMIO device, whose sample
+	  values are supplied by the QEMU host rather than by emulated
+	  hardware. Under qemu-wasm that host is a browser, so the values can
+	  come from Web sensor APIs.

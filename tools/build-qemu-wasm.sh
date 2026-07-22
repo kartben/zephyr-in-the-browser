@@ -100,6 +100,25 @@ patch_upstream() {
   done
 }
 
+# Patches in tools/qemu-patches/ add devices this project needs and upstream does
+# not have. Applied after the bit-rot fixes so a failure here is unambiguous.
+apply_local_patches() {
+  local dir="$ROOT/tools/qemu-patches"
+  [ -d "$dir" ] || return 0
+  cd "$SRC"
+  for patch in "$dir"/*.patch; do
+    [ -e "$patch" ] || continue
+    if git apply --reverse --check "$patch" >/dev/null 2>&1; then
+      echo "  - already applied: $(basename "$patch")"
+    elif git apply "$patch"; then
+      echo "  - applied: $(basename "$patch")"
+    else
+      echo "  ! FAILED to apply $(basename "$patch") — the upstream tree has probably moved." >&2
+      exit 1
+    fi
+  done
+}
+
 build_dep_image() {
   if docker image inspect "$IMAGE" >/dev/null 2>&1; then
     log "Reusing dependency image '$IMAGE' (delete it to force a rebuild)"
@@ -153,6 +172,7 @@ build_qemu() {
 
 fetch_source
 patch_upstream
+apply_local_patches
 build_dep_image
 build_qemu
 
