@@ -22,10 +22,10 @@ set -euo pipefail
 BOARD="${1:-qemu_cortex_m3}"
 APP="${2:-all}"
 
-# Must stay in step with the samples listed in src/boards.ts.
+# Must stay in step with the samples listed in src/boards.ts. Apps that block on
+# k_sleep are deliberately absent: SysTick does not fire under qemu-wasm, so they
+# hang after their first line even though they are fine natively.
 APPS="shell:samples/subsys/shell/shell_module
-philosophers:samples/philosophers
-synchronization:samples/synchronization
 hello_world:samples/hello_world"
 ZEPHYR_WS="${ZEPHYR_WS:-$HOME/zephyrproject}"
 ZEPHYR_IMAGE="${ZEPHYR_IMAGE:-ghcr.io/zephyrproject-rtos/zephyr-build:main}"

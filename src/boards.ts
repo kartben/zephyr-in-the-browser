@@ -54,24 +54,25 @@ export interface Board {
   usesDataBundle: boolean
 }
 
+/*
+ * Only apps that do not sleep. QEMU's Cortex-M SysTick is a ptimer, and under
+ * qemu-wasm it comes up with a period of zero and is disabled ("Timer with
+ * period zero, disabling" on the console), so the tick interrupt never fires.
+ * k_uptime_get still advances because it reads the counter directly, which
+ * makes the breakage easy to miss — but anything that blocks on k_sleep or a
+ * timeout hangs forever.
+ *
+ * Philosophers and Synchronization were both shipped here and both hang after
+ * their first line. They run correctly under native QEMU with identical argv,
+ * so this is a qemu-wasm defect, not a bad build. They come back when it is
+ * fixed. See public/qemu/README.md.
+ */
 const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `sensor get`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-  },
-  {
-    id: 'philosophers',
-    label: 'Philosophers',
-    description: 'Dining philosophers — threads and mutexes',
-    zephyrSample: 'samples/philosophers',
-  },
-  {
-    id: 'synchronization',
-    label: 'Synchronization',
-    description: 'Two threads ping-ponging a semaphore',
-    zephyrSample: 'samples/synchronization',
   },
   {
     id: 'hello_world',

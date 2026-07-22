@@ -117,6 +117,41 @@ here so the workarounds are reviewable rather than mysterious.
 
 None require source changes — the toolchain is stale, not broken.
 
+## SysTick does not fire
+
+The single most consequential limitation, and an easy one to miss.
+
+QEMU implements the Cortex-M SysTick as a ptimer. Under qemu-wasm it comes up
+with a period of zero and is disabled — every boot prints `Timer with period
+zero, disabling` before Zephyr's banner — so the tick interrupt never arrives.
+
+What makes it deceptive is that the kernel clock *looks* fine:
+
+```
+uart:~$ kernel uptime
+Uptime: 46500 ms
+uart:~$ kernel uptime
+Uptime: 55330 ms
+```
+
+`k_uptime_get` reads the timer counter directly, which still works. Only code
+that waits on the interrupt is affected — and that is anything calling `k_sleep`
+or taking a timeout. Such an app prints its first line and then hangs forever.
+
+Verified against native QEMU with identical argv: `samples/synchronization`
+alternates its two threads correctly there and produces 16 lines in 8 seconds,
+while the same ELF emits one line and stops under qemu-wasm. So this is a
+qemu-wasm defect, not a bad guest build.
+
+Traced as far as `hw/timer/armv7m_systick.c` calling
+`ptimer_set_period_from_clock(s->ptimer, s->cpuclk, 1)`, which yields a zero
+period; the stellaris sysclk it derives from is a plain `clock_set_ns(5 * div)`
+that is correct natively. Root-causing further needs instrumented rebuilds.
+
+Only non-sleeping apps are therefore listed in `src/boards.ts`. Philosophers and
+Synchronization were shipped and withdrawn for exactly this reason; they return
+when SysTick does.
+
 ## Known limits
 
 Verified by testing, not assumed:
