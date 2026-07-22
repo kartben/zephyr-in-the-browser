@@ -43,10 +43,25 @@ interface QemuModule {
   mainScriptUrlOrBlob: string
   locateFile: (path: string) => string
   printErr: (text: string) => void
+  preRun: Array<() => void>
   onExit?: (code: number) => void
   onAbort?: (what: unknown) => void
-  /** Exported via -sEXPORTED_RUNTIME_METHODS=...,TTY,FS */
+  /** Exported via -sEXPORTED_RUNTIME_METHODS=...,TTY */
   TTY?: { stream_ops: { poll: (stream: unknown, timeout: unknown) => number } }
+  /**
+   * Emscripten exports these thin aliases for FS.createPath / FS.createDataFile
+   * rather than the whole FS object — they are what file_packager itself uses,
+   * so they are present in any build that supports a .data bundle.
+   */
+  FS_createPath?: (parent: string, path: string, canRead: boolean, canWrite: boolean) => void
+  FS_createDataFile?: (
+    parent: string,
+    name: string,
+    data: Uint8Array,
+    canRead: boolean,
+    canWrite: boolean,
+    canOwn: boolean,
+  ) => void
 }
 
 declare global {
@@ -68,6 +83,36 @@ function loadClassicScript(src: string): Promise<void> {
 }
 
 const MISSING_HINT = 'Drop the qemu-wasm artifacts into public/qemu/ — see public/qemu/README.md.'
+
+/**
+ * Writes one guest file into the Emscripten filesystem. Must be called from
+ * preRun, once the FS exists but before main() looks for the image.
+ */
+function writeGuestFile(mod: QemuModule, fsPath: string, bytes: Uint8Array) {
+  const { FS_createPath, FS_createDataFile } = mod
+  if (!FS_createPath || !FS_createDataFile) {
+    throw new Error(
+      'This qemu-wasm build exports neither FS_createPath nor FS_createDataFile, ' +
+        'so the guest image cannot be injected. Rebuild with -sFORCE_FILESYSTEM.',
+    )
+  }
+  const parts = fsPath.split('/').filter(Boolean)
+  const name = parts.pop()
+  if (!name) throw new Error(`invalid guest path: ${fsPath}`)
+  // FS.createPath splits and creates each component itself, and is a no-op for
+  // directories that already exist.
+  if (parts.length) FS_createPath('/', parts.join('/'), true, true)
+  FS_createDataFile(`/${parts.join('/')}`, name, bytes, true, true, true)
+}
+
+/** Fetches a guest file as bytes so preRun, which cannot await, can write it. */
+async function fetchAsset(file: string): Promise<Uint8Array> {
+  const res = await fetch(url(file))
+  if (!res.ok) {
+    throw new Error(`${ASSET_BASE}${file} is missing (HTTP ${res.status}). ${MISSING_HINT}`)
+  }
+  return new Uint8Array(await res.arrayBuffer())
+}
 
 async function assertAsset(file: string) {
   let res: Response
@@ -124,13 +169,24 @@ export function createQemuBackend(): PtyBackend {
         throw new Error(`No qemu-wasm build found at build time. ${MISSING_HINT}`)
       }
       await assertAsset(MAIN_SCRIPT)
-      await assertAsset(PACKAGE_SCRIPT)
       await assertAsset(`${board.qemuBinary}.wasm`)
+      if (board.usesDataBundle) await assertAsset(PACKAGE_SCRIPT)
+      if (signal.aborted) return
+
+      // preRun cannot await, so the guest image is fetched here and written
+      // synchronously once the filesystem exists.
+      onStatus({ status: 'loading', detail: 'fetching guest image' })
+      const preloaded = await Promise.all(
+        board.preloadFiles.map(async (f) => ({
+          fsPath: f.fsPath,
+          bytes: await fetchAsset(f.asset),
+        })),
+      )
       if (signal.aborted) return
 
       // ---- commit: from here the document belongs to this instance ----
 
-      onStatus({ status: 'loading', detail: 'loading guest image' })
+      onStatus({ status: 'loading', detail: 'starting emulator' })
 
       const mod: QemuModule = {
         arguments: board.args,
@@ -144,6 +200,13 @@ export function createQemuBackend(): PtyBackend {
         // Guest stdout/stderr go through the TTY hooks, not here; this only
         // surfaces Emscripten's own runtime diagnostics.
         printErr: (text) => console.error('[qemu]', text),
+        // Runs after the filesystem is up but before main(). load.js, when a
+        // board uses one, appends its own .data hooks to this same array.
+        preRun: [
+          () => {
+            for (const { fsPath, bytes } of preloaded) writeGuestFile(mod, fsPath, bytes)
+          },
+        ],
         onExit: (code) =>
           onStatus({
             status: code === 0 ? 'exited' : 'error',
@@ -156,9 +219,12 @@ export function createQemuBackend(): PtyBackend {
       globalThis.Module = mod
 
       // Classic script: it declares `var Module` and picks up the global we just
-      // set, then appends its .data-fetching hooks to Module.preRun.
-      await loadClassicScript(url(PACKAGE_SCRIPT))
-      if (signal.aborted) return
+      // set, then appends its .data-fetching hooks to Module.preRun. Only needed
+      // for guests whose image ships as a file_packager bundle.
+      if (board.usesDataBundle) {
+        await loadClassicScript(url(PACKAGE_SCRIPT))
+        if (signal.aborted) return
+      }
 
       // @vite-ignore keeps Vite from trying to resolve and bundle this at build
       // time — it is a static asset in public/, fetched at runtime.
