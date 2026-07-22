@@ -4,7 +4,7 @@
 #
 #   tools/package-emulator.sh [tag]
 #
-# The artifacts are gitignored (a ~53 MB GPLv2 binary plus compiled guests), so
+# The artifacts are gitignored (GPLv2 emulator binaries plus compiled guests), so
 # a release asset is how they reach the Pages deploy without landing in git
 # history. One tarball rather than loose files because release assets are flat
 # and public/qemu/ has a zephyr/ subdirectory.
@@ -21,8 +21,10 @@ OUT="$ROOT/qemu-wasm-artifacts.tar.gz"
 
 log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
-[ -f "$SRC/out.js" ] || { echo "No emulator in public/qemu/ — run tools/build-qemu-wasm.sh first." >&2; exit 1; }
-ls "$SRC"/*.wasm >/dev/null 2>&1 || { echo "No .wasm in public/qemu/." >&2; exit 1; }
+for binary in qemu-system-arm qemu-system-aarch64; do
+  [ -f "$SRC/$binary.js" ] && [ -f "$SRC/$binary.wasm" ] \
+    || { echo "Missing $binary artifacts — run tools/build-qemu-wasm.sh first." >&2; exit 1; }
+done
 # Images live at zephyr/<board>/<app>.elf, so this has to recurse.
 [ -n "$(find "$SRC/zephyr" -name '*.elf' -print -quit 2>/dev/null)" ] \
   || { echo "No guest image — run tools/build-zephyr-image.sh first." >&2; exit 1; }

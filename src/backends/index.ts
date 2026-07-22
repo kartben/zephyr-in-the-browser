@@ -1,6 +1,7 @@
 import { createMockBackend } from './mock'
 import { createQemuBackend } from './qemu'
 import type { BackendId, PtyBackend } from './types'
+import { BOARDS } from '@/boards'
 
 export * from './types'
 
@@ -21,9 +22,16 @@ let detected: boolean | null = null
 
 export async function detectQemuAssets(): Promise<void> {
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}qemu/out.js`, { method: 'HEAD' })
+    const binaries = [...new Set(BOARDS.map((board) => board.qemuBinary))]
+    const responses = await Promise.all(
+      binaries.map((binary) =>
+        fetch(`${import.meta.env.BASE_URL}qemu/${binary}.js`, { method: 'HEAD' }),
+      ),
+    )
     // A 200 proves nothing on its own: unknown paths get the SPA index.html.
-    detected = res.ok && !(res.headers.get('content-type') ?? '').includes('text/html')
+    detected = responses.some(
+      (res) => res.ok && !(res.headers.get('content-type') ?? '').includes('text/html'),
+    )
   } catch {
     detected = false
   }

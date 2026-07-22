@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
-import { SensorPanel } from '@/components/SensorPanel'
+import { PeripheralPanels } from '@/components/PeripheralPanels'
 import { DropOverlay } from '@/components/DropOverlay'
 import {
   clear as clearGuestImage,
@@ -135,7 +135,18 @@ export default function App() {
   }, [])
 
   const handleBoardChange = useCallback(
-    (id: string) => applySelection({ boardId: id }),
+    (id: string) => {
+      const board = getBoard(id)
+      // Keep a shared sample (currently Hello World), otherwise choose the
+      // destination board's first/default sample instead of requesting an ELF
+      // that only exists for the board we just left.
+      const nextSampleId = board.samples.some(
+        (sample) => sample.id === configRef.current.sampleId,
+      )
+        ? configRef.current.sampleId
+        : board.defaultSampleId
+      applySelection({ boardId: id, sampleId: nextSampleId })
+    },
     [applySelection],
   )
 
@@ -215,8 +226,8 @@ export default function App() {
           onSession={handleSession}
           onTeardown={handleTeardown}
         />
-        {/* Renders nothing unless the running emulator has the sensor device. */}
-        <SensorPanel />
+        {/* Each entry stays hidden unless the running emulator exposes it. */}
+        <PeripheralPanels />
       </main>
 
       {/* Whole-window target, so the drop works wherever the pointer is. */}

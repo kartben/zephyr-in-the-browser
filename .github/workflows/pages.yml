@@ -74,8 +74,9 @@ jobs:
           test -f dist/coi-serviceworker.js \
             || { echo "::error::coi-serviceworker.js missing — the deploy would not be cross-origin isolated"; exit 1; }
           if [ -n "$RELEASE_TAG" ]; then
-            test -f dist/qemu/out.js \
-              || { echo "::error::emulator release did not contain out.js"; exit 1; }
+            test -f dist/qemu/qemu-system-arm.js \
+              && test -f dist/qemu/qemu-system-aarch64.js \
+              || { echo "::error::emulator release did not contain both JS loaders"; exit 1; }
             ls dist/qemu/*.wasm >/dev/null 2>&1 \
               || { echo "::error::emulator release did not contain a .wasm"; exit 1; }
             # Images live at zephyr/<board>/<app>.elf, so this has to recurse.

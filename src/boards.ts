@@ -5,15 +5,9 @@
  * runs on it. They are deliberately separate: several images run on one board,
  * and a user-supplied ELF replaces the image without touching the machine.
  *
- * Note `qemuBinary` is the emulator build, not the guest architecture: QEMU's
- * aarch64-softmmu target is a superset of arm-softmmu and carries the 32-bit
- * machines too. This project builds arm-softmmu directly (tools/build-qemu-wasm.sh).
- *
- * Only lm3s6965evb is listed because it is the only machine verified to work
- * under qemu-wasm. mps2-an385 and a 64-bit Cortex-A53 guest both boot correctly
- * under native QEMU with the argv below but produce no console output on the
- * Wasm build, so they are absent rather than shipped broken. See
- * public/qemu/README.md.
+ * `qemuBinary` selects the matching Emscripten JS/Wasm artifact pair. The
+ * Cortex-M3 uses arm-softmmu; the 64-bit `virt` machine needed by qemu,ramfb
+ * uses aarch64-softmmu.
  */
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
@@ -40,6 +34,11 @@ export interface Board {
   args: string[]
   /** Where the kernel lands in the Emscripten filesystem; matches `-kernel`. */
   kernelFsPath: string
+  /** Optional browser bridges physically present on this machine. */
+  peripherals?: {
+    hostSensor?: boolean
+    ramfb?: boolean
+  }
   samples: GuestSample[]
   defaultSampleId: string
   /**
@@ -84,6 +83,21 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   },
 ]
 
+const CORTEX_A53_SAMPLES: GuestSample[] = [
+  {
+    id: 'display',
+    label: 'Display',
+    description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
+    zephyrSample: 'samples/drivers/display',
+  },
+  {
+    id: 'hello_world',
+    label: 'Hello World',
+    description: 'Prints one line and stops',
+    zephyrSample: 'samples/hello_world',
+  },
+]
+
 export const BOARDS: Board[] = [
   {
     id: 'qemu_cortex_m3',
@@ -101,10 +115,46 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
+    peripherals: { hostSensor: true },
     samples: CORTEX_M3_SAMPLES,
     // The shell is the one worth landing on: it is interactive, and it is where
     // the host-sensor bridge is visible.
     defaultSampleId: 'shell',
+    usesDataBundle: false,
+  },
+  {
+    id: 'qemu_cortex_a53',
+    label: 'QEMU Cortex-A53',
+    zephyrTarget: 'qemu_cortex_a53',
+    arch: 'ARMv8-A',
+    qemuBinary: 'qemu-system-aarch64',
+    args: [
+      '-nographic',
+      '-machine',
+      'virt,secure=on,gic-version=3',
+      '-cpu',
+      'cortex-a53',
+      '-device',
+      'ramfb',
+      '-vga',
+      'none',
+      '-L',
+      '/pack/pc-bios',
+      '-icount',
+      'shift=4,align=off,sleep=on',
+      '-rtc',
+      'clock=vm',
+      '-kernel',
+      '/pack/zephyr.elf',
+    ],
+    kernelFsPath: '/pack/zephyr.elf',
+    peripherals: { ramfb: true },
+    samples: CORTEX_A53_SAMPLES,
+    defaultSampleId: 'display',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
+      { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
+    ],
     usesDataBundle: false,
   },
 ]

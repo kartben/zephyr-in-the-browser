@@ -22,11 +22,24 @@ set -euo pipefail
 BOARD="${1:-qemu_cortex_m3}"
 APP="${2:-all}"
 
-# Must stay in step with the samples listed in src/boards.ts. Apps that block on
-# k_sleep are deliberately absent: SysTick does not fire under qemu-wasm, so they
-# hang after their first line even though they are fine natively.
-APPS="shell:samples/subsys/shell/shell_module
+# Must stay in step with the samples listed for each board in src/boards.ts.
+# Cortex-M apps that block on k_sleep remain absent because they still stall on
+# qemu-wasm's TCI path. Cortex-A53 uses its architectural timer and is the board
+# that provides fw_cfg + qemu,ramfb.
+case "$BOARD" in
+  qemu_cortex_m3)
+    APPS="shell:samples/subsys/shell/shell_module
 hello_world:samples/hello_world"
+    ;;
+  qemu_cortex_a53)
+    APPS="display:samples/drivers/display
+hello_world:samples/hello_world"
+    ;;
+  *)
+    echo "Unsupported board '$BOARD'. Known: qemu_cortex_m3 qemu_cortex_a53" >&2
+    exit 1
+    ;;
+esac
 ZEPHYR_WS="${ZEPHYR_WS:-$HOME/zephyrproject}"
 ZEPHYR_IMAGE="${ZEPHYR_IMAGE:-ghcr.io/zephyrproject-rtos/zephyr-build:main}"
 
@@ -52,15 +65,15 @@ mkdir -p "$WORK" "$DEST"
 # line, so Kconfig changes have to travel in a .conf file.
 MODULE=/repo/zephyr-module
 CMAKE_ARGS="-DZEPHYR_EXTRA_MODULES=$MODULE"
-CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
 
 # The MMIO address the sensor lives at is board-specific, so the overlay is too.
 # Boards without one simply build without the device.
 if [ -f "$ROOT/zephyr-module/overlays/$(echo "$BOARD" | tr '/' '_').overlay" ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_DTC_OVERLAY_FILE=$MODULE/overlays/$(echo "$BOARD" | tr '/' '_').overlay"
+  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
   log "Including host-sensor overlay for $BOARD"
 else
-  log "No host-sensor overlay for $BOARD — building without the device"
+  log "No host-sensor overlay for $BOARD — building stock Zephyr peripherals"
 fi
 
 # Selected apps, as "id:path" lines.
