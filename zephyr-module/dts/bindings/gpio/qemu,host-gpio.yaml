@@ -17,9 +17,9 @@ properties:
   reg:
     required: true
 
-  ngpios:
-    required: true
-    description: Number of pins the device exposes.
+  # ngpios is inherited from gpio-controller.yaml (default 32); the device
+  # overlay sets it to the real pin count. Not re-declared here because marking
+  # an inherited-with-default property "required" is a binding warning.
 
 gpio-cells:
   - pin

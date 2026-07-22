@@ -44,14 +44,14 @@ diff --git a/hw/misc/meson.build b/hw/misc/meson.build
 index 4f885c1..849596d 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -3,6 +3,7 @@ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+@@ -6,6 +6,7 @@ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
  system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
 +system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
+ system_ss.add(files('qemu-browser-gnss.c'))
  system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
  system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
- system_ss.add(when: 'CONFIG_PVPANIC_COMMON', if_true: files('pvpanic.c'))
 diff --git a/hw/misc/qemu-host-gpio.c b/hw/misc/qemu-host-gpio.c
 new file mode 100644
 index 0000000..72f595b
