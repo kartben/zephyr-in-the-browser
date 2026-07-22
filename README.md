@@ -75,12 +75,26 @@ script to `index.html` before the app bundle. Hosts where you *can* set headers
 directly (Netlify `_headers`, Vercel `headers`, Cloudflare Pages, any real web
 server) do not need the shim.
 
-## Booting your own ELF
+## Choosing what runs
 
-Drop one anywhere on the window, or pick **Load ELF…** from the board dropdown.
-It replaces the board's stock guest image; the board still selects the *machine*,
-so the ELF has to be built for it. The chip beside the dropdown shows what is
-running, and its ✕ goes back to the stock image.
+Two controls, and they are different kinds of thing:
+
+- **Board** — the machine QEMU emulates.
+- **App** — the program it boots. Several Zephyr samples ship prebuilt (Shell,
+  Philosophers, Synchronization, Hello World); `tools/build-zephyr-image.sh`
+  builds them, and the ids there must match the `samples` listed per board in
+  [`src/boards.ts`](src/boards.ts).
+
+There is no backend selector. The mock exists so a checkout without an emulator
+still runs, not as something worth choosing: QEMU is used whenever it is
+available, and when it is not the app falls back on its own and says why in the
+terminal.
+
+### Booting your own ELF
+
+Drop one anywhere on the window, or pick **Load your own ELF…** from the App
+dropdown. It replaces the selected app; the board still chooses the *machine*, so
+the ELF has to be built for it. The ✕ beside the picker goes back to a built-in.
 
 Anything QEMU can boot with `-kernel` works — it does not have to be Zephyr.
 

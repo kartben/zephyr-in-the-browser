@@ -23,7 +23,9 @@ log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
 [ -f "$SRC/out.js" ] || { echo "No emulator in public/qemu/ — run tools/build-qemu-wasm.sh first." >&2; exit 1; }
 ls "$SRC"/*.wasm >/dev/null 2>&1 || { echo "No .wasm in public/qemu/." >&2; exit 1; }
-ls "$SRC"/zephyr/*.elf >/dev/null 2>&1 || { echo "No guest image — run tools/build-zephyr-image.sh first." >&2; exit 1; }
+# Images live at zephyr/<board>/<app>.elf, so this has to recurse.
+[ -n "$(find "$SRC/zephyr" -name '*.elf' -print -quit 2>/dev/null)" ] \
+  || { echo "No guest image — run tools/build-zephyr-image.sh first." >&2; exit 1; }
 
 # README.md is checked in; everything else here is a build output.
 log "Packaging $(cd "$SRC" && ls | grep -v '^README.md$' | tr '\n' ' ')"

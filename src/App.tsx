@@ -13,7 +13,7 @@ import {
 } from '@/guestImage'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
-import { BOARDS, DEFAULT_BOARD_ID, getBoard } from '@/boards'
+import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample } from '@/boards'
 
 /**
  * The selection lives in the query string so it can survive the reload that a
@@ -24,15 +24,20 @@ function readSelection() {
   const params = new URLSearchParams(location.search)
   const board = params.get('board')
   const backend = params.get('backend')
+  const app = params.get('app')
+  const boardId = BOARDS.some((b) => b.id === board) ? board! : DEFAULT_BOARD_ID
+  const resolved = getBoard(boardId)
   return {
-    boardId: BOARDS.some((b) => b.id === board) ? board! : DEFAULT_BOARD_ID,
+    boardId,
+    sampleId: getSample(resolved, app ?? resolved.defaultSampleId).id,
     backendId: backend === 'mock' || backend === 'qemu' ? backend : defaultBackendId(),
   }
 }
 
 export default function App() {
-  const [backendId, setBackendId] = useState<BackendId>(() => readSelection().backendId)
+  const [backendId] = useState<BackendId>(() => readSelection().backendId)
   const [boardId, setBoardId] = useState(() => readSelection().boardId)
+  const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
   const [nonce, setNonce] = useState(0)
@@ -40,8 +45,8 @@ export default function App() {
 
   // Current selection, readable from the mount-once terminal callbacks without
   // making them change identity (which would remount the terminal).
-  const configRef = useRef({ backendId, boardId })
-  configRef.current = { backendId, boardId }
+  const configRef = useRef({ backendId, boardId, sampleId })
+  configRef.current = { backendId, boardId, sampleId }
 
   const backendRef = useRef<PtyBackend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -50,8 +55,6 @@ export default function App() {
     const ac = new AbortController()
     abortRef.current = ac
 
-    const backend = createBackend(configRef.current.backendId)
-    backendRef.current = backend
     setHardRestart(false)
     setStatus({ status: 'loading' })
 
@@ -61,20 +64,51 @@ export default function App() {
       if (!ac.signal.aborted) setStatus(event)
     }
 
-    backend
-      .start(slave, { board: getBoard(configRef.current.boardId), onStatus, signal: ac.signal })
-      .then(() => {
-        if (!ac.signal.aborted) setHardRestart(backend.resetRequiresReload)
+    const run = async (id: BackendId) => {
+      const backend = createBackend(id)
+      backendRef.current = backend
+      await backend.start(slave, {
+        board: getBoard(configRef.current.boardId),
+        sampleId: configRef.current.sampleId,
+        onStatus,
+        signal: ac.signal,
       })
-      .catch((err: unknown) => {
+      if (!ac.signal.aborted) setHardRestart(backend.resetRequiresReload)
+    }
+
+    void (async () => {
+      const preferred = configRef.current.backendId
+      try {
+        await run(preferred)
+      } catch (err: unknown) {
         if (ac.signal.aborted) return
         const message = err instanceof Error ? err.message : String(err)
-        setHardRestart(backend.resetRequiresReload)
-        setStatus({ status: 'error', detail: message })
-        // The status pill truncates; the terminal is where the user is looking,
-        // so put the full reason there too.
-        slave.write(`\x1b[31m${backend.label}: ${message}\x1b[0m\n`)
-      })
+
+        /*
+         * With no backend selector, an emulator that will not start must not
+         * leave a dead terminal. A pre-commit failure (missing assets, no
+         * cross-origin isolation) has touched nothing, so the mock can take
+         * over — but say why, or it looks like the real thing booted.
+         */
+        const canFallBack = preferred === 'qemu' && !backendRef.current?.resetRequiresReload
+        if (!canFallBack) {
+          setHardRestart(backendRef.current?.resetRequiresReload ?? false)
+          setStatus({ status: 'error', detail: message })
+          slave.write(`\x1b[31m${message}\x1b[0m\n`)
+          return
+        }
+
+        slave.write(
+          `\x1b[31mQEMU could not start: ${message}\x1b[0m\r\n` +
+            `\x1b[2mFalling back to the mock shell.\x1b[0m\r\n`,
+        )
+        try {
+          await run('mock')
+        } catch {
+          if (!ac.signal.aborted) setStatus({ status: 'error', detail: message })
+        }
+      }
+    })()
   }, [])
 
   const handleTeardown = useCallback(() => {
@@ -87,27 +121,32 @@ export default function App() {
    * has to go through a reload carrying the new choice in the URL. Otherwise
    * the key change on <XTerminal> remounts the session in place.
    */
-  const applySelection = useCallback((next: { boardId?: string; backendId?: BackendId }) => {
+  const applySelection = useCallback((next: { boardId?: string; sampleId?: string }) => {
     if (backendRef.current?.resetRequiresReload) {
       const params = new URLSearchParams(location.search)
       params.set('board', next.boardId ?? configRef.current.boardId)
-      params.set('backend', next.backendId ?? configRef.current.backendId)
+      params.set('app', next.sampleId ?? configRef.current.sampleId)
+      params.set('backend', configRef.current.backendId)
       location.search = params.toString()
       return
     }
     if (next.boardId !== undefined) setBoardId(next.boardId)
-    if (next.backendId !== undefined) setBackendId(next.backendId)
+    if (next.sampleId !== undefined) setSampleId(next.sampleId)
   }, [])
 
   const handleBoardChange = useCallback(
     (id: string) => applySelection({ boardId: id }),
     [applySelection],
   )
-  const handleBackendChange = useCallback(
-    (id: BackendId) => applySelection({ backendId: id }),
+
+  /** Choosing a built-in app also drops any user-supplied ELF. */
+  const handleSampleChange = useCallback(
+    (id: string) => {
+      clearGuestImage()
+      applySelection({ sampleId: id })
+    },
     [applySelection],
   )
-
   /**
    * Boot a user-supplied ELF. If QEMU has already committed this document the
    * bytes have to survive a reload, so they go through the IndexedDB handoff;
@@ -158,8 +197,8 @@ export default function App() {
       <TopBar
         boardId={boardId}
         onBoardChange={handleBoardChange}
-        backendId={backendId}
-        onBackendChange={handleBackendChange}
+        sampleId={sampleId}
+        onSampleChange={handleSampleChange}
         status={status}
         detail={detail}
         hardRestart={hardRestart}
@@ -172,7 +211,7 @@ export default function App() {
       <main className="relative min-h-0 flex-1 bg-terminal p-4">
         {/* Changing board or backend remounts the session, same as Restart. */}
         <XTerminal
-          key={`${backendId}:${boardId}:${nonce}`}
+          key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
           onSession={handleSession}
           onTeardown={handleTeardown}
         />

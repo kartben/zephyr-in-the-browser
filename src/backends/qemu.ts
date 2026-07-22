@@ -1,5 +1,6 @@
 import { attach as attachHostSensor, detach as detachHostSensor } from '@/hostSensor'
 import { get as getGuestImage } from '@/guestImage'
+import { sampleAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -156,7 +157,7 @@ export function createQemuBackend(): PtyBackend {
       return documentTainted
     },
 
-    async start(slave: Slave, { board, onStatus, signal }: StartOptions) {
+    async start(slave: Slave, { board, sampleId, onStatus, signal }: StartOptions) {
       if (documentTainted) {
         throw new Error('QEMU is already instantiated in this tab. Reload to start a new session.')
       }
@@ -184,21 +185,26 @@ export function createQemuBackend(): PtyBackend {
       if (board.usesDataBundle) await assertAsset(PACKAGE_SCRIPT)
       if (signal.aborted) return
 
-      // preRun cannot await, so the guest image is fetched here and written
-      // synchronously once the filesystem exists.
-      // A user-supplied image replaces the board's kernel; everything else the
-      // board preloads (firmware blobs, say) still comes from public/qemu/.
+      // preRun cannot await, so the guest files are fetched here and written
+      // synchronously once the filesystem exists. A user-supplied ELF replaces
+      // the kernel; anything else the board needs still comes from public/qemu/.
       const custom = getGuestImage()
       onStatus({
         status: 'loading',
-        detail: custom ? `loading ${custom.name}` : 'fetching guest image',
+        detail: custom ? `loading ${custom.name}` : `loading ${sampleId}`,
       })
-      const preloaded = await Promise.all(
-        board.preloadFiles.map(async (f, i) => ({
-          fsPath: f.fsPath,
-          bytes: custom && i === 0 ? custom.bytes : await fetchAsset(f.asset),
-        })),
-      )
+      const preloaded = [
+        {
+          fsPath: board.kernelFsPath,
+          bytes: custom ? custom.bytes : await fetchAsset(sampleAsset(board, sampleId)),
+        },
+        ...(await Promise.all(
+          (board.extraFiles ?? []).map(async (f) => ({
+            fsPath: f.fsPath,
+            bytes: await fetchAsset(f.asset),
+          })),
+        )),
+      ]
       if (signal.aborted) return
 
       // ---- commit: from here the document belongs to this instance ----
@@ -278,7 +284,7 @@ export function createQemuBackend(): PtyBackend {
       // Optional: only builds carrying the qemu,host-sensor patch export this.
       attachHostSensor(instance)
 
-      onStatus({ status: 'running', detail: board.zephyrTarget })
+      onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
     },
 
     async reset() {

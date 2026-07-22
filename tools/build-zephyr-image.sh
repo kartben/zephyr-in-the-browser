@@ -3,9 +3,13 @@
 # Build a Zephyr sample for a QEMU board and install a stripped ELF into
 # public/qemu/zephyr/, where the qemu backend fetches it at runtime.
 #
-#   tools/build-zephyr-image.sh [board] [sample]
+#   tools/build-zephyr-image.sh [board] [app|all]
 #     board  defaults to qemu_cortex_m3
-#     sample defaults to samples/subsys/shell/shell_module (relative to zephyr/)
+#     app    one of the ids in APPS below, or "all" (the default)
+#
+# Images land at public/qemu/zephyr/<board>/<app>.elf, named after the *program*
+# rather than the board — several apps run on one board, so a board-named file
+# said nothing about what would actually boot.
 #
 # Environment overrides:
 #   ZEPHYR_WS     west workspace   (default: ~/zephyrproject)
@@ -16,16 +20,22 @@
 set -euo pipefail
 
 BOARD="${1:-qemu_cortex_m3}"
-SAMPLE="${2:-samples/subsys/shell/shell_module}"
+APP="${2:-all}"
+
+# Must stay in step with the samples listed in src/boards.ts.
+APPS="shell:samples/subsys/shell/shell_module
+philosophers:samples/philosophers
+synchronization:samples/synchronization
+hello_world:samples/hello_world"
 ZEPHYR_WS="${ZEPHYR_WS:-$HOME/zephyrproject}"
 ZEPHYR_IMAGE="${ZEPHYR_IMAGE:-ghcr.io/zephyrproject-rtos/zephyr-build:main}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="$ROOT/public/qemu/zephyr"
 WORK="${ZEPHYR_BUILD_WORKDIR:-$ROOT/.zephyr-build}"
 
-# Board ids carry a slash in hwmv2 (mps2/an385); the artifact name must not.
-OUTNAME="$(echo "$BOARD" | tr '/' '_').elf"
+# Board ids carry a slash in hwmv2 (mps2/an385); paths must not.
+BOARD_DIR="$(echo "$BOARD" | tr '/' '_')"
+DEST="$ROOT/public/qemu/zephyr/$BOARD_DIR"
 
 log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
@@ -53,45 +63,61 @@ else
   log "No host-sensor overlay for $BOARD — building without the device"
 fi
 
-log "Building $SAMPLE for $BOARD"
-docker run --rm \
-  -v "$ZEPHYR_WS:/workdir" \
-  -v "$WORK:/out" \
-  -v "$ROOT:/repo:ro" \
-  -w /workdir \
-  "$ZEPHYR_IMAGE" \
-  bash -lc "west build -p always -b '$BOARD' 'zephyr/$SAMPLE' -d /out/build -- $CMAKE_ARGS"
+# Selected apps, as "id:path" lines.
+if [ "$APP" = "all" ]; then
+  SELECTED="$APPS"
+else
+  SELECTED=$(echo "$APPS" | grep "^$APP:" || true)
+  [ -n "$SELECTED" ] || {
+    echo "Unknown app '$APP'. Known: $(echo "$APPS" | cut -d: -f1 | tr '\n' ' ')" >&2
+    exit 1
+  }
+fi
 
-# The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
-# and it is fetched over HTTP on every boot, so strip it. The right strip binary
-# depends on the guest arch, so pick it from the ELF's own machine type.
-log "Stripping"
-docker run --rm -v "$WORK:/out" "$ZEPHYR_IMAGE" bash -lc '
-  set -euo pipefail
-  elf=/out/build/zephyr/zephyr.elf
-  machine=$(readelf -h "$elf" | awk -F: "/Machine:/ {print \$2}" | xargs)
-  case "$machine" in
-    *AArch64*)   prefix=aarch64-zephyr-elf ;;
-    *ARM*)       prefix=arm-zephyr-eabi ;;
-    *RISC-V*)    prefix=riscv64-zephyr-elf ;;
-    *X86-64*|*Intel*) prefix=x86_64-zephyr-elf ;;
-    *) echo "unhandled ELF machine: $machine" >&2; exit 1 ;;
-  esac
-  strip=$(find /opt/toolchains -name "${prefix}-strip" | head -1)
-  [ -n "$strip" ] || { echo "no strip for $prefix" >&2; exit 1; }
-  echo "  machine=$machine -> $(basename "$strip")"
-  "$strip" -o /out/stripped.elf "$elf"
-'
+build_one() {
+  local id="$1" sample="$2"
 
-cp "$WORK/stripped.elf" "$DEST/$OUTNAME"
+  log "Building $id ($sample) for $BOARD"
+  docker run --rm \
+    -v "$ZEPHYR_WS:/workdir" \
+    -v "$WORK:/out" \
+    -v "$ROOT:/repo:ro" \
+    -w /workdir \
+    "$ZEPHYR_IMAGE" \
+    bash -lc "west build -p always -b '$BOARD' 'zephyr/$sample' -d /out/build -- $CMAKE_ARGS"
 
-log "Done"
-ls -l "$DEST/$OUTNAME"
+  # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
+  # and it is fetched over HTTP on every boot, so strip it. The right strip
+  # binary depends on the guest arch, so pick it from the ELF's own machine type.
+  docker run --rm -v "$WORK:/out" "$ZEPHYR_IMAGE" bash -lc '
+    set -euo pipefail
+    elf=/out/build/zephyr/zephyr.elf
+    machine=$(readelf -h "$elf" | awk -F: "/Machine:/ {print \$2}" | xargs)
+    case "$machine" in
+      *AArch64*)   prefix=aarch64-zephyr-elf ;;
+      *ARM*)       prefix=arm-zephyr-eabi ;;
+      *RISC-V*)    prefix=riscv64-zephyr-elf ;;
+      *X86-64*|*Intel*) prefix=x86_64-zephyr-elf ;;
+      *) echo "unhandled ELF machine: $machine" >&2; exit 1 ;;
+    esac
+    strip=$(find /opt/toolchains -name "${prefix}-strip" | head -1)
+    [ -n "$strip" ] || { echo "no strip for $prefix" >&2; exit 1; }
+    "$strip" -o /out/stripped.elf "$elf"
+  '
+
+  cp "$WORK/stripped.elf" "$DEST/$id.elf"
+  printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$DEST/$id.elf" | xargs)"
+}
+
+while IFS=: read -r id sample; do
+  [ -n "$id" ] || continue
+  build_one "$id" "$sample"
+done <<< "$SELECTED"
+
+log "Done — public/qemu/zephyr/$BOARD_DIR/"
+ls -l "$DEST" | tail -n +2 | awk '{print "   ", $9, $5, "bytes"}'
 cat <<EOF
 
-Wire it up in src/boards.ts:
-  preloadFiles: [{ fsPath: '/pack/zephyr.elf', asset: 'zephyr/$OUTNAME' }]
-
-Check the board's argv against Zephyr's own boards/qemu/<board>/board.cmake —
-that is where the -machine/-cpu flags in src/boards.ts come from.
+These ids must match the samples listed for this board in src/boards.ts.
+Board argv comes from Zephyr's own boards/qemu/<board>/board.cmake.
 EOF

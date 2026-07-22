@@ -1,22 +1,15 @@
 import { Cpu, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-} from '@/components/ui/select'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
-import type { BackendId, BackendStatus } from '@/backends'
+import { ImagePicker } from '@/components/ImagePicker'
+import type { BackendStatus } from '@/backends'
 
 interface Props {
   boardId: string
   onBoardChange: (id: string) => void
-  backendId: BackendId
-  onBackendChange: (id: BackendId) => void
+  sampleId: string
+  onSampleChange: (id: string) => void
   status: BackendStatus
   detail?: string
   /** True once the backend can only be restarted by reloading the document. */
@@ -28,11 +21,18 @@ interface Props {
   onClearImage: () => void
 }
 
+/*
+ * There is deliberately no backend selector. The mock exists so a checkout with
+ * no emulator still runs, not as something worth choosing: whenever QEMU is
+ * available it is simply used, and when it is not the app falls back on its own
+ * and says so in the terminal. Offering the two side by side implied the fake
+ * one was a legitimate alternative to the real one.
+ */
 export function TopBar({
   boardId,
   onBoardChange,
-  backendId,
-  onBackendChange,
+  sampleId,
+  onSampleChange,
   status,
   detail,
   hardRestart,
@@ -51,44 +51,17 @@ export function TopBar({
         </h1>
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-3">
-        <BoardSelect
+      <div className="ml-auto flex min-w-0 items-center gap-3">
+        <BoardSelect boardId={boardId} onBoardChange={onBoardChange} />
+
+        <ImagePicker
           boardId={boardId}
-          onBoardChange={onBoardChange}
-          onLoadElf={onLoadElf}
+          sampleId={sampleId}
+          onSampleChange={onSampleChange}
           customImage={customImage}
+          onLoadElf={onLoadElf}
           onClearImage={onClearImage}
         />
-
-        <label className="hidden text-xs text-muted-foreground lg:inline" htmlFor="backend-select">
-          Runs on
-        </label>
-        <Select value={backendId} onValueChange={(v) => onBackendChange(v as BackendId)}>
-          <SelectTrigger id="backend-select" className="w-[8.5rem]" aria-label="Backend">
-            <span className="truncate">{backendId === 'qemu' ? 'QEMU' : 'Mock shell'}</span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>What drives the terminal</SelectLabel>
-              <SelectItem value="qemu">
-                <span className="flex flex-col items-start">
-                  <span>QEMU</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    real emulator, real Zephyr
-                  </span>
-                </span>
-              </SelectItem>
-              <SelectItem value="mock">
-                <span className="flex flex-col items-start">
-                  <span>Mock shell</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    canned replies, no emulator
-                  </span>
-                </span>
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
 
         <StatusPill status={status} detail={detail} />
 

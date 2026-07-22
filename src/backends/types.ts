@@ -30,6 +30,8 @@ export interface StatusEvent {
 
 export interface StartOptions {
   board: Board
+  /** Which of the board's prebuilt images to boot. Ignored if the user supplied an ELF. */
+  sampleId: string
   onStatus: (event: StatusEvent) => void
   /**
    * Aborted when the terminal unmounts or the session restarts. Backends must

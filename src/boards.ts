@@ -1,55 +1,85 @@
 /**
- * Guest registry.
+ * Guest registry: the machines QEMU can emulate, and the images each can boot.
  *
- * Each entry maps a Zephyr QEMU board target onto the qemu-wasm artifact that
- * runs it plus the argv handed to QEMU. `args` mirror what Zephyr's own
- * `board.cmake` passes (see boards/qemu/<board>/board.cmake upstream).
+ * A board is *hardware* — machine model, CPU, argv. An image is a *program* that
+ * runs on it. They are deliberately separate: several images run on one board,
+ * and a user-supplied ELF replaces the image without touching the machine.
  *
- * Note that `qemuBinary` is the *emulator* build, not the guest architecture:
- * QEMU's aarch64-softmmu target is a superset of arm-softmmu and carries the
- * 32-bit machines too, so one `qemu-system-aarch64` build runs both a Cortex-M3
- * and a Cortex-A53 guest. That is what lets this project use a stock upstream
- * qemu-wasm build instead of needing a bespoke arm-softmmu one.
+ * Note `qemuBinary` is the emulator build, not the guest architecture: QEMU's
+ * aarch64-softmmu target is a superset of arm-softmmu and carries the 32-bit
+ * machines too. This project builds arm-softmmu directly (tools/build-qemu-wasm.sh).
  *
- * Adding a board is a data change: build the Zephyr image, drop it in
- * public/qemu/zephyr/, add an entry here.
- *
- * Only lm3s6965evb is listed because it is the only machine verified to work on
- * the stock upstream qemu-wasm build. mps2-an385 and a 64-bit Cortex-A53 guest
- * both boot correctly under native QEMU with the argv below but produce no
- * console output under that Wasm build, so they are deliberately absent rather
- * than shipped broken. See public/qemu/README.md.
+ * Only lm3s6965evb is listed because it is the only machine verified to work
+ * under qemu-wasm. mps2-an385 and a 64-bit Cortex-A53 guest both boot correctly
+ * under native QEMU with the argv below but produce no console output on the
+ * Wasm build, so they are absent rather than shipped broken. See
+ * public/qemu/README.md.
  */
+
+/** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
+export interface GuestSample {
+  /** Also the artifact basename, so it must stay in step with the build script. */
+  id: string
+  label: string
+  /** One line, shown under the label in the picker. */
+  description: string
+  /** Zephyr sample path, relative to the zephyr/ tree. */
+  zephyrSample: string
+}
+
 export interface Board {
   id: string
   label: string
-  /** Zephyr board target this mirrors, i.e. `west build -b <zephyrTarget>`. */
+  /** Zephyr board target, i.e. `west build -b <zephyrTarget>`. */
   zephyrTarget: string
   /** Guest architecture, for display. */
   arch: string
-  /** Emscripten artifact basename, e.g. `qemu-system-aarch64`. */
+  /** Emscripten artifact basename, e.g. `qemu-system-arm`. */
   qemuBinary: string
-  /** QEMU argv, passed through as Module.arguments (argv[0] is implicit). */
+  /** QEMU argv, passed as Module.arguments (argv[0] is implicit). */
   args: string[]
+  /** Where the kernel lands in the Emscripten filesystem; matches `-kernel`. */
+  kernelFsPath: string
+  samples: GuestSample[]
+  defaultSampleId: string
   /**
-   * Files fetched over HTTP and written into the Emscripten filesystem before
-   * main() runs. This lets a small guest image ride along with a stock qemu-wasm
-   * build rather than being baked into a file_packager `.data` bundle — a
-   * Zephyr image is tens of kilobytes, so repackaging a multi-megabyte blob to
-   * carry it would be absurd.
-   *
-   * `asset` is relative to public/qemu/.
+   * Anything else the guest needs in its filesystem — firmware blobs and the
+   * like. None of the current boards need any.
    */
-  preloadFiles: Array<{ fsPath: string; asset: string }>
+  extraFiles?: Array<{ fsPath: string; asset: string }>
   /**
    * Whether this board needs a file_packager bundle (`load.js` + `.data`).
-   * Required for guests with firmware blobs or a root filesystem; unnecessary
-   * for a bare Zephyr ELF.
+   * Unnecessary for a bare ELF, which is fetched and injected directly.
    */
   usesDataBundle: boolean
-  /** Shown under the selector; keep it to one line. */
-  note: string
 }
+
+const CORTEX_M3_SAMPLES: GuestSample[] = [
+  {
+    id: 'shell',
+    label: 'Shell',
+    description: 'Interactive Zephyr shell, with `sensor get`',
+    zephyrSample: 'samples/subsys/shell/shell_module',
+  },
+  {
+    id: 'philosophers',
+    label: 'Philosophers',
+    description: 'Dining philosophers — threads and mutexes',
+    zephyrSample: 'samples/philosophers',
+  },
+  {
+    id: 'synchronization',
+    label: 'Synchronization',
+    description: 'Two threads ping-ponging a semaphore',
+    zephyrSample: 'samples/synchronization',
+  },
+  {
+    id: 'hello_world',
+    label: 'Hello World',
+    description: 'Prints one line and stops',
+    zephyrSample: 'samples/hello_world',
+  },
+]
 
 export const BOARDS: Board[] = [
   {
@@ -67,9 +97,12 @@ export const BOARDS: Board[] = [
       '-kernel',
       '/pack/zephyr.elf',
     ],
-    preloadFiles: [{ fsPath: '/pack/zephyr.elf', asset: 'zephyr/qemu_cortex_m3.elf' }],
+    kernelFsPath: '/pack/zephyr.elf',
+    samples: CORTEX_M3_SAMPLES,
+    // The shell is the one worth landing on: it is interactive, and it is where
+    // the host-sensor bridge is visible.
+    defaultSampleId: 'shell',
     usesDataBundle: false,
-    note: 'TI Stellaris LM3S6965. Smallest guest, boots fastest.',
   },
 ]
 
@@ -77,4 +110,13 @@ export const DEFAULT_BOARD_ID = BOARDS[0].id
 
 export function getBoard(id: string): Board {
   return BOARDS.find((b) => b.id === id) ?? BOARDS[0]
+}
+
+export function getSample(board: Board, sampleId: string): GuestSample {
+  return board.samples.find((s) => s.id === sampleId) ?? board.samples[0]
+}
+
+/** Where a board's prebuilt image lives under public/qemu/. */
+export function sampleAsset(board: Board, sampleId: string): string {
+  return `zephyr/${board.zephyrTarget}/${sampleId}.elf`
 }
