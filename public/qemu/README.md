@@ -169,6 +169,51 @@ No patch ships for this. Disabling the JIT would slow every guest down and still
 does not make the samples work. It wants reporting upstream to ktock/qemu-wasm,
 with the reproducer above.
 
+### Upstream QEMU can build for Wasm, and it does not fix this
+
+QEMU has had Emscripten support since **10.1**, contributed by ktock himself, so
+the obvious question is whether moving off the fork helps. It was tried, and the
+answer is no — though it is attractive for other reasons.
+
+Upstream v10.1.0 builds and boots Zephyr in the browser:
+
+```console
+$ ./configure --static --target-list=arm-softmmu --cross-prefix= \
+    --without-default-features --enable-system \
+    --with-coroutine=wasm --enable-tcg-interpreter
+```
+
+`configure` auto-detects Emscripten and pulls in `configs/meson/emscripten.txt`
+itself, which already carries the flags this app depends on (ASYNCIFY,
+PROXY_TO_PTHREAD, EXPORT_ES6, FORCE_FILESYSTEM). Upstream is **TCI only** — the
+TCG→Wasm JIT is still not upstreamed — so `--enable-tcg-interpreter` is
+mandatory, and there is a proper `wasm` coroutine backend rather than the fork's
+`fiber`.
+
+Measured against the fork:
+
+| | ktock 8.2.0 fork | upstream v10.1.0 |
+| --- | --- | --- |
+| `.wasm` size | 55 MB | **34 MB** |
+| `Timer with period zero` noise | yes | **no** |
+| Zephyr shell | boots | boots |
+| `samples/synchronization` | 1 line | **14 lines** |
+
+Fourteen is exactly what the fork produces with its JIT disabled. The same
+deterministic stall therefore reproduces on **current upstream QEMU**, across two
+independent versions, which places the remaining defect in the shared TCI path
+rather than in ktock's fork. That makes it filable directly against QEMU.
+
+Two things upstream deliberately leaves out, which any app must add:
+`--js-library=.../xterm-pty/emscripten-pty.js` (or `Module.pty` is ignored and
+stdio goes nowhere) and the build needs `tomli` in the Python environment. Note
+the js-library has to go into the meson cross file — `--extra-ldflags` does not
+reach the link — and meson snapshots that file at configure time, so it needs a
+reconfigure, not just a relink.
+
+Migrating is still worth considering for the 38% size drop and for dropping the
+fork entirely; it just is not a fix for sleeping guests.
+
 **Zephyr's own QEMU patches do not help either** — worth stating, since the SDK
 maintaining a fork makes it a natural thing to reach for. `sdk-ng` builds
 `zephyrproject-rtos/qemu`, which is v10.0.2 plus 20 commits: five xtensa, two RX,
