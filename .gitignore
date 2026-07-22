@@ -8,3 +8,7 @@ dist
 # committed. See public/qemu/README.md.
 public/qemu/*
 !public/qemu/README.md
+
+# local build scratch for tools/*.sh
+.qemu-wasm-build/
+.zephyr-build/

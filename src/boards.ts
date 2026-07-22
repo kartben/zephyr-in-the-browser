@@ -57,7 +57,7 @@ export const BOARDS: Board[] = [
     label: 'QEMU Cortex-M3',
     zephyrTarget: 'qemu_cortex_m3',
     arch: 'ARMv7-M',
-    qemuBinary: 'qemu-system-aarch64',
+    qemuBinary: 'qemu-system-arm',
     args: [
       '-nographic',
       '-machine',

@@ -20,10 +20,19 @@ Zephyr shell that prints a boot banner, echoes input and answers `help`,
 demonstrable without a 100 MB QEMU build, and it announces itself in the banner
 so nobody mistakes it for a real boot.
 
-To run the real thing, put a qemu-wasm build and a Zephyr image in `public/qemu/`
-— see [`public/qemu/README.md`](public/qemu/README.md) for the exact file list
-and the commands to produce both — and restart the dev server. The app switches
-to the `qemu-wasm` backend on its own, and you get the actual Zephyr shell:
+To run the real thing, build the emulator and a guest image, then restart the dev
+server:
+
+```console
+npm install
+tools/build-qemu-wasm.sh       # emulator -> public/qemu/   (slow, containerised)
+tools/build-zephyr-image.sh    # guest    -> public/qemu/zephyr/
+npm run dev
+```
+
+Neither script needs a local Emscripten or Zephyr toolchain. The app switches to
+the `qemu-wasm` backend on its own once a `.wasm` is present, and you get the
+actual Zephyr shell:
 
 ```
 *** Booting Zephyr OS build v4.4.0-8956-gc5d81fa5d424 ***
@@ -32,8 +41,11 @@ Zephyr version 4.4.99
 uart:~$
 ```
 
-Those artifacts are gitignored — a ~57 MB third-party GPLv2 emulator and a build
-output — so a fresh clone starts on the mock until you supply them.
+Those artifacts are gitignored — a ~55 MB GPLv2 emulator and a compiled guest are
+build outputs, not source — so a fresh clone starts on the mock until you build
+them. [`public/qemu/README.md`](public/qemu/README.md) covers the drop-in
+contract, the four upstream build breakages the script works around, and why a
+purpose-built `arm-softmmu` emulator beats upstream's prebuilt one.
 
 ## Cross-origin isolation is not optional
 
