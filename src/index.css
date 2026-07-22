@@ -1,0 +1,105 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/jetbrains-mono';
+
+/*
+ * Dark is the default: this is a terminal, and it is what the app is read on.
+ * A light OS preference is respected, but nothing else toggles the theme —
+ * a theme switcher is out of scope for v1.
+ */
+:root {
+  --background: oklch(0.15 0.004 285.8);
+  --foreground: oklch(0.92 0.004 286.3);
+  --muted: oklch(0.21 0.006 285.9);
+  --muted-foreground: oklch(0.65 0.011 286.1);
+  --card: oklch(0.18 0.005 285.8);
+  --border: oklch(0.27 0.007 286);
+  --input: oklch(0.27 0.007 286);
+  --ring: oklch(0.62 0.19 292);
+  --primary: oklch(0.62 0.19 292);
+  --primary-foreground: oklch(0.98 0.003 286.3);
+  --secondary: oklch(0.24 0.006 286);
+  --secondary-foreground: oklch(0.92 0.004 286.3);
+  --destructive: oklch(0.62 0.21 25.5);
+  --success: oklch(0.7 0.16 152);
+  --warning: oklch(0.77 0.15 78);
+  --terminal: oklch(0.13 0.004 285.8);
+  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: oklch(0.99 0.001 286.4);
+    --foreground: oklch(0.24 0.006 285.9);
+    --muted: oklch(0.96 0.002 286.4);
+    --muted-foreground: oklch(0.51 0.011 286.1);
+    --card: oklch(1 0 0);
+    --border: oklch(0.91 0.004 286.3);
+    --input: oklch(0.91 0.004 286.3);
+    --ring: oklch(0.55 0.21 293);
+    --primary: oklch(0.55 0.21 293);
+    --primary-foreground: oklch(0.99 0.001 286.4);
+    --secondary: oklch(0.96 0.002 286.4);
+    --secondary-foreground: oklch(0.24 0.006 285.9);
+    --destructive: oklch(0.58 0.22 27);
+    --success: oklch(0.6 0.14 152);
+    --warning: oklch(0.68 0.15 70);
+    --terminal: oklch(1 0 0);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-terminal: var(--terminal);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* xterm paints its own background; keep its padding off the canvas edges. */
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 9999px;
+}

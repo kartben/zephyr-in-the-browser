@@ -1,0 +1,10 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+
+# qemu-wasm artifacts are large prebuilt binaries; they are dropped in, not
+# committed. See public/qemu/README.md.
+public/qemu/*
+!public/qemu/README.md
