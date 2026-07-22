@@ -58,8 +58,8 @@ export function TopBar({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="mock">Mock shell</SelectItem>
             <SelectItem value="qemu">QEMU</SelectItem>
+            <SelectItem value="mock">Mock shell</SelectItem>
           </SelectContent>
         </Select>
 

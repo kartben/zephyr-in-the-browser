@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
 import './index.css'
 
@@ -10,8 +11,11 @@ import './index.css'
  * starts as soon as the terminal mounts and would otherwise fetch the board's
  * stock image instead. `finally` because a failed claim must not stop the app
  * from starting — the stock image is a perfectly good fallback.
+ *
+ * The emulator probe rides along for the same reason: the default backend has
+ * to be settled before the terminal mounts and starts one.
  */
-claimStashed().finally(() => {
+Promise.all([claimStashed(), detectQemuAssets()]).finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

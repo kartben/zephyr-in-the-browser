@@ -23,9 +23,6 @@ const MAIN_SCRIPT = 'out.js'
 /** file_packager.py stub that fetches and mounts the .data blob at /pack/. */
 const PACKAGE_SCRIPT = 'load.js'
 
-/** Set by the qemuAssetProbe plugin in vite.config.ts. */
-declare const __QEMU_ASSETS_PRESENT__: boolean
-
 /**
  * Flipped the moment we touch document-global state — assigning `globalThis.
  * Module` or injecting `load.js`. Those are not undoable: `load.js` appends its
@@ -84,7 +81,10 @@ function loadClassicScript(src: string): Promise<void> {
   })
 }
 
-const MISSING_HINT = 'Drop the qemu-wasm artifacts into public/qemu/ — see public/qemu/README.md.'
+const MISSING_HINT =
+  'Build one with tools/build-qemu-wasm.sh and tools/build-zephyr-image.sh, then ' +
+  'restart the dev server — public/qemu/ is only scanned at startup, so a server ' +
+  'that was already running will not see new files. See public/qemu/README.md.'
 
 /**
  * Writes one guest file into the Emscripten filesystem. Must be called from
@@ -111,7 +111,7 @@ function writeGuestFile(mod: QemuModule, fsPath: string, bytes: Uint8Array) {
 async function fetchAsset(file: string): Promise<Uint8Array> {
   const res = await fetch(url(file))
   if (!res.ok) {
-    throw new Error(`${ASSET_BASE}${file} is missing (HTTP ${res.status}). ${MISSING_HINT}`)
+    throw new Error(`${file} is missing from public/qemu/ (HTTP ${res.status}). ${MISSING_HINT}`)
   }
   return new Uint8Array(await res.arrayBuffer())
 }
@@ -121,17 +121,18 @@ async function assertAsset(file: string) {
   try {
     res = await fetch(url(file), { method: 'HEAD' })
   } catch (cause) {
-    throw new Error(`Could not reach ${ASSET_BASE}${file}. ${MISSING_HINT}`, { cause })
+    throw new Error(`Could not reach ${file}. ${MISSING_HINT}`, { cause })
   }
   if (!res.ok) {
-    throw new Error(`${ASSET_BASE}${file} is missing (HTTP ${res.status}). ${MISSING_HINT}`)
+    throw new Error(`${file} is missing from public/qemu/ (HTTP ${res.status}). ${MISSING_HINT}`)
   }
   // A 200 alone proves nothing: Vite's dev server answers unknown paths with the
   // SPA index.html shell, and most static hosts do the same for a 404 fallback.
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('text/html')) {
     throw new Error(
-      `${ASSET_BASE}${file} resolved to the HTML fallback, so it does not exist. ${MISSING_HINT}`,
+      `${file} is not in public/qemu/ — the server answered with its HTML ` +
+        `fallback instead. ${MISSING_HINT}`,
     )
   }
 }
@@ -166,10 +167,11 @@ export function createQemuBackend(): PtyBackend {
         )
       }
 
+      // Deliberately not gated on __QEMU_ASSETS_PRESENT__: that flag is
+      // computed when Vite starts, so it goes stale the moment artifacts are
+      // built under a running server. It decides the *default* backend; whether
+      // a start can actually succeed is settled here, against the server.
       onStatus({ status: 'loading', detail: 'checking assets' })
-      if (!__QEMU_ASSETS_PRESENT__) {
-        throw new Error(`No qemu-wasm build found at build time. ${MISSING_HINT}`)
-      }
       await assertAsset(MAIN_SCRIPT)
       await assertAsset(`${board.qemuBinary}.wasm`)
       if (board.usesDataBundle) await assertAsset(PACKAGE_SCRIPT)
