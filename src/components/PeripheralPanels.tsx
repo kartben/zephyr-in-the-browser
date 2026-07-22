@@ -1,5 +1,6 @@
 import { DisplayPanel } from '@/components/DisplayPanel'
 import { GnssPanel } from '@/components/GnssPanel'
+import { GpioPanel } from '@/components/GpioPanel'
 import { SensorPanel } from '@/components/SensorPanel'
 
 /** Shared floating stack for optional devices exposed by the running emulator. */
@@ -9,6 +10,7 @@ export function PeripheralPanels() {
       <DisplayPanel />
       <GnssPanel />
       <SensorPanel />
+      <GpioPanel />
     </div>
   )
 }

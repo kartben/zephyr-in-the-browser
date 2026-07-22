@@ -1,0 +1,26 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Host-backed GPIO exposed by QEMU over MMIO.
+
+  Input pins are driven by the QEMU host and output pins are observed by it,
+  rather than being wired to emulated hardware. Under qemu-wasm that host is a
+  browser, so a page can raise buttons on the inputs and light indicators from
+  the outputs the guest drives.
+
+compatible: "qemu,host-gpio"
+
+include: [gpio-controller.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  ngpios:
+    required: true
+    description: Number of pins the device exposes.
+
+gpio-cells:
+  - pin
+  - flags

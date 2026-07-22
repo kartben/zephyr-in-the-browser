@@ -41,9 +41,21 @@ interesting — see below.
 
 ## Ranking
 
-### 1. GPIO — buttons and LEDs — do this first
+### 1. GPIO — buttons and LEDs — ✅ done
 
-The highest demo-value-per-effort item, and it reuses shapes we already have in
+**Implemented** as the `qemu,host-gpio` device on the Cortex-M3 shell image:
+a custom MMIO controller modeled on `qemu-host-sensor` (patch
+`tools/qemu-patches/0005-hw-misc-add-qemu-host-gpio.patch`), a Zephyr GPIO
+controller driver (`zephyr-module/drivers/qemu_host_gpio.c`), and a browser
+panel with clickable buttons and live LED indicators
+(`src/components/GpioPanel.tsx`, bridge in `src/hostGpio.ts`). Reachable in the
+guest with `gpio get host_gpio <pin>` / `gpio set host_gpio <pin> <0|1>`.
+Interrupts are deliberately out of the first cut — `pin_interrupt_configure`
+reports `-ENOTSUP`, so it pairs with the shell rather than the IRQ-driven button
+sample; wiring a GPIO IRQ line to the Stellaris NVIC is the obvious follow-up.
+
+Original rationale, kept for the record —
+the highest demo-value-per-effort item, and it reuses shapes we already have in
 both directions:
 
 - **Buttons (host → guest):** a press raises a guest interrupt. This is the
@@ -162,8 +174,8 @@ it expecting virtio to just cover it.
 
 ## Suggested order
 
-1. **GPIO (buttons + LEDs)** — cheapest, most interactive, reuses both directions,
-   guest driver is stock. Start on the M3 shell image.
+1. ~~**GPIO (buttons + LEDs)**~~ — ✅ done; landed on the M3 shell image. Follow-up:
+   wire a GPIO IRQ to the NVIC so the interrupt-driven button sample works too.
 2. **virtio-entropy or virtio-console** — separate exploratory track; prove the
    virtio-mmio path works in qemu-wasm against stock QEMU, no C patch of ours.
 3. **Audio out** — bespoke host-PCM bridge on the framebuffer-export shape, Web

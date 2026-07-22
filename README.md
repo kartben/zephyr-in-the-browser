@@ -5,9 +5,10 @@ top of [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten.
 The Cortex-M machine uses upstream QEMU 10.1's interpreter; Cortex-A53 uses an
 experimental WebAssembly JIT for hot guest code.
 
-The browser UI includes the serial terminal, host-backed sensor controls, an
-editable GNSS fix streamed as standard NMEA over UART, and a live framebuffer
-panel for Zephyr's `qemu,ramfb` display driver. Each peripheral lives in its own
+The browser UI includes the serial terminal, host-backed sensor controls,
+host-backed GPIO with clickable buttons and live LED indicators, an editable
+GNSS fix streamed as standard NMEA over UART, and a live framebuffer panel for
+Zephyr's `qemu,ramfb` display driver. Each peripheral lives in its own
 collapsible, dismissible panel.
 
 ## Run it
@@ -216,12 +217,15 @@ Boards live in [`src/boards.ts`](src/boards.ts), one entry per Zephyr QEMU targe
 carrying the QEMU argv, the emulator artifact it needs, and the guest files to
 inject. Adding one is a data change plus a Zephyr build.
 
-Two machines are verified: `qemu_cortex_m3` for the interactive shell and host
-sensors, and `qemu_cortex_a53` for the architectural timer, fw_cfg, and
-`qemu,ramfb`. Both expose a second PL011 UART backed by editable browser GNSS
-data and ship Zephyr's stock `samples/drivers/gnss` sample. The Cortex-A53 board
-defaults to the stock `samples/drivers/display` sample and renders its
-framebuffer in its own collapsible panel.
+Two machines are verified: `qemu_cortex_m3` for the interactive shell, host
+sensors, and host GPIO, and `qemu_cortex_a53` for the architectural timer,
+fw_cfg, and `qemu,ramfb`. Both expose a second PL011 UART backed by editable
+browser GNSS data and ship Zephyr's stock `samples/drivers/gnss` sample. The
+Cortex-A53 board defaults to the stock `samples/drivers/display` sample and
+renders its framebuffer in its own collapsible panel. The Cortex-M3 shell image
+adds Zephyr's `gpio` shell command against the `qemu,host-gpio` device, so
+`gpio get host_gpio <pin>` reads a button the browser raised and `gpio set
+host_gpio <pin> <0|1>` drives an LED it displays.
 
 The build script produces separate `arm-softmmu` and `aarch64-softmmu`
 artifacts. Cortex-M3 deliberately stays on upstream QEMU's TCG interpreter: the
@@ -243,11 +247,13 @@ src/
     DisplayPanel.tsx live qemu,ramfb canvas; collapsible and dismissible
     GnssPanel.tsx   editable NMEA fix and browser geolocation control
     SensorPanel.tsx host sensor controls
+    GpioPanel.tsx   host GPIO buttons (inputs) and LED indicators (outputs)
     PeripheralPanels.tsx shared floating stack for peripheral popups
     ui/             shadcn/ui primitives
   boards.ts     guest registry
   hostDisplay.ts qemu,ramfb export bridge
   hostGnss.ts   NMEA generator and emulated UART bridge
+  hostGpio.ts   host-driven inputs and guest-driven outputs bridge
 public/qemu/    drop-in target for qemu-wasm artifacts (gitignored)
 ```
 

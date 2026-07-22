@@ -99,7 +99,7 @@ working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
 include the browser terminal and GNSS UART bridges; ARM adds the host sensor,
 and AArch64 adds the ramfb bridge.
 
-Four browser integrations are supplied by the target-specific patch
+Five browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -107,6 +107,9 @@ directories under `tools/`:
   `--extra-ldflags` does not reach the link, and meson snapshots that file at
   configure time, so changing it needs a reconfigure rather than a relink.
 * The `qemu-host-sensor` device (see the sensor bridge in the top-level README).
+* The `qemu-host-gpio` device: input pins driven from JavaScript and output pins
+  read back by it, exposed through `qemu_host_gpio_set_inputs` /
+  `qemu_host_gpio_get_outputs`. Cortex-M3 only.
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
 * A browser-fed character backend on each machine's second PL011 UART. It

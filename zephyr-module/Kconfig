@@ -8,3 +8,14 @@ config QEMU_HOST_SENSOR
 	  values are supplied by the QEMU host rather than by emulated
 	  hardware. Under qemu-wasm that host is a browser, so the values can
 	  come from Web sensor APIs.
+
+config QEMU_HOST_GPIO
+	bool "QEMU host-backed GPIO"
+	default y
+	depends on DT_HAS_QEMU_HOST_GPIO_ENABLED
+	depends on GPIO
+	help
+	  GPIO controller driver for the qemu-host-gpio MMIO device, whose input
+	  pins are driven by the QEMU host and whose output pins are observed by
+	  it. Under qemu-wasm that host is a browser, so a page can raise buttons
+	  on the inputs and light indicators from the outputs the guest drives.

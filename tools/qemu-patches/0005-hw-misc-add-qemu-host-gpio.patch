@@ -1,0 +1,247 @@
+diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
+index 6f9fb25..17fd03c 100644
+--- a/hw/arm/Kconfig
++++ b/hw/arm/Kconfig
+@@ -5,6 +5,7 @@ config STELLARIS
+     imply I2C_DEVICES
+     select ARM_V7M
+     select QEMU_HOST_SENSOR
++    select QEMU_HOST_GPIO
+     select CMSDK_APB_WATCHDOG
+     select I2C
+     select PL011 # UART
+diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
+index 3510a45..577c470 100644
+--- a/hw/arm/stellaris.c
++++ b/hw/arm/stellaris.c
+@@ -5,6 +5,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+      */
+     sysbus_create_simple("qemu-host-sensor", 0x40060000, NULL);
+ 
++    /*
++     * Host-backed GPIO bridge, on the same principle as the sensor above and in
++     * the same unused window: pins are driven and observed by the QEMU host (a
++     * browser under qemu-wasm) rather than by emulated hardware.
++     */
++    sysbus_create_simple("qemu-host-gpio", 0x40061000, NULL);
++
+     create_unimplemented_device("PWM", 0x40028000, 0x1000);
+     create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
+     create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
+diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
+index 859e23e..f689412 100644
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -7,4 +7,7 @@ config XLNX_VERSAL_TRNG
+ config QEMU_HOST_SENSOR
+     bool
+ 
++config QEMU_HOST_GPIO
++    bool
++
+ source macio/Kconfig
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index 4f885c1..849596d 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -3,6 +3,7 @@ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
+ system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
++system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
+ system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
+ system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
+ system_ss.add(when: 'CONFIG_PVPANIC_COMMON', if_true: files('pvpanic.c'))
+diff --git a/hw/misc/qemu-host-gpio.c b/hw/misc/qemu-host-gpio.c
+new file mode 100644
+index 0000000..72f595b
+--- /dev/null
++++ b/hw/misc/qemu-host-gpio.c
+@@ -0,0 +1,187 @@
++/*
++ * Host-backed GPIO device.
++ *
++ * A companion to qemu-host-sensor.c and built on the same idea: it models no
++ * real hardware. Instead the QEMU *host* drives the input pins and observes the
++ * output pins, so under qemu-wasm page JavaScript becomes the thing on the other
++ * end of the wires -- a browser button raises an input, a guest-driven output
++ * lights a browser LED. Nothing here is browser-specific: the two entry points
++ * are ordinary C, so the device also works under native QEMU for testing the
++ * guest driver without a browser in the loop.
++ *
++ * Two 32-bit words carry the state. IN is written by the host and read by the
++ * guest; OUT is written by the guest and read by the host. They are independent
++ * so a pin read never disturbs a pin driven, which keeps the guest's MMIO path
++ * free of any call back into JavaScript.
++ *
++ * Copyright (c) 2026
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 or
++ *  (at your option) any later version.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "hw/sysbus.h"
++#include "hw/registerfields.h"
++#include "migration/vmstate.h"
++#include "hw/qdev-properties.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define TYPE_QEMU_HOST_GPIO "qemu-host-gpio"
++OBJECT_DECLARE_SIMPLE_TYPE(QemuHostGpioState, QEMU_HOST_GPIO)
++
++/* "HGPI" -- lets the guest driver confirm the device is really there. */
++#define HOST_GPIO_MAGIC 0x48475049
++#define HOST_GPIO_PINS 8
++
++REG32(ID, 0x00)    /* RO: HOST_GPIO_MAGIC */
++REG32(NPINS, 0x04) /* RO: number of pins */
++REG32(IN, 0x08)    /* RO to the guest: input levels, one bit per pin */
++REG32(OUT, 0x0c)   /* RW: output levels the guest drives, one bit per pin */
++REG32(DIR, 0x10)   /* RW: direction bits, 1 = output (guest bookkeeping) */
++
++struct QemuHostGpioState {
++    SysBusDevice parent_obj;
++    MemoryRegion iomem;
++    uint32_t dir;
++};
++
++/*
++ * IN and OUT are global rather than per-device so the two host entry points
++ * below need no device handle -- one instance per machine is the only sane
++ * configuration, so that is not a real constraint. A single 32-bit store or
++ * load is atomic on every host we target, so no locking is needed between the
++ * host thread and the QEMU main pthread.
++ */
++static uint32_t host_gpio_in;  /* driven by the host, read by the guest */
++static uint32_t host_gpio_out; /* driven by the guest, read by the host */
++
++/*
++ * Host entry points. Under Emscripten these are reachable from page JavaScript
++ * as Module._qemu_host_gpio_set_inputs(mask) and
++ * Module._qemu_host_gpio_get_outputs().
++ */
++EMSCRIPTEN_KEEPALIVE
++void qemu_host_gpio_set_inputs(uint32_t value)
++{
++    host_gpio_in = value & ((1u << HOST_GPIO_PINS) - 1);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_gpio_get_outputs(void)
++{
++    return host_gpio_out;
++}
++
++static uint64_t qemu_host_gpio_read(void *opaque, hwaddr addr, unsigned size)
++{
++    QemuHostGpioState *s = opaque;
++
++    switch (addr) {
++    case A_ID:
++        return HOST_GPIO_MAGIC;
++    case A_NPINS:
++        return HOST_GPIO_PINS;
++    case A_IN:
++        return host_gpio_in;
++    case A_OUT:
++        return host_gpio_out;
++    case A_DIR:
++        return s->dir;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-gpio: read from bad offset 0x%" HWADDR_PRIx "\n",
++                      addr);
++        return 0;
++    }
++}
++
++static void qemu_host_gpio_write(void *opaque, hwaddr addr, uint64_t value,
++                                 unsigned size)
++{
++    QemuHostGpioState *s = opaque;
++    uint32_t mask = (1u << HOST_GPIO_PINS) - 1;
++
++    switch (addr) {
++    case A_OUT:
++        host_gpio_out = (uint32_t)value & mask;
++        break;
++    case A_DIR:
++        s->dir = (uint32_t)value & mask;
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-gpio: write to read-only/bad offset 0x%"
++                      HWADDR_PRIx "\n", addr);
++        break;
++    }
++}
++
++static const MemoryRegionOps qemu_host_gpio_ops = {
++    .read = qemu_host_gpio_read,
++    .write = qemu_host_gpio_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid.min_access_size = 4,
++    .valid.max_access_size = 4,
++};
++
++static void qemu_host_gpio_reset(DeviceState *dev)
++{
++    QemuHostGpioState *s = QEMU_HOST_GPIO(dev);
++
++    s->dir = 0;
++    /* Outputs low at boot so a reset leaves the browser LEDs dark. */
++    host_gpio_out = 0;
++}
++
++static void qemu_host_gpio_init(Object *obj)
++{
++    QemuHostGpioState *s = QEMU_HOST_GPIO(obj);
++
++    memory_region_init_io(&s->iomem, obj, &qemu_host_gpio_ops, s,
++                          "qemu-host-gpio", 0x1000);
++    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->iomem);
++}
++
++static const VMStateDescription vmstate_qemu_host_gpio = {
++    .name = "qemu-host-gpio",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT32(dir, QemuHostGpioState),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static void qemu_host_gpio_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    device_class_set_legacy_reset(dc, qemu_host_gpio_reset);
++    dc->vmsd = &vmstate_qemu_host_gpio;
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++}
++
++static const TypeInfo qemu_host_gpio_info = {
++    .name = TYPE_QEMU_HOST_GPIO,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(QemuHostGpioState),
++    .instance_init = qemu_host_gpio_init,
++    .class_init = qemu_host_gpio_class_init,
++};
++
++static void qemu_host_gpio_register_types(void)
++{
++    type_register_static(&qemu_host_gpio_info);
++}
++
++type_init(qemu_host_gpio_register_types)
