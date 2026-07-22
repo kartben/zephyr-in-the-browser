@@ -171,16 +171,19 @@ The display path intentionally does not depend on SDL, GTK, VNC, or a QEMU UI
 backend. Zephyr's `qemu,ramfb` driver allocates an ARGB8888 framebuffer and
 publishes its configuration through fw_cfg. The local QEMU patch exposes the
 mapped pixel address and metadata to JavaScript; `hostDisplay.ts` reads the
-shared Emscripten heap and `DisplayPanel.tsx` paints it into a canvas.
+shared Emscripten heap. `DisplayPanel.tsx` prefers WebGL 2, uploading that heap
+view directly as a texture and swapping BGRA to RGBA in a fragment shader. This
+avoids the previous per-pixel JavaScript conversion and allows a 30 fps refresh
+cap. Browsers without WebGL 2 retain the Canvas 2D renderer as a fallback.
 
 The stock `samples/drivers/display` sample on `qemu_cortex_a53` is the default.
 A local devicetree overlay reduces its ramfb surface from Zephyr's 1024×768
 default to 600×400: that is 69.5% fewer pixels for both the emulated guest and
-the browser's BGRA-to-RGBA conversion. In a browser comparison with the same
-JIT emulator, the sample reached `Display starts` at 130 ms of guest time,
-versus 370 ms for the 1024×768 image (about 2.8× faster). The panel appears only
-after the guest configures ramfb, and can be collapsed or dismissed
-independently of the terminal and sensor panel.
+the browser's texture upload. In a browser comparison with the same JIT
+emulator, the sample reached `Display starts` at 130 ms of guest time, versus
+370 ms for the 1024×768 image (about 2.8× faster). The panel appears only after
+the guest configures ramfb, and can be collapsed or dismissed independently of
+the terminal and sensor panel.
 
 This is output-only for now. No virtio input device is connected to browser
 pointer events, and keyboard input remains attached to the serial terminal.
