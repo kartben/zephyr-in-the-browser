@@ -173,10 +173,14 @@ publishes its configuration through fw_cfg. The local QEMU patch exposes the
 mapped pixel address and metadata to JavaScript; `hostDisplay.ts` reads the
 shared Emscripten heap and `DisplayPanel.tsx` paints it into a canvas.
 
-The stock `samples/drivers/display` sample on `qemu_cortex_a53` is the default
-and produces a 1024×768 four-corner test pattern. The panel appears only after
-the guest configures ramfb, and can be collapsed or dismissed independently of
-the terminal and sensor panel.
+The stock `samples/drivers/display` sample on `qemu_cortex_a53` is the default.
+A local devicetree overlay reduces its ramfb surface from Zephyr's 1024×768
+default to 600×400: that is 69.5% fewer pixels for both the emulated guest and
+the browser's BGRA-to-RGBA conversion. In a browser comparison with the same
+JIT emulator, the sample reached `Display starts` at 130 ms of guest time,
+versus 370 ms for the 1024×768 image (about 2.8× faster). The panel appears only
+after the guest configures ramfb, and can be collapsed or dismissed
+independently of the terminal and sensor panel.
 
 This is output-only for now. No virtio input device is connected to browser
 pointer events, and keyboard input remains attached to the serial terminal.

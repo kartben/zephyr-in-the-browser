@@ -26,8 +26,8 @@ export function DisplayPanel() {
 
     const draw = (now: number) => {
       if (stopped) return
-      // Copying a 1024x768 framebuffer is substantial; 12 fps is responsive
-      // enough for Zephyr samples without starving the terminal/UI thread.
+      // Scanning and color-converting the framebuffer is substantial; 12 fps
+      // is enough for Zephyr samples without starving the terminal/UI thread.
       if (now - previous >= 1000 / 12) {
         const source = getFrame()
         if (source) {

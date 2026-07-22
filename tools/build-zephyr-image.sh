@@ -60,20 +60,26 @@ log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 mkdir -p "$WORK" "$DEST"
 
 # This repo ships an out-of-tree Zephyr module (the qemu,host-sensor driver and
-# its binding) plus Kconfig and devicetree overlays. Everything below is passed
-# as CMake args; note that current Zephyr *rejects* -DCONFIG_* on the command
-# line, so Kconfig changes have to travel in a .conf file.
+# its binding) plus board-specific devicetree overlays. Everything below is
+# passed as CMake args; note that current Zephyr *rejects* -DCONFIG_* on the
+# command line, so Kconfig changes have to travel in a .conf file.
 MODULE=/repo/zephyr-module
 CMAKE_ARGS="-DZEPHYR_EXTRA_MODULES=$MODULE"
 
-# The MMIO address the sensor lives at is board-specific, so the overlay is too.
-# Boards without one simply build without the device.
-if [ -f "$ROOT/zephyr-module/overlays/$(echo "$BOARD" | tr '/' '_').overlay" ]; then
-  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_DTC_OVERLAY_FILE=$MODULE/overlays/$(echo "$BOARD" | tr '/' '_').overlay"
-  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
-  log "Including host-sensor overlay for $BOARD"
+# Board overlays may add a host peripheral or tune an emulated one. Boards
+# without one simply use Zephyr's stock devicetree.
+BOARD_OVERLAY="$ROOT/zephyr-module/overlays/$BOARD_DIR.overlay"
+if [ -f "$BOARD_OVERLAY" ]; then
+  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_DTC_OVERLAY_FILE=$MODULE/overlays/$BOARD_DIR.overlay"
+  log "Including board overlay for $BOARD"
 else
-  log "No host-sensor overlay for $BOARD — building stock Zephyr peripherals"
+  log "No board overlay for $BOARD — building stock Zephyr peripherals"
+fi
+
+# Only the Cortex-M overlay declares qemu,host-sensor. Keep its Kconfig fragment
+# separate so display-only boards do not pull in the sensor shell.
+if [ "$BOARD" = "qemu_cortex_m3" ]; then
+  CMAKE_ARGS="$CMAKE_ARGS -DEXTRA_CONF_FILE=$MODULE/overlays/host-sensor.conf"
 fi
 
 # Selected apps, as "id:path" lines.
