@@ -1,8 +1,9 @@
 # Zephyr in the Browser
 
 The [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, on
-top of [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten —
-upstream QEMU 10.1, which gained Emscripten support in that release.
+top of [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten.
+The Cortex-M machine uses upstream QEMU 10.1's interpreter; Cortex-A53 uses an
+experimental WebAssembly JIT for hot guest code.
 
 The browser UI includes the serial terminal plus host-backed sensor controls and
 a live framebuffer panel for Zephyr's `qemu,ramfb` display driver.
@@ -145,9 +146,10 @@ bundles them as a single tarball because release assets are flat and
 
 **GPL.** That binary is a build of QEMU, so publishing it carries a
 corresponding-source obligation. It is satisfied by this repository being
-public: the source is [qemu/qemu](https://github.com/qemu/qemu) at the tag
-`tools/build-qemu-wasm.sh` pins, plus [`tools/qemu-patches/`](tools/qemu-patches),
-and the release notes say so.
+public: the source is [qemu/qemu](https://github.com/qemu/qemu) and
+[ktock/qemu-wasm](https://github.com/ktock/qemu-wasm) at the revisions
+`tools/build-qemu-wasm.sh` pins, plus the patches under `tools/`, and the release
+notes say so.
 
 ### Why the page reloads itself once
 
@@ -219,12 +221,13 @@ sensors, and `qemu_cortex_a53` for the architectural timer, fw_cfg, and
 panel beside the sensor panel.
 
 The build script produces separate `arm-softmmu` and `aarch64-softmmu`
-artifacts. Each board selects its matching Emscripten JS/Wasm pair, preserving
-the existing Cortex-M3 shell while adding the 64-bit `virt` machine for ramfb.
-
-This build deliberately uses QEMU's TCG interpreter. The Wasm JIT path is not
-reliable for the AArch64 guest, while TCI runs both boards consistently. It is
-much slower than native QEMU, so the small 32-bit guest remains the default.
+artifacts. Cortex-M3 deliberately stays on upstream QEMU's TCG interpreter: the
+experimental JIT is known to miscompile its timer path. Cortex-A53 uses the
+wasm32 JIT, which interprets cold translation blocks and compiles hot ones into
+small WebAssembly modules. A local 20-million-iteration guest benchmark measured
+7.1 seconds with TCI and 1.1 seconds with JIT (about 6.5× faster); the display
+sample's architectural timer and ramfb output were also verified. Set
+`QEMU_AARCH64_ACCEL=tci` when building to select the slower upstream fallback.
 
 ## Layout
 

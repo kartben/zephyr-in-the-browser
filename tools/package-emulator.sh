@@ -57,9 +57,9 @@ else
     --notes "qemu-wasm emulator and Zephyr guest images.
 
 Built with tools/build-qemu-wasm.sh and tools/build-zephyr-image.sh.
-QEMU is GPLv2: corresponding source is qemu/qemu at the tag pinned by
-tools/build-qemu-wasm.sh, plus the patches in tools/qemu-patches/ in this
-repository."
+QEMU is GPLv2: corresponding source is qemu/qemu and ktock/qemu-wasm at the
+revisions pinned by tools/build-qemu-wasm.sh, plus the patches under tools/ in
+this repository."
 fi
 
 log "Done — deploy with: gh workflow run pages.yml -f emulator_release=$TAG"
