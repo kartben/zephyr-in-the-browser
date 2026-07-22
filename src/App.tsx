@@ -3,11 +3,26 @@ import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
-import { DEFAULT_BOARD_ID, getBoard } from '@/boards'
+import { BOARDS, DEFAULT_BOARD_ID, getBoard } from '@/boards'
+
+/**
+ * The selection lives in the query string so it can survive the reload that a
+ * committed QEMU session needs. Without this the board and backend dropdowns
+ * become dead controls the moment the emulator is running.
+ */
+function readSelection() {
+  const params = new URLSearchParams(location.search)
+  const board = params.get('board')
+  const backend = params.get('backend')
+  return {
+    boardId: BOARDS.some((b) => b.id === board) ? board! : DEFAULT_BOARD_ID,
+    backendId: backend === 'mock' || backend === 'qemu' ? backend : defaultBackendId(),
+  }
+}
 
 export default function App() {
-  const [backendId, setBackendId] = useState<BackendId>(defaultBackendId)
-  const [boardId, setBoardId] = useState(DEFAULT_BOARD_ID)
+  const [backendId, setBackendId] = useState<BackendId>(() => readSelection().backendId)
+  const [boardId, setBoardId] = useState(() => readSelection().boardId)
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
   const [nonce, setNonce] = useState(0)
@@ -56,6 +71,32 @@ export default function App() {
     abortRef.current = null
   }, [])
 
+  /**
+   * A committed QEMU document cannot be recycled, so a selection change there
+   * has to go through a reload carrying the new choice in the URL. Otherwise
+   * the key change on <XTerminal> remounts the session in place.
+   */
+  const applySelection = useCallback((next: { boardId?: string; backendId?: BackendId }) => {
+    if (backendRef.current?.resetRequiresReload) {
+      const params = new URLSearchParams(location.search)
+      params.set('board', next.boardId ?? configRef.current.boardId)
+      params.set('backend', next.backendId ?? configRef.current.backendId)
+      location.search = params.toString()
+      return
+    }
+    if (next.boardId !== undefined) setBoardId(next.boardId)
+    if (next.backendId !== undefined) setBackendId(next.backendId)
+  }, [])
+
+  const handleBoardChange = useCallback(
+    (id: string) => applySelection({ boardId: id }),
+    [applySelection],
+  )
+  const handleBackendChange = useCallback(
+    (id: BackendId) => applySelection({ backendId: id }),
+    [applySelection],
+  )
+
   const handleRestart = useCallback(() => {
     const backend = backendRef.current
     if (backend?.resetRequiresReload) {
@@ -73,9 +114,9 @@ export default function App() {
     <div className="flex h-full flex-col">
       <TopBar
         boardId={boardId}
-        onBoardChange={setBoardId}
+        onBoardChange={handleBoardChange}
         backendId={backendId}
-        onBackendChange={setBackendId}
+        onBackendChange={handleBackendChange}
         status={status}
         detail={detail}
         hardRestart={hardRestart}
