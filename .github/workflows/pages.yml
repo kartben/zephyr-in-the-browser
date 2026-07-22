@@ -1,0 +1,92 @@
+name: Deploy to GitHub Pages
+
+# Manual by default: a deploy ships a ~53 MB emulator, so it should be a
+# deliberate act rather than something every push triggers.
+on:
+  workflow_dispatch:
+    inputs:
+      emulator_release:
+        description: >-
+          Release tag holding the qemu-wasm artifacts. Leave empty to deploy
+          with the mock backend only.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, but let a queued one supersede an older.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # The emulator is not in git: it is a ~53 MB GPLv2 binary rebuilt from
+      # tools/build-qemu-wasm.sh, so it travels as a release asset instead.
+      # Without it the build still succeeds and ships the mock backend, which
+      # needs no cross-origin isolation.
+      # Release assets are flat, so the artifacts travel as one tarball rooted
+      # at qemu/ (see tools/package-emulator.sh) to preserve the zephyr/
+      # subdirectory.
+      - name: Fetch emulator artifacts
+        if: inputs.emulator_release != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.emulator_release }}
+        run: |
+          gh release download "$TAG" \
+            --pattern 'qemu-wasm-artifacts.tar.gz' --dir /tmp --clobber
+          tar xzf /tmp/qemu-wasm-artifacts.tar.gz -C public
+          echo "--- public/qemu ---"
+          find public/qemu -type f -printf '%10s  %p\n'
+
+      - name: Build
+        env:
+          # GitHub Pages project sites are served from /<repo>/.
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: npm run build
+
+      # Fail loudly rather than silently shipping a demo that cannot start.
+      # The mock-only case is legitimate; a half-populated public/qemu/ is not.
+      - name: Verify deployable output
+        run: |
+          test -f dist/coi-serviceworker.js \
+            || { echo "::error::coi-serviceworker.js missing — the deploy would not be cross-origin isolated"; exit 1; }
+          if [ -n "${{ inputs.emulator_release }}" ]; then
+            test -f dist/qemu/out.js \
+              || { echo "::error::emulator release did not contain out.js"; exit 1; }
+            ls dist/qemu/*.wasm >/dev/null 2>&1 \
+              || { echo "::error::emulator release did not contain a .wasm"; exit 1; }
+            ls dist/qemu/zephyr/*.elf >/dev/null 2>&1 \
+              || { echo "::error::emulator release did not contain a guest image"; exit 1; }
+          fi
+          du -sh dist
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -75,6 +75,49 @@ script to `index.html` before the app bundle. Hosts where you *can* set headers
 directly (Netlify `_headers`, Vercel `headers`, Cloudflare Pages, any real web
 server) do not need the shim.
 
+## Deploying to GitHub Pages
+
+`.github/workflows/pages.yml` builds and deploys. It is `workflow_dispatch`
+only — a full deploy ships a ~53 MB emulator, so it should be deliberate rather
+than triggered by every push.
+
+```console
+$ tools/package-emulator.sh v1            # bundles public/qemu/ and cuts the release
+$ gh workflow run pages.yml -f emulator_release=v1
+```
+
+Omit `emulator_release` and it deploys the mock backend alone — about 750 kB,
+needs no cross-origin isolation, and is a reasonable way to show the UI without
+shipping an emulator.
+
+Two things need doing once, by hand, in repository settings: Pages must be
+enabled with **GitHub Actions** as the source, and the repo must be public
+(Pages on a private repo needs a paid plan).
+
+The emulator travels as a release asset rather than in git — it is a build
+output, and 53 MB in history is forever. `tools/package-emulator.sh` bundles it
+as a single tarball because release assets are flat and `public/qemu/` has a
+`zephyr/` subdirectory.
+
+**GPL.** That binary is a build of QEMU, so publishing it carries a
+corresponding-source obligation. It is satisfied by this repository being
+public: the source is [ktock/qemu-wasm](https://github.com/ktock/qemu-wasm)
+plus [`tools/qemu-patches/`](tools/qemu-patches), and the release notes say so.
+
+### Why the page reloads itself once
+
+GitHub Pages cannot send COOP/COEP, and without them there is no
+`SharedArrayBuffer` and the qemu backend refuses to start. `coi-serviceworker`
+(vendored in `public/`, MIT) works around it by re-serving the page to itself
+with the headers attached, which costs one automatic reload on first visit. It
+is a no-op where the headers already arrive from the server, so the dev server
+is unaffected.
+
+Verified end to end against a deliberately header-less static server: the
+service worker alone is enough to reach `crossOriginIsolated === true` and boot
+the guest. A host that can set headers directly — Cloudflare Pages, Netlify, any
+real web server — does not need the shim at all.
+
 ## The backend seam
 
 `PtyBackend` in [`src/backends/types.ts`](src/backends/types.ts) is the whole

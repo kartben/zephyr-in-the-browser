@@ -12,6 +12,16 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Static hosts like GitHub Pages cannot send Cross-Origin-Opener-Policy or
+      Cross-Origin-Embedder-Policy, and without them SharedArrayBuffer is
+      unavailable and the qemu backend refuses to start. This service worker
+      re-serves the page to itself with those headers attached, reloading once
+      on first visit. Harmless where the headers already arrive from the server
+      (the dev server, or a host with a _headers file) — it detects isolation
+      and does nothing.
+    -->
+    <script src="./coi-serviceworker.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

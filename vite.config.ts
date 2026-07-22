@@ -60,6 +60,12 @@ function qemuAssetProbe(): Plugin {
 }
 
 export default defineConfig({
+  /*
+   * GitHub Pages serves project sites from /<repo>/, so the deploy workflow
+   * sets BASE_PATH. Everything that resolves an asset at runtime goes through
+   * import.meta.env.BASE_URL, so this is the only place the prefix is named.
+   */
+  base: process.env.BASE_PATH ?? '/',
   plugins: [react(), tailwindcss(), crossOriginIsolation(), qemuAssetProbe()],
   resolve: {
     alias: { '@': path.join(root, 'src') },
