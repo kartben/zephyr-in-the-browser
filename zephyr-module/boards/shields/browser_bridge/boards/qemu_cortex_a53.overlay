@@ -73,3 +73,31 @@
 	width = <600>;
 	height = <400>;
 };
+
+/*
+ * Browser network bridge: virtio-net on the first virtio-mmio slot, which
+ * QEMU populates with `-device virtio-net-device,bus=virtio-mmio-bus.0`
+ * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property
+ * in src/boards.ts: QEMU's virtio-net model filters inbound unicast against
+ * it, and Zephyr's driver takes its address from devicetree without ever
+ * programming the device. Costs non-networking samples nothing — the driver
+ * stack only builds behind NET_L2_ETHERNET.
+ */
+&virtio_mmio0 {
+	status = "okay";
+
+	virtio_net0: virtio-net {
+		compatible = "virtio,net";
+		local-mac-address = [02 00 00 00 00 01];
+		status = "okay";
+	};
+};
+
+/*
+ * Silence the stock e1000 PCIe path: the promptless QEMU_CORTEX_A53_ETH_E1000
+ * would otherwise select ETH_E1000 + PCIE (with a 2 GiB VM space) the moment
+ * NETWORKING=y, fighting the virtio-net setup above.
+ */
+&eth0 {
+	status = "disabled";
+};
