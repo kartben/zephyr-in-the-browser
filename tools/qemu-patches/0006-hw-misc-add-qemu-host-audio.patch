@@ -54,10 +54,10 @@ index a6fbaf3..05c845c 100644
  system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
 diff --git a/hw/misc/qemu-host-audio.c b/hw/misc/qemu-host-audio.c
 new file mode 100644
-index 0000000..8625162
+index 0000000..541daf9
 --- /dev/null
 +++ b/hw/misc/qemu-host-audio.c
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,224 @@
 +/*
 + * Host-backed audio-out device.
 + *
@@ -76,9 +76,11 @@ index 0000000..8625162
 + * and the QEMU main pthread -- and the guest's MMIO path never calls back
 + * into JavaScript.
 + *
-+ * The format is fixed at 16 kHz mono s16: beeps do not need CD quality, and
-+ * ~16k MMIO writes per second of sound keeps the TCI-interpreted Cortex-M3
-+ * guest comfortable.
++ * Samples are 16-bit signed. Rate and channel count are guest-programmable
++ * within Web Audio friendly bounds (8-48 kHz, mono or stereo, interleaved) so
++ * a Zephyr I2S driver can pass its configuration through; the 16 kHz mono
++ * reset default keeps the TCI-interpreted Cortex-M3 guest comfortable at
++ * ~16k MMIO writes per second of sound.
 + *
 + * Copyright (c) 2026
 + *
@@ -107,16 +109,19 @@ index 0000000..8625162
 +
 +/* "HAUD" -- lets the guest driver confirm the device is really there. */
 +#define HOST_AUDIO_MAGIC 0x48415544
-+#define HOST_AUDIO_RATE 16000
-+/* Ring capacity in frames; power of two, ~4 s at 16 kHz. */
-+#define HOST_AUDIO_FRAMES 65536
++#define HOST_AUDIO_DEFAULT_RATE 16000
++#define HOST_AUDIO_MIN_RATE 8000
++#define HOST_AUDIO_MAX_RATE 48000
++/* Ring capacity in samples; power of two, ~4 s of mono at 16 kHz. */
++#define HOST_AUDIO_SAMPLES 65536
 +
-+REG32(ID, 0x00)     /* RO: HOST_AUDIO_MAGIC */
-+REG32(RATE, 0x04)   /* RO: sample rate in Hz */
-+REG32(FRAMES, 0x08) /* RO: ring capacity in frames */
-+REG32(WRIDX, 0x0c)  /* RO: free-running count of frames the guest pushed */
-+REG32(RDIDX, 0x10)  /* RO: free-running count of frames the host consumed */
-+REG32(DATA, 0x14)   /* WO: push one frame (low 16 bits, signed) */
++REG32(ID, 0x00)       /* RO: HOST_AUDIO_MAGIC */
++REG32(RATE, 0x04)     /* RW: sample rate in Hz, clamped to 8000..48000 */
++REG32(BUFSZ, 0x08)    /* RO: ring capacity in samples */
++REG32(WRIDX, 0x0c)    /* RO: free-running count of samples the guest pushed */
++REG32(RDIDX, 0x10)    /* RO: free-running count of samples the host consumed */
++REG32(DATA, 0x14)     /* WO: push one sample (low 16 bits, signed) */
++REG32(CHANNELS, 0x18) /* RW: interleaved channels per frame, 1 or 2 */
 +
 +struct QemuHostAudioState {
 +    SysBusDevice parent_obj;
@@ -128,9 +133,11 @@ index 0000000..8625162
 + * points below need no device handle -- one instance per machine is the only
 + * sane configuration, so that is not a real constraint.
 + */
-+static int16_t host_audio_ring[HOST_AUDIO_FRAMES];
++static int16_t host_audio_ring[HOST_AUDIO_SAMPLES];
 +static uint32_t host_audio_wr; /* advanced by the guest via REG_DATA */
 +static uint32_t host_audio_rd; /* advanced by the host as it consumes */
++static uint32_t host_audio_rate = HOST_AUDIO_DEFAULT_RATE;
++static uint32_t host_audio_channels = 1;
 +
 +/*
 + * Host entry points. Under Emscripten these are reachable from page
@@ -139,7 +146,8 @@ index 0000000..8625162
 + * rather than in a header because nothing on the QEMU side calls them.
 + */
 +uint32_t qemu_host_audio_get_rate(void);
-+uint32_t qemu_host_audio_get_buffer_frames(void);
++uint32_t qemu_host_audio_get_channels(void);
++uint32_t qemu_host_audio_get_buffer_samples(void);
 +uintptr_t qemu_host_audio_get_data(void);
 +uint32_t qemu_host_audio_get_write_index(void);
 +void qemu_host_audio_set_read_index(uint32_t index);
@@ -147,13 +155,19 @@ index 0000000..8625162
 +EMSCRIPTEN_KEEPALIVE
 +uint32_t qemu_host_audio_get_rate(void)
 +{
-+    return HOST_AUDIO_RATE;
++    return host_audio_rate;
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
-+uint32_t qemu_host_audio_get_buffer_frames(void)
++uint32_t qemu_host_audio_get_channels(void)
 +{
-+    return HOST_AUDIO_FRAMES;
++    return host_audio_channels;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_audio_get_buffer_samples(void)
++{
++    return HOST_AUDIO_SAMPLES;
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
@@ -180,9 +194,11 @@ index 0000000..8625162
 +    case A_ID:
 +        return HOST_AUDIO_MAGIC;
 +    case A_RATE:
-+        return HOST_AUDIO_RATE;
-+    case A_FRAMES:
-+        return HOST_AUDIO_FRAMES;
++        return host_audio_rate;
++    case A_CHANNELS:
++        return host_audio_channels;
++    case A_BUFSZ:
++        return HOST_AUDIO_SAMPLES;
 +    case A_WRIDX:
 +        return host_audio_wr;
 +    case A_RDIDX:
@@ -200,8 +216,15 @@ index 0000000..8625162
 +{
 +    switch (addr) {
 +    case A_DATA:
-+        host_audio_ring[host_audio_wr % HOST_AUDIO_FRAMES] = (int16_t)value;
++        host_audio_ring[host_audio_wr % HOST_AUDIO_SAMPLES] = (int16_t)value;
 +        host_audio_wr++;
++        break;
++    case A_RATE:
++        host_audio_rate = CLAMP((uint32_t)value, HOST_AUDIO_MIN_RATE,
++                                HOST_AUDIO_MAX_RATE);
++        break;
++    case A_CHANNELS:
++        host_audio_channels = CLAMP((uint32_t)value, 1, 2);
 +        break;
 +    default:
 +        qemu_log_mask(LOG_GUEST_ERROR,
@@ -224,6 +247,8 @@ index 0000000..8625162
 +    /* Both counters to zero so a reset leaves the browser silent. */
 +    host_audio_wr = 0;
 +    host_audio_rd = 0;
++    host_audio_rate = HOST_AUDIO_DEFAULT_RATE;
++    host_audio_channels = 1;
 +}
 +
 +static void qemu_host_audio_init(Object *obj)

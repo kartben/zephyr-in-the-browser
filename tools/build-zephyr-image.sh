@@ -17,8 +17,8 @@
 #
 # Every build applies the browser_bridge shield (zephyr-module/boards/shields/),
 # which adds the browser-fed peripherals — GNSS UART, host sensor with its
-# accel0/temp0/... aliases, host GPIO, host audio out, browser-sized ramfb —
-# to the plain QEMU boards.
+# accel0/temp0/... aliases, host GPIO, host audio out (I2S), host mic (DMIC),
+# browser-sized ramfb — to the plain QEMU boards.
 #
 # Environment overrides:
 #   ZEPHYR_WS     west workspace   (default: ~/zephyrproject)

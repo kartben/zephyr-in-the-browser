@@ -1,0 +1,20 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Host-filled microphone exposed by QEMU over MMIO.
+
+  The QEMU host pushes 16-bit mono PCM samples into a ring the guest pops
+  through a data register, rather than the guest sampling emulated PDM
+  hardware. Under qemu-wasm that host is a browser capturing getUserMedia
+  audio, so a Zephyr DMIC driver on this node records from the user's real
+  microphone. The sample rate and ring capacity are fixed by the device and
+  read back from its registers.
+
+compatible: "qemu,host-mic"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

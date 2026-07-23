@@ -40,6 +40,7 @@ export interface Board {
     hostSensor?: boolean
     hostGpio?: boolean
     hostAudio?: boolean
+    hostMic?: boolean
     ramfb?: boolean
   }
   samples: GuestSample[]
@@ -108,6 +109,12 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/drivers/gnss',
   },
   {
+    id: 'dmic',
+    label: 'Mic Capture',
+    description: 'Records browser microphone audio via Zephyr’s DMIC API',
+    zephyrSample: 'samples/drivers/audio/dmic',
+  },
+  {
     id: 'display',
     label: 'Display',
     description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
@@ -168,7 +175,13 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
-    peripherals: { gnss: true, hostSensor: true, hostGpio: true, hostAudio: true },
+    peripherals: {
+      gnss: true,
+      hostSensor: true,
+      hostGpio: true,
+      hostAudio: true,
+      hostMic: true,
+    },
     samples: CORTEX_M3_SAMPLES,
     // The shell is the one worth landing on: it is interactive, and it is where
     // the host-sensor bridge is visible.
@@ -201,7 +214,13 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
-    peripherals: { gnss: true, hostSensor: true, hostAudio: true, ramfb: true },
+    peripherals: {
+      gnss: true,
+      hostSensor: true,
+      hostAudio: true,
+      hostMic: true,
+      ramfb: true,
+    },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',
     extraFiles: [

@@ -1,0 +1,268 @@
+diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
+index e7634c1..2d0f983 100644
+--- a/hw/arm/Kconfig
++++ b/hw/arm/Kconfig
+@@ -226,6 +226,7 @@ config STELLARIS
+     select QEMU_HOST_SENSOR
+     select QEMU_HOST_GPIO
+     select QEMU_HOST_AUDIO
++    select QEMU_HOST_MIC
+     select CMSDK_APB_WATCHDOG
+     select I2C
+     select PL011 # UART
+diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
+index f86f3b8..5cf1cf2 100644
+--- a/hw/arm/stellaris.c
++++ b/hw/arm/stellaris.c
+@@ -1413,6 +1413,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+      */
+     sysbus_create_simple("qemu-host-audio", 0x40062000, NULL);
+ 
++    /*
++     * Host-backed microphone bridge, the input twin of the audio-out device
++     * above: the QEMU host (a browser capturing getUserMedia audio under
++     * qemu-wasm) fills a PCM ring the guest's DMIC driver drains.
++     */
++    sysbus_create_simple("qemu-host-mic", 0x40063000, NULL);
++
+     create_unimplemented_device("PWM", 0x40028000, 0x1000);
+     create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
+     create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
+diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
+index db84078..f3a21c6 100644
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -244,4 +244,7 @@ config QEMU_HOST_GPIO
+ config QEMU_HOST_AUDIO
+     bool
+ 
++config QEMU_HOST_MIC
++    bool
++
+ source macio/Kconfig
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index 05c845c..aa13710 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -8,6 +8,7 @@ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
+ system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
+ system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
+ system_ss.add(when: 'CONFIG_QEMU_HOST_AUDIO', if_true: files('qemu-host-audio.c'))
++system_ss.add(when: 'CONFIG_QEMU_HOST_MIC', if_true: files('qemu-host-mic.c'))
+ system_ss.add(files('qemu-browser-gnss.c'))
+ system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
+ system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
+diff --git a/hw/misc/qemu-host-mic.c b/hw/misc/qemu-host-mic.c
+new file mode 100644
+index 0000000..ea42a4f
+--- /dev/null
++++ b/hw/misc/qemu-host-mic.c
+@@ -0,0 +1,208 @@
++/*
++ * Host-backed microphone device.
++ *
++ * The input twin of qemu-host-audio.c: a ring of 16-bit mono PCM samples the
++ * QEMU *host* fills and the guest drains over MMIO. Under qemu-wasm the host
++ * is a browser capturing getUserMedia audio, so this is what lets a Zephyr
++ * DMIC driver record from the user's real microphone. Nothing here is
++ * browser-specific: the host entry points are ordinary C, so the device also
++ * works under native QEMU for testing the guest driver without a browser in
++ * the loop (the ring simply stays empty, which the guest reads as silence).
++ *
++ * Flow control mirrors the audio-out device with the roles swapped: the write
++ * index advances as the host produces samples, the read index as the guest
++ * pops them through the data register. Each counter has a single writer and a
++ * 32-bit load or store is atomic on every host we target, so no locking is
++ * needed between the host thread and the QEMU main pthread.
++ *
++ * The format is fixed at 16 kHz mono s16 -- the ceiling of Zephyr's DMIC
++ * sample and plenty for speech -- with the browser doing any resampling from
++ * the capture rate.
++ *
++ * Copyright (c) 2026
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 or
++ *  (at your option) any later version.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "hw/sysbus.h"
++#include "hw/registerfields.h"
++#include "migration/vmstate.h"
++#include "hw/qdev-properties.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define TYPE_QEMU_HOST_MIC "qemu-host-mic"
++OBJECT_DECLARE_SIMPLE_TYPE(QemuHostMicState, QEMU_HOST_MIC)
++
++/* "HMIC" -- lets the guest driver confirm the device is really there. */
++#define HOST_MIC_MAGIC 0x484d4943
++#define HOST_MIC_RATE 16000
++/* Ring capacity in samples; power of two, ~1 s at 16 kHz. */
++#define HOST_MIC_SAMPLES 16384
++
++REG32(ID, 0x00)    /* RO: HOST_MIC_MAGIC */
++REG32(RATE, 0x04)  /* RO: sample rate in Hz */
++REG32(BUFSZ, 0x08) /* RO: ring capacity in samples */
++REG32(WRIDX, 0x0c) /* RO: free-running count of samples the host pushed */
++REG32(RDIDX, 0x10) /* RW: free-running count of samples the guest popped */
++REG32(DATA, 0x14)  /* RO: pop one sample (sign-extended low 16 bits) */
++
++struct QemuHostMicState {
++    SysBusDevice parent_obj;
++    MemoryRegion iomem;
++};
++
++/*
++ * Ring and counters are global rather than per-device so the host entry
++ * points below need no device handle -- one instance per machine is the only
++ * sane configuration, so that is not a real constraint.
++ */
++static int16_t host_mic_ring[HOST_MIC_SAMPLES];
++static uint32_t host_mic_wr; /* advanced by the host as it captures */
++static uint32_t host_mic_rd; /* advanced by the guest via REG_DATA */
++
++/*
++ * Host entry points. Under Emscripten these are reachable from page
++ * JavaScript as Module._qemu_host_mic_*(); captured samples are written
++ * straight into the shared Emscripten heap at the exported address, then
++ * published with set_write_index. Declared here rather than in a header
++ * because nothing on the QEMU side calls them.
++ */
++uint32_t qemu_host_mic_get_rate(void);
++uint32_t qemu_host_mic_get_buffer_samples(void);
++uintptr_t qemu_host_mic_get_data(void);
++uint32_t qemu_host_mic_get_read_index(void);
++void qemu_host_mic_set_write_index(uint32_t index);
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_mic_get_rate(void)
++{
++    return HOST_MIC_RATE;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_mic_get_buffer_samples(void)
++{
++    return HOST_MIC_SAMPLES;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_host_mic_get_data(void)
++{
++    return (uintptr_t)host_mic_ring;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_mic_get_read_index(void)
++{
++    return host_mic_rd;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_host_mic_set_write_index(uint32_t index)
++{
++    host_mic_wr = index;
++}
++
++static uint64_t qemu_host_mic_read(void *opaque, hwaddr addr, unsigned size)
++{
++    int16_t sample;
++
++    switch (addr) {
++    case A_ID:
++        return HOST_MIC_MAGIC;
++    case A_RATE:
++        return HOST_MIC_RATE;
++    case A_BUFSZ:
++        return HOST_MIC_SAMPLES;
++    case A_WRIDX:
++        return host_mic_wr;
++    case A_RDIDX:
++        return host_mic_rd;
++    case A_DATA:
++        /*
++         * Pop unconditionally; the guest checks WRIDX for availability and an
++         * over-read just yields whatever the slot last held.
++         */
++        sample = host_mic_ring[host_mic_rd % HOST_MIC_SAMPLES];
++        host_mic_rd++;
++        return (uint32_t)(int32_t)sample;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-mic: read from bad offset 0x%" HWADDR_PRIx "\n",
++                      addr);
++        return 0;
++    }
++}
++
++static void qemu_host_mic_write(void *opaque, hwaddr addr, uint64_t value,
++                                unsigned size)
++{
++    switch (addr) {
++    case A_RDIDX:
++        /* Lets the guest resync, e.g. discard stale samples on start. */
++        host_mic_rd = (uint32_t)value;
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-mic: write to read-only/bad offset 0x%"
++                      HWADDR_PRIx "\n", addr);
++        break;
++    }
++}
++
++static const MemoryRegionOps qemu_host_mic_ops = {
++    .read = qemu_host_mic_read,
++    .write = qemu_host_mic_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid.min_access_size = 4,
++    .valid.max_access_size = 4,
++};
++
++static void qemu_host_mic_reset(DeviceState *dev)
++{
++    host_mic_wr = 0;
++    host_mic_rd = 0;
++}
++
++static void qemu_host_mic_init(Object *obj)
++{
++    QemuHostMicState *s = QEMU_HOST_MIC(obj);
++
++    memory_region_init_io(&s->iomem, obj, &qemu_host_mic_ops, s,
++                          "qemu-host-mic", 0x1000);
++    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->iomem);
++}
++
++static void qemu_host_mic_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    device_class_set_legacy_reset(dc, qemu_host_mic_reset);
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++}
++
++static const TypeInfo qemu_host_mic_info = {
++    .name = TYPE_QEMU_HOST_MIC,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(QemuHostMicState),
++    .instance_init = qemu_host_mic_init,
++    .class_init = qemu_host_mic_class_init,
++};
++
++static void qemu_host_mic_register_types(void)
++{
++    type_register_static(&qemu_host_mic_info);
++}
++
++type_init(qemu_host_mic_register_types)

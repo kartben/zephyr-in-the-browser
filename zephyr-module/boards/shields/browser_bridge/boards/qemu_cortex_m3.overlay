@@ -4,11 +4,12 @@
  *
  * Browser bridge on the Cortex-M3 (lm3s6965evb) machine.
  *
- * The host sensor (0x40060000), host GPIO controller (0x40061000) and host
- * audio out (0x40062000) are instantiated by our patched qemu-wasm Stellaris
- * machine — addresses chosen because they sit in the gap between the last
- * modelled LM3S6965 peripheral and the system control block, so they cannot
- * collide with real hardware. See tools/qemu-patches/.
+ * The host sensor (0x40060000), host GPIO controller (0x40061000), host
+ * audio out (0x40062000) and host microphone (0x40063000) are instantiated
+ * by our patched qemu-wasm Stellaris machine — addresses chosen because they
+ * sit in the gap between the last modelled LM3S6965 peripheral and the
+ * system control block, so they cannot collide with real hardware. See
+ * tools/qemu-patches/.
  *
  * One sensor MMIO device carries every channel the browser feeds (accel
  * X/Y/Z, ambient temperature, light, humidity, pressure, battery state of
@@ -21,6 +22,7 @@
 / {
 	aliases {
 		gnss = &gnss;
+		dmic0 = &host_mic;
 		accel0 = &host_sensor;
 		temp0 = &host_sensor;
 		ambient-temp0 = &host_sensor;
@@ -48,6 +50,12 @@
 		host_audio: audio@40062000 {
 			compatible = "qemu,host-audio";
 			reg = <0x40062000 0x1000>;
+			status = "okay";
+		};
+
+		host_mic: audio@40063000 {
+			compatible = "qemu,host-mic";
+			reg = <0x40063000 0x1000>;
 			status = "okay";
 		};
 	};

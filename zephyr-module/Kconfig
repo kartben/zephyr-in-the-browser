@@ -21,18 +21,32 @@ config QEMU_HOST_GPIO
 	  on the inputs and light indicators from the outputs the guest drives.
 
 config QEMU_HOST_AUDIO
-	bool "QEMU host-backed audio out"
+	bool "QEMU host-backed audio out (I2S)"
 	default y
 	depends on DT_HAS_QEMU_HOST_AUDIO_ENABLED
+	depends on I2S
 	help
-	  Driver for the qemu-host-audio MMIO device: a PCM ring the guest
-	  fills and the QEMU host drains. Under qemu-wasm that host is a
-	  browser, so samples written here play through the Web Audio API.
+	  Transmit-only I2S driver for the qemu-host-audio MMIO device: a PCM
+	  ring the guest fills and the QEMU host drains. Under qemu-wasm that
+	  host is a browser, so anything an application plays through Zephyr's
+	  I2S API comes out of the speakers via the Web Audio API.
 
 config QEMU_HOST_AUDIO_SHELL
 	bool "hostaudio shell commands"
 	default y
 	depends on QEMU_HOST_AUDIO && SHELL
 	help
-	  `hostaudio info|beep|melody` commands, so the audio bridge is
-	  demoable from the stock shell sample without writing an application.
+	  `hostaudio info|beep|melody` commands, driving the audio bridge
+	  through the I2S API, so it is demoable from the stock shell sample
+	  without writing an application.
+
+config QEMU_HOST_MIC
+	bool "QEMU host-backed microphone (DMIC)"
+	default y
+	depends on DT_HAS_QEMU_HOST_MIC_ENABLED
+	depends on AUDIO_DMIC
+	help
+	  DMIC driver for the qemu-host-mic MMIO device: a PCM ring the QEMU
+	  host fills and the guest drains. Under qemu-wasm that host is a
+	  browser capturing getUserMedia audio, so Zephyr's DMIC API records
+	  from the user's real microphone.

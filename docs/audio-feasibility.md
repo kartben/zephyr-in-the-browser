@@ -44,28 +44,37 @@ beep" demo naturally lives — models no virtio transport at all, and Zephyr's
 `qemu_cortex_m3` board config would need virtio enabling work on top. A
 virtio-only sound device would strand the board people actually type into.
 
-## What is buildable: the host-PCM bridge
+## What is buildable: the host-PCM bridge, behind Zephyr's standard audio APIs
 
-`next-drivers.md` §3 already prescribes it: audio out is the
-**framebuffer-export shape** with samples instead of pixels.
+`next-drivers.md` §3 already prescribes the transport: the
+**framebuffer-export shape** with samples instead of pixels. The APIs on top
+are the important part — virtio-snd was only ever a means to *standard
+interfaces*, and Zephyr already has standard audio interfaces the bridge can
+sit behind:
 
-- A `qemu-host-audio` MMIO device (patterned on `qemu-host-gpio`) owns a
-  16-bit mono PCM ring at a fixed 16 kHz. The guest pushes samples through a
-  data register; free-running write/read counters give both sides lossless
-  flow control with single-word atomic accesses — no locking, no JS on the
-  guest's MMIO path.
-- JS polls the exported ring pointer + write index, drains new samples, and
-  schedules them through the **Web Audio API**. An enable click satisfies the
-  browser autoplay policy.
-- A small Zephyr driver validates the device and exposes a write API; a
-  Kconfig-gated `hostaudio` shell command (`beep`, `melody`) makes it a
-  one-line demo from the stock shell sample, mirroring how `gpio get`/`gpio
-  set` demo the GPIO bridge.
+- **Out = I2S.** A `qemu-host-audio` MMIO device (patterned on
+  `qemu-host-gpio`) owns a 16-bit interleaved PCM ring, rate and channel
+  count guest-programmable (8–48 kHz, mono/stereo). The guest driver
+  implements Zephyr's **I2S driver API** — `i2s_configure()`, `i2s_write()`,
+  `i2s_trigger()` — so applications written for real I2S hardware drive the
+  browser's speakers unmodified. Free-running write/read counters give both
+  sides lossless flow control with single-word atomic accesses — no locking,
+  no JS on the guest's MMIO path.
+- **In = DMIC.** A `qemu-host-mic` device is the mirror image: the browser
+  captures `getUserMedia` audio, resamples to 16 kHz mono, and fills the ring;
+  the guest driver implements Zephyr's **DMIC API** (`dmic_configure()`,
+  `dmic_trigger()`, `dmic_read()`), so the stock `samples/drivers/audio/dmic`
+  runs unmodified — with paced silence when no mic permission is granted.
+- JS polls the exported out-ring and schedules chunks through the **Web Audio
+  API**; enable clicks satisfy the autoplay and mic-permission gates.
+- A Kconfig-gated `hostaudio` shell command (`beep`, `melody`), itself written
+  against the I2S API, makes the speaker a one-line demo from the stock shell
+  sample, mirroring how `gpio get`/`gpio set` demo the GPIO bridge.
 
-16 kHz mono is deliberate: ~8 000 MMIO word-writes per second of tone keeps
-the TCI-interpreted Cortex-M3 comfortable, and beeps do not need CD quality.
-The shell commands never sleep — they write at most the ring's free space and
-return — so they dodge the known `k_sleep` stall on that board.
+The 16 kHz mono default is deliberate: ~16 000 MMIO word-writes per second of
+tone keeps the TCI-interpreted Cortex-M3 comfortable, and beeps do not need
+CD quality. The shell commands bound their writes by the ring's free space so
+they never sleep, dodging the known `k_sleep` stall on that board.
 
 ## When to revisit virtio-snd
 
@@ -73,4 +82,6 @@ The calculus flips if **both** of these land upstream: a Zephyr virtio-snd
 driver, and a QEMU audiodev usable under Emscripten (or virtio-snd growing a
 non-audiodev export path). Until then, virtio effort here should stay on the
 targets `next-drivers.md` already picked — entropy/console as transport
-proofs — not on sound.
+proofs — not on sound. Because the guest-facing surface is already Zephyr's
+standard I2S and DMIC APIs, a future switch of transport (bespoke ring →
+virtio-snd) would not disturb any application code.

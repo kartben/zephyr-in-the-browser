@@ -128,21 +128,31 @@ project of its own (see below).
 
 ### 3. Audio — output first, and *not* via virtio — ✅ done
 
-**Implemented** as the `qemu,host-audio` device on both machines, exactly along
-the lines below (the fuller virtio-snd analysis lives in
-[`audio-feasibility.md`](audio-feasibility.md)): a custom MMIO PCM ring at
-16 kHz mono s16 (patches `tools/qemu-patches/0006-hw-misc-add-qemu-host-audio.patch`
-and `tools/qemu-jit-patches/0005-hw-misc-add-qemu-host-audio.patch`), a Zephyr
-driver with a non-blocking write API
-(`zephyr-module/drivers/qemu_host_audio.c`, header
-`zephyr-module/include/qemu_host_audio.h`), a `hostaudio` shell command
-(`beep`, `melody`) so the shell samples demo it with no custom app, and a
-browser panel that drains the ring into the Web Audio API
-(`src/components/AudioPanel.tsx`, bridge in `src/hostAudio.ts`). Playback
-starts muted behind an enable click — the browser autoplay policy requires the
-gesture — and the bridge drains (and drops) samples while muted so guest-side
-flow control is identical either way. The shell commands queue everything up
-front and never sleep, which is what keeps them usable on the TCI Cortex-M3.
+**Implemented** in both directions on both machines, behind Zephyr's standard
+audio APIs (the fuller virtio-snd analysis lives in
+[`audio-feasibility.md`](audio-feasibility.md)):
+
+- **Out — `qemu,host-audio`, exposed as I2S.** A custom MMIO PCM ring, rate
+  and channels guest-programmable (patches
+  `tools/qemu-patches/0006-hw-misc-add-qemu-host-audio.patch` and
+  `tools/qemu-jit-patches/0005-hw-misc-add-qemu-host-audio.patch`), driven by
+  a transmit-only Zephyr **I2S driver**
+  (`zephyr-module/drivers/qemu_host_audio.c`) so I2S applications work
+  unmodified. The `hostaudio` shell commands (`beep`, `melody`) are written
+  against the I2S API and demo it from the stock shell samples.
+- **In — `qemu,host-mic`, exposed as DMIC.** The mirror-image device (patches
+  `.../0007-...` and `.../0006-hw-misc-add-qemu-host-mic.patch`) behind a
+  Zephyr **DMIC driver** (`zephyr-module/drivers/qemu_host_mic.c`), paced
+  against real time and silence-filling when the page has no mic permission —
+  the stock `samples/drivers/audio/dmic` runs unmodified (packaged as the
+  Cortex-A53 "Mic Capture" app).
+- **Browser** — one panel for both (`src/components/AudioPanel.tsx`; bridges
+  `src/hostAudio.ts`, `src/hostMic.ts`): speaker enable click satisfies the
+  autoplay policy, mic enable click the getUserMedia permission. Guest flow
+  control never notices either switch — playback drains (and drops) while
+  muted, and the DMIC driver reads silence while the mic is off. The shell
+  commands bound writes by the ring's free space and never sleep, which is
+  what keeps them usable on the TCI Cortex-M3.
 
 Original rationale, kept for the record —
 appealing, and doable, but bespoke. Because there is no virtio-snd driver in
@@ -195,11 +205,11 @@ it expecting virtio to just cover it.
    wire a GPIO IRQ to the NVIC so the interrupt-driven button sample works too.
 2. **virtio-entropy or virtio-console** — separate exploratory track; prove the
    virtio-mmio path works in qemu-wasm against stock QEMU, no C patch of ours.
-3. ~~**Audio out**~~ — ✅ done; bespoke `qemu,host-audio` PCM bridge on both
-   machines, Web Audio on the browser side, not virtio (see
-   [`audio-feasibility.md`](audio-feasibility.md)). Follow-up candidates: mic
-   input (`getUserMedia`, the host-sensor shape streamed), and a real audio
-   sample beyond the shell beeps.
+3. ~~**Audio (out + mic)**~~ — ✅ done; bespoke PCM bridges on both machines
+   behind Zephyr's standard I2S (out) and DMIC (in) APIs, Web Audio on the
+   browser side, not virtio (see
+   [`audio-feasibility.md`](audio-feasibility.md)). Follow-up candidate: an
+   I2S echo-style sample tying mic to speaker in one app.
 4. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 
 ## Sources

@@ -2,7 +2,7 @@
 
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
-It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver, and a sound panel that plays guest-generated PCM through the Web Audio API — each in its own floating panel.
+It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver, and a sound panel — speakers fed by Zephyr's I2S API, microphone feeding its DMIC API — wired to the Web Audio API and `getUserMedia` — each in its own floating panel.
 
 ## Quick start
 
@@ -57,13 +57,13 @@ file list at startup.
 
 ## The browser_bridge shield
 
-The browser-fed peripherals — GNSS UART, host sensor, host GPIO, host audio out, and the browser-sized ramfb — reach the guest through a Zephyr shield, **`browser_bridge`** ([zephyr-module/boards/shields/browser_bridge/](zephyr-module/boards/shields/browser_bridge)), applied to every packaged build. Its overlays alias the host sensor as `accel0`, `temp0`/`ambient-temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples build unmodified against browser-fed readings. Building any app against the browser machines is just:
+The browser-fed peripherals — GNSS UART, host sensor, host GPIO, host audio out (I2S), host microphone (DMIC), and the browser-sized ramfb — reach the guest through a Zephyr shield, **`browser_bridge`** ([zephyr-module/boards/shields/browser_bridge/](zephyr-module/boards/shields/browser_bridge)), applied to every packaged build. Its overlays alias the host sensor as `accel0`, `temp0`/`ambient-temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples build unmodified against browser-fed readings. Building any app against the browser machines is just:
 
 ```console
 west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-module -DSHIELD=browser_bridge
 ```
 
-Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the GPIO controller at 0x40061000 and the audio out at 0x40062000; the virt patches in `tools/qemu-jit-patches/` put the sensor at 0x090c0000 and the audio out at 0x090d0000.
+Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the GPIO controller at 0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the virt patches in `tools/qemu-jit-patches/` put the sensor at 0x090c0000, the audio out at 0x090d0000 and the microphone at 0x090e0000.
 
 ## Deploying
 

@@ -213,25 +213,39 @@ the terminal and sensor panel.
 This is output-only for now. No virtio input device is connected to browser
 pointer events, and keyboard input remains attached to the serial terminal.
 
-## Audio output
+## Audio: speaker out over I2S, microphone in over DMIC
 
 Like the display, the audio path depends on no QEMU audio backend — the
-`-audiodev` layer is not even compiled in. A `qemu-host-audio` MMIO device
-(patched into both machines: Stellaris at 0x40062000, virt at 0x090d0000)
-owns a ring of 16-bit mono PCM at a fixed 16 kHz, about four seconds deep. The
-guest pushes samples through a data register; two free-running frame counters
-— write index advanced by the guest, read index advanced by the browser —
-give both sides flow control with nothing but atomic 32-bit accesses.
-`hostAudio.ts` polls the exported ring every 100 ms, converts new samples, and
-schedules them through the Web Audio API; the browser autoplay policy gates
-playback behind the panel's enable click, and while muted the bridge still
-drains (and drops) samples so the guest cannot tell the difference.
+`-audiodev` layer is not even compiled in. Two sibling MMIO devices carry the
+sound, both patched into both machines:
 
-16 kHz mono is a deliberate fit for the TCI-interpreted Cortex-M3: one second
-of sound is ~16k MMIO writes. The guest side is the `qemu,host-audio` Zephyr
-driver plus a `hostaudio` shell command (`beep [freq] [ms]`, `melody`) that
-synthesises integer-only sine tones and queues them entirely up front — no
-`k_sleep`, so it sidesteps the TCI stall described above. Not virtio-snd, and
+- **`qemu-host-audio`** (Stellaris 0x40062000, virt 0x090d0000) owns a ring
+  of 16-bit interleaved PCM the guest fills; rate (8–48 kHz) and channel
+  count (1–2) are guest-programmable, defaulting to 16 kHz mono. The guest
+  driver implements Zephyr's **I2S API** (transmit-only), so applications
+  written against `i2s_configure()`/`i2s_write()` play through the browser's
+  speakers unmodified. `hostAudio.ts` polls the exported ring every 100 ms
+  and schedules chunks through the Web Audio API; the autoplay policy gates
+  playback behind the panel's enable click, and while muted the bridge still
+  drains (and drops) samples so the guest cannot tell the difference.
+- **`qemu-host-mic`** (Stellaris 0x40063000, virt 0x090e0000) is the mirror
+  image: a fixed 16 kHz mono ring the browser fills from `getUserMedia`
+  capture (resampled in `hostMic.ts`) and the guest pops over MMIO. The guest
+  driver implements Zephyr's **DMIC API**, so the stock
+  `samples/drivers/audio/dmic` runs unmodified — packaged as the Cortex-A53
+  "Mic Capture" app. Reads are paced against real time and silence-filled
+  when the host supplies nothing, so the sample behaves whether or not the
+  user ever grants microphone permission.
+
+Both rings use free-running sample counters — one side advances the write
+index, the other the read index — giving flow control with nothing but atomic
+32-bit accesses and no JavaScript on the guest's MMIO path.
+
+The 16 kHz mono default is a deliberate fit for the TCI-interpreted
+Cortex-M3: one second of sound is ~16k MMIO writes. The `hostaudio` shell
+command (`beep [freq] [ms]`, `melody`) drives the I2S API with integer-only
+sine synthesis and bounds its writes by the ring's free space — no `k_sleep`,
+so it sidesteps the TCI stall described above. Not virtio-snd, and
 deliberately so: Zephyr has no virtio-snd driver and this build has no
 audiodev for QEMU's virtio-sound device to render into — see
 `docs/audio-feasibility.md` in the repo root.

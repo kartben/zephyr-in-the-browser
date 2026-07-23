@@ -1,12 +1,13 @@
 /**
  * Browser end of the `qemu,host-audio` bridge.
  *
- * The QEMU device owns a ring of 16-bit mono PCM samples the guest fills over
- * MMIO. Its exports hand us the ring's location and geometry plus two
- * free-running frame counters: `get_write_index()` advances as the guest
- * produces, and `set_read_index()` reports what we consumed, which is how the
- * guest sees free space. Every access is a plain shared-memory operation — no
- * call ever enters the guest.
+ * The QEMU device owns a ring of 16-bit interleaved PCM samples the guest's
+ * I2S driver fills over MMIO, at the rate and channel count the guest
+ * configured (read back fresh on every poll). Its exports hand us the ring's
+ * location and geometry plus two free-running sample counters:
+ * `get_write_index()` advances as the guest produces, and `set_read_index()`
+ * reports what we consumed, which is how the guest sees free space. Every
+ * access is a plain shared-memory operation — no call ever enters the guest.
  *
  * Consumption runs on a 100 ms poll whether or not sound is enabled: a muted
  * page still drains (and drops) samples so the guest's flow control behaves
@@ -20,7 +21,8 @@
 
 interface AudioExports {
   _qemu_host_audio_get_rate?: () => number
-  _qemu_host_audio_get_buffer_frames?: () => number
+  _qemu_host_audio_get_channels?: () => number
+  _qemu_host_audio_get_buffer_samples?: () => number
   _qemu_host_audio_get_data?: () => number
   _qemu_host_audio_get_write_index?: () => number
   _qemu_host_audio_set_read_index?: (index: number) => void
@@ -34,11 +36,13 @@ export interface AudioSnapshot {
   enabled: boolean
   /** Device sample rate in Hz, 0 until attached. */
   rate: number
+  /** Interleaved channels per frame the guest configured, 1 until attached. */
+  channels: number
   /** Peak of the most recent chunk, 0..1, for a level meter. */
   level: number
 }
 
-const EMPTY: AudioSnapshot = { available: false, enabled: false, rate: 0, level: 0 }
+const EMPTY: AudioSnapshot = { available: false, enabled: false, rate: 0, channels: 1, level: 0 }
 
 /** Keep scheduled audio this far ahead of the clock to ride out poll jitter. */
 const LEAD_SECONDS = 0.06
@@ -80,7 +84,8 @@ export function detach() {
 export function available(): boolean {
   return (
     typeof exports?._qemu_host_audio_get_rate === 'function' &&
-    typeof exports?._qemu_host_audio_get_buffer_frames === 'function' &&
+    typeof exports?._qemu_host_audio_get_channels === 'function' &&
+    typeof exports?._qemu_host_audio_get_buffer_samples === 'function' &&
     typeof exports?._qemu_host_audio_get_data === 'function' &&
     typeof exports?._qemu_host_audio_get_write_index === 'function' &&
     typeof exports?._qemu_host_audio_set_read_index === 'function' &&
@@ -123,28 +128,32 @@ function poll() {
   if (!available() || !exports) return
   const heap = exports.HEAPU8!
   const rate = exports._qemu_host_audio_get_rate!()
-  const capacity = exports._qemu_host_audio_get_buffer_frames!()
+  const channels = exports._qemu_host_audio_get_channels!()
+  const capacity = exports._qemu_host_audio_get_buffer_samples!()
   const data = exports._qemu_host_audio_get_data!()
   const writeIndex = exports._qemu_host_audio_get_write_index!() >>> 0
 
   let pending = (writeIndex - readIndex) >>> 0
-  if (pending === 0) {
+  if (pending > capacity) {
+    // More than a full ring behind means the guest lapped us (should not
+    // happen with the guest's own flow control, but a reset can skew the
+    // counters); resync to the freshest window, on a frame boundary.
+    readIndex = (writeIndex - capacity + (capacity % channels)) >>> 0
+    pending = (writeIndex - readIndex) >>> 0
+  }
+  // Only whole interleaved frames; a torn frame stays for the next poll.
+  const frames = Math.floor(pending / channels)
+  if (frames === 0) {
     update(0)
     return
   }
-  // More than a full ring behind means the guest lapped us (should not happen
-  // with the guest's own flow control, but a reset can skew the counters);
-  // resync to the freshest window.
-  if (pending > capacity) {
-    readIndex = (writeIndex - capacity) >>> 0
-    pending = capacity
-  }
+  const count = frames * channels
 
   // Copy out of the shared heap before touching the read index; int16 little-
   // endian, ring position is the counter modulo the power-of-two capacity.
-  const samples = new Float32Array(pending)
+  const samples = new Float32Array(count)
   let peak = 0
-  for (let i = 0; i < pending; i++) {
+  for (let i = 0; i < count; i++) {
     const pos = ((readIndex + i) & (capacity - 1)) * 2
     const lo = heap[data + pos]!
     const hi = heap[data + pos + 1]!
@@ -154,7 +163,7 @@ function poll() {
     const mag = Math.abs(value)
     if (mag > peak) peak = mag
   }
-  readIndex = writeIndex
+  readIndex = (readIndex + count) >>> 0
   exports._qemu_host_audio_set_read_index!(readIndex)
 
   if (!enabled || !ctx || rate <= 0) {
@@ -163,14 +172,18 @@ function poll() {
     return
   }
 
-  const buffer = ctx.createBuffer(1, pending, rate)
-  buffer.copyToChannel(samples, 0)
+  const buffer = ctx.createBuffer(channels, frames, rate)
+  for (let ch = 0; ch < channels; ch++) {
+    const plane = new Float32Array(frames)
+    for (let i = 0; i < frames; i++) plane[i] = samples[i * channels + ch]!
+    buffer.copyToChannel(plane, ch)
+  }
   const source = ctx.createBufferSource()
   source.buffer = buffer
   source.connect(ctx.destination)
   playhead = Math.max(playhead, ctx.currentTime + LEAD_SECONDS)
   source.start(playhead)
-  playhead += pending / rate
+  playhead += frames / rate
 
   update(peak)
 }
@@ -180,6 +193,7 @@ function update(level?: number) {
     available: available(),
     enabled,
     rate: available() ? exports!._qemu_host_audio_get_rate!() : 0,
+    channels: available() ? exports!._qemu_host_audio_get_channels!() : 1,
     // Quantised so a sustained tone does not re-render the panel every poll.
     level: Math.round((level ?? snapshot.level) * 20) / 20,
   }
@@ -187,6 +201,7 @@ function update(level?: number) {
     next.available === snapshot.available &&
     next.enabled === snapshot.enabled &&
     next.rate === snapshot.rate &&
+    next.channels === snapshot.channels &&
     next.level === snapshot.level
   ) {
     return
