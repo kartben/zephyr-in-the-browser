@@ -1,4 +1,7 @@
 import type { PtyBackend, Slave, StartOptions } from './types'
+import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
+import { createFakeNetModule } from '@/net/testing/fakeModule'
+import { FakeGuest } from '@/net/testing/fakeGuest'
 
 /**
  * A tiny fake Zephyr shell.
@@ -54,7 +57,7 @@ export function createMockBackend(): PtyBackend {
     label: 'Mock shell',
     resetRequiresReload: false,
 
-    async start(slave: Slave, { onStatus, signal }: StartOptions) {
+    async start(slave: Slave, { board, onStatus, signal }: StartOptions) {
       teardown()
       onStatus({ status: 'loading', detail: 'starting mock' })
 
@@ -124,6 +127,12 @@ export function createMockBackend(): PtyBackend {
       })
 
       disposers.push(() => onReadable.dispose(), () => onSignal.dispose())
+
+      // The Network panel is the one peripheral that can demo without QEMU:
+      // a fake guest speaks through the same rings, stack and TCP engine as
+      // the real path, so the panel shows an authentic DHCP handshake, pings
+      // and HTTP flows.
+      if (board.peripherals?.hostNet) startFakeNetwork(disposers)
     },
 
     async reset() {
@@ -131,3 +140,53 @@ export function createMockBackend(): PtyBackend {
     },
   }
 }
+
+/**
+ * A scripted guest behind the fake ring module: DHCPs, pings the gateway,
+ * serves HTTP on :8080 and echoes on :4242 (so the panel tools work), and
+ * fetches host.internal periodically for some outbound traffic.
+ */
+function startFakeNetwork(disposers: Array<() => void>) {
+  const fake = createFakeNetModule()
+  attachHostNet(fake.module)
+
+  const guest = new FakeGuest({
+    sendFrame: (frame) => {
+      if (fake.guestSide.linkUp()) fake.guestSide.writeTx(frame)
+    },
+    now: () => Date.now(),
+    random: Math.random,
+  })
+  guest.serveHttp(8080, MOCK_GUEST_PAGE)
+  guest.echoServer(4242)
+
+  // Pump frames the page wrote for the guest.
+  const rxPoll = setInterval(() => {
+    for (const frame of fake.guestSide.drainRx()) guest.onFrame(frame)
+    guest.tick()
+  }, 30)
+
+  const timers: Array<ReturnType<typeof setTimeout>> = []
+  let seq = 1
+  const boot = setTimeout(() => {
+    void guest.dhcp().then(() => {
+      timers.push(setInterval(() => void guest.ping('192.0.2.2', seq++).catch(() => {}), 2500))
+      timers.push(setInterval(() => void guest.httpGet('host.internal', '/').catch(() => {}), 9000))
+    })
+  }, 700)
+
+  disposers.push(() => {
+    clearTimeout(boot)
+    clearInterval(rxPoll)
+    for (const t of timers) clearInterval(t)
+    detachHostNet()
+  })
+}
+
+const MOCK_GUEST_PAGE = [
+  '<!doctype html>',
+  '<title>mock guest</title>',
+  '<h1>Hello from the (mock) guest!</h1>',
+  '<p>This page was served over the in-page TCP/IP stack.</p>',
+  '',
+].join('\n')
