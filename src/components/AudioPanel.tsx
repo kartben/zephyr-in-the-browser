@@ -110,7 +110,9 @@ export function AudioPanel({ defaultExpanded = true }: { defaultExpanded?: boole
             <code className="font-mono text-foreground">hostaudio beep 440 500</code>{' '}
             queues a tone,{' '}
             <code className="font-mono text-foreground">hostaudio melody</code> a short
-            tune; the Mic Capture app records through the mic.
+            tune;{' '}
+            <code className="font-mono text-foreground">dmic vu dmic0</code> meters the
+            mic.
           </p>
         </div>
       )}

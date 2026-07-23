@@ -20,9 +20,10 @@
  * from the ring — and with silence for any samples the host has not supplied,
  * so a page whose user never grants microphone permission still yields a
  * steady stream of zeroed blocks rather than errors. Pacing sleeps in
- * k_sleep(), which is fine on the Cortex-A53 where this ships; on the
- * TCI-interpreted Cortex-M3 sleeping stalls (see tools/samples.manifest), so
- * the mic pairs with that board's shell image only for native-QEMU testing.
+ * k_sleep(), which is fine on the Cortex-A53 where this ships: the `dmic`
+ * shell commands (CONFIG_AUDIO_DMIC_SHELL) run against it there in-browser.
+ * The TCI-interpreted Cortex-M3 stalls on k_sleep (see tools/samples.manifest),
+ * so the mic ships only in the A53 shell image, not the M3 one.
  */
 
 #define DT_DRV_COMPAT qemu_host_mic

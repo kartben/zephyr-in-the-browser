@@ -243,9 +243,10 @@ sound, both patched into both machines:
   capture (resampled in `hostMic.ts`) and the guest pops over MMIO. The guest
   driver implements Zephyr's **DMIC API**; reads are paced against real time
   and silence-filled when the host supplies nothing, so capture apps behave
-  whether or not the user ever grants microphone permission. The packaged
-  "Mic Capture" app is the repo's own `zephyr-module/apps/mic_capture` VU
-  meter — the stock `samples/drivers/audio/dmic` exercises the same driver
+  whether or not the user ever grants microphone permission. The packaged demo
+  is Zephyr's own `dmic` shell commands (`CONFIG_AUDIO_DMIC_SHELL`: `read`,
+  `vu`, `dump`) on the Cortex-A53 shell sample — `dmic vu dmic0` is a live
+  level meter. The stock `samples/drivers/audio/dmic` exercises the same driver
   but crashes on 64-bit targets until a one-character upstream fix lands
   (`uint32_t size` passed to `dmic_read()`'s `size_t *`; verified both ways
   on qemu_cortex_a53).
