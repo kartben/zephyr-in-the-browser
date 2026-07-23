@@ -231,11 +231,14 @@ sound, both patched into both machines:
 - **`qemu-host-mic`** (Stellaris 0x40063000, virt 0x090e0000) is the mirror
   image: a fixed 16 kHz mono ring the browser fills from `getUserMedia`
   capture (resampled in `hostMic.ts`) and the guest pops over MMIO. The guest
-  driver implements Zephyr's **DMIC API**, so the stock
-  `samples/drivers/audio/dmic` runs unmodified — packaged as the Cortex-A53
-  "Mic Capture" app. Reads are paced against real time and silence-filled
-  when the host supplies nothing, so the sample behaves whether or not the
-  user ever grants microphone permission.
+  driver implements Zephyr's **DMIC API**; reads are paced against real time
+  and silence-filled when the host supplies nothing, so capture apps behave
+  whether or not the user ever grants microphone permission. The packaged
+  "Mic Capture" app is the repo's own `zephyr-module/apps/mic_capture` VU
+  meter — the stock `samples/drivers/audio/dmic` exercises the same driver
+  but crashes on 64-bit targets until a one-character upstream fix lands
+  (`uint32_t size` passed to `dmic_read()`'s `size_t *`; verified both ways
+  on qemu_cortex_a53).
 
 Both rings use free-running sample counters — one side advances the write
 index, the other the read index — giving flow control with nothing but atomic
