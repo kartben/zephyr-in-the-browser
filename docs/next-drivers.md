@@ -109,9 +109,12 @@ and the driver is already in Zephyr. That is a meaningful reduction in the
 per-device cost that shapes 1–3 all pay.
 
 **The catch, and why it is a bet not a slam dunk:** the *exciting* virtio
-endpoints do not have Zephyr drivers yet. There is **no virtio-snd, no
-virtio-gpu, and no virtio-input** driver in Zephyr. So virtio's near-term payoff
-is plumbing, not a flashy new panel. Concretely, the tractable first targets are:
+endpoints mostly do not have Zephyr drivers yet. There is **no virtio-snd**;
+virtio-input landed upstream (the a53 board devicetree already carries a
+`virtio_input0` node); virtio-gpu is written but not merged, and this repo
+vendors it — see "virtio-gpu" below. So virtio's near-term payoff is still
+plumbing more than a flashy new panel. Concretely, the tractable first targets
+are:
 
 - **virtio-entropy** — smallest possible proof that the qemu-wasm virtio-mmio
   path works end to end. A `hwrng`/entropy source is not a UI showpiece, but it
@@ -125,6 +128,86 @@ sequenced second. Land virtio-entropy or virtio-console purely to prove the
 transport in qemu-wasm. Do *not* frame virtio as "the way we'll get audio/webcam"
 — that would require writing new Zephyr virtio drivers, which is a research
 project of its own (see below).
+
+#### virtio-gpu — vendored, guest-side proven, *not* a display speed-up
+
+The driver exists but is not upstream, so a pristine copy is vendored at
+[`zephyr-module/drivers/vendor/`](../zephyr-module/drivers/vendor/) (provenance
+and the drift check live in `VENDOR.md` next to it). It is opt-in per build via
+a module snippet, since the board otherwise stays on ramfb:
+
+```console
+west build -b qemu_cortex_a53 -S virtio-gpu <app> \
+  -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-module -DSHIELD=browser_bridge
+```
+
+The snippet ([`zephyr-module/snippets/virtio-gpu/`](../zephyr-module/snippets/virtio-gpu))
+disables `ramfb0`, enables the `virtio_gpu0` node the `browser_bridge` shield
+declares on virtio-mmio slot 1, and repoints `zephyr,display` and the touch
+device at it. QEMU needs the matching device, sized to agree with devicetree:
+
+```
+-device virtio-gpu-device,bus=virtio-mmio-bus.1,xres=600,yres=400
+```
+
+Verified under native QEMU: the driver probes, logs `scanout 0 initialized at
+600x400`, and `samples/drivers/display` runs against it. **No QEMU wasm build
+carries it yet**, because seeing it in the browser needs a bridge patch
+alongside `0002-hw-display-expose-ramfb-to-browser.patch` — the ramfb bridge
+only publishes state `ramfb_setup()` populates, so under the snippet the Display
+panel would stay blank. That patch is the remaining work, and it is the natural
+place to also export a **flush event and damage rect**, which ramfb structurally
+cannot provide.
+
+**It will not make the display faster, and here is the measurement.** Guest time
+per frame, 600×400 ARGB8888, native QEMU with the browser's own
+`-icount shift=4`, via a bench that drives `display_write()` in the shapes LVGL
+flushes in:
+
+| per frame | ramfb | virtio-gpu | cacheable FB | ramfb, `-O2` |
+| --- | ---: | ---: | ---: | ---: |
+| full frame, 1 flush | 92.34 ms | 92.46 ms | 93.65 ms | **2.63 ms** |
+| full frame, 16 flushes | 92.34 ms | 94.23 ms | 113.50 ms | 2.62 ms |
+| 64×64 rect, 1 flush | 1.59 ms | 1.71 ms | 2.91 ms | **0.07 ms** |
+| full frame, **copy only** | 92.34 ms | 92.36 ms | 92.36 ms | 2.62 ms |
+
+Read the "copy only" row first: **the pixel copy is the entire cost**, and no
+transport changes it. ramfb's is free — its "1 flush" and "copy only" numbers
+match to the microsecond, because `ramfb_write()` is nothing but a `memcpy` and
+QEMU maps that buffer directly. virtio-gpu can only add: ~118 µs per flush for
+the fenced `TRANSFER_TO_HOST_2D` + `RESOURCE_FLUSH` round-trips (the 1-flush and
+16-flush rows agree on that figure independently). Honouring `frame_incomplete`
+matters — 16 flushes per frame costs 1.9 ms more than one.
+
+The cacheable column closes a tempting side quest: both drivers map the
+framebuffer `K_MEM_CACHE_NONE`, so a write-back mapping looks like free
+bandwidth. It is not. QEMU's TCG does not model caches, so the copy does not get
+faster, and the cache maintenance correctness then demands is pure loss.
+(virtio-gpu *is* the only one of the two where such a mapping could ever be
+correct, since it has an explicit flush point and ramfb has none — but there is
+nothing to win.)
+
+**The last column is where the real win turned out to be, and it is not a
+display problem at all.** Zephyr defaults to `-Os`; on AArch64 that selects the
+SDK's `space` multilib, in which picolibc compiles the hand-written `memcpy.S`
+*out* — the archive member is empty — leaving only `memcpy-stub.c`, a byte loop
+costing six instructions per byte. Every one is emulated. Switching to `-O2`
+gets the 139-instruction LDP/STP memcpy and the copy that *was* the frame
+becomes **35× cheaper**. That is now the default for every packaged image, in
+the `browser_bridge` shield's `Kconfig.defconfig`; it costs ~24% ELF size.
+
+With the copy down to 2.6 ms, **fewer bytes is no longer the interesting
+lever** — RGB565 would now save ~1.3 ms/frame, not ~46 ms, so it is hard to
+justify against the three coordinated changes it needs (an RGB565 path in the
+display driver, `CONFIG_LV_COLOR_DEPTH=16`, and an RGB565 upload path in
+[`src/display/renderers.ts`](../src/display/renderers.ts), whose shader and
+`FOURCC_AR24` check both assume 32bpp; doing only some of them adds a conversion
+and loses). What remains is LVGL's own rendering, which the copy was masking.
+
+So the case for finishing virtio-gpu is *not* frame rate. It is that a flush
+event would let the browser stop re-uploading unchanged frames: the render
+worker currently uploads at a fixed 30 Hz while the guest produces roughly
+4–10, so most texture uploads are redundant.
 
 ### 3. Audio — output first, and *not* via virtio — ✅ done
 
