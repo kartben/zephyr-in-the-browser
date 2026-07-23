@@ -93,6 +93,12 @@ TypeScript with a vitest suite (`npm test`); under the mock backend a scripted
 fake guest drives the same stack, so the panel demos without a QEMU build.
 The same summary lives behind the ⓘ button in the panel itself.
 
+Fuller networking is on the radar: an **opt-in uplink** that would tunnel the
+guest's frames over a WebSocket to a local [passt](https://passt.top/)
+(or gvisor-tap-vsock) gateway, giving real DHCP/DNS/TCP/UDP — even real ping —
+when you run a small daemon next to the dev server. The in-page sandbox would
+remain the default: it needs no helper and nothing to trust.
+
 ## Deploying
 
 Pushes to `main` deploy the site to GitHub Pages. The emulator binaries and
