@@ -6,6 +6,7 @@ import { attach as attachHostAudio, detach as detachHostAudio } from '@/hostAudi
 import { attach as attachHostMic, detach as detachHostMic } from '@/hostMic'
 import { attach as attachGuestStats, detach as detachGuestStats } from '@/guestStats'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
+import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { get as getGuestImage } from '@/guestImage'
 import { sampleAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
@@ -306,6 +307,8 @@ export function createQemuBackend(): PtyBackend {
       else detachGuestStats()
       if (board.peripherals?.hostNet) attachHostNet(instance)
       else detachHostNet()
+      if (board.peripherals?.hostInput) attachHostInput(instance)
+      else detachHostInput()
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
     },
@@ -319,6 +322,7 @@ export function createQemuBackend(): PtyBackend {
       detachHostMic()
       detachGuestStats()
       detachHostNet()
+      detachHostInput()
       // Nothing global was touched, so there is nothing to tear down.
       if (!documentTainted) return
       // Emscripten modules cannot be torn down cleanly; a reload is the only

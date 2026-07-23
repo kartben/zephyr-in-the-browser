@@ -101,33 +101,44 @@ guest-side pieces that make this real:
 - a **virtio-pci** transport,
 - **virtio-console/serial** — and notably it *auto-configures in QEMU* via CMake,
 - **virtio-entropy** and **virtiofs**,
-- **virtio-net** listed as upcoming.
+- **virtio-net**, and — since June 2026 — **virtio-input**.
 
 That means a virtio device could become **the first peripheral that runs against
 stock QEMU with no C patch of ours** — the transport is already in upstream QEMU
 and the driver is already in Zephyr. That is a meaningful reduction in the
 per-device cost that shapes 1–3 all pay.
 
-**The catch, and why it is a bet not a slam dunk:** the *exciting* virtio
-endpoints mostly do not have Zephyr drivers yet. There is **no virtio-snd**;
-virtio-input landed upstream (the a53 board devicetree already carries a
-`virtio_input0` node); virtio-gpu is written but not merged, and this repo
-vendors it — see "virtio-gpu" below. So virtio's near-term payoff is still
-plumbing more than a flashy new panel. Concretely, the tractable first targets
-are:
+#### How that bet turned out: two shipped, and the patch bill was not zero
 
-- **virtio-entropy** — smallest possible proof that the qemu-wasm virtio-mmio
-  path works end to end. A `hwrng`/entropy source is not a UI showpiece, but it
-  validates the whole transport with almost no surface area.
-- **virtio-console** — a second console channel over virtio-mmio instead of the
-  PL011 hack we use for GNSS. Proves a stream device on virtio and de-risks the
-  chardev-patch approach for future stream peripherals.
+**virtio-net shipped first**, quietly, as the Cortex-A53 Ethernet path: a stock
+`virtio-net-device` on slot 0 against Zephyr's own driver. **virtio-input
+shipped second**, as the display panel's touchscreen — a stock
+`virtio-tablet-device` on slot 3 against Zephyr's upstream `virtio,input`
+driver. So the transport is proven in qemu-wasm, twice, and neither needed a
+line of guest-side code from us. The exploratory track below is *done*;
+virtio-entropy and virtio-console would now be proving something already
+proven.
 
-Recommendation: treat virtio as a **separate, exploratory track from GPIO**,
-sequenced second. Land virtio-entropy or virtio-console purely to prove the
-transport in qemu-wasm. Do *not* frame virtio as "the way we'll get audio/webcam"
-— that would require writing new Zephyr virtio drivers, which is a research
-project of its own (see below).
+The honest scorecard on the "no C patch of ours" promise is **half-kept, and
+the half that failed is instructive**:
+
+- The **device models** really are free. Both `virtio-net-device` and
+  `virtio-tablet-device` were already compiled into our wasm binary before
+  anyone asked for them, because `--without-default-features` prunes *host*
+  features, not device models.
+- What is *not* free is the **host side of the device**. QEMU still has to
+  reach a real backend, and in a browser there is none. virtio-net needed
+  `net/browser.c`, a whole netdev. virtio-input needed
+  `hw/misc/qemu-browser-input.c` — much smaller, because it adds no device at
+  all, just a frontend feeding `qemu_input_queue_abs`/`_btn` from a ring, the
+  role SDL or GTK plays in a normal build.
+
+The generalisation worth carrying forward: **virtio removes the guest-side
+cost, never the host-side one.** A virtio device is cheap here exactly to the
+degree that QEMU's existing backend for it already works headless. That is why
+virtio-input cost ~200 lines and virtio-snd (`audio-feasibility.md`) would
+still cost an audiodev — and it is the real reason to reach for virtio, rather
+than the "no patch" framing this section started with.
 
 #### virtio-gpu — vendored, guest-side proven, *not* a display speed-up
 
@@ -278,22 +289,73 @@ It is buildable and it would be a great demo, but it is the largest guest-driver
 lift of anything here and carries the most unknowns. Park it as a stretch goal
 behind GPIO, virtio, and audio.
 
-## The input gap, called out
+## The input gap — ✅ closed, the clean way
 
-The README's "Not in v1" notes there is no display input bridge — the framebuffer
-panel is output-only, keyboard still goes to the serial terminal, and there is no
-mouse/tablet. The *clean* way to close that is **virtio-input**, and Zephyr has no
-virtio-input driver, so the clean way is not available yet. If a mouse/tablet for
-the display becomes a priority before that lands upstream, it would have to be a
-bespoke input device rather than virtio — worth knowing before anyone reaches for
-it expecting virtio to just cover it.
+**Implemented** as a virtio tablet, exactly the route this section used to say
+was unavailable. The framebuffer panel is no longer output-only: clicks and
+drags on it press the guest's touchscreen.
+
+The reason it turned out cheap is that the gap was never really ours to close.
+Zephyr's `virtio,input` driver landed upstream in June 2026
+([`drivers/input/input_virtio.c`](https://github.com/zephyrproject-rtos/zephyr/blob/main/drivers/input/input_virtio.c)),
+and the same series wired `virtio_input0` into the `qemu_cortex_a53`
+devicetree with `chosen { zephyr,touch }` already pointing at it. So the guest
+side is *one Kconfig symbol* — `CONFIG_INPUT=y`
+([`zephyr-module/conf/touch.conf`](../zephyr-module/conf/touch.conf)) — with no
+shield overlay and no driver of ours. LVGL builds a pointer indev from the same
+chosen node, which is why the Music Player demo became clickable with no
+application change.
+
+That demo also lost `LV_DEMO_MUSIC_AUTO_PLAY`, and the reason is worth
+recording because the old config comment asserted the opposite. Auto play is
+not an endless animation: it is a fixed 41-step script, and its last two steps
+cover the UI with an opaque "The average FPS is" overlay and then load a blank
+screen. The packaged Music Player was therefore going dead after ~35 s — with
+the FPS number missing, since that label is only filled when
+`LV_USE_PERF_MONITOR` is on. A demo that waits for a click is strictly better
+now that clicks arrive.
+
+The browser side is `tools/qemu-jit-patches/0009-hw-misc-add-browser-input-bridge.patch`
+plus [`src/hostInput.ts`](../src/hostInput.ts). It is a *fourth bridge shape*,
+and the first one that carries no device:
+
+4. **Host → guest, no device at all — browser input.**
+   The device model (`virtio-tablet-device`) and the guest driver both already
+   exist; what is missing is the thing that normally feeds QEMU's input core,
+   because a `--without-default-features` build has no SDL/GTK/VNC. The patch
+   supplies that frontend and nothing else: JS appends `(kind, code, value)`
+   records to a lock-free ring, a `QEMU_CLOCK_VIRTUAL` timer replays them into
+   `qemu_input_queue_abs`/`_btn` under the BQL. Reach for this shape whenever
+   QEMU already models the device and only the *host* end is missing.
+
+Two details worth keeping:
+
+- **The write index is published once per packet**, not per record, so a drain
+  never sees coordinates without the `SYNC` that commits them — the guest would
+  otherwise act on a half-delivered position.
+- **The primary button is `BTN_TOUCH`, not `BTN_LEFT`.** Zephyr's touch
+  consumers read `INPUT_BTN_TOUCH`: LVGL's pointer indev accepts either, but
+  `samples/subsys/input/draw_touch_events` only handles `BTN_TOUCH`. Sending
+  `INPUT_BUTTON_TOUCH` (QEMU maps it to `BTN_TOUCH`) satisfies both without
+  emitting two events per press.
+
+Keyboard is deliberately *not* wired up. The bridge carries a `KEY` record kind
+and translates Linux evdev codes through `qemu_input_linux_to_qcode()`, so a
+`virtio-keyboard-device` is a small follow-up — but typing already works, it
+goes to the serial terminal, and a second keyboard competing for focus with the
+shell is a UX problem before it is a driver problem.
 
 ## Suggested order
 
 1. ~~**GPIO (buttons + LEDs)**~~ — ✅ done; landed on the M3 shell image. Follow-up:
    wire a GPIO IRQ to the NVIC so the interrupt-driven button sample works too.
-2. **virtio-entropy or virtio-console** — separate exploratory track; prove the
-   virtio-mmio path works in qemu-wasm against stock QEMU, no C patch of ours.
+2. ~~**virtio, as an exploratory track**~~ — ✅ done, and by a shorter route than
+   the entropy/console proof-of-transport this list proposed: **virtio-net**
+   (Ethernet) and **virtio-input** (the display's touchscreen) both ship
+   against stock QEMU device models and upstream Zephyr drivers. Building
+   virtio-entropy now would prove nothing new. Follow-up candidate:
+   a `virtio-keyboard-device`, for which the input bridge already carries the
+   record kind.
 3. ~~**Audio (out + mic)**~~ — ✅ done; bespoke PCM bridges on both machines
    behind Zephyr's standard I2S (out) and DMIC (in) APIs, Web Audio on the
    browser side, not virtio (see

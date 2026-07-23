@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Monitor, X } from 'lucide-react'
+import { ChevronDown, Monitor, Pointer, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getFrame, getSharedBuffer, getSnapshot, subscribe } from '@/hostDisplay'
+import {
+  available as pointerAvailable,
+  movePointer,
+  releaseButtons,
+  scroll,
+  setButtons,
+} from '@/hostInput'
 import {
   createCanvasRenderer,
   createWebGLRenderer,
@@ -25,6 +32,30 @@ type RenderStrategy = 'worker-webgl' | 'main-webgl' | 'main-canvas2d'
 
 const FRAME_INTERVAL_MS = 1000 / 30
 
+/**
+ * Where a client point falls on the framebuffer, as fractions of its width and
+ * height. The canvas is `object-contain`, so when `max-h` clamps the box the
+ * image is letterboxed inside it and the element rect is *not* the image rect.
+ * Values outside 0..1 are left to hostInput to clamp — a drag that strays off
+ * the image should still track along the edge.
+ */
+function framebufferPoint(
+  canvas: HTMLCanvasElement,
+  event: { clientX: number; clientY: number },
+  width: number,
+  height: number,
+) {
+  const rect = canvas.getBoundingClientRect()
+  if (!rect.width || !rect.height || !width || !height) return null
+  const scale = Math.min(rect.width / width, rect.height / height)
+  const drawnWidth = width * scale
+  const drawnHeight = height * scale
+  return {
+    nx: (event.clientX - rect.left - (rect.width - drawnWidth) / 2) / drawnWidth,
+    ny: (event.clientY - rect.top - (rect.height - drawnHeight) / 2) / drawnHeight,
+  }
+}
+
 function workerRenderingSupported(buffer: ArrayBufferLike | null): buffer is SharedArrayBuffer {
   return (
     typeof Worker !== 'undefined' &&
@@ -42,6 +73,9 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
   const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
   const [strategy, setStrategy] = useState<RenderStrategy>('worker-webgl')
+  // Whether this emulator carries the virtio-input bridge. Checked once the
+  // framebuffer is live, which is long after the module attached.
+  const [pointer, setPointer] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   // The live worker render session, kept in a ref so it survives StrictMode's
   // setup→cleanup→setup double-invoke. transferControlToOffscreen() is one-shot
@@ -211,6 +245,36 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
     }
   }, [strategy, collapsed, dismissed, display])
 
+  useEffect(() => {
+    setPointer(display.available && pointerAvailable())
+  }, [display.available])
+
+  // Pointer capture keeps a drag alive past the canvas edge, so `leave` only
+  // fires for a genuine departure and no button can be left stuck down.
+  const pointerHandlers = pointer
+    ? {
+        onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => {
+          const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
+          if (point) movePointer(point.nx, point.ny)
+        },
+        onPointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => {
+          event.currentTarget.setPointerCapture(event.pointerId)
+          const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
+          if (point) setButtons(point.nx, point.ny, event.buttons)
+        },
+        onPointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => {
+          const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
+          if (point) setButtons(point.nx, point.ny, event.buttons)
+        },
+        onPointerCancel: () => releaseButtons(),
+        onPointerLeave: () => releaseButtons(),
+        onWheel: (event: React.WheelEvent<HTMLCanvasElement>) => scroll(event.deltaY),
+        // Without this the secondary button opens the browser's menu instead
+        // of reaching the guest.
+        onContextMenu: (event: React.MouseEvent<HTMLCanvasElement>) => event.preventDefault(),
+      }
+    : {}
+
   if (!display.available || dismissed) return null
 
   return (
@@ -226,6 +290,15 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
         <span className="font-mono text-[11px] text-muted-foreground">
           {display.width}×{display.height}
         </span>
+        {pointer && (
+          <span
+            role="img"
+            aria-label="Touch input enabled"
+            title="Click and drag on the display — it is a virtio-input tablet"
+          >
+            <Pointer className="size-3 text-muted-foreground" aria-hidden />
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
@@ -256,9 +329,17 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
           <canvas
             key={strategy}
             ref={canvasRef}
-            className="mx-auto block max-h-[min(70vh,48rem)] w-full object-contain [image-rendering:auto]"
+            className={cn(
+              'mx-auto block max-h-[min(70vh,48rem)] w-full object-contain [image-rendering:auto]',
+              // touch-none so a finger drag reaches the guest instead of
+              // scrolling the page out from under it.
+              pointer && 'cursor-crosshair touch-none',
+            )}
             style={{ aspectRatio: `${display.width} / ${display.height}` }}
-            aria-label={`Guest display, ${display.width} by ${display.height} pixels`}
+            aria-label={`Guest display, ${display.width} by ${display.height} pixels${
+              pointer ? ', accepts touch input' : ''
+            }`}
+            {...pointerHandlers}
           />
         </div>
       )}

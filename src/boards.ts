@@ -59,6 +59,12 @@ export interface Board {
     perfStats?: boolean
     /** Ethernet through the `browser` netdev; the page implements the LAN. */
     hostNet?: boolean
+    /**
+     * Pointer events into a stock `virtio-tablet-device`, making the display
+     * panel a touch surface. Needs both the emulator's input bridge and a
+     * `ramfb` (or virtio-gpu) panel to aim at.
+     */
+    hostInput?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
@@ -183,9 +189,16 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['display'],
   },
   {
+    id: 'touch',
+    label: 'Touch Events',
+    description: 'Draws a cross wherever you click the display, over virtio-input',
+    zephyrSample: 'samples/subsys/input/draw_touch_events',
+    primaryPanels: ['display'],
+  },
+  {
     id: 'lvgl_music',
     label: 'Music Player',
-    description: 'LVGL’s auto-playing music player on qemu,ramfb',
+    description: 'LVGL’s music player on qemu,ramfb — click its controls to drive it',
     zephyrSample: 'samples/modules/lvgl/demos',
     primaryPanels: ['display'],
   },
@@ -328,6 +341,15 @@ export const BOARDS: Board[] = [
       'browser,id=n0',
       '-device',
       'virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0,mac=02:00:00:00:00:01',
+      // Pointer input: a stock virtio tablet on the slot the board devicetree
+      // reserves for it (0x0a000600, SPI 19), driven by Zephyr's upstream
+      // virtio,input driver. Unlike every other bridge here there is no QEMU
+      // device of ours — only a frontend feeding QEMU's input core, since the
+      // wasm build has no SDL/GTK/VNC to do it. Slot 3 and not 2 because
+      // Zephyr's own board.cmake picks 3, so a native `west build -t run`
+      // reproduces the browser's wiring exactly.
+      '-device',
+      'virtio-tablet-device,bus=virtio-mmio-bus.3',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -338,6 +360,7 @@ export const BOARDS: Board[] = [
       hostAudio: true,
       hostMic: true,
       ramfb: true,
+      hostInput: true,
       // The only board started with -icount, so the only one whose guest
       // instruction counter advances.
       perfStats: true,

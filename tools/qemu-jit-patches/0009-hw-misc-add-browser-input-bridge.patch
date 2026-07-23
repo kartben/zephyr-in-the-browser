@@ -1,0 +1,269 @@
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index 036d0b3..bc87973 100644
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -38,6 +38,7 @@
+ #include "hw/arm/primecell.h"
+ #include "hw/arm/virt.h"
+ #include "hw/misc/qemu-browser-gnss.h"
++#include "hw/misc/qemu-browser-input.h"
+ #include "hw/block/flash.h"
+ #include "hw/vfio/vfio-calxeda-xgmac.h"
+ #include "hw/vfio/vfio-amd-xgbe.h"
+@@ -2383,6 +2384,14 @@ static void machvirt_init(MachineState *machine)
+                     qemu_browser_gnss_chardev(), true);
+     }
+ 
++    /*
++     * Pointer and keyboard events from the embedding page, replayed into
++     * QEMU's input core for whatever virtio-input device the command line
++     * puts on the virtio-mmio bus. Unconditional: with no such device the
++     * events find no handler and are dropped, which costs one idle timer.
++     */
++    qemu_browser_input_init();
++
+     /*
+      * Host-backed sensor bridge. Not part of the real virt platform; 0x090c0000
+      * sits in the hole between the secure GPIO (0x090b0000) and the virtio
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index 5942a7a..499f653 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
+ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+ system_ss.add(files('qemu-browser-gnss.c'))
++system_ss.add(files('qemu-browser-input.c'))
+ system_ss.add(files('qemu-host-sensor.c'))
+ system_ss.add(files('qemu-host-audio.c'))
+ system_ss.add(files('qemu-host-mic.c'))
+diff --git a/hw/misc/qemu-browser-input.c b/hw/misc/qemu-browser-input.c
+new file mode 100644
+index 0000000..d741802
+--- /dev/null
++++ b/hw/misc/qemu-browser-input.c
+@@ -0,0 +1,201 @@
++/*
++ * Browser-fed pointer and keyboard input.
++ *
++ * QEMU's input core is normally driven by a UI backend -- SDL, GTK, VNC --
++ * which turns host events into qemu_input_*() calls. qemu-wasm is configured
++ * without any of them, so the virtio-input device models are present but have
++ * nothing feeding them. This is that missing frontend, and the counterpart to
++ * the ramfb export: pixels leave through hw/display/ramfb.c, pointer events
++ * come back in here.
++ *
++ * Page JavaScript appends events to a single-producer/single-consumer ring and
++ * a virtual-clock timer replays them under the BQL, the same split the browser
++ * GNSS chardev and the browser netdev use -- the JS-visible entry points touch
++ * nothing but ring memory, and every call into QEMU proper happens on the QEMU
++ * thread.
++ *
++ * A record is four 32-bit words, so the browser can address the ring as an
++ * Int32Array without any packing:
++ *
++ *     u32 kind | u32 code | i32 value | u32 reserved
++ *
++ * The write index is published once per *packet* -- a group of records ending
++ * in SYNC -- rather than once per record, so a drain never observes half a
++ * packet and the guest never sees pointer coordinates without the SYNC that
++ * commits them.
++ *
++ * Nothing here is browser-specific: the entry points are ordinary C, so a
++ * native QEMU build can drive the same ring from a test harness.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/timer.h"
++#include "ui/input.h"
++#include "hw/misc/qemu-browser-input.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define BROWSER_INPUT_RING_EVENTS 256                       /* power of two */
++#define BROWSER_INPUT_RING_MASK   (BROWSER_INPUT_RING_EVENTS - 1)
++#define BROWSER_INPUT_POLL_MS     10
++
++/* Record kinds. src/hostInput.ts mirrors these values. */
++enum {
++    BROWSER_INPUT_SYNC = 0,  /* end of packet; code and value unused         */
++    BROWSER_INPUT_ABS  = 1,  /* code: InputAxis, value: 0..0x7fff            */
++    BROWSER_INPUT_BTN  = 2,  /* code: InputButton, value: 0 up / 1 down      */
++    BROWSER_INPUT_REL  = 3,  /* code: InputAxis, value: signed delta         */
++    BROWSER_INPUT_KEY  = 4,  /* code: Linux evdev keycode, value: 0 up/1 down */
++};
++
++typedef struct BrowserInputEvent {
++    uint32_t kind;
++    uint32_t code;
++    int32_t  value;
++    uint32_t reserved;
++} BrowserInputEvent;
++
++static BrowserInputEvent browser_input_ring[BROWSER_INPUT_RING_EVENTS];
++static uint32_t browser_input_wr;      /* free-running, written by the browser */
++static uint32_t browser_input_rd;      /* free-running, written by QEMU        */
++static QEMUTimer *browser_input_timer;
++
++/* --- entry points for the embedding host (Module._qemu_browser_input_*) --- */
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_input_ready(void)
++{
++    return browser_input_timer != NULL;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_input_ring_events(void)
++{
++    return BROWSER_INPUT_RING_EVENTS;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_browser_input_ring(void)
++{
++    return (uintptr_t)browser_input_ring;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_input_write_index(void)
++{
++    return qatomic_read(&browser_input_wr);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_input_read_index(void)
++{
++    return qatomic_read(&browser_input_rd);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_input_set_write_index(uint32_t value)
++{
++    qatomic_set(&browser_input_wr, value);
++}
++
++/* --- browser -> guest (QEMU thread, BQL held) ----------------------------- */
++
++static void browser_input_deliver(const BrowserInputEvent *evt)
++{
++    int qcode;
++
++    switch (evt->kind) {
++    case BROWSER_INPUT_SYNC:
++        qemu_input_event_sync();
++        break;
++
++    case BROWSER_INPUT_ABS:
++        if (evt->code >= INPUT_AXIS__MAX) {
++            return;
++        }
++        /*
++         * Already in QEMU's absolute range, so the scale is the identity: the
++         * browser is the only thing that knows the canvas geometry, and it has
++         * to map client coordinates onto the framebuffer anyway.
++         */
++        qemu_input_queue_abs(NULL, evt->code, evt->value,
++                             INPUT_EVENT_ABS_MIN, INPUT_EVENT_ABS_MAX);
++        break;
++
++    case BROWSER_INPUT_REL:
++        if (evt->code >= INPUT_AXIS__MAX) {
++            return;
++        }
++        qemu_input_queue_rel(NULL, evt->code, evt->value);
++        break;
++
++    case BROWSER_INPUT_BTN:
++        if (evt->code >= INPUT_BUTTON__MAX) {
++            return;
++        }
++        qemu_input_queue_btn(NULL, evt->code, evt->value != 0);
++        break;
++
++    case BROWSER_INPUT_KEY:
++        /*
++         * Linux evdev keycodes on the wire rather than QKeyCode: the browser
++         * would otherwise have to hardcode a QAPI enum whose numbering is a
++         * build artefact of the QEMU it happens to be talking to.
++         */
++        qcode = qemu_input_linux_to_qcode(evt->code);
++        if (qcode <= Q_KEY_CODE_UNMAPPED) {
++            return;
++        }
++        qemu_input_event_send_key_qcode(NULL, qcode, evt->value != 0);
++        break;
++
++    default:
++        break;
++    }
++}
++
++static void browser_input_drain(void *opaque)
++{
++    uint32_t wr = qatomic_read(&browser_input_wr);
++    uint32_t rd = browser_input_rd;
++
++    /*
++     * A well-behaved producer stops writing when the ring is full, so this
++     * only bites if one runs away. Skip to the newest full ring rather than
++     * replaying records already overwritten: for pointer motion the freshest
++     * position is the only one that matters anyway.
++     */
++    if (wr - rd > BROWSER_INPUT_RING_EVENTS) {
++        rd = wr - BROWSER_INPUT_RING_EVENTS;
++    }
++
++    while (rd != wr) {
++        BrowserInputEvent evt = browser_input_ring[rd & BROWSER_INPUT_RING_MASK];
++
++        browser_input_deliver(&evt);
++        rd++;
++    }
++    qatomic_set(&browser_input_rd, rd);
++
++    timer_mod(browser_input_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + BROWSER_INPUT_POLL_MS);
++}
++
++void qemu_browser_input_init(void)
++{
++    if (browser_input_timer) {
++        return;
++    }
++
++    browser_input_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
++                                       browser_input_drain, NULL);
++    timer_mod(browser_input_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + BROWSER_INPUT_POLL_MS);
++}
+diff --git a/include/hw/misc/qemu-browser-input.h b/include/hw/misc/qemu-browser-input.h
+new file mode 100644
+index 0000000..a1f633f
+--- /dev/null
++++ b/include/hw/misc/qemu-browser-input.h
+@@ -0,0 +1,17 @@
++/*
++ * Browser-fed pointer and keyboard input.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_MISC_QEMU_BROWSER_INPUT_H
++#define HW_MISC_QEMU_BROWSER_INPUT_H
++
++/*
++ * Arms the drain timer. The browser fills a lock-free event ring and the
++ * timer replays it into QEMU's input core on the QEMU thread, where the
++ * virtio-input device models can be touched safely.
++ */
++void qemu_browser_input_init(void);
++
++#endif
