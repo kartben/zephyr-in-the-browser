@@ -17,6 +17,13 @@
  * Interrupts are not modelled yet: pin_interrupt_configure() reports -ENOTSUP,
  * which is why this pairs with the shell's `gpio get`/`gpio set` rather than the
  * interrupt-driven button sample. Reads and writes are the whole feature.
+ *
+ * The register base is carried as a plain address rather than through the
+ * DEVICE_MMIO helpers: those require their member at offset 0 of config/data,
+ * and the GPIO API claims offset 0 of both for its own common structs — with
+ * both in place, DEVICE_MMIO_GET() on the MMU-less Cortex-M3 returned the pin
+ * mask as the base address. The device only exists on that machine, so an
+ * identity-mapped physical address is all that is ever needed.
  */
 
 #define DT_DRV_COMPAT qemu_host_gpio
@@ -25,7 +32,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/gpio/gpio_utils.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/device_mmio.h>
+#include <zephyr/sys/sys_io.h>
 
 LOG_MODULE_REGISTER(qemu_host_gpio, CONFIG_GPIO_LOG_LEVEL);
 
@@ -41,19 +48,19 @@ LOG_MODULE_REGISTER(qemu_host_gpio, CONFIG_GPIO_LOG_LEVEL);
 struct qhg_config {
 	/* Required first member for a GPIO controller. */
 	struct gpio_driver_config common;
-	DEVICE_MMIO_ROM;
+	mm_reg_t base;
 };
 
 struct qhg_data {
 	/* Required first member for a GPIO controller. */
 	struct gpio_driver_data common;
-	DEVICE_MMIO_RAM;
 };
 
 static int qhg_pin_configure(const struct device *dev, gpio_pin_t pin,
 			     gpio_flags_t flags)
 {
-	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 	uint32_t dir = sys_read32(base + REG_DIR);
 	uint32_t out = sys_read32(base + REG_OUT);
 
@@ -84,7 +91,8 @@ static int qhg_pin_configure(const struct device *dev, gpio_pin_t pin,
 
 static int qhg_port_get_raw(const struct device *dev, gpio_port_value_t *value)
 {
-	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 	uint32_t dir = sys_read32(base + REG_DIR);
 	uint32_t in = sys_read32(base + REG_IN);
 	uint32_t out = sys_read32(base + REG_OUT);
@@ -99,7 +107,8 @@ static int qhg_port_set_masked_raw(const struct device *dev,
 				   gpio_port_pins_t mask,
 				   gpio_port_value_t value)
 {
-	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 	uint32_t out = sys_read32(base + REG_OUT);
 
 	out = (out & ~mask) | (value & mask);
@@ -111,7 +120,8 @@ static int qhg_port_set_masked_raw(const struct device *dev,
 static int qhg_port_set_bits_raw(const struct device *dev,
 				 gpio_port_pins_t pins)
 {
-	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 
 	sys_write32(sys_read32(base + REG_OUT) | pins, base + REG_OUT);
 
@@ -121,7 +131,8 @@ static int qhg_port_set_bits_raw(const struct device *dev,
 static int qhg_port_clear_bits_raw(const struct device *dev,
 				   gpio_port_pins_t pins)
 {
-	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 
 	sys_write32(sys_read32(base + REG_OUT) & ~pins, base + REG_OUT);
 
@@ -131,7 +142,8 @@ static int qhg_port_clear_bits_raw(const struct device *dev,
 static int qhg_port_toggle_bits(const struct device *dev,
 				gpio_port_pins_t pins)
 {
-	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 
 	sys_write32(sys_read32(base + REG_OUT) ^ pins, base + REG_OUT);
 
@@ -167,11 +179,9 @@ static DEVICE_API(gpio, qhg_api) = {
 
 static int qhg_init(const struct device *dev)
 {
-	mm_reg_t base;
+	const struct qhg_config *config = dev->config;
+	mm_reg_t base = config->base;
 	uint32_t id;
-
-	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
-	base = DEVICE_MMIO_GET(dev);
 
 	id = sys_read32(base + REG_ID);
 	if (id != HOST_GPIO_MAGIC) {
@@ -193,7 +203,7 @@ static int qhg_init(const struct device *dev)
 			.port_pin_mask =                                     \
 				GPIO_PORT_PIN_MASK_FROM_DT_INST(inst),       \
 		},                                                           \
-		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(inst)),                     \
+		.base = DT_INST_REG_ADDR(inst),                              \
 	};                                                                   \
 	DEVICE_DT_INST_DEFINE(inst, qhg_init, NULL, &qhg_data_##inst,         \
 			      &qhg_config_##inst, POST_KERNEL,               \
