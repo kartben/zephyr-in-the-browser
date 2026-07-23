@@ -105,9 +105,9 @@ wasm64 experiment so the result does not require WebAssembly Memory64.
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
 working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
 include the browser terminal, GNSS UART, host-sensor and browser-netdev
-bridges; AArch64 additionally adds the ramfb bridge.
+bridges; AArch64 additionally adds the ramfb and input bridges.
 
-Six browser integrations are supplied by the target-specific patch
+Seven browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -120,6 +120,12 @@ directories under `tools/`:
   `qemu_host_gpio_get_outputs`. Cortex-M3 only.
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
+* A **frontend for QEMU's input core** (`hw/misc/qemu-browser-input.c`),
+  AArch64 only. Unlike the others this adds no device: pointer events cross a
+  lock-free ring into `qemu_input_queue_abs`/`_btn` from a `QEMU_CLOCK_VIRTUAL`
+  timer, and the guest-facing side is a stock `virtio-tablet-device` talking to
+  Zephyr's upstream `virtio,input` driver. It exists only because a build
+  configured `--without-default-features` has no SDL/GTK/VNC to feed that core.
 * A browser-fed character backend on each machine's second PL011 UART. It
   accepts NMEA bytes through a lock-free ring and delivers them to the UART from
   QEMU's own thread.

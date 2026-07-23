@@ -2,7 +2,7 @@
 
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
-It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver, a sound panel — speakers fed by Zephyr's I2S API, microphone feeding its DMIC API — wired to the Web Audio API and `getUserMedia`, and real Ethernet: the page itself implements the guest's LAN (DHCP, DNS, TCP…), with a Network panel showing live throughput charts and a tcpdump-style capture — each in its own floating panel.
+It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver that is also a *touchscreen* — clicks and drags reach the guest as a virtio-input tablet — a sound panel — speakers fed by Zephyr's I2S API, microphone feeding its DMIC API — wired to the Web Audio API and `getUserMedia`, and real Ethernet: the page itself implements the guest's LAN (DHCP, DNS, TCP…), with a Network panel showing live throughput charts and a tcpdump-style capture — each in its own floating panel.
 
 ## Quick start
 
@@ -72,6 +72,31 @@ proven on the guest side but has no browser bridge yet, so nothing renders in th
 page under it — and measurements say it is not the way to a faster display
 anyway. Both are written up in
 [docs/next-drivers.md](docs/next-drivers.md#virtio-gpu--vendored-guest-side-proven-not-a-display-speed-up).
+
+## Touch input: the display panel is a tablet
+
+Clicking and dragging on the Cortex-A53 display panel presses the guest's
+touchscreen. It reaches Zephyr as a **stock `virtio-tablet-device`** on
+virtio-mmio slot 3 — the slot the board's own devicetree reserves for
+`virtio_input0`, with `zephyr,touch` already pointing at it — driven by
+Zephyr's upstream `virtio,input` driver. Nothing in this repo models the
+device, and there is no shield overlay for it; a build only needs
+`CONFIG_INPUT=y` ([`zephyr-module/conf/touch.conf`](zephyr-module/conf/touch.conf))
+to compile the driver the devicetree already asks for. LVGL picks the pointer
+up from the same chosen node, so the Music Player demo became clickable without
+an application change — and it now waits for that click instead of running
+LVGL's auto-play script, which ended by blanking the screen after ~35 seconds.
+
+What the emulator *does* need is a way in. QEMU's input core is normally fed by
+a UI backend, and qemu-wasm is built without SDL, GTK or VNC, so
+`tools/qemu-jit-patches/0009-hw-misc-add-browser-input-bridge.patch` supplies
+the missing frontend: page JavaScript ([`src/hostInput.ts`](src/hostInput.ts))
+appends events to a lock-free ring and a `QEMU_CLOCK_VIRTUAL` timer replays
+them into `qemu_input_*()` on QEMU's own thread. That makes it the first bridge
+here whose *device* is entirely off-the-shelf on both sides — the patch adds
+plumbing, not hardware. The primary button is reported as `BTN_TOUCH` rather
+than `BTN_LEFT`, which is what Zephyr's touch consumers read; the secondary and
+middle buttons and the wheel pass through for anything that wants them.
 
 ## Networking: the page is the LAN
 

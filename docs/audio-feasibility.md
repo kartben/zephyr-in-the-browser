@@ -10,9 +10,11 @@ repo and virtio-snd, any one of which would sink it alone.
 ## Blocker 1: Zephyr has no virtio-snd guest driver
 
 Zephyr's virtio support (2025–2026) is real but narrow: the **transports**
-(virtio-mmio, virtio-pci) plus **entropy**, **console/serial**, and
-**virtiofs** device drivers. There is no virtio-snd, no virtio-gpu, no
-virtio-input — `docs/next-drivers.md` §2 already flags this.
+(virtio-mmio, virtio-pci) plus **entropy**, **console/serial**, **net** and
+**virtiofs** device drivers, and — since June 2026 — **input**. There is still
+no virtio-snd, and no virtio-gpu outside the vendored copy this repo carries;
+`docs/next-drivers.md` §2 tracks where each one stands. Sound is the one that
+has not moved.
 
 Writing a virtio-snd driver is not a weekend port. The virtio-sound spec
 (virtio spec §5.14) requires a control queue with jack/stream/channel-map
