@@ -23,6 +23,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/gpio/gpio_utils.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/device_mmio.h>
 
