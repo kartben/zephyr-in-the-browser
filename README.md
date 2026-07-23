@@ -67,14 +67,64 @@ Each machine instantiates the devices where the overlays expect them: the Stella
 
 ## Deploying
 
-Pushes to `main` deploy to GitHub Pages. The emulator binary isn't checked into git, so publish it once as a release and point the repo at it:
+Pushes to `main` deploy the site to GitHub Pages. The emulator binaries and
+guest ELFs are not checked into git, so changes to QEMU, its browser bridges,
+the Zephyr shield, or the packaged samples also need a new release.
+
+Prerequisites are Docker and an authenticated [GitHub CLI](https://cli.github.com/)
+(`gh auth login`). Pick a new, unused tag, then run the complete release flow
+from the repository root:
 
 ```console
-tools/package-emulator.sh v1
-gh variable set EMULATOR_RELEASE --body v1
+git switch main
+git pull --ff-only origin main
+
+TAG=v11
+
+# Use a fresh source tree so this release cannot reuse an older QEMU checkout.
+QEMU_BUILD_DIR="$(mktemp -d)"
+QEMU_WORKDIR="$QEMU_BUILD_DIR" tools/build-qemu-wasm.sh
+
+# Rebuild every board/app entry in tools/samples.manifest.
+tools/build-zephyr-image.sh
+
+# Install the pinned web dependencies, then type-check and verify the build.
+npm ci
+npm run build
+
+# Create the release and upload qemu-wasm-artifacts.tar.gz.
+tools/package-emulator.sh "$TAG"
+
+# Make future pushes use this release, and deploy it immediately.
+gh variable set EMULATOR_RELEASE --body "$TAG"
+gh workflow run pages.yml -f emulator_release="$TAG"
+
+# Inspect the release and the latest Pages runs.
+gh release view "$TAG"
+gh run list --workflow pages.yml --limit 5
+
+rm -rf -- "$QEMU_BUILD_DIR"
 ```
 
-Without that variable, Pages ships the mock backend only.
+Replace `v11` with the next release tag. The QEMU build is the slow part;
+`tools/build-qemu-wasm.sh` builds Cortex-M with TCI and Cortex-A53 with the
+WebAssembly JIT. For faster development rebuilds, omit `QEMU_WORKDIR` to reuse
+the cached `.qemu-wasm-build` source and dependency image. You can also rebuild
+one emulator target or one guest, for example:
+
+```console
+tools/build-qemu-wasm.sh aarch64-softmmu
+tools/build-zephyr-image.sh qemu_cortex_a53 display
+```
+
+See the usage comments at the top of each script for all accepted options.
+
+`tools/package-emulator.sh "$TAG"` packages both emulators and every generated
+ELF, then creates the GitHub release (or replaces the asset if the tag already
+exists). `EMULATOR_RELEASE` is the default used by subsequent pushes to `main`;
+the explicit workflow dispatch above deploys the new release without requiring
+another source commit. Without the variable or workflow input, Pages ships the
+mock backend only.
 
 A couple of details are handled for you: static hosts can't set the cross-origin isolation headers QEMU needs, so the deployed build uses [`coi-serviceworker`](https://github.com/gzuidhof/coi-serviceworker) to add them client-side. And since the emulator is GPLv2-licensed QEMU, this repo being public — with release notes pointing at the pinned sources — satisfies the corresponding-source requirement.
 
