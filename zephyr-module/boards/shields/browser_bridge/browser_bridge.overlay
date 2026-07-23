@@ -13,7 +13,8 @@
  *
  * boards/qemu_cortex_m3.overlay — GNSS NMEA UART, qemu,host-sensor (with
  *   accel0 / temp0 / light0 / … aliases so stock sensor samples build against
- *   the host sensor), qemu,host-gpio, and qemu,host-audio.
+ *   the host sensor), qemu,host-gpio, qemu,host-audio (I2S out), and
+ *   qemu,host-mic (DMIC in, aliased dmic0).
  * boards/qemu_cortex_a53.overlay — GNSS NMEA UART, browser-sized qemu,ramfb,
- *   the same host-sensor node/aliases, and qemu,host-audio.
+ *   the same host-sensor node/aliases, qemu,host-audio, and qemu,host-mic.
  */
