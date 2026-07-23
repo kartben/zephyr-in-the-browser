@@ -202,6 +202,10 @@ function AboutThisNetwork() {
         real hosts — browser pages have no sockets. Servers the guest runs are reachable only
         through the tools below.
       </p>
+      <p className="text-muted-foreground">
+        Roadmap: an opt-in uplink to a local passt gateway, for real network access when a helper
+        daemon runs beside the dev server.
+      </p>
     </div>
   )
 }
