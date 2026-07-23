@@ -16,14 +16,17 @@
 #
 #   tools/build-zephyr-image.sh
 #
-# Cortex-M3 runs on qemu-wasm's TCI interpreter, where apps that block on
-# k_sleep in steady state stall — only interrupt-driven or run-to-completion
-# samples belong on it. Cortex-A53 uses the wasm JIT and has no such limit.
+# Cortex-M3 runs on qemu-wasm's TCI interpreter. Most samples run — including
+# single-threaded sleepers like blinky and basic_button, though their timing is
+# not wall-clock accurate — but a few multi-threaded ones (philosophers,
+# synchronization) stall. Cortex-A53 uses the wasm JIT and has no such limit.
 
 qemu_cortex_m3:gnss:samples/drivers/gnss
 qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-sensor.conf,conf/host-gpio.conf,conf/host-audio.conf
 qemu_cortex_m3:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_m3:hello_world:samples/hello_world
+qemu_cortex_m3:blinky:samples/basic/blinky
+qemu_cortex_m3:basic_button:samples/basic/button
 
 qemu_cortex_a53:gnss:samples/drivers/gnss
 qemu_cortex_a53:display:samples/drivers/display

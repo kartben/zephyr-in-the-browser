@@ -17,7 +17,16 @@
  * stock Zephyr sensor samples — accel_polling (accel0), thermometer
  * (ambient-temp0) and friends — build unmodified against the browser-fed
  * readings.
+ *
+ * The host GPIO controller also carries a gpio-leds node (led0 on pin 4) and a
+ * polled gpio-keys node (sw0 on pin 0), so blinky drives a browser LED and the
+ * button sample reads a browser button through the input subsystem. Pins follow
+ * the browser panel's convention (src/hostGpio.ts): 0-3 are inputs, 4-7 are
+ * outputs. gpio-keys is polled because the host-gpio device models no IRQ line.
  */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 
 / {
 	aliases {
@@ -29,6 +38,8 @@
 		light0 = &host_sensor;
 		humidity0 = &host_sensor;
 		press0 = &host_sensor;
+		led0 = &led0;
+		sw0 = &button0;
 	};
 
 	soc {
@@ -57,6 +68,28 @@
 			compatible = "qemu,host-mic";
 			reg = <0x40063000 0x1000>;
 			status = "okay";
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = <&host_gpio 4 GPIO_ACTIVE_HIGH>;
+			label = "Host LED0";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		/* No IRQ line on the host-gpio device, so poll the pin instead. */
+		polling-mode;
+		debounce-interval-ms = <30>;
+
+		button0: button_0 {
+			gpios = <&host_gpio 0 GPIO_ACTIVE_HIGH>;
+			zephyr,code = <INPUT_KEY_0>;
+			label = "Host SW0";
 		};
 	};
 };

@@ -73,10 +73,13 @@ export interface Board {
 }
 
 /*
- * Only apps that do not sleep. Anything blocking on k_sleep or a timeout hangs
- * under qemu-wasm: Philosophers and Synchronization were both shipped here and
- * both stall, though they run correctly on native QEMU 8.2.2 — the same version
- * ktock's fork is based on.
+ * Sleeping is mostly fine, but a couple of multi-threaded samples hang:
+ * Philosophers and Synchronization were both shipped here and both stall under
+ * qemu-wasm, though they run correctly on native QEMU 8.2.2 — the same version
+ * ktock's fork is based on. Single-threaded sleepers are unaffected: blinky (a
+ * k_msleep loop) and basic_button (a polled gpio-keys work item) run steadily —
+ * only the wall clock is off, the interpreter runs the 1 Hz blink several times
+ * faster than real time.
  *
  * The cause is ktock's TCG→Wasm JIT miscompiling something, not the guest and
  * not the SysTick device: forcing everything to stay interpreted takes
@@ -116,6 +119,24 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Hello World',
     description: 'Prints one line and stops',
     zephyrSample: 'samples/hello_world',
+  },
+  {
+    // led0 is the host-gpio bridge's pin 4 (LED0 in the panel), so the blink
+    // shows up as the panel's LED0 flashing once a second.
+    id: 'blinky',
+    label: 'Blinky',
+    description: 'Blinks LED0 on the host GPIO bridge',
+    zephyrSample: 'samples/basic/blinky',
+    primaryPanels: ['gpio'],
+  },
+  {
+    // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
+    // lights led0 (pin 4) — click SW0 in the GPIO panel to press it.
+    id: 'basic_button',
+    label: 'Button',
+    description: 'A host GPIO button lights an LED via the input subsystem',
+    zephyrSample: 'samples/basic/button',
+    primaryPanels: ['gpio'],
   },
 ]
 
