@@ -1,3 +1,4 @@
+import { AudioPanel } from '@/components/AudioPanel'
 import { DisplayPanel } from '@/components/DisplayPanel'
 import { GnssPanel } from '@/components/GnssPanel'
 import { GpioPanel } from '@/components/GpioPanel'
@@ -11,6 +12,7 @@ export function PeripheralPanels() {
       <GnssPanel />
       <SensorPanel />
       <GpioPanel />
+      <AudioPanel />
     </div>
   )
 }

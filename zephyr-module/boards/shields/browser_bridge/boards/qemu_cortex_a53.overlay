@@ -7,11 +7,13 @@
  * with the same accel0/temp0/... aliases the Cortex-M3 gets, so stock sensor
  * samples (and the LVGL accelerometer chart) build unmodified.
  *
- * The host sensor sits at 0x090c0000 — a hole in virt's MMIO map between the
- * secure GPIO (0x090b0000) and the virtio region (0x0a000000), so it cannot
- * collide with anything the machine actually maps. Our patched qemu-wasm virt
- * machine instantiates the device at this exact address; see
- * tools/qemu-jit-patches/0004-hw-misc-add-qemu-host-sensor.patch.
+ * The host sensor sits at 0x090c0000 and the host audio out at 0x090d0000 —
+ * holes in virt's MMIO map between the secure GPIO (0x090b0000) and the
+ * virtio region (0x0a000000), so they cannot collide with anything the
+ * machine actually maps. Our patched qemu-wasm virt machine instantiates the
+ * devices at these exact addresses; see
+ * tools/qemu-jit-patches/0004-hw-misc-add-qemu-host-sensor.patch and
+ * tools/qemu-jit-patches/0005-hw-misc-add-qemu-host-audio.patch.
  *
  * Zephyr's stock Cortex-A53 ramfb is 1024x768. That is unnecessarily large for
  * the browser demo: every refresh is emulated by QEMU and uploaded as a browser
@@ -48,6 +50,12 @@
 		host_sensor: sensor@90c0000 {
 			compatible = "qemu,host-sensor";
 			reg = <0x0 0x090c0000 0x0 0x1000>;
+			status = "okay";
+		};
+
+		host_audio: audio@90d0000 {
+			compatible = "qemu,host-audio";
+			reg = <0x0 0x090d0000 0x0 0x1000>;
 			status = "okay";
 		};
 	};

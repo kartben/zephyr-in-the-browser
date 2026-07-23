@@ -126,9 +126,26 @@ transport in qemu-wasm. Do *not* frame virtio as "the way we'll get audio/webcam
 — that would require writing new Zephyr virtio drivers, which is a research
 project of its own (see below).
 
-### 3. Audio — output first, and *not* via virtio
+### 3. Audio — output first, and *not* via virtio — ✅ done
 
-Appealing, and doable, but bespoke. Because there is no virtio-snd driver in
+**Implemented** as the `qemu,host-audio` device on both machines, exactly along
+the lines below (the fuller virtio-snd analysis lives in
+[`audio-feasibility.md`](audio-feasibility.md)): a custom MMIO PCM ring at
+16 kHz mono s16 (patches `tools/qemu-patches/0006-hw-misc-add-qemu-host-audio.patch`
+and `tools/qemu-jit-patches/0005-hw-misc-add-qemu-host-audio.patch`), a Zephyr
+driver with a non-blocking write API
+(`zephyr-module/drivers/qemu_host_audio.c`, header
+`zephyr-module/include/qemu_host_audio.h`), a `hostaudio` shell command
+(`beep`, `melody`) so the shell samples demo it with no custom app, and a
+browser panel that drains the ring into the Web Audio API
+(`src/components/AudioPanel.tsx`, bridge in `src/hostAudio.ts`). Playback
+starts muted behind an enable click — the browser autoplay policy requires the
+gesture — and the bridge drains (and drops) samples while muted so guest-side
+flow control is identical either way. The shell commands queue everything up
+front and never sleep, which is what keeps them usable on the TCI Cortex-M3.
+
+Original rationale, kept for the record —
+appealing, and doable, but bespoke. Because there is no virtio-snd driver in
 Zephyr, this is not a stock path — it is a new bridge.
 
 - **Output (guest → browser), the tractable direction:** the guest writes PCM
@@ -178,8 +195,11 @@ it expecting virtio to just cover it.
    wire a GPIO IRQ to the NVIC so the interrupt-driven button sample works too.
 2. **virtio-entropy or virtio-console** — separate exploratory track; prove the
    virtio-mmio path works in qemu-wasm against stock QEMU, no C patch of ours.
-3. **Audio out** — bespoke host-PCM bridge on the framebuffer-export shape, Web
-   Audio on the browser side. Not virtio.
+3. ~~**Audio out**~~ — ✅ done; bespoke `qemu,host-audio` PCM bridge on both
+   machines, Web Audio on the browser side, not virtio (see
+   [`audio-feasibility.md`](audio-feasibility.md)). Follow-up candidates: mic
+   input (`getUserMedia`, the host-sensor shape streamed), and a real audio
+   sample beyond the shell beeps.
 4. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 
 ## Sources

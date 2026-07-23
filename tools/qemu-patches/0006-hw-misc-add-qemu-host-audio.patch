@@ -1,0 +1,259 @@
+diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
+index 0a30b96..e7634c1 100644
+--- a/hw/arm/Kconfig
++++ b/hw/arm/Kconfig
+@@ -225,6 +225,7 @@ config STELLARIS
+     select ARM_V7M
+     select QEMU_HOST_SENSOR
+     select QEMU_HOST_GPIO
++    select QEMU_HOST_AUDIO
+     select CMSDK_APB_WATCHDOG
+     select I2C
+     select PL011 # UART
+diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
+index de0f6c3..f86f3b8 100644
+--- a/hw/arm/stellaris.c
++++ b/hw/arm/stellaris.c
+@@ -1406,6 +1406,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+      */
+     sysbus_create_simple("qemu-host-gpio", 0x40061000, NULL);
+ 
++    /*
++     * Host-backed audio-out bridge, third of the family: the guest pushes PCM
++     * into a ring the QEMU host drains (under qemu-wasm, a browser playing it
++     * through the Web Audio API).
++     */
++    sysbus_create_simple("qemu-host-audio", 0x40062000, NULL);
++
+     create_unimplemented_device("PWM", 0x40028000, 0x1000);
+     create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
+     create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
+diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
+index 194629e..db84078 100644
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -241,4 +241,7 @@ config QEMU_HOST_SENSOR
+ config QEMU_HOST_GPIO
+     bool
+ 
++config QEMU_HOST_AUDIO
++    bool
++
+ source macio/Kconfig
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index a6fbaf3..05c845c 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -7,6 +7,7 @@ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
+ system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
+ system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
++system_ss.add(when: 'CONFIG_QEMU_HOST_AUDIO', if_true: files('qemu-host-audio.c'))
+ system_ss.add(files('qemu-browser-gnss.c'))
+ system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
+ system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
+diff --git a/hw/misc/qemu-host-audio.c b/hw/misc/qemu-host-audio.c
+new file mode 100644
+index 0000000..8625162
+--- /dev/null
++++ b/hw/misc/qemu-host-audio.c
+@@ -0,0 +1,199 @@
++/*
++ * Host-backed audio-out device.
++ *
++ * A companion to qemu-host-sensor.c and qemu-host-gpio.c, built on the same
++ * idea: it models no real hardware. The guest pushes 16-bit mono PCM samples
++ * through a data register into a ring the QEMU *host* drains -- under
++ * qemu-wasm, page JavaScript feeding the Web Audio API. Nothing here is
++ * browser-specific: the host entry points are ordinary C, so the device also
++ * works under native QEMU for testing the guest driver without a browser in
++ * the loop.
++ *
++ * Flow control is two free-running frame counters. The write index advances
++ * as the guest pushes samples; the read index advances as the host consumes
++ * them. Each counter has a single writer and a 32-bit load or store is atomic
++ * on every host we target, so no locking is needed between the host thread
++ * and the QEMU main pthread -- and the guest's MMIO path never calls back
++ * into JavaScript.
++ *
++ * The format is fixed at 16 kHz mono s16: beeps do not need CD quality, and
++ * ~16k MMIO writes per second of sound keeps the TCI-interpreted Cortex-M3
++ * guest comfortable.
++ *
++ * Copyright (c) 2026
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 or
++ *  (at your option) any later version.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "hw/sysbus.h"
++#include "hw/registerfields.h"
++#include "migration/vmstate.h"
++#include "hw/qdev-properties.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define TYPE_QEMU_HOST_AUDIO "qemu-host-audio"
++OBJECT_DECLARE_SIMPLE_TYPE(QemuHostAudioState, QEMU_HOST_AUDIO)
++
++/* "HAUD" -- lets the guest driver confirm the device is really there. */
++#define HOST_AUDIO_MAGIC 0x48415544
++#define HOST_AUDIO_RATE 16000
++/* Ring capacity in frames; power of two, ~4 s at 16 kHz. */
++#define HOST_AUDIO_FRAMES 65536
++
++REG32(ID, 0x00)     /* RO: HOST_AUDIO_MAGIC */
++REG32(RATE, 0x04)   /* RO: sample rate in Hz */
++REG32(FRAMES, 0x08) /* RO: ring capacity in frames */
++REG32(WRIDX, 0x0c)  /* RO: free-running count of frames the guest pushed */
++REG32(RDIDX, 0x10)  /* RO: free-running count of frames the host consumed */
++REG32(DATA, 0x14)   /* WO: push one frame (low 16 bits, signed) */
++
++struct QemuHostAudioState {
++    SysBusDevice parent_obj;
++    MemoryRegion iomem;
++};
++
++/*
++ * Ring and counters are global rather than per-device so the host entry
++ * points below need no device handle -- one instance per machine is the only
++ * sane configuration, so that is not a real constraint.
++ */
++static int16_t host_audio_ring[HOST_AUDIO_FRAMES];
++static uint32_t host_audio_wr; /* advanced by the guest via REG_DATA */
++static uint32_t host_audio_rd; /* advanced by the host as it consumes */
++
++/*
++ * Host entry points. Under Emscripten these are reachable from page
++ * JavaScript as Module._qemu_host_audio_*(); the ring itself is read straight
++ * out of the shared Emscripten heap at the exported address. Declared here
++ * rather than in a header because nothing on the QEMU side calls them.
++ */
++uint32_t qemu_host_audio_get_rate(void);
++uint32_t qemu_host_audio_get_buffer_frames(void);
++uintptr_t qemu_host_audio_get_data(void);
++uint32_t qemu_host_audio_get_write_index(void);
++void qemu_host_audio_set_read_index(uint32_t index);
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_audio_get_rate(void)
++{
++    return HOST_AUDIO_RATE;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_audio_get_buffer_frames(void)
++{
++    return HOST_AUDIO_FRAMES;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_host_audio_get_data(void)
++{
++    return (uintptr_t)host_audio_ring;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_host_audio_get_write_index(void)
++{
++    return host_audio_wr;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_host_audio_set_read_index(uint32_t index)
++{
++    host_audio_rd = index;
++}
++
++static uint64_t qemu_host_audio_read(void *opaque, hwaddr addr, unsigned size)
++{
++    switch (addr) {
++    case A_ID:
++        return HOST_AUDIO_MAGIC;
++    case A_RATE:
++        return HOST_AUDIO_RATE;
++    case A_FRAMES:
++        return HOST_AUDIO_FRAMES;
++    case A_WRIDX:
++        return host_audio_wr;
++    case A_RDIDX:
++        return host_audio_rd;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-audio: read from bad offset 0x%" HWADDR_PRIx "\n",
++                      addr);
++        return 0;
++    }
++}
++
++static void qemu_host_audio_write(void *opaque, hwaddr addr, uint64_t value,
++                                  unsigned size)
++{
++    switch (addr) {
++    case A_DATA:
++        host_audio_ring[host_audio_wr % HOST_AUDIO_FRAMES] = (int16_t)value;
++        host_audio_wr++;
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "qemu-host-audio: write to read-only/bad offset 0x%"
++                      HWADDR_PRIx "\n", addr);
++        break;
++    }
++}
++
++static const MemoryRegionOps qemu_host_audio_ops = {
++    .read = qemu_host_audio_read,
++    .write = qemu_host_audio_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid.min_access_size = 4,
++    .valid.max_access_size = 4,
++};
++
++static void qemu_host_audio_reset(DeviceState *dev)
++{
++    /* Both counters to zero so a reset leaves the browser silent. */
++    host_audio_wr = 0;
++    host_audio_rd = 0;
++}
++
++static void qemu_host_audio_init(Object *obj)
++{
++    QemuHostAudioState *s = QEMU_HOST_AUDIO(obj);
++
++    memory_region_init_io(&s->iomem, obj, &qemu_host_audio_ops, s,
++                          "qemu-host-audio", 0x1000);
++    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->iomem);
++}
++
++static void qemu_host_audio_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    device_class_set_legacy_reset(dc, qemu_host_audio_reset);
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++}
++
++static const TypeInfo qemu_host_audio_info = {
++    .name = TYPE_QEMU_HOST_AUDIO,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(QemuHostAudioState),
++    .instance_init = qemu_host_audio_init,
++    .class_init = qemu_host_audio_class_init,
++};
++
++static void qemu_host_audio_register_types(void)
++{
++    type_register_static(&qemu_host_audio_info);
++}
++
++type_init(qemu_host_audio_register_types)

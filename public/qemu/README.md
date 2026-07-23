@@ -212,3 +212,26 @@ the terminal and sensor panel.
 
 This is output-only for now. No virtio input device is connected to browser
 pointer events, and keyboard input remains attached to the serial terminal.
+
+## Audio output
+
+Like the display, the audio path depends on no QEMU audio backend — the
+`-audiodev` layer is not even compiled in. A `qemu-host-audio` MMIO device
+(patched into both machines: Stellaris at 0x40062000, virt at 0x090d0000)
+owns a ring of 16-bit mono PCM at a fixed 16 kHz, about four seconds deep. The
+guest pushes samples through a data register; two free-running frame counters
+— write index advanced by the guest, read index advanced by the browser —
+give both sides flow control with nothing but atomic 32-bit accesses.
+`hostAudio.ts` polls the exported ring every 100 ms, converts new samples, and
+schedules them through the Web Audio API; the browser autoplay policy gates
+playback behind the panel's enable click, and while muted the bridge still
+drains (and drops) samples so the guest cannot tell the difference.
+
+16 kHz mono is a deliberate fit for the TCI-interpreted Cortex-M3: one second
+of sound is ~16k MMIO writes. The guest side is the `qemu,host-audio` Zephyr
+driver plus a `hostaudio` shell command (`beep [freq] [ms]`, `melody`) that
+synthesises integer-only sine tones and queues them entirely up front — no
+`k_sleep`, so it sidesteps the TCI stall described above. Not virtio-snd, and
+deliberately so: Zephyr has no virtio-snd driver and this build has no
+audiodev for QEMU's virtio-sound device to render into — see
+`docs/audio-feasibility.md` in the repo root.
