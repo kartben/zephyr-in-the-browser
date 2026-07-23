@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Download, Network, Pause, Play, Trash2, X } from 'lucide-react'
+import { ChevronDown, Download, Info, Network, Pause, Play, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
@@ -28,6 +28,7 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
   const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
   const [showImpairments, setShowImpairments] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
 
   if (!snapshot.available || !available() || dismissed) return null
 
@@ -42,6 +43,19 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
           aria-label={snapshot.linkUp ? 'Link up' : 'Link down'}
         />
         <div className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('size-6', showAbout && 'text-primary')}
+            aria-label="How this network works"
+            aria-pressed={showAbout}
+            onClick={() => {
+              setShowAbout((s) => !s)
+              setCollapsed(false)
+            }}
+          >
+            <Info className="size-3.5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -66,6 +80,7 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
 
       {!collapsed && (
         <div className="max-h-[min(30rem,65vh)] space-y-3 overflow-y-auto px-3 py-3">
+          {showAbout && <AboutThisNetwork />}
           {/* Interface status */}
           <div className="space-y-1">
             <div className="flex items-baseline gap-1.5">
@@ -155,6 +170,38 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * The honest disclosure: what is real, what is theater. Same story as the
+ * README's networking section — keep the two in step.
+ */
+function AboutThisNetwork() {
+  return (
+    <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
+      <p>
+        <span className="font-medium">This network is the page.</span> Every frame the guest sends
+        lands in JavaScript, which answers as gateway, DHCP, DNS — and as every remote host. No
+        packet reaches the real internet.
+      </p>
+      <p>
+        <span className="font-medium text-success">Real:</span> DNS answers (looked up via
+        DNS-over-HTTPS) · HTTP the guest sends to any host&apos;s :80/:8080, re-issued as a browser{' '}
+        <code className="font-mono">fetch()</code> — CORS decides what is readable,{' '}
+        <code className="font-mono">host.internal</code> always works.
+      </p>
+      <p>
+        <span className="font-medium text-warning">Simulated:</span> ping replies — every address
+        &quot;answers&quot; because the page does, not the host · SNTP (your browser&apos;s clock) ·
+        the echo and zperf peers at 192.0.2.x.
+      </p>
+      <p>
+        <span className="font-medium text-destructive">Impossible:</span> HTTPS or raw TCP/UDP to
+        real hosts — browser pages have no sockets. Servers the guest runs are reachable only
+        through the tools below.
+      </p>
     </div>
   )
 }
