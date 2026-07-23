@@ -29,7 +29,7 @@ qemu_cortex_a53:gnss:samples/drivers/gnss
 qemu_cortex_a53:mic_capture:zephyr-module/apps/mic_capture
 qemu_cortex_a53:display:samples/drivers/display
 qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf
-qemu_cortex_a53:accel_chart:samples/modules/lvgl/accelerometer_chart
+qemu_cortex_a53:accel_chart:samples/modules/lvgl/accelerometer_chart:conf/lvgl-accel.conf
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
