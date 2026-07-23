@@ -1,0 +1,19 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Host-drained audio output exposed by QEMU over MMIO.
+
+  The guest pushes 16-bit mono PCM samples through a data register into a ring
+  the QEMU host consumes, rather than into emulated audio hardware. Under
+  qemu-wasm that host is a browser, so the samples end up in the Web Audio API.
+  The sample rate and ring capacity are fixed by the device and read back from
+  its registers.
+
+compatible: "qemu,host-audio"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

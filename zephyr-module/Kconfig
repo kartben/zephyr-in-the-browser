@@ -19,3 +19,20 @@ config QEMU_HOST_GPIO
 	  pins are driven by the QEMU host and whose output pins are observed by
 	  it. Under qemu-wasm that host is a browser, so a page can raise buttons
 	  on the inputs and light indicators from the outputs the guest drives.
+
+config QEMU_HOST_AUDIO
+	bool "QEMU host-backed audio out"
+	default y
+	depends on DT_HAS_QEMU_HOST_AUDIO_ENABLED
+	help
+	  Driver for the qemu-host-audio MMIO device: a PCM ring the guest
+	  fills and the QEMU host drains. Under qemu-wasm that host is a
+	  browser, so samples written here play through the Web Audio API.
+
+config QEMU_HOST_AUDIO_SHELL
+	bool "hostaudio shell commands"
+	default y
+	depends on QEMU_HOST_AUDIO && SHELL
+	help
+	  `hostaudio info|beep|melody` commands, so the audio bridge is
+	  demoable from the stock shell sample without writing an application.
