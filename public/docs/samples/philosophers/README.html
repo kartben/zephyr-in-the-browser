@@ -1,0 +1,604 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta content="Implement a solution to the Dining Philosophers problem using Zephyr kernel services." name="description" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dining Philosophers &mdash; Zephyr Project Documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/doxytooltip.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/togglebutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/custom.css" />
+      <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css" />
+
+  
+    <link rel="shortcut icon" href="../../_static/favicon.png"/>
+    <link rel="canonical" href="README.html" />
+      <script src="../../_static/jquery.js"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+      <script src="../../_static/documentation_options.js"></script>
+      <script src="../../_static/doctools.js"></script>
+      <script src="../../_static/sphinx_highlight.js"></script>
+      <script src="../../_static/tippy/popper.min.js"></script>
+      <script src="../../_static/tippy/tippy-bundle.umd.min.js"></script>
+      <script src="../../_static/doxytooltip.js"></script>
+      <script src="../../_static/clipboard.min.js"></script>
+      <script src="../../_static/copybutton.js"></script>
+      <script src="../../_static/js/custom.js"></script>
+      <script>let toggleHintShow = 'Click to show';</script>
+      <script>let toggleHintHide = 'Click to hide';</script>
+      <script>let toggleOpenOnPrint = 'true';</script>
+      <script src="../../_static/togglebutton.js"></script>
+      <script src="../../_static/design-tabs.js"></script>
+      <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="https://docs.zephyrproject.org/latest/genindex.html" />
+    <link rel="search" title="Search" href="https://docs.zephyrproject.org/latest/search.html" />
+    <link rel="next" title="PSA" href="https://docs.zephyrproject.org/latest/samples/psa/index.html" />
+    <link rel="prev" title="zperf: Network Traffic Generator" href="https://docs.zephyrproject.org/latest/samples/net/zperf/README.html" />
+  <meta name="color-scheme" content="dark light">
+  
+  <noscript id="dark-mode-toggle-stylesheets">
+    <link rel="stylesheet" href="../../_static/css/light.css" type="text/css" media="(prefers-color-scheme: light)"/>
+    <link rel="stylesheet" href="../../_static/css/dark.css" type="text/css" media="(prefers-color-scheme: dark)"/>
+  </noscript>
+  <script src="../../_static/js/dark-mode-toggle-stylesheets-loader.min.js"></script>
+  <script type="module" src="../../_static/js/dark-mode-toggle.min.mjs"></script>
+  
+    
+
+<!-- zephyr-in-the-browser: run-in-simulator widget -->
+<link rel="stylesheet" href="../../_sim/widget.css"/>
+<script>window.ZEPHYR_SIM = {"app":"philosophers","board":"qemu_cortex_a53","boards":["qemu_cortex_a53"],"title":"Dining Philosophers","simRoot":"../../../","canonical":"https://docs.zephyrproject.org/latest/samples/philosophers/README.html","mirrored":"2026-07-23"}</script>
+<script defer src="../../_sim/widget.js"></script>
+<script src="../../../coi-serviceworker.js"></script>
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="https://docs.zephyrproject.org/latest/index.html">
+            
+              <img src="../../_static/logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div class="search-container" role="search">
+  <form id="rtd-search-form" class="wy-form" action="https://docs.zephyrproject.org/latest/search.html" method="get">
+    <input type="search" name="q" placeholder="Search docs"
+           aria-label="Search docs" />
+    <span id="search-se-settings-icon" class="fa fa-gear" role="button" tabindex="0"
+          title="Search settings" aria-label="Search settings"
+          aria-haspopup="menu" aria-controls="search-se-menu" aria-expanded="false"
+          onclick="toggleSearchEngineSettingsMenu()">
+    </span>
+    <div id="search-se-menu" role="menu" aria-labelledby="search-se-settings-icon">
+      <ul>
+        <li id="search-se-menuitem-sphinx" role="menuitemradio" tabindex="-1"
+            aria-label="Built-in search" onclick="switchSearchEngine('sphinx')">
+          Built-in search <span class="fa fa-check"></span>
+        </li>
+        <li id="search-se-menuitem-google" role="menuitemradio" tabindex="-1"
+            aria-label="Google search" onclick="switchSearchEngine('google')">
+          Google search <span class="fa fa-check"></span>
+        </li>
+              </ul>
+    </div>
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+<script>
+(function () {
+  var hasGoogleSearch = true;
+  var hasKapaSearch = false;
+
+  var form = document.getElementById("rtd-search-form");
+  var searchMenu = document.getElementById("search-se-menu");
+  var isBrowsingLatest = window.location.pathname.startsWith("/latest");
+  var preferenceKey = "search-se-" + (isBrowsingLatest ? "latest" : "default");
+  var query = new URLSearchParams(window.location.search).get("q");
+  var searchEngines = ["sphinx"];
+  if (hasGoogleSearch) {
+    searchEngines.push("google");
+  }
+  if (hasKapaSearch) {
+    searchEngines.push("kapa");
+  }
+
+  if (query !== null) {
+    form.q.value = query;
+    form.q.focus();
+  }
+
+  // Load the saved search preference. On "/latest", default to Google when enabled in this build;
+  // otherwise default to built-in Sphinx search.
+  var engine = localStorage.getItem(preferenceKey);
+  if (engine === null) {
+    engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+  }
+  setActiveSearchEngine(engine);
+
+  setSearchEngineSettingsMenuVisibility = function (visible) {
+    searchMenu.style.display = visible ? "block" : "none";
+    document
+      .getElementById("search-se-settings-icon")
+      .setAttribute("aria-expanded", visible ? "true" : "false");
+  };
+  setSearchEngineSettingsMenuVisibility(false);
+
+  window.toggleSearchEngineSettingsMenu = function () {
+    isVisible = searchMenu.style.display === "block";
+    setSearchEngineSettingsMenuVisibility(!isVisible);
+  };
+
+  function setActiveSearchEngine(engine) {
+    if (searchEngines.indexOf(engine) === -1) {
+      engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+    }
+
+    if (engine === "sphinx") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (built-in search)";
+    } else if (hasGoogleSearch && engine === "google") {
+      form.action = "https://docs.zephyrproject.org/latest/gsearch.html";
+      form.q.placeholder = "Search docs (powered by Google)";
+    } else if (hasKapaSearch && engine === "kapa") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (Kapa AI)";
+    }
+
+    searchEngines.forEach(function (searchEngine) {
+      var menuItem = document.getElementById("search-se-menuitem-" + searchEngine);
+      if (!menuItem) {
+        return;
+      }
+      var isSelected = searchEngine === engine;
+      menuItem.classList.toggle("selected", isSelected);
+      menuItem.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
+  }
+
+  var openKapaSearch;
+  var openKapaSearchWhenReady;
+
+  if (hasKapaSearch) {
+    openKapaSearch = function (q) {
+      if (!window.Kapa || typeof window.Kapa.open !== "function") {
+        return false;
+      }
+      var text = (q != null && q !== "" ? String(q) : "").trim();
+      if (text !== "") {
+        window.Kapa.open({ mode: "search", query: text, submit: true });
+      } else {
+        window.Kapa.open({ mode: "search" });
+      }
+      return true;
+    };
+
+    openKapaSearchWhenReady = function (q, remainingAttempts) {
+      if (openKapaSearch(q) || remainingAttempts <= 0) {
+        return;
+      }
+      window.setTimeout(function () {
+        openKapaSearchWhenReady(q, remainingAttempts - 1);
+      }, 250);
+    };
+
+    form.addEventListener("submit", function (event) {
+      if (localStorage.getItem(preferenceKey) !== "kapa") {
+        return;
+      }
+      event.preventDefault();
+      openKapaSearchWhenReady(form.q.value, 40);
+    });
+  }
+
+  window.switchSearchEngine = function (engine) {
+    setActiveSearchEngine(engine);
+    localStorage.setItem(preferenceKey, engine);
+    setSearchEngineSettingsMenuVisibility(false);
+    form.q.focus();
+    if (form.q.value !== "") {
+      if (hasKapaSearch && engine === "kapa") {
+        openKapaSearchWhenReady(form.q.value, 40);
+      } else {
+        form.submit();
+      }
+    }
+  };
+
+  // Close the dropdown if the user clicks outside of it
+  window.onclick = function (event) {
+    if (!event.target.matches("#search-se-settings-icon")) {
+      if (searchMenu.style.display === "block") {
+        setSearchEngineSettingsMenuVisibility(false);
+      }
+    }
+  };
+
+  document.addEventListener("keydown", function (event) {
+    if(searchMenu.style.display === "none") return;
+
+    let menuItems = document.querySelectorAll('[role="menuitemradio"]');
+    let currentIndex = Array.from(menuItems).findIndex((item) => item === document.activeElement);
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      let nextIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
+
+      if (nextIndex >= menuItems.length) nextIndex = 0;
+      if (nextIndex < 0) nextIndex = menuItems.length - 1;
+
+      menuItems[nextIndex].focus();
+      event.preventDefault();
+    } else if (event.key === "Enter") {
+      let activeItem = document.activeElement;
+      if (activeItem && activeItem.getAttribute("role") === "menuitemradio") {
+        activeItem.click();
+        event.preventDefault();
+      }
+    }
+  });
+})();
+</script>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+  <div data-nosnippet>
+    
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      <span class="fa fa-book"> Zephyr Project</span>
+      v: latest
+      <span class="fa fa-caret-down"></span>
+    </span>
+    <div class="rst-other-versions">
+      <dl>
+        <dt>Document Release Versions</dt>
+        
+          <dd><a href="https://docs.zephyrproject.org/">latest</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.4.0/">4.4.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.3.0/">4.3.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/3.7.0/">3.7.0 (LTS)</a></dd>
+        
+      </dl>
+      <dl>
+        <dt>Downloads</dt>
+        
+        <dd><a href="https://docs.zephyrproject.org/latest/zephyr.pdf">PDF</a></dd>
+      </dl>
+      <dl>
+        <dt>zephyrproject.org Links</dt>
+          <dd>
+            <a href="https://www.zephyrproject.org/">Project Home</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/sdk-ng/releases">SDK</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/zephyr/releases">Releases</a>
+          </dd>
+      </dl>
+    </div>
+  </div>
+    
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/introduction/index.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/index.html">Developing with Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/kernel/index.html">Kernel</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/services/index.html">Services</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/build/index.html">Build and Configuration Systems</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/hardware/index.html">Hardware Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/contribute/index.html">Contributing to Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/project/index.html">Project and Governance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/security/index.html">Security</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/safety/index.html">Safety</a></li>
+<li class="toctree-l1 current"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a><ul class="current">
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/application_development/application_development.html">Application Development</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/arch/index.html">Architecture-dependent Samples</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/basic/basic.html">Basic</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/bluetooth/bluetooth.html">Bluetooth</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/boards/boards.html">Boards</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/cpp/cpp.html">C++</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/data_structures/data_structures.html">Data Structures</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/drivers.html">Drivers</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/modules/index.html">External modules</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/kernel/index.html">Kernel and Scheduler</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/net.html">Networking</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/psa/index.html">PSA</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/regulator/index.html">Regulator</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/sensor/sensor.html">Sensors</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/shields/shields.html">Shields</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/subsys/subsys.html">Subsystems</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/sysbuild/sysbuild.html">Sysbuild</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_integration.html">TF-M Integration</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/userspace/index.html">Userspace</a></li>
+<li class="toctree-l2"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/synchronization/README.html" title="Manipulate basic kernel synchronization primitives.">Basic Synchronization</a></li>
+<li class="toctree-l2 current"><a class="code-sample-link current reference internal" href="#" title="Implement a solution to the Dining Philosophers problem using Zephyr kernel services.">Dining Philosophers</a></li>
+<li class="toctree-l2"><a class="code-sample-link reference internal" href="../hello_world/README.html" title="Print &quot;Hello World&quot; to the console.">Hello World</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/index.html">Supported Boards and Shields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/releases/index.html">Releases</a></li>
+</ul>
+
+    
+    <div class="toctree-wrapper compound">
+      <p class="caption"><span class="caption-text">Reference</span></p>
+      <ul>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/index.html">API</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/kconfig.html">Kconfig Options</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/build/dts/api/bindings.html">Devicetree Bindings</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/manifest/index.html">West Projects</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/glossary.html">Glossary</a>
+        </li>
+        
+      </ul>
+    </div>
+    
+  </div>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="https://docs.zephyrproject.org/latest/index.html">Zephyr Project</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+  <!-- Docs / Latest -->
+  
+  
+
+  <li><a href="https://docs.zephyrproject.org/latest/index.html">Docs / Latest</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a> &raquo;</li>
+  
+  <li>Dining Philosophers</li>
+
+
+  <li class="wy-breadcrumbs-aside">
+    <dark-mode-toggle id="dark-mode-toggle" appearance="three-way" permanent="true"/>
+  </li>
+  <li class="wy-breadcrumbs-aside">
+      
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/philosophers/README.rst" class="fa fa-github"> Open on GitHub</a>
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/issues/new?template=001_bug_report.yml&title=doc%3A+Documentation+issue+in+%27samples%2Fphilosophers%2FREADME%27&labels=bug%2Carea%3A+Documentation%2Carea%3A+Samples&env=-+Page%3A+samples%2Fphilosophers%2FREADME%0A-+Version%3A+main%0A-+SHA-1%3A+a5b7349ab99b395d24d2e693ef3de6f0f7c79027&context=This+issue+was+reported+from+the+online+documentation+page+using+the+%27Report+an+issue%27+button." class="fa fa-bug">
+          Report an issue with this page
+        </a>
+      
+    
+  </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="dining-philosophers">
+<h1>Dining Philosophers<a class="headerlink" href="#dining-philosophers" title="Link to this heading"></a></h1>
+<p>
+                <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/philosophers/README.rst/.." class="btn btn-info fa fa-github"
+                    target="_blank" style="text-align: center;">
+                    Browse source code on GitHub
+                </a>
+                </p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>An implementation of a solution to the Dining Philosophers problem (a classic multi-thread
+synchronization problem).  This particular implementation demonstrates the usage of multiple
+preemptible and cooperative threads of differing priorities, as well as dynamic mutexes and thread
+sleeping.</p>
+<p>The philosopher always tries to get the lowest fork first (f1 then f2).  When done, he will give
+back the forks in the reverse order (f2 then f1).  If he gets two forks, he is <code class="docutils literal notranslate"><span class="pre">EATING</span></code>.
+Otherwise, he is <code class="docutils literal notranslate"><span class="pre">THINKING</span></code>. Transitional states are shown as well, such as <code class="docutils literal notranslate"><span class="pre">STARVING</span></code> when the
+philosopher is hungry but the forks are not available, and <code class="docutils literal notranslate"><span class="pre">HOLDING</span> <span class="pre">ONE</span> <span class="pre">FORK</span></code> when a philosopher
+is waiting for the second fork to be available.</p>
+<p>Each Philosopher will randomly alternate between the <code class="docutils literal notranslate"><span class="pre">EATING</span></code> and <code class="docutils literal notranslate"><span class="pre">THINKING</span></code> states.</p>
+<p>It is possible to run the demo in <code class="docutils literal notranslate"><span class="pre">coop-only</span></code> or <code class="docutils literal notranslate"><span class="pre">preempt-only</span></code> mode. To achieve this, set these
+values for <code class="docutils literal notranslate"><span class="pre">CONFIG_NUM_COOP_PRIORITIES</span></code> and <code class="docutils literal notranslate"><span class="pre">CONFIG_NUM_PREEMPT_PRIORITIES</span></code> in <code class="file docutils literal notranslate"><span class="pre">prj.conf</span></code>:</p>
+<dl>
+<dt>preempt-only</dt><dd><div class="highlight-cfg notranslate"><div class="highlight"><pre><span></span><span class="na">CONFIG_NUM_PREEMPT_PRIORITIES</span><span class="o">=</span><span class="s">6</span>
+<span class="na">CONFIG_NUM_COOP_PRIORITIES</span><span class="o">=</span><span class="s">0</span>
+</pre></div>
+</div>
+</dd>
+<dt>coop-only</dt><dd><div class="highlight-cfg notranslate"><div class="highlight"><pre><span></span><span class="na">CONFIG_NUM_PREEMPT_PRIORITIES</span><span class="o">=</span><span class="s">0</span>
+<span class="na">CONFIG_NUM_COOP_PRIORITIES</span><span class="o">=</span><span class="s">6</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+<p>In these cases, the philosopher threads will run with priorities 0 to 5 (preempt-only) and -7 to -2
+(coop-only).</p>
+</section>
+<section id="building-and-running">
+<h2>Building and Running<a class="headerlink" href="#building-and-running" title="Link to this heading"></a></h2>
+<p>This project outputs to the console.  It can be built and executed on QEMU as follows:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>qemu_x86<span class="w"> </span>samples/philosophers
+west<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>run
+</pre></div>
+</div>
+<section id="sample-output">
+<h3>Sample Output<a class="headerlink" href="#sample-output" title="Link to this heading"></a></h3>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Philosopher 0 [P: 3]  HOLDING ONE FORK
+Philosopher 1 [P: 2]  HOLDING ONE FORK
+Philosopher 2 [P: 1]  EATING  [ 1900 ms ]
+Philosopher 3 [P: 0]  THINKING [ 2500 ms ]
+Philosopher 4 [C:-1]  THINKING [ 2200 ms ]
+Philosopher 5 [C:-2]  THINKING [ 1700 ms ]
+</pre></div>
+</div>
+<p>Exit QEMU by pressing <kbd class="kbd docutils literal notranslate">CTRL</kbd>+<kbd class="kbd docutils literal notranslate">A</kbd> <kbd class="kbd docutils literal notranslate">x</kbd>.</p>
+</section>
+</section>
+<section id="debug-threads">
+<h2>Debug Threads<a class="headerlink" href="#debug-threads" title="Link to this heading"></a></h2>
+<p>The philosophers sample by default enables <a class="reference internal" href="https://docs.zephyrproject.org/latest/kconfig.html#CONFIG_DEBUG_THREAD_INFO" title="CONFIG_DEBUG_THREAD_INFO"><code class="xref kconfig kconfig-option docutils literal notranslate"><span class="pre">CONFIG_DEBUG_THREAD_INFO</span></code></a>. This allows
+tools like OpenOCD and J-link to inspect thread data using <code class="docutils literal notranslate"><span class="pre">info</span> <span class="pre">threads</span></code>.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>&lt;board_name&gt;<span class="w"> </span>samples/philosophers
+west<span class="w"> </span>debug
+</pre></div>
+</div>
+<section id="openocd-sample-output">
+<h3>OpenOCD Sample Output<a class="headerlink" href="#openocd-sample-output" title="Link to this heading"></a></h3>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Thread 1 received signal SIGINT, Interrupt.
+[Switching to Thread 537003160]
+arch_cpu_idle () at zephyr/mainline/zephyr/arch/arm/core/cpu_idle.S:107
+107          cpsie   i
+(gdb) i threads
+  Id   Target Id                                                  Frame
+* 1    Thread 537003160 (Name: idle 00, prio:40,useropts:1)       arch_cpu_idle () at zephyr/mainline/zephyr/arch/arm/core/cpu_idle.S:107
+Info : Getting thread 537002984 reg list
+  2    Thread 537002984 (Name: Philosopher 5, prio:-2,useropts:4) 0x08001404 in arch_irq_unlock (key=0) at zephyr/mainline/zephyr/include/arch/arm/asm_inline_gcc.h:95
+Info : Getting thread 537002808 reg list
+  3    Thread 537002808 (Name: Philosopher 4, prio:-1,useropts:4) 0x08001404 in arch_irq_unlock (key=0) at zephyr/mainline/zephyr/include/arch/arm/asm_inline_gcc.h:95
+Info : Getting thread 537002632 reg list
+  4    Thread 537002632 (Name: Philosopher 3, prio:0,useropts:4)  0x08001404 in arch_irq_unlock (key=0) at zephyr/mainline/zephyr/include/arch/arm/asm_inline_gcc.h:95
+Info : Getting thread 537002456 reg list
+  5    Thread 537002456 (Name: Philosopher 2, prio:1,useropts:4)  0x08001404 in arch_irq_unlock (key=0) at zephyr/mainline/zephyr/include/arch/arm/asm_inline_gcc.h:95
+Info : Getting thread 537002280 reg list
+  6    Thread 537002280 (Name: Philosopher 1, prio:2,useropts:4)  0x08001404 in arch_irq_unlock (key=0) at zephyr/mainline/zephyr/include/arch/arm/asm_inline_gcc.h:95
+Info : Getting thread 537002104 reg list
+  7    Thread 537002104 (Name: Philosopher 0, prio:3,useropts:4)  0x08001404 in arch_irq_unlock (key=0) at zephyr/mainline/zephyr/include/arch/arm/asm_inline_gcc.h:95
+</pre></div>
+</div>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Philosopher 0 [P: 3]        STARVING
+Philosopher 1 [P: 2]    HOLDING ONE FORK
+Philosopher 2 [P: 1]   EATING  [  400 ms ]
+Philosopher 3 [P: 0]  THINKING [  525 ms ]
+Philosopher 4 [C:-1]    HOLDING ONE FORK
+Philosopher 5 [C:-2]   EATING  [  625 ms ]
+</pre></div>
+</div>
+</section>
+<section id="j-link-sample-output">
+<h3>J-Link Sample Output<a class="headerlink" href="#j-link-sample-output" title="Link to this heading"></a></h3>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Thread 2 received signal SIGTRAP, Trace/breakpoint trap.
+[Switching to Thread 537920592]
+arch_cpu_idle () at zephyr/mainline/zephyr/arch/arm/core/cpu_idle.S:107
+107          cpsie   i
+(gdb) i threads
+  Id   Target Id                                           Frame
+* 2    Thread 537920592 (idle 00 UNKNOWN PRIO 40)          arch_cpu_idle () at zephyr/mainline/zephyr/arch/arm/core/cpu_idle.S:107
+  3    Thread 537919536 (Philosopher 0 PENDING PRIO 3)     arch_swap (key=0) at zephyr/mainline/zephyr/arch/arm/core/swap.c:53
+  4    Thread 537919712 (Philosopher 1 SUSPENDED PRIO 2)   arch_swap (key=key@entry=0) at zephyr/mainline/zephyr/arch/arm/core/swap.c:53
+  5    Thread 537919888 (Philosopher 2 SUSPENDED PRIO 1)   arch_swap (key=key@entry=0) at zephyr/mainline/zephyr/arch/arm/core/swap.c:53
+  6    Thread 537920064 (Philosopher 3 SUSPENDED PRIO 0)   arch_swap (key=key@entry=0) at zephyr/mainline/zephyr/arch/arm/core/swap.c:53
+  7    Thread 537920240 (Philosopher 4 PENDING PRIO 255)   arch_swap (key=0) at zephyr/mainline/zephyr/arch/arm/core/swap.c:53
+  8    Thread 537920416 (Philosopher 5 SUSPENDED PRIO 254) arch_swap (key=key@entry=0) at zephyr/mainline/zephyr/arch/arm/core/swap.c:53
+</pre></div>
+</div>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Philosopher 0 [P: 3]        STARVING
+Philosopher 1 [P: 2]   EATING  [  475 ms ]
+Philosopher 2 [P: 1]  THINKING [  700 ms ]
+Philosopher 3 [P: 0]  THINKING [  525 ms ]
+Philosopher 4 [C:-1]    HOLDING ONE FORK
+Philosopher 5 [C:-2]   EATING  [  625 ms ]
+</pre></div>
+</div>
+</section>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__semaphore__apis.html" title=""><span class="pre">Semaphore</span> <span class="pre">APIs</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__mutex__apis.html" title=""><span class="pre">Mutex</span> <span class="pre">APIs</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__stack__apis.html" title=""><span class="pre">Stack</span> <span class="pre">APIs</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__thread__apis.html" title=""><span class="pre">Thread</span> <span class="pre">APIs</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__fifo__apis.html" title=""><span class="pre">FIFO</span> <span class="pre">APIs</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__lifo__apis.html" title=""><span class="pre">LIFO</span> <span class="pre">APIs</span></a></dt>
+</dl>
+
+</section>
+</section>
+<script type="application/ld+json">
+                {"@context": "http://schema.org", "@type": "SoftwareSourceCode", "name": "Dining Philosophers", "description": "Implement a solution to the Dining Philosophers problem using Zephyr kernel services.", "codeSampleType": "full", "codeRepository": "https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/philosophers/README.rst"}
+                </script>
+
+           </div>
+          </div>
+
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+<p>
+  &#169; Copyright 2015-2026 Zephyr Project members and individual contributors.
+  <div class="lastupdated">
+    Last generated: Jul 23, 2026.
+    Last source update: Sep 16, 2024.
+  </div></p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

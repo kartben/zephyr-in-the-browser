@@ -1,0 +1,704 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta content="Draw basic rectangles on a display device." name="description" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Display &mdash; Zephyr Project Documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/doxytooltip.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/togglebutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/custom.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/tabs.css" />
+
+  
+    <link rel="shortcut icon" href="../../../_static/favicon.png"/>
+    <link rel="canonical" href="README.html" />
+      <script src="../../../_static/jquery.js"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+      <script src="../../../_static/documentation_options.js"></script>
+      <script src="../../../_static/doctools.js"></script>
+      <script src="../../../_static/sphinx_highlight.js"></script>
+      <script src="../../../_static/tippy/popper.min.js"></script>
+      <script src="../../../_static/tippy/tippy-bundle.umd.min.js"></script>
+      <script src="../../../_static/doxytooltip.js"></script>
+      <script src="../../../_static/clipboard.min.js"></script>
+      <script src="../../../_static/copybutton.js"></script>
+      <script src="../../../_static/js/custom.js"></script>
+      <script>let toggleHintShow = 'Click to show';</script>
+      <script>let toggleHintHide = 'Click to hide';</script>
+      <script>let toggleOpenOnPrint = 'true';</script>
+      <script src="../../../_static/togglebutton.js"></script>
+      <script src="../../../_static/design-tabs.js"></script>
+      <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+      <script src="../../../_static/tabs.js"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="https://docs.zephyrproject.org/latest/genindex.html" />
+    <link rel="search" title="Search" href="https://docs.zephyrproject.org/latest/search.html" />
+    <link rel="next" title="EEPROM" href="https://docs.zephyrproject.org/latest/samples/drivers/eeprom/README.html" />
+    <link rel="prev" title="Digital Addressable Lighting Interface (DALI)" href="https://docs.zephyrproject.org/latest/samples/drivers/dali/README.html" />
+  <meta name="color-scheme" content="dark light">
+  
+  <noscript id="dark-mode-toggle-stylesheets">
+    <link rel="stylesheet" href="../../../_static/css/light.css" type="text/css" media="(prefers-color-scheme: light)"/>
+    <link rel="stylesheet" href="../../../_static/css/dark.css" type="text/css" media="(prefers-color-scheme: dark)"/>
+  </noscript>
+  <script src="../../../_static/js/dark-mode-toggle-stylesheets-loader.min.js"></script>
+  <script type="module" src="../../../_static/js/dark-mode-toggle.min.mjs"></script>
+  
+    
+
+<!-- zephyr-in-the-browser: run-in-simulator widget -->
+<link rel="stylesheet" href="../../../_sim/widget.css"/>
+<script>window.ZEPHYR_SIM = {"app":"display","board":"qemu_cortex_a53","boards":["qemu_cortex_a53"],"title":"Display","simRoot":"../../../../","canonical":"https://docs.zephyrproject.org/latest/samples/drivers/display/README.html","mirrored":"2026-07-23"}</script>
+<script defer src="../../../_sim/widget.js"></script>
+<script src="../../../../coi-serviceworker.js"></script>
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="https://docs.zephyrproject.org/latest/index.html">
+            
+              <img src="../../../_static/logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div class="search-container" role="search">
+  <form id="rtd-search-form" class="wy-form" action="https://docs.zephyrproject.org/latest/search.html" method="get">
+    <input type="search" name="q" placeholder="Search docs"
+           aria-label="Search docs" />
+    <span id="search-se-settings-icon" class="fa fa-gear" role="button" tabindex="0"
+          title="Search settings" aria-label="Search settings"
+          aria-haspopup="menu" aria-controls="search-se-menu" aria-expanded="false"
+          onclick="toggleSearchEngineSettingsMenu()">
+    </span>
+    <div id="search-se-menu" role="menu" aria-labelledby="search-se-settings-icon">
+      <ul>
+        <li id="search-se-menuitem-sphinx" role="menuitemradio" tabindex="-1"
+            aria-label="Built-in search" onclick="switchSearchEngine('sphinx')">
+          Built-in search <span class="fa fa-check"></span>
+        </li>
+        <li id="search-se-menuitem-google" role="menuitemradio" tabindex="-1"
+            aria-label="Google search" onclick="switchSearchEngine('google')">
+          Google search <span class="fa fa-check"></span>
+        </li>
+              </ul>
+    </div>
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+<script>
+(function () {
+  var hasGoogleSearch = true;
+  var hasKapaSearch = false;
+
+  var form = document.getElementById("rtd-search-form");
+  var searchMenu = document.getElementById("search-se-menu");
+  var isBrowsingLatest = window.location.pathname.startsWith("/latest");
+  var preferenceKey = "search-se-" + (isBrowsingLatest ? "latest" : "default");
+  var query = new URLSearchParams(window.location.search).get("q");
+  var searchEngines = ["sphinx"];
+  if (hasGoogleSearch) {
+    searchEngines.push("google");
+  }
+  if (hasKapaSearch) {
+    searchEngines.push("kapa");
+  }
+
+  if (query !== null) {
+    form.q.value = query;
+    form.q.focus();
+  }
+
+  // Load the saved search preference. On "/latest", default to Google when enabled in this build;
+  // otherwise default to built-in Sphinx search.
+  var engine = localStorage.getItem(preferenceKey);
+  if (engine === null) {
+    engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+  }
+  setActiveSearchEngine(engine);
+
+  setSearchEngineSettingsMenuVisibility = function (visible) {
+    searchMenu.style.display = visible ? "block" : "none";
+    document
+      .getElementById("search-se-settings-icon")
+      .setAttribute("aria-expanded", visible ? "true" : "false");
+  };
+  setSearchEngineSettingsMenuVisibility(false);
+
+  window.toggleSearchEngineSettingsMenu = function () {
+    isVisible = searchMenu.style.display === "block";
+    setSearchEngineSettingsMenuVisibility(!isVisible);
+  };
+
+  function setActiveSearchEngine(engine) {
+    if (searchEngines.indexOf(engine) === -1) {
+      engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+    }
+
+    if (engine === "sphinx") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (built-in search)";
+    } else if (hasGoogleSearch && engine === "google") {
+      form.action = "https://docs.zephyrproject.org/latest/gsearch.html";
+      form.q.placeholder = "Search docs (powered by Google)";
+    } else if (hasKapaSearch && engine === "kapa") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (Kapa AI)";
+    }
+
+    searchEngines.forEach(function (searchEngine) {
+      var menuItem = document.getElementById("search-se-menuitem-" + searchEngine);
+      if (!menuItem) {
+        return;
+      }
+      var isSelected = searchEngine === engine;
+      menuItem.classList.toggle("selected", isSelected);
+      menuItem.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
+  }
+
+  var openKapaSearch;
+  var openKapaSearchWhenReady;
+
+  if (hasKapaSearch) {
+    openKapaSearch = function (q) {
+      if (!window.Kapa || typeof window.Kapa.open !== "function") {
+        return false;
+      }
+      var text = (q != null && q !== "" ? String(q) : "").trim();
+      if (text !== "") {
+        window.Kapa.open({ mode: "search", query: text, submit: true });
+      } else {
+        window.Kapa.open({ mode: "search" });
+      }
+      return true;
+    };
+
+    openKapaSearchWhenReady = function (q, remainingAttempts) {
+      if (openKapaSearch(q) || remainingAttempts <= 0) {
+        return;
+      }
+      window.setTimeout(function () {
+        openKapaSearchWhenReady(q, remainingAttempts - 1);
+      }, 250);
+    };
+
+    form.addEventListener("submit", function (event) {
+      if (localStorage.getItem(preferenceKey) !== "kapa") {
+        return;
+      }
+      event.preventDefault();
+      openKapaSearchWhenReady(form.q.value, 40);
+    });
+  }
+
+  window.switchSearchEngine = function (engine) {
+    setActiveSearchEngine(engine);
+    localStorage.setItem(preferenceKey, engine);
+    setSearchEngineSettingsMenuVisibility(false);
+    form.q.focus();
+    if (form.q.value !== "") {
+      if (hasKapaSearch && engine === "kapa") {
+        openKapaSearchWhenReady(form.q.value, 40);
+      } else {
+        form.submit();
+      }
+    }
+  };
+
+  // Close the dropdown if the user clicks outside of it
+  window.onclick = function (event) {
+    if (!event.target.matches("#search-se-settings-icon")) {
+      if (searchMenu.style.display === "block") {
+        setSearchEngineSettingsMenuVisibility(false);
+      }
+    }
+  };
+
+  document.addEventListener("keydown", function (event) {
+    if(searchMenu.style.display === "none") return;
+
+    let menuItems = document.querySelectorAll('[role="menuitemradio"]');
+    let currentIndex = Array.from(menuItems).findIndex((item) => item === document.activeElement);
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      let nextIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
+
+      if (nextIndex >= menuItems.length) nextIndex = 0;
+      if (nextIndex < 0) nextIndex = menuItems.length - 1;
+
+      menuItems[nextIndex].focus();
+      event.preventDefault();
+    } else if (event.key === "Enter") {
+      let activeItem = document.activeElement;
+      if (activeItem && activeItem.getAttribute("role") === "menuitemradio") {
+        activeItem.click();
+        event.preventDefault();
+      }
+    }
+  });
+})();
+</script>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+  <div data-nosnippet>
+    
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      <span class="fa fa-book"> Zephyr Project</span>
+      v: latest
+      <span class="fa fa-caret-down"></span>
+    </span>
+    <div class="rst-other-versions">
+      <dl>
+        <dt>Document Release Versions</dt>
+        
+          <dd><a href="https://docs.zephyrproject.org/">latest</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.4.0/">4.4.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.3.0/">4.3.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/3.7.0/">3.7.0 (LTS)</a></dd>
+        
+      </dl>
+      <dl>
+        <dt>Downloads</dt>
+        
+        <dd><a href="https://docs.zephyrproject.org/latest/zephyr.pdf">PDF</a></dd>
+      </dl>
+      <dl>
+        <dt>zephyrproject.org Links</dt>
+          <dd>
+            <a href="https://www.zephyrproject.org/">Project Home</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/sdk-ng/releases">SDK</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/zephyr/releases">Releases</a>
+          </dd>
+      </dl>
+    </div>
+  </div>
+    
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/introduction/index.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/index.html">Developing with Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/kernel/index.html">Kernel</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/services/index.html">Services</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/build/index.html">Build and Configuration Systems</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/hardware/index.html">Hardware Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/contribute/index.html">Contributing to Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/project/index.html">Project and Governance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/security/index.html">Security</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/safety/index.html">Safety</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a><ul class="current">
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/application_development/application_development.html">Application Development</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/arch/index.html">Architecture-dependent Samples</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/basic/basic.html">Basic</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/bluetooth/bluetooth.html">Bluetooth</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/boards/boards.html">Boards</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/cpp/cpp.html">C++</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/data_structures/data_structures.html">Data Structures</a></li>
+<li class="toctree-l2 current"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/drivers.html">Drivers</a><ul class="current">
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/w1/README.html">1-Wire</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/adc/index.html">ADC</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/audio/index.html">Audio</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/biometrics/index.html">Biometrics</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/buzzer/index.html">Buzzer</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/can/index.html">Controller Area Network (CAN)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/counter/index.html">Counter</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ethernet/index.html">Ethernet</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/fpga/index.html">FPGA</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/firmware/index.html">Firmware Samples</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/gpio/index.html">General Purpose I/O (GPIO)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/haptics/README.html">Haptics</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/i2s/README.html">I2S</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/i2c/README.html">Inter-Integrated Circuit (I2C) Bus</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ipm/README.html">Inter-Processor Mailbox (IPM)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/interrupt_controller/index.html">Interrupt controller</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/led/index.html">Light-Emitting Diode (LED)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/lora/index.html">LoRa</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/misc/README.html">Miscellaneous</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/modem/index.html">Modem</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mspi/index.html">Multi-bit SPI Bus (MSPI)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/opamp/index.html">OPAMP</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/pwm/index.html">PWM</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/stepper/index.html">Stepper</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/uart/README.html">Universal Asynchronous Receiver-Transmitter (UART)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/virtualization/index.html">Virtualization</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/spi_flash_at45/README.html" title="Use the AT45 family DataFlash driver to interact with the flash memory over SPI.">AT45 DataFlash driver</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/auxdisplay_digits/README.html" title="Output increasing numbers to an auxiliary display.">Auxiliary digits display</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/auxdisplay/README.html" title="Output &quot;Hello  World&quot; to an auxiliary display.">Auxiliary display</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/charger/README.html" title="Charge a battery using the charger driver API.">Charger</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/crypto/README.html" title="Use the crypto APIs to perform various encryption/decryption operations.">Crypto</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/crc/README.html" title="Compute and verify a CRC checksum using the CRC driver API.">Cyclic Redundancy Check Drivers (CRC)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/dali/README.html" title="Blink LED controllers connected to a DALI bus.">Digital Addressable Lighting Interface (DALI)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/dac/README.html" title="Generate an analog sawtooth signal using the DAC driver API.">Digital-to-Analog Converter (DAC)</a></li>
+<li class="toctree-l3 current"><a class="code-sample-link current reference internal" href="#" title="Draw basic rectangles on a display device.">Display</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/eeprom/README.html" title="Store a boot count value in EEPROM.">EEPROM</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/espi/README.html" title="Use eSPI to connect to a slave device and exchange virtual wire packets.">Enhanced Serial Peripheral Interface (eSPI)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/flash_shell/README.html" title="Explore a flash device using shell commands.">Flash shell</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/fuel_gauge/README.html" title="Use fuel gauge API to access fuel gauge properties and get charge information.">Fuel Gauge</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="../gnss/README.html" title="Connect to a GNSS device to obtain time, navigation data, and satellite information.">GNSS</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/lcd_hd44780/README.html" title="Control an HD44780-based LCD display using GPIO pins.">HD44780 LCD controller</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ht16k33/README.html" title="Control up to 128 LEDs connected to an HT16K33 LED driver and log keyscan events.">HT16K33 LED driver with keyscan</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/hwspinlock/README.html" title="Demonstrate cross-core synchronization using the HWSPINLOCK API together with the MBOX API.">HWSPINLOCK</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/spi_flash/README.html" title="Use the flash API to interact with an SPI NOR serial flash memory device.">JEDEC SPI-NOR flash</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/jesd216/README.html" title="Use the JESD216 flash API to extract information from a compatible serial memory device.">JESD216 flash</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/clock_control_litex/README.html" title="Use LiteX clock control driver to generate multiple clock signals.">LiteX clock control driver</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mbox/README.html" title="Perform inter-processor mailbox communication using the MBOX API.">MBOX</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mbox_data/README.html" title="Perform inter-processor mailbox communication using the MBOX API with data.">MBOX Data</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/memc/README.html" title="Access memory-mapped external RAM">Memory controller (MEMC) driver</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mfd_charger/README.html" title="Demonstrate a multi-function device using charger, fuel gauge, and regulator subsystems.">Multi-Function Device (MFD) with Charger, Fuel Gauge, and Regulators</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/soc_flash_nrf/README.html" title="Use the flash API to interact with the SoC flash.">nRF SoC Internal Storage</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/peci/README.html" title="Monitor CPU temperature using PECI.">PECI interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ps2/README.html" title="Communicate with a PS/2 mouse.">PS/2 interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/psi5/README.html" title="Use the PSI5 (Peripheral Sensor Interface) driver.">PSI5 interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/rtc/README.html" title="Set and read the date/time from a Real-Time Clock.">Real-Time Clock (RTC)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/sent/README.html" title="Use the SENT (Single Edge Nibble Transmission) driver.">SENT interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/smbus/README.html" title="Interact with SMBus peripherals using shell commands.">SMBus shell</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/spi_bitbang/README.html" title="Use the bitbang SPI driver for communicating with a slave.">SPI bitbang</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/timeaware_gpio/README.html" title="Synchronize clocks.">Time-aware GPIO</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/watchdog/README.html" title="Use the watchdog driver API to reset the board when it gets stuck in an infinite loop.">Watchdog</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../hello_world/README.html">Hello World</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/kernel/index.html">Kernel and Scheduler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/modules/index.html">External modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/net/net.html">Networking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../philosophers/README.html">Dining Philosophers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/psa/index.html">PSA</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/regulator/index.html">Regulator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/sensor/sensor.html">Sensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/shields/shields.html">Shields</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/subsys/subsys.html">Subsystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/synchronization/README.html">Basic Synchronization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/sysbuild/sysbuild.html">Sysbuild</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_integration.html">TF-M Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/userspace/index.html">Userspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/sample_definition_and_criteria.html">Sample Definition and Criteria</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/index.html">Supported Boards and Shields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/releases/index.html">Releases</a></li>
+</ul>
+
+    
+    <div class="toctree-wrapper compound">
+      <p class="caption"><span class="caption-text">Reference</span></p>
+      <ul>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/index.html">API</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/kconfig.html">Kconfig Options</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/build/dts/api/bindings.html">Devicetree Bindings</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/manifest/index.html">West Projects</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/glossary.html">Glossary</a>
+        </li>
+        
+      </ul>
+    </div>
+    
+  </div>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="https://docs.zephyrproject.org/latest/index.html">Zephyr Project</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+  <!-- Docs / Latest -->
+  
+  
+
+  <li><a href="https://docs.zephyrproject.org/latest/index.html">Docs / Latest</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/drivers/drivers.html">Drivers</a> &raquo;</li>
+  
+  <li>Display</li>
+
+
+  <li class="wy-breadcrumbs-aside">
+    <dark-mode-toggle id="dark-mode-toggle" appearance="three-way" permanent="true"/>
+  </li>
+  <li class="wy-breadcrumbs-aside">
+      
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/drivers/display/README.rst" class="fa fa-github"> Open on GitHub</a>
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/issues/new?template=001_bug_report.yml&title=doc%3A+Documentation+issue+in+%27samples%2Fdrivers%2Fdisplay%2FREADME%27&labels=bug%2Carea%3A+Documentation%2Carea%3A+Display%2Carea%3A+Samples&env=-+Page%3A+samples%2Fdrivers%2Fdisplay%2FREADME%0A-+Version%3A+main%0A-+SHA-1%3A+a7b7a7fc09051d01e845b9c974a8a60043e5abef&context=This+issue+was+reported+from+the+online+documentation+page+using+the+%27Report+an+issue%27+button." class="fa fa-bug">
+          Report an issue with this page
+        </a>
+      
+    
+  </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="display">
+<h1>Display<a class="headerlink" href="#display" title="Link to this heading"></a></h1>
+<p>
+                <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/drivers/display/README.rst/.." class="btn btn-info fa fa-github"
+                    target="_blank" style="text-align: center;">
+                    Browse source code on GitHub
+                </a>
+                </p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>This sample uses the <a class="reference internal" href="https://docs.zephyrproject.org/latest/hardware/peripherals/display/index.html#display-api"><span class="std std-ref">display API</span></a> to draw some basic shapes onto the display.</p>
+<p>For most display controllers, the shapes will be rectangles whose colors and positions are chosen so
+that the orientation of the LCD and correct RGB bit order can be checked. The rectangles are drawn
+in clockwise order, from top left corner: red, green, blue, grey. The shade of grey changes from
+black to white.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>If the grey looks too green or red at any point or the order of the corners is not as described
+above then the LCD may be endian swapped!</p>
+</div>
+<style>
+  .zephyr-display-sample {
+    position: relative;
+    width: 320px;
+    height: 240px;
+    margin: auto;
+    background: white;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+  }
+
+  .zephyr-display-sample .corner {
+    position: absolute;
+    width: 80px;
+    height: 40px;
+  }
+
+  .zephyr-display-sample .tl { top: 0; left: 0; }
+  .zephyr-display-sample .tr { top: 0; right: 0; }
+  .zephyr-display-sample .br { bottom: 0; right: 0; }
+  .zephyr-display-sample .bl {
+    bottom: 0;
+    left: 0;
+    animation: zephyr-display-bw-toggle 3s linear infinite;
+  }
+
+  /* RGB variant */
+  .zephyr-display-sample--rgb .tl { background: red; }
+  .zephyr-display-sample--rgb .tr { background: lime; }
+  .zephyr-display-sample--rgb .br { background: blue; }
+
+  /* X-align variant */
+  .zephyr-display-sample--xalign .bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 40px;
+  }
+  .zephyr-display-sample--xalign .bar-top    { top: 0; background: lime; }
+  .zephyr-display-sample--xalign .bar-bottom {
+    bottom: 0;
+    animation: zephyr-display-bw-toggle 3s linear infinite;
+  }
+
+  /* Mono variant */
+  .zephyr-display-sample--mono .tl { background: black; }
+  .zephyr-display-sample--mono .tr { background: #e0e0e0; }
+  .zephyr-display-sample--mono .br { background: #888; }
+
+  /* 1bpp variant */
+  .zephyr-display-sample--1bpp .tl,
+  .zephyr-display-sample--1bpp .tr,
+  .zephyr-display-sample--1bpp .br { background: black; }
+  .zephyr-display-sample--1bpp .bl {
+    animation: zephyr-display-bw-toggle 0.2s steps(2, jump-none) infinite;
+  }
+
+  @keyframes zephyr-display-bw-toggle {
+    from { background-color: black; }
+    to   { background-color: white; }
+  }
+</style><div class="sphinx-tabs docutils container">
+<div aria-label="Tabbed content" class="closeable" role="tablist"><button aria-controls="panel-0-0-0" aria-selected="true" class="sphinx-tabs-tab" id="tab-0-0-0" name="0-0" role="tab" tabindex="0">RGB</button><button aria-controls="panel-0-0-1" aria-selected="false" class="sphinx-tabs-tab" id="tab-0-0-1" name="0-1" role="tab" tabindex="-1">Alignment width</button><button aria-controls="panel-0-0-2" aria-selected="false" class="sphinx-tabs-tab" id="tab-0-0-2" name="0-2" role="tab" tabindex="-1">Grayscale</button><button aria-controls="panel-0-0-3" aria-selected="false" class="sphinx-tabs-tab" id="tab-0-0-3" name="0-3" role="tab" tabindex="-1">1 bpp</button><button aria-controls="panel-0-0-4" aria-selected="false" class="sphinx-tabs-tab" id="tab-0-0-4" name="0-4" role="tab" tabindex="-1">E-paper</button></div><div aria-labelledby="tab-0-0-0" class="sphinx-tabs-panel" id="panel-0-0-0" name="0-0" role="tabpanel" tabindex="0"><figure class="zephyr-display-sample-wrap">
+  <div class="zephyr-display-sample zephyr-display-sample--rgb" aria-hidden="true">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner br"></div>
+    <div class="corner bl"></div>
+  </div>
+  <figcaption>
+    <p>
+      <span class="caption-text">
+       Typical RGB output at 320x240: red, green, and blue corners (clockwise from
+       top left); bottom left animates from black to white. Corner sizes scale with
+       resolution on real hardware.
+      </span>
+    </p>
+  </figcaption>
+</figure></div><div aria-labelledby="tab-0-0-1" class="sphinx-tabs-panel" hidden="true" id="panel-0-0-1" name="0-1" role="tabpanel" tabindex="0"><p>On displays where it is only possible to draw full lines at a time (see
+<a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__display__interface.html#gga23030b6c27446c4579103fe38e821341a1c51db66639919571af38bbc91eb28c1" title=""><code class="xref c c-enumerator docutils literal notranslate"><span class="pre">SCREEN_INFO_X_ALIGNMENT_WIDTH</span></code></a>), such as those using the
+<a class="reference internal" href="https://docs.zephyrproject.org/latest/build/dts/api/bindings/display/sharp%2Cls0xx.html#std-dtcompatible-sharp-ls0xx"><code class="xref std std-dtcompatible docutils literal notranslate"><span class="pre">sharp,ls0xx</span></code></a> driver, the rectangles described in the RGB tab will be replaced
+with bars that take up the entire width of the display.</p>
+<p>Only the green and grey bars will be visible (each corner draw uses the full width, so the
+top-left and top-right draws overlap at the top, and the bottom-right and bottom-left draws
+overlap at the bottom).</p>
+<figure class="zephyr-display-sample-wrap">
+  <div class="zephyr-display-sample zephyr-display-sample--xalign" aria-hidden="true">
+    <div class="bar bar-top"></div>
+    <div class="bar bar-bottom"></div>
+  </div>
+  <figcaption>
+    <p>
+      <span class="caption-text">
+       Full-width bands: green at the top, animated grey at the bottom.
+      </span>
+    </p>
+  </figcaption>
+</figure></div><div aria-labelledby="tab-0-0-2" class="sphinx-tabs-panel" hidden="true" id="panel-0-0-2" name="0-2" role="tabpanel" tabindex="0"><p>On displays using a multi-bit luminance format (for example <a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__display__interface.html#ggac346bc56771052a8fe919c3ec23d7c9ca14f33dfec4a630f5be50622a535434df" title=""><code class="xref c c-enumerator docutils literal notranslate"><span class="pre">PIXEL_FORMAT_L_8</span></code></a>),
+each corner is a different grey level; the bottom-left patch still animates from black to
+white. Other multi-bit monochrome formats behave similarly (different greys per corner).</p>
+<figure class="zephyr-display-sample-wrap">
+  <div class="zephyr-display-sample zephyr-display-sample--mono" aria-hidden="true">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner br"></div>
+    <div class="corner bl"></div>
+  </div>
+  <figcaption>
+    <p>
+      <span class="caption-text">
+       Grayscale-style corners; bottom left animates through grey levels toward white.
+      </span>
+    </p>
+  </figcaption>
+</figure></div><div aria-labelledby="tab-0-0-3" class="sphinx-tabs-panel" hidden="true" id="panel-0-0-3" name="0-3" role="tabpanel" tabindex="0"><p>On displays with 1 bit per pixel, the greyscale animation of the bottom rectangle (or bar)
+will appear as flickering between black and white. Other corners stay at a fixed color that
+matches the display background for the active pixel format.</p>
+<figure class="zephyr-display-sample-wrap">
+  <div class="zephyr-display-sample zephyr-display-sample--1bpp" aria-hidden="true">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner br"></div>
+    <div class="corner bl"></div>
+  </div>
+ <figcaption>
+    <p>
+      <span class="caption-text">
+      1 bpp: three corners stay at the background color (black for <code>MONO01</code>,
+      white for <code>MONO10</code> on a black screen); bottom-left toggles.
+      </span>
+    </p>
+ </figcaption>
+</figure></div><div aria-labelledby="tab-0-0-4" class="sphinx-tabs-panel" hidden="true" id="panel-0-0-4" name="0-4" role="tabpanel" tabindex="0"><p>By querying the display controller’s capabilities, it is possible to determine if the display
+is an e-paper display by checking if the <a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__display__interface.html#gga23030b6c27446c4579103fe38e821341ac65e80206de09cb63e871ce18deefb85" title=""><code class="xref c c-enumerator docutils literal notranslate"><span class="pre">SCREEN_INFO_EPD</span></code></a> bit is set in the
+<a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/structdisplay__capabilities.html#ac4a9098db4c2f721fa550c6142f541a9" title=""><code class="xref c c-member docutils literal notranslate"><span class="pre">display_capabilities.screen_info</span></code></a>.</p>
+<p>For such displays, the color of the bottom-left corner will change at a much slower rate than
+on a typical LCD, to align with the typical refresh rate of e-ink technologies.</p>
+</div></div>
+</section>
+<section id="building-and-running">
+<h2>Building and Running<a class="headerlink" href="#building-and-running" title="Link to this heading"></a></h2>
+<p>As this is a generic sample it should work with any display supported by Zephyr.</p>
+<p>Below is an example on how to build for a <a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/nordic/nrf52840dk/doc/index.html#nrf52840dk">nRF52840 DK</a> board with a
+<a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/shields/adafruit_2_8_tft_touch_v2/doc/index.html#adafruit-2-8-tft-touch-v2"><span class="std std-ref">Adafruit 2.8” TFT Touch Shield v2</span></a>.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>nrf52840dk/nrf52840<span class="w"> </span>--shield<span class="w"> </span>adafruit_2_8_tft_touch_v2<span class="w"> </span>samples/drivers/display
+</pre></div>
+</div>
+<p>For testing purpose without the need of any hardware, the <a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/native/native_sim/doc/index.html#native_sim"><span class="xref zephyr zephyr-board">native_sim</span></a>
+board is also supported and can be built as follows;</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>native_sim<span class="w"> </span>samples/drivers/display
+</pre></div>
+</div>
+</section>
+<section id="list-of-arduino-based-display-shields">
+<h2>List of Arduino-based display shields<a class="headerlink" href="#list-of-arduino-based-display-shields" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/shields/adafruit_2_8_tft_touch_v2/doc/index.html#adafruit-2-8-tft-touch-v2"><span class="std std-ref">Adafruit 2.8” TFT Touch Shield v2</span></a></p></li>
+<li><p><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/shields/ssd1306/doc/index.html#ssd1306-128-shield"><span class="std std-ref">SSD1306 128x64(/32) pixels generic shield</span></a></p></li>
+<li><p><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/shields/st7789v_generic/doc/index.html#st7789v-generic"><span class="std std-ref">Generic ST7789V Display Shield</span></a></p></li>
+<li><p><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/shields/waveshare_epaper/doc/index.html#waveshare-epaper"><span class="std std-ref">WAVESHARE e-Paper Raw Panel Shield</span></a></p></li>
+</ul>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__display__interface.html" title=""><span class="pre">Display</span></a></dt>
+</dl>
+
+</section>
+</section>
+<script type="application/ld+json">
+                {"@context": "http://schema.org", "@type": "SoftwareSourceCode", "name": "Display", "description": "Draw basic rectangles on a display device.", "codeSampleType": "full", "codeRepository": "https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/drivers/display/README.rst"}
+                </script>
+
+           </div>
+          </div>
+
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+<p>
+  &#169; Copyright 2015-2026 Zephyr Project members and individual contributors.
+  <div class="lastupdated">
+    Last generated: Jul 23, 2026.
+    Last source update: May 05, 2026.
+  </div></p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

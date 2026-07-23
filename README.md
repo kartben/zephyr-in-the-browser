@@ -29,6 +29,32 @@ Pick a **Board** (the emulated machine) and an **App** (the program it boots) fr
 
 The packaged apps live in [`tools/samples.manifest`](tools/samples.manifest), one line per board × app with ids matching [`src/boards.ts`](src/boards.ts); `tools/build-zephyr-image.sh` rebuilds them all. Cortex-M3 only lists apps verified against its slower qemu-wasm TCI timing (nothing that blocks on `k_sleep` in steady state); Cortex-A53 runs the wasm JIT and is unaffected.
 
+## Sample docs with a "Run in simulator" button
+
+`/docs/` serves a mirrored copy of the official Zephyr documentation page for
+every packaged sample, with a **Run in simulator** button injected next to
+"Browse source code on GitHub". The button opens the emulator in a
+near-fullscreen dialog, pre-selecting the right board and app — a prototype of
+what the widget could look like embedded in the upstream docs.
+
+The pages live in `public/docs/` (committed) and are regenerated with:
+
+```console
+npm run docs:fetch   # re-mirrors from docs.zephyrproject.org/latest
+```
+
+The script ([tools/fetch-docs.mjs](tools/fetch-docs.mjs)) reads
+`tools/samples.manifest`, mirrors each sample's page plus its CSS/JS/font
+requisites, rewrites links (pages inside the subset stay local, everything
+else points at the live docs), and injects the widget
+([tools/docs-widget/](tools/docs-widget)) — deliberately framework-free JS/CSS
+so it could later ship as a Sphinx extension. The pages also load
+`coi-serviceworker.js`: the emulator needs `SharedArrayBuffer`, which only
+exists when the *top-level* document is cross-origin isolated, so the docs
+pages have to opt in themselves for the embedded emulator to boot on GitHub
+Pages. Restart the dev server after regenerating — Vite caches the `public/`
+file list at startup.
+
 ## The browser_bridge shield
 
 The browser-fed peripherals — GNSS UART, host sensor, host GPIO, and the browser-sized ramfb — reach the guest through a Zephyr shield, **`browser_bridge`** ([zephyr-module/boards/shields/browser_bridge/](zephyr-module/boards/shields/browser_bridge)), applied to every packaged build. Its overlays alias the host sensor as `accel0`, `temp0`/`ambient-temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples build unmodified against browser-fed readings. Building any app against the browser machines is just:
