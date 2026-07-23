@@ -1,0 +1,600 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta content="Implement a simple, portable, HTTP server using BSD sockets." name="description" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dumb HTTP server &mdash; Zephyr Project Documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/graphviz.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/doxytooltip.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/copybutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/togglebutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/custom.css" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx-design.min.css" />
+
+  
+    <link rel="shortcut icon" href="../../../../_static/favicon.png"/>
+    <link rel="canonical" href="README.html" />
+      <script src="../../../../_static/jquery.js"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+      <script src="../../../../_static/documentation_options.js"></script>
+      <script src="../../../../_static/doctools.js"></script>
+      <script src="../../../../_static/sphinx_highlight.js"></script>
+      <script src="../../../../_static/tippy/popper.min.js"></script>
+      <script src="../../../../_static/tippy/tippy-bundle.umd.min.js"></script>
+      <script src="../../../../_static/doxytooltip.js"></script>
+      <script src="../../../../_static/clipboard.min.js"></script>
+      <script src="../../../../_static/copybutton.js"></script>
+      <script src="../../../../_static/js/custom.js"></script>
+      <script>let toggleHintShow = 'Click to show';</script>
+      <script>let toggleHintHide = 'Click to hide';</script>
+      <script>let toggleOpenOnPrint = 'true';</script>
+      <script src="../../../../_static/togglebutton.js"></script>
+      <script src="../../../../_static/design-tabs.js"></script>
+      <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="https://docs.zephyrproject.org/latest/genindex.html" />
+    <link rel="search" title="Search" href="https://docs.zephyrproject.org/latest/search.html" />
+    <link rel="next" title="Dumb HTTP server (multi-threaded)" href="https://docs.zephyrproject.org/latest/samples/net/sockets/dumb_http_server_mt/README.html" />
+    <link rel="prev" title="CoAP upload" href="https://docs.zephyrproject.org/latest/samples/net/sockets/coap_upload/README.html" />
+  <meta name="color-scheme" content="dark light">
+  
+  <noscript id="dark-mode-toggle-stylesheets">
+    <link rel="stylesheet" href="../../../../_static/css/light.css" type="text/css" media="(prefers-color-scheme: light)"/>
+    <link rel="stylesheet" href="../../../../_static/css/dark.css" type="text/css" media="(prefers-color-scheme: dark)"/>
+  </noscript>
+  <script src="../../../../_static/js/dark-mode-toggle-stylesheets-loader.min.js"></script>
+  <script type="module" src="../../../../_static/js/dark-mode-toggle.min.mjs"></script>
+  
+    
+
+<!-- zephyr-in-the-browser: run-in-simulator widget -->
+<link rel="stylesheet" href="../../../../_sim/widget.css"/>
+<script>window.ZEPHYR_SIM = {"app":"http_server","board":"qemu_cortex_m3","boards":["qemu_cortex_m3","qemu_cortex_a53"],"title":"Dumb HTTP server","simRoot":"../../../../../","canonical":"https://docs.zephyrproject.org/latest/samples/net/sockets/dumb_http_server/README.html","mirrored":"2026-07-23"}</script>
+<script defer src="../../../../_sim/widget.js"></script>
+<script src="../../../../../coi-serviceworker.js"></script>
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="https://docs.zephyrproject.org/latest/index.html">
+            
+              <img src="../../../../_static/logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div class="search-container" role="search">
+  <form id="rtd-search-form" class="wy-form" action="https://docs.zephyrproject.org/latest/search.html" method="get">
+    <input type="search" name="q" placeholder="Search docs"
+           aria-label="Search docs" />
+    <span id="search-se-settings-icon" class="fa fa-gear" role="button" tabindex="0"
+          title="Search settings" aria-label="Search settings"
+          aria-haspopup="menu" aria-controls="search-se-menu" aria-expanded="false"
+          onclick="toggleSearchEngineSettingsMenu()">
+    </span>
+    <div id="search-se-menu" role="menu" aria-labelledby="search-se-settings-icon">
+      <ul>
+        <li id="search-se-menuitem-sphinx" role="menuitemradio" tabindex="-1"
+            aria-label="Built-in search" onclick="switchSearchEngine('sphinx')">
+          Built-in search <span class="fa fa-check"></span>
+        </li>
+        <li id="search-se-menuitem-google" role="menuitemradio" tabindex="-1"
+            aria-label="Google search" onclick="switchSearchEngine('google')">
+          Google search <span class="fa fa-check"></span>
+        </li>
+              </ul>
+    </div>
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+<script>
+(function () {
+  var hasGoogleSearch = true;
+  var hasKapaSearch = false;
+
+  var form = document.getElementById("rtd-search-form");
+  var searchMenu = document.getElementById("search-se-menu");
+  var isBrowsingLatest = window.location.pathname.startsWith("/latest");
+  var preferenceKey = "search-se-" + (isBrowsingLatest ? "latest" : "default");
+  var query = new URLSearchParams(window.location.search).get("q");
+  var searchEngines = ["sphinx"];
+  if (hasGoogleSearch) {
+    searchEngines.push("google");
+  }
+  if (hasKapaSearch) {
+    searchEngines.push("kapa");
+  }
+
+  if (query !== null) {
+    form.q.value = query;
+    form.q.focus();
+  }
+
+  // Load the saved search preference. On "/latest", default to Google when enabled in this build;
+  // otherwise default to built-in Sphinx search.
+  var engine = localStorage.getItem(preferenceKey);
+  if (engine === null) {
+    engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+  }
+  setActiveSearchEngine(engine);
+
+  setSearchEngineSettingsMenuVisibility = function (visible) {
+    searchMenu.style.display = visible ? "block" : "none";
+    document
+      .getElementById("search-se-settings-icon")
+      .setAttribute("aria-expanded", visible ? "true" : "false");
+  };
+  setSearchEngineSettingsMenuVisibility(false);
+
+  window.toggleSearchEngineSettingsMenu = function () {
+    isVisible = searchMenu.style.display === "block";
+    setSearchEngineSettingsMenuVisibility(!isVisible);
+  };
+
+  function setActiveSearchEngine(engine) {
+    if (searchEngines.indexOf(engine) === -1) {
+      engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+    }
+
+    if (engine === "sphinx") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (built-in search)";
+    } else if (hasGoogleSearch && engine === "google") {
+      form.action = "https://docs.zephyrproject.org/latest/gsearch.html";
+      form.q.placeholder = "Search docs (powered by Google)";
+    } else if (hasKapaSearch && engine === "kapa") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (Kapa AI)";
+    }
+
+    searchEngines.forEach(function (searchEngine) {
+      var menuItem = document.getElementById("search-se-menuitem-" + searchEngine);
+      if (!menuItem) {
+        return;
+      }
+      var isSelected = searchEngine === engine;
+      menuItem.classList.toggle("selected", isSelected);
+      menuItem.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
+  }
+
+  var openKapaSearch;
+  var openKapaSearchWhenReady;
+
+  if (hasKapaSearch) {
+    openKapaSearch = function (q) {
+      if (!window.Kapa || typeof window.Kapa.open !== "function") {
+        return false;
+      }
+      var text = (q != null && q !== "" ? String(q) : "").trim();
+      if (text !== "") {
+        window.Kapa.open({ mode: "search", query: text, submit: true });
+      } else {
+        window.Kapa.open({ mode: "search" });
+      }
+      return true;
+    };
+
+    openKapaSearchWhenReady = function (q, remainingAttempts) {
+      if (openKapaSearch(q) || remainingAttempts <= 0) {
+        return;
+      }
+      window.setTimeout(function () {
+        openKapaSearchWhenReady(q, remainingAttempts - 1);
+      }, 250);
+    };
+
+    form.addEventListener("submit", function (event) {
+      if (localStorage.getItem(preferenceKey) !== "kapa") {
+        return;
+      }
+      event.preventDefault();
+      openKapaSearchWhenReady(form.q.value, 40);
+    });
+  }
+
+  window.switchSearchEngine = function (engine) {
+    setActiveSearchEngine(engine);
+    localStorage.setItem(preferenceKey, engine);
+    setSearchEngineSettingsMenuVisibility(false);
+    form.q.focus();
+    if (form.q.value !== "") {
+      if (hasKapaSearch && engine === "kapa") {
+        openKapaSearchWhenReady(form.q.value, 40);
+      } else {
+        form.submit();
+      }
+    }
+  };
+
+  // Close the dropdown if the user clicks outside of it
+  window.onclick = function (event) {
+    if (!event.target.matches("#search-se-settings-icon")) {
+      if (searchMenu.style.display === "block") {
+        setSearchEngineSettingsMenuVisibility(false);
+      }
+    }
+  };
+
+  document.addEventListener("keydown", function (event) {
+    if(searchMenu.style.display === "none") return;
+
+    let menuItems = document.querySelectorAll('[role="menuitemradio"]');
+    let currentIndex = Array.from(menuItems).findIndex((item) => item === document.activeElement);
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      let nextIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
+
+      if (nextIndex >= menuItems.length) nextIndex = 0;
+      if (nextIndex < 0) nextIndex = menuItems.length - 1;
+
+      menuItems[nextIndex].focus();
+      event.preventDefault();
+    } else if (event.key === "Enter") {
+      let activeItem = document.activeElement;
+      if (activeItem && activeItem.getAttribute("role") === "menuitemradio") {
+        activeItem.click();
+        event.preventDefault();
+      }
+    }
+  });
+})();
+</script>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+  <div data-nosnippet>
+    
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      <span class="fa fa-book"> Zephyr Project</span>
+      v: latest
+      <span class="fa fa-caret-down"></span>
+    </span>
+    <div class="rst-other-versions">
+      <dl>
+        <dt>Document Release Versions</dt>
+        
+          <dd><a href="https://docs.zephyrproject.org/">latest</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.4.0/">4.4.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.3.0/">4.3.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/3.7.0/">3.7.0 (LTS)</a></dd>
+        
+      </dl>
+      <dl>
+        <dt>Downloads</dt>
+        
+        <dd><a href="https://docs.zephyrproject.org/latest/zephyr.pdf">PDF</a></dd>
+      </dl>
+      <dl>
+        <dt>zephyrproject.org Links</dt>
+          <dd>
+            <a href="https://www.zephyrproject.org/">Project Home</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/sdk-ng/releases">SDK</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/zephyr/releases">Releases</a>
+          </dd>
+      </dl>
+    </div>
+  </div>
+    
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/introduction/index.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/index.html">Developing with Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/kernel/index.html">Kernel</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/services/index.html">Services</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/build/index.html">Build and Configuration Systems</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/hardware/index.html">Hardware Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/contribute/index.html">Contributing to Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/project/index.html">Project and Governance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/security/index.html">Security</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/safety/index.html">Safety</a></li>
+<li class="toctree-l1 current"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a><ul class="current">
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/application_development/application_development.html">Application Development</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/arch/index.html">Architecture-dependent Samples</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/basic/basic.html">Basic</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/bluetooth/bluetooth.html">Bluetooth</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/boards/boards.html">Boards</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/cpp/cpp.html">C++</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/data_structures/data_structures.html">Data Structures</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/drivers.html">Drivers</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/modules/index.html">External modules</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/kernel/index.html">Kernel and Scheduler</a></li>
+<li class="toctree-l2 current"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/net.html">Networking</a><ul class="current">
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/cloud/README.html">IoT Cloud</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/mcp/mcp.html">MCP (Model Context Protocol)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/ethernet/README.html">Network Ethernet</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/openthread/README.html">OpenThread</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/quic/quic.html">QUIC API</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/qos/QoS.html">Quality of Service</a></li>
+<li class="toctree-l3 current"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/sockets.html">Sockets API</a><ul class="current">
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/echo_async/README.html" title="Implement an asynchronous IPv4/IPv6 TCP echo server using BSD sockets and poll()">Asynchronous echo server using poll()</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/echo_async_select/README.html" title="Implement an asynchronous IPv4/IPv6 TCP echo server using BSD sockets and select()">Asynchronous echo server using select()</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/coap_client/README.html" title="Use the CoAP library to implement a client that fetches a resource.">CoAP client</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/coap_download/README.html" title="Use the CoAP client API to download data via a GET request">CoAP download</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/coap_server/README.html" title="Use the CoAP server subsystem to register CoAP resources.">CoAP service</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/coap_client_tcp/README.html" title="Use the CoAP over TCP client to communicate with a CoAP server.">CoAP TCP Client</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/coap_upload/README.html" title="Use the CoAP client API to upload data via a PUT request">CoAP upload</a></li>
+<li class="toctree-l4 current"><a class="code-sample-link current reference internal" href="#" title="Implement a simple, portable, HTTP server using BSD sockets.">Dumb HTTP server</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/dumb_http_server_mt/README.html" title="Implement a simple HTTP server supporting simultaneous connections using BSD sockets.">Dumb HTTP server (multi-threaded)</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/echo_client/README.html" title="Implement a client that sends IP packets, waits for data to be sent back, and verifies it.">Echo client (advanced)</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="../echo_server/README.html" title="Implement a UDP/TCP server that sends received packets back to the sender.">Echo server (advanced)</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/echo_service/README.html" title="Implements a simple IPv4/IPv6 TCP echo server using BSD sockets and socket service API.">Echo server (service)</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/echo/README.html" title="Implements a simple IPv4/IPv6 TCP echo server using BSD sockets.">Echo server (simple)</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/http_client/README.html" title="Implement an HTTP(S) client that issues a variety of HTTP requests.">HTTP Client</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="../http_get/README.html" title="Implement an HTTP(S) client using plain BSD sockets.">HTTP GET using plain sockets</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/http_server/README.html" title="Implement an HTTP(s) Server demonstrating various resource types.">HTTP Server</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/big_http_download/README.html" title="Download a large file from a web server using BSD sockets.">Large HTTP download</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/net_mgmt/README.html" title="Listen to network management events using a network management socket.">Network management socket</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/packet/README.html" title="Use raw packet sockets over Ethernet.">Packet socket</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/sntp_client/README.html" title="Use SNTP to get the current time from the host.">SNTP client</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/can/README.html" title="Send and receive raw CAN frames using BSD sockets API.">SocketCAN</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/socketpair/README.html" title="Implement communication between threads using socket pairs.">Socketpair</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/tcp/README.html" title="Use TTCN-3 to validate the functionality of the TCP stack.">TCP sample for TTCN-3 based sanity check</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/txtime/README.html" title="Control the transmission time of a packet using SO_TXTIME socket option.">UDP sender using SO_TXTIME</a></li>
+<li class="toctree-l4"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/sockets/websocket_client/README.html" title="Implement a Websocket client that connects to a Websocket server.">WebSocket Client</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/wifi/README.html">Wi-Fi</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/wpan_serial/README.html" title="Implement a slip-radio device for Contiki-based border routers.">802.15.4 &quot;serial-radio&quot;</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/cellular_modem/README.html" title="Use a cellular modem to communicate with a UDP server.">Cellular modem</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="../../dhcpv4_client/README.html" title="Start a DHCPv4 client to obtain an IPv4 address from a DHCPv4 server.">DHCPv4 client</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/dns_resolve/README.html" title="Resolve an IP address for a given hostname.">DNS resolve</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/ftp_client/README.html" title="FTP client sample interacting with FTP server over Zephyr shell.">FTP client shell sample</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/ipv4_autoconf/README.html" title="Perform IPv4 autoconfiguration and self-assign a random IPv4 address">IPv4 autoconf client</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/latmon/README.html" title="Measures delta time between GPIO events and reports the latency metrics via latmon to the latmus service executing on the SUT.">Latmon Client</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/lwm2m_client/README.html" title="Implement a LwM2M client that connects to a LwM2M server.">LwM2M client</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/mdns_responder/README.html" title="Listen and respond to mDNS queries.">mDNS responder</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/midi2/README.html" title="Exchange Universal MIDI Packets over the Network MIDI 2.0 protocol">MIDI2 network transport</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/mqtt_publisher/README.html" title="Send MQTT PUBLISH messages to an MQTT server.">MQTT publisher</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/mqtt_sn_publisher/README.html" title="Send MQTT-SN PUBLISH messages to an MQTT-SN gateway.">MQTT-SN publisher</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/capture/README.html" title="Capture network packets and send them to a remote host via IPIP tunnel.">Network packet capture</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/pkt_filter/README.html" title="Install network packet filter hooks.">Network packet filter</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/stats/README.html" title="Query and display network statistics from a user application.">Network statistics</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/ocpp/README.html" title="Implement an OCPP charge point that connects to a Central System server and simulates the meter readings.">OCPP charge point</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/prometheus/README.html" title="Implement a Prometheus Metric Server demonstrating various metric types.">Prometheus Sample</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/promiscuous_mode/README.html" title="Enable promiscuous mode on all interfaces and print information about incoming packets.">Promiscuous mode</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/ptp/README.html" title="Enable PTP support and monitor messages and events via logging.">PTP</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/syslog_net/README.html" title="Enable a remote syslog service that sends syslog messages to a remote server">Remote syslog</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/rtp/README.html" title="Send or receive an RTP audio stream over a UDP multicast.">RTP</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/secure_mqtt_sensor_actuator/README.html" title="Implement an MQTT-based IoT sensor/actuator device">Secure MQTT Sensor/Actuator</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/ssh/README.html" title="Implements SSH server and client shell support.">SSH server and client</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/telnet/README.html" title="Access Zephyr shell over telnet.">Telnet console</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/tftp_client/README.html" title="Use the TFTP client library to get/put files from/to a TFTP server.">TFTP client</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/virtual/README.html" title="Create a sample virtual network interface.">Virtual network interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/net/wireguard/README.html" title="Implement a echo-server application that sends received packets back to the sender over Wireguard VPN connection.">Wireguard VPN</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="../../zperf/README.html" title="Use the zperf shell utility to evaluate network bandwidth.">zperf: Network Traffic Generator</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/psa/index.html">PSA</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/regulator/index.html">Regulator</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/sensor/sensor.html">Sensors</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/shields/shields.html">Shields</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/subsys/subsys.html">Subsystems</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/sysbuild/sysbuild.html">Sysbuild</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_integration.html">TF-M Integration</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/userspace/index.html">Userspace</a></li>
+<li class="toctree-l2"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/synchronization/README.html" title="Manipulate basic kernel synchronization primitives.">Basic Synchronization</a></li>
+<li class="toctree-l2"><a class="code-sample-link reference internal" href="../../../philosophers/README.html" title="Implement a solution to the Dining Philosophers problem using Zephyr kernel services.">Dining Philosophers</a></li>
+<li class="toctree-l2"><a class="code-sample-link reference internal" href="../../../hello_world/README.html" title="Print &quot;Hello World&quot; to the console.">Hello World</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/index.html">Supported Boards and Shields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/releases/index.html">Releases</a></li>
+</ul>
+
+    
+    <div class="toctree-wrapper compound">
+      <p class="caption"><span class="caption-text">Reference</span></p>
+      <ul>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/index.html">API</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/kconfig.html">Kconfig Options</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/build/dts/api/bindings.html">Devicetree Bindings</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/manifest/index.html">West Projects</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/glossary.html">Glossary</a>
+        </li>
+        
+      </ul>
+    </div>
+    
+  </div>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="https://docs.zephyrproject.org/latest/index.html">Zephyr Project</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+  <!-- Docs / Latest -->
+  
+  
+
+  <li><a href="https://docs.zephyrproject.org/latest/index.html">Docs / Latest</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/net/net.html">Networking</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/net/sockets/sockets.html">Sockets API</a> &raquo;</li>
+  
+  <li>Dumb HTTP server</li>
+
+
+  <li class="wy-breadcrumbs-aside">
+    <dark-mode-toggle id="dark-mode-toggle" appearance="three-way" permanent="true"/>
+  </li>
+  <li class="wy-breadcrumbs-aside">
+      
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/net/sockets/dumb_http_server/README.rst" class="fa fa-github"> Open on GitHub</a>
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/issues/new?template=001_bug_report.yml&title=doc%3A+Documentation+issue+in+%27samples%2Fnet%2Fsockets%2Fdumb_http_server%2FREADME%27&labels=bug%2Carea%3A+Documentation%2Carea%3A+Networking%2Carea%3A+Sockets%2Carea%3A+Networking%2Carea%3A+HTTP%2Carea%3A+Samples&env=-+Page%3A+samples%2Fnet%2Fsockets%2Fdumb_http_server%2FREADME%0A-+Version%3A+main%0A-+SHA-1%3A+a12dff48ac56bf2caa484dd5c21893700d3086cf&context=This+issue+was+reported+from+the+online+documentation+page+using+the+%27Report+an+issue%27+button." class="fa fa-bug">
+          Report an issue with this page
+        </a>
+      
+    
+  </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="socket-dumb-http-server">
+<h1>Dumb HTTP server<a class="headerlink" href="#socket-dumb-http-server" title="Link to this heading"></a></h1>
+<p>
+                <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/net/sockets/dumb_http_server/README.rst/.." class="btn btn-info fa fa-github"
+                    target="_blank" style="text-align: center;">
+                    Browse source code on GitHub
+                </a>
+                </p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The sockets/dumb_http_server sample application for Zephyr implements a
+skeleton HTTP server using a BSD Sockets compatible API. The purpose of
+this sample is to show how it’s possible to develop a sockets application
+portable to both POSIX and Zephyr. As such, this HTTP server example is
+kept very minimal and does not really parse an incoming HTTP request,
+just reads and discards it, and always serve a single static page. Even
+with such simplification, it is useful as an example of a socket
+application which can be accessed via a conventional web browser, or to
+perform performance/regression testing using existing HTTP diagnostic
+tools.</p>
+<p>The source code for this sample application can be found at:
+<a class="reference external" href="https://github.com/zephyrproject-rtos/zephyr/blob/main/samples/net/sockets/dumb_http_server">samples/net/sockets/dumb_http_server</a>.</p>
+</section>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="https://docs.zephyrproject.org/latest/services/connectivity/networking/networking_with_host.html#networking-with-host"><span class="std std-ref">Networking with the host system</span></a></p></li>
+<li><p>or, a board with hardware networking</p></li>
+</ul>
+</section>
+<section id="building-and-running">
+<h2>Building and Running<a class="headerlink" href="#building-and-running" title="Link to this heading"></a></h2>
+<p>Build the Zephyr version of the sockets/echo application like this:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>&lt;board_to_use&gt;<span class="w"> </span>samples/net/sockets/dumb_http_server
+</pre></div>
+</div>
+<p>After the sample starts, it expects connections at 192.0.2.1, port 8080.
+The easiest way to connect is by opening a following URL in a web
+browser: <a class="reference external" href="http://192.0.2.1:8080/">http://192.0.2.1:8080/</a> . You should see a page with a sample
+content about Zephyr (captured at a particular time from Zephyr’s web
+site, note that it may differ from the content on the live Zephyr site).
+Alternatively, a tool like <code class="docutils literal notranslate"><span class="pre">curl</span></code> can be used:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>curl<span class="w"> </span>http://192.0.2.1:8080/
+</pre></div>
+</div>
+<p>Finally, you can run an HTTP profiling/load tool like Apache Bench
+(<code class="docutils literal notranslate"><span class="pre">ab</span></code>) against the server:</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>$ ab -n10 http://192.0.2.1:8080/
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">-n</span></code> parameter specifies the number of HTTP requests to issue against
+a server.</p>
+<section id="running-application-on-posix-host">
+<h3>Running application on POSIX Host<a class="headerlink" href="#running-application-on-posix-host" title="Link to this heading"></a></h3>
+<p>The same application source code can be built for a POSIX system, e.g.
+Linux. (Note: if you look at the source, you will see that the code is
+the same except the header files are different for Zephyr vs POSIX.)</p>
+<p>To build:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>make<span class="w"> </span>-f<span class="w"> </span>Makefile.host
+</pre></div>
+</div>
+<p>To run:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>./socket_dumb_http
+</pre></div>
+</div>
+<p>To test, connect to <a class="reference external" href="http://127.0.0.1:8080/">http://127.0.0.1:8080/</a> , and follow the steps in the
+previous section.</p>
+<p>As can be seen, the behavior of the application is the same as the Zephyr
+version.</p>
+</section>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__bsd__sockets.html" title=""><span class="pre">BSD</span> <span class="pre">Sockets</span> <span class="pre">compatible</span> <span class="pre">API</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__net__pkt.html" title=""><span class="pre">Network</span> <span class="pre">Packet</span> <span class="pre">Library</span></a></dt>
+</dl>
+
+</section>
+</section>
+<script type="application/ld+json">
+                {"@context": "http://schema.org", "@type": "SoftwareSourceCode", "name": "Dumb HTTP server", "description": "Implement a simple, portable, HTTP server using BSD sockets.", "codeSampleType": "full", "codeRepository": "https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/net/sockets/dumb_http_server/README.rst"}
+                </script>
+
+           </div>
+          </div>
+
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+<p>
+  &#169; Copyright 2015-2026 Zephyr Project members and individual contributors.
+  <div class="lastupdated">
+    Last generated: Jul 23, 2026.
+    Last source update: Oct 12, 2023.
+  </div></p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
