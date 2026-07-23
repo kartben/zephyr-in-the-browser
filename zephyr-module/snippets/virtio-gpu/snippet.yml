@@ -1,0 +1,13 @@
+name: virtio-gpu
+description: Drive the browser display panel through a VIRTIO GPU instead of ramfb.
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently, leaving the build on
+# ramfb. Both qualified spellings are listed for the same reason.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

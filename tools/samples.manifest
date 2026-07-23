@@ -1,6 +1,6 @@
 # Samples packaged for the browser, one per line:
 #
-#   board:app_id:zephyr_sample_path[:conf,conf,...]
+#   board:app_id:zephyr_sample_path[:conf,conf,...[:snippet,snippet,...]]
 #
 # - board            Zephyr board target (west build -b ...)
 # - app_id           artifact basename -> public/qemu/zephyr/<board>/<app_id>.elf
@@ -9,6 +9,9 @@
 #                    apps when it starts with "zephyr-module/"
 # - conf             optional Kconfig fragments, relative to zephyr-module/,
 #                    comma-separated
+# - snippet          optional snippets (west build -S ...), comma-separated.
+#                    zephyr-module/snippets/ supplies virtio-gpu; leave the conf
+#                    field empty to use snippets without fragments.
 #
 # Every build also applies the browser_bridge shield (zephyr-module/boards/
 # shields/browser_bridge), which adds the browser-fed peripherals and their

@@ -1,0 +1,38 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Swap the Cortex-A53 display from ramfb to virtio-gpu. The node itself is
+ * declared (disabled) by the browser_bridge shield, whose overlay documents the
+ * slot and sizing; this only flips which of the two the guest drives.
+ *
+ * Snippet overlays are applied after the shield's, so virtio_gpu0 already
+ * exists by the time this runs.
+ */
+
+/ {
+	chosen {
+		zephyr,display = &virtio_gpu0;
+	};
+};
+
+&ramfb0 {
+	status = "disabled";
+};
+
+&virtio_mmio1 {
+	status = "okay";
+};
+
+&virtio_gpu0 {
+	status = "okay";
+};
+
+/*
+ * Touch coordinates are scaled against whichever display is live. The phandle
+ * is read with DEVICE_DT_GET_OR_NULL, so leaving it on a disabled ramfb0 would
+ * silently downgrade to raw coordinates rather than fail the build.
+ */
+&virtio_input0 {
+	display = <&virtio_gpu0>;
+};

@@ -1,0 +1,21 @@
+# Copyright (c) 2026 The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: VIRTIO GPU display device
+
+compatible: "virtio,gpu"
+
+include: display-controller.yaml
+
+properties:
+  memory-region:
+    type: phandle
+    required: true
+    description: |
+      Reserved, physically contiguous memory used as the framebuffer backing
+      store.
+
+  scanout:
+    type: int
+    default: 0
+    description: VIRTIO GPU scanout index to use.
