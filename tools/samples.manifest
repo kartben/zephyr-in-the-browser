@@ -20,10 +20,18 @@
 # single-threaded sleepers like blinky and basic_button, though their timing is
 # not wall-clock accurate — but a few multi-threaded ones (philosophers,
 # synchronization) stall. Cortex-A53 uses the wasm JIT and has no such limit.
+#
+# Networking samples talk to the browser page, which implements the whole
+# LAN behind the QEMU "browser" netdev: it answers as gateway/DHCP/SNTP
+# (192.0.2.2), DNS (192.0.2.3), and every remote host at once. conf/net.conf
+# keeps the guests IPv4-only and on the Ethernet (not SLIP) QEMU path.
 
 qemu_cortex_m3:gnss:samples/drivers/gnss
 qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-sensor.conf,conf/host-gpio.conf,conf/host-audio.conf
 qemu_cortex_m3:hsm:samples/subsys/smf/hsm_psicc2
+qemu_cortex_m3:dhcp:samples/net/dhcpv4_client:conf/net.conf
+qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
+qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf
 qemu_cortex_m3:hello_world:samples/hello_world
 qemu_cortex_m3:blinky:samples/basic/blinky
 qemu_cortex_m3:basic_button:samples/basic/button
@@ -35,4 +43,9 @@ qemu_cortex_a53:accel_chart:samples/modules/lvgl/accelerometer_chart:conf/lvgl-a
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
+qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
+qemu_cortex_a53:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
+qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf
+qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf
+qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf
 qemu_cortex_a53:hello_world:samples/hello_world
