@@ -1,0 +1,585 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta content="Connect to a GNSS device to obtain time, navigation data, and satellite information." name="description" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GNSS &mdash; Zephyr Project Documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/doxytooltip.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/togglebutton.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/custom.css" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css" />
+
+  
+    <link rel="shortcut icon" href="../../../_static/favicon.png"/>
+    <link rel="canonical" href="README.html" />
+      <script src="../../../_static/jquery.js"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+      <script src="../../../_static/documentation_options.js"></script>
+      <script src="../../../_static/doctools.js"></script>
+      <script src="../../../_static/sphinx_highlight.js"></script>
+      <script src="../../../_static/tippy/popper.min.js"></script>
+      <script src="../../../_static/tippy/tippy-bundle.umd.min.js"></script>
+      <script src="../../../_static/doxytooltip.js"></script>
+      <script src="../../../_static/clipboard.min.js"></script>
+      <script src="../../../_static/copybutton.js"></script>
+      <script src="../../../_static/js/custom.js"></script>
+      <script>let toggleHintShow = 'Click to show';</script>
+      <script>let toggleHintHide = 'Click to hide';</script>
+      <script>let toggleOpenOnPrint = 'true';</script>
+      <script src="../../../_static/togglebutton.js"></script>
+      <script src="../../../_static/design-tabs.js"></script>
+      <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="https://docs.zephyrproject.org/latest/genindex.html" />
+    <link rel="search" title="Search" href="https://docs.zephyrproject.org/latest/search.html" />
+    <link rel="next" title="General Purpose I/O (GPIO)" href="https://docs.zephyrproject.org/latest/samples/drivers/gpio/index.html" />
+    <link rel="prev" title="Fuel Gauge" href="https://docs.zephyrproject.org/latest/samples/drivers/fuel_gauge/README.html" />
+  <meta name="color-scheme" content="dark light">
+  
+  <noscript id="dark-mode-toggle-stylesheets">
+    <link rel="stylesheet" href="../../../_static/css/light.css" type="text/css" media="(prefers-color-scheme: light)"/>
+    <link rel="stylesheet" href="../../../_static/css/dark.css" type="text/css" media="(prefers-color-scheme: dark)"/>
+  </noscript>
+  <script src="../../../_static/js/dark-mode-toggle-stylesheets-loader.min.js"></script>
+  <script type="module" src="../../../_static/js/dark-mode-toggle.min.mjs"></script>
+  
+    
+
+<!-- zephyr-in-the-browser: run-in-simulator widget -->
+<link rel="stylesheet" href="../../../_sim/widget.css"/>
+<script>window.ZEPHYR_SIM = {"app":"gnss","board":"qemu_cortex_m3","boards":["qemu_cortex_m3","qemu_cortex_a53"],"title":"GNSS","simRoot":"../../../../","canonical":"https://docs.zephyrproject.org/latest/samples/drivers/gnss/README.html","mirrored":"2026-07-23"}</script>
+<script defer src="../../../_sim/widget.js"></script>
+<script src="../../../../coi-serviceworker.js"></script>
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="https://docs.zephyrproject.org/latest/index.html">
+            
+              <img src="../../../_static/logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div class="search-container" role="search">
+  <form id="rtd-search-form" class="wy-form" action="https://docs.zephyrproject.org/latest/search.html" method="get">
+    <input type="search" name="q" placeholder="Search docs"
+           aria-label="Search docs" />
+    <span id="search-se-settings-icon" class="fa fa-gear" role="button" tabindex="0"
+          title="Search settings" aria-label="Search settings"
+          aria-haspopup="menu" aria-controls="search-se-menu" aria-expanded="false"
+          onclick="toggleSearchEngineSettingsMenu()">
+    </span>
+    <div id="search-se-menu" role="menu" aria-labelledby="search-se-settings-icon">
+      <ul>
+        <li id="search-se-menuitem-sphinx" role="menuitemradio" tabindex="-1"
+            aria-label="Built-in search" onclick="switchSearchEngine('sphinx')">
+          Built-in search <span class="fa fa-check"></span>
+        </li>
+        <li id="search-se-menuitem-google" role="menuitemradio" tabindex="-1"
+            aria-label="Google search" onclick="switchSearchEngine('google')">
+          Google search <span class="fa fa-check"></span>
+        </li>
+              </ul>
+    </div>
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+<script>
+(function () {
+  var hasGoogleSearch = true;
+  var hasKapaSearch = false;
+
+  var form = document.getElementById("rtd-search-form");
+  var searchMenu = document.getElementById("search-se-menu");
+  var isBrowsingLatest = window.location.pathname.startsWith("/latest");
+  var preferenceKey = "search-se-" + (isBrowsingLatest ? "latest" : "default");
+  var query = new URLSearchParams(window.location.search).get("q");
+  var searchEngines = ["sphinx"];
+  if (hasGoogleSearch) {
+    searchEngines.push("google");
+  }
+  if (hasKapaSearch) {
+    searchEngines.push("kapa");
+  }
+
+  if (query !== null) {
+    form.q.value = query;
+    form.q.focus();
+  }
+
+  // Load the saved search preference. On "/latest", default to Google when enabled in this build;
+  // otherwise default to built-in Sphinx search.
+  var engine = localStorage.getItem(preferenceKey);
+  if (engine === null) {
+    engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+  }
+  setActiveSearchEngine(engine);
+
+  setSearchEngineSettingsMenuVisibility = function (visible) {
+    searchMenu.style.display = visible ? "block" : "none";
+    document
+      .getElementById("search-se-settings-icon")
+      .setAttribute("aria-expanded", visible ? "true" : "false");
+  };
+  setSearchEngineSettingsMenuVisibility(false);
+
+  window.toggleSearchEngineSettingsMenu = function () {
+    isVisible = searchMenu.style.display === "block";
+    setSearchEngineSettingsMenuVisibility(!isVisible);
+  };
+
+  function setActiveSearchEngine(engine) {
+    if (searchEngines.indexOf(engine) === -1) {
+      engine = isBrowsingLatest && hasGoogleSearch ? "google" : "sphinx";
+    }
+
+    if (engine === "sphinx") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (built-in search)";
+    } else if (hasGoogleSearch && engine === "google") {
+      form.action = "https://docs.zephyrproject.org/latest/gsearch.html";
+      form.q.placeholder = "Search docs (powered by Google)";
+    } else if (hasKapaSearch && engine === "kapa") {
+      form.action = "https://docs.zephyrproject.org/latest/search.html";
+      form.q.placeholder = "Search docs (Kapa AI)";
+    }
+
+    searchEngines.forEach(function (searchEngine) {
+      var menuItem = document.getElementById("search-se-menuitem-" + searchEngine);
+      if (!menuItem) {
+        return;
+      }
+      var isSelected = searchEngine === engine;
+      menuItem.classList.toggle("selected", isSelected);
+      menuItem.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
+  }
+
+  var openKapaSearch;
+  var openKapaSearchWhenReady;
+
+  if (hasKapaSearch) {
+    openKapaSearch = function (q) {
+      if (!window.Kapa || typeof window.Kapa.open !== "function") {
+        return false;
+      }
+      var text = (q != null && q !== "" ? String(q) : "").trim();
+      if (text !== "") {
+        window.Kapa.open({ mode: "search", query: text, submit: true });
+      } else {
+        window.Kapa.open({ mode: "search" });
+      }
+      return true;
+    };
+
+    openKapaSearchWhenReady = function (q, remainingAttempts) {
+      if (openKapaSearch(q) || remainingAttempts <= 0) {
+        return;
+      }
+      window.setTimeout(function () {
+        openKapaSearchWhenReady(q, remainingAttempts - 1);
+      }, 250);
+    };
+
+    form.addEventListener("submit", function (event) {
+      if (localStorage.getItem(preferenceKey) !== "kapa") {
+        return;
+      }
+      event.preventDefault();
+      openKapaSearchWhenReady(form.q.value, 40);
+    });
+  }
+
+  window.switchSearchEngine = function (engine) {
+    setActiveSearchEngine(engine);
+    localStorage.setItem(preferenceKey, engine);
+    setSearchEngineSettingsMenuVisibility(false);
+    form.q.focus();
+    if (form.q.value !== "") {
+      if (hasKapaSearch && engine === "kapa") {
+        openKapaSearchWhenReady(form.q.value, 40);
+      } else {
+        form.submit();
+      }
+    }
+  };
+
+  // Close the dropdown if the user clicks outside of it
+  window.onclick = function (event) {
+    if (!event.target.matches("#search-se-settings-icon")) {
+      if (searchMenu.style.display === "block") {
+        setSearchEngineSettingsMenuVisibility(false);
+      }
+    }
+  };
+
+  document.addEventListener("keydown", function (event) {
+    if(searchMenu.style.display === "none") return;
+
+    let menuItems = document.querySelectorAll('[role="menuitemradio"]');
+    let currentIndex = Array.from(menuItems).findIndex((item) => item === document.activeElement);
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      let nextIndex = event.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
+
+      if (nextIndex >= menuItems.length) nextIndex = 0;
+      if (nextIndex < 0) nextIndex = menuItems.length - 1;
+
+      menuItems[nextIndex].focus();
+      event.preventDefault();
+    } else if (event.key === "Enter") {
+      let activeItem = document.activeElement;
+      if (activeItem && activeItem.getAttribute("role") === "menuitemradio") {
+        activeItem.click();
+        event.preventDefault();
+      }
+    }
+  });
+})();
+</script>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+  <div data-nosnippet>
+    
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      <span class="fa fa-book"> Zephyr Project</span>
+      v: latest
+      <span class="fa fa-caret-down"></span>
+    </span>
+    <div class="rst-other-versions">
+      <dl>
+        <dt>Document Release Versions</dt>
+        
+          <dd><a href="https://docs.zephyrproject.org/">latest</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.4.0/">4.4.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/4.3.0/">4.3.0</a></dd>
+        
+          <dd><a href="https://docs.zephyrproject.org/3.7.0/">3.7.0 (LTS)</a></dd>
+        
+      </dl>
+      <dl>
+        <dt>Downloads</dt>
+        
+        <dd><a href="https://docs.zephyrproject.org/latest/zephyr.pdf">PDF</a></dd>
+      </dl>
+      <dl>
+        <dt>zephyrproject.org Links</dt>
+          <dd>
+            <a href="https://www.zephyrproject.org/">Project Home</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/sdk-ng/releases">SDK</a>
+          </dd>
+          <dd>
+            <a href="https://github.com/zephyrproject-rtos/zephyr/releases">Releases</a>
+          </dd>
+      </dl>
+    </div>
+  </div>
+    
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/introduction/index.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/index.html">Developing with Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/kernel/index.html">Kernel</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/services/index.html">Services</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/build/index.html">Build and Configuration Systems</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/hardware/index.html">Hardware Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/contribute/index.html">Contributing to Zephyr</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/project/index.html">Project and Governance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/security/index.html">Security</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/safety/index.html">Safety</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a><ul class="current">
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/application_development/application_development.html">Application Development</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/arch/index.html">Architecture-dependent Samples</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/basic/basic.html">Basic</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/bluetooth/bluetooth.html">Bluetooth</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/boards/boards.html">Boards</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/cpp/cpp.html">C++</a></li>
+<li class="toctree-l2"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/data_structures/data_structures.html">Data Structures</a></li>
+<li class="toctree-l2 current"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/drivers.html">Drivers</a><ul class="current">
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/w1/README.html">1-Wire</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/adc/index.html">ADC</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/audio/index.html">Audio</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/biometrics/index.html">Biometrics</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/buzzer/index.html">Buzzer</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/can/index.html">Controller Area Network (CAN)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/counter/index.html">Counter</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ethernet/index.html">Ethernet</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/fpga/index.html">FPGA</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/firmware/index.html">Firmware Samples</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/gpio/index.html">General Purpose I/O (GPIO)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/haptics/README.html">Haptics</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/i2s/README.html">I2S</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/i2c/README.html">Inter-Integrated Circuit (I2C) Bus</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ipm/README.html">Inter-Processor Mailbox (IPM)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/interrupt_controller/index.html">Interrupt controller</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/led/index.html">Light-Emitting Diode (LED)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/lora/index.html">LoRa</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/misc/README.html">Miscellaneous</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/modem/index.html">Modem</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mspi/index.html">Multi-bit SPI Bus (MSPI)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/opamp/index.html">OPAMP</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/pwm/index.html">PWM</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/stepper/index.html">Stepper</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/uart/README.html">Universal Asynchronous Receiver-Transmitter (UART)</a></li>
+<li class="toctree-l3"><a class="category-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/virtualization/index.html">Virtualization</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/spi_flash_at45/README.html" title="Use the AT45 family DataFlash driver to interact with the flash memory over SPI.">AT45 DataFlash driver</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/auxdisplay_digits/README.html" title="Output increasing numbers to an auxiliary display.">Auxiliary digits display</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/auxdisplay/README.html" title="Output &quot;Hello  World&quot; to an auxiliary display.">Auxiliary display</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/charger/README.html" title="Charge a battery using the charger driver API.">Charger</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/crypto/README.html" title="Use the crypto APIs to perform various encryption/decryption operations.">Crypto</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/crc/README.html" title="Compute and verify a CRC checksum using the CRC driver API.">Cyclic Redundancy Check Drivers (CRC)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/dali/README.html" title="Blink LED controllers connected to a DALI bus.">Digital Addressable Lighting Interface (DALI)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/dac/README.html" title="Generate an analog sawtooth signal using the DAC driver API.">Digital-to-Analog Converter (DAC)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="../display/README.html" title="Draw basic rectangles on a display device.">Display</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/eeprom/README.html" title="Store a boot count value in EEPROM.">EEPROM</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/espi/README.html" title="Use eSPI to connect to a slave device and exchange virtual wire packets.">Enhanced Serial Peripheral Interface (eSPI)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/flash_shell/README.html" title="Explore a flash device using shell commands.">Flash shell</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/fuel_gauge/README.html" title="Use fuel gauge API to access fuel gauge properties and get charge information.">Fuel Gauge</a></li>
+<li class="toctree-l3 current"><a class="code-sample-link current reference internal" href="#" title="Connect to a GNSS device to obtain time, navigation data, and satellite information.">GNSS</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/lcd_hd44780/README.html" title="Control an HD44780-based LCD display using GPIO pins.">HD44780 LCD controller</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ht16k33/README.html" title="Control up to 128 LEDs connected to an HT16K33 LED driver and log keyscan events.">HT16K33 LED driver with keyscan</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/hwspinlock/README.html" title="Demonstrate cross-core synchronization using the HWSPINLOCK API together with the MBOX API.">HWSPINLOCK</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/spi_flash/README.html" title="Use the flash API to interact with an SPI NOR serial flash memory device.">JEDEC SPI-NOR flash</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/jesd216/README.html" title="Use the JESD216 flash API to extract information from a compatible serial memory device.">JESD216 flash</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/clock_control_litex/README.html" title="Use LiteX clock control driver to generate multiple clock signals.">LiteX clock control driver</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mbox/README.html" title="Perform inter-processor mailbox communication using the MBOX API.">MBOX</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mbox_data/README.html" title="Perform inter-processor mailbox communication using the MBOX API with data.">MBOX Data</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/memc/README.html" title="Access memory-mapped external RAM">Memory controller (MEMC) driver</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/mfd_charger/README.html" title="Demonstrate a multi-function device using charger, fuel gauge, and regulator subsystems.">Multi-Function Device (MFD) with Charger, Fuel Gauge, and Regulators</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/soc_flash_nrf/README.html" title="Use the flash API to interact with the SoC flash.">nRF SoC Internal Storage</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/peci/README.html" title="Monitor CPU temperature using PECI.">PECI interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/ps2/README.html" title="Communicate with a PS/2 mouse.">PS/2 interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/psi5/README.html" title="Use the PSI5 (Peripheral Sensor Interface) driver.">PSI5 interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/rtc/README.html" title="Set and read the date/time from a Real-Time Clock.">Real-Time Clock (RTC)</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/sent/README.html" title="Use the SENT (Single Edge Nibble Transmission) driver.">SENT interface</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/smbus/README.html" title="Interact with SMBus peripherals using shell commands.">SMBus shell</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/spi_bitbang/README.html" title="Use the bitbang SPI driver for communicating with a slave.">SPI bitbang</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/timeaware_gpio/README.html" title="Synchronize clocks.">Time-aware GPIO</a></li>
+<li class="toctree-l3"><a class="code-sample-link reference internal" href="https://docs.zephyrproject.org/latest/samples/drivers/watchdog/README.html" title="Use the watchdog driver API to reset the board when it gets stuck in an infinite loop.">Watchdog</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../hello_world/README.html">Hello World</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/kernel/index.html">Kernel and Scheduler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/modules/index.html">External modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/net/net.html">Networking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../philosophers/README.html">Dining Philosophers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/psa/index.html">PSA</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/regulator/index.html">Regulator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/sensor/sensor.html">Sensors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/shields/shields.html">Shields</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/subsys/subsys.html">Subsystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/synchronization/README.html">Basic Synchronization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/sysbuild/sysbuild.html">Sysbuild</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_integration.html">TF-M Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/userspace/index.html">Userspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="https://docs.zephyrproject.org/latest/samples/sample_definition_and_criteria.html">Sample Definition and Criteria</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/boards/index.html">Supported Boards and Shields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="https://docs.zephyrproject.org/latest/releases/index.html">Releases</a></li>
+</ul>
+
+    
+    <div class="toctree-wrapper compound">
+      <p class="caption"><span class="caption-text">Reference</span></p>
+      <ul>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/index.html">API</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/kconfig.html">Kconfig Options</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/build/dts/api/bindings.html">Devicetree Bindings</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/develop/manifest/index.html">West Projects</a>
+        </li>
+        
+        <li class="toctree-l1">
+          <a class="reference internal" href="https://docs.zephyrproject.org/latest/glossary.html">Glossary</a>
+        </li>
+        
+      </ul>
+    </div>
+    
+  </div>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="https://docs.zephyrproject.org/latest/index.html">Zephyr Project</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+  <!-- Docs / Latest -->
+  
+  
+
+  <li><a href="https://docs.zephyrproject.org/latest/index.html">Docs / Latest</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/index.html">Samples and Demos</a> &raquo;</li>
+  
+     <li><a href="https://docs.zephyrproject.org/latest/samples/drivers/drivers.html">Drivers</a> &raquo;</li>
+  
+  <li>GNSS</li>
+
+
+  <li class="wy-breadcrumbs-aside">
+    <dark-mode-toggle id="dark-mode-toggle" appearance="three-way" permanent="true"/>
+  </li>
+  <li class="wy-breadcrumbs-aside">
+      
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/drivers/gnss/README.rst" class="fa fa-github"> Open on GitHub</a>
+      
+        <a href="https://github.com/zephyrproject-rtos/zephyr/issues/new?template=001_bug_report.yml&title=doc%3A+Documentation+issue+in+%27samples%2Fdrivers%2Fgnss%2FREADME%27&labels=bug%2Carea%3A+Documentation%2Carea%3A+GNSS%2Carea%3A+Samples&env=-+Page%3A+samples%2Fdrivers%2Fgnss%2FREADME%0A-+Version%3A+main%0A-+SHA-1%3A+9339f315b0801115dc9f6e655044310d62f37838&context=This+issue+was+reported+from+the+online+documentation+page+using+the+%27Report+an+issue%27+button." class="fa fa-bug">
+          Report an issue with this page
+        </a>
+      
+    
+  </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="gnss">
+<h1>GNSS<a class="headerlink" href="#gnss" title="Link to this heading"></a></h1>
+<p>
+                <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/drivers/gnss/README.rst/.." class="btn btn-info fa fa-github"
+                    target="_blank" style="text-align: center;">
+                    Browse source code on GitHub
+                </a>
+                </p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>This sample demonstrates how to use a GNSS device implementing the
+GNSS device driver API.</p>
+</section>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h2>
+<p>This sample requires a board with a GNSS device present and enabled
+in the devicetree.</p>
+</section>
+<section id="sample-output">
+<h2>Sample Output<a class="headerlink" href="#sample-output" title="Link to this heading"></a></h2>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">gnss: gnss_info: {satellites_cnt: 14, hdop: 0.850, fix_status: GNSS_FIX, fix_quality: GNSS_SPS}</span>
+<span class="go">gnss: navigation_data: {latitude: 57.162331699, longitude : 9.961104199, bearing 12.530, speed 0.25, altitude: 42.372}</span>
+<span class="go">gnss: gnss_time: {hour: 16, minute: 17, millisecond 36000, month_day 3, month: 10, century_year: 23}</span>
+<span class="go">gnss has fix!</span>
+<span class="go">gnss: gnss_satellite: {prn: 1, snr: 30, elevation 71, azimuth 276, system: GLONASS, is_tracked: 1}</span>
+<span class="go">gnss: gnss_satellite: {prn: 11, snr: 31, elevation 62, azimuth 221, system: GLONASS, is_tracked: 1}</span>
+<span class="go">gnss reported 2 satellites (of which 2 tracked, of which 0 has RTK corrections)!</span>
+</pre></div>
+</div>
+</section>
+<section id="real-time-kinematics-rtk">
+<h2>Real-Time Kinematics (RTK)<a class="headerlink" href="#real-time-kinematics-rtk" title="Link to this heading"></a></h2>
+<p>This sample may also be configured to enable Real-Time Kinematics (RTK) positioning for
+enhanced accuracy, with the assistance of a local base station.</p>
+</section>
+<section id="rtk-requirements">
+<h2>RTK Requirements<a class="headerlink" href="#rtk-requirements" title="Link to this heading"></a></h2>
+<p>This sample requires the following setup to work with RTK:</p>
+<ul class="simple">
+<li><p>A UBlox F9P GNSS module connected to your board to act as a rover</p></li>
+<li><p>A second UBlox F9P module connected to a PC to act as a base station</p></li>
+</ul>
+</section>
+<section id="base-station-setup">
+<h2>Base Station Setup<a class="headerlink" href="#base-station-setup" title="Link to this heading"></a></h2>
+<p>To enable RTK functionality:</p>
+<ol class="arabic simple">
+<li><p>Connect the base station F9P module to your PC via USB.</p></li>
+<li><p>Also, connect the rover’s serial port (running the sample) to your PC via USB.</p></li>
+<li><p>Note the serial port the rover is connected through (e.g., /dev/ttyUSB0)</p></li>
+<li><p>Run the base station script:</p></li>
+</ol>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">python3 base_station/base_station_f9p.py --port /dev/ttyUSB0</span>
+</pre></div>
+</div>
+<p>The script configures the F9P module as a base station and streams RTCM3
+correction data to the rover. The base station will perform a survey-in
+process to determine its precise position before starting to transmit
+corrections.</p>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__gnss__interface.html" title=""><span class="pre">GNSS</span></a></dt>
+</dl>
+
+<dl>
+<dt class="sig sig-object c">
+<a class="doxygroup reference internal" href="https://docs.zephyrproject.org/latest/doxygen/html/group__navigation.html" title=""><span class="pre">Navigation</span></a></dt>
+</dl>
+
+</section>
+</section>
+<script type="application/ld+json">
+                {"@context": "http://schema.org", "@type": "SoftwareSourceCode", "name": "GNSS", "description": "Connect to a GNSS device to obtain time, navigation data, and satellite information.", "codeSampleType": "full", "codeRepository": "https://github.com/zephyrproject-rtos/zephyr/blob/main//samples/drivers/gnss/README.rst"}
+                </script>
+
+           </div>
+          </div>
+
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+<p>
+  &#169; Copyright 2015-2026 Zephyr Project members and individual contributors.
+  <div class="lastupdated">
+    Last generated: Jul 23, 2026.
+    Last source update: Jul 08, 2025.
+  </div></p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

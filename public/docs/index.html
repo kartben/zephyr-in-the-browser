@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sample documentation — Zephyr in the Browser</title>
+<link rel="icon" href="_static/favicon.png"/>
+<style>
+  :root { color-scheme: light dark; --accent: #7929d2; }
+  body { font: 16px/1.55 system-ui, sans-serif; margin: 0 auto; max-width: 880px;
+         padding: 2rem 1.25rem 4rem; }
+  header a { color: var(--accent); text-decoration: none; }
+  h1 { margin: .25rem 0 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+           gap: 1rem; margin-top: 1.5rem; padding: 0; }
+  .card { border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+          border-radius: 10px; padding: 1rem 1.15rem; display: flex;
+          flex-direction: column; gap: .5rem; }
+  .card h2 { font-size: 1.1rem; margin: 0; }
+  .card h2 a { color: inherit; text-decoration: none; }
+  .card h2 a:hover { color: var(--accent); }
+  .card p { margin: 0; opacity: .8; flex: 1; }
+  .chip { font: 600 11px/1 system-ui; padding: 4px 8px; border-radius: 999px;
+          background: color-mix(in srgb, var(--accent) 14%, transparent);
+          color: color-mix(in srgb, var(--accent) 70%, currentColor); }
+  .actions { display: flex; gap: .75rem; margin-top: .25rem; }
+  .actions a { font-size: .9rem; text-decoration: none; }
+  .actions .doc { color: inherit; opacity: .75; }
+  .actions .doc:hover { opacity: 1; }
+  .actions .run { color: #fff; background: var(--accent); padding: .35rem .7rem;
+                  border-radius: 6px; }
+  .actions .run:hover { filter: brightness(1.15); }
+  footer { margin-top: 3rem; font-size: .85rem; opacity: .65; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <a href="../">&#8592; Zephyr in the Browser</a>
+  <h1>Sample documentation</h1>
+  <p>Official Zephyr docs for every sample packaged with the emulator —
+     each page has a <strong>Run in simulator</strong> button.</p>
+</header>
+<main class="cards">
+      <article class="card">
+        <h2><a href="samples/drivers/gnss/README.html">GNSS</a></h2>
+        <p>Connect to a GNSS device to obtain time, navigation data, and satellite information.</p>
+        <div class="meta"><span class="chip">Cortex-M3</span><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/drivers/gnss/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_m3&app=gnss">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/subsys/shell/shell_module/README.html">Custom Shell module</a></h2>
+        <p>Register shell commands using the Shell API</p>
+        <div class="meta"><span class="chip">Cortex-M3</span><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/subsys/shell/shell_module/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_m3&app=shell">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/subsys/smf/hsm_psicc2/README.html">Hierarchical State Machine Demo based on example from PSiCC2</a></h2>
+        <p>Implement an event-driven hierarchical state machine using State Machine Framework (SMF).</p>
+        <div class="meta"><span class="chip">Cortex-M3</span><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/subsys/smf/hsm_psicc2/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_m3&app=hsm">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/hello_world/README.html">Hello World</a></h2>
+        <p>Print "Hello World" to the console.</p>
+        <div class="meta"><span class="chip">Cortex-M3</span><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/hello_world/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_m3&app=hello_world">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/drivers/display/README.html">Display</a></h2>
+        <p>Draw basic rectangles on a display device.</p>
+        <div class="meta"><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/drivers/display/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_a53&app=display">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/modules/lvgl/demos/README.html">LVGL demos</a></h2>
+        <p>Run LVGL built-in demos.</p>
+        <div class="meta"><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/modules/lvgl/demos/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_a53&app=lvgl_music">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/modules/lvgl/accelerometer_chart/README.html">LVGL line chart with accelerometer data</a></h2>
+        <p>Display acceleration data on a real-time chart using LVGL.</p>
+        <div class="meta"><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/modules/lvgl/accelerometer_chart/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_a53&app=accel_chart">&#9654; Run in simulator</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2><a href="samples/philosophers/README.html">Dining Philosophers</a></h2>
+        <p>Implement a solution to the Dining Philosophers problem using Zephyr kernel services.</p>
+        <div class="meta"><span class="chip">Cortex-A53</span></div>
+        <div class="actions">
+          <a class="doc" href="samples/philosophers/README.html">Documentation</a>
+          <a class="run" href="../?board=qemu_cortex_a53&app=philosophers">&#9654; Run in simulator</a>
+        </div>
+      </article>
+</main>
+<footer>
+  Pages mirrored from <a href="https://docs.zephyrproject.org/latest/">docs.zephyrproject.org</a> on 2026-07-23
+  by <code>tools/fetch-docs.mjs</code>. Documentation &#169; Zephyr Project members and
+  individual contributors, <a href="https://github.com/zephyrproject-rtos/zephyr/blob/main/LICENSE">Apache-2.0</a>.
+</footer>
+</body>
+</html>
