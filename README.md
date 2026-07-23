@@ -17,7 +17,7 @@ To boot real Zephyr, build the emulator and a guest image, then restart the dev 
 
 ```console
 tools/build-qemu-wasm.sh     # builds the emulator -> public/qemu/ (slow, containerised)
-tools/build-zephyr-image.sh  # builds Cortex-M3 guest images
+tools/build-zephyr-image.sh  # builds every sample in tools/samples.manifest, both boards
 npm run dev
 ```
 
@@ -26,6 +26,18 @@ Both scripts run in containers, so no local Emscripten or Zephyr toolchain is ne
 ## Choosing what runs
 
 Pick a **Board** (the emulated machine) and an **App** (the program it boots) from the top bar. You can also drop your own ELF onto the window to boot it instead — anything QEMU can run with `-kernel` works, not just Zephyr.
+
+The packaged apps live in [`tools/samples.manifest`](tools/samples.manifest), one line per board × app with ids matching [`src/boards.ts`](src/boards.ts); `tools/build-zephyr-image.sh` rebuilds them all. Cortex-M3 only lists apps verified against its slower qemu-wasm TCI timing (nothing that blocks on `k_sleep` in steady state); Cortex-A53 runs the wasm JIT and is unaffected.
+
+## The browser_bridge shield
+
+The browser-fed peripherals — GNSS UART, host sensor, host GPIO, and the browser-sized ramfb — reach the guest through a Zephyr shield, **`browser_bridge`** ([zephyr-module/boards/shields/browser_bridge/](zephyr-module/boards/shields/browser_bridge)), applied to every packaged build. Its overlays alias the host sensor as `accel0`, `temp0`/`ambient-temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples build unmodified against browser-fed readings. Building any app against the browser machines is just:
+
+```console
+west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-module -DSHIELD=browser_bridge
+```
+
+Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000 and the GPIO controller at 0x40061000; the virt patch in `tools/qemu-jit-patches/` puts the sensor at 0x090c0000.
 
 ## Deploying
 

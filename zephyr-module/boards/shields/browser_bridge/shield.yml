@@ -1,0 +1,8 @@
+shield:
+  name: browser_bridge
+  full_name: Browser peripheral bridge
+  vendor: others
+  supported_features:
+    - sensor
+    - gnss
+    - display

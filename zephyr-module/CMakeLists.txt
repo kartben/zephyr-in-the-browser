@@ -1,5 +1,7 @@
 # Out-of-tree Zephyr module providing the qemu,host-sensor and qemu,host-gpio
-# drivers. zephyr_library() is created once and shared by both.
+# drivers, plus the browser_bridge shield (boards/shields/browser_bridge/),
+# which wires the browser-fed peripherals into the QEMU boards.
+# zephyr_library() is created once and shared by both drivers.
 if(CONFIG_QEMU_HOST_SENSOR OR CONFIG_QEMU_HOST_GPIO)
   zephyr_library()
 endif()

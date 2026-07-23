@@ -84,6 +84,14 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/subsys/shell/shell_module',
   },
   {
+    // Event-driven end to end (shell in, logs out), so it dodges the TCI
+    // k_sleep stall that keeps most samples off this board.
+    id: 'hsm',
+    label: 'State Machine',
+    description: 'Hierarchical state machine driven from the shell',
+    zephyrSample: 'samples/subsys/smf/hsm_psicc2',
+  },
+  {
     id: 'hello_world',
     label: 'Hello World',
     description: 'Prints one line and stops',
@@ -103,6 +111,36 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Display',
     description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
     zephyrSample: 'samples/drivers/display',
+  },
+  {
+    id: 'lvgl_music',
+    label: 'Music Player',
+    description: 'LVGL’s auto-playing music player on qemu,ramfb',
+    zephyrSample: 'samples/modules/lvgl/demos',
+  },
+  {
+    id: 'accel_chart',
+    label: 'Accelerometer Chart',
+    description: 'Browser accelerometer traced live on an LVGL chart',
+    zephyrSample: 'samples/modules/lvgl/accelerometer_chart',
+  },
+  {
+    id: 'philosophers',
+    label: 'Philosophers',
+    description: 'Dining philosophers, animated in-place over VT100',
+    zephyrSample: 'samples/philosophers',
+  },
+  {
+    id: 'shell',
+    label: 'Shell',
+    description: 'Interactive Zephyr shell',
+    zephyrSample: 'samples/subsys/shell/shell_module',
+  },
+  {
+    id: 'hsm',
+    label: 'State Machine',
+    description: 'Hierarchical state machine driven from the shell',
+    zephyrSample: 'samples/subsys/smf/hsm_psicc2',
   },
   {
     id: 'hello_world',
@@ -162,7 +200,7 @@ export const BOARDS: Board[] = [
       '/pack/zephyr.elf',
     ],
     kernelFsPath: '/pack/zephyr.elf',
-    peripherals: { gnss: true, ramfb: true },
+    peripherals: { gnss: true, hostSensor: true, ramfb: true },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',
     extraFiles: [

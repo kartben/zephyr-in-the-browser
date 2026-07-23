@@ -96,8 +96,8 @@ wasm64 experiment so the result does not require WebAssembly Memory64.
 
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
 working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
-include the browser terminal and GNSS UART bridges; ARM adds the host sensor,
-and AArch64 adds the ramfb bridge.
+include the browser terminal, GNSS UART and host-sensor bridges; AArch64
+additionally adds the ramfb bridge.
 
 Five browser integrations are supplied by the target-specific patch
 directories under `tools/`:
@@ -202,7 +202,7 @@ avoids the previous per-pixel JavaScript conversion and allows a 30 fps refresh
 cap. Browsers without WebGL 2 retain the Canvas 2D renderer as a fallback.
 
 The stock `samples/drivers/display` sample on `qemu_cortex_a53` is the default.
-A local devicetree overlay reduces its ramfb surface from Zephyr's 1024×768
+The `browser_bridge` shield's overlay reduces its ramfb surface from Zephyr's 1024×768
 default to 600×400: that is 69.5% fewer pixels for both the emulated guest and
 the browser's texture upload. In a browser comparison with the same JIT
 emulator, the sample reached `Display starts` at 130 ms of guest time, versus

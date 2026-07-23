@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Browser bridge on the Cortex-M3 (lm3s6965evb) machine.
+ *
+ * The host sensor (0x40060000) and host GPIO controller (0x40061000) are
+ * instantiated by our patched qemu-wasm Stellaris machine — addresses chosen
+ * because they sit in the gap between the last modelled LM3S6965 peripheral
+ * and the system control block, so they cannot collide with real hardware.
+ * See tools/qemu-patches/.
+ *
+ * One sensor MMIO device carries every channel the browser feeds (accel
+ * X/Y/Z, ambient temperature, light, humidity, pressure, battery state of
+ * charge), so all the sensor aliases point at the same node. They exist so
+ * stock Zephyr sensor samples — accel_polling (accel0), thermometer
+ * (ambient-temp0) and friends — build unmodified against the browser-fed
+ * readings.
+ */
+
+/ {
+	aliases {
+		gnss = &gnss;
+		accel0 = &host_sensor;
+		temp0 = &host_sensor;
+		ambient-temp0 = &host_sensor;
+		light0 = &host_sensor;
+		humidity0 = &host_sensor;
+		press0 = &host_sensor;
+	};
+
+	soc {
+		host_sensor: sensor@40060000 {
+			compatible = "qemu,host-sensor";
+			reg = <0x40060000 0x1000>;
+			status = "okay";
+		};
+
+		host_gpio: gpio@40061000 {
+			compatible = "qemu,host-gpio";
+			reg = <0x40061000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <8>;
+			status = "okay";
+		};
+	};
+};
+
+&uart1 {
+	current-speed = <9600>;
+	status = "okay";
+
+	gnss: gnss-nmea-generic {
+		compatible = "gnss-nmea-generic";
+	};
+};
