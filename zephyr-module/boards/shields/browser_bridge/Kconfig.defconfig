@@ -9,4 +9,25 @@ if SHIELD_BROWSER_BRIDGE
 config UART_INTERRUPT_DRIVEN
 	default y if GNSS
 
+# Zephyr defaults to -Os. On AArch64 that is not merely a size/speed trade: it
+# selects the toolchain's `space` multilib, whose picolibc compiles the hand
+# written memcpy.S *out* and leaves only memcpy-stub.c — a byte-at-a-time loop
+# costing six instructions per byte. Every one of those is emulated, so it is
+# paid at wasm-JIT prices.
+#
+# It dominated the display path. Measured on qemu_cortex_a53 under the browser's
+# own -icount shift=4, one 600x400 ARGB8888 frame through display_write():
+#
+#   -Os, byte-loop memcpy        92,337 us/frame     64x64 rect: 1,594 us
+#   -O2, LDP/STP memcpy           2,625 us/frame     64x64 rect:    70 us
+#
+# ...a 35x difference on the copy that *is* the frame. It is not display
+# specific — it is every memcpy the guest runs — so it belongs here, applied to
+# every packaged image, rather than in one app's fragment. Costs ELF size, which
+# these images can afford: they are fetched once and then interpreted forever.
+# See docs/next-drivers.md, "virtio-gpu".
+choice COMPILER_OPTIMIZATIONS
+	default SPEED_OPTIMIZATIONS
+endchoice
+
 endif # SHIELD_BROWSER_BRIDGE
