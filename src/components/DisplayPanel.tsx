@@ -37,9 +37,9 @@ function workerRenderingSupported(buffer: ArrayBufferLike | null): buffer is Sha
 }
 
 /** Paints Zephyr's qemu,ramfb framebuffer into a browser canvas. */
-export function DisplayPanel() {
+export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
   const [strategy, setStrategy] = useState<RenderStrategy>('worker-webgl')
   const canvasRef = useRef<HTMLCanvasElement>(null)

@@ -27,10 +27,10 @@ import {
  * off. Reach the speaker from the shell with `hostaudio beep`; the mic feeds
  * the stock dmic sample.
  */
-export function AudioPanel() {
+export function AudioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const audio = useSyncExternalStore(subscribeAudio, getAudioSnapshot, getAudioSnapshot)
   const mic = useSyncExternalStore(subscribeMic, getMicSnapshot, getMicSnapshot)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
 
   if ((!audio.available && !mic.available) || dismissed) return null

@@ -13,7 +13,7 @@ import {
 } from '@/guestImage'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
-import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample } from '@/boards'
+import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } from '@/boards'
 
 /**
  * The selection lives in the query string so it can survive the reload that a
@@ -226,8 +226,17 @@ export default function App() {
           onSession={handleSession}
           onTeardown={handleTeardown}
         />
-        {/* Each entry stays hidden unless the running emulator exposes it. */}
-        <PeripheralPanels />
+        {/*
+          Each entry stays hidden unless the running emulator exposes it, and
+          opens collapsed unless the sample is about it. A custom ELF's
+          peripherals are unknown, so expand whatever it lights up. Keyed by
+          sample so the mock path (no reload) re-derives these defaults too.
+        */}
+        <PeripheralPanels
+          key={sampleId}
+          primaryPanels={samplePrimaryPanels(getBoard(boardId), sampleId)}
+          expandAll={customImage !== null}
+        />
       </main>
 
       {/* Whole-window target, so the drop works wherever the pointer is. */}

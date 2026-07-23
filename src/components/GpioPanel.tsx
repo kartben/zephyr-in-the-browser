@@ -21,9 +21,9 @@ import {
  * the LED row reflects the output pins the guest drives. Reach them from the
  * shell with `gpio get host_gpio <pin>` and `gpio set host_gpio <pin> <0|1>`.
  */
-export function GpioPanel() {
+export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
 
   if (!isAvailable || dismissed) return null

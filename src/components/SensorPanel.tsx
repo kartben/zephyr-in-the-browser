@@ -12,9 +12,9 @@ import { CHANNELS, available, get, set, startBattery, startOrientation, subscrib
  * MMIO window, where the Zephyr driver reads them — try `sensor get
  * host_sensor` in the shell.
  */
-export function SensorPanel() {
+export function SensorPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
   const [live, setLive] = useState(false)
 
