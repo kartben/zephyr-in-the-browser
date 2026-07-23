@@ -115,3 +115,13 @@ export function getFrame(): Uint8Array | null {
   if (end > exports.HEAPU8.byteLength) return null
   return exports.HEAPU8.subarray(snapshot.pointer, end)
 }
+
+/**
+ * The Emscripten heap that backs getFrame(), for handing to a render worker.
+ * On a pthread build this is a SharedArrayBuffer, so a worker can read the
+ * framebuffer directly at `snapshot.pointer` without any pixels being posted.
+ * Null until a module is attached.
+ */
+export function getSharedBuffer(): ArrayBufferLike | null {
+  return exports?.HEAPU8?.buffer ?? null
+}

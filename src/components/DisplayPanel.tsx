@@ -2,182 +2,38 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Monitor, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getFrame, getSnapshot, subscribe } from '@/hostDisplay'
+import { getFrame, getSharedBuffer, getSnapshot, subscribe } from '@/hostDisplay'
+import {
+  createCanvasRenderer,
+  createWebGLRenderer,
+  type FrameRenderer,
+  type UploadMode,
+} from '@/display/renderers'
+import type { MainToWorker, WorkerToMain } from '@/display/renderWorker'
 
-interface FrameRenderer {
-  draw(source: Uint8Array): void
-  dispose(): void
-}
+/**
+ * How the framebuffer reaches the canvas, in order of preference:
+ *  - `worker-webgl`: an OffscreenCanvas painted by a dedicated worker, so the
+ *    texture upload never touches the UI/terminal thread.
+ *  - `main-webgl`: the same WebGL path on the main thread (no OffscreenCanvas,
+ *    or the worker failed to get a context).
+ *  - `main-canvas2d`: per-pixel Canvas 2D, the last resort.
+ * Each strategy keys a fresh <canvas>: transferControlToOffscreen and
+ * getContext are both one-shot per element, so a fallback needs a new one.
+ */
+type RenderStrategy = 'worker-webgl' | 'main-webgl' | 'main-canvas2d'
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string) {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Could not create WebGL shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown shader compilation error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
+const FRAME_INTERVAL_MS = 1000 / 30
 
-/** Uploads BGRA ramfb bytes directly and swaps red/blue in a fragment shader. */
-function createWebGLRenderer(
-  canvas: HTMLCanvasElement,
-  width: number,
-  height: number,
-  stride: number,
-): FrameRenderer {
-  if (stride % 4 !== 0) throw new Error(`WebGL cannot represent ramfb stride ${stride}`)
-
-  const gl = canvas.getContext('webgl2', {
-    alpha: false,
-    antialias: false,
-    depth: false,
-    stencil: false,
-    preserveDrawingBuffer: false,
-  })
-  if (!gl) throw new Error('WebGL 2 is unavailable')
-
-  const vertex = compileShader(
-    gl,
-    gl.VERTEX_SHADER,
-    `#version 300 es
-      const vec2 positions[4] = vec2[4](
-        vec2(-1.0, -1.0), vec2(1.0, -1.0),
-        vec2(-1.0,  1.0), vec2(1.0,  1.0)
-      );
-      const vec2 coordinates[4] = vec2[4](
-        vec2(0.0, 1.0), vec2(1.0, 1.0),
-        vec2(0.0, 0.0), vec2(1.0, 0.0)
-      );
-      out vec2 textureCoordinate;
-      void main() {
-        gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
-        textureCoordinate = coordinates[gl_VertexID];
-      }
-    `,
+function workerRenderingSupported(buffer: ArrayBufferLike | null): buffer is SharedArrayBuffer {
+  return (
+    typeof Worker !== 'undefined' &&
+    typeof OffscreenCanvas !== 'undefined' &&
+    typeof HTMLCanvasElement !== 'undefined' &&
+    'transferControlToOffscreen' in HTMLCanvasElement.prototype &&
+    typeof SharedArrayBuffer !== 'undefined' &&
+    buffer instanceof SharedArrayBuffer
   )
-  const fragment = compileShader(
-    gl,
-    gl.FRAGMENT_SHADER,
-    `#version 300 es
-      precision lowp float;
-      uniform sampler2D framebuffer;
-      in vec2 textureCoordinate;
-      out vec4 outputColor;
-      void main() {
-        vec4 bgra = texture(framebuffer, textureCoordinate);
-        outputColor = bgra.bgra;
-      }
-    `,
-  )
-  const program = gl.createProgram()
-  if (!program) throw new Error('Could not create WebGL program')
-  gl.attachShader(program, vertex)
-  gl.attachShader(program, fragment)
-  gl.linkProgram(program)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown WebGL link error'
-    gl.deleteProgram(program)
-    gl.deleteShader(vertex)
-    gl.deleteShader(fragment)
-    throw new Error(message)
-  }
-
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Could not create WebGL texture')
-  gl.viewport(0, 0, width, height)
-  gl.disable(gl.BLEND)
-  gl.disable(gl.DEPTH_TEST)
-  gl.useProgram(program)
-  gl.activeTexture(gl.TEXTURE0)
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
-  gl.uniform1i(gl.getUniformLocation(program, 'framebuffer'), 0)
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, stride / 4)
-
-  let uploadMode: 'unknown' | 'direct' | 'copy' = 'unknown'
-  let uploadCopy: Uint8Array | null = null
-
-  const upload = (pixels: Uint8Array) => {
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-  }
-
-  return {
-    draw(source) {
-      // Emscripten pthread heaps use SharedArrayBuffer. Most browsers accept a
-      // view of it directly; retain a native bulk-copy fallback for those that
-      // reject shared views as WebGL texture sources.
-      if (uploadMode === 'copy') {
-        uploadCopy!.set(source)
-        upload(uploadCopy!)
-      } else if (uploadMode === 'direct') {
-        upload(source)
-      } else {
-        try {
-          upload(source)
-          if (gl.getError() !== gl.NO_ERROR) throw new Error('Direct texture upload failed')
-          uploadMode = 'direct'
-          canvas.dataset.frameUpload = 'direct'
-        } catch {
-          uploadCopy = new Uint8Array(source.length)
-          uploadCopy.set(source)
-          upload(uploadCopy)
-          uploadMode = 'copy'
-          canvas.dataset.frameUpload = 'copy'
-        }
-      }
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-    },
-    dispose() {
-      gl.deleteTexture(texture)
-      gl.deleteProgram(program)
-      gl.deleteShader(vertex)
-      gl.deleteShader(fragment)
-    },
-  }
-}
-
-function createCanvasRenderer(
-  canvas: HTMLCanvasElement,
-  width: number,
-  height: number,
-  stride: number,
-): FrameRenderer {
-  const context = canvas.getContext('2d', { alpha: false })
-  if (!context) throw new Error('Canvas 2D is unavailable')
-  const image = context.createImageData(width, height)
-  canvas.dataset.frameUpload = 'pixel-conversion'
-
-  return {
-    draw(source) {
-      const target = image.data
-      for (let y = 0; y < height; y += 1) {
-        let src = y * stride
-        let dst = y * width * 4
-        const end = dst + width * 4
-        // DRM AR24 is BGRA byte order on this little-endian guest; Canvas
-        // ImageData wants RGBA.
-        while (dst < end) {
-          target[dst] = source[src + 2]
-          target[dst + 1] = source[src + 1]
-          target[dst + 2] = source[src]
-          target[dst + 3] = 0xff
-          src += 4
-          dst += 4
-        }
-      }
-      context.putImageData(image, 0, 0)
-    },
-    dispose() {},
-  }
 }
 
 /** Paints Zephyr's qemu,ramfb framebuffer into a browser canvas. */
@@ -185,53 +41,175 @@ export function DisplayPanel() {
   const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const [collapsed, setCollapsed] = useState(false)
   const [dismissed, setDismissed] = useState(false)
-  const [rendererKind, setRendererKind] = useState<'webgl2' | 'canvas2d'>('webgl2')
+  const [strategy, setStrategy] = useState<RenderStrategy>('worker-webgl')
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  // The live worker render session, kept in a ref so it survives StrictMode's
+  // setup→cleanup→setup double-invoke. transferControlToOffscreen() is one-shot
+  // per <canvas>, so the session is built once per element and its teardown is
+  // deferred, letting the immediate re-setup reclaim it instead of re-transferring.
+  const sessionRef = useRef<{
+    el: HTMLCanvasElement
+    worker: Worker
+    unsubscribe: () => void
+  } | null>(null)
+  const teardownRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
+  // Preferred path: hand a transferred OffscreenCanvas and the shared heap to a
+  // worker, which reads the framebuffer and uploads it on its own thread. Only
+  // display.available gates setup — resolution or pointer changes are pushed as
+  // `update` messages so the one-shot canvas transfer is never repeated.
   useEffect(() => {
+    if (strategy !== 'worker-webgl') return
+
+    const destroy = () => {
+      const session = sessionRef.current
+      if (!session) return
+      session.unsubscribe()
+      const stop: MainToWorker = { type: 'stop' }
+      session.worker.postMessage(stop)
+      session.worker.terminate()
+      sessionRef.current = null
+    }
+    // Deferred so StrictMode's synchronous re-setup can cancel it; the identity
+    // check stops it felling a session a later setup already replaced.
+    const scheduleDestroy = () => {
+      const session = sessionRef.current
+      teardownRef.current = setTimeout(() => {
+        teardownRef.current = undefined
+        if (sessionRef.current === session) destroy()
+      }, 0)
+    }
+    const cancelPendingDestroy = () => {
+      if (teardownRef.current === undefined) return
+      clearTimeout(teardownRef.current)
+      teardownRef.current = undefined
+    }
+
+    const canvas = canvasRef.current
+    const shouldRender = display.available && !collapsed && !dismissed && !!canvas
+
+    // StrictMode re-running setup on the still-lit element: keep the worker and
+    // cancel the teardown the paired cleanup just scheduled.
+    if (shouldRender && sessionRef.current?.el === canvas) {
+      cancelPendingDestroy()
+      return scheduleDestroy
+    }
+
+    // Any real transition (first mount, collapse, a fresh element) drops the
+    // previous session up front, then decides whether to build a new one.
+    cancelPendingDestroy()
+    destroy()
+    if (!shouldRender) return
+
+    const buffer = getSharedBuffer()
+    if (!workerRenderingSupported(buffer)) {
+      setStrategy('main-webgl')
+      return
+    }
+
+    const snap = getSnapshot()
+    let worker: Worker
+    let offscreen: OffscreenCanvas
+    try {
+      // Size the host element before transfer so the OffscreenCanvas inherits
+      // the guest resolution instead of the 300x150 default.
+      canvas.width = snap.width
+      canvas.height = snap.height
+      offscreen = canvas.transferControlToOffscreen()
+      worker = new Worker(new URL('../display/renderWorker.ts', import.meta.url), {
+        type: 'module',
+      })
+    } catch {
+      setStrategy('main-webgl')
+      return
+    }
+
+    const fallBack = () => {
+      destroy()
+      setStrategy('main-webgl')
+    }
+    worker.onerror = () => fallBack()
+    worker.onmessage = (event: MessageEvent<WorkerToMain>) => {
+      const message = event.data
+      if (message.type === 'ready') canvas.dataset.renderer = 'worker-webgl2'
+      else if (message.type === 'uploadMode') canvas.dataset.frameUpload = message.mode
+      else if (message.type === 'fatal') fallBack()
+    }
+
+    const init: MainToWorker = {
+      type: 'init',
+      canvas: offscreen,
+      buffer,
+      snapshot: { ...snap },
+      frameIntervalMs: FRAME_INTERVAL_MS,
+    }
+    worker.postMessage(init, [offscreen])
+
+    // The guest reconfigures ramfb rarely; forward each change without tearing
+    // the worker down. getFrame() is unused here — the worker owns the read.
+    const unsubscribe = subscribe(() => {
+      const next = getSnapshot()
+      const nextBuffer = getSharedBuffer()
+      if (!next.available || !nextBuffer) return
+      const update: MainToWorker = { type: 'update', buffer: nextBuffer, snapshot: { ...next } }
+      worker.postMessage(update)
+    })
+
+    sessionRef.current = { el: canvas, worker, unsubscribe }
+    return scheduleDestroy
+  }, [strategy, collapsed, dismissed, display.available])
+
+  // Fallback path: render on the main thread. Reached only when the worker or
+  // OffscreenCanvas is unavailable. Keeps the WebGL-then-Canvas2D degradation.
+  useEffect(() => {
+    if (strategy === 'worker-webgl') return
     const canvas = canvasRef.current
     if (!display.available || collapsed || dismissed || !canvas) return
 
     canvas.width = display.width
     canvas.height = display.height
+    const onUploadMode = (mode: UploadMode) => {
+      canvas.dataset.frameUpload = mode
+    }
     let renderer: FrameRenderer
-    if (rendererKind === 'webgl2') {
+    if (strategy === 'main-webgl') {
       try {
-        renderer = createWebGLRenderer(canvas, display.width, display.height, display.stride)
+        renderer = createWebGLRenderer(canvas, display.width, display.height, display.stride, {
+          onUploadMode,
+        })
         canvas.dataset.renderer = 'webgl2'
       } catch {
-        // Changing the key below gives Canvas 2D a fresh element; a canvas
-        // cannot switch context type after getContext('webgl2') succeeds.
-        setRendererKind('canvas2d')
+        // A canvas cannot switch context type after getContext('webgl2'); the
+        // strategy key below mounts a fresh element for Canvas 2D.
+        setStrategy('main-canvas2d')
         return
       }
     } else {
-      renderer = createCanvasRenderer(canvas, display.width, display.height, display.stride)
+      renderer = createCanvasRenderer(canvas, display.width, display.height, display.stride, {
+        onUploadMode,
+      })
       canvas.dataset.renderer = 'canvas2d'
     }
+
     let stopped = false
     let previous = 0
     let animationFrame = 0
-
     const draw = (now: number) => {
       if (stopped) return
-      // WebGL uploads the shared framebuffer without a per-pixel JavaScript
-      // conversion, so a fluid refresh rate no longer starves the terminal/UI.
-      if (now - previous >= 1000 / 30) {
+      if (now - previous >= FRAME_INTERVAL_MS) {
         const source = getFrame()
         if (source) renderer.draw(source)
         previous = now
       }
       animationFrame = requestAnimationFrame(draw)
     }
-
     animationFrame = requestAnimationFrame(draw)
     return () => {
       stopped = true
       cancelAnimationFrame(animationFrame)
       renderer.dispose()
     }
-  }, [collapsed, dismissed, display, rendererKind])
+  }, [strategy, collapsed, dismissed, display])
 
   if (!display.available || dismissed) return null
 
@@ -276,7 +254,7 @@ export function DisplayPanel() {
       {!collapsed && (
         <div className="bg-black p-2">
           <canvas
-            key={rendererKind}
+            key={strategy}
             ref={canvasRef}
             className="mx-auto block max-h-[min(70vh,48rem)] w-full object-contain [image-rendering:auto]"
             style={{ aspectRatio: `${display.width} / ${display.height}` }}

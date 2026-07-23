@@ -196,10 +196,20 @@ The display path intentionally does not depend on SDL, GTK, VNC, or a QEMU UI
 backend. Zephyr's `qemu,ramfb` driver allocates an ARGB8888 framebuffer and
 publishes its configuration through fw_cfg. The local QEMU patch exposes the
 mapped pixel address and metadata to JavaScript; `hostDisplay.ts` reads the
-shared Emscripten heap. `DisplayPanel.tsx` prefers WebGL 2, uploading that heap
-view directly as a texture and swapping BGRA to RGBA in a fragment shader. This
-avoids the previous per-pixel JavaScript conversion and allows a 30 fps refresh
-cap. Browsers without WebGL 2 retain the Canvas 2D renderer as a fallback.
+shared Emscripten heap.
+
+Because that heap is a `SharedArrayBuffer` (qemu-wasm is a pthread build), it is
+visible from any worker. `DisplayPanel.tsx` therefore prefers to render off the
+UI thread entirely: it transfers the canvas to a dedicated worker
+(`display/renderWorker.ts`) with `transferControlToOffscreen()` and hands it the
+shared buffer. The worker reads the framebuffer directly and uploads it to a
+WebGL 2 texture — swapping BGRA to RGBA in a fragment shader, avoiding the
+earlier per-pixel JavaScript conversion — so the ~1 MB-per-frame upload never
+competes with xterm or React on the main thread. The main thread only forwards
+ramfb reconfigurations (a new resolution or pixel address, both rare) as
+messages; pixels are never posted. There is a two-step fallback for browsers
+without OffscreenCanvas or a worker WebGL 2 context: the same WebGL renderer on
+the main thread, then the per-pixel Canvas 2D renderer. All three cap at 30 fps.
 
 The stock `samples/drivers/display` sample on `qemu_cortex_a53` is the default.
 The `browser_bridge` shield's overlay reduces its ramfb surface from Zephyr's 1024×768
