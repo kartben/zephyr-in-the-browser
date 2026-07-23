@@ -28,10 +28,10 @@ const FIELDS: Array<{
 ]
 
 /** Controls the NMEA fixes streamed into the guest's second UART. */
-export function GnssPanel() {
+export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
   const fix = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
   const [live, setLive] = useState(false)
   const [locationError, setLocationError] = useState('')

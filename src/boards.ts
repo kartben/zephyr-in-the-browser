@@ -10,6 +10,9 @@
  * uses aarch64-softmmu.
  */
 
+/** A peripheral bridge with a floating panel in the UI. */
+export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio'
+
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
   /** Also the artifact basename, so it must stay in step with the build script. */
@@ -22,6 +25,13 @@ export interface GuestSample {
    * own apps when it starts with "zephyr-module/".
    */
   zephyrSample: string
+  /**
+   * Panels this sample is *about* — expanded on boot so the relevant bridge is
+   * in view immediately. Every other available panel starts collapsed, since it
+   * is incidental to what the sample demonstrates. Omit for samples that only
+   * speak over the terminal.
+   */
+  primaryPanels?: PanelKind[]
 }
 
 export interface Board {
@@ -81,12 +91,15 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'GNSS',
     description: 'Parses browser-fed NMEA fixes over UART',
     zephyrSample: 'samples/drivers/gnss',
+    primaryPanels: ['gnss'],
   },
   {
     id: 'shell',
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `sensor get`, `gpio` and `hostaudio`',
     zephyrSample: 'samples/subsys/shell/shell_module',
+    // The shell is the interface to all three host bridges it advertises.
+    primaryPanels: ['sensor', 'gpio', 'audio'],
   },
   {
     // Event-driven end to end (shell in, logs out), so it dodges the TCI
@@ -110,6 +123,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'GNSS',
     description: 'Parses browser-fed NMEA fixes over UART',
     zephyrSample: 'samples/drivers/gnss',
+    primaryPanels: ['gnss'],
   },
   {
     // Not the stock samples/drivers/audio/dmic: that one crashes on 64-bit
@@ -119,24 +133,29 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Mic Capture',
     description: 'Live microphone VU meter via Zephyr’s DMIC API',
     zephyrSample: 'zephyr-module/apps/mic_capture',
+    primaryPanels: ['audio'],
   },
   {
     id: 'display',
     label: 'Display',
     description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
     zephyrSample: 'samples/drivers/display',
+    primaryPanels: ['display'],
   },
   {
     id: 'lvgl_music',
     label: 'Music Player',
     description: 'LVGL’s auto-playing music player on qemu,ramfb',
     zephyrSample: 'samples/modules/lvgl/demos',
+    primaryPanels: ['display'],
   },
   {
     id: 'accel_chart',
     label: 'Accelerometer Chart',
     description: 'Browser accelerometer traced live on an LVGL chart',
     zephyrSample: 'samples/modules/lvgl/accelerometer_chart',
+    // The accelerometer feeds the chart, so surface both input and output.
+    primaryPanels: ['sensor', 'display'],
   },
   {
     id: 'philosophers',
@@ -149,6 +168,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `hostaudio` for the sound panel',
     zephyrSample: 'samples/subsys/shell/shell_module',
+    primaryPanels: ['audio'],
   },
   {
     id: 'hsm',
@@ -245,6 +265,11 @@ export function getBoard(id: string): Board {
 
 export function getSample(board: Board, sampleId: string): GuestSample {
   return board.samples.find((s) => s.id === sampleId) ?? board.samples[0]
+}
+
+/** Panels a sample wants expanded on boot; empty when it is terminal-only. */
+export function samplePrimaryPanels(board: Board, sampleId: string): Set<PanelKind> {
+  return new Set(getSample(board, sampleId).primaryPanels)
 }
 
 /** Where a board's prebuilt image lives under public/qemu/. */
