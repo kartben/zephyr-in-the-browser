@@ -1,0 +1,345 @@
+diff --git a/net/browser.c b/net/browser.c
+new file mode 100644
+index 0000000..a00ef46
+--- /dev/null
++++ b/net/browser.c
+@@ -0,0 +1,281 @@
++/*
++ * Browser-page netdev backend.
++ *
++ * A companion to the hw/misc/qemu-host-* bridges, built on the same idea: no
++ * real transport exists, so the embedding page *is* the network. Ethernet
++ * frames the guest transmits are appended to a ring the host drains -- under
++ * qemu-wasm, page JavaScript implementing the LAN (ARP, DHCP, DNS, TCP peers)
++ * -- and frames the host produces are injected back through a second ring.
++ * Nothing here is browser-specific: the host entry points are ordinary C, so
++ * the backend also works under native QEMU for testing a guest image without
++ * a browser in the loop (frames simply go nowhere until something drains
++ * them).
++ *
++ * Each direction is a single-producer single-consumer byte ring of
++ * length-prefixed records:
++ *
++ *     u16le len | u16le flags | payload[len] | pad to 4-byte boundary
++ *
++ * A record never wraps: when a frame does not fit in the tail, a skip marker
++ * (len == 0xffff) tells the consumer to jump to the next lap, so every
++ * payload is contiguous and can be handed to qemu_send_packet() or a JS
++ * subarray() without reassembly. The free-running 32-bit indices have a
++ * single writer each; the payload bytes are published before the index store
++ * and read after the index load (both seq-cst under Emscripten), the same
++ * contract the host-mic ring relies on.
++ *
++ * Frame injection must happen on the QEMU thread: the JS-visible entry
++ * points only touch ring memory, and a QEMU_CLOCK_VIRTUAL timer -- the
++ * pattern proven by the browser GNSS bridge -- drains the RX ring under the
++ * BQL, respecting the peer NIC's flow control. On the `-icount sleep=on`
++ * machine the virtual clock warps to the next deadline whenever the guest
++ * idles, so the poll stays responsive without burning host cycles.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/bswap.h"
++#include "qemu/timer.h"
++#include "qapi/error.h"
++#include "net/net.h"
++#include "clients.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define BROWSER_NET_RING_SIZE  (256 * 1024)   /* per direction, power of two */
++#define BROWSER_NET_HDR        4              /* u16 len, u16 flags */
++#define BROWSER_NET_LEN_SKIP   0xffff         /* jump to the next ring lap */
++#define BROWSER_NET_MIN_FRAME  14             /* bare Ethernet header */
++#define BROWSER_NET_MAX_FRAME  1522           /* MTU 1500 + header + VLAN tag */
++#define BROWSER_NET_MAX_RECORD \
++    (BROWSER_NET_HDR + ROUND_UP(BROWSER_NET_MAX_FRAME, 4))
++#define BROWSER_NET_POLL_MS    10
++
++typedef struct BrowserNetState {
++    NetClientState nc;
++    QEMUTimer *poll_timer;
++    /* The guest filled the TX ring and delivery is suspended. */
++    bool tx_blocked;
++    uint32_t link_applied;
++} BrowserNetState;
++
++static BrowserNetState *browser_net;                       /* singleton */
++
++static uint8_t  browser_net_txbuf[BROWSER_NET_RING_SIZE];  /* guest -> host */
++static uint8_t  browser_net_rxbuf[BROWSER_NET_RING_SIZE];  /* host -> guest */
++static uint32_t browser_net_tx_wr, browser_net_tx_rd;      /* wr: QEMU, rd: host */
++static uint32_t browser_net_rx_wr, browser_net_rx_rd;      /* wr: host, rd: QEMU */
++static uint32_t browser_net_link_req = 1;                  /* host writes, timer applies */
++
++/* --- entry points for the embedding host (Module._qemu_browser_net_*) ----- */
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_net_ready(void)
++{
++    return browser_net != NULL;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_net_ring_size(void)
++{
++    return BROWSER_NET_RING_SIZE;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_browser_net_tx_ring(void)
++{
++    return (uintptr_t)browser_net_txbuf;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_net_tx_write_index(void)
++{
++    return qatomic_read(&browser_net_tx_wr);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_net_tx_read_index(void)
++{
++    return qatomic_read(&browser_net_tx_rd);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_net_tx_set_read_index(uint32_t value)
++{
++    qatomic_set(&browser_net_tx_rd, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_browser_net_rx_ring(void)
++{
++    return (uintptr_t)browser_net_rxbuf;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_net_rx_write_index(void)
++{
++    return qatomic_read(&browser_net_rx_wr);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_net_rx_read_index(void)
++{
++    return qatomic_read(&browser_net_rx_rd);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_net_rx_set_write_index(uint32_t value)
++{
++    qatomic_set(&browser_net_rx_wr, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_net_set_link(uint32_t up)
++{
++    qatomic_set(&browser_net_link_req, !!up);
++}
++
++/* --- guest -> host (QEMU thread, BQL held) -------------------------------- */
++
++static bool browser_net_ring_can_accept(void)
++{
++    uint32_t used = browser_net_tx_wr - qatomic_read(&browser_net_tx_rd);
++
++    /* Two records: the frame itself plus a worst-case skip marker lap. */
++    return BROWSER_NET_RING_SIZE - used >= 2 * BROWSER_NET_MAX_RECORD;
++}
++
++static bool browser_net_can_receive(NetClientState *nc)
++{
++    return browser_net_ring_can_accept();
++}
++
++static ssize_t browser_net_receive(NetClientState *nc, const uint8_t *buf,
++                                   size_t size)
++{
++    BrowserNetState *s = DO_UPCAST(BrowserNetState, nc, nc);
++    uint32_t wr = browser_net_tx_wr;
++    uint32_t rd = qatomic_read(&browser_net_tx_rd);
++    uint32_t off = wr % BROWSER_NET_RING_SIZE;
++    uint32_t rec, pad;
++
++    if (size < BROWSER_NET_MIN_FRAME || size > BROWSER_NET_MAX_FRAME) {
++        return size;                            /* count-and-drop oversize */
++    }
++
++    rec = BROWSER_NET_HDR + ROUND_UP(size, 4);
++    pad = (BROWSER_NET_RING_SIZE - off < rec) ? BROWSER_NET_RING_SIZE - off : 0;
++
++    if (BROWSER_NET_RING_SIZE - (wr - rd) < pad + rec) {
++        /* Ring full: net core queues the packet and disables delivery until
++         * the poll timer sees space again and flushes. */
++        s->tx_blocked = true;
++        return 0;
++    }
++
++    if (pad) {
++        stw_le_p(browser_net_txbuf + off, BROWSER_NET_LEN_SKIP);
++        stw_le_p(browser_net_txbuf + off + 2, 0);
++        wr += pad;
++        off = 0;
++    }
++    stw_le_p(browser_net_txbuf + off, size);
++    stw_le_p(browser_net_txbuf + off + 2, 0);
++    memcpy(browser_net_txbuf + off + BROWSER_NET_HDR, buf, size);
++    /* Publish only after the payload is in place. */
++    qatomic_set(&browser_net_tx_wr, wr + rec);
++    return size;
++}
++
++/* --- host -> guest + housekeeping (QEMU thread timer) --------------------- */
++
++static void browser_net_poll(void *opaque)
++{
++    BrowserNetState *s = opaque;
++    uint32_t up = qatomic_read(&browser_net_link_req);
++    uint32_t wr = qatomic_read(&browser_net_rx_wr);
++    uint32_t rd = browser_net_rx_rd;
++
++    if ((bool)up != !s->nc.link_down || up != s->link_applied) {
++        s->link_applied = up;
++        s->nc.link_down = !up;
++        if (s->nc.peer) {
++            s->nc.peer->link_down = !up;
++            if (s->nc.peer->info->link_status_changed) {
++                s->nc.peer->info->link_status_changed(s->nc.peer);
++            }
++        }
++    }
++
++    while (rd != wr && !s->nc.link_down && qemu_can_send_packet(&s->nc)) {
++        uint32_t off = rd % BROWSER_NET_RING_SIZE;
++        uint16_t len = lduw_le_p(browser_net_rxbuf + off);
++
++        if (len == BROWSER_NET_LEN_SKIP) {
++            rd += BROWSER_NET_RING_SIZE - off;
++            continue;
++        }
++        if (len < BROWSER_NET_MIN_FRAME || len > BROWSER_NET_MAX_FRAME) {
++            rd = wr;                             /* corrupt record: resync */
++            break;
++        }
++        qemu_send_packet(&s->nc, browser_net_rxbuf + off + BROWSER_NET_HDR,
++                         len);
++        rd += BROWSER_NET_HDR + ROUND_UP(len, 4);
++    }
++    qatomic_set(&browser_net_rx_rd, rd);
++
++    if (s->tx_blocked && browser_net_ring_can_accept()) {
++        s->tx_blocked = false;
++        qemu_flush_queued_packets(&s->nc);
++    }
++
++    timer_mod(s->poll_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + BROWSER_NET_POLL_MS);
++}
++
++static void browser_net_cleanup(NetClientState *nc)
++{
++    BrowserNetState *s = DO_UPCAST(BrowserNetState, nc, nc);
++
++    timer_free(s->poll_timer);
++    s->poll_timer = NULL;
++    browser_net = NULL;
++}
++
++static NetClientInfo net_browser_info = {
++    .type = NET_CLIENT_DRIVER_BROWSER,
++    .size = sizeof(BrowserNetState),
++    .receive = browser_net_receive,
++    .can_receive = browser_net_can_receive,
++    .cleanup = browser_net_cleanup,
++};
++
++int net_init_browser(const Netdev *netdev, const char *name,
++                     NetClientState *peer, Error **errp)
++{
++    NetClientState *nc;
++    BrowserNetState *s;
++
++    assert(netdev->type == NET_CLIENT_DRIVER_BROWSER);
++
++    if (browser_net) {
++        error_setg(errp, "only one 'browser' netdev is supported");
++        return -1;
++    }
++
++    nc = qemu_new_net_client(&net_browser_info, peer, "browser", name);
++    qemu_set_info_str(nc, "browser page bridge");
++
++    s = DO_UPCAST(BrowserNetState, nc, nc);
++    s->link_applied = 1;
++    s->poll_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, browser_net_poll, s);
++    timer_mod(s->poll_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + BROWSER_NET_POLL_MS);
++    browser_net = s;
++    return 0;
++}
+diff --git a/net/clients.h b/net/clients.h
+index e786ab4..292c843 100644
+--- a/net/clients.h
++++ b/net/clients.h
+@@ -41,6 +41,9 @@ int net_init_slirp(const Netdev *netdev, const char *name,
+ int net_init_hubport(const Netdev *netdev, const char *name,
+                      NetClientState *peer, Error **errp);
+ 
++int net_init_browser(const Netdev *netdev, const char *name,
++                     NetClientState *peer, Error **errp);
++
+ int net_init_socket(const Netdev *netdev, const char *name,
+                     NetClientState *peer, Error **errp);
+ 
+diff --git a/net/meson.build b/net/meson.build
+index da6ea63..e337cb2 100644
+--- a/net/meson.build
++++ b/net/meson.build
+@@ -1,5 +1,6 @@
+ system_ss.add(files(
+   'announce.c',
++  'browser.c',
+   'checksum.c',
+   'dgram.c',
+   'dump.c',
+diff --git a/net/net.c b/net/net.c
+index da275db..45aca02 100644
+--- a/net/net.c
++++ b/net/net.c
+@@ -1280,6 +1280,7 @@ static int (* const net_client_init_fun[NET_CLIENT_DRIVER__MAX])(
+         [NET_CLIENT_DRIVER_BRIDGE]    = net_init_bridge,
+ #endif
+         [NET_CLIENT_DRIVER_HUBPORT]   = net_init_hubport,
++        [NET_CLIENT_DRIVER_BROWSER]   = net_init_browser,
+ #ifdef CONFIG_VHOST_NET_USER
+         [NET_CLIENT_DRIVER_VHOST_USER] = net_init_vhost_user,
+ #endif
+diff --git a/qapi/net.json b/qapi/net.json
+index 78bcc98..b57e6bf 100644
+--- a/qapi/net.json
++++ b/qapi/net.json
+@@ -855,12 +855,14 @@
+ #
+ # @passt: since 10.1
+ #
++# @browser: since 10.1
++#
+ # Since: 2.7
+ ##
+ { 'enum': 'NetClientDriver',
+   'data': [ 'none', 'nic', 'user', 'tap', 'l2tpv3', 'socket', 'stream',
+-            'dgram', 'vde', 'bridge', 'hubport', 'netmap', 'vhost-user',
+-            'vhost-vdpa',
++            'dgram', 'vde', 'bridge', 'hubport', 'netmap', 'browser',
++            'vhost-user', 'vhost-vdpa',
+             { 'name': 'passt', 'if': 'CONFIG_PASST' },
+             { 'name': 'af-xdp', 'if': 'CONFIG_AF_XDP' },
+             { 'name': 'vmnet-host', 'if': 'CONFIG_VMNET' },
