@@ -11,7 +11,7 @@
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
-export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf'
+export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf' | 'net'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
@@ -57,6 +57,8 @@ export interface Board {
     ramfb?: boolean
     /** Guest-throughput (MIPS) readout; needs a `-icount` machine to advance. */
     perfStats?: boolean
+    /** Ethernet through the `browser` netdev; the page implements the LAN. */
+    hostNet?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
@@ -75,11 +77,11 @@ export interface Board {
 /*
  * Sleeping is mostly fine, but a couple of multi-threaded samples hang:
  * Philosophers and Synchronization were both shipped here and both stall under
- * qemu-wasm, though they run correctly on native QEMU 8.2.2 — the same version
- * ktock's fork is based on. Single-threaded sleepers are unaffected: blinky (a
- * k_msleep loop) and basic_button (a polled gpio-keys work item) run steadily —
- * only the wall clock is off, the interpreter runs the 1 Hz blink several times
- * faster than real time.
+ * qemu-wasm, though they run correctly on native QEMU (including 10.0.50, the
+ * version ktock's fork is based on). Single-threaded sleepers are unaffected:
+ * blinky (a k_msleep loop) and basic_button (a polled gpio-keys work item) run
+ * steadily — only the wall clock is off, the interpreter runs the 1 Hz blink
+ * several times faster than real time.
  *
  * The cause is ktock's TCG→Wasm JIT miscompiling something, not the guest and
  * not the SysTick device: forcing everything to stay interpreted takes
@@ -113,6 +115,31 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'State Machine',
     description: 'Hierarchical state machine driven from the shell',
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
+  },
+  {
+    // main() returns after kicking DHCP off; progress rides the RX interrupt
+    // chain, so it dodges the TCI k_sleep stall.
+    id: 'dhcp',
+    label: 'DHCP Client',
+    description: 'Acquires an IPv4 lease from the browser network',
+    zephyrSample: 'samples/net/dhcpv4_client',
+    primaryPanels: ['net'],
+  },
+  {
+    // Steady state blocks in accept()/recv(), woken by injected frames.
+    id: 'http_server',
+    label: 'HTTP Server',
+    description: 'Serves a page at 192.0.2.1:8080 — fetch it from the Network panel',
+    zephyrSample: 'samples/net/sockets/dumb_http_server',
+    primaryPanels: ['net'],
+  },
+  {
+    // Run-to-completion: one DNS lookup, one GET, prints, exits.
+    id: 'http_get',
+    label: 'HTTP GET',
+    description: 'DNS + TCP fetch of http://google.com through the page proxy',
+    zephyrSample: 'samples/net/sockets/http_get',
+    primaryPanels: ['net'],
   },
   {
     id: 'hello_world',
@@ -190,6 +217,41 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
   },
   {
+    id: 'dhcp',
+    label: 'DHCP Client',
+    description: 'Acquires an IPv4 lease from the browser network',
+    zephyrSample: 'samples/net/dhcpv4_client',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'http_server',
+    label: 'HTTP Server',
+    description: 'Serves a page at 192.0.2.1:8080 — fetch it from the Network panel',
+    zephyrSample: 'samples/net/sockets/dumb_http_server',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'echo_server',
+    label: 'Echo Server',
+    description: 'TCP/UDP echo on port 4242 — ping it from the Network panel',
+    zephyrSample: 'samples/net/sockets/echo_server',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'http_get',
+    label: 'HTTP GET',
+    description: 'DNS + TCP fetch of http://google.com through the page proxy',
+    zephyrSample: 'samples/net/sockets/http_get',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'zperf',
+    label: 'zperf',
+    description: 'iperf2-style throughput benchmark against the page',
+    zephyrSample: 'samples/net/zperf',
+    primaryPanels: ['net'],
+  },
+  {
     id: 'hello_world',
     label: 'Hello World',
     description: 'Prints one line and stops',
@@ -210,6 +272,11 @@ export const BOARDS: Board[] = [
       'lm3s6965evb',
       '-cpu',
       'cortex-m3',
+      // Pair the machine's stellaris_enet with the browser netdev; the page
+      // implements the network (src/net/). Only `-nic` can attach a backend
+      // to a sysbus NIC.
+      '-nic',
+      'browser,model=stellaris',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -220,6 +287,7 @@ export const BOARDS: Board[] = [
       hostGpio: true,
       hostAudio: true,
       hostMic: true,
+      hostNet: true,
     },
     samples: CORTEX_M3_SAMPLES,
     // The shell is the one worth landing on: it is interactive, and it is where
@@ -249,6 +317,17 @@ export const BOARDS: Board[] = [
       'shift=4,align=off,sleep=on',
       '-rtc',
       'clock=vm',
+      // Zephyr's virtio-mmio driver only speaks modern (v2) transports.
+      '-global',
+      'virtio-mmio.force-legacy=false',
+      // Ethernet: virtio-net on the first virtio-mmio slot, backed by the
+      // browser netdev (the page implements the LAN — src/net/). The MAC
+      // must match the shield overlay's local-mac-address: QEMU filters
+      // inbound unicast against it and the guest driver never programs it.
+      '-netdev',
+      'browser,id=n0',
+      '-device',
+      'virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0,mac=02:00:00:00:00:01',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -262,6 +341,7 @@ export const BOARDS: Board[] = [
       // The only board started with -icount, so the only one whose guest
       // instruction counter advances.
       perfStats: true,
+      hostNet: true,
     },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',

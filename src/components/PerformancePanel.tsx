@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Gauge, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
 import { getSnapshot, subscribe } from '@/guestStats'
 
@@ -68,7 +69,11 @@ export function PerformancePanel({ defaultExpanded = true }: { defaultExpanded?:
             )}
           </div>
 
-          <Sparkline values={stats.history} />
+          <Sparkline
+            values={stats.history}
+            className="mt-2 text-primary"
+            ariaLabel="Recent guest throughput"
+          />
 
           <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
             Guest instructions retired per second, read from the wasm JIT through{' '}
@@ -83,45 +88,4 @@ export function PerformancePanel({ defaultExpanded = true }: { defaultExpanded?:
 /** Guest throughput in millions of instructions/second, sized for a glance. */
 function formatMips(value: number): string {
   return value >= 10 ? value.toFixed(0) : value.toFixed(1)
-}
-
-const SPARK_W = 268
-const SPARK_H = 40
-
-function Sparkline({ values }: { values: readonly number[] }) {
-  if (values.length < 2) {
-    // Reserve the height so the panel does not resize as history fills in.
-    return <div className="mt-2" style={{ height: SPARK_H }} aria-hidden />
-  }
-
-  const max = Math.max(...values, 1e-6)
-  const step = SPARK_W / (values.length - 1)
-  const point = (v: number, i: number) => {
-    const x = i * step
-    const y = SPARK_H - 1 - (v / max) * (SPARK_H - 2)
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }
-  const line = values.map(point).join(' ')
-  const area = `0,${SPARK_H} ${line} ${SPARK_W},${SPARK_H}`
-
-  return (
-    <svg
-      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-      className="mt-2 w-full text-primary"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="Recent guest throughput"
-    >
-      <polygon points={area} fill="currentColor" opacity={0.1} />
-      <polyline
-        points={line}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  )
 }
