@@ -17,7 +17,10 @@ export interface GuestSample {
   label: string
   /** One line, shown under the label in the picker. */
   description: string
-  /** Zephyr sample path, relative to the zephyr/ tree. */
+  /**
+   * Zephyr sample path, relative to the zephyr/ tree — or one of this repo's
+   * own apps when it starts with "zephyr-module/".
+   */
   zephyrSample: string
 }
 
@@ -109,10 +112,13 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/drivers/gnss',
   },
   {
-    id: 'dmic',
+    // Not the stock samples/drivers/audio/dmic: that one crashes on 64-bit
+    // targets (uint32_t size passed to dmic_read's size_t *) — see
+    // zephyr-module/apps/mic_capture/src/main.c.
+    id: 'mic_capture',
     label: 'Mic Capture',
-    description: 'Records browser microphone audio via Zephyr’s DMIC API',
-    zephyrSample: 'samples/drivers/audio/dmic',
+    description: 'Live microphone VU meter via Zephyr’s DMIC API',
+    zephyrSample: 'zephyr-module/apps/mic_capture',
   },
   {
     id: 'display',

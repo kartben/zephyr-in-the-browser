@@ -63,8 +63,10 @@ sit behind:
 - **In = DMIC.** A `qemu-host-mic` device is the mirror image: the browser
   captures `getUserMedia` audio, resamples to 16 kHz mono, and fills the ring;
   the guest driver implements Zephyr's **DMIC API** (`dmic_configure()`,
-  `dmic_trigger()`, `dmic_read()`), so the stock `samples/drivers/audio/dmic`
-  runs unmodified — with paced silence when no mic permission is granted.
+  `dmic_trigger()`, `dmic_read()`) — with paced silence when no mic
+  permission is granted. The stock `samples/drivers/audio/dmic` exercises it,
+  though it needs a one-character LP64 fix upstream (see `next-drivers.md`);
+  the packaged demo is the module's own `apps/mic_capture` VU meter.
 - JS polls the exported out-ring and schedules chunks through the **Web Audio
   API**; enable clicks satisfy the autoplay and mic-permission gates.
 - A Kconfig-gated `hostaudio` shell command (`beep`, `melody`), itself written

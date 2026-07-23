@@ -97,6 +97,14 @@ build_one() {
     cmake_args="$cmake_args -DEXTRA_CONF_FILE='$conf_list'"
   fi
 
+  # Stock samples live in the zephyr tree; app paths starting with
+  # "zephyr-module/" are this repo's own (e.g. apps/mic_capture, which exists
+  # because the stock dmic sample crashes on 64-bit — see its main.c).
+  local src="zephyr/$sample"
+  case "$sample" in
+    zephyr-module/*) src="/repo/$sample" ;;
+  esac
+
   log "Building $id ($sample) for $board"
   docker run --rm \
     -v "$ZEPHYR_WS:/workdir" \
@@ -104,7 +112,7 @@ build_one() {
     -v "$ROOT:/repo:ro" \
     -w /workdir \
     "$ZEPHYR_IMAGE" \
-    bash -lc "west build -p always -b '$board' 'zephyr/$sample' -d /out/build -- $cmake_args"
+    bash -lc "west build -p always -b '$board' '$src' -d /out/build -- $cmake_args"
 
   # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
   # and it is fetched over HTTP on every boot, so strip it. The right strip

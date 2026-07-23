@@ -143,9 +143,14 @@ audio APIs (the fuller virtio-snd analysis lives in
 - **In — `qemu,host-mic`, exposed as DMIC.** The mirror-image device (patches
   `.../0007-...` and `.../0006-hw-misc-add-qemu-host-mic.patch`) behind a
   Zephyr **DMIC driver** (`zephyr-module/drivers/qemu_host_mic.c`), paced
-  against real time and silence-filling when the page has no mic permission —
-  the stock `samples/drivers/audio/dmic` runs unmodified (packaged as the
-  Cortex-A53 "Mic Capture" app).
+  against real time and silence-filling when the page has no mic permission.
+  The stock `samples/drivers/audio/dmic` runs against it — but only after a
+  one-character fix: it passes a `uint32_t` where `dmic_read()` takes a
+  `size_t *`, which corrupts the stack on 64-bit targets (crash verified on
+  qemu_cortex_a53, fix verified too; candidate upstream patch). The packaged
+  Cortex-A53 "Mic Capture" app is therefore this repo's own
+  `zephyr-module/apps/mic_capture` — a live VU meter, which also demos better
+  than a sample that exits after sixteen blocks.
 - **Browser** — one panel for both (`src/components/AudioPanel.tsx`; bridges
   `src/hostAudio.ts`, `src/hostMic.ts`): speaker enable click satisfies the
   autoplay policy, mic enable click the getUserMedia permission. Guest flow
