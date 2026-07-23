@@ -148,9 +148,10 @@ audio APIs (the fuller virtio-snd analysis lives in
   one-character fix: it passes a `uint32_t` where `dmic_read()` takes a
   `size_t *`, which corrupts the stack on 64-bit targets (crash verified on
   qemu_cortex_a53, fix verified too; candidate upstream patch). The packaged
-  Cortex-A53 "Mic Capture" app is therefore this repo's own
-  `zephyr-module/apps/mic_capture` — a live VU meter, which also demos better
-  than a sample that exits after sixteen blocks.
+  Cortex-A53 demo is therefore Zephyr's own `dmic` shell commands
+  (`CONFIG_AUDIO_DMIC_SHELL`: `read`, `vu`, `dump`), which bind to this driver
+  from the stock shell sample — `dmic vu dmic0` is a live level meter, and
+  `dmic dump` base64-captures PCM for offline playback.
 - **Browser** — one panel for both (`src/components/AudioPanel.tsx`; bridges
   `src/hostAudio.ts`, `src/hostMic.ts`): speaker enable click satisfies the
   autoplay policy, mic enable click the getUserMedia permission. Guest flow

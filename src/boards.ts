@@ -128,16 +128,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['gnss'],
   },
   {
-    // Not the stock samples/drivers/audio/dmic: that one crashes on 64-bit
-    // targets (uint32_t size passed to dmic_read's size_t *) — see
-    // zephyr-module/apps/mic_capture/src/main.c.
-    id: 'mic_capture',
-    label: 'Mic Capture',
-    description: 'Live microphone VU meter via Zephyr’s DMIC API',
-    zephyrSample: 'zephyr-module/apps/mic_capture',
-    primaryPanels: ['audio'],
-  },
-  {
     id: 'display',
     label: 'Display',
     description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
@@ -168,7 +158,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
-    description: 'Interactive Zephyr shell, with `hostaudio` for the sound panel',
+    description: 'Interactive Zephyr shell, with `hostaudio` and `dmic` for the sound panel',
     zephyrSample: 'samples/subsys/shell/shell_module',
     primaryPanels: ['audio'],
   },

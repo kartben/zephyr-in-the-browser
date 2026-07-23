@@ -66,7 +66,8 @@ sit behind:
   `dmic_trigger()`, `dmic_read()`) — with paced silence when no mic
   permission is granted. The stock `samples/drivers/audio/dmic` exercises it,
   though it needs a one-character LP64 fix upstream (see `next-drivers.md`);
-  the packaged demo is the module's own `apps/mic_capture` VU meter.
+  the packaged demo is Zephyr's own `dmic` shell commands (`read`, `vu`,
+  `dump` from `CONFIG_AUDIO_DMIC_SHELL`) on the Cortex-A53 shell sample.
 - JS polls the exported out-ring and schedules chunks through the **Web Audio
   API**; enable clicks satisfy the autoplay and mic-permission gates.
 - A Kconfig-gated `hostaudio` shell command (`beep`, `melody`), itself written
