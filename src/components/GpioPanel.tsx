@@ -8,8 +8,8 @@ import {
   available,
   isInputHigh,
   isOutputHigh,
+  setInput,
   subscribe,
-  toggleInput,
   type Pin,
 } from '@/hostGpio'
 
@@ -17,9 +17,10 @@ import {
  * Floating control for the qemu,host-gpio bridge.
  *
  * Hidden entirely when the running emulator has no GPIO device, so a stock
- * qemu-wasm build shows no dead UI. Buttons drive the guest's input pins;
- * the LED row reflects the output pins the guest drives. Reach them from the
- * shell with `gpio get host_gpio <pin>` and `gpio set host_gpio <pin> <0|1>`.
+ * qemu-wasm build shows no dead UI. Buttons are momentary — they drive their
+ * input pin high only while held, like a real push button — and the LED row
+ * reflects the output pins the guest drives. Reach them from the shell with
+ * `gpio get host_gpio <pin>` and `gpio set host_gpio <pin> <0|1>`.
  */
 export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
@@ -112,9 +113,37 @@ function ButtonPin({ pin }: { pin: Pin }) {
       type="button"
       aria-pressed={high}
       aria-label={`${pin.label} (pin ${pin.id})`}
-      onClick={() => toggleInput(pin.id)}
+      // Momentary, not latching: the pin stays high only while the control is
+      // held. Pointer capture keeps the release (pointerup) on this element
+      // even if the cursor slides off it while pressed; the keyboard handlers
+      // give Space/Enter the same press-and-hold behaviour.
+      onPointerDown={(e) => {
+        setInput(pin.id, true)
+        // Capture so the release lands here even if the cursor slides off; a
+        // press must never latch just because capture was refused.
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId)
+        } catch {
+          /* no active pointer to capture — onPointerUp still releases */
+        }
+      }}
+      onPointerUp={() => setInput(pin.id, false)}
+      onPointerCancel={() => setInput(pin.id, false)}
+      onLostPointerCapture={() => setInput(pin.id, false)}
+      onKeyDown={(e) => {
+        if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+          e.preventDefault()
+          setInput(pin.id, true)
+        }
+      }}
+      onKeyUp={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault()
+          setInput(pin.id, false)
+        }
+      }}
       className={cn(
-        'flex flex-col items-center gap-0.5 rounded-md border py-1.5 text-[11px] font-medium transition-colors',
+        'flex touch-none select-none flex-col items-center gap-0.5 rounded-md border py-1.5 text-[11px] font-medium transition-colors',
         high
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-border bg-secondary text-muted-foreground hover:text-foreground',

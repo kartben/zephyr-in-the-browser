@@ -107,10 +107,6 @@ export function setInput(pin: number, high: boolean) {
   notify()
 }
 
-export function toggleInput(pin: number) {
-  setInput(pin, !isInputHigh(pin))
-}
-
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
