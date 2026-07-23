@@ -2,6 +2,7 @@ import { AudioPanel } from '@/components/AudioPanel'
 import { DisplayPanel } from '@/components/DisplayPanel'
 import { GnssPanel } from '@/components/GnssPanel'
 import { GpioPanel } from '@/components/GpioPanel'
+import { PerformancePanel } from '@/components/PerformancePanel'
 import { SensorPanel } from '@/components/SensorPanel'
 import type { PanelKind } from '@/boards'
 
@@ -28,6 +29,8 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
       <SensorPanel defaultExpanded={expanded('sensor')} />
       <GpioPanel defaultExpanded={expanded('gpio')} />
       <AudioPanel defaultExpanded={expanded('audio')} />
+      {/* Guest throughput is about no single sample; leave it collapsed. */}
+      <PerformancePanel defaultExpanded={expanded('perf')} />
     </div>
   )
 }

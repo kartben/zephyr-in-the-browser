@@ -262,3 +262,24 @@ so it sidesteps the TCI stall described above. Not virtio-snd, and
 deliberately so: Zephyr has no virtio-snd driver and this build has no
 audiodev for QEMU's virtio-sound device to render into — see
 `docs/audio-feasibility.md` in the repo root.
+
+## Simulation throughput
+
+The aarch64 JIT build exports one more number: `qemu_browser_guest_icount()`,
+the guest's retired-instruction counter. `guestStats.ts` samples it against
+`performance.now()` a couple of times a second and the **Simulation** panel
+(`PerformancePanel.tsx`) shows the result in MIPS with a short sparkline — a
+direct, honest read on how fast the wasm TCG JIT is executing the emulated CPU,
+the live counterpart to the "6.5× TCI→JIT" figure above.
+
+MIPS, not a ×realtime clock ratio, on purpose: the counter is driven by
+`-icount`, and with `sleep=on` a halted guest *warps* virtual time forward to
+the next timer, which would make a wall-vs-virtual ratio spike during idle.
+Instruction throughput has no such artifact — it simply drops toward zero when
+the guest is asleep and climbs when the JIT is busy. The QEMU-side read is a
+lock-free seqlock read (`icount_get_raw()`), returned as a `double` so it
+crosses into JavaScript as a plain Number, and it never blocks the emulator.
+
+The counter only advances on a machine started with `-icount`, which here is the
+Cortex-A53 board alone; the Cortex-M3 (TCI, no `-icount`) reads back negative and
+the panel stays hidden.

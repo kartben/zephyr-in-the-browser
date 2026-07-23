@@ -11,7 +11,7 @@
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
-export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio'
+export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
@@ -55,6 +55,8 @@ export interface Board {
     hostAudio?: boolean
     hostMic?: boolean
     ramfb?: boolean
+    /** Guest-throughput (MIPS) readout; needs a `-icount` machine to advance. */
+    perfStats?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
@@ -246,6 +248,9 @@ export const BOARDS: Board[] = [
       hostAudio: true,
       hostMic: true,
       ramfb: true,
+      // The only board started with -icount, so the only one whose guest
+      // instruction counter advances.
+      perfStats: true,
     },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',

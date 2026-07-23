@@ -1,0 +1,39 @@
+diff --git a/accel/tcg/icount-common.c b/accel/tcg/icount-common.c
+index d647117..e8b785f 100644
+--- a/accel/tcg/icount-common.c
++++ b/accel/tcg/icount-common.c
+@@ -38,6 +38,12 @@
+ #include "exec/icount.h"
+ #include "system/cpu-timers-internal.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
+ /*
+  * ICOUNT: Instruction Counter
+  *
+@@ -140,6 +146,21 @@ int64_t icount_get_raw(void)
+     return icount;
+ }
+ 
++/*
++ * Browser telemetry: the guest instruction counter, returned as a double so
++ * JavaScript reads it as a plain Number (exact well past any session's icount,
++ * where an int64 would legalize to a BigInt). Sampled against wall-clock time
++ * it yields the guest's MIPS — a direct read on how fast the wasm TCG JIT is
++ * executing the emulated CPU. Lock-free from any thread: icount_get_raw() is
++ * seqlock-guarded and current_cpu is NULL off the vCPU thread, so it never
++ * blocks QEMU. Returns -1 when the machine was started without -icount.
++ */
++EMSCRIPTEN_KEEPALIVE
++double qemu_browser_guest_icount(void)
++{
++    return icount_enabled() ? (double)icount_get_raw() : -1.0;
++}
++
+ /* Return the virtual CPU time, based on the instruction counter.  */
+ int64_t icount_get(void)
+ {
