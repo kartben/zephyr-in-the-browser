@@ -67,28 +67,31 @@ Each machine instantiates the devices where the overlays expect them: the Stella
 
 ## Networking: the page is the LAN
 
-Both boards have real Ethernet — the stock QEMU NIC models (`stellaris_enet`
-on the Cortex-M3, `virtio-net-device` on the Cortex-A53) attached to a custom
-`browser` netdev backend
-([tools/qemu-patches/0008](tools/qemu-patches/0008-net-add-browser-netdev-backend.patch))
-that hands raw frames to page JavaScript over two lock-free rings in the wasm
-heap. There is no slirp and no proxy server: **the page itself implements the
-entire network** ([src/net/](src/net)) — ARP, a DHCP server handing out
-`192.0.2.1`, DNS (answered via DNS-over-HTTPS when online, synthetic addresses
-offline), SNTP from the browser clock, ICMP, and a small TCP engine. Guest
-sockets terminate in the page: outbound HTTP is re-issued with `fetch()`
-(https upgrade; CORS decides what is readable — `host.internal` always works),
-and the Network panel's tools dial *into* servers the guest runs, like the
-`dumb_http_server` and `echo_server` samples. A zperf/iperf2 sink on
-`192.0.2.2:5001` makes throughput benchmarking from the guest shell work too.
+The guest has a real Ethernet interface (stock QEMU NICs: `stellaris_enet` on
+Cortex-M3, virtio-net on Cortex-A53), but its cable ends in this browser tab:
+a patched-in `browser` netdev hands every frame to page JavaScript, and
+**the page plays the entire network** ([src/net/](src/net)) — gateway
+`192.0.2.2`, DHCP, DNS, and every "remote host" at once. It is a sandbox, not
+a NAT: **no packet ever reaches the real internet.** Exactly two things
+escape the tab, both as ordinary browser requests:
 
-Because every frame crosses the page, the Network panel gets live RX/TX
-charts, per-protocol packet summaries (a tiny tcpdump), link up/down and
-latency/loss impairment controls, and a one-click **.pcap download** that
-opens in Wireshark. The whole stack is dependency-free TypeScript with a
-vitest suite (`npm test`); under the mock backend a scripted fake guest runs
-the same rings, stack and TCP engine, so the panel demos without any QEMU
-build.
+| The guest does…                        | What actually happens                                                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DHCP                                   | The page leases it `192.0.2.1` (same address the static samples use)                                                                              |
+| DNS lookup                             | **Real** answer, fetched via DNS-over-HTTPS — offline it invents a `203.0.113.x` |
+| HTTP to any host on `:80`/`:8080`      | Re-issued as a **real** `fetch()` over https. Readable only if the site allows CORS; `http://host.internal/` always works                          |
+| `net ping <any address>`               | The **page** replies, pretending to be that host — a reachability prop, not a probe. Nothing was pinged                                            |
+| HTTPS, raw TCP/UDP to the internet     | Impossible — browser pages have no raw sockets                                                                                                    |
+| Runs a server (`http_server`, `echo_server`) | Reachable only from the Network panel's GET/echo tools — the page dials in over its own TCP                                                  |
+| SNTP                                   | Answered with your browser's clock                                                                                                                |
+| `zperf udp upload 192.0.2.2 5001 …`    | Measured by an in-page iperf2-compatible sink                                                                                                     |
+
+Because every frame crosses the page, the Network panel shows live RX/TX
+charts, a tiny tcpdump with one-click **.pcap download** (opens in Wireshark),
+link up/down, and latency/loss injection. The stack is dependency-free
+TypeScript with a vitest suite (`npm test`); under the mock backend a scripted
+fake guest drives the same stack, so the panel demos without a QEMU build.
+The same summary lives behind the ⓘ button in the panel itself.
 
 ## Deploying
 
