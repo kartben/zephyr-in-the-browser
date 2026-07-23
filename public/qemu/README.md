@@ -42,10 +42,18 @@ public/qemu/
     qemu_cortex_m3/
       gnss.elf                stock samples/drivers/gnss
       shell.elf               guest images, injected into the Emscripten FS
+      dhcp.elf                networking samples against the in-page LAN
+      http_server.elf
+      http_get.elf
       hello_world.elf
     qemu_cortex_a53/
       gnss.elf
       display.elf
+      dhcp.elf
+      http_server.elf
+      echo_server.elf
+      http_get.elf
+      zperf.elf
       hello_world.elf
 ```
 
@@ -96,10 +104,10 @@ wasm64 experiment so the result does not require WebAssembly Memory64.
 
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
 working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
-include the browser terminal, GNSS UART and host-sensor bridges; AArch64
-additionally adds the ramfb bridge.
+include the browser terminal, GNSS UART, host-sensor and browser-netdev
+bridges; AArch64 additionally adds the ramfb bridge.
 
-Five browser integrations are supplied by the target-specific patch
+Six browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -115,6 +123,14 @@ directories under `tools/`:
 * A browser-fed character backend on each machine's second PL011 UART. It
   accepts NMEA bytes through a lock-free ring and delivers them to the UART from
   QEMU's own thread.
+* A `browser` **netdev backend** (`net/browser.c`): raw Ethernet frames cross
+  two lock-free rings in the wasm heap, the stock NIC models
+  (`stellaris_enet`, `virtio-net-device`) do the guest-facing work, and page
+  JavaScript (`src/net/`) implements the LAN itself — DHCP/DNS/SNTP servers,
+  ICMP, a TCP engine, an HTTP-over-fetch proxy and a zperf sink. Frame
+  injection happens from a `QEMU_CLOCK_VIRTUAL` timer on QEMU's own thread,
+  the same pattern the GNSS bridge established, and both directions respect
+  NIC flow control (`qemu_can_send_packet` / queued-packet flushing).
 
 The dependency image — glib, pixman, zlib and libffi cross-compiled to Wasm — is
 built from `tools/Dockerfile.deps`, vendored from ktock's so this repository does

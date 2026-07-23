@@ -2,7 +2,7 @@
 
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
-It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver, and a sound panel — speakers fed by Zephyr's I2S API, microphone feeding its DMIC API — wired to the Web Audio API and `getUserMedia` — each in its own floating panel.
+It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver, a sound panel — speakers fed by Zephyr's I2S API, microphone feeding its DMIC API — wired to the Web Audio API and `getUserMedia`, and real Ethernet: the page itself implements the guest's LAN (DHCP, DNS, TCP…), with a Network panel showing live throughput charts and a tcpdump-style capture — each in its own floating panel.
 
 ## Quick start
 
@@ -64,6 +64,31 @@ west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-modul
 ```
 
 Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the GPIO controller at 0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the virt patches in `tools/qemu-jit-patches/` put the sensor at 0x090c0000, the audio out at 0x090d0000 and the microphone at 0x090e0000.
+
+## Networking: the page is the LAN
+
+Both boards have real Ethernet — the stock QEMU NIC models (`stellaris_enet`
+on the Cortex-M3, `virtio-net-device` on the Cortex-A53) attached to a custom
+`browser` netdev backend
+([tools/qemu-patches/0008](tools/qemu-patches/0008-net-add-browser-netdev-backend.patch))
+that hands raw frames to page JavaScript over two lock-free rings in the wasm
+heap. There is no slirp and no proxy server: **the page itself implements the
+entire network** ([src/net/](src/net)) — ARP, a DHCP server handing out
+`192.0.2.1`, DNS (answered via DNS-over-HTTPS when online, synthetic addresses
+offline), SNTP from the browser clock, ICMP, and a small TCP engine. Guest
+sockets terminate in the page: outbound HTTP is re-issued with `fetch()`
+(https upgrade; CORS decides what is readable — `host.internal` always works),
+and the Network panel's tools dial *into* servers the guest runs, like the
+`dumb_http_server` and `echo_server` samples. A zperf/iperf2 sink on
+`192.0.2.2:5001` makes throughput benchmarking from the guest shell work too.
+
+Because every frame crosses the page, the Network panel gets live RX/TX
+charts, per-protocol packet summaries (a tiny tcpdump), link up/down and
+latency/loss impairment controls, and a one-click **.pcap download** that
+opens in Wireshark. The whole stack is dependency-free TypeScript with a
+vitest suite (`npm test`); under the mock backend a scripted fake guest runs
+the same rings, stack and TCP engine, so the panel demos without any QEMU
+build.
 
 ## Deploying
 
