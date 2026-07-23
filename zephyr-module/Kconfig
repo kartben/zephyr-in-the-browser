@@ -50,3 +50,24 @@ config QEMU_HOST_MIC
 	  host fills and the guest drains. Under qemu-wasm that host is a
 	  browser capturing getUserMedia audio, so Zephyr's DMIC API records
 	  from the user's real microphone.
+
+# Vendored, not ours: these two mirror the upstream names exactly so that the
+# migration is a deletion once the driver lands in mainline. See
+# drivers/vendor/VENDOR.md — CMakeLists.txt drops the vendored source the
+# moment the Zephyr tree ships its own copy.
+config VIRTIO_GPU_DISPLAY
+	bool "VIRTIO GPU display"
+	default y
+	depends on DT_HAS_VIRTIO_GPU_ENABLED
+	select VIRTIO
+	help
+	  Enable the VIRTIO GPU 2D display driver.
+
+config VIRTIO_GPU_DISPLAY_QUEUE_SIZE
+	int "VIRTIO GPU virtqueue size"
+	depends on VIRTIO_GPU_DISPLAY
+	default 16
+	range 2 256
+	help
+	  Number of descriptors allocated for each VIRTIO GPU virtqueue. This
+	  value must be a power of two.

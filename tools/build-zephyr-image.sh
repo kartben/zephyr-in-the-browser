@@ -70,14 +70,14 @@ SELECTED="$(echo "$ENTRIES" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
 }
 
 # This repo ships an out-of-tree Zephyr module: the qemu,host-sensor driver and
-# binding, plus the browser_bridge shield the module's board_root exposes.
-# Everything is passed as CMake args; note that current Zephyr *rejects*
-# -DCONFIG_* on the command line, so Kconfig tweaks travel in .conf fragments
-# listed per app in the manifest.
+# binding, plus the browser_bridge shield the module's board_root exposes and
+# the snippets its snippet_root exposes. Everything is passed as CMake args;
+# note that current Zephyr *rejects* -DCONFIG_* on the command line, so Kconfig
+# tweaks travel in .conf fragments listed per app in the manifest.
 MODULE=/repo/zephyr-module
 
 build_one() {
-  local board="$1" id="$2" sample="$3" confs="$4"
+  local board="$1" id="$2" sample="$3" confs="$4" snippets="$5"
 
   # Board ids carry a slash in hwmv2 (mps2/an385); paths must not.
   local board_dir dest work
@@ -97,6 +97,16 @@ build_one() {
     cmake_args="$cmake_args -DEXTRA_CONF_FILE='$conf_list'"
   fi
 
+  # Snippets come from the module too (its snippet_root), so they are named
+  # rather than pathed. `west build -S` takes one per flag.
+  local snippet_args=""
+  if [ -n "$snippets" ]; then
+    local snippet
+    for snippet in $(echo "$snippets" | tr ',' ' '); do
+      snippet_args="$snippet_args -S '$snippet'"
+    done
+  fi
+
   # Stock samples live in the zephyr tree; a sample path starting with
   # "zephyr-module/" is one of this repo's own apps under zephyr-module/apps/
   # (none packaged right now), resolved from the repo mount instead.
@@ -112,7 +122,7 @@ build_one() {
     -v "$ROOT:/repo:ro" \
     -w /workdir \
     "$ZEPHYR_IMAGE" \
-    bash -lc "west build -p always -b '$board' '$src' -d /out/build -- $cmake_args"
+    bash -lc "west build -p always -b '$board'$snippet_args '$src' -d /out/build -- $cmake_args"
 
   # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
   # and it is fetched over HTTP on every boot, so strip it. The right strip
@@ -141,8 +151,8 @@ build_one() {
     || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2
 }
 
-while IFS=: read -r board id sample confs; do
-  build_one "$board" "$id" "$sample" "${confs:-}"
+while IFS=: read -r board id sample confs snippets; do
+  build_one "$board" "$id" "$sample" "${confs:-}" "${snippets:-}"
 done <<< "$SELECTED"
 
 log "Done"

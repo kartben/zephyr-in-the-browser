@@ -65,6 +65,14 @@ west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-modul
 
 Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the GPIO controller at 0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the virt patches in `tools/qemu-jit-patches/` put the sensor at 0x090c0000, the audio out at 0x090d0000 and the microphone at 0x090e0000.
 
+The module also carries a pristine copy of Zephyr's not-yet-upstream **virtio-gpu**
+display driver ([`zephyr-module/drivers/vendor/`](zephyr-module/drivers/vendor)),
+opt-in with `-S virtio-gpu`, which swaps the Cortex-A53 panel off ramfb. It is
+proven on the guest side but has no browser bridge yet, so nothing renders in the
+page under it — and measurements say it is not the way to a faster display
+anyway. Both are written up in
+[docs/next-drivers.md](docs/next-drivers.md#virtio-gpu--vendored-guest-side-proven-not-a-display-speed-up).
+
 ## Networking: the page is the LAN
 
 The guest has a real Ethernet interface (stock QEMU NICs: `stellaris_enet` on

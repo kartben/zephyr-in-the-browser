@@ -75,6 +75,34 @@
 };
 
 /*
+ * The same panel behind a virtio-gpu instead of ramfb, declared here but left
+ * disabled: `-S virtio-gpu` (zephyr-module/snippets/virtio-gpu/) is what turns
+ * it on and repoints zephyr,display at it. Declaring it unconditionally costs a
+ * disabled node and nothing else — no driver is built unless the snippet runs.
+ *
+ * Slot 1 of virt's virtio-mmio array (0x0a000200, SPI 17), which QEMU populates
+ * with `-device virtio-gpu-device,bus=virtio-mmio-bus.1`; slot 0 is virtio-net.
+ * Its xres/yres must equal the width/height below — the driver refuses to
+ * attach to a scanout whose size differs from devicetree — and both must match
+ * the args in src/boards.ts.
+ *
+ * The framebuffer deliberately shares ramfb's reserved region: the two displays
+ * are mutually exclusive (the snippet disables one to enable the other), so a
+ * second 4 MiB carve-out of sram0 would only ever sit idle.
+ */
+&virtio_mmio1 {
+	status = "disabled";
+
+	virtio_gpu0: virtio-gpu {
+		compatible = "virtio,gpu";
+		memory-region = <&ramfb_mem>;
+		width = <600>;
+		height = <400>;
+		status = "disabled";
+	};
+};
+
+/*
  * Browser network bridge: virtio-net on the first virtio-mmio slot, which
  * QEMU populates with `-device virtio-net-device,bus=virtio-mmio-bus.0`
  * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property
