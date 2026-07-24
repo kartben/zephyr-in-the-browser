@@ -27,9 +27,10 @@
 # Needs no local Zephyr toolchain — everything runs in the container. Build
 # directories are per-app, so independent invocations can run concurrently.
 #
-# To ship the result, bundle public/qemu/ into a release with
-# tools/package-emulator.sh <tag> and point EMULATOR_RELEASE at it (README.md,
-# "Deploying to GitHub Pages").
+# To ship the result, bundle the images into a release with
+# tools/package-emulator.sh <tag> --images and point IMAGES_RELEASE at it. That
+# asset is separate from the emulator's, so shipping new guests needs no QEMU
+# rebuild (README.md, "Deploying").
 
 set -euo pipefail
 
@@ -164,5 +165,5 @@ cat <<EOF
 
 App ids must match the samples listed per board in src/boards.ts.
 Board argv comes from Zephyr's own boards/qemu/<board>/board.cmake.
-Ship it: tools/package-emulator.sh <tag>   (bundles public/qemu/ for Pages)
+Ship it: tools/package-emulator.sh <tag> --images   (no QEMU rebuild needed)
 EOF

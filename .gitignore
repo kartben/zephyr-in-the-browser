@@ -17,5 +17,10 @@ public/docs/
 .qemu-wasm-build/
 .zephyr-build*/
 
-# release bundle produced by tools/package-emulator.sh
+# release bundles produced by tools/package-emulator.sh. The emulator and the
+# guest images are separate assets so either can be released without the other;
+# qemu-wasm-artifacts.tar.gz is the pre-split name, still consumed by pages.yml
+# for releases cut before the split.
+qemu-wasm-emulator.tar.gz
+zephyr-images.tar.gz
 qemu-wasm-artifacts.tar.gz
