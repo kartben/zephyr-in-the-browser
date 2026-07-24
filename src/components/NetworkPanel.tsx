@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Download, Info, Network, Pause, Play, Trash2, X } from 'lucide-react'
+import { ChevronDown, Download, Info, Network, Pause, Play, Trash2 } from 'lucide-react'
+import { PanelFrame, usePanelControls } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
@@ -25,152 +26,141 @@ import {
  */
 export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [collapsed, setCollapsed] = useState(!defaultExpanded)
-  const [dismissed, setDismissed] = useState(false)
   const [showImpairments, setShowImpairments] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
 
-  if (!snapshot.available || !available() || dismissed) return null
+  if (!snapshot.available || !available()) return null
 
   return (
-    <div className="pointer-events-auto w-[19rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-      <div className={cn('flex items-center gap-2 px-3 py-2', !collapsed && 'border-b border-border')}>
-        <Network className="size-3.5 text-primary" aria-hidden />
-        <span className="text-xs font-medium">Network</span>
+    <PanelFrame
+      id="net"
+      title="Network"
+      icon={Network}
+      defaultExpanded={defaultExpanded}
+      status={
         <span
           className={cn('size-2 rounded-full', snapshot.linkUp ? 'bg-success' : 'bg-destructive')}
           role="status"
           aria-label={snapshot.linkUp ? 'Link up' : 'Link down'}
         />
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn('size-6', showAbout && 'text-primary')}
-            aria-label="How this network works"
-            aria-pressed={showAbout}
-            onClick={() => {
-              setShowAbout((s) => !s)
-              setCollapsed(false)
-            }}
-          >
-            <Info className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label={collapsed ? 'Expand network panel' : 'Collapse network panel'}
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((c) => !c)}
-          >
-            <ChevronDown className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Hide network panel"
-            onClick={() => setDismissed(true)}
-          >
-            <X className="size-3.5" />
-          </Button>
+      }
+      actions={<AboutToggle active={showAbout} onToggle={() => setShowAbout((s) => !s)} />}
+    >
+      <div className="max-h-[min(30rem,65vh)] space-y-3 overflow-y-auto px-3 py-3">
+        {showAbout && <AboutThisNetwork />}
+        {/* Interface status */}
+        <div className="space-y-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono text-lg font-semibold tabular-nums">
+              {snapshot.guestIp ?? '—'}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {snapshot.dhcpState === 'bound'
+                ? 'via DHCP'
+                : snapshot.dhcpState === 'static'
+                  ? 'static'
+                  : snapshot.dhcpState === 'offered'
+                    ? 'DHCP offered…'
+                    : 'waiting for the guest'}
+            </span>
+          </div>
+          <div className="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[11px] text-muted-foreground">
+            <span>mac</span>
+            <span className="text-foreground">{snapshot.guestMac ?? '—'}</span>
+            <span>gw</span>
+            <span className="text-foreground">{snapshot.gatewayIp}</span>
+            <span>dns</span>
+            <span className="text-foreground">{snapshot.dnsIp}</span>
+          </div>
         </div>
-      </div>
 
-      {!collapsed && (
-        <div className="max-h-[min(30rem,65vh)] space-y-3 overflow-y-auto px-3 py-3">
-          {showAbout && <AboutThisNetwork />}
-          {/* Interface status */}
-          <div className="space-y-1">
-            <div className="flex items-baseline gap-1.5">
-              <span className="font-mono text-lg font-semibold tabular-nums">
-                {snapshot.guestIp ?? '—'}
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                {snapshot.dhcpState === 'bound'
-                  ? 'via DHCP'
-                  : snapshot.dhcpState === 'static'
-                    ? 'static'
-                    : snapshot.dhcpState === 'offered'
-                      ? 'DHCP offered…'
-                      : 'waiting for the guest'}
-              </span>
-            </div>
-            <div className="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[11px] text-muted-foreground">
-              <span>mac</span>
-              <span className="text-foreground">{snapshot.guestMac ?? '—'}</span>
-              <span>gw</span>
-              <span className="text-foreground">{snapshot.gatewayIp}</span>
-              <span>dns</span>
-              <span className="text-foreground">{snapshot.dnsIp}</span>
-            </div>
-          </div>
-
-          {/* Throughput */}
-          <div className="space-y-2">
-            <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
-            <ThroughputRow label="RX" hint="browser → guest" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
-            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              ↑ {snapshot.txPackets} pkts · {formatBytes(snapshot.txBytes)}
-              {'   '}↓ {snapshot.rxPackets} pkts · {formatBytes(snapshot.rxBytes)}
-            </p>
-          </div>
-
-          {/* Controls */}
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant={snapshot.linkUp ? 'outline' : 'default'} className="h-7 text-xs" onClick={() => setLink(!snapshot.linkUp)}>
-              {snapshot.linkUp ? 'Drop link' : 'Raise link'}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs text-muted-foreground"
-              aria-expanded={showImpairments}
-              onClick={() => setShowImpairments((s) => !s)}
-            >
-              <ChevronDown className={cn('size-3 transition-transform', !showImpairments && '-rotate-90')} />
-              Impairments
-            </Button>
-          </div>
-          {showImpairments && (
-            <div className="space-y-2 rounded-md border border-border p-2">
-              <ImpairmentSlider
-                label="Added latency"
-                value={snapshot.impairments.delayMs}
-                unit="ms"
-                max={500}
-                step={10}
-                onChange={(delayMs) => setImpairments({ delayMs })}
-              />
-              <ImpairmentSlider
-                label="Packet loss"
-                value={snapshot.impairments.lossPct}
-                unit="%"
-                max={20}
-                step={1}
-                onChange={(lossPct) => setImpairments({ lossPct })}
-              />
-            </div>
-          )}
-
-          <CaptureSection
-            count={snapshot.captureCount}
-            version={snapshot.captureVersion}
-            paused={snapshot.capturePaused}
-          />
-
-          <ToolsSection guestIp={snapshot.guestIp} />
-
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            In the guest shell (where present):{' '}
-            <code className="font-mono text-foreground">net iface</code>,{' '}
-            <code className="font-mono text-foreground">net ping 192.0.2.2</code>,{' '}
-            <code className="font-mono text-foreground">zperf udp upload 192.0.2.2 5001 10 1K 1M</code>.
+        {/* Throughput */}
+        <div className="space-y-2">
+          <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
+          <ThroughputRow label="RX" hint="browser → guest" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
+          <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            ↑ {snapshot.txPackets} pkts · {formatBytes(snapshot.txBytes)}
+            {'   '}↓ {snapshot.rxPackets} pkts · {formatBytes(snapshot.rxBytes)}
           </p>
         </div>
-      )}
-    </div>
+
+        {/* Controls */}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant={snapshot.linkUp ? 'outline' : 'default'} className="h-7 text-xs" onClick={() => setLink(!snapshot.linkUp)}>
+            {snapshot.linkUp ? 'Drop link' : 'Raise link'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-muted-foreground"
+            aria-expanded={showImpairments}
+            onClick={() => setShowImpairments((s) => !s)}
+          >
+            <ChevronDown className={cn('size-3 transition-transform', !showImpairments && '-rotate-90')} />
+            Impairments
+          </Button>
+        </div>
+        {showImpairments && (
+          <div className="space-y-2 rounded-md border border-border p-2">
+            <ImpairmentSlider
+              label="Added latency"
+              value={snapshot.impairments.delayMs}
+              unit="ms"
+              max={500}
+              step={10}
+              onChange={(delayMs) => setImpairments({ delayMs })}
+            />
+            <ImpairmentSlider
+              label="Packet loss"
+              value={snapshot.impairments.lossPct}
+              unit="%"
+              max={20}
+              step={1}
+              onChange={(lossPct) => setImpairments({ lossPct })}
+            />
+          </div>
+        )}
+
+        <CaptureSection
+          count={snapshot.captureCount}
+          version={snapshot.captureVersion}
+          paused={snapshot.capturePaused}
+        />
+
+        <ToolsSection guestIp={snapshot.guestIp} />
+
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          In the guest shell (where present):{' '}
+          <code className="font-mono text-foreground">net iface</code>,{' '}
+          <code className="font-mono text-foreground">net ping 192.0.2.2</code>,{' '}
+          <code className="font-mono text-foreground">zperf udp upload 192.0.2.2 5001 10 1K 1M</code>.
+        </p>
+      </div>
+    </PanelFrame>
+  )
+}
+
+/**
+ * Header toggle for the "About this network" disclosure. Lives in the frame's
+ * actions slot, so it reaches into the frame to expand it — the explanation it
+ * reveals is in the body, which is useless while collapsed.
+ */
+function AboutToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  const { expand } = usePanelControls()
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={cn('size-6', active && 'text-primary')}
+      aria-label="How this network works"
+      aria-pressed={active}
+      onClick={() => {
+        onToggle()
+        expand()
+      }}
+    >
+      <Info className="size-3.5" />
+    </Button>
   )
 }
 

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { Activity, ChevronDown, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { Activity } from 'lucide-react'
+import { PanelFrame } from '@/components/PanelFrame'
 import {
   CHANNELS,
   available,
@@ -24,8 +23,6 @@ import {
  */
 export function SensorPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
-  const [collapsed, setCollapsed] = useState(!defaultExpanded)
-  const [dismissed, setDismissed] = useState(false)
   const [live, setLive] = useState(false)
   const [motionError, setMotionError] = useState<string | null>(null)
 
@@ -70,70 +67,35 @@ export function SensorPanel({ defaultExpanded = true }: { defaultExpanded?: bool
     })
   }
 
-  if (!isAvailable || dismissed) return null
+  if (!isAvailable) return null
 
   return (
-    <div className="pointer-events-auto w-[19rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-      <div
-        className={cn(
-          'flex items-center gap-2 px-3 py-2',
-          !collapsed && 'border-b border-border',
-        )}
-      >
-        <Activity className="size-3.5 text-primary" aria-hidden />
-        <span className="text-xs font-medium">Host sensors</span>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label={collapsed ? 'Expand host sensors' : 'Collapse host sensors'}
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((c) => !c)}
-          >
-            <ChevronDown
-              className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')}
-            />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Hide sensor panel"
-            onClick={() => setDismissed(true)}
-          >
-            <X className="size-3.5" />
-          </Button>
-        </div>
+    <PanelFrame id="sensor" title="Host sensors" icon={Activity} defaultExpanded={defaultExpanded}>
+      {/* Eight channels overflow a short viewport, so the body scrolls rather
+          than pushing the header off screen. */}
+      <div className="max-h-[min(26rem,60vh)] space-y-2.5 overflow-y-auto px-3 py-3">
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={live}
+            onChange={(e) => onToggleLive(e.target.checked)}
+            className="accent-[var(--color-primary)]"
+          />
+          Follow device sensors where available
+        </label>
+
+        {motionError && <p className="text-[11px] leading-relaxed text-destructive">{motionError}</p>}
+
+        {CHANNELS.map((c) => (
+          <ChannelRow key={c.id} channel={c} disabled={live} />
+        ))}
+
+        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+          Read them in the guest with{' '}
+          <code className="font-mono text-foreground">sensor get host_sensor</code>.
+        </p>
       </div>
-
-      {!collapsed && (
-        // Eight channels overflow a short viewport, so the body scrolls
-        // rather than pushing the header off screen.
-        <div className="max-h-[min(26rem,60vh)] space-y-2.5 overflow-y-auto px-3 py-3">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={live}
-              onChange={(e) => onToggleLive(e.target.checked)}
-              className="accent-[var(--color-primary)]"
-            />
-            Follow device sensors where available
-          </label>
-
-          {motionError && <p className="text-[11px] leading-relaxed text-destructive">{motionError}</p>}
-
-          {CHANNELS.map((c) => (
-            <ChannelRow key={c.id} channel={c} disabled={live} />
-          ))}
-
-          <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Read them in the guest with{' '}
-            <code className="font-mono text-foreground">sensor get host_sensor</code>.
-          </p>
-        </div>
-      )}
-    </div>
+    </PanelFrame>
   )
 }
 

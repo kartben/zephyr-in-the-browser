@@ -1,6 +1,6 @@
-import { useCallback, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, CircuitBoard, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useCallback, useSyncExternalStore } from 'react'
+import { CircuitBoard } from 'lucide-react'
+import { PanelFrame } from '@/components/PanelFrame'
 import { cn } from '@/lib/utils'
 import {
   BUTTONS,
@@ -28,80 +28,43 @@ import {
 export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
   const node = useSyncExternalStore(subscribe, controllerNode, () => 'host_gpio')
-  const [collapsed, setCollapsed] = useState(!defaultExpanded)
-  const [dismissed, setDismissed] = useState(false)
 
-  if (!isAvailable || dismissed) return null
+  if (!isAvailable) return null
 
   return (
-    <div className="pointer-events-auto w-[19rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-      <div
-        className={cn(
-          'flex items-center gap-2 px-3 py-2',
-          !collapsed && 'border-b border-border',
-        )}
-      >
-        <CircuitBoard className="size-3.5 text-primary" aria-hidden />
-        <span className="text-xs font-medium">Host GPIO</span>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label={collapsed ? 'Expand host GPIO' : 'Collapse host GPIO'}
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((c) => !c)}
-          >
-            <ChevronDown
-              className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')}
-            />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Hide GPIO panel"
-            onClick={() => setDismissed(true)}
-          >
-            <X className="size-3.5" />
-          </Button>
+    <PanelFrame id="gpio" title="Host GPIO" icon={CircuitBoard} defaultExpanded={defaultExpanded}>
+      <div className="space-y-3 px-3 py-3">
+        <div className="space-y-1.5">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            Inputs — buttons
+          </span>
+          <div className="grid grid-cols-4 gap-1.5">
+            {BUTTONS.map((pin) => (
+              <ButtonPin key={pin.id} pin={pin} />
+            ))}
+          </div>
         </div>
+
+        <div className="space-y-1.5">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            Outputs — LEDs
+          </span>
+          <div className="grid grid-cols-4 gap-1.5">
+            {LEDS.map((pin) => (
+              <LedPin key={pin.id} pin={pin} />
+            ))}
+          </div>
+        </div>
+
+        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+          In the guest:{' '}
+          <code className="font-mono text-foreground">gpio get {node} 0</code> reads
+          a button,{' '}
+          <code className="font-mono text-foreground">gpio set {node} 4 1</code>{' '}
+          lights an LED.
+        </p>
       </div>
-
-      {!collapsed && (
-        <div className="space-y-3 px-3 py-3">
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Inputs — buttons
-            </span>
-            <div className="grid grid-cols-4 gap-1.5">
-              {BUTTONS.map((pin) => (
-                <ButtonPin key={pin.id} pin={pin} />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Outputs — LEDs
-            </span>
-            <div className="grid grid-cols-4 gap-1.5">
-              {LEDS.map((pin) => (
-                <LedPin key={pin.id} pin={pin} />
-              ))}
-            </div>
-          </div>
-
-          <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-            In the guest:{' '}
-            <code className="font-mono text-foreground">gpio get {node} 0</code> reads
-            a button,{' '}
-            <code className="font-mono text-foreground">gpio set {node} 4 1</code>{' '}
-            lights an LED.
-          </p>
-        </div>
-      )}
-    </div>
+    </PanelFrame>
   )
 }
 
