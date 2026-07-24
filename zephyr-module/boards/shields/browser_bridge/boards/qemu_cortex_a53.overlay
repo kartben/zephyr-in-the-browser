@@ -135,6 +135,35 @@
 };
 
 /*
+ * Browser I2C bridge: a VIRTIO I2C adapter (virtio spec 1.3, section 5.15) on
+ * slot 4 of virt's virtio-mmio array (0x0a000800, SPI 20), which QEMU populates
+ * with `-device virtio-browser-device,...,name=i2c,device-id=34`. Slots 0-3 are
+ * virtio-net, virtio-gpu, the GPIO controller and the tablet.
+ *
+ * The adapter is the same generic bridge the GPIO controller uses — one C file
+ * in QEMU, no device model of its own. What is new is the guest side: Zephyr
+ * has no virtio I2C driver, so this repo carries one at
+ * zephyr-module/drivers/i2c_virtio.c, written to go upstream.
+ *
+ * The chips on the bus are page-side models under src/virtio/devices/chips/,
+ * so what a build sees here is whatever the page has attached — an address
+ * with nothing behind it NAKs, which is what makes `i2c scan` a real scan.
+ *
+ * Declared disabled, like virtio_gpio0 above: `-S virtio-i2c`
+ * (zephyr-module/snippets/virtio-i2c/) turns it on and adds the chip nodes.
+ */
+&virtio_mmio4 {
+	status = "disabled";
+
+	virtio_i2c0: virtio-i2c {
+		compatible = "virtio,i2c";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+};
+
+/*
  * Browser network bridge: virtio-net on the first virtio-mmio slot, which
  * QEMU populates with `-device virtio-net-device,bus=virtio-mmio-bus.0`
  * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property

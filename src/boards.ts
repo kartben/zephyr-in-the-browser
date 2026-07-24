@@ -392,6 +392,13 @@ export const BOARDS: Board[] = [
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
         'queues=2,features=0x1,config=0800000000000000',
+      // I2C: a VIRTIO I2C adapter (device id 34) on slot 4, the first free one
+      // after net, gpu, gpio and the tablet. One request queue, no feature bits
+      // and no config space — the adapter has none. The chips on the bus are
+      // page-side models (src/virtio/devices/chips/), so adding one is a
+      // TypeScript file rather than an emulator rebuild.
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
       '-kernel',
       '/pack/zephyr.elf',
     ],

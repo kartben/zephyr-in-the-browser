@@ -1,0 +1,40 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the Cortex-A53's VIRTIO I2C adapter and describe the chips the
+ * browser has on the bus. The node itself is declared (disabled) by the
+ * browser_bridge shield, whose overlay documents the slot and the QEMU side.
+ *
+ * The chips are page-side models (src/virtio/devices/chips/), so this overlay
+ * and src/virtio/index.ts have to agree on what is soldered where: devicetree
+ * is static, and a node here whose address the page is not answering for will
+ * simply fail to bind. That is not a bug to hide — a chip the page detaches
+ * NAKs exactly like one that fell off the board, which makes a bus error a
+ * thing this simulator can actually demonstrate.
+ *
+ * Snippet overlays are applied after the shield's, so virtio_i2c0 already
+ * exists by the time this runs.
+ */
+
+&virtio_mmio4 {
+	status = "okay";
+};
+
+&virtio_i2c0 {
+	status = "okay";
+
+	/*
+	 * Matches createAt24({ address: 0x50 }) in src/virtio/index.ts. The
+	 * page models one-byte word addressing, which is the AT24C02 part.
+	 */
+	eeprom0: eeprom@50 {
+		compatible = "atmel,at24";
+		reg = <0x50>;
+		size = <256>;
+		pagesize = <8>;
+		address-width = <8>;
+		timeout = <5>;
+		status = "okay";
+	};
+};

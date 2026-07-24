@@ -1,0 +1,156 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+
+import { createFakeBridge, type FakeDevice } from './testing/fakeBridge'
+import { createI2cModel, type I2cModel } from './devices/i2c'
+import { createAt24 } from './devices/chips/at24'
+import { attach, detach, pollOnce, register } from './transport'
+
+const VIRTIO_ID_I2C_ADAPTER = 34
+
+const FLAGS_FAIL_NEXT = 1 << 0
+const FLAGS_M_RD = 1 << 1
+
+const MSG_OK = 0
+const MSG_ERR = 1
+
+/**
+ * One `struct i2c_msg` as the guest driver puts it on the wire: an out_hdr
+ * with the address shifted left by one, then the write payload if any.
+ */
+function outHdr(address: number, flags: number, payload?: Uint8Array): Uint8Array {
+  const buf = new Uint8Array(8 + (payload?.length ?? 0))
+  const dv = new DataView(buf.buffer)
+  dv.setUint16(0, address << 1, true)
+  dv.setUint16(2, 0, true)
+  dv.setUint32(4, flags, true)
+  if (payload) buf.set(payload, 8)
+  return buf
+}
+
+describe('virtio-i2c model', () => {
+  let bridge: ReturnType<typeof createFakeBridge>
+  let dev: FakeDevice
+  let i2c: I2cModel
+
+  /** A write message. Returns the status byte. */
+  function write(address: number, payload: Uint8Array, flags = 0): number {
+    dev.kick(0, outHdr(address, flags, payload), 1)
+    pollOnce()
+    const [done] = dev.completions()
+    return done.data[done.data.length - 1]
+  }
+
+  /** A read message. Returns the status byte and the bytes read. */
+  function read(address: number, length: number, flags = 0) {
+    dev.kick(0, outHdr(address, flags | FLAGS_M_RD), length + 1)
+    pollOnce()
+    const [done] = dev.completions()
+    return { status: done.data[done.data.length - 1], data: done.data.slice(0, length) }
+  }
+
+  beforeEach(() => {
+    detach()
+    bridge = createFakeBridge([
+      { name: 'i2c', deviceId: VIRTIO_ID_I2C_ADAPTER, numQueues: 1 },
+    ])
+    dev = bridge.device('i2c')
+    i2c = createI2cModel()
+    register(i2c)
+    attach(bridge.module)
+    pollOnce()
+  })
+
+  it('NAKs every address when the bus is empty', () => {
+    for (const address of [0x04, 0x50, 0x68, 0x77]) {
+      expect(read(address, 1).status).toBe(MSG_ERR)
+    }
+  })
+
+  it('ACKs only the addresses a chip is attached to', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+
+    // What `i2c scan` does: a one-byte read of every address in 0x04..0x77.
+    const found: number[] = []
+    for (let address = 0x04; address <= 0x77; address++) {
+      if (read(address, 1).status === MSG_OK) found.push(address)
+    }
+    expect(found).toEqual([0x50])
+  })
+
+  it('stops answering for a chip that has been detached', () => {
+    const remove = i2c.attachChip(createAt24({ address: 0x50 }))
+    expect(read(0x50, 1).status).toBe(MSG_OK)
+    remove()
+    expect(read(0x50, 1).status).toBe(MSG_ERR)
+  })
+
+  it('refuses two chips at the same address', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+    expect(() => i2c.attachChip(createAt24({ address: 0x50 }))).toThrow(/already taken/)
+  })
+
+  it('reads back what was written, through the EEPROM pointer', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+
+    // Write 0xde 0xad 0xbe 0xef at word address 0x10.
+    expect(write(0x50, Uint8Array.of(0x10, 0xde, 0xad, 0xbe, 0xef))).toBe(MSG_OK)
+    // Random read: set the pointer, then stream from it — what `i2c read` does.
+    expect(write(0x50, Uint8Array.of(0x10), FLAGS_FAIL_NEXT)).toBe(MSG_OK)
+    expect(read(0x50, 4)).toEqual({
+      status: MSG_OK,
+      data: Uint8Array.of(0xde, 0xad, 0xbe, 0xef),
+    })
+  })
+
+  it('auto-increments the read pointer across messages', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+    write(0x50, Uint8Array.of(0x00, 1, 2, 3, 4))
+    write(0x50, Uint8Array.of(0x00), FLAGS_FAIL_NEXT)
+
+    expect(read(0x50, 2).data).toEqual(Uint8Array.of(1, 2))
+    expect(read(0x50, 2).data).toEqual(Uint8Array.of(3, 4))
+  })
+
+  it('reads 0xff from an erased cell, like the real part', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+    write(0x50, Uint8Array.of(0x80), FLAGS_FAIL_NEXT)
+    expect(read(0x50, 3).data).toEqual(Uint8Array.of(0xff, 0xff, 0xff))
+  })
+
+  it('fails the rest of a transfer after a failed message with FAIL_NEXT', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+
+    // A transfer aimed at nothing: first message fails and carries FAIL_NEXT,
+    // so the second must fail too even though 0x50 would have answered it.
+    expect(write(0x51, Uint8Array.of(0x00), FLAGS_FAIL_NEXT)).toBe(MSG_ERR)
+    expect(read(0x50, 1, FLAGS_FAIL_NEXT).status).toBe(MSG_ERR)
+
+    // The last message of a transfer clears FAIL_NEXT, so the bus recovers.
+    expect(read(0x50, 1).status).toBe(MSG_ERR)
+    expect(read(0x50, 1).status).toBe(MSG_OK)
+  })
+
+  it('logs real transactions but not scan NAKs', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+
+    for (let address = 0x04; address <= 0x77; address++) read(address, 1)
+    // 116 probes, exactly one of which found a chip.
+    expect(i2c.transactions()).toHaveLength(1)
+
+    write(0x50, Uint8Array.of(0x00, 0xaa))
+    const log = i2c.transactions()
+    expect(log[log.length - 1]).toMatchObject({
+      address: 0x50,
+      dir: 'write',
+      ok: true,
+      chip: 'AT24C02 EEPROM',
+    })
+    expect(log[log.length - 1].bytes).toEqual(Uint8Array.of(0x00, 0xaa))
+  })
+
+  it('reports the chips on the bus in address order', () => {
+    i2c.attachChip(createAt24({ address: 0x54 }))
+    i2c.attachChip(createAt24({ address: 0x50 }))
+    expect(i2c.chips().map((c) => c.address)).toEqual([0x50, 0x54])
+  })
+})
