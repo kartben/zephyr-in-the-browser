@@ -38,7 +38,7 @@ two patches are retired on the next qemu-wasm rebuild — the audio, mic and GPI
 patches carry their lines as diff context, so dropping them is a rebase of the
 series rather than a deletion.
 
-## Simulated I²C sensors
+## Simulated I²C chips
 
 The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
 *TypeScript*, not C: a TMP112 and an LM75 thermometer, an ADXL345
@@ -48,13 +48,28 @@ stock — `ti,tmp112`, `lm75`, `adi,adxl345`, `atmel,at24`, `solomon,ssd1306` �
 so `sensor get adxl345@53` reads a value the page made up through the same
 driver a real board would use.
 
-Sensors are declared rather than hand-written
-([`src/virtio/devices/sensors/model.ts`](../src/virtio/devices/sensors/model.ts)):
-a part lists its registers, the channels a human drives and the config bits it
-exposes, and the framework synthesises both the chip's register machine and its
-control card. Adding a sensor is a declaration plus a devicetree node in
+Chips are **declared rather than hand-written**, by whichever of two small
+frameworks fits, and each synthesises both the chip's behaviour on the bus and
+the card that drives it — so adding a part is a declaration, not another panel:
+
+- **Sensors** ([`sensors/model.ts`](../src/virtio/devices/sensors/model.ts)) —
+  a part lists its registers, the channels a human drives and the config bits it
+  exposes. The framework builds the register machine (pointer, read-only vs
+  read-write registers, channel values encoded at read time, optional
+  auto-incrementing burst reads) and a card of sliders and toggles. A channel
+  can name a browser source, which is how the ADXL345's axes follow the
+  device's real tilt.
+- **Memory** ([`memory/model.ts`](../src/virtio/devices/memory/model.ts)) — a
+  part lists its geometry: size, word-address width, page size, erased value.
+  The framework builds the word-address pointer with its auto-increment and
+  wrap, and a card that is a live hex dump. Erased cells are dimmed so written
+  bytes stand out, bytes the guest just changed light up, the read pointer is
+  marked, and clicking a byte edits it — so you can plant something in the
+  EEPROM and go read it from the shell.
+
+Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)
-and its `CONFIG_*` in [`conf/i2c.conf`](../zephyr-module/conf/i2c.conf).
+and a `CONFIG_*` in [`conf/i2c.conf`](../zephyr-module/conf/i2c.conf).
 
 Because the bus is page-side, chips can be **attached and detached while the
 guest runs**. Detaching one the devicetree declares makes its driver NAK

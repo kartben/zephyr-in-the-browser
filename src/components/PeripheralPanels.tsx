@@ -7,8 +7,10 @@ import { I2cPanel } from '@/components/I2cPanel'
 import { OledPanel } from '@/components/OledPanel'
 import { NetworkPanel } from '@/components/NetworkPanel'
 import { PerformancePanel } from '@/components/PerformancePanel'
+import { MemoryCard } from '@/components/MemoryCard'
 import { SensorCard } from '@/components/SensorCard'
 import { i2cModel, isBound, subscribeBinds } from '@/virtio'
+import { isMemoryChip } from '@/virtio/devices/memory/model'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
 import type { PanelKind } from '@/boards'
 
@@ -46,6 +48,7 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
     useCallback(() => [], []),
   )
   const sensors = i2cAvailable ? chips.filter(isSensorChip) : []
+  const memories = i2cAvailable ? chips.filter(isMemoryChip) : []
 
   return (
     <>
@@ -59,6 +62,13 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
         <DisplayPanel defaultExpanded={expanded('display')} />
         {sensors.map((chip) => (
           <SensorCard key={chip.address} chip={chip} defaultExpanded={expanded('sensor')} />
+        ))}
+        {/*
+          A memory part has no sample of its own — it is the I2C story's other
+          half, so it opens with the samples that are about the bus.
+        */}
+        {memories.map((chip) => (
+          <MemoryCard key={chip.address} chip={chip} defaultExpanded={expanded('i2c')} />
         ))}
         <GnssPanel defaultExpanded={expanded('gnss')} />
         <GpioPanel defaultExpanded={expanded('gpio')} />

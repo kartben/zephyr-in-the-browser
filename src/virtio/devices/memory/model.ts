@@ -1,0 +1,174 @@
+/**
+ * A declarative model for I2C memory parts — EEPROMs, FRAMs, anything whose
+ * whole behaviour is "a byte array behind a word-address pointer".
+ *
+ * The sibling of src/virtio/devices/sensors/model.ts, and for the same reason:
+ * once there is more than one such chip, everything but the geometry is the
+ * same plumbing. A write carries a word address and then data; a read streams
+ * from an internal pointer that auto-increments and wraps. Only the size, the
+ * address width and the erased value differ.
+ *
+ * A part is a {@link MemoryDecl}; {@link createMemoryChip} turns it into an
+ * {@link I2cChip} the bus carries unchanged, plus the surface its card needs —
+ * the backing store to render, a version counter to coalesce repaints against,
+ * the pointer to show where the guest is reading, and poke/erase so the page
+ * can plant bytes for the guest to find. The AT24 re-expressed this way is
+ * behaviour-for-behaviour the hand-written part it replaced, which is what says
+ * the model is right (see the EEPROM cases in src/virtio/i2c.test.ts).
+ *
+ * Deliberately not modelled, exactly as before: write cycle time. A real AT24
+ * NAKs for a few milliseconds after a write while the page programs, and
+ * drivers poll for that; here the write lands immediately, so a driver that
+ * polls simply succeeds on its first try. Page-boundary wrapping is likewise
+ * left out — `pageSize` is declared because the devicetree and the card both
+ * want to state it, but a write that runs off a page continues into the next
+ * one rather than wrapping within it.
+ */
+
+import type { I2cChip } from '../i2c'
+
+export interface MemoryDecl {
+  /** Shown in the bus roster, the transaction log and the card header. */
+  name: string
+  /**
+   * Zephyr device name for the EEPROM shell (e.g. `EEPROM_0`), used to build
+   * the card's command hint. Omit for a part with no EEPROM-API driver.
+   */
+  shellLabel?: string
+  /** Address the part ships at; the roster seeds its picker from this. */
+  defaultAddress: number
+  /** Capacity in bytes. */
+  size: number
+  /**
+   * Width of the word address a write carries before its data. One byte covers
+   * parts up to 256 bytes (the AT24C02); larger ones need two.
+   */
+  addressWidth: 1 | 2
+  /**
+   * What an unwritten cell reads as. 0xff for EEPROM and flash — and for an
+   * open bus, which means a driver that finds 0xff everywhere cannot tell a
+   * blank part from a missing one. That is true of the real chip too.
+   */
+  erased?: number
+  /** Programming page size. Stated by the card; not modelled (see above). */
+  pageSize?: number
+}
+
+/** A memory part on the bus, plus the handle its card drives. */
+export interface MemoryChip extends I2cChip {
+  /** Always present on a built memory part (the machine provides both). */
+  write(bytes: Uint8Array): boolean
+  read(length: number): Uint8Array
+  readonly decl: MemoryDecl
+  /** The backing store, for the card or a test to inspect. */
+  readonly memory: Uint8Array
+  /**
+   * Bumped on every change. A view repaints against this rather than per
+   * notification, so a burst of writes costs one repaint (see HexView).
+   */
+  version(): number
+  /** Where the pointer sits — the offset the next read returns. */
+  pointer(): number
+  /** Set one byte from the page, so the guest can find it there. */
+  poke(offset: number, value: number): void
+  /** Return every cell to the erased value. */
+  erase(): void
+  subscribe(fn: () => void): () => void
+}
+
+export interface MemoryChipOptions {
+  /** Override the declared address (a second part on a spare strap). */
+  address?: number
+  /** Override the displayed name. */
+  name?: string
+  /** Override the capacity (an AT24 variant on the same declaration). */
+  size?: number
+}
+
+/**
+ * Whether a chip on the bus is a declared memory part (and so has a card).
+ * Checks `poke` rather than `memory`, since the SSD1306 exposes GDDRAM under
+ * that name and is a display, not storage.
+ */
+export function isMemoryChip(chip: I2cChip): chip is MemoryChip {
+  return 'decl' in chip && 'poke' in chip
+}
+
+/** Build a live {@link MemoryChip} from a declaration. */
+export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {}): MemoryChip {
+  const address = opts.address ?? decl.defaultAddress
+  const name = opts.name ?? decl.name
+  const size = opts.size ?? decl.size
+  const erased = decl.erased ?? 0xff
+  const { addressWidth } = decl
+
+  const memory = new Uint8Array(size).fill(erased)
+  let pointer = 0
+  let version = 0
+
+  const listeners = new Set<() => void>()
+  const notify = () => {
+    version++
+    for (const fn of listeners) fn()
+  }
+
+  return {
+    address,
+    name,
+    decl,
+    memory,
+
+    write(bytes) {
+      // A zero-length write is how some drivers probe for the chip, and a write
+      // too short to carry a whole word address cannot address anything — both
+      // are acknowledged without moving the pointer.
+      if (bytes.length < addressWidth) return true
+
+      let addr = 0
+      for (let i = 0; i < addressWidth; i++) addr = (addr << 8) | bytes[i]
+      pointer = addr % size
+
+      // Anything after the address is data, written from there and wrapping at
+      // the end of the device.
+      for (let i = addressWidth; i < bytes.length; i++) {
+        memory[pointer] = bytes[i]
+        pointer = (pointer + 1) % size
+      }
+      notify()
+      return true
+    },
+
+    read(length) {
+      const out = new Uint8Array(length)
+      for (let i = 0; i < length; i++) {
+        out[i] = memory[pointer]
+        pointer = (pointer + 1) % size
+      }
+      // The pointer moved, and the card draws it — so a read is a change too.
+      notify()
+      return out
+    },
+
+    version: () => version,
+    pointer: () => pointer,
+
+    poke(offset, value) {
+      if (!Number.isInteger(offset) || offset < 0 || offset >= size) return
+      if (!Number.isInteger(value)) return
+      const next = value & 0xff
+      if (memory[offset] === next) return
+      memory[offset] = next
+      notify()
+    },
+
+    erase() {
+      memory.fill(erased)
+      notify()
+    },
+
+    subscribe(fn) {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
+  }
+}
