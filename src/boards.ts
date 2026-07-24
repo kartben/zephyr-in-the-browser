@@ -11,7 +11,7 @@
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
-export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf' | 'net'
+export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf' | 'net' | 'i2c'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
@@ -244,9 +244,9 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
-    description: 'Interactive Zephyr shell, with `hostaudio` and `dmic` for the sound panel',
+    description: 'Interactive Zephyr shell, with `i2c`, `sensor`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-    primaryPanels: ['audio'],
+    primaryPanels: ['i2c', 'audio'],
   },
   {
     id: 'hsm',
