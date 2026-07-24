@@ -454,3 +454,11 @@ export function samplePrimaryPanels(board: Board, sampleId: string): Set<PanelKi
 export function sampleAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.elf`
 }
+
+/**
+ * The flattened devicetree shipped next to the image, when the build put one
+ * there (tools/build-zephyr-image.sh does; older tarballs may not have it).
+ */
+export function sampleDtsAsset(board: Board, sampleId: string): string {
+  return `zephyr/${board.zephyrTarget}/${sampleId}.dts`
+}

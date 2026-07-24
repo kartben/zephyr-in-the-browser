@@ -47,7 +47,15 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+/**
+ * One transaction against the shared handoff store. Exported for the other
+ * reload survivor (src/devicetree.ts), which keeps its own key in the same
+ * store — same database version, so no upgrade dance.
+ */
+export function handoffTx<T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
@@ -62,7 +70,7 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
 export async function stash(image: GuestImage): Promise<void> {
   // Store a plain ArrayBuffer: structured clone handles it everywhere, and a
   // detached view would not survive.
-  await tx('readwrite', (s) =>
+  await handoffTx('readwrite', (s) =>
     s.put({ name: image.name, buffer: image.bytes.slice().buffer }, KEY),
   )
 }
@@ -74,8 +82,8 @@ export async function stash(image: GuestImage): Promise<void> {
 export async function claimStashed(): Promise<GuestImage | null> {
   let record: { name: string; buffer: ArrayBuffer } | undefined
   try {
-    record = await tx('readonly', (s) => s.get(KEY))
-    if (record) await tx('readwrite', (s) => s.delete(KEY))
+    record = await handoffTx('readonly', (s) => s.get(KEY))
+    if (record) await handoffTx('readwrite', (s) => s.delete(KEY))
   } catch {
     return null // private mode, blocked storage — fall back to the stock image
   }
