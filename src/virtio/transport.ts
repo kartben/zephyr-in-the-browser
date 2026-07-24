@@ -14,14 +14,22 @@
  * index or device id — index order is a command-line accident, and two
  * instances can share a device id (two I2C buses).
  *
- * Polling is adaptive, and deliberately not a zero-delay macrotask loop: this
- * is the main thread, and spinning a MessageChannel would starve rendering for
- * as long as traffic lasts. Idle costs one `Atomics.load` per device per 50 ms;
- * for 250 ms after any request it drops to `setTimeout(…, 0)`, which browsers
- * clamp to ~4 ms once nested. With QEMU's own 1 ms completion drain that puts a
- * blocking guest transfer at roughly 5 ms — imperceptible for a GPIO poke, and
- * ~0.6 s for a 127-address `i2c scan`, which is the worst case worth caring
- * about.
+ * Polling is adaptive. Idle costs one `Atomics.load` per device per 50 ms; for
+ * 250 ms after any request it switches to a `MessagePort` loop.
+ *
+ * The port, rather than `setTimeout(…, 0)`, for a reason that only shows up
+ * once the guest starts *blocking* on us. Nested `setTimeout(0)` is clamped to
+ * ~4 ms in a visible tab, which is fine — but in a background tab it is clamped
+ * to about a second, and measurably so: 681 ms per tick in the tab this was
+ * developed against. Since a guest thread sits in `k_sem_take(…, K_FOREVER)`
+ * until we answer, that turns a hidden tab into a frozen guest — an `i2c scan`
+ * crawling at one address per second. `postMessage` is not throttled, so the
+ * burst runs at full speed whether or not anyone is looking.
+ *
+ * The cost is that during those 250 ms the loop competes for the main thread.
+ * It yields between macrotasks rather than blocking, and the window only stays
+ * open while requests keep arriving, so it is bounded by what the guest asks
+ * for — but it is the reason the idle path stays on a plain timer.
  */
 
 import {
@@ -137,7 +145,17 @@ let view: DataView | null = null
 let words: Int32Array | null = null
 let bridges: Bridge[] = []
 let timer: ReturnType<typeof setTimeout> | 0 = 0
+/** A poll is already queued, by either mechanism. */
+let scheduled = false
 let hotUntil = 0
+
+/**
+ * The hot-path wakeup. A posted message is delivered on the next macrotask and
+ * is exempt from the background-tab timer clamp; `setTimeout` is not.
+ */
+const hotChannel = typeof MessageChannel === 'function' ? new MessageChannel() : null
+hotChannel?.port1.addEventListener('message', () => poll())
+hotChannel?.port1.start()
 
 /**
  * Register a device model. Call before `attach`; a model whose name no device
@@ -160,6 +178,7 @@ export function attach(mod: unknown) {
 export function detach() {
   if (timer) clearTimeout(timer)
   timer = 0
+  scheduled = false
   hotUntil = 0
   const had = bridges.length
   bridges = []
@@ -417,6 +436,7 @@ function pollBridge(b: Bridge, now: number) {
 
 function poll() {
   timer = 0
+  scheduled = false
   if (!exports) return
 
   const now = performance.now()
@@ -435,8 +455,15 @@ function poll() {
 }
 
 function schedule(delay: number) {
-  if (timer) return
-  timer = setTimeout(poll, delay)
+  if (scheduled) return
+  scheduled = true
+  if (delay === 0 && hotChannel) {
+    // Cannot be cancelled once posted, which is why `poll` checks `exports`
+    // rather than relying on `detach` to stop it.
+    hotChannel.port2.postMessage(0)
+  } else {
+    timer = setTimeout(poll, delay)
+  }
 }
 
 /** Test seam: drive one poll iteration synchronously. */
