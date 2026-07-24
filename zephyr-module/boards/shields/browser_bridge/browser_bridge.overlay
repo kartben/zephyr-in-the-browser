@@ -11,14 +11,14 @@
  * machine-specific addresses (an MMIO gap on the LM3S6965, a spare PL011 slot
  * on virt), so there is nothing meaningful to add for an arbitrary board.
  *
- * boards/qemu_cortex_m3.overlay — GNSS NMEA UART, qemu,host-sensor (with
- *   accel0 / temp0 / light0 / … aliases so stock sensor samples build against
- *   the host sensor), qemu,host-gpio, qemu,host-audio (I2S out), and
- *   qemu,host-mic (DMIC in, aliased dmic0).
+ * boards/qemu_cortex_m3.overlay — GNSS NMEA UART, qemu,host-gpio,
+ *   qemu,host-audio (I2S out), and qemu,host-mic (DMIC in, aliased dmic0). No
+ *   sensor: sensors are simulated I2C parts and this board has no virtio bus.
  * boards/qemu_cortex_a53.overlay — GNSS NMEA UART, browser-sized qemu,ramfb,
- *   the same host-sensor node/aliases, qemu,host-audio, qemu,host-mic, and two
- *   virtio-mmio devices declared disabled behind snippets: virtio,gpu
- *   (-S virtio-gpu) and virtio,gpio (-S virtio-gpio).
+ *   qemu,host-audio, qemu,host-mic, and three virtio-mmio devices declared
+ *   disabled behind snippets: virtio,gpu (-S virtio-gpu), virtio,gpio
+ *   (-S virtio-gpio) and virtio,i2c (-S virtio-i2c), the last carrying the
+ *   simulated tmp112/lm75/adxl345 sensors.
  *
  * The two boards reach GPIO differently. The Cortex-M3 has qemu,host-gpio, a
  * bespoke register block: fast (a pin read never leaves the guest) but with no
