@@ -154,6 +154,11 @@ jobs:
             test -f dist/qemu/zephyr/qemu_cortex_m3/gnss.elf \
               && test -f dist/qemu/zephyr/qemu_cortex_a53/gnss.elf \
               || { echo "::error::images release did not contain both GNSS images"; exit 1; }
+            # A .dts next to each image is expected of tarballs built since the
+            # devicetree-aware UI, but older releases without them still deploy
+            # fine — the app falls back to its static tables.
+            [ -n "$(find dist/qemu/zephyr -name '*.dts' -print -quit 2>/dev/null)" ] \
+              || echo "::warning::images release contains no zephyr.dts files; devicetree features will fall back"
           fi
           du -sh dist
 
