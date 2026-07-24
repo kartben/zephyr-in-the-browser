@@ -104,10 +104,13 @@ wasm64 experiment so the result does not require WebAssembly Memory64.
 
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
 working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
-include the browser terminal, GNSS UART, host-sensor and browser-netdev
-bridges; AArch64 additionally adds the ramfb and input bridges.
+include the browser terminal, the ramfb exports, the GNSS UART, and the
+host-sensor, host-audio, host-mic and browser-netdev bridges. Cortex-M3 alone
+gets the host-GPIO device — the LM3S6965 machine has no virtio-mmio bus to
+reach the generic bridge — while AArch64 alone gets the input bridge, the
+generic virtio bridge and the guest-icount export.
 
-Eight browser integrations are supplied by the target-specific patch
+Eleven browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -118,6 +121,14 @@ directories under `tools/`:
 * The `qemu-host-gpio` device: input pins driven from JavaScript and output pins
   read back by it, exposed through `qemu_host_gpio_set_inputs` /
   `qemu_host_gpio_get_outputs`. Cortex-M3 only.
+* The `qemu-host-audio` device: PCM frames the guest writes through Zephyr's
+  I2S API cross a ring in the wasm heap to Web Audio, through
+  `qemu_host_audio_get_rate` / `_get_channels` / `_get_buffer_samples` /
+  `_get_data` / `_get_write_index` and `qemu_host_audio_set_read_index`.
+* The `qemu-host-mic` device: the mirror image — capture from `getUserMedia`
+  into a ring the guest drains through Zephyr's DMIC API, through
+  `qemu_host_mic_get_rate` / `_get_buffer_samples` / `_get_data` /
+  `_get_read_index` and `qemu_host_mic_set_write_index`.
 * A **generic virtio bridge** (`hw/virtio/virtio-browser.c`), AArch64 only,
   exposed through just two entry points — `qemu_virtio_browser_count` and
   `qemu_virtio_browser_area` — no matter how many devices it carries. It keeps
@@ -153,6 +164,9 @@ directories under `tools/`:
   injection happens from a `QEMU_CLOCK_VIRTUAL` timer on QEMU's own thread,
   the same pattern the GNSS bridge established, and both directions respect
   NIC flow control (`qemu_can_send_packet` / queued-packet flushing).
+* A `qemu_browser_guest_icount` export (AArch64 only) returning the guest
+  instruction count, or `-1` when the build is not running under `-icount`. It
+  backs the Performance panel's MIPS readout (`src/guestStats.ts`).
 
 The dependency image — glib, pixman, zlib and libffi cross-compiled to Wasm — is
 built from `tools/Dockerfile.deps`, vendored from ktock's so this repository does
@@ -212,6 +226,14 @@ Verified by testing, not assumed:
   build-time fallback.
 - **GNSS works on both boards** with Zephyr's unmodified generic NMEA driver and
   stock driver sample.
+- **The emulator links an older `xterm-pty` than the page runs.**
+  `tools/Dockerfile.deps` installs `xterm-pty@v0.10.1` to supply
+  `emscripten-pty.js` at link time, while `package.json` depends on `^0.12.0`
+  for the page side. The two have not diverged in a way that breaks the
+  terminal, so the pin is deliberately left alone: bumping it invalidates the
+  dependency image and forces a full emulator rebuild, which is exactly the
+  cost the split release assets exist to avoid. Worth revisiting the next time
+  QEMU is rebuilt for another reason.
 
 ## GNSS input
 
