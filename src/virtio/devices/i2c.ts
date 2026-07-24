@@ -72,6 +72,8 @@ export interface I2cTransaction {
 export interface I2cModel extends VirtioDeviceModel {
   /** Put a chip on the bus. Returns a function that removes it again. */
   attachChip(chip: I2cChip): () => void
+  /** Take whatever chip is at `address` off the bus. A no-op if none is. */
+  detachChip(address: number): void
   chips(): I2cChip[]
   transactions(): readonly I2cTransaction[]
   clearTransactions(): void
@@ -205,6 +207,13 @@ export function createI2cModel(name = 'i2c'): I2cModel {
           refreshChips()
           notify()
         }
+      }
+    },
+
+    detachChip(address) {
+      if (bus.delete(address)) {
+        refreshChips()
+        notify()
       }
     },
 
