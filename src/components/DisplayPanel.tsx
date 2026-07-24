@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Monitor, Pointer, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Monitor, Pointer } from 'lucide-react'
+import { PanelFrame } from '@/components/PanelFrame'
 import { cn } from '@/lib/utils'
 import { getFrame, getSharedBuffer, getSnapshot, subscribe } from '@/hostDisplay'
 import {
@@ -75,12 +75,60 @@ function workerRenderingSupported(buffer: ArrayBufferLike | null): buffer is Sha
 /** Paints Zephyr's qemu,ramfb framebuffer into a browser canvas. */
 export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [collapsed, setCollapsed] = useState(!defaultExpanded)
-  const [dismissed, setDismissed] = useState(false)
-  const [strategy, setStrategy] = useState<RenderStrategy>('worker-webgl')
-  // Whether this emulator carries the virtio-input bridge. Checked once the
-  // framebuffer is live, which is long after the module attached.
+  // Whether this emulator carries the virtio-input bridge. Shown in the header,
+  // so it lives out here rather than in the body that comes and goes with
+  // collapse. Checked once the framebuffer is live, long after the module attached.
   const [pointer, setPointer] = useState(false)
+
+  useEffect(() => {
+    setPointer(display.available && pointerAvailable())
+  }, [display.available])
+
+  if (!display.available) return null
+
+  return (
+    <PanelFrame
+      id="display"
+      title="Display"
+      icon={Monitor}
+      defaultExpanded={defaultExpanded}
+      dockedWidth={42}
+      status={
+        <>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {display.width}×{display.height}
+          </span>
+          {pointer && (
+            <span
+              role="img"
+              aria-label="Touch input enabled"
+              title="Click and drag on the display — it is a virtio-input tablet"
+            >
+              <Pointer className="size-3 text-muted-foreground" aria-hidden />
+            </span>
+          )}
+        </>
+      }
+    >
+      <DisplayBody display={display} pointer={pointer} />
+    </PanelFrame>
+  )
+}
+
+/**
+ * The framebuffer canvas and its render session. Split out of DisplayPanel so
+ * it mounts only while the panel is expanded: PanelFrame renders the body only
+ * then, so setup runs on mount and teardown on unmount — no collapse flag to
+ * thread through the render effects.
+ */
+function DisplayBody({
+  display,
+  pointer,
+}: {
+  display: ReturnType<typeof getSnapshot>
+  pointer: boolean
+}) {
+  const [strategy, setStrategy] = useState<RenderStrategy>('worker-webgl')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   // The live worker render session, kept in a ref so it survives StrictMode's
   // setup→cleanup→setup double-invoke. transferControlToOffscreen() is one-shot
@@ -125,7 +173,7 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
     }
 
     const canvas = canvasRef.current
-    const shouldRender = display.available && !collapsed && !dismissed && !!canvas
+    const shouldRender = display.available && !!canvas
 
     // StrictMode re-running setup on the still-lit element: keep the worker and
     // cancel the teardown the paired cleanup just scheduled.
@@ -134,8 +182,8 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
       return scheduleDestroy
     }
 
-    // Any real transition (first mount, collapse, a fresh element) drops the
-    // previous session up front, then decides whether to build a new one.
+    // Any real transition (first mount, a fresh element) drops the previous
+    // session up front, then decides whether to build a new one.
     cancelPendingDestroy()
     destroy()
     if (!shouldRender) return
@@ -195,14 +243,14 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
 
     sessionRef.current = { el: canvas, worker, unsubscribe }
     return scheduleDestroy
-  }, [strategy, collapsed, dismissed, display.available])
+  }, [strategy, display.available])
 
   // Fallback path: render on the main thread. Reached only when the worker or
   // OffscreenCanvas is unavailable. Keeps the WebGL-then-Canvas2D degradation.
   useEffect(() => {
     if (strategy === 'worker-webgl') return
     const canvas = canvasRef.current
-    if (!display.available || collapsed || dismissed || !canvas) return
+    if (!display.available || !canvas) return
 
     canvas.width = display.width
     canvas.height = display.height
@@ -247,11 +295,7 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
       cancelAnimationFrame(animationFrame)
       renderer.dispose()
     }
-  }, [strategy, collapsed, dismissed, display])
-
-  useEffect(() => {
-    setPointer(display.available && pointerAvailable())
-  }, [display.available])
+  }, [strategy, display])
 
   // Pointer capture keeps a drag alive past the canvas edge, so `leave` only
   // fires for a genuine departure and no button can be left stuck down.
@@ -282,74 +326,23 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
       }
     : {}
 
-  if (!display.available || dismissed) return null
-
   return (
-    <div className="pointer-events-auto w-[42rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-      <div
+    <div className="bg-black p-2">
+      <canvas
+        key={strategy}
+        ref={canvasRef}
         className={cn(
-          'flex items-center gap-2 px-3 py-2',
-          !collapsed && 'border-b border-border',
+          'mx-auto block max-h-[min(70vh,48rem)] w-full object-contain [image-rendering:auto]',
+          // touch-none so a finger drag reaches the guest instead of
+          // scrolling the page out from under it.
+          pointer && 'cursor-crosshair touch-none',
         )}
-      >
-        <Monitor className="size-3.5 text-primary" aria-hidden />
-        <span className="text-xs font-medium">Display</span>
-        <span className="font-mono text-[11px] text-muted-foreground">
-          {display.width}×{display.height}
-        </span>
-        {pointer && (
-          <span
-            role="img"
-            aria-label="Touch input enabled"
-            title="Click and drag on the display — it is a virtio-input tablet"
-          >
-            <Pointer className="size-3 text-muted-foreground" aria-hidden />
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label={collapsed ? 'Expand display' : 'Collapse display'}
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((value) => !value)}
-          >
-            <ChevronDown
-              className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')}
-            />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Hide display panel"
-            onClick={() => setDismissed(true)}
-          >
-            <X className="size-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <div className="bg-black p-2">
-          <canvas
-            key={strategy}
-            ref={canvasRef}
-            className={cn(
-              'mx-auto block max-h-[min(70vh,48rem)] w-full object-contain [image-rendering:auto]',
-              // touch-none so a finger drag reaches the guest instead of
-              // scrolling the page out from under it.
-              pointer && 'cursor-crosshair touch-none',
-            )}
-            style={{ aspectRatio: `${display.width} / ${display.height}` }}
-            aria-label={`Guest display, ${display.width} by ${display.height} pixels${
-              pointer ? ', accepts touch input' : ''
-            }`}
-            {...pointerHandlers}
-          />
-        </div>
-      )}
+        style={{ aspectRatio: `${display.width} / ${display.height}` }}
+        aria-label={`Guest display, ${display.width} by ${display.height} pixels${
+          pointer ? ', accepts touch input' : ''
+        }`}
+        {...pointerHandlers}
+      />
     </div>
   )
 }
