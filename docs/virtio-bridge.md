@@ -139,36 +139,53 @@ touch a virtqueue off the QEMU thread.
   of the browser, fire on an empty ring, warp again, and inflate guest time
   while making no progress. The drain therefore runs on `QEMU_CLOCK_REALTIME`:
   1 ms while tokens are parked, 10 ms idle.
-- **QEMU → page.** `setTimeout(…, 0)` for 250 ms after any request, falling
-  back to a 50 ms timer when idle. Deliberately *not* a `MessageChannel` loop:
-  that would give a true zero-delay macrotask, but this is the main thread, and
-  spinning one for the duration of a transfer burst starves rendering. Nested
-  `setTimeout(0)` is clamped to ~4 ms by browsers, and that is a fine price.
+- **QEMU → page.** A `MessagePort` loop for 250 ms after any request, falling
+  back to a 50 ms timer when idle.
 
-Budget is therefore roughly 5 ms per blocking transfer — the page's ~4 ms plus
-QEMU's 1 ms — and one shared-memory read per device per 50 ms at rest. A GPIO
-poke is imperceptible; a 127-address `i2c scan` lands near 0.6 s. If measurement ever demands better,
+  The port rather than `setTimeout(…, 0)`, because of what a *background* tab
+  does. Nested `setTimeout(0)` is clamped to ~4 ms while visible but to about a
+  second while hidden — measured at 681 ms per tick in the tab this was
+  developed against. Since a guest thread sits in `k_sem_take(…, K_FOREVER)`
+  until the page answers, that clamp is not a slow page, it is a frozen guest:
+  an `i2c scan` crawling at one address per second. `postMessage` delivery is
+  not throttled, so a burst runs at full speed whether or not anyone is
+  watching. The cost is that the loop competes for the main thread while the
+  window is open — it yields between macrotasks rather than blocking, and the
+  window only stays open while requests keep arriving, but it is why the idle
+  path stays on a plain timer.
+
+At rest this is one shared-memory read per device per 50 ms. Under load a
+blocking transfer costs QEMU's 1 ms drain plus however fast the page's event
+loop turns. The end-to-end figure worth quoting is the one that was actually
+measured: a 116-address `i2c scan` — 116 blocking round trips back to back —
+completes in under ten seconds in a *hidden* tab, against roughly two minutes
+before the port replaced the timer. If measurement ever demands better,
 the levers in order are: proxying a wake onto the page via
 `MAIN_THREAD_ASYNC_EM_ASM`, `qemu_bh_schedule()` from the page to wake the main
 loop on completion, and a shadow register file the QEMU thread can answer
 cached reads from without leaving the thread at all.
 
-## A backgrounded tab stalls the guest
+## What a backgrounded tab costs
 
-Worth stating plainly, because it is new. When the device model lived in C, a
+Worth stating plainly, because it is new: when the device model lived in C, a
 GPIO read was answered inside QEMU and never touched the page's event loop. Now
-the guest blocks until the page answers, and a hidden or backgrounded tab has
-its timers throttled to roughly once a minute — so guest GPIO stops until the
-tab is foregrounded again, then resumes exactly where it left off. Observed
-directly: `blinky` freezes mid-toggle with `req_wr` pinned and one chain
-outstanding, and continues the moment the tab is visible.
+the guest blocks until the page answers, so the page's scheduling is the
+guest's scheduling.
 
-Nothing is lost — no timeout, no dropped chain, and the watchdog below does not
-fire because the request is answered as soon as the page runs again. But it
-means any device on this bridge is only live while the tab is. That is fine for
-a foreground demo, and it is the same bargain the rest of the page already
-makes; it is worth remembering for an I2C sensor whose driver polls on a
-Zephyr timer, which will see time jump rather than samples go missing.
+The `MessagePort` hot path above is what makes that survivable — a burst in a
+hidden tab runs at full speed. What remains is the *first* request after an
+idle period, which the 50 ms timer notices, and that timer is throttled to
+roughly a second while hidden. So a background tab adds about a second of
+latency to the start of a burst and nothing after it.
+
+Nothing is ever lost: no timeout, no dropped chain, and the watchdog below does
+not fire, because the request is answered as soon as the page runs. A guest
+driver polling a sensor on a Zephyr timer sees time jump rather than samples go
+missing.
+
+This was found the hard way — `blinky` freezing mid-toggle with `req_wr` pinned
+and one chain outstanding, resuming the instant the tab became visible — which
+is worth knowing before diagnosing a hang that is really just a hidden tab.
 
 ## Watchdog
 
