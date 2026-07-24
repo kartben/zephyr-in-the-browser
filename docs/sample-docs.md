@@ -28,3 +28,10 @@ exists when the *top-level* document is cross-origin isolated, so the docs
 pages have to opt in themselves for the embedded emulator to boot on GitHub
 Pages. Restart the dev server after regenerating — Vite caches the `public/`
 file list at startup.
+
+The script also writes `public/docs/manifest.json` — per-sample title,
+description and links (mirrored page, canonical docs, GitHub source), keyed by
+sample path. The app's sample gallery ([src/sampleDocs.ts](../src/sampleDocs.ts))
+fetches it lazily to enrich its cards; when the mirror has not run (any dev
+checkout), the gallery still works from the curated metadata in
+`src/boards.ts` and the links it can compute from the sample path alone.
