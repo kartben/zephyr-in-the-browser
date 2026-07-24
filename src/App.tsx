@@ -3,17 +3,23 @@ import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
 import { PeripheralPanels } from '@/components/PeripheralPanels'
 import { DropOverlay } from '@/components/DropOverlay'
+import { DtsPromptDialog } from '@/components/DtsPromptDialog'
 import {
   clear as clearGuestImage,
   get as getGuestImage,
+  looksLikeElf,
   readFile as readGuestImage,
   set as setGuestImage,
   stash as stashGuestImage,
   subscribe as subscribeGuestImage,
+  type GuestImage,
 } from '@/guestImage'
 import {
   clear as clearDeviceTree,
+  clearStashedDts,
   get as getDeviceTree,
+  setUserDts,
+  stashUserDts,
   subscribe as subscribeDeviceTree,
 } from '@/devicetree'
 import { emphasisPanels } from '@/dts'
@@ -171,27 +177,105 @@ export default function App() {
     [applySelection],
   )
   /**
-   * Boot a user-supplied ELF. If QEMU has already committed this document the
-   * bytes have to survive a reload, so they go through the IndexedDB handoff;
-   * otherwise the session can just be remounted around them.
+   * A user ELF awaiting its optional devicetree — the prompt dialog is open
+   * while this is set. Booting happens in commitElf, not before.
    */
-  const handleLoadElf = useCallback(async (file: File) => {
-    try {
-      const image = await readGuestImage(file)
-      if (backendRef.current?.resetRequiresReload) {
-        await stashGuestImage(image)
-        location.reload()
-        return
-      }
-      setGuestImage(image)
-      setNonce((n) => n + 1)
-    } catch (err) {
-      setStatus({
-        status: 'error',
-        detail: err instanceof Error ? err.message : String(err),
-      })
-    }
+  const [pendingElf, setPendingElf] = useState<GuestImage | null>(null)
+
+  const reportError = useCallback((err: unknown) => {
+    setStatus({
+      status: 'error',
+      detail: err instanceof Error ? err.message : String(err),
+    })
   }, [])
+
+  /**
+   * Boot a user-supplied ELF, with or without its devicetree. If QEMU has
+   * already committed this document the bytes have to survive a reload, so
+   * both files go through the IndexedDB handoff; otherwise the session can
+   * just be remounted around them. A stale stashed devicetree is cleared
+   * either way, so skipping the prompt cannot resurrect an old one.
+   */
+  const commitElf = useCallback(
+    async (image: GuestImage, dts: { name: string; text: string } | null) => {
+      setPendingElf(null)
+      try {
+        if (backendRef.current?.resetRequiresReload) {
+          await stashGuestImage(image)
+          if (dts) await stashUserDts(dts.name, dts.text)
+          else await clearStashedDts()
+          location.reload()
+          return
+        }
+        if (dts) setUserDts(dts.name, dts.text)
+        else clearDeviceTree()
+        setGuestImage(image)
+        setNonce((n) => n + 1)
+      } catch (err) {
+        reportError(err)
+      }
+    },
+    [reportError],
+  )
+
+  /** An ELF chosen via the picker: validate it, then ask about its devicetree. */
+  const handleLoadElf = useCallback(
+    async (file: File) => {
+      try {
+        setPendingElf(await readGuestImage(file))
+      } catch (err) {
+        reportError(err)
+      }
+    },
+    [reportError],
+  )
+
+  /**
+   * Files dropped on the window: an ELF (prompt for its devicetree), an ELF
+   * plus a .dts (boot with both, no prompt), or a .dts alone for the custom
+   * image already running.
+   */
+  const handleFilesDropped = useCallback(
+    async (files: File[]) => {
+      try {
+        let elf: GuestImage | null = null
+        let dts: { name: string; text: string } | null = null
+        for (const file of files) {
+          const bytes = new Uint8Array(await file.arrayBuffer())
+          if (looksLikeElf(bytes)) {
+            elf ??= { name: file.name, bytes }
+            continue
+          }
+          const text = new TextDecoder().decode(bytes)
+          if (file.name.endsWith('.dts') || text.slice(0, 256).includes('/dts-v1/')) {
+            dts ??= { name: file.name, text }
+          }
+        }
+
+        if (elf && dts) return void commitElf(elf, dts)
+        if (elf) return void setPendingElf(elf)
+        if (dts) {
+          // A devicetree alone only makes sense against a user image — a
+          // bundled sample already carries its own truth.
+          if (getGuestImage() === null) {
+            throw new Error(`${dts.name}: drop the ELF this devicetree belongs to as well.`)
+          }
+          if (backendRef.current?.resetRequiresReload) {
+            await stashGuestImage(getGuestImage()!)
+            await stashUserDts(dts.name, dts.text)
+            location.reload()
+            return
+          }
+          setUserDts(dts.name, dts.text)
+          return
+        }
+        throw new Error(`${files[0].name} is not an ELF file (bad magic).`)
+      } catch (err) {
+        reportError(err)
+      }
+    },
+    [commitElf, reportError],
+  )
 
   const handleClearImage = useCallback(() => {
     clearGuestImage()
@@ -261,7 +345,25 @@ export default function App() {
       </main>
 
       {/* Whole-window target, so the drop works wherever the pointer is. */}
-      <DropOverlay onFile={handleLoadElf} />
+      <DropOverlay onFiles={handleFilesDropped} />
+
+      {/* Follow-up to a user ELF: optionally take its zephyr.dts before boot. */}
+      <DtsPromptDialog
+        elfName={pendingElf?.name ?? ''}
+        open={pendingElf !== null}
+        onDts={(file) => {
+          const elf = pendingElf
+          if (!elf) return
+          void file
+            .text()
+            .then((text) => commitElf(elf, { name: file.name, text }))
+            .catch(reportError)
+        }}
+        onSkip={() => {
+          if (pendingElf) void commitElf(pendingElf, null)
+        }}
+        onDismiss={() => setPendingElf(null)}
+      />
     </div>
   )
 }

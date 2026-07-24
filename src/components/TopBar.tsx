@@ -1,8 +1,11 @@
-import { Cpu, RefreshCw, RotateCcw } from 'lucide-react'
+import { useCallback, useState, useSyncExternalStore } from 'react'
+import { Cpu, FileCode2, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
-import { ImagePicker } from '@/components/ImagePicker'
+import { SampleGallery } from '@/components/SampleGallery'
+import { DtsViewer } from '@/components/DtsViewer'
+import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import type { BackendStatus } from '@/backends'
 
 interface Props {
@@ -54,7 +57,7 @@ export function TopBar({
       <div className="ml-auto flex min-w-0 items-center gap-3">
         <BoardSelect boardId={boardId} onBoardChange={onBoardChange} />
 
-        <ImagePicker
+        <SampleGallery
           boardId={boardId}
           sampleId={sampleId}
           onSampleChange={onSampleChange}
@@ -62,6 +65,8 @@ export function TopBar({
           onLoadElf={onLoadElf}
           onClearImage={onClearImage}
         />
+
+        <RunningDtsButton />
 
         <StatusPill status={status} detail={detail} />
 
@@ -71,5 +76,39 @@ export function TopBar({
         </Button>
       </div>
     </header>
+  )
+}
+
+/**
+ * Opens the devicetree of the *running* build in the viewer. Self-subscribed
+ * rather than threaded through TopBar's props: whether a tree is known is the
+ * devicetree store's business, and the button simply is not there when none is.
+ */
+function RunningDtsButton() {
+  const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
+  const [open, setOpen] = useState(false)
+  const load = useCallback(() => Promise.resolve(getDeviceTree()?.text ?? null), [])
+
+  if (!deviceTree) return null
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 shrink-0"
+        aria-label="View the running build's devicetree"
+        title={`Devicetree: ${deviceTree.name}`}
+        onClick={() => setOpen(true)}
+      >
+        <FileCode2 className="size-4" />
+      </Button>
+      <DtsViewer
+        open={open}
+        onOpenChange={setOpen}
+        title={`${deviceTree.name} — running build`}
+        load={load}
+      />
+    </>
   )
 }

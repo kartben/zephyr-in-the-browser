@@ -106,6 +106,14 @@ async function fetchDtsText(assetUrl: string): Promise<string | null> {
   return text
 }
 
+/**
+ * Read a sample's .dts without touching the store — the gallery's devicetree
+ * viewer peeks at samples that are not running. Shares the fetch cache.
+ */
+export function peekSampleDts(assetUrl: string): Promise<string | null> {
+  return fetchDtsText(assetUrl)
+}
+
 let fetchEpoch = 0
 
 /**
