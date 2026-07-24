@@ -7,18 +7,32 @@ on:
     inputs:
       emulator_release:
         description: >-
-          Release tag holding the qemu-wasm artifacts. Overrides the
+          Release tag holding qemu-wasm-emulator.tar.gz. Overrides the
           EMULATOR_RELEASE repository variable for this run. Leave empty to use
           that variable, or deploy mock-only if it is unset too.
         required: false
         default: ''
+      images_release:
+        description: >-
+          Release tag holding zephyr-images.tar.gz. Overrides the IMAGES_RELEASE
+          repository variable for this run. Leave empty to use that variable,
+          which itself falls back to the emulator tag.
+        required: false
+        default: ''
 
-# Which release the emulator comes from. A push has no inputs, so it falls back
-# to the repository variable — set EMULATOR_RELEASE once (Settings → Secrets and
-# variables → Actions → Variables) and every push ships the real emulator.
-# Unset, pushes deploy the mock backend alone, which still builds and runs.
+# Which release each half of the payload comes from. A push has no inputs, so it
+# falls back to the repository variables — set EMULATOR_RELEASE once (Settings →
+# Secrets and variables → Actions → Variables) and every push ships the real
+# emulator. Unset, pushes deploy the mock backend alone, which still builds and
+# runs.
+#
+# The emulator and the guest images are pinned separately so a Zephyr-only
+# change can ship by moving IMAGES_RELEASE alone, with no QEMU rebuild. When
+# IMAGES_RELEASE is unset the images come from the emulator's tag, which is the
+# pre-split behaviour.
 env:
-  RELEASE_TAG: ${{ inputs.emulator_release || vars.EMULATOR_RELEASE }}
+  EMULATOR_TAG: ${{ inputs.emulator_release || vars.EMULATOR_RELEASE }}
+  IMAGES_TAG: ${{ inputs.images_release || vars.IMAGES_RELEASE || inputs.emulator_release || vars.EMULATOR_RELEASE }}
 
 permissions:
   contents: read
@@ -47,17 +61,63 @@ jobs:
       # tools/build-qemu-wasm.sh, so it travels as a release asset instead.
       # Without it the build still succeeds and ships the mock backend, which
       # needs no cross-origin isolation.
-      # Release assets are flat, so the artifacts travel as one tarball rooted
-      # at qemu/ (see tools/package-emulator.sh) to preserve the zephyr/
+      # Release assets are flat, so each artifact set travels as a tarball
+      # rooted at qemu/ (see tools/package-emulator.sh) to preserve the zephyr/
       # subdirectory.
-      - name: Fetch emulator artifacts
-        if: env.RELEASE_TAG != ''
+      - name: Fetch emulator and guest images
+        if: env.EMULATOR_TAG != '' || env.IMAGES_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "$RELEASE_TAG" \
-            --pattern 'qemu-wasm-artifacts.tar.gz' --dir /tmp --clobber
-          tar xzf /tmp/qemu-wasm-artifacts.tar.gz -C public
+          set -euo pipefail
+
+          # Releases cut before the emulator/images split carry a single
+          # combined asset. Fall back to it so an existing EMULATOR_RELEASE
+          # keeps deploying unchanged.
+          LEGACY=qemu-wasm-artifacts.tar.gz
+          legacy_from=''
+
+          has_asset() {
+            gh release view "$1" --json assets -q '.assets[].name' 2>/dev/null \
+              | grep -qx "$2"
+          }
+
+          fetch() {
+            echo "--- $2 from $1 ---"
+            gh release download "$1" --pattern "$2" --dir /tmp --clobber
+            tar xzf "/tmp/$2" -C public
+          }
+
+          if [ -n "$EMULATOR_TAG" ]; then
+            if has_asset "$EMULATOR_TAG" qemu-wasm-emulator.tar.gz; then
+              fetch "$EMULATOR_TAG" qemu-wasm-emulator.tar.gz
+            elif has_asset "$EMULATOR_TAG" "$LEGACY"; then
+              echo "note: $EMULATOR_TAG predates the split, using $LEGACY"
+              fetch "$EMULATOR_TAG" "$LEGACY"
+              legacy_from="$EMULATOR_TAG"
+            else
+              echo "::error::release '$EMULATOR_TAG' has neither qemu-wasm-emulator.tar.gz nor $LEGACY"
+              exit 1
+            fi
+          fi
+
+          if [ -n "$IMAGES_TAG" ]; then
+            if has_asset "$IMAGES_TAG" zephyr-images.tar.gz; then
+              # Drop anything the emulator's legacy tarball brought along, so a
+              # sample deleted from the manifest does not linger in the deploy.
+              if [ -n "$legacy_from" ]; then rm -rf public/qemu/zephyr; fi
+              fetch "$IMAGES_TAG" zephyr-images.tar.gz
+            elif [ "$legacy_from" = "$IMAGES_TAG" ]; then
+              echo "--- guest images already unpacked from $LEGACY ---"
+            elif has_asset "$IMAGES_TAG" "$LEGACY"; then
+              echo "note: $IMAGES_TAG predates the split, using $LEGACY"
+              fetch "$IMAGES_TAG" "$LEGACY"
+            else
+              echo "::error::release '$IMAGES_TAG' has neither zephyr-images.tar.gz nor $LEGACY"
+              exit 1
+            fi
+          fi
+
           echo "--- public/qemu ---"
           find public/qemu -type f -printf '%10s  %p\n'
 
@@ -74,22 +134,26 @@ jobs:
 
       # Fail loudly rather than silently shipping a demo that cannot start.
       # The mock-only case is legitimate; a half-populated public/qemu/ is not.
+      # Each half is checked only when it was actually asked for, so an
+      # images-only or emulator-only deploy is not held to the other's bar.
       - name: Verify deployable output
         run: |
           test -f dist/coi-serviceworker.js \
             || { echo "::error::coi-serviceworker.js missing — the deploy would not be cross-origin isolated"; exit 1; }
-          if [ -n "$RELEASE_TAG" ]; then
+          if [ -n "$EMULATOR_TAG" ]; then
             test -f dist/qemu/qemu-system-arm.js \
               && test -f dist/qemu/qemu-system-aarch64.js \
               || { echo "::error::emulator release did not contain both JS loaders"; exit 1; }
             ls dist/qemu/*.wasm >/dev/null 2>&1 \
               || { echo "::error::emulator release did not contain a .wasm"; exit 1; }
+          fi
+          if [ -n "$IMAGES_TAG" ]; then
             # Images live at zephyr/<board>/<app>.elf, so this has to recurse.
-            [ -n "$(find dist/qemu/zephyr -name '*.elf' -print -quit)" ] \
-              || { echo "::error::emulator release did not contain a guest image"; exit 1; }
+            [ -n "$(find dist/qemu/zephyr -name '*.elf' -print -quit 2>/dev/null)" ] \
+              || { echo "::error::images release did not contain a guest image"; exit 1; }
             test -f dist/qemu/zephyr/qemu_cortex_m3/gnss.elf \
               && test -f dist/qemu/zephyr/qemu_cortex_a53/gnss.elf \
-              || { echo "::error::emulator release did not contain both GNSS images"; exit 1; }
+              || { echo "::error::images release did not contain both GNSS images"; exit 1; }
           fi
           du -sh dist
 
