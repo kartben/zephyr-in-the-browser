@@ -63,6 +63,34 @@ So the three cases are:
 - **An emulator change** (QEMU patches, a browser bridge) —
   `tools/release.sh all --deploy`. The slow path, and the only one that needs it.
 
+## Guest images from CI — no local toolchain at all
+
+The images half can also be built and released entirely on GitHub:
+**Actions → Build guest images → Run workflow**
+([.github/workflows/build-images.yml](../.github/workflows/build-images.yml)),
+or from a terminal:
+
+```console
+gh workflow run build-images.yml                 # build all, release, repoint
+gh workflow run build-images.yml -f deploy=true  # ...and make it live now
+```
+
+The runner gets a west workspace and both guest toolchains from
+[zephyrproject-rtos/action-zephyr-setup](https://github.com/zephyrproject-rtos/action-zephyr-setup),
+driven by the [west.yml](../west.yml) manifest at the repo root — Zephyr's
+revision (currently `main`) and the module allowlist are pinned there.
+`tools/build-zephyr-image.sh` runs in its native mode (`ZEPHYR_NATIVE=1`)
+against that workspace instead of the Docker container.
+
+A default run mirrors `tools/release.sh images`: build every sample, upload
+`zephyr-images.tar.gz` to the next free `vN` release, point `IMAGES_RELEASE`
+at it, and leave the deploy to the next push to `main` (check **deploy** to
+dispatch it immediately). Uncheck **publish** for a smoke build whose tarball
+is only kept as a workflow artifact — that is also the mode to combine with a
+**board**/**app** filter, since a published release must carry the full set.
+The workspace and SDK are cached between runs, so the first run is the slow
+one.
+
 ## Doing it by hand
 
 `release.sh` is a wrapper; the underlying steps still work on their own, which is

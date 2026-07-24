@@ -1,0 +1,36 @@
+# West manifest for CI image builds.
+#
+# .github/workflows/build-images.yml points zephyrproject-rtos/action-zephyr-setup
+# at this file: the runner gets a west workspace with zephyr and the few modules
+# the packaged samples need, next to this repository's checkout, plus the two
+# guest toolchains. Local builds do not need it — tools/build-zephyr-image.sh
+# defaults to the containerized flow against your own workspace (ZEPHYR_WS).
+#
+# Zephyr tracks `main` because the browser_bridge module targets current Zephyr
+# (vendored not-yet-upstream virtio drivers, hwmv2 board names). Pin a tag or
+# SHA here when a build needs to be reproducible; the CI cache keys off this
+# file, so changing the revision naturally invalidates it.
+manifest:
+  self:
+    path: zephyr-in-the-browser
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: main
+      import:
+        # Only what the packaged samples pull in — a full `west update` clones
+        # a couple dozen HALs these QEMU builds never touch. If a build fails
+        # with "module not found", add it here.
+        name-allowlist:
+          - cmsis        # ARM builds
+          - cmsis_6
+          - lvgl         # display demos, accelerometer chart
+          - mbedtls
+          - picolibc
+          - segger
+          - zcbor

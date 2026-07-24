@@ -21,11 +21,17 @@
 # browser-sized ramfb — to the plain QEMU boards.
 #
 # Environment overrides:
-#   ZEPHYR_WS     west workspace   (default: ~/zephyrproject)
-#   ZEPHYR_IMAGE  container image  (default: ghcr.io/zephyrproject-rtos/zephyr-build:main)
+#   ZEPHYR_WS      west workspace   (default: ~/zephyrproject)
+#   ZEPHYR_IMAGE   container image  (default: ghcr.io/zephyrproject-rtos/zephyr-build:main)
+#   ZEPHYR_NATIVE  if non-empty, run west and the SDK tools directly instead of
+#                  in the container — for environments that already carry a
+#                  workspace, toolchains and west on PATH, like the CI runner
+#                  that .github/workflows/build-images.yml prepares with
+#                  zephyrproject-rtos/action-zephyr-setup.
 #
-# Needs no local Zephyr toolchain — everything runs in the container. Build
-# directories are per-app, so independent invocations can run concurrently.
+# In the default (container) mode this needs no local Zephyr toolchain —
+# everything runs in the container. Build directories are per-app, so
+# independent invocations can run concurrently.
 #
 # To ship the result, run tools/release.sh images — it packages these into their
 # own release asset, separate from the emulator's, and points IMAGES_RELEASE at
@@ -74,7 +80,55 @@ SELECTED="$(echo "$ENTRIES" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
 # the snippets its snippet_root exposes. Everything is passed as CMake args;
 # note that current Zephyr *rejects* -DCONFIG_* on the command line, so Kconfig
 # tweaks travel in .conf fragments listed per app in the manifest.
-MODULE=/repo/zephyr-module
+#
+# The path depends on the mode: the container sees this repo mounted at /repo,
+# a native build uses it in place.
+if [ -n "${ZEPHYR_NATIVE:-}" ]; then
+  MODULE="$ROOT/zephyr-module"
+  REPO_MOUNT="$ROOT"
+else
+  MODULE=/repo/zephyr-module
+  REPO_MOUNT=/repo
+fi
+
+# The guest arch decides which SDK strip to use; keyed off readelf's Machine
+# line, same mapping as the container path below.
+strip_prefix_for() {
+  case "$1" in
+    *AArch64*)        echo aarch64-zephyr-elf ;;
+    *ARM*)            echo arm-zephyr-eabi ;;
+    *RISC-V*)         echo riscv64-zephyr-elf ;;
+    *X86-64*|*Intel*) echo x86_64-zephyr-elf ;;
+    *) return 1 ;;
+  esac
+}
+
+# Locate the SDK's <prefix>-strip for a native build: explicit override first,
+# then the CMake package registry every SDK install writes (this is how the
+# build itself finds the SDK), then the default home layout, then PATH.
+native_strip_tool() {
+  local prefix="$1" reg root candidate
+  if [ -n "${ZEPHYR_SDK_INSTALL_DIR:-}" ]; then
+    candidate="$ZEPHYR_SDK_INSTALL_DIR/$prefix/bin/$prefix-strip"
+    if [ -x "$candidate" ]; then echo "$candidate"; return 0; fi
+  fi
+  for reg in "$HOME"/.cmake/packages/Zephyr-sdk/*; do
+    if [ -f "$reg" ]; then
+      root="$(dirname "$(cat "$reg")")" # the registry stores <sdk>/cmake
+      candidate="$root/$prefix/bin/$prefix-strip"
+      if [ -x "$candidate" ]; then echo "$candidate"; return 0; fi
+    fi
+  done
+  for candidate in "$HOME"/zephyr-sdk-*/"$prefix"/bin/"$prefix"-strip; do
+    if [ -x "$candidate" ]; then echo "$candidate"; return 0; fi
+  done
+  if command -v "$prefix-strip" >/dev/null 2>&1; then
+    command -v "$prefix-strip"
+    return 0
+  fi
+  echo "no $prefix-strip found — set ZEPHYR_SDK_INSTALL_DIR" >&2
+  return 1
+}
 
 build_one() {
   local board="$1" id="$2" sample="$3" confs="$4" snippets="$5"
@@ -109,39 +163,55 @@ build_one() {
 
   # Stock samples live in the zephyr tree; a sample path starting with
   # "zephyr-module/" is one of this repo's own apps under zephyr-module/apps/
-  # (none packaged right now), resolved from the repo mount instead.
+  # (none packaged right now), resolved from the repo instead.
   local src="zephyr/$sample"
   case "$sample" in
-    zephyr-module/*) src="/repo/$sample" ;;
+    zephyr-module/*) src="$REPO_MOUNT/$sample" ;;
   esac
 
   log "Building $id ($sample) for $board"
-  docker run --rm \
-    -v "$ZEPHYR_WS:/workdir" \
-    -v "$work:/out" \
-    -v "$ROOT:/repo:ro" \
-    -w /workdir \
-    "$ZEPHYR_IMAGE" \
-    bash -lc "west build -p always -b '$board'$snippet_args '$src' -d /out/build -- $cmake_args"
+  if [ -n "${ZEPHYR_NATIVE:-}" ]; then
+    # Same command string the container path hands to bash -lc, with the build
+    # directory reachable directly; eval applies the quoting it carries.
+    local build_cmd="west build -p always -b '$board'$snippet_args '$src' -d '$work/build' -- $cmake_args"
+    (cd "$ZEPHYR_WS" && eval "$build_cmd")
+  else
+    docker run --rm \
+      -v "$ZEPHYR_WS:/workdir" \
+      -v "$work:/out" \
+      -v "$ROOT:/repo:ro" \
+      -w /workdir \
+      "$ZEPHYR_IMAGE" \
+      bash -lc "west build -p always -b '$board'$snippet_args '$src' -d /out/build -- $cmake_args"
+  fi
 
   # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
   # and it is fetched over HTTP on every boot, so strip it. The right strip
   # binary depends on the guest arch, so pick it from the ELF's own machine type.
-  docker run --rm -v "$work:/out" "$ZEPHYR_IMAGE" bash -lc '
-    set -euo pipefail
-    elf=/out/build/zephyr/zephyr.elf
-    machine=$(readelf -h "$elf" | awk -F: "/Machine:/ {print \$2}" | xargs)
-    case "$machine" in
-      *AArch64*)   prefix=aarch64-zephyr-elf ;;
-      *ARM*)       prefix=arm-zephyr-eabi ;;
-      *RISC-V*)    prefix=riscv64-zephyr-elf ;;
-      *X86-64*|*Intel*) prefix=x86_64-zephyr-elf ;;
-      *) echo "unhandled ELF machine: $machine" >&2; exit 1 ;;
-    esac
-    strip=$(find /opt/toolchains -name "${prefix}-strip" | head -1)
-    [ -n "$strip" ] || { echo "no strip for $prefix" >&2; exit 1; }
-    "$strip" -o /out/stripped.elf "$elf"
-  '
+  if [ -n "${ZEPHYR_NATIVE:-}" ]; then
+    local elf="$work/build/zephyr/zephyr.elf" machine prefix strip_tool
+    machine=$(readelf -h "$elf" | awk -F: '/Machine:/ {print $2}' | xargs)
+    prefix=$(strip_prefix_for "$machine") \
+      || { echo "unhandled ELF machine: $machine" >&2; exit 1; }
+    strip_tool=$(native_strip_tool "$prefix")
+    "$strip_tool" -o "$work/stripped.elf" "$elf"
+  else
+    docker run --rm -v "$work:/out" "$ZEPHYR_IMAGE" bash -lc '
+      set -euo pipefail
+      elf=/out/build/zephyr/zephyr.elf
+      machine=$(readelf -h "$elf" | awk -F: "/Machine:/ {print \$2}" | xargs)
+      case "$machine" in
+        *AArch64*)   prefix=aarch64-zephyr-elf ;;
+        *ARM*)       prefix=arm-zephyr-eabi ;;
+        *RISC-V*)    prefix=riscv64-zephyr-elf ;;
+        *X86-64*|*Intel*) prefix=x86_64-zephyr-elf ;;
+        *) echo "unhandled ELF machine: $machine" >&2; exit 1 ;;
+      esac
+      strip=$(find /opt/toolchains -name "${prefix}-strip" | head -1)
+      [ -n "$strip" ] || { echo "no strip for $prefix" >&2; exit 1; }
+      "$strip" -o /out/stripped.elf "$elf"
+    '
+  fi
 
   cp "$work/stripped.elf" "$dest/$id.elf"
   printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$dest/$id.elf" | xargs)"
