@@ -51,10 +51,22 @@ config QEMU_HOST_MIC
 	  browser capturing getUserMedia audio, so Zephyr's DMIC API records
 	  from the user's real microphone.
 
-# Vendored, not ours: these two mirror the upstream names exactly so that the
-# migration is a deletion once the driver lands in mainline. See
+# Vendored, not ours: these mirror the upstream names exactly so that the
+# migration is a deletion once the drivers land in mainline. See
 # drivers/vendor/VENDOR.md — CMakeLists.txt drops the vendored source the
 # moment the Zephyr tree ships its own copy.
+config GPIO_VIRTIO
+	bool "VIRTIO GPIO driver"
+	default y
+	depends on DT_HAS_VIRTIO_GPIO_ENABLED
+	select VIRTIO
+	help
+	  Enable driver for VIRTIO GPIO devices.
+
+	  Every operation is a round trip to the virtio device, so the GPIO API
+	  can only be used from a thread, including from the interrupt callbacks
+	  fired by this driver.
+
 config VIRTIO_GPU_DISPLAY
 	bool "VIRTIO GPU display"
 	default y

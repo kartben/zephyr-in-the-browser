@@ -6,6 +6,7 @@ import {
   BUTTONS,
   LEDS,
   available,
+  controllerNode,
   isInputHigh,
   isOutputHigh,
   setInput,
@@ -14,16 +15,19 @@ import {
 } from '@/hostGpio'
 
 /**
- * Floating control for the qemu,host-gpio bridge.
+ * Floating control for the GPIO bridge — the Cortex-M3's qemu,host-gpio or the
+ * Cortex-A53's VIRTIO GPIO, which src/hostGpio.ts presents identically.
  *
  * Hidden entirely when the running emulator has no GPIO device, so a stock
  * qemu-wasm build shows no dead UI. Buttons are momentary — they drive their
  * input pin high only while held, like a real push button — and the LED row
  * reflects the output pins the guest drives. Reach them from the shell with
- * `gpio get host_gpio <pin>` and `gpio set host_gpio <pin> <0|1>`.
+ * `gpio get <controller> <pin>` and `gpio set <controller> <pin> <0|1>`, where
+ * the controller is whichever device is bound — the hint below names it.
  */
 export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
+  const node = useSyncExternalStore(subscribe, controllerNode, () => 'host_gpio')
   const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
 
@@ -90,9 +94,9 @@ export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
 
           <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
             In the guest:{' '}
-            <code className="font-mono text-foreground">gpio get host_gpio 0</code> reads
+            <code className="font-mono text-foreground">gpio get {node} 0</code> reads
             a button,{' '}
-            <code className="font-mono text-foreground">gpio set host_gpio 4 1</code>{' '}
+            <code className="font-mono text-foreground">gpio set {node} 4 1</code>{' '}
             lights an LED.
           </p>
         </div>

@@ -65,13 +65,30 @@ west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-modul
 
 Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the GPIO controller at 0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the virt patches in `tools/qemu-jit-patches/` put the sensor at 0x090c0000, the audio out at 0x090d0000 and the microphone at 0x090e0000.
 
-The module also carries a pristine copy of Zephyr's not-yet-upstream **virtio-gpu**
-display driver ([`zephyr-module/drivers/vendor/`](zephyr-module/drivers/vendor)),
-opt-in with `-S virtio-gpu`, which swaps the Cortex-A53 panel off ramfb. It is
-proven on the guest side but has no browser bridge yet, so nothing renders in the
-page under it — and measurements say it is not the way to a faster display
-anyway. Both are written up in
-[docs/next-drivers.md](docs/next-drivers.md#virtio-gpu--vendored-guest-side-proven-not-a-display-speed-up).
+The module also carries pristine copies of two not-yet-upstream Zephyr drivers
+([`zephyr-module/drivers/vendor/`](zephyr-module/drivers/vendor)), each opt-in
+behind a snippet:
+
+- **virtio-gpu** (`-S virtio-gpu`) swaps the Cortex-A53 panel off ramfb. Proven
+  on the guest side but with no browser bridge yet, so nothing renders in the
+  page under it — and measurements say it is not the way to a faster display
+  anyway. Written up in
+  [docs/next-drivers.md](docs/next-drivers.md#virtio-gpu--vendored-guest-side-proven-not-a-display-speed-up).
+- **virtio-gpio** (`-S virtio-gpio`) gives the Cortex-A53 the GPIO panel, on
+  virtio-mmio slot 2. This is the same browser buttons and LEDs the Cortex-M3
+  gets from `qemu,host-gpio`, but reached through a *standard* device: the guest
+  runs a stock VIRTIO driver instead of one written against a bespoke register
+  block, and because the device offers `VIRTIO_GPIO_F_IRQ`, buttons interrupt
+  the guest rather than being polled by it. The trade is latency — every GPIO
+  call is a virtqueue round trip, so the API is thread-context only.
+
+  Going virtio does *not* remove the downstream QEMU patch: `hw/virtio/` ships
+  only `vhost-user-gpio`, which forwards the virtqueues to a separate daemon
+  process, and a wasm build in a browser tab has none to run. What changes is
+  which side is bespoke —
+  [`tools/qemu-jit-patches/0010-hw-virtio-add-browser-backed-virtio-gpio.patch`](tools/qemu-jit-patches/0010-hw-virtio-add-browser-backed-virtio-gpio.patch)
+  implements the spec'd device so the guest side does not have to be. The
+  Cortex-M3 keeps its MMIO device: the LM3S6965 machine has no virtio-mmio bus.
 
 ## Touch input: the display panel is a tablet
 

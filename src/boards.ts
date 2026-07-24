@@ -217,6 +217,25 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/philosophers',
   },
   {
+    // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
+    // a standard VIRTIO GPIO device rather than a bespoke register block.
+    id: 'blinky',
+    label: 'Blinky',
+    description: 'Blinks LED0 over a VIRTIO GPIO device',
+    zephyrSample: 'samples/basic/blinky',
+    primaryPanels: ['gpio'],
+  },
+  {
+    // Interrupt-driven, unlike the Cortex-M3 build: this device offers
+    // VIRTIO_GPIO_F_IRQ, so gpio-keys arms an event virtqueue buffer instead
+    // of polling the pin.
+    id: 'basic_button',
+    label: 'Button',
+    description: 'A browser button lights an LED, over an interrupt-driven VIRTIO GPIO',
+    zephyrSample: 'samples/basic/button',
+    primaryPanels: ['gpio'],
+  },
+  {
     id: 'shell',
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `hostaudio` and `dmic` for the sound panel',
@@ -350,6 +369,12 @@ export const BOARDS: Board[] = [
       // reproduces the browser's wiring exactly.
       '-device',
       'virtio-tablet-device,bus=virtio-mmio-bus.3',
+      // GPIO: a standard VIRTIO GPIO device on the slot the shield overlay
+      // reserves for it (0x0a000400, SPI 18), driven by the vendored
+      // virtio,gpio driver. ngpio must match the overlay's ngpios. QEMU has no
+      // such device model of its own — see the JIT patch of the same name.
+      '-device',
+      'virtio-gpio-device,bus=virtio-mmio-bus.2,ngpio=8',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -357,6 +382,7 @@ export const BOARDS: Board[] = [
     peripherals: {
       gnss: true,
       hostSensor: true,
+      hostGpio: true,
       hostAudio: true,
       hostMic: true,
       ramfb: true,

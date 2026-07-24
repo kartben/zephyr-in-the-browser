@@ -47,3 +47,42 @@ commit merges, Kconfig will simply merge the two identical definitions, but the
 driver would be compiled twice and fail to link — which is why
 `zephyr-module/CMakeLists.txt` builds the vendored copy only when
 `${ZEPHYR_BASE}/drivers/display/display_virtio_gpu.c` does not exist.
+
+## `gpio_virtio.c`
+
+VIRTIO GPIO driver (virtio spec 1.3, section 5.16).
+
+| | |
+| --- | --- |
+| Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/114423> (draft) |
+| Commit | `92dacf42802bc5f8d090166ddc6d87627bbb7482` — *drivers: gpio: add VIRTIO GPIO driver* |
+| Path | `drivers/gpio/gpio_virtio.c` |
+| SHA-256 | `365bf14cf8d54fe0445df828778e49703c0fa50ed022486a4bd4cc729a3918b8` |
+
+Shipped alongside it, also unmodified from the same commit:
+
+- `zephyr-module/dts/bindings/gpio/virtio,gpio.yaml` — the `virtio,gpio`
+  binding (`dts/bindings/gpio/virtio,gpio.yaml` upstream), SHA-256
+  `a984889121d878e7968e425eec6caf5a584f40261399faf42ea2ddaa2d98ed2e`.
+
+The upstream branch also carries a `tests/drivers/build_all/gpio` entry, which
+is not vendored — it tests the driver in the Zephyr tree, not here.
+
+Note that the device this driver talks to is **not** stock QEMU: `hw/virtio/`
+ships only `vhost-user-gpio`, a shim onto an external daemon that a
+single-process wasm build has no way to run. The browser-backed device model is
+`tools/qemu-jit-patches/0010-hw-virtio-add-browser-backed-virtio-gpio.patch`.
+
+### Checking for drift
+
+```console
+diff <(gh api "repos/kartben/zephyr/contents/drivers/gpio/gpio_virtio.c?ref=claude/virtio-gpio-driver-9a5e5a" --jq .content | base64 -d) \
+     zephyr-module/drivers/vendor/gpio_virtio.c
+```
+
+### Kconfig symbol collision
+
+`CONFIG_GPIO_VIRTIO` is declared in `zephyr-module/Kconfig` under the *same*
+name upstream uses, for the same reason as `CONFIG_VIRTIO_GPU_DISPLAY` above,
+and with the same CMake guard — here on
+`${ZEPHYR_BASE}/drivers/gpio/gpio_virtio.c`.

@@ -1,0 +1,610 @@
+diff --git a/hw/virtio/Kconfig b/hw/virtio/Kconfig
+index 7648a2d..93ed1df 100644
+--- a/hw/virtio/Kconfig
++++ b/hw/virtio/Kconfig
+@@ -6,6 +6,11 @@ config VIRTIO_RNG
+     default y
+     depends on VIRTIO
+ 
++config VIRTIO_GPIO
++    bool
++    default y
++    depends on VIRTIO
++
+ config VIRTIO_NSM
+    bool
+    depends on LIBCBOR && VIRTIO
+diff --git a/hw/virtio/meson.build b/hw/virtio/meson.build
+index 164f6fd..77760bd 100644
+--- a/hw/virtio/meson.build
++++ b/hw/virtio/meson.build
+@@ -7,6 +7,7 @@ system_virtio_ss.add(when: 'CONFIG_VIRTIO_CRYPTO', if_true: files('virtio-crypto
+ system_virtio_ss.add(when: 'CONFIG_VHOST_VSOCK_COMMON', if_true: files('vhost-vsock-common.c'))
+ system_virtio_ss.add(when: 'CONFIG_VIRTIO_IOMMU', if_true: files('virtio-iommu.c'))
+ system_virtio_ss.add(when: 'CONFIG_VHOST_VDPA_DEV', if_true: files('vdpa-dev.c'))
++system_virtio_ss.add(when: 'CONFIG_VIRTIO_GPIO', if_true: files('virtio-gpio.c'))
+ 
+ specific_virtio_ss = ss.source_set()
+ specific_virtio_ss.add(files('virtio.c'))
+diff --git a/hw/virtio/virtio-gpio.c b/hw/virtio/virtio-gpio.c
+new file mode 100644
+index 0000000..063f375
+--- /dev/null
++++ b/hw/virtio/virtio-gpio.c
+@@ -0,0 +1,576 @@
++/*
++ * VIRTIO GPIO device (virtio spec 1.3, section 5.16), host-backed.
++ *
++ * QEMU ships no virtio-gpio device model: hw/virtio/vhost-user-gpio.c is a
++ * shim that forwards the virtqueues to a separate vhost-user daemon over a
++ * UNIX socket. qemu-wasm is a single process in a browser tab with no second
++ * process to talk to, so this implements the device itself, and backs it with
++ * the QEMU *host* the way hw/misc/qemu-host-sensor.c and friends do: the input
++ * lines are driven by the host and the output lines are observed by it. Under
++ * qemu-wasm the host is a browser, so a page button raises an input line and a
++ * guest-driven output lights a browser LED.
++ *
++ * The wire protocol is the standard one, which is the whole point -- the guest
++ * runs a stock virtio GPIO driver rather than a bespoke one written against a
++ * bespoke register block.
++ *
++ * Threading follows hw/misc/qemu-browser-input.c: the two entry points reachable
++ * from page JavaScript touch nothing but a pair of words, and a virtual-clock
++ * timer samples them on the QEMU thread under the BQL, which is the only place
++ * a virtqueue is ever touched. Interrupts are therefore edge-detected at the
++ * sampling tick, so a press and release inside one 10 ms period is missed --
++ * acceptable for a browser button, and the same bound the input bridge lives
++ * with.
++ *
++ * Nothing here is browser-specific: the entry points are ordinary C, so the
++ * device also works under native QEMU for testing the guest driver without a
++ * browser in the loop.
++ *
++ * Copyright (c) 2026
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/iov.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "qemu/timer.h"
++#include "qapi/error.h"
++#include "hw/qdev-properties.h"
++#include "hw/virtio/virtio.h"
++#include "migration/vmstate.h"
++#include "standard-headers/linux/virtio_ids.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define TYPE_VIRTIO_GPIO "virtio-gpio-device"
++OBJECT_DECLARE_SIMPLE_TYPE(VirtIOGPIO, VIRTIO_GPIO)
++
++/* A guest port is a machine word wide; the browser panel only shows eight. */
++#define VIRTIO_GPIO_MAX_LINES 32
++#define VIRTIO_GPIO_POLL_MS   10
++
++#define VIRTIO_GPIO_VQ_REQUEST 0
++#define VIRTIO_GPIO_VQ_EVENT   1
++
++#define VIRTIO_GPIO_F_IRQ 0
++
++#define VIRTIO_GPIO_MSG_GET_LINE_NAMES 0x0001
++#define VIRTIO_GPIO_MSG_GET_DIRECTION  0x0002
++#define VIRTIO_GPIO_MSG_SET_DIRECTION  0x0003
++#define VIRTIO_GPIO_MSG_GET_VALUE      0x0004
++#define VIRTIO_GPIO_MSG_SET_VALUE      0x0005
++#define VIRTIO_GPIO_MSG_IRQ_TYPE       0x0006
++
++#define VIRTIO_GPIO_STATUS_OK  0x0
++#define VIRTIO_GPIO_STATUS_ERR 0x1
++
++#define VIRTIO_GPIO_DIRECTION_NONE 0x00
++#define VIRTIO_GPIO_DIRECTION_OUT  0x01
++#define VIRTIO_GPIO_DIRECTION_IN   0x02
++
++#define VIRTIO_GPIO_IRQ_TYPE_NONE         0x00
++#define VIRTIO_GPIO_IRQ_TYPE_EDGE_RISING  0x01
++#define VIRTIO_GPIO_IRQ_TYPE_EDGE_FALLING 0x02
++#define VIRTIO_GPIO_IRQ_TYPE_EDGE_BOTH    0x03
++#define VIRTIO_GPIO_IRQ_TYPE_LEVEL_HIGH   0x04
++#define VIRTIO_GPIO_IRQ_TYPE_LEVEL_LOW    0x08
++
++#define VIRTIO_GPIO_IRQ_STATUS_INVALID 0x0
++#define VIRTIO_GPIO_IRQ_STATUS_VALID   0x1
++
++struct virtio_gpio_config {
++    uint16_t ngpio;
++    uint8_t padding[2];
++    uint32_t gpio_names_size;
++} QEMU_PACKED;
++
++struct virtio_gpio_request {
++    uint16_t type;
++    uint16_t gpio;
++    uint32_t value;
++} QEMU_PACKED;
++
++struct virtio_gpio_response {
++    uint8_t status;
++    uint8_t value;
++} QEMU_PACKED;
++
++struct virtio_gpio_irq_request {
++    uint16_t gpio;
++} QEMU_PACKED;
++
++struct virtio_gpio_irq_response {
++    uint8_t status;
++} QEMU_PACKED;
++
++struct VirtIOGPIO {
++    VirtIODevice parent_obj;
++
++    VirtQueue *requestq;
++    VirtQueue *eventq;
++
++    /* "ngpio" property: how many lines the config space advertises. */
++    uint32_t nlines;
++
++    uint8_t direction[VIRTIO_GPIO_MAX_LINES];
++    uint8_t irq_type[VIRTIO_GPIO_MAX_LINES];
++
++    /*
++     * The event virtqueue is not a request/response queue: the driver parks one
++     * buffer chain per line and the device holds it until that line's interrupt
++     * condition is met. One slot per line is enough because the driver may only
++     * have a single chain outstanding per line.
++     */
++    VirtQueueElement *irq_elem[VIRTIO_GPIO_MAX_LINES];
++
++    /* Input word as of the last sampling tick, for edge detection. */
++    uint32_t sampled_in;
++
++    QEMUTimer *poll_timer;
++};
++
++/*
++ * Host-facing state, global rather than per-device so the entry points below
++ * need no device handle -- one virtio-gpio per machine is the only sane
++ * configuration. Accessed from the browser thread and the QEMU thread, hence
++ * the atomics; a single 32-bit word needs nothing heavier.
++ */
++static uint32_t host_gpio_in;  /* driven by the host, read by the guest */
++static uint32_t host_gpio_out; /* driven by the guest, read by the host */
++
++/*
++ * Entry points for the embedding host. Under Emscripten these are reachable
++ * from page JavaScript as Module._qemu_virtio_gpio_set_inputs(mask) and
++ * Module._qemu_virtio_gpio_get_outputs(). Deliberately named apart from the
++ * qemu-host-gpio ones so a build carrying both devices exports both.
++ *
++ * Declared here rather than in a header because nothing inside QEMU calls them;
++ * the declarations exist only to keep -Wmissing-prototypes quiet.
++ */
++void qemu_virtio_gpio_set_inputs(uint32_t value);
++uint32_t qemu_virtio_gpio_get_outputs(void);
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_virtio_gpio_set_inputs(uint32_t value)
++{
++    qatomic_set(&host_gpio_in, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_gpio_get_outputs(void)
++{
++    return qatomic_read(&host_gpio_out);
++}
++
++static uint32_t virtio_gpio_line_mask(const VirtIOGPIO *g)
++{
++    return g->nlines >= 32 ? UINT32_MAX : (1u << g->nlines) - 1;
++}
++
++/* Hand a parked event chain back to the driver. */
++static void virtio_gpio_complete_irq(VirtIOGPIO *g, uint16_t line, uint8_t status)
++{
++    VirtIODevice *vdev = VIRTIO_DEVICE(g);
++    VirtQueueElement *elem = g->irq_elem[line];
++    struct virtio_gpio_irq_response res = { .status = status };
++    size_t sz;
++
++    if (!elem) {
++        return;
++    }
++    g->irq_elem[line] = NULL;
++
++    sz = iov_from_buf(elem->in_sg, elem->in_num, 0, &res, sizeof(res));
++    virtqueue_push(g->eventq, elem, sz);
++    g_free(elem);
++    virtio_notify(vdev, g->eventq);
++}
++
++static void virtio_gpio_do_request(VirtIOGPIO *g,
++                                   const struct virtio_gpio_request *req,
++                                   struct virtio_gpio_response *res)
++{
++    uint16_t type = le16_to_cpu(req->type);
++    uint16_t line = le16_to_cpu(req->gpio);
++    uint32_t value = le32_to_cpu(req->value);
++    uint32_t word;
++
++    /* Anything that falls through to the end of a case is a rejection. */
++    res->status = VIRTIO_GPIO_STATUS_ERR;
++    res->value = 0;
++
++    if (line >= g->nlines) {
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "virtio-gpio: request %u for line %u beyond ngpio %u\n",
++                      type, line, g->nlines);
++        return;
++    }
++
++    switch (type) {
++    case VIRTIO_GPIO_MSG_GET_DIRECTION:
++        res->value = g->direction[line];
++        res->status = VIRTIO_GPIO_STATUS_OK;
++        break;
++
++    case VIRTIO_GPIO_MSG_SET_DIRECTION:
++        if (value != VIRTIO_GPIO_DIRECTION_NONE &&
++            value != VIRTIO_GPIO_DIRECTION_OUT &&
++            value != VIRTIO_GPIO_DIRECTION_IN) {
++            return;
++        }
++        g->direction[line] = value;
++        res->status = VIRTIO_GPIO_STATUS_OK;
++        break;
++
++    case VIRTIO_GPIO_MSG_GET_VALUE:
++        /*
++         * An output reads back the level the guest drives, an input the level
++         * the host supplies. A line with no direction has no value to report,
++         * which the spec makes an error rather than a zero.
++         */
++        if (g->direction[line] == VIRTIO_GPIO_DIRECTION_OUT) {
++            res->value = (qatomic_read(&host_gpio_out) >> line) & 1;
++        } else if (g->direction[line] == VIRTIO_GPIO_DIRECTION_IN) {
++            res->value = (qatomic_read(&host_gpio_in) >> line) & 1;
++        } else {
++            return;
++        }
++        res->status = VIRTIO_GPIO_STATUS_OK;
++        break;
++
++    case VIRTIO_GPIO_MSG_SET_VALUE:
++        /*
++         * Legal before the line is an output: the spec has SET_VALUE record the
++         * level to drive, and SET_DIRECTION_OUT start driving it.
++         */
++        word = qatomic_read(&host_gpio_out);
++        if (value) {
++            word |= 1u << line;
++        } else {
++            word &= ~(1u << line);
++        }
++        qatomic_set(&host_gpio_out, word);
++        res->status = VIRTIO_GPIO_STATUS_OK;
++        break;
++
++    case VIRTIO_GPIO_MSG_IRQ_TYPE:
++        if (!virtio_vdev_has_feature(VIRTIO_DEVICE(g), VIRTIO_GPIO_F_IRQ)) {
++            return;
++        }
++        switch (value) {
++        case VIRTIO_GPIO_IRQ_TYPE_NONE:
++        case VIRTIO_GPIO_IRQ_TYPE_EDGE_RISING:
++        case VIRTIO_GPIO_IRQ_TYPE_EDGE_FALLING:
++        case VIRTIO_GPIO_IRQ_TYPE_EDGE_BOTH:
++        case VIRTIO_GPIO_IRQ_TYPE_LEVEL_HIGH:
++        case VIRTIO_GPIO_IRQ_TYPE_LEVEL_LOW:
++            break;
++        default:
++            return;
++        }
++        g->irq_type[line] = value;
++        if (value == VIRTIO_GPIO_IRQ_TYPE_NONE) {
++            /* Disabling releases the parked chain, flagged as not an event. */
++            virtio_gpio_complete_irq(g, line, VIRTIO_GPIO_IRQ_STATUS_INVALID);
++        }
++        res->status = VIRTIO_GPIO_STATUS_OK;
++        break;
++
++    case VIRTIO_GPIO_MSG_GET_LINE_NAMES:
++        /* gpio_names_size is 0: the lines are numbered, not named. */
++        break;
++
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR, "virtio-gpio: unknown request %u\n", type);
++        break;
++    }
++}
++
++static void virtio_gpio_handle_request(VirtIODevice *vdev, VirtQueue *vq)
++{
++    VirtIOGPIO *g = VIRTIO_GPIO(vdev);
++
++    for (;;) {
++        VirtQueueElement *elem;
++        struct virtio_gpio_request req;
++        struct virtio_gpio_response res = {
++            .status = VIRTIO_GPIO_STATUS_ERR,
++            .value = 0,
++        };
++        size_t sz;
++
++        elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
++        if (!elem) {
++            break;
++        }
++
++        if (iov_to_buf(elem->out_sg, elem->out_num, 0, &req, sizeof(req)) ==
++            sizeof(req)) {
++            virtio_gpio_do_request(g, &req, &res);
++        } else {
++            qemu_log_mask(LOG_GUEST_ERROR, "virtio-gpio: short request\n");
++        }
++
++        sz = iov_from_buf(elem->in_sg, elem->in_num, 0, &res, sizeof(res));
++        virtqueue_push(vq, elem, sz);
++        g_free(elem);
++        virtio_notify(vdev, vq);
++    }
++}
++
++/*
++ * Fire whichever parked chains the sampled input word satisfies. @rose and
++ * @fell carry the lines that changed since the previous tick, so a re-arm
++ * between ticks passes zero for both and only level conditions can match.
++ */
++static void virtio_gpio_fire_irqs(VirtIOGPIO *g, uint32_t now, uint32_t rose,
++                                  uint32_t fell)
++{
++    for (uint16_t line = 0; line < g->nlines; line++) {
++        uint32_t bit = 1u << line;
++        bool fire;
++
++        if (!g->irq_elem[line]) {
++            continue;
++        }
++
++        switch (g->irq_type[line]) {
++        case VIRTIO_GPIO_IRQ_TYPE_EDGE_RISING:
++            fire = rose & bit;
++            break;
++        case VIRTIO_GPIO_IRQ_TYPE_EDGE_FALLING:
++            fire = fell & bit;
++            break;
++        case VIRTIO_GPIO_IRQ_TYPE_EDGE_BOTH:
++            fire = (rose | fell) & bit;
++            break;
++        case VIRTIO_GPIO_IRQ_TYPE_LEVEL_HIGH:
++            fire = now & bit;
++            break;
++        case VIRTIO_GPIO_IRQ_TYPE_LEVEL_LOW:
++            fire = ~now & bit;
++            break;
++        default:
++            fire = false;
++            break;
++        }
++
++        if (fire) {
++            virtio_gpio_complete_irq(g, line, VIRTIO_GPIO_IRQ_STATUS_VALID);
++        }
++    }
++}
++
++/* Hand an event chain straight back, without parking it against a line. */
++static void virtio_gpio_reject_event(VirtIOGPIO *g, VirtQueueElement *elem)
++{
++    struct virtio_gpio_irq_response res = {
++        .status = VIRTIO_GPIO_IRQ_STATUS_INVALID,
++    };
++    size_t sz;
++
++    sz = iov_from_buf(elem->in_sg, elem->in_num, 0, &res, sizeof(res));
++    virtqueue_push(g->eventq, elem, sz);
++    g_free(elem);
++    virtio_notify(VIRTIO_DEVICE(g), g->eventq);
++}
++
++static void virtio_gpio_handle_event(VirtIODevice *vdev, VirtQueue *vq)
++{
++    VirtIOGPIO *g = VIRTIO_GPIO(vdev);
++
++    for (;;) {
++        VirtQueueElement *elem;
++        struct virtio_gpio_irq_request req;
++        uint16_t line;
++
++        elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
++        if (!elem) {
++            break;
++        }
++
++        if (iov_to_buf(elem->out_sg, elem->out_num, 0, &req, sizeof(req)) !=
++            sizeof(req)) {
++            qemu_log_mask(LOG_GUEST_ERROR, "virtio-gpio: short event buffer\n");
++            virtqueue_push(vq, elem, 0);
++            g_free(elem);
++            virtio_notify(vdev, vq);
++            continue;
++        }
++
++        line = le16_to_cpu(req.gpio);
++
++        /*
++         * A chain the device cannot park has to go straight back. Note that a
++         * driver which re-arms on every completion would spin on this; both
++         * cases mean a driver bug, and neither is reachable from a driver that
++         * arms one chain per line as the spec requires.
++         */
++        if (line >= g->nlines || g->irq_elem[line]) {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "virtio-gpio: rejecting event buffer for line %u\n",
++                          line);
++            virtio_gpio_reject_event(g, elem);
++            continue;
++        }
++
++        /*
++         * Parked even when the line's interrupt is still disabled: holding it
++         * makes the driver wait, whereas handing it back would look like an
++         * event that never happened.
++         */
++        g->irq_elem[line] = elem;
++    }
++
++    /*
++     * A level-triggered line armed while its level already holds must fire
++     * without waiting for a change, so re-evaluate rather than only sampling.
++     */
++    virtio_gpio_fire_irqs(g, g->sampled_in, 0, 0);
++}
++
++static void virtio_gpio_poll(void *opaque)
++{
++    VirtIOGPIO *g = opaque;
++    uint32_t now = qatomic_read(&host_gpio_in) & virtio_gpio_line_mask(g);
++    uint32_t prev = g->sampled_in;
++
++    g->sampled_in = now;
++    virtio_gpio_fire_irqs(g, now, now & ~prev, ~now & prev);
++
++    timer_mod(g->poll_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + VIRTIO_GPIO_POLL_MS);
++}
++
++static void virtio_gpio_get_config(VirtIODevice *vdev, uint8_t *config)
++{
++    VirtIOGPIO *g = VIRTIO_GPIO(vdev);
++    struct virtio_gpio_config cfg = {
++        .ngpio = cpu_to_le16(g->nlines),
++        .gpio_names_size = cpu_to_le32(0),
++    };
++
++    memcpy(config, &cfg, sizeof(cfg));
++}
++
++static uint64_t virtio_gpio_get_features(VirtIODevice *vdev, uint64_t features,
++                                         Error **errp)
++{
++    virtio_add_feature(&features, VIRTIO_GPIO_F_IRQ);
++
++    return features;
++}
++
++static void virtio_gpio_reset(VirtIODevice *vdev)
++{
++    VirtIOGPIO *g = VIRTIO_GPIO(vdev);
++
++    for (uint16_t line = 0; line < VIRTIO_GPIO_MAX_LINES; line++) {
++        g->direction[line] = VIRTIO_GPIO_DIRECTION_NONE;
++        g->irq_type[line] = VIRTIO_GPIO_IRQ_TYPE_NONE;
++
++        /*
++         * Dropped rather than completed: the queues are going away with the
++         * driver that was waiting on them.
++         */
++        if (g->irq_elem[line]) {
++            virtqueue_detach_element(g->eventq, g->irq_elem[line], 0);
++            g_free(g->irq_elem[line]);
++            g->irq_elem[line] = NULL;
++        }
++    }
++
++    /* Outputs low at reset, so a browser LED goes dark with the guest. */
++    qatomic_set(&host_gpio_out, 0);
++    g->sampled_in = qatomic_read(&host_gpio_in) & virtio_gpio_line_mask(g);
++}
++
++static void virtio_gpio_device_realize(DeviceState *dev, Error **errp)
++{
++    VirtIODevice *vdev = VIRTIO_DEVICE(dev);
++    VirtIOGPIO *g = VIRTIO_GPIO(dev);
++
++    if (g->nlines == 0 || g->nlines > VIRTIO_GPIO_MAX_LINES) {
++        error_setg(errp, "'ngpio' must be between 1 and %d",
++                   VIRTIO_GPIO_MAX_LINES);
++        return;
++    }
++
++    virtio_init(vdev, VIRTIO_ID_GPIO, sizeof(struct virtio_gpio_config));
++
++    g->requestq = virtio_add_queue(vdev, 64, virtio_gpio_handle_request);
++    g->eventq = virtio_add_queue(vdev, 64, virtio_gpio_handle_event);
++
++    g->sampled_in = qatomic_read(&host_gpio_in) & virtio_gpio_line_mask(g);
++    g->poll_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, virtio_gpio_poll, g);
++    timer_mod(g->poll_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + VIRTIO_GPIO_POLL_MS);
++}
++
++static void virtio_gpio_device_unrealize(DeviceState *dev)
++{
++    VirtIODevice *vdev = VIRTIO_DEVICE(dev);
++    VirtIOGPIO *g = VIRTIO_GPIO(dev);
++
++    timer_free(g->poll_timer);
++    virtio_del_queue(vdev, VIRTIO_GPIO_VQ_EVENT);
++    virtio_del_queue(vdev, VIRTIO_GPIO_VQ_REQUEST);
++    virtio_cleanup(vdev);
++}
++
++/*
++ * Line state is not migrated: the parked event chains cannot be, and the
++ * browser is the other end of the wires anyway -- it re-pushes the input word
++ * on attach. A migrated guest re-reads what it needs.
++ */
++static const VMStateDescription vmstate_virtio_gpio = {
++    .name = "virtio-gpio",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .fields = (const VMStateField[]) {
++        VMSTATE_VIRTIO_DEVICE,
++        VMSTATE_END_OF_LIST()
++    },
++};
++
++static const Property virtio_gpio_properties[] = {
++    /* Eight is what the browser panel shows: four buttons and four LEDs. */
++    DEFINE_PROP_UINT32("ngpio", VirtIOGPIO, nlines, 8),
++};
++
++static void virtio_gpio_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    VirtioDeviceClass *vdc = VIRTIO_DEVICE_CLASS(klass);
++
++    device_class_set_props(dc, virtio_gpio_properties);
++    dc->vmsd = &vmstate_virtio_gpio;
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++    vdc->realize = virtio_gpio_device_realize;
++    vdc->unrealize = virtio_gpio_device_unrealize;
++    vdc->get_config = virtio_gpio_get_config;
++    vdc->get_features = virtio_gpio_get_features;
++    vdc->reset = virtio_gpio_reset;
++}
++
++static const TypeInfo virtio_gpio_info = {
++    .name = TYPE_VIRTIO_GPIO,
++    .parent = TYPE_VIRTIO_DEVICE,
++    .instance_size = sizeof(VirtIOGPIO),
++    .class_init = virtio_gpio_class_init,
++};
++
++static void virtio_register_types(void)
++{
++    type_register_static(&virtio_gpio_info);
++}
++
++type_init(virtio_register_types)

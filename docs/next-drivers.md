@@ -54,6 +54,18 @@ Interrupts are deliberately out of the first cut — `pin_interrupt_configure`
 reports `-ENOTSUP`, so it pairs with the shell rather than the IRQ-driven button
 sample; wiring a GPIO IRQ line to the Stellaris NVIC is the obvious follow-up.
 
+**Interrupts landed on the Cortex-A53 instead**, by a different route: a standard
+**VIRTIO GPIO** device (`hw/virtio/virtio-gpio.c`, JIT patch 0010) on virtio-mmio
+slot 2, behind the vendored upstream `virtio,gpio` driver and the `-S virtio-gpio`
+snippet. It offers `VIRTIO_GPIO_F_IRQ`, so `gpio-keys` runs interrupt-driven and
+`samples/basic/button` is packaged for that board. Note what going virtio does
+*not* buy: QEMU has no virtio-gpio device model — `hw/virtio/vhost-user-gpio.c`
+forwards the virtqueues to a separate daemon process, which a wasm build in a tab
+cannot run — so the downstream patch does not go away, it just moves the bespoke
+part from the guest to the host. The M3 keeps its MMIO device because the
+LM3S6965 machine has no virtio-mmio bus to move onto, and because a pin read
+there never leaves the guest, where every virtio call is a virtqueue round trip.
+
 Original rationale, kept for the record —
 the highest demo-value-per-effort item, and it reuses shapes we already have in
 both directions:
@@ -347,8 +359,10 @@ shell is a UX problem before it is a driver problem.
 
 ## Suggested order
 
-1. ~~**GPIO (buttons + LEDs)**~~ — ✅ done; landed on the M3 shell image. Follow-up:
-   wire a GPIO IRQ to the NVIC so the interrupt-driven button sample works too.
+1. ~~**GPIO (buttons + LEDs)**~~ — ✅ done; landed on the M3 shell image, then on
+   the A53 as a standard VIRTIO GPIO device, which brought the interrupts the
+   MMIO one lacks. Remaining follow-up: wire a GPIO IRQ to the NVIC so the
+   Cortex-M3 button sample can stop polling too.
 2. ~~**virtio, as an exploratory track**~~ — ✅ done, and by a shorter route than
    the entropy/console proof-of-transport this list proposed: **virtio-net**
    (Ethernet) and **virtio-input** (the display's touchscreen) both ship
