@@ -56,3 +56,4 @@ qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf
 qemu_cortex_a53:hello_world:samples/hello_world
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
+qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled

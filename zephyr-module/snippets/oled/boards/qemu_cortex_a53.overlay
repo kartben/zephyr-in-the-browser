@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Point the guest's display at the browser's SSD1306 instead of ramfb.
+ *
+ * Requires the virtio-i2c snippet, which is what declares ssd1306_0 and turns
+ * the bus on; this only chooses between the two displays the build could have.
+ * Use them together:
+ *
+ *   west build -b qemu_cortex_a53 -S virtio-i2c -S oled samples/drivers/display
+ *
+ * Unlike ramfb and virtio-gpu, there is no framebuffer anywhere in this path.
+ * The driver pushes pixels over I2C into GDDRAM that lives in page JavaScript
+ * (src/virtio/devices/chips/ssd1306.ts), and the OLED panel paints that.
+ */
+
+/ {
+	chosen {
+		zephyr,display = &ssd1306_0;
+	};
+};
+
+&ramfb0 {
+	status = "disabled";
+};
