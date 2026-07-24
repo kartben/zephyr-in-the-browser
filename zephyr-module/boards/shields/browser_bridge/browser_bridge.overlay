@@ -16,5 +16,15 @@
  *   the host sensor), qemu,host-gpio, qemu,host-audio (I2S out), and
  *   qemu,host-mic (DMIC in, aliased dmic0).
  * boards/qemu_cortex_a53.overlay — GNSS NMEA UART, browser-sized qemu,ramfb,
- *   the same host-sensor node/aliases, qemu,host-audio, and qemu,host-mic.
+ *   the same host-sensor node/aliases, qemu,host-audio, qemu,host-mic, and two
+ *   virtio-mmio devices declared disabled behind snippets: virtio,gpu
+ *   (-S virtio-gpu) and virtio,gpio (-S virtio-gpio).
+ *
+ * The two boards reach GPIO differently. The Cortex-M3 has qemu,host-gpio, a
+ * bespoke register block: fast (a pin read never leaves the guest) but with no
+ * interrupt line, so its gpio-keys is polled. The Cortex-A53 has a standard
+ * VIRTIO GPIO device, whose driver is stock Zephyr and whose interrupts are
+ * real, at the cost of a virtqueue round trip per operation. The LM3S6965 has
+ * no virtio-mmio bus, which is why the M3 keeps the MMIO device rather than
+ * both boards sharing one.
  */

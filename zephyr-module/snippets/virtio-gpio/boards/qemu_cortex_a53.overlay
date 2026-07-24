@@ -1,0 +1,60 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the Cortex-A53's VIRTIO GPIO controller and hang the browser panel's
+ * LEDs and buttons off it. The node itself is declared (disabled) by the
+ * browser_bridge shield, whose overlay documents the slot and the QEMU side.
+ *
+ * Pins follow the same convention as the Cortex-M3's qemu,host-gpio and the
+ * browser panel (src/hostGpio.ts): 0-3 are inputs the page drives, 4-7 are
+ * outputs the guest drives. That is what lets blinky and the button sample run
+ * unmodified on either board.
+ *
+ * Unlike the Cortex-M3 bridge, this device has a real interrupt path — the
+ * VIRTIO_GPIO_F_IRQ feature and its event virtqueue — so gpio-keys runs
+ * interrupt-driven here rather than polled. Every GPIO call is a virtqueue
+ * round trip, so the driver requires thread context; gpio-keys is fine, since
+ * its callback only reschedules work and the pin read happens in the workqueue.
+ *
+ * Snippet overlays are applied after the shield's, so virtio_gpio0 already
+ * exists by the time this runs.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+&virtio_mmio2 {
+	status = "okay";
+};
+
+&virtio_gpio0 {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		led0 = &led0;
+		sw0 = &button0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = <&virtio_gpio0 4 GPIO_ACTIVE_HIGH>;
+			label = "Browser LED0";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <30>;
+
+		button0: button_0 {
+			gpios = <&virtio_gpio0 0 GPIO_ACTIVE_HIGH>;
+			zephyr,code = <INPUT_KEY_0>;
+			label = "Browser SW0";
+		};
+	};
+};

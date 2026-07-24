@@ -107,7 +107,7 @@ working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
 include the browser terminal, GNSS UART, host-sensor and browser-netdev
 bridges; AArch64 additionally adds the ramfb and input bridges.
 
-Seven browser integrations are supplied by the target-specific patch
+Eight browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -118,6 +118,15 @@ directories under `tools/`:
 * The `qemu-host-gpio` device: input pins driven from JavaScript and output pins
   read back by it, exposed through `qemu_host_gpio_set_inputs` /
   `qemu_host_gpio_get_outputs`. Cortex-M3 only.
+* A **VIRTIO GPIO device** (`hw/virtio/virtio-gpio.c`), AArch64 only, driving
+  the same panel through the same shape of entry point
+  (`qemu_virtio_gpio_set_inputs` / `qemu_virtio_gpio_get_outputs`) but speaking
+  the standard virtio protocol, so the guest side is a stock Zephyr driver. It
+  exists for the same reason the input-core frontend does: `hw/virtio/` ships
+  only `vhost-user-gpio`, which forwards the virtqueues to a daemon in another
+  process, and this build has no second process. Interrupts are real here —
+  `VIRTIO_GPIO_F_IRQ` and the event virtqueue — with input edges detected by a
+  `QEMU_CLOCK_VIRTUAL` timer so no virtqueue is ever touched off the QEMU thread.
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
 * A **frontend for QEMU's input core** (`hw/misc/qemu-browser-input.c`),

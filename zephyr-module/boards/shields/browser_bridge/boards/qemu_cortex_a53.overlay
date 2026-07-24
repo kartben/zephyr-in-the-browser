@@ -103,6 +103,36 @@
 };
 
 /*
+ * Browser GPIO bridge: a standard VIRTIO GPIO device (virtio spec 1.3, section
+ * 5.16) on slot 2 of virt's virtio-mmio array (0x0a000400, SPI 18), which QEMU
+ * populates with `-device virtio-gpio-device,bus=virtio-mmio-bus.2`. Slots 0, 1
+ * and 3 are virtio-net, virtio-gpu and the tablet.
+ *
+ * Unlike the Cortex-M3's qemu,host-gpio — a bespoke register block behind a
+ * bespoke driver — the guest side here is a stock VIRTIO driver. The QEMU side
+ * still is not stock: hw/virtio/ ships only vhost-user-gpio, which forwards the
+ * virtqueues to a separate daemon, and a wasm build in a tab has no second
+ * process to run one in. See tools/qemu-jit-patches/0010-hw-virtio-add-browser
+ * -backed-virtio-gpio.patch for the device model that backs this.
+ *
+ * Declared disabled, like virtio_gpu0 above: `-S virtio-gpio`
+ * (zephyr-module/snippets/virtio-gpio/) is what turns it on and adds the LED
+ * and button nodes wired to it. ngpios must match the device's `ngpio`
+ * property in src/boards.ts.
+ */
+&virtio_mmio2 {
+	status = "disabled";
+
+	virtio_gpio0: virtio-gpio {
+		compatible = "virtio,gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <8>;
+		status = "disabled";
+	};
+};
+
+/*
  * Browser network bridge: virtio-net on the first virtio-mmio slot, which
  * QEMU populates with `-device virtio-net-device,bus=virtio-mmio-bus.0`
  * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property
