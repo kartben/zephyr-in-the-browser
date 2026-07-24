@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeBridge, type FakeDevice } from './testing/fakeBridge'
 import { createI2cModel, type I2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
+import { createTmp112 } from './devices/chips/tmp112'
 import { attach, detach, pollOnce, register } from './transport'
 
 const VIRTIO_ID_I2C_ADAPTER = 34
@@ -146,6 +147,92 @@ describe('virtio-i2c model', () => {
       chip: 'AT24C02 EEPROM',
     })
     expect(log[log.length - 1].bytes).toEqual(Uint8Array.of(0x00, 0xaa))
+  })
+
+  /**
+   * Decode a TMP112 temperature register exactly as drivers/sensor/ti/tmp112
+   * does: interpret the big-endian pair as int16, arithmetic-shift right by 3
+   * or 4 depending on the extended-mode flag in bit 0, and scale by 0.0625.
+   */
+  function decodeTmp112(be: Uint8Array): number {
+    const raw = (be[0] << 8) | be[1]
+    const signed = (raw << 16) >> 16 // sign-extend to 32 bits
+    const shift = raw & 1 ? 3 : 4
+    return (signed >> shift) * 0.0625
+  }
+
+  /** What i2c_burst_read does: point at a register, then read it. */
+  function readRegister(address: number, reg: number, length = 2): Uint8Array {
+    write(address, Uint8Array.of(reg), FLAGS_FAIL_NEXT)
+    return read(address, length).data
+  }
+
+  describe('TMP112', () => {
+    it('round-trips temperatures the way the Zephyr driver decodes them', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+
+      for (const celsius of [0, 21, 25.5, 0.0625, 127.9375, -0.0625, -10, -55]) {
+        tmp.setCelsius(celsius)
+        expect(decodeTmp112(readRegister(0x48, 0x00))).toBeCloseTo(celsius, 4)
+      }
+    })
+
+    it('sign-extends negative temperatures rather than wrapping', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+      tmp.setCelsius(-10)
+
+      const raw = readRegister(0x48, 0x00)
+      // -10 °C is -160 counts; left-justified by 4 that is 0xF600.
+      expect([raw[0], raw[1]]).toEqual([0xf6, 0x00])
+      expect(decodeTmp112(raw)).toBeCloseTo(-10, 4)
+    })
+
+    it('clamps to the range the part can represent', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+
+      // 127.9375, not 128: the ceiling is 2047 counts, and 2048 would overflow
+      // the 12-bit signed field and read back as -128.
+      tmp.setCelsius(500)
+      expect(decodeTmp112(readRegister(0x48, 0x00))).toBeCloseTo(127.9375, 4)
+      tmp.setCelsius(-273)
+      expect(decodeTmp112(readRegister(0x48, 0x00))).toBeCloseTo(-55, 4)
+    })
+
+    it('switches to 13-bit encoding when the driver sets extended mode', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+
+      // Config register write: [reg, hi, lo]. EM is BIT(4) of the 16-bit
+      // value, which puts it in the *low* byte.
+      write(0x48, Uint8Array.of(0x01, 0x60, 0xa0 | 0x10))
+      tmp.setCelsius(140) // only reachable in extended mode
+
+      const raw = readRegister(0x48, 0x00)
+      expect(raw[1] & 1).toBe(1) // extended flag set
+      expect(decodeTmp112(raw)).toBeCloseTo(140, 4)
+    })
+
+    it('reads back the config register the driver wrote', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+
+      write(0x48, Uint8Array.of(0x01, 0x61, 0xa0))
+      expect(Array.from(readRegister(0x48, 0x01))).toEqual([0x61, 0xa0])
+    })
+
+    it('shares the bus with the EEPROM', () => {
+      i2c.attachChip(createAt24({ address: 0x50 }))
+      i2c.attachChip(createTmp112({ address: 0x48 }))
+
+      const found: number[] = []
+      for (let address = 0x04; address <= 0x77; address++) {
+        if (read(address, 1).status === MSG_OK) found.push(address)
+      }
+      expect(found).toEqual([0x48, 0x50])
+    })
   })
 
   it('reports the chips on the bus in address order', () => {

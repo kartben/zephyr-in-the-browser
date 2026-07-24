@@ -37,4 +37,17 @@
 		timeout = <5>;
 		status = "okay";
 	};
+
+	/*
+	 * Matches createTmp112({ address: 0x48 }) in src/virtio/index.ts, which
+	 * follows the Sensor panel's temperature slider. So the slider drives two
+	 * guest-side paths at once: qemu,host-sensor, a bespoke MMIO device with a
+	 * driver written for this project, and this — Zephyr's stock ti,tmp112
+	 * talking to a chip over a real bus. `sensor get tmp112@48` reads it.
+	 */
+	tmp112_0: tmp112@48 {
+		compatible = "ti,tmp112";
+		reg = <0x48>;
+		status = "okay";
+	};
 };
