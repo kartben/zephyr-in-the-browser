@@ -8,6 +8,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // .tsx too, so a component's rendered output can be asserted against —
+    // HexView renders the bytes a user reads, which is worth pinning.
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 })

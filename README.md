@@ -13,7 +13,7 @@ browser-backed peripheral gets its own floating panel:
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
-| **I²C** | The bus those sensors ride, plus an AT24 EEPROM and an SSD1306 OLED whose pixels get their own panel. Attach and detach chips while the guest runs, and watch every byte that crosses the bus |
+| **I²C** | The bus those sensors ride, plus an AT24 EEPROM you can read and edit as a live hex dump and an SSD1306 OLED whose pixels get their own panel. Attach and detach chips while the guest runs, and watch every byte that crosses the bus |
 | **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
 
 ## Quick start
