@@ -11,6 +11,8 @@
 import { createGpioModel } from './devices/gpio'
 import { createI2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
+import { createTmp112 } from './devices/chips/tmp112'
+import { get as getSensor, subscribe as subscribeSensor } from '@/hostSensor'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
 /** VIRTIO GPIO controller, name=gpio on the Cortex-A53 command line. */
@@ -27,6 +29,25 @@ export const i2cModel = createI2cModel('i2c')
  */
 export const eeprom = createAt24({ address: 0x50 })
 i2cModel.attachChip(eeprom)
+
+export const tmp112 = createTmp112({ address: 0x48 })
+i2cModel.attachChip(tmp112)
+
+/**
+ * The Sensor panel's temperature slider drives the TMP112 as well as the
+ * `qemu,host-sensor` MMIO device it was built for. One slider, two guest-side
+ * paths: a bespoke driver written for this project, and Zephyr's stock
+ * `ti,tmp112` talking to a chip over a real bus. Channel 3 is Temperature —
+ * see CHANNELS in src/hostSensor.ts.
+ *
+ * Subscribed at module load rather than on attach so the chip holds a sane
+ * reading before any guest boots, and keeps it across a restart.
+ */
+const TEMPERATURE_CHANNEL = 3
+subscribeSensor(() => {
+  const celsius = getSensor(TEMPERATURE_CHANNEL)
+  if (celsius !== undefined) tmp112.setCelsius(celsius)
+})
 
 /**
  * Called by the qemu backend once its module is live. Registration happens
