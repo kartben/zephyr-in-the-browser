@@ -146,6 +146,12 @@ build_one() {
   cp "$work/stripped.elf" "$dest/$id.elf"
   printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$dest/$id.elf" | xargs)"
 
+  # The flattened devicetree the build actually used. Shipped verbatim next to
+  # the image: the app parses it to ground the peripheral panels, and shows it
+  # in the devicetree viewer. Text that gzips to ~10 KB — not worth minifying.
+  cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
+  printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
+
   # The picker in the UI only shows ids it knows about.
   grep -q "id: '$id'" "$ROOT/src/boards.ts" \
     || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2

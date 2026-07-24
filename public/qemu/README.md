@@ -41,11 +41,14 @@ public/qemu/
   zephyr/
     qemu_cortex_m3/
       gnss.elf                stock samples/drivers/gnss
+      gnss.dts                its flattened devicetree (build/zephyr/zephyr.dts)
       shell.elf               guest images, injected into the Emscripten FS
+      shell.dts
       dhcp.elf                networking samples against the in-page LAN
       http_server.elf
       http_get.elf
       hello_world.elf
+      ...
     qemu_cortex_a53/
       gnss.elf
       display.elf
@@ -55,7 +58,14 @@ public/qemu/
       http_get.elf
       zperf.elf
       hello_world.elf
+      ...
 ```
+
+Each image may carry a `<app>.dts` sibling — the flattened devicetree its build
+used, copied verbatim by `tools/build-zephyr-image.sh`. The app parses it to
+ground the peripheral panels (which chips have drivers, which pins are wired)
+and to show the tree in the devicetree viewer. It is optional: an image without
+one boots identically, with the UI falling back to its static tables.
 
 Emscripten names each generated JS loader after its binary. The selected board
 loads that matching JS/Wasm pair, and the app's `locateFile` hook prefixes its

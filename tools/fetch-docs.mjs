@@ -289,6 +289,34 @@ console.log(`Downloaded ${downloaded} asset files.`)
 cpSync(WIDGET_SRC, path.join(OUT, '_sim'), { recursive: true })
 
 // ---------------------------------------------------------------------------
+// Machine-readable manifest for the app's sample gallery (src/sampleDocs.ts).
+//
+// Keyed by samplePath because that string is exactly GuestSample.zephyrSample
+// in src/boards.ts — no extra join key needed. The gallery leads with the
+// hand-tuned boards.ts label/description either way; this contributes the
+// upstream title/description and the link targets. `local` is relative to
+// /docs/ so the app can serve the mirrored page itself.
+
+const manifest = {
+  generated: MIRROR_DATE,
+  samples: Object.fromEntries(
+    indexEntries.map(({ samplePath, entry, title, description }) => [
+      samplePath,
+      {
+        app: entry.app,
+        boards: entry.boards,
+        title,
+        description,
+        local: `${samplePath}/README.html`,
+        canonical: `${DOCS_BASE}${samplePath}/README.html`,
+        source: `https://github.com/zephyrproject-rtos/zephyr/tree/main/${samplePath}`,
+      },
+    ]),
+  ),
+}
+writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
+
+// ---------------------------------------------------------------------------
 // Landing page for /docs/: one card per mirrored sample.
 
 const BOARD_LABELS = { qemu_cortex_m3: 'Cortex-M3', qemu_cortex_a53: 'Cortex-A53' }
