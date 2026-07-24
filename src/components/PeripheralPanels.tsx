@@ -3,6 +3,7 @@ import { DisplayPanel } from '@/components/DisplayPanel'
 import { GnssPanel } from '@/components/GnssPanel'
 import { GpioPanel } from '@/components/GpioPanel'
 import { I2cPanel } from '@/components/I2cPanel'
+import { OledPanel } from '@/components/OledPanel'
 import { NetworkPanel } from '@/components/NetworkPanel'
 import { PerformancePanel } from '@/components/PerformancePanel'
 import { SensorPanel } from '@/components/SensorPanel'
@@ -30,6 +31,7 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
       <GnssPanel defaultExpanded={expanded('gnss')} />
       <SensorPanel defaultExpanded={expanded('sensor')} />
       <GpioPanel defaultExpanded={expanded('gpio')} />
+      <OledPanel defaultExpanded={expanded('oled')} />
       <I2cPanel defaultExpanded={expanded('i2c')} />
       <AudioPanel defaultExpanded={expanded('audio')} />
       <NetworkPanel defaultExpanded={expanded('net')} />

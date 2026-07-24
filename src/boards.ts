@@ -11,7 +11,7 @@
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
-export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf' | 'net' | 'i2c'
+export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf' | 'net' | 'i2c' | 'oled'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
@@ -247,6 +247,16 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Interactive Zephyr shell, with `i2c`, `sensor`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
     primaryPanels: ['i2c', 'audio'],
+  },
+  {
+    // The display sample against the browser's SSD1306 instead of ramfb: the
+    // stock solomon,ssd1306 driver pushing pixels over I2C into GDDRAM that
+    // lives in the page. No framebuffer anywhere in the path.
+    id: 'oled',
+    label: 'OLED',
+    description: 'Zephyr’s display test pattern on a 128x64 I2C OLED simulated in the page',
+    zephyrSample: 'samples/drivers/display',
+    primaryPanels: ['oled', 'i2c'],
   },
   {
     id: 'hsm',
