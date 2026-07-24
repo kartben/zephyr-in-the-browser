@@ -2,7 +2,17 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { Activity, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { CHANNELS, available, get, set, startBattery, startOrientation, subscribe } from '@/hostSensor'
+import {
+  CHANNELS,
+  available,
+  get,
+  orientationNeedsPermission,
+  requestOrientationPermission,
+  set,
+  startBattery,
+  startOrientation,
+  subscribe,
+} from '@/hostSensor'
 
 /**
  * Floating control for the qemu,host-sensor bridge.
@@ -17,6 +27,7 @@ export function SensorPanel({ defaultExpanded = true }: { defaultExpanded?: bool
   const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
   const [live, setLive] = useState(false)
+  const [motionError, setMotionError] = useState<string | null>(null)
 
   // Seed each channel once so the guest reads something sensible before the
   // user touches anything.
@@ -38,6 +49,26 @@ export function SensorPanel({ defaultExpanded = true }: { defaultExpanded?: bool
       stopBattery?.()
     }
   }, [live])
+
+  // On iOS Safari the permission prompt must be requested synchronously from
+  // this same click, so it happens here rather than in the useEffect above —
+  // by the time an effect runs, the gesture that would authorize it is gone.
+  const onToggleLive = (checked: boolean) => {
+    if (!checked || !orientationNeedsPermission()) {
+      setMotionError(null)
+      setLive(checked)
+      return
+    }
+    void requestOrientationPermission().then((result) => {
+      if (result === 'granted') {
+        setMotionError(null)
+        setLive(true)
+      } else {
+        setMotionError('Motion access was denied. Enable it in Settings > Safari > Motion & Orientation Access.')
+        setLive(false)
+      }
+    })
+  }
 
   if (!isAvailable || dismissed) return null
 
@@ -84,11 +115,13 @@ export function SensorPanel({ defaultExpanded = true }: { defaultExpanded?: bool
             <input
               type="checkbox"
               checked={live}
-              onChange={(e) => setLive(e.target.checked)}
+              onChange={(e) => onToggleLive(e.target.checked)}
               className="accent-[var(--color-primary)]"
             />
             Follow device sensors where available
           </label>
+
+          {motionError && <p className="text-[11px] leading-relaxed text-destructive">{motionError}</p>}
 
           {CHANNELS.map((c) => (
             <ChannelRow key={c.id} channel={c} disabled={live} />

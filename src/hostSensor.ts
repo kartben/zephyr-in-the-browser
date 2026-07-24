@@ -92,6 +92,35 @@ export async function startBattery(): Promise<() => void> {
   return () => battery.removeEventListener('levelchange', push)
 }
 
+interface DeviceOrientationEventConstructorIOS {
+  requestPermission?: () => Promise<'granted' | 'denied'>
+}
+
+/**
+ * iOS Safari 13+ gates deviceorientation behind an explicit grant, and only
+ * exposes the request as a method on the constructor. Every other browser
+ * fires the event unprompted, so this is absent there.
+ */
+export function orientationNeedsPermission(): boolean {
+  const ctor = window.DeviceOrientationEvent as unknown as
+    | DeviceOrientationEventConstructorIOS
+    | undefined
+  return typeof ctor?.requestPermission === 'function'
+}
+
+/**
+ * Must be called synchronously from a user gesture (e.g. a click handler),
+ * or iOS Safari treats the request as unprompted and denies it outright.
+ */
+export async function requestOrientationPermission(): Promise<'granted' | 'denied'> {
+  const ctor = window.DeviceOrientationEvent as unknown as DeviceOrientationEventConstructorIOS
+  try {
+    return (await ctor.requestPermission?.()) ?? 'denied'
+  } catch {
+    return 'denied'
+  }
+}
+
 /**
  * Device orientation -> accelerometer axes, by projecting gravity onto the
  * device frame. Needs a real tilt sensor, so on a desktop this stays quiet.
