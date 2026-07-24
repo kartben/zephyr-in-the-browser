@@ -39,15 +39,37 @@
 	};
 
 	/*
-	 * Matches createTmp112({ address: 0x48 }) in src/virtio/index.ts, which
-	 * follows the Sensor panel's temperature slider. So the slider drives two
-	 * guest-side paths at once: qemu,host-sensor, a bespoke MMIO device with a
-	 * driver written for this project, and this — Zephyr's stock ti,tmp112
-	 * talking to a chip over a real bus. `sensor get tmp112@48` reads it.
+	 * Matches createTmp112({ address: 0x48 }) in src/virtio/index.ts, whose
+	 * temperature its sensor card drives directly. Zephyr's stock ti,tmp112
+	 * binds to it and talks over the real bus — `sensor get tmp112@48` reads a
+	 * value the page made up, through an unmodified in-tree driver.
 	 */
 	tmp112_0: tmp112@48 {
 		compatible = "ti,tmp112";
 		reg = <0x48>;
+		status = "okay";
+	};
+
+	/*
+	 * Matches createLm75({ address: 0x49 }) in src/virtio/index.ts — a
+	 * second, simpler temperature part one strap along, so both share the
+	 * bus. `sensor get lm75@49` reads it through Zephyr's stock driver.
+	 */
+	lm75_0: lm75@49 {
+		compatible = "lm75";
+		reg = <0x49>;
+		status = "okay";
+	};
+
+	/*
+	 * Matches createAdxl345({ address: 0x53 }) in src/virtio/index.ts: a
+	 * 3-axis accelerometer whose card can follow the device's own tilt.
+	 * `accel0` (below) points here, so the LVGL accelerometer_chart sample
+	 * reads it unmodified; `sensor get adxl345@53` reads it from the shell.
+	 */
+	adxl345_0: adxl345@53 {
+		compatible = "adi,adxl345";
+		reg = <0x53>;
 		status = "okay";
 	};
 
@@ -74,5 +96,17 @@
 		segment-remap;
 		com-invdir;
 		status = "okay";
+	};
+};
+
+/*
+ * Point the generic accelerometer alias at the ADXL345 on this bus. It lives in
+ * the snippet, not the shield, so a build without I2C never carries a dangling
+ * accel0 — and a build with it (the LVGL accelerometer_chart) resolves
+ * DEVICE_DT_GET(DT_ALIAS(accel0)) to a real, driver-bound node.
+ */
+/ {
+	aliases {
+		accel0 = &adxl345_0;
 	};
 };

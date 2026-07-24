@@ -4,19 +4,17 @@
  *
  * Browser bridge on the Cortex-M3 (lm3s6965evb) machine.
  *
- * The host sensor (0x40060000), host GPIO controller (0x40061000), host
- * audio out (0x40062000) and host microphone (0x40063000) are instantiated
- * by our patched qemu-wasm Stellaris machine — addresses chosen because they
- * sit in the gap between the last modelled LM3S6965 peripheral and the
- * system control block, so they cannot collide with real hardware. See
- * tools/qemu-patches/.
+ * The host GPIO controller (0x40061000), host audio out (0x40062000) and host
+ * microphone (0x40063000) are instantiated by our patched qemu-wasm Stellaris
+ * machine — addresses chosen because they sit in the gap between the last
+ * modelled LM3S6965 peripheral and the system control block, so they cannot
+ * collide with real hardware. See tools/qemu-patches/.
  *
- * One sensor MMIO device carries every channel the browser feeds (accel
- * X/Y/Z, ambient temperature, light, humidity, pressure, battery state of
- * charge), so all the sensor aliases point at the same node. They exist so
- * stock Zephyr sensor samples — accel_polling (accel0), thermometer
- * (ambient-temp0) and friends — build unmodified against the browser-fed
- * readings.
+ * There is no sensor here any more: sensors are simulated I2C parts, and this
+ * board has no virtio bus for them, so it carries no sensor UI. (An inert
+ * host-sensor MMIO device is still instantiated at 0x40060000 by
+ * tools/qemu-patches/0001-...-host-sensor.patch; nothing binds it, and the
+ * patch is retired in a dedicated qemu-wasm rebuild.)
  *
  * The host GPIO controller also carries a gpio-leds node (led0 on pin 4) and a
  * polled gpio-keys node (sw0 on pin 0), so blinky drives a browser LED and the
@@ -32,23 +30,11 @@
 	aliases {
 		gnss = &gnss;
 		dmic0 = &host_mic;
-		accel0 = &host_sensor;
-		temp0 = &host_sensor;
-		ambient-temp0 = &host_sensor;
-		light0 = &host_sensor;
-		humidity0 = &host_sensor;
-		press0 = &host_sensor;
 		led0 = &led0;
 		sw0 = &button0;
 	};
 
 	soc {
-		host_sensor: sensor@40060000 {
-			compatible = "qemu,host-sensor";
-			reg = <0x40060000 0x1000>;
-			status = "okay";
-		};
-
 		host_gpio: gpio@40061000 {
 			compatible = "qemu,host-gpio";
 			reg = <0x40061000 0x1000>;
