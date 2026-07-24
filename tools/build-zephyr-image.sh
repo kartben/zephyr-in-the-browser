@@ -3,9 +3,11 @@
 # Build the packaged Zephyr samples for the browser and install stripped ELFs
 # into public/qemu/zephyr/, where the qemu backend fetches them at runtime.
 #
-#   tools/build-zephyr-image.sh [board|all] [app|all]
+#   tools/build-zephyr-image.sh [board|all] [app|all] [-j N] [-v]
 #     board  a board from tools/samples.manifest, or "all" (the default)
 #     app    an app id from the manifest, or "all" (the default)
+#     -j N   build N images concurrently (default 4, or $ZEPHYR_BUILD_JOBS)
+#     -v     stream every build's output live instead of logging it
 #
 # So a bare `tools/build-zephyr-image.sh` rebuilds every packaged sample for
 # every board. The board/app list lives in tools/samples.manifest — adding a
@@ -16,16 +18,17 @@
 # said nothing about what would actually boot.
 #
 # Every build applies the browser_bridge shield (zephyr-module/boards/shields/),
-# which adds the browser-fed peripherals — GNSS UART, host sensor with its
-# accel0/temp0/... aliases, host GPIO, host audio out (I2S), host mic (DMIC),
-# browser-sized ramfb — to the plain QEMU boards.
+# which adds the browser-fed peripherals — GNSS UART, host GPIO, host audio out
+# (I2S), host mic (DMIC), browser-sized ramfb — to the plain QEMU boards.
+# Sensors are not among them any more: they are simulated I2C parts carried by
+# the virtio-i2c snippet (docs/peripherals.md).
 #
 # Environment overrides:
 #   ZEPHYR_WS     west workspace   (default: ~/zephyrproject)
 #   ZEPHYR_IMAGE  container image  (default: ghcr.io/zephyrproject-rtos/zephyr-build:main)
 #
 # Needs no local Zephyr toolchain — everything runs in the container. Build
-# directories are per-app, so independent invocations can run concurrently.
+# directories are per-app, which is what lets several run at once.
 #
 # To ship the result, run tools/release.sh images — it packages these into their
 # own release asset, separate from the emulator's, and points IMAGES_RELEASE at
@@ -33,8 +36,39 @@
 
 set -euo pipefail
 
-BOARD_FILTER="${1:-all}"
-APP_FILTER="${2:-all}"
+# Positionals stay positional — tools/release.sh calls this as `... <board> <app>`
+# — so flags are simply pulled out of the argument list wherever they appear.
+POSITIONAL=()
+JOBS="${ZEPHYR_BUILD_JOBS:-4}"
+VERBOSE=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -j|--jobs) JOBS="${2:?-j needs a number}"; shift ;;
+    -j*)       JOBS="${1#-j}" ;;
+    -v|--verbose) VERBOSE=1 ;;
+    -h|--help)
+      awk 'NR>2 && /^#/ { sub(/^# ?/, ""); print; next } NR>2 { exit }' "${BASH_SOURCE[0]}"
+      exit 0 ;;
+    -*) echo "Unknown option '$1' (try --help)." >&2; exit 2 ;;
+    *)  POSITIONAL+=("$1") ;;
+  esac
+  shift
+done
+
+case "$JOBS" in
+  ''|*[!0-9]*) echo "Jobs must be a positive integer (got '$JOBS')." >&2; exit 2 ;;
+esac
+[ "$JOBS" -ge 1 ] || { echo "Jobs must be at least 1." >&2; exit 2; }
+
+BOARD_FILTER="${POSITIONAL[0]:-all}"
+APP_FILTER="${POSITIONAL[1]:-all}"
+
+# One build at a time, or an explicit -v, means the output is followable, so let
+# it go straight to the terminal. Otherwise it is captured per job and only
+# surfaced if that job fails.
+STREAM=0
+if [ "$JOBS" = 1 ] || [ "$VERBOSE" = 1 ]; then STREAM=1; fi
 
 ZEPHYR_WS="${ZEPHYR_WS:-$HOME/zephyrproject}"
 ZEPHYR_IMAGE="${ZEPHYR_IMAGE:-ghcr.io/zephyrproject-rtos/zephyr-build:main}"
@@ -69,15 +103,17 @@ SELECTED="$(echo "$ENTRIES" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
   exit 1
 }
 
-# This repo ships an out-of-tree Zephyr module: the qemu,host-sensor driver and
-# binding, plus the browser_bridge shield the module's board_root exposes and
-# the snippets its snippet_root exposes. Everything is passed as CMake args;
+# This repo ships an out-of-tree Zephyr module: its drivers and bindings, plus
+# the browser_bridge shield the module's board_root exposes and the snippets its
+# snippet_root exposes. Everything is passed as CMake args;
 # note that current Zephyr *rejects* -DCONFIG_* on the command line, so Kconfig
 # tweaks travel in .conf fragments listed per app in the manifest.
 MODULE=/repo/zephyr-module
 
 build_one() {
   local board="$1" id="$2" sample="$3" confs="$4" snippets="$5"
+  local started
+  started="$(date +%s)"
 
   # Board ids carry a slash in hwmv2 (mps2/an385); paths must not.
   local board_dir dest work
@@ -149,11 +185,94 @@ build_one() {
   # The picker in the UI only shows ids it knows about.
   grep -q "id: '$id'" "$ROOT/src/boards.ts" \
     || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2
+
+  # Left for the parent to print once this job is reaped: when output is being
+  # captured, this line is the only part of the job worth showing on success.
+  printf '%-28s %8s bytes  %3ds\n' "$board_dir/$id" \
+    "$(command wc -c < "$dest/$id.elf" | xargs)" "$(( $(date +%s) - started ))" \
+    > "$work/summary"
 }
 
+# --- the job pool -----------------------------------------------------------
+#
+# `wait -n` and associative arrays would make this shorter, but both are bash
+# 4.x and macOS still ships 3.2, so slots are polled and the bookkeeping rides
+# on parallel indexed arrays. Against builds that take minutes, the poll costs
+# nothing.
+
+JOB_PIDS=()
+JOB_TAGS=()
+JOB_LOGS=()
+
+wait_for_slot() {
+  while [ "$(jobs -pr | wc -l | tr -d ' ')" -ge "$JOBS" ]; do sleep 0.2; done
+}
+
+start_job() {
+  local board="$1" id="$2" sample="$3" confs="$4" snippets="$5"
+  local board_dir work log tag
+  board_dir="$(echo "$board" | tr '/' '_')"
+  work="${ZEPHYR_BUILD_WORKDIR:-$ROOT/.zephyr-build}/$board_dir-$id"
+  tag="$board_dir/$id"
+  mkdir -p "$work"
+  log="$work/build.log"
+  rm -f "$work/summary"
+
+  if [ "$STREAM" = 1 ] && [ "$JOBS" = 1 ]; then
+    ( build_one "$board" "$id" "$sample" "$confs" "$snippets" ) &
+  elif [ "$STREAM" = 1 ]; then
+    # Interleaved live output is only readable if every line says whose it is.
+    ( build_one "$board" "$id" "$sample" "$confs" "$snippets" 2>&1 \
+        | awk -v p="[$tag] " '{ print p $0; fflush() }' ) &
+  else
+    printf '    %-28s building…\n' "$tag"
+    # The job announces its own completion, so finished builds show up as they
+    # land rather than in a burst when the slowest one is finally reaped.
+    ( build_one "$board" "$id" "$sample" "$confs" "$snippets" >"$log" 2>&1 \
+        && printf '    ✓ %s\n' "$(cat "$work/summary")" ) &
+  fi
+
+  JOB_PIDS+=($!)
+  JOB_TAGS+=("$tag")
+  JOB_LOGS+=("$log")
+}
+
+if [ "$JOBS" -gt 1 ]; then
+  log "Building $(echo "$SELECTED" | wc -l | tr -d ' ') images, $JOBS at a time"
+fi
+
 while IFS=: read -r board id sample confs snippets; do
-  build_one "$board" "$id" "$sample" "${confs:-}" "${snippets:-}"
+  wait_for_slot
+  start_job "$board" "$id" "$sample" "${confs:-}" "${snippets:-}"
 done <<< "$SELECTED"
+
+# Reap everything before reporting: one broken sample should not hide the
+# results of the builds that were already in flight beside it.
+FAILED_TAGS=()
+FAILED_LOGS=()
+i=0
+while [ "$i" -lt "${#JOB_PIDS[@]}" ]; do
+  if ! wait "${JOB_PIDS[$i]}"; then
+    FAILED_TAGS+=("${JOB_TAGS[$i]}")
+    FAILED_LOGS+=("${JOB_LOGS[$i]}")
+  fi
+  i=$((i + 1))
+done
+
+if [ "${#FAILED_TAGS[@]}" -gt 0 ]; then
+  i=0
+  while [ "$i" -lt "${#FAILED_TAGS[@]}" ]; do
+    log "FAILED: ${FAILED_TAGS[$i]}"
+    if [ "$STREAM" != 1 ] && [ -f "${FAILED_LOGS[$i]}" ]; then
+      tail -40 "${FAILED_LOGS[$i]}" | sed 's/^/    /'
+      echo "    (full log: ${FAILED_LOGS[$i]})"
+    fi
+    i=$((i + 1))
+  done
+  echo >&2
+  echo "${#FAILED_TAGS[@]} of ${#JOB_PIDS[@]} builds failed." >&2
+  exit 1
+fi
 
 log "Done"
 for board_dir in $(echo "$SELECTED" | cut -d: -f1 | tr '/' '_' | sort -u); do

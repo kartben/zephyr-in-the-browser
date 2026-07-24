@@ -20,6 +20,7 @@
 #   --tag <tag>     use this tag instead of the next free vN
 #   --board <b>     build only this board's images     (images/all)
 #   --app <a>       build only this app's image        (images/all)
+#   --jobs <n>      build n guest images at a time     (images/all, default 4)
 #   --target <t>    build only this QEMU target        (emulator/all)
 #   --no-build      package what is already in public/qemu/, build nothing
 #   --no-publish    build and package only; never touch GitHub
@@ -40,6 +41,7 @@ WHAT=""
 TAG=""
 BOARD=""
 APP=""
+JOBS=""
 TARGET=""
 DO_BUILD=1
 DO_PUBLISH=1
@@ -69,6 +71,7 @@ while [ $# -gt 0 ]; do
     --tag)     TAG="${2:?--tag needs a value}"; shift ;;
     --board)   BOARD="${2:?--board needs a value}"; shift ;;
     --app)     APP="${2:?--app needs a value}"; shift ;;
+    --jobs|-j) JOBS="${2:?--jobs needs a value}"; shift ;;
     --target)  TARGET="${2:?--target needs a value}"; shift ;;
     --no-build)   DO_BUILD=0 ;;
     --no-publish) DO_PUBLISH=0 ;;
@@ -89,7 +92,7 @@ want_emulator() { [ "$WHAT" = all ] || [ "$WHAT" = emulator ]; }
 want_images()   { [ "$WHAT" = all ] || [ "$WHAT" = images ]; }
 
 if [ -n "$TARGET" ] && ! want_emulator; then die "--target only applies to an emulator build"; fi
-if [ -n "$BOARD$APP" ] && ! want_images; then die "--board/--app only apply to an images build"; fi
+if [ -n "$BOARD$APP$JOBS" ] && ! want_images; then die "--board/--app/--jobs only apply to an images build"; fi
 if [ "$DO_BUILD" = 0 ] && [ "$DO_PUBLISH" = 0 ]; then die "--no-build with --no-publish leaves nothing to do"; fi
 if [ "$DO_DEPLOY" = 1 ] && [ "$DO_PUBLISH" = 0 ]; then die "--deploy needs publishing; drop --no-publish"; fi
 
@@ -143,7 +146,7 @@ if [ "$DO_BUILD" = 1 ]; then
     note "build emulator   tools/build-qemu-wasm.sh ${TARGET:-all}$([ "$FRESH" = 1 ] && echo '  (fresh checkout)' || echo '  (cached checkout)')"
   fi
   if want_images; then
-    note "build images     tools/build-zephyr-image.sh ${BOARD:-all} ${APP:-all}"
+    note "build images     tools/build-zephyr-image.sh ${BOARD:-all} ${APP:-all}  (${JOBS:-4} at a time)"
   fi
 else
   note "build            skipped (--no-build), packaging public/qemu/ as-is"
@@ -200,7 +203,7 @@ fi
 
 if [ "$DO_BUILD" = 1 ] && want_images; then
   log "Building the guest images"
-  "$ROOT/tools/build-zephyr-image.sh" "${BOARD:-all}" "${APP:-all}"
+  "$ROOT/tools/build-zephyr-image.sh" "${BOARD:-all}" "${APP:-all}" ${JOBS:+-j "$JOBS"}
 fi
 
 # --- package and publish ----------------------------------------------------

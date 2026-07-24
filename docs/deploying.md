@@ -41,6 +41,7 @@ The flags worth knowing:
 | `--dry-run` | Print the plan and change nothing |
 | `--tag <tag>` | Use this tag instead of the next free `vN` |
 | `--app <a>` / `--board <b>` | Rebuild one guest rather than all of them; the release still carries the full set |
+| `--jobs <n>` | Build `n` guest images concurrently (default 4) |
 | `--target <t>` | Build one QEMU target (`arm-softmmu`, `aarch64-softmmu`) |
 | `--no-build` | Package and release whatever is already in `public/qemu/` |
 | `--no-publish` | Build and package locally, never touch GitHub |
