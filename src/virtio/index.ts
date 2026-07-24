@@ -9,10 +9,24 @@
  */
 
 import { createGpioModel } from './devices/gpio'
+import { createI2cModel } from './devices/i2c'
+import { createAt24 } from './devices/chips/at24'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
 /** VIRTIO GPIO controller, name=gpio on the Cortex-A53 command line. */
 export const gpioModel = createGpioModel('gpio')
+
+/** VIRTIO I2C adapter, name=i2c. The chips on it are page-side models. */
+export const i2cModel = createI2cModel('i2c')
+
+/**
+ * What is soldered to the browser's I2C bus. Attached once at module load
+ * rather than per attach, so the EEPROM keeps its contents across a guest
+ * restart — which is what a real board does, and what makes writing to it and
+ * then rebooting a demo worth doing.
+ */
+export const eeprom = createAt24({ address: 0x50 })
+i2cModel.attachChip(eeprom)
 
 /**
  * Called by the qemu backend once its module is live. Registration happens
@@ -21,6 +35,7 @@ export const gpioModel = createGpioModel('gpio')
  */
 export function attach(mod: unknown) {
   register(gpioModel)
+  register(i2cModel)
   transportAttach(mod)
 }
 
