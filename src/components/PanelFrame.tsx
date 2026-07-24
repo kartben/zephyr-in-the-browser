@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useDragResize, clampBox } from '@/hooks/useDragResize'
 import { loadPanelLayout, savePanelLayout, type PanelBox } from '@/lib/panelLayout'
-import type { PanelKind } from '@/boards'
 
 /** 1rem in CSS px, matching the Tailwind default so rem widths convert cleanly. */
 const REM = 16
@@ -37,8 +36,12 @@ export function usePanelControls(): PanelControls {
 }
 
 interface PanelFrameProps {
-  /** Stable key for persisting this panel's floating layout. */
-  id: PanelKind
+  /**
+   * Stable key for persisting this panel's floating layout. A PanelKind for the
+   * fixed bridges; a per-instance key (e.g. `sensor:48`) for panels that can
+   * appear more than once, so their layouts do not collide.
+   */
+  id: string
   /** Header title. */
   title: string
   /** Header icon (a lucide component). */
@@ -47,6 +50,12 @@ interface PanelFrameProps {
   defaultExpanded?: boolean
   /** Docked card width, in rem. The floating card seeds its size from this. */
   dockedWidth?: number
+  /**
+   * Which edge this panel docks to. Buses live on the left, devices on the
+   * right; the value only biases where an undocked card first pops out, since
+   * docked alignment is handled by the column it sits in.
+   */
+  side?: 'left' | 'right'
   /** Inline header status (a link dot, a resolution, …). */
   status?: ReactNode
   /** Extra header buttons, placed before the built-in undock/collapse/close. */
@@ -72,6 +81,7 @@ export function PanelFrame({
   icon: Icon,
   defaultExpanded = true,
   dockedWidth = 19,
+  side = 'right',
   status,
   actions,
   children,
@@ -90,11 +100,13 @@ export function PanelFrame({
   }, [id, floating, rect])
 
   const undock = () => {
-    // Seed a box from the docked width near the viewport centre on first pop-out,
-    // then reuse whatever the user last left. clampBox keeps it on-screen.
+    // Seed a box from the docked width, popping out near this panel's own edge
+    // on first undock, then reuse whatever the user last left. clampBox keeps it
+    // on-screen.
     const width = dockedWidth * REM
+    const margin = REM
     const seeded: PanelBox = rect ?? {
-      x: window.innerWidth / 2 - width / 2,
+      x: side === 'left' ? margin : window.innerWidth - width - margin,
       y: window.innerHeight / 3,
       w: width,
       h: 24 * REM,
