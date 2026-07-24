@@ -1,0 +1,120 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x1>;
+	#size-cells = <0x1>;
+	model = "Texas Instruments LM3S6965";
+	compatible = "ti,lm3s6965";
+
+	chosen {
+		zephyr,flash = &flash0;
+		zephyr,sram = &sram0;
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+	};
+
+	aliases {
+		gnss = &gnss;
+		dmic0 = &host_mic;
+		led0 = &led0;
+		sw0 = &button0;
+	};
+
+	cpus {
+		#address-cells = <0x1>;
+		#size-cells = <0x0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-m3";
+			reg = <0x0>;
+		};
+	};
+
+	sram0: memory@20000000 {
+		compatible = "mmio-sram";
+		reg = < 0x20000000 0x10000 >;
+	};
+
+	soc {
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		compatible = "simple-bus";
+		ranges;
+
+		flash0: flash@0 {
+			compatible = "soc-nv-flash";
+			reg = < 0x0 0x40000 >;
+		};
+
+		uart0: uart@4000c000 {
+			compatible = "ti,stellaris-uart";
+			reg = < 0x4000c000 0x4c >;
+			interrupts = < 0x5 0x0 >;
+			status = "okay";
+			current-speed = <0x1c200>;
+		};
+
+		uart1: uart@4000d000 {
+			compatible = "ti,stellaris-uart";
+			reg = < 0x4000d000 0x4c >;
+			interrupts = < 0x6 0x0 >;
+			status = "okay";
+			current-speed = <0x2580>;
+
+			gnss: gnss-nmea-generic {
+				compatible = "gnss-nmea-generic";
+			};
+		};
+
+		eth0: ethernet@40048000 {
+			compatible = "ti,stellaris-ethernet";
+			reg = < 0x40048000 0x1000 >;
+			interrupts = < 0x2a 0x0 >;
+			local-mac-address = [ 00 04 9f 05 f2 71 ];
+			status = "okay";
+		};
+
+		host_gpio: gpio@40061000 {
+			compatible = "qemu,host-gpio";
+			reg = < 0x40061000 0x1000 >;
+			gpio-controller;
+			#gpio-cells = <0x2>;
+			ngpios = <0x8>;
+			status = "okay";
+		};
+
+		host_audio: audio@40062000 {
+			compatible = "qemu,host-audio";
+			reg = < 0x40062000 0x1000 >;
+			status = "okay";
+		};
+
+		host_mic: audio@40063000 {
+			compatible = "qemu,host-mic";
+			reg = < 0x40063000 0x1000 >;
+			status = "okay";
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = < &host_gpio 0x4 0x0 >;
+			label = "Host LED0";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		polling-mode;
+		debounce-interval-ms = <0x1e>;
+
+		button0: button_0 {
+			gpios = < &host_gpio 0x0 0x0 >;
+			zephyr,code = <0xb>;
+			label = "Host SW0";
+		};
+	};
+};

@@ -1,0 +1,134 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x2>;
+	#size-cells = <0x2>;
+	model = "QEMU Cortex-A53";
+	compatible = "linux,dummy-virt";
+
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,sram = &sram0;
+	};
+
+	aliases {
+		gnss = &gnss;
+		dmic0 = &host_mic;
+		led0 = &led0;
+		sw0 = &button0;
+	};
+
+	sram0: memory@40000000 {
+		device_type = "memory";
+		compatible = "mmio-sram";
+		reg = < 0x0 0x40000000 0x0 0x8000000 >;
+	};
+
+	soc {
+		#address-cells = <0x2>;
+		#size-cells = <0x2>;
+		compatible = "simple-bus";
+		ranges;
+
+		uart0: uart@9000000 {
+			compatible = "arm,pl011";
+			reg = < 0x0 0x9000000 0x0 0x1000 >;
+			interrupts = < 0x0 0x1 0x4 0xa0 >;
+			status = "okay";
+			current-speed = <0x1c200>;
+		};
+
+		uart1: uart@9040000 {
+			compatible = "arm,pl011";
+			reg = < 0x0 0x9040000 0x0 0x1000 >;
+			interrupts = < 0x0 0x8 0x4 0xa0 >;
+			current-speed = <0x2580>;
+			status = "okay";
+
+			gnss: gnss-nmea-generic {
+				compatible = "gnss-nmea-generic";
+			};
+		};
+
+		host_audio: audio@90d0000 {
+			compatible = "qemu,host-audio";
+			reg = < 0x0 0x90d0000 0x0 0x1000 >;
+			status = "okay";
+		};
+
+		host_mic: audio@90e0000 {
+			compatible = "qemu,host-mic";
+			reg = < 0x0 0x90e0000 0x0 0x1000 >;
+			status = "okay";
+		};
+
+		virtio_mmio0: virtio_mmio@a000000 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000000 0x0 0x200 >;
+			interrupts = < 0x0 0x10 0x1 0xa0 >;
+			status = "okay";
+
+			virtio_net0: virtio-net {
+				compatible = "virtio,net";
+				local-mac-address = [ 02 00 00 00 00 01 ];
+				status = "okay";
+			};
+		};
+
+		virtio_mmio2: virtio_mmio@a000400 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000400 0x0 0x200 >;
+			interrupts = < 0x0 0x12 0x1 0xa0 >;
+			status = "okay";
+
+			virtio_gpio0: virtio-gpio {
+				compatible = "virtio,gpio";
+				gpio-controller;
+				#gpio-cells = <0x2>;
+				ngpios = <0x8>;
+				status = "okay";
+			};
+		};
+
+		virtio_mmio4: virtio_mmio@a000800 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000800 0x0 0x200 >;
+			interrupts = < 0x0 0x14 0x1 0xa0 >;
+			status = "disabled";
+
+			virtio_i2c0: virtio-i2c {
+				compatible = "virtio,i2c";
+				#address-cells = <0x1>;
+				#size-cells = <0x0>;
+				status = "disabled";
+			};
+		};
+
+		ramfb0: ramfb {
+			compatible = "qemu,ramfb";
+			width = <0x258>;
+			height = <0x190>;
+			status = "okay";
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = < &virtio_gpio0 0x4 0x0 >;
+			label = "Browser LED0";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <0x1e>;
+
+		button0: button_0 {
+			gpios = < &virtio_gpio0 0x0 0x0 >;
+			zephyr,code = <0xb>;
+			label = "Browser SW0";
+		};
+	};
+};
