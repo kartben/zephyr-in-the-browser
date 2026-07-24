@@ -1,0 +1,199 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x2>;
+	#size-cells = <0x2>;
+	model = "QEMU Cortex-A53";
+	compatible = "linux,dummy-virt";
+
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,sram = &sram0;
+	};
+
+	aliases {
+		gnss = &gnss;
+		dmic0 = &host_mic;
+		accel0 = &adxl345_0;
+	};
+
+	cpus {
+		#address-cells = <0x1>;
+		#size-cells = <0x0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x0>;
+		};
+	};
+
+	sram0: memory@40000000 {
+		device_type = "memory";
+		compatible = "mmio-sram";
+		reg = < 0x0 0x40000000 0x0 0x8000000 >;
+	};
+
+	soc {
+		#address-cells = <0x2>;
+		#size-cells = <0x2>;
+		compatible = "simple-bus";
+		ranges;
+
+		gic: interrupt-controller@8000000 {
+			compatible = "arm,gic-v3";
+			reg = < 0x0 0x8000000 0x0 0x10000 0x0 0x80a0000 0x0 0xf60000 >;
+			interrupt-controller;
+			#interrupt-cells = <0x4>;
+			status = "okay";
+		};
+
+		uart0: uart@9000000 {
+			compatible = "arm,pl011";
+			reg = < 0x0 0x9000000 0x0 0x1000 >;
+			interrupts = < 0x0 0x1 0x4 0xa0 >;
+			status = "okay";
+			current-speed = <0x1c200>;
+		};
+
+		uart1: uart@9040000 {
+			compatible = "arm,pl011";
+			reg = < 0x0 0x9040000 0x0 0x1000 >;
+			interrupts = < 0x0 0x8 0x4 0xa0 >;
+			interrupt-names = "irq_0";
+			current-speed = <0x2580>;
+			status = "okay";
+
+			gnss: gnss-nmea-generic {
+				compatible = "gnss-nmea-generic";
+			};
+		};
+
+		host_audio: audio@90d0000 {
+			compatible = "qemu,host-audio";
+			reg = < 0x0 0x90d0000 0x0 0x1000 >;
+			status = "okay";
+		};
+
+		host_mic: audio@90e0000 {
+			compatible = "qemu,host-mic";
+			reg = < 0x0 0x90e0000 0x0 0x1000 >;
+			status = "okay";
+		};
+
+		virtio_mmio0: virtio_mmio@a000000 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000000 0x0 0x200 >;
+			interrupts = < 0x0 0x10 0x1 0xa0 >;
+			status = "okay";
+
+			virtio_net0: virtio-net {
+				compatible = "virtio,net";
+				local-mac-address = [ 02 00 00 00 00 01 ];
+				status = "okay";
+			};
+		};
+
+		virtio_mmio1: virtio_mmio@a000200 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000200 0x0 0x200 >;
+			interrupts = < 0x0 0x11 0x1 0xa0 >;
+			status = "disabled";
+
+			virtio_gpu0: virtio-gpu {
+				compatible = "virtio,gpu";
+				memory-region = < &ramfb_mem >;
+				width = <0x258>;
+				height = <0x190>;
+				status = "disabled";
+			};
+		};
+
+		virtio_mmio2: virtio_mmio@a000400 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000400 0x0 0x200 >;
+			interrupts = < 0x0 0x12 0x1 0xa0 >;
+			status = "disabled";
+
+			virtio_gpio0: virtio-gpio {
+				compatible = "virtio,gpio";
+				gpio-controller;
+				#gpio-cells = <0x2>;
+				ngpios = <0x8>;
+				status = "disabled";
+			};
+		};
+
+		virtio_mmio4: virtio_mmio@a000800 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000800 0x0 0x200 >;
+			interrupts = < 0x0 0x14 0x1 0xa0 >;
+			status = "okay";
+
+			virtio_i2c0: virtio-i2c {
+				compatible = "virtio,i2c";
+				#address-cells = <0x1>;
+				#size-cells = <0x0>;
+				status = "okay";
+
+				eeprom0: eeprom@50 {
+					compatible = "atmel,at24";
+					reg = <0x50>;
+					size = <0x100>;
+					pagesize = <0x8>;
+					address-width = <0x8>;
+					timeout = <0x5>;
+					status = "okay";
+				};
+
+				tmp112_0: tmp112@48 {
+					compatible = "ti,tmp112";
+					reg = <0x48>;
+					status = "okay";
+				};
+
+				lm75_0: lm75@49 {
+					compatible = "lm75";
+					reg = <0x49>;
+					status = "okay";
+				};
+
+				adxl345_0: adxl345@53 {
+					compatible = "adi,adxl345";
+					reg = <0x53>;
+					status = "okay";
+				};
+
+				ssd1306_0: ssd1306@3c {
+					compatible = "solomon,ssd1306";
+					reg = <0x3c>;
+					width = <0x80>;
+					height = <0x40>;
+					segment-offset = <0x0>;
+					page-offset = <0x0>;
+					display-offset = <0x0>;
+					multiplex-ratio = <0x3f>;
+					prechargep = <0x22>;
+					segment-remap;
+					com-invdir;
+					status = "okay";
+				};
+			};
+		};
+
+		ramfb_mem: memory@47c00000 {
+			compatible = "zephyr,memory-region";
+			reg = < 0x0 0x47c00000 0x0 0x400000 >;
+			zephyr,memory-region = "RAMFB";
+			status = "okay";
+		};
+
+		ramfb0: ramfb {
+			compatible = "qemu,ramfb";
+			width = <0x258>;
+			height = <0x190>;
+			status = "okay";
+		};
+	};
+};
