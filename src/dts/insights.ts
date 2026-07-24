@@ -238,6 +238,17 @@ function hasOkayCompat(doc: DtsDocument, compat: string): boolean {
   return (doc.compatIndex.get(compat) ?? []).some(effectivelyOkay)
 }
 
+/**
+ * The panels worth *expanding* for a build known only by its devicetree (a
+ * custom ELF with a dropped zephyr.dts): availability minus the bridges the
+ * shield wires into nearly every image, whose presence says nothing about
+ * what the program is about.
+ */
+export function emphasisPanels(insights: DtsInsights): Set<PanelKind> {
+  const ubiquitous = new Set<PanelKind>(['gnss', 'audio', 'net'])
+  return new Set([...insights.panels].filter((kind) => !ubiquitous.has(kind)))
+}
+
 export function computeInsights(doc: DtsDocument): DtsInsights {
   const i2cBuses = collectI2cBuses(doc)
   const gpioControllers = collectGpioControllers(doc)

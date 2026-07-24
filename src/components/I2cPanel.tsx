@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { Cable, X } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { cn } from '@/lib/utils'
+import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { i2cModel, isBound, subscribeBinds } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
 import type { I2cTransaction } from '@/virtio/devices/i2c'
@@ -66,6 +67,9 @@ function I2cBody() {
     i2cModel.transactions,
     useCallback(() => [], []),
   )
+  // hasDriver() answers from the loaded devicetree; subscribing here is what
+  // re-renders the driver/bus-only tags when a tree arrives or goes away.
+  useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
 
   // Newest first, and only as many as fit without turning the panel into a
   // wall — the whole log is still there for anyone who wants it.
