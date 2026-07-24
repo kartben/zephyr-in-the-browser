@@ -15,7 +15,8 @@
  * HTTPS_PROXY, curl honours it.
  *
  * Usage:  node tools/fetch-docs.mjs     (or: npm run docs:fetch)
- * Output: public/docs/                  (committed; regenerate to refresh)
+ * Output: public/docs/                  (gitignored; run before dev/build —
+ *                                        the pages.yml deploy workflow does)
  */
 
 import { execFileSync } from 'node:child_process'
