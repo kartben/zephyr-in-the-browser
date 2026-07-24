@@ -1,0 +1,109 @@
+/dts-v1/;
+
+/*
+ * Not one of the bundled boards: a hand-written tree with *two* I2C buses —
+ * the browser's virtio adapter and a plain on-chip controller — plus two GPIO
+ * controllers. Exercises the multi-controller paths in insights: everything is
+ * enumerated, but only the nodes the page bridges are marked `bridged`.
+ */
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	model = "Two-bus test board";
+	compatible = "acme,two-bus";
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		ranges;
+
+		i2c0: i2c@40003000 {
+			compatible = "acme,on-chip-i2c";
+			reg = <0x40003000 0x1000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			bme280@76 {
+				compatible = "bosch,bme280";
+				reg = <0x76>;
+				status = "okay";
+			};
+		};
+
+		soc_gpio: gpio@40004000 {
+			compatible = "acme,on-chip-gpio";
+			reg = <0x40004000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <32>;
+			status = "okay";
+		};
+
+		virtio_mmio2: virtio_mmio@a000400 {
+			compatible = "virtio,mmio";
+			reg = <0xa000400 0x200>;
+			status = "okay";
+
+			virtio_gpio0: virtio-gpio {
+				compatible = "virtio,gpio";
+				gpio-controller;
+				#gpio-cells = <2>;
+				ngpios = <8>;
+				status = "okay";
+			};
+		};
+
+		virtio_mmio4: virtio_mmio@a000800 {
+			compatible = "virtio,mmio";
+			reg = <0xa000800 0x200>;
+			status = "okay";
+
+			virtio_i2c0: virtio-i2c {
+				compatible = "virtio,i2c";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "okay";
+
+				tmp112_0: tmp112@48 {
+					compatible = "ti,tmp112";
+					reg = <0x48>;
+					status = "okay";
+				};
+
+				/* Disabled chips must not become slots. */
+				mcp9808@18 {
+					compatible = "microchip,mcp9808";
+					reg = <0x18>;
+					status = "disabled";
+				};
+			};
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/* One LED per controller: only the virtio one feeds the panel. */
+		led0: led_0 {
+			gpios = <&virtio_gpio0 4 0>;
+			label = "Bridge LED";
+		};
+
+		led1: led_1 {
+			gpios = <&soc_gpio 17 (1 << 0)>;
+			label = "On-chip LED";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		button0: button_0 {
+			gpios = <&virtio_gpio0 0 0>;
+			label = "Bridge SW";
+		};
+	};
+};
