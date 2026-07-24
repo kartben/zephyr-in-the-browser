@@ -139,5 +139,9 @@ revisions pinned by tools/build-qemu-wasm.sh, plus the patches under tools/ in
 this repository."
 fi
 
-log "Done — deploy with:"
-echo "  gh workflow run pages.yml $(deploy_flags "$TAG")"
+# tools/release.sh sets the repository variables and dispatches the workflow
+# itself, so this hint would only tell the caller to redo what it just did.
+if [ -z "${ZITB_DRIVEN_BY_RELEASE:-}" ]; then
+  log "Done — deploy with:"
+  echo "  gh workflow run pages.yml $(deploy_flags "$TAG")"
+fi
