@@ -1,0 +1,44 @@
+name: CI
+
+# The page is where most of this project's logic now lives — the network stack
+# and the virtio device models are TypeScript with a vitest suite — so run it on
+# every branch and pull request. pages.yml only fires on main, and only reaches
+# `tsc --noEmit` indirectly through `npm run build`, which is too late to be
+# useful feedback.
+on:
+  push:
+  pull_request:
+
+# A new push supersedes an in-flight run on the same ref; nothing here deploys,
+# so there is no reason to finish the old one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Pushing to a branch of this repo already triggers the push event, so skip
+    # the duplicate run for same-repo pull requests. Fork PRs have no push event
+    # here, and still run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
