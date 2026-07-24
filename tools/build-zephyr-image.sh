@@ -103,9 +103,22 @@ strip_prefix_for() {
   esac
 }
 
-# Locate the SDK's <prefix>-strip for a native build: explicit override first,
-# then the CMake package registry every SDK install writes (this is how the
-# build itself finds the SDK), then the default home layout, then PATH.
+# The strip that provably matches a native build: CMake already located the
+# toolchain to compile it, so read the answer out of the build's own cache —
+# CMAKE_STRIP directly, else the C compiler with its gcc suffix swapped.
+cache_strip_tool() {
+  local cache="$1" tool
+  tool="$(sed -n 's/^CMAKE_STRIP:[A-Z]*=//p' "$cache" 2>/dev/null | head -1)"
+  if [ -n "$tool" ] && [ -x "$tool" ]; then echo "$tool"; return 0; fi
+  tool="$(sed -n 's/^CMAKE_C_COMPILER:[A-Z]*=//p' "$cache" 2>/dev/null | head -1)"
+  tool="${tool%gcc}strip"
+  if [ -n "$tool" ] && [ -x "$tool" ]; then echo "$tool"; return 0; fi
+  return 1
+}
+
+# Fallback when the cache is silent: explicit override first, then the CMake
+# package registry an SDK install writes, then the default home layout, then
+# PATH.
 native_strip_tool() {
   local prefix="$1" reg root candidate
   if [ -n "${ZEPHYR_SDK_INSTALL_DIR:-}" ]; then
@@ -190,10 +203,12 @@ build_one() {
   # binary depends on the guest arch, so pick it from the ELF's own machine type.
   if [ -n "${ZEPHYR_NATIVE:-}" ]; then
     local elf="$work/build/zephyr/zephyr.elf" machine prefix strip_tool
-    machine=$(readelf -h "$elf" | awk -F: '/Machine:/ {print $2}' | xargs)
-    prefix=$(strip_prefix_for "$machine") \
-      || { echo "unhandled ELF machine: $machine" >&2; exit 1; }
-    strip_tool=$(native_strip_tool "$prefix")
+    if ! strip_tool=$(cache_strip_tool "$work/build/CMakeCache.txt"); then
+      machine=$(readelf -h "$elf" | awk -F: '/Machine:/ {print $2}' | xargs)
+      prefix=$(strip_prefix_for "$machine") \
+        || { echo "unhandled ELF machine: $machine" >&2; exit 1; }
+      strip_tool=$(native_strip_tool "$prefix")
+    fi
     "$strip_tool" -o "$work/stripped.elf" "$elf"
   else
     docker run --rm -v "$work:/out" "$ZEPHYR_IMAGE" bash -lc '
