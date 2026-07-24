@@ -1,0 +1,119 @@
+name: Build guest images
+
+# On-demand CI build of the packaged Zephyr samples — the cloud counterpart of
+# `tools/release.sh images`. The runner gets a west workspace (west.yml at the
+# repo root) and the two guest toolchains from zephyrproject-rtos'
+# action-zephyr-setup, so no Docker and no local checkout are involved; the
+# build script runs in its native mode against that workspace.
+#
+# By default a run builds every sample, publishes zephyr-images.tar.gz to the
+# next free vN release, and points the IMAGES_RELEASE variable at it — exactly
+# what release.sh does — leaving the deploy to the next push to main unless
+# `deploy` is checked. Uncheck `publish` for a smoke build that only uploads
+# the tarball as a workflow artifact (that is also the mode to use with a
+# board/app filter, since a release must carry the full sample set).
+
+on:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: Board from tools/samples.manifest, or "all"
+        required: false
+        default: all
+      app:
+        description: App id from tools/samples.manifest, or "all"
+        required: false
+        default: all
+      publish:
+        description: Release the tarball and point IMAGES_RELEASE at it
+        type: boolean
+        default: true
+      release_tag:
+        description: Tag to publish under (empty = next free vN)
+        required: false
+        default: ''
+      deploy:
+        description: Dispatch the Pages deploy once published
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # create the release and upload its asset
+  actions: write # set the IMAGES_RELEASE variable and dispatch pages.yml
+
+# One release sequence at a time — two concurrent runs would race for the same
+# next-vN tag.
+concurrency:
+  group: build-images
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      # The checkout path must match west.yml's `self: path:` — action-zephyr-setup
+      # runs `west init -l` on it and puts zephyr + modules + SDK beside it.
+      - uses: actions/checkout@v5
+        with:
+          path: zephyr-in-the-browser
+
+      - name: Set up Zephyr workspace and toolchains
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: zephyr-in-the-browser
+          toolchains: arm-zephyr-eabi:aarch64-zephyr-elf
+
+      - name: Build images
+        working-directory: zephyr-in-the-browser
+        env:
+          ZEPHYR_NATIVE: 1
+          ZEPHYR_WS: ${{ github.workspace }}
+        run: tools/build-zephyr-image.sh "${{ inputs.board }}" "${{ inputs.app }}"
+
+      - name: Package zephyr-images.tar.gz
+        working-directory: zephyr-in-the-browser
+        run: tools/package-emulator.sh --images
+
+      # The tarball is always retrievable from the run, published or not.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-images
+          path: zephyr-in-the-browser/zephyr-images.tar.gz
+          if-no-files-found: error
+
+      - name: Publish release and repoint IMAGES_RELEASE
+        if: inputs.publish
+        working-directory: zephyr-in-the-browser
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # Same tag policy as tools/release.sh: the highest existing vN, plus
+        # one; a caller-supplied tag may also name an existing release, whose
+        # asset is then replaced.
+        run: |
+          set -euo pipefail
+          TAG='${{ inputs.release_tag }}'
+          if [ -z "$TAG" ]; then
+            max=0
+            while read -r t; do
+              if [[ "$t" =~ ^v([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -gt "$max" ]; then
+                max="${BASH_REMATCH[1]}"
+              fi
+            done < <(gh release list --limit 200 --json tagName -q '.[].tagName')
+            TAG="v$((max + 1))"
+          fi
+          echo "Publishing $TAG"
+          ZITB_DRIVEN_BY_RELEASE=1 tools/package-emulator.sh "$TAG" --images
+          gh variable set IMAGES_RELEASE --body "$TAG"
+          echo "IMAGES_TAG=$TAG" >>"$GITHUB_ENV"
+          echo "### Published \`$TAG\` — IMAGES_RELEASE now points at it" >>"$GITHUB_STEP_SUMMARY"
+
+      # workflow_dispatch is the sanctioned way for one workflow to start
+      # another with the default GITHUB_TOKEN.
+      - name: Deploy
+        if: inputs.publish && inputs.deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run pages.yml -f images_release="$IMAGES_TAG"
