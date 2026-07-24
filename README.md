@@ -37,11 +37,16 @@ every packaged sample, with a **Run in simulator** button injected next to
 near-fullscreen dialog, pre-selecting the right board and app — a prototype of
 what the widget could look like embedded in the upstream docs.
 
-The pages live in `public/docs/` (committed) and are regenerated with:
+The pages live in `public/docs/` (gitignored, not committed) and are
+generated with:
 
 ```console
 npm run docs:fetch   # re-mirrors from docs.zephyrproject.org/latest
 ```
+
+Run it before `npm run dev`/`npm run build` locally; the deploy workflow
+([.github/workflows/pages.yml](.github/workflows/pages.yml)) runs it too, so
+the live site always ships the current mirror.
 
 The script ([tools/fetch-docs.mjs](tools/fetch-docs.mjs)) reads
 `tools/samples.manifest`, mirrors each sample's page plus its CSS/JS/font

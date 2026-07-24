@@ -61,6 +61,11 @@ jobs:
           echo "--- public/qemu ---"
           find public/qemu -type f -printf '%10s  %p\n'
 
+      # Mirrored sample docs are not committed (see .gitignore); regenerate
+      # them here so the deployed site still serves /docs/.
+      - name: Fetch sample docs
+        run: npm run docs:fetch
+
       - name: Build
         env:
           # GitHub Pages project sites are served from /<repo>/.
