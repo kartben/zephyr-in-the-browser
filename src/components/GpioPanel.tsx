@@ -3,10 +3,10 @@ import { CircuitBoard } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { cn } from '@/lib/utils'
 import {
-  BUTTONS,
-  LEDS,
   available,
   controllerNode,
+  getButtons,
+  getLeds,
   isInputHigh,
   isOutputHigh,
   setInput,
@@ -28,33 +28,42 @@ import {
 export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
   const node = useSyncExternalStore(subscribe, controllerNode, () => 'host_gpio')
+  // Devicetree-derived when a zephyr.dts is loaded (with the wiring's own pin
+  // labels), the bridge's full fan-out otherwise. A section with no declared
+  // pins disappears rather than showing an empty grid.
+  const buttons = useSyncExternalStore(subscribe, getButtons, () => [])
+  const leds = useSyncExternalStore(subscribe, getLeds, () => [])
 
   if (!isAvailable) return null
 
   return (
     <PanelFrame id="gpio" title="Host GPIO" icon={CircuitBoard} defaultExpanded={defaultExpanded}>
       <div className="space-y-3 px-3 py-3">
-        <div className="space-y-1.5">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            Inputs — buttons
-          </span>
-          <div className="grid grid-cols-4 gap-1.5">
-            {BUTTONS.map((pin) => (
-              <ButtonPin key={pin.id} pin={pin} />
-            ))}
+        {buttons.length > 0 && (
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Inputs — buttons
+            </span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {buttons.map((pin) => (
+                <ButtonPin key={pin.id} pin={pin} />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="space-y-1.5">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            Outputs — LEDs
-          </span>
-          <div className="grid grid-cols-4 gap-1.5">
-            {LEDS.map((pin) => (
-              <LedPin key={pin.id} pin={pin} />
-            ))}
+        {leds.length > 0 && (
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Outputs — LEDs
+            </span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {leds.map((pin) => (
+                <LedPin key={pin.id} pin={pin} />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
           In the guest:{' '}

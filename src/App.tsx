@@ -11,6 +11,12 @@ import {
   stash as stashGuestImage,
   subscribe as subscribeGuestImage,
 } from '@/guestImage'
+import {
+  clear as clearDeviceTree,
+  get as getDeviceTree,
+  subscribe as subscribeDeviceTree,
+} from '@/devicetree'
+import { emphasisPanels } from '@/dts'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } from '@/boards'
@@ -42,6 +48,7 @@ export default function App() {
   const [hardRestart, setHardRestart] = useState(false)
   const [nonce, setNonce] = useState(0)
   const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
+  const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
 
   // Current selection, readable from the mount-once terminal callbacks without
   // making them change identity (which would remount the terminal).
@@ -150,10 +157,15 @@ export default function App() {
     [applySelection],
   )
 
-  /** Choosing a built-in app also drops any user-supplied ELF. */
+  /**
+   * Choosing a built-in app also drops any user-supplied ELF — and with it any
+   * user devicetree, which must not leak onto a sample. The sample's own tree
+   * is re-fetched by the backend when the new session starts.
+   */
   const handleSampleChange = useCallback(
     (id: string) => {
       clearGuestImage()
+      clearDeviceTree()
       applySelection({ sampleId: id })
     },
     [applySelection],
@@ -183,6 +195,7 @@ export default function App() {
 
   const handleClearImage = useCallback(() => {
     clearGuestImage()
+    clearDeviceTree()
     if (backendRef.current?.resetRequiresReload) {
       location.reload()
       return
@@ -227,15 +240,23 @@ export default function App() {
           onTeardown={handleTeardown}
         />
         {/*
-          Each entry stays hidden unless the running emulator exposes it, and
+          Each entry stays hidden unless the running emulator exposes it *and*
+          the guest devicetree (when one is known) declares it usable, and
           opens collapsed unless the sample is about it. A custom ELF's
-          peripherals are unknown, so expand whatever it lights up. Keyed by
-          sample so the mock path (no reload) re-derives these defaults too.
+          peripherals are unknown, so expand whatever it lights up — unless its
+          devicetree was supplied, which both grounds the panel set and picks
+          the ones worth opening. Keyed by sample, image and tree so the
+          non-reload paths (mock, pre-commit) re-derive these defaults too.
         */}
         <PeripheralPanels
-          key={sampleId}
-          primaryPanels={samplePrimaryPanels(getBoard(boardId), sampleId)}
-          expandAll={customImage !== null}
+          key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
+          primaryPanels={
+            customImage !== null && deviceTree?.insights
+              ? emphasisPanels(deviceTree.insights)
+              : samplePrimaryPanels(getBoard(boardId), sampleId)
+          }
+          expandAll={customImage !== null && !deviceTree?.insights}
+          dtsPanels={deviceTree?.insights?.panels ?? null}
         />
       </main>
 

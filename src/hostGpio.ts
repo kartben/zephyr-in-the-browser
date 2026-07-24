@@ -22,6 +22,7 @@
  * backend with no GPIO device need not know it exists.
  */
 
+import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { gpioModel, isBound, subscribeBinds } from '@/virtio'
 
 /** Pin roles. Must match the ngpios and wiring the guest overlay declares. */
@@ -30,20 +31,53 @@ export interface Pin {
   label: string
 }
 
-/** Pins 0-3 are inputs the browser drives; 4-7 are outputs the guest drives. */
-export const BUTTONS: Pin[] = [
+/**
+ * The full pin fan-out of the bridge, for builds whose devicetree is unknown:
+ * pins 0-3 are inputs the browser drives; 4-7 are outputs the guest drives.
+ * When a zephyr.dts is loaded, the panel shows the pins its gpio-keys and
+ * gpio-leds nodes actually wire instead — see getButtons/getLeds.
+ */
+const FALLBACK_BUTTONS: Pin[] = [
   { id: 0, label: 'SW0' },
   { id: 1, label: 'SW1' },
   { id: 2, label: 'SW2' },
   { id: 3, label: 'SW3' },
 ]
 
-export const LEDS: Pin[] = [
+const FALLBACK_LEDS: Pin[] = [
   { id: 4, label: 'LED0' },
   { id: 5, label: 'LED1' },
   { id: 6, label: 'LED2' },
   { id: 7, label: 'LED3' },
 ]
+
+/*
+ * Pins and controller label derived from the loaded devicetree. Cached, not
+ * computed per call: getButtons/getLeds are useSyncExternalStore snapshots, so
+ * they must return the same reference until something actually changed.
+ */
+let derived: { buttons: Pin[]; leds: Pin[]; node: string | null } = {
+  buttons: FALLBACK_BUTTONS,
+  leds: FALLBACK_LEDS,
+  node: null,
+}
+
+function recomputeDerived() {
+  const bridged = getDeviceTree()?.insights?.gpioControllers.find((c) => c.bridged)
+  derived = bridged
+    ? { buttons: bridged.buttons, leds: bridged.leds, node: bridged.controllerLabel }
+    : { buttons: FALLBACK_BUTTONS, leds: FALLBACK_LEDS, node: null }
+}
+
+/** What the browser drives: gpio-keys pins when a devicetree says, else 0-3. */
+export function getButtons(): Pin[] {
+  return derived.buttons
+}
+
+/** What the guest drives: gpio-leds pins when a devicetree says, else 4-7. */
+export function getLeds(): Pin[] {
+  return derived.leds
+}
 
 interface GpioExports {
   _qemu_host_gpio_set_inputs?: (mask: number) => void
@@ -127,12 +161,13 @@ export function available(): boolean {
 }
 
 /**
- * Devicetree label of the bound controller — `host_gpio` on the Cortex-M3,
- * `virtio_gpio0` on the Cortex-A53. The panel quotes it in its `gpio` shell
- * hint, which is otherwise wrong on whichever board it was not written for.
+ * Devicetree label of the bound controller, quoted by the panel's `gpio` shell
+ * hint. The loaded devicetree names it authoritatively; without one, fall back
+ * to the labels the bundled overlays use — `host_gpio` on the Cortex-M3's MMIO
+ * bridge, `virtio_gpio0` on the Cortex-A53.
  */
 export function controllerNode(): string {
-  return mmio ? 'host_gpio' : 'virtio_gpio0'
+  return derived.node ?? (mmio ? 'host_gpio' : 'virtio_gpio0')
 }
 
 export function getInputs(): number {
@@ -181,3 +216,11 @@ function pollMmio() {
 function notify() {
   for (const fn of listeners) fn()
 }
+
+// A devicetree can arrive at any point (sample fetch, user drop, startup
+// claim); re-derive the pin lists and wake the panel whenever it does.
+recomputeDerived()
+subscribeDeviceTree(() => {
+  recomputeDerived()
+  notify()
+})

@@ -25,6 +25,15 @@ interface PeripheralPanelsProps {
    * emulator exposes, keeping the panels discoverable.
    */
   expandAll?: boolean
+  /**
+   * Panels the guest's devicetree can actually use, or null when no tree is
+   * known. The machine may expose a bridge the build has no driver for — the
+   * A53 command line always carries the virtio I2C adapter, but a blinky build
+   * never binds it — and this is the signal that hides such dead surfaces.
+   * Only the panels a devicetree can vouch for are gated; the ubiquitous
+   * bridges keep their machine-driven behavior.
+   */
+  dtsPanels: Set<PanelKind> | null
 }
 
 /**
@@ -34,8 +43,14 @@ interface PeripheralPanelsProps {
  * GPIO — each with its own controls. A panel stays hidden until the emulator
  * actually exposes it, and opens collapsed unless the sample is about it.
  */
-export function PeripheralPanels({ primaryPanels, expandAll = false }: PeripheralPanelsProps) {
+export function PeripheralPanels({
+  primaryPanels,
+  expandAll = false,
+  dtsPanels,
+}: PeripheralPanelsProps) {
   const expanded = (kind: PanelKind) => expandAll || primaryPanels.has(kind)
+  // No devicetree means no opinion — everything the machine exposes may show.
+  const declared = (kind: PanelKind) => dtsPanels === null || dtsPanels.has(kind)
 
   const i2cAvailable = useSyncExternalStore(
     subscribeBinds,
@@ -47,14 +62,14 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
     i2cModel.chips,
     useCallback(() => [], []),
   )
-  const sensors = i2cAvailable ? chips.filter(isSensorChip) : []
-  const memories = i2cAvailable ? chips.filter(isMemoryChip) : []
+  const sensors = i2cAvailable && declared('sensor') ? chips.filter(isSensorChip) : []
+  const memories = i2cAvailable && declared('i2c') ? chips.filter(isMemoryChip) : []
 
   return (
     <>
       {/* Buses — the debug + attach/detach side. */}
       <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-start gap-3">
-        <I2cPanel defaultExpanded={expanded('i2c')} />
+        {declared('i2c') && <I2cPanel defaultExpanded={expanded('i2c')} />}
       </div>
 
       {/* Devices — the things on the buses, plus the standalone bridges. */}
@@ -71,8 +86,8 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
           <MemoryCard key={chip.address} chip={chip} defaultExpanded={expanded('i2c')} />
         ))}
         <GnssPanel defaultExpanded={expanded('gnss')} />
-        <GpioPanel defaultExpanded={expanded('gpio')} />
-        <OledPanel defaultExpanded={expanded('oled')} />
+        {declared('gpio') && <GpioPanel defaultExpanded={expanded('gpio')} />}
+        {declared('oled') && <OledPanel defaultExpanded={expanded('oled')} />}
         <AudioPanel defaultExpanded={expanded('audio')} />
         <NetworkPanel defaultExpanded={expanded('net')} />
         {/* Guest throughput is about no single sample; leave it collapsed. */}

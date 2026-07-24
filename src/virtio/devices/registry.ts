@@ -7,15 +7,22 @@
  * - The page can attach any chip at any address at runtime; the bus just starts
  *   ACKing there and `i2c scan` finds it.
  * - The guest's driver list is static. Only the addresses the devicetree
- *   declares (zephyr-module/snippets/virtio-i2c/boards/qemu_cortex_a53.overlay)
- *   get a bound driver. A chip attached anywhere else answers on the bus but no
- *   driver ever talks to it — useful for `i2c scan`/`i2c read`, not `sensor get`.
+ *   declares get a bound driver. A chip attached anywhere else answers on the
+ *   bus but no driver ever talks to it — useful for `i2c scan`/`i2c read`, not
+ *   `sensor get`.
  *
  * So detaching a declared chip is a genuine bus-error demo (the driver NAKs like
- * the part fell off the board), and attaching one restores it. `DT_SLOTS` mirrors
- * the overlay; keep the two in sync.
+ * the part fell off the board), and attaching one restores it.
+ *
+ * Where the declared addresses come from: the *parsed devicetree of the running
+ * build* when one is loaded (src/devicetree.ts) — the bridged virtio,i2c bus's
+ * enabled children are the truth, including "none, this build has no bus". Only
+ * when no devicetree is known (older image tarballs, a custom ELF without one)
+ * does the hardcoded mirror of the virtio-i2c snippet overlay take over.
  */
 
+import { get as getDeviceTree } from '@/devicetree'
+import type { I2cSlot } from '@/dts'
 import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
 import { createSsd1306 } from './chips/ssd1306'
@@ -76,10 +83,12 @@ export const CHIP_TYPES: ChipType[] = [
 ]
 
 /**
- * Addresses the qemu_cortex_a53 I2C overlay declares a driver for, mapped to
- * the chip type that belongs there. Kept in sync with the overlay by hand.
+ * Fallback for builds whose devicetree is unknown: the addresses the
+ * qemu_cortex_a53 virtio-i2c snippet overlay declares, mapped to the chip type
+ * that belongs there. Kept in sync with the overlay by hand — but only
+ * consulted when no zephyr.dts is loaded.
  */
-export const DT_SLOTS: Record<number, string> = {
+export const FALLBACK_DT_SLOTS: Record<number, string> = {
   0x48: 'tmp112',
   0x49: 'lm75',
   0x53: 'adxl345',
@@ -87,9 +96,38 @@ export const DT_SLOTS: Record<number, string> = {
   0x3c: 'ssd1306',
 }
 
+/**
+ * Slots the loaded devicetree declares on the bridged bus(es), or null when no
+ * usable devicetree is known. An empty map is meaningful: the tree parsed and
+ * declares no bridged I2C bus, so *nothing* has a driver (the blinky story).
+ */
+function dtsSlots(): Map<number, I2cSlot> | null {
+  const insights = getDeviceTree()?.insights
+  if (!insights) return null
+  const slots = new Map<number, I2cSlot>()
+  for (const bus of insights.i2cBuses) {
+    if (!bus.bridged) continue
+    for (const slot of bus.slots) slots.set(slot.address, slot)
+  }
+  return slots
+}
+
 /** Whether the guest devicetree binds a driver at this address. */
 export function hasDriver(address: number): boolean {
-  return address in DT_SLOTS
+  const slots = dtsSlots()
+  if (slots) return slots.has(address)
+  return address in FALLBACK_DT_SLOTS
+}
+
+/** What the devicetree says lives at an address — for hint text. */
+export function declaredChip(address: number): { compatible?: string; chipId?: string } | undefined {
+  const slots = dtsSlots()
+  if (slots) {
+    const slot = slots.get(address)
+    return slot ? { compatible: slot.compatible, chipId: slot.chipId } : undefined
+  }
+  const chipId = FALLBACK_DT_SLOTS[address]
+  return chipId === undefined ? undefined : { chipId }
 }
 
 export function chipType(id: string): ChipType | undefined {
