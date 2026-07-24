@@ -9,6 +9,14 @@
  * The main thread stays the source of truth for *metadata*: the guest only
  * (re)configures ramfb rarely, and each such change arrives as an `update`
  * message. Pixels are never posted; only the shared buffer and where to read.
+ *
+ * Frames go out at the display's own rate rather than a fixed 30 fps. The cap
+ * was there because the upload used to compete with xterm and React on the main
+ * thread — which is why the main-thread renderers still keep one — but this
+ * thread has nothing to compete with. What replaces it is a checksum: a frame is
+ * uploaded only when it differs from the last, so an idle panel costs one read
+ * of the framebuffer and no upload at all, cheaper than the 30 uploads a second
+ * it used to cost while showing the same pixels.
  */
 import { createWebGLRenderer, type FrameRenderer, type UploadMode } from './renderers'
 
@@ -28,7 +36,6 @@ export type MainToWorker =
       canvas: OffscreenCanvas
       buffer: ArrayBufferLike
       snapshot: WorkerSnapshot
-      frameIntervalMs: number
     }
   | { type: 'update'; buffer: ArrayBufferLike; snapshot: WorkerSnapshot }
   | { type: 'stop' }
@@ -49,26 +56,40 @@ let buffer: ArrayBufferLike | null = null
 let snapshot: WorkerSnapshot | null = null
 let renderer: FrameRenderer | null = null
 let rendererKey = ''
-let frameIntervalMs = 1000 / 30
-let previous = 0
 let running = false
 let frameHandle = 0
+/** Checksum of the last uploaded frame, and whether one has been uploaded. */
+let lastDigest = 0
+let hasDrawn = false
 
 // Worker requestAnimationFrame drives OffscreenCanvas presentation where it
 // exists (all current WebGL2-capable browsers); fall back to a timer otherwise.
 const hasRaf = typeof self.requestAnimationFrame === 'function'
-const schedule = (callback: (now: number) => void): number =>
-  hasRaf
-    ? self.requestAnimationFrame(callback)
-    : self.setTimeout(() => callback(self.performance.now()), 1000 / 60)
+const schedule = (callback: () => void): number =>
+  hasRaf ? self.requestAnimationFrame(callback) : self.setTimeout(callback, 1000 / 60)
 const unschedule = (handle: number) => {
   if (hasRaf) self.cancelAnimationFrame(handle)
   else self.clearTimeout(handle)
 }
 
+/**
+ * Checksum of a frame, over every 32-bit pixel — a subsample would miss exactly
+ * what matters here, a one-pixel-wide cursor or cross. Position-sensitive, so
+ * a mark that moves without changing colour still registers. Returns null when
+ * the frame cannot be viewed as 32-bit words, which forces an upload.
+ */
+function digest(buffer: ArrayBufferLike, pointer: number, length: number): number | null {
+  if (pointer % 4 !== 0 || length % 4 !== 0) return null
+  const words = new Uint32Array(buffer, pointer, length / 4)
+  let hash = 0x811c9dc5
+  for (let i = 0; i < words.length; i += 1) hash = Math.imul(hash ^ words[i], 0x01000193)
+  return hash
+}
+
 function buildRenderer(view: OffscreenCanvas, snap: WorkerSnapshot): boolean {
   renderer?.dispose()
   renderer = null
+  hasDrawn = false
   try {
     view.width = snap.width
     view.height = snap.height
@@ -84,7 +105,7 @@ function buildRenderer(view: OffscreenCanvas, snap: WorkerSnapshot): boolean {
   }
 }
 
-function frame(now: number) {
+function frame() {
   if (!running) return
   frameHandle = schedule(frame)
   if (!snapshot || !snapshot.available || !buffer || !canvas) return
@@ -99,11 +120,16 @@ function frame(now: number) {
     }
   }
 
-  if (now - previous < frameIntervalMs) return
-  previous = now
-
   const length = snapshot.stride * snapshot.height
   if (snapshot.pointer <= 0 || snapshot.pointer + length > buffer.byteLength) return
+
+  // Skip frames the guest has not touched. The guest writes the framebuffer
+  // directly and ramfb has no dirty bit to read, so the content is the signal.
+  const hash = digest(buffer, snapshot.pointer, length)
+  if (hasDrawn && hash !== null && hash === lastDigest) return
+  lastDigest = hash ?? 0
+  hasDrawn = true
+
   // Re-view every frame: an in-place heap growth keeps the SharedArrayBuffer's
   // identity but enlarges it, and a stale view would clamp to the old length.
   renderer!.draw(new Uint8Array(buffer, snapshot.pointer, length))
@@ -115,15 +141,17 @@ self.addEventListener('message', (event: MessageEvent) => {
     canvas = message.canvas
     buffer = message.buffer
     snapshot = message.snapshot
-    frameIntervalMs = message.frameIntervalMs
-    previous = 0
+    hasDrawn = false
     if (!running) {
       running = true
       frameHandle = schedule(frame)
     }
   } else if (message.type === 'update') {
+    // A new buffer or pixel address invalidates the checksum: the same content
+    // at a new address must still reach the canvas.
     buffer = message.buffer
     snapshot = message.snapshot
+    hasDrawn = false
   } else if (message.type === 'stop') {
     running = false
     unschedule(frameHandle)
@@ -132,5 +160,6 @@ self.addEventListener('message', (event: MessageEvent) => {
     canvas = null
     buffer = null
     snapshot = null
+    hasDrawn = false
   }
 })

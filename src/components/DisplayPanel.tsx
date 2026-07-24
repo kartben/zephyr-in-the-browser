@@ -30,6 +30,11 @@ import type { MainToWorker, WorkerToMain } from '@/display/renderWorker'
  */
 type RenderStrategy = 'worker-webgl' | 'main-webgl' | 'main-canvas2d'
 
+/**
+ * Frame cap for the *main-thread* renderers only. There it buys back time for
+ * xterm and React, which share the thread with the upload; the worker path has
+ * the thread to itself and paints every frame instead (see renderWorker).
+ */
 const FRAME_INTERVAL_MS = 1000 / 30
 
 /**
@@ -175,7 +180,6 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
       canvas: offscreen,
       buffer,
       snapshot: { ...snap },
-      frameIntervalMs: FRAME_INTERVAL_MS,
     }
     worker.postMessage(init, [offscreen])
 
@@ -254,6 +258,9 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
   const pointerHandlers = pointer
     ? {
         onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => {
+          // hostInput drops hover on its own — this only spares the layout read
+          // in framebufferPoint on every mouse move across the panel.
+          if (!event.buttons) return
           const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
           if (point) movePointer(point.nx, point.ny)
         },
