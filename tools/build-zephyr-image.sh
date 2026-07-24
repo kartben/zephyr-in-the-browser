@@ -30,7 +30,7 @@
 # To ship the result, bundle the images into a release with
 # tools/package-emulator.sh <tag> --images and point IMAGES_RELEASE at it. That
 # asset is separate from the emulator's, so shipping new guests needs no QEMU
-# rebuild (README.md, "Deploying").
+# rebuild (docs/deploying.md).
 
 set -euo pipefail
 

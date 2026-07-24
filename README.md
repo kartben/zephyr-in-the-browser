@@ -2,7 +2,19 @@
 
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
-It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten, emulating Cortex-M and Cortex-A53 boards. Alongside the serial terminal, the UI offers host-backed sensor and GPIO controls (clickable buttons, live LED indicators), an editable GNSS fix streamed over UART, a framebuffer panel for Zephyr's display driver that is also a *touchscreen* — clicks and drags reach the guest as a virtio-input tablet — a sound panel — speakers fed by Zephyr's I2S API, microphone feeding its DMIC API — wired to the Web Audio API and `getUserMedia`, and real Ethernet: the page itself implements the guest's LAN (DHCP, DNS, TCP…), with a Network panel showing live throughput charts and a tcpdump-style capture — each in its own floating panel.
+It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten,
+emulating Cortex-M3 and Cortex-A53 boards. Alongside the serial terminal, each
+browser-backed peripheral gets its own floating panel:
+
+| Panel | What the guest sees |
+| --- | --- |
+| **Sensor** | A host-fed sensor aliased as `accel0`, `temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples run unmodified |
+| **GPIO** | Clickable buttons and live LED indicators |
+| **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
+| **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet |
+| **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
+| **I²C** | A real bus with simulated chips on it — a TMP112 thermometer, an AT24 EEPROM, and an SSD1306 OLED whose pixels get their own panel — plus every byte that crosses the bus |
+| **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
 
 ## Quick start
 
@@ -29,235 +41,28 @@ Pick a **Board** (the emulated machine) and an **App** (the program it boots) fr
 
 The packaged apps live in [`tools/samples.manifest`](tools/samples.manifest), one line per board × app with ids matching [`src/boards.ts`](src/boards.ts); `tools/build-zephyr-image.sh` rebuilds them all. Cortex-M3 lists apps verified against its slower qemu-wasm TCI timing — most run (including single-threaded sleepers like `blinky` and `basic_button`, albeit not at wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 runs the wasm JIT and is unaffected.
 
-## Sample docs with a "Run in simulator" button
+## How it works
 
-`/docs/` serves a mirrored copy of the official Zephyr documentation page for
-every packaged sample, with a **Run in simulator** button injected next to
-"Browse source code on GitHub". The button opens the emulator in a
-near-fullscreen dialog, pre-selecting the right board and app — a prototype of
-what the widget could look like embedded in the upstream docs.
+Every device here is a **bridge** between a browser API and a Zephyr driver.
+The guest runs stock Zephyr wherever possible; what the page supplies is the
+other end of the wire.
 
-The pages live in `public/docs/` (gitignored, not committed) and are
-generated with:
+| Document | What it covers |
+| --- | --- |
+| [docs/peripherals.md](docs/peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the vendored drivers behind snippets, and touch input |
+| [docs/networking.md](docs/networking.md) | Why the page *is* the LAN, and exactly what does and does not leave the tab |
+| [docs/virtio-bridge.md](docs/virtio-bridge.md) | The generic virtio bridge, which lets a device model be TypeScript instead of QEMU C |
+| [docs/next-drivers.md](docs/next-drivers.md) | The bridge shapes already proven here, and what to add next |
+| [public/qemu/README.md](public/qemu/README.md) | The emulator itself: how it is built, what is patched into it, and its known limits |
+| [docs/deploying.md](docs/deploying.md) | Cutting a release and deploying to GitHub Pages |
+| [docs/sample-docs.md](docs/sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 
-```console
-npm run docs:fetch   # re-mirrors from docs.zephyrproject.org/latest
-```
-
-Run it before `npm run dev`/`npm run build` locally; the deploy workflow
-([.github/workflows/pages.yml](.github/workflows/pages.yml)) runs it too, so
-the live site always ships the current mirror.
-
-The script ([tools/fetch-docs.mjs](tools/fetch-docs.mjs)) reads
-`tools/samples.manifest`, mirrors each sample's page plus its CSS/JS/font
-requisites, rewrites links (pages inside the subset stay local, everything
-else points at the live docs), and injects the widget
-([tools/docs-widget/](tools/docs-widget)) — deliberately framework-free JS/CSS
-so it could later ship as a Sphinx extension. The pages also load
-`coi-serviceworker.js`: the emulator needs `SharedArrayBuffer`, which only
-exists when the *top-level* document is cross-origin isolated, so the docs
-pages have to opt in themselves for the embedded emulator to boot on GitHub
-Pages. Restart the dev server after regenerating — Vite caches the `public/`
-file list at startup.
-
-## The browser_bridge shield
-
-The browser-fed peripherals — GNSS UART, host sensor, host GPIO, host audio out (I2S), host microphone (DMIC), and the browser-sized ramfb — reach the guest through a Zephyr shield, **`browser_bridge`** ([zephyr-module/boards/shields/browser_bridge/](zephyr-module/boards/shields/browser_bridge)), applied to every packaged build. Its overlays alias the host sensor as `accel0`, `temp0`/`ambient-temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples build unmodified against browser-fed readings. Building any app against the browser machines is just:
-
-```console
-west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-module -DSHIELD=browser_bridge
-```
-
-Each machine instantiates the devices where the overlays expect them: the Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the GPIO controller at 0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the virt patches in `tools/qemu-jit-patches/` put the sensor at 0x090c0000, the audio out at 0x090d0000 and the microphone at 0x090e0000.
-
-The module also carries pristine copies of two not-yet-upstream Zephyr drivers
-([`zephyr-module/drivers/vendor/`](zephyr-module/drivers/vendor)), each opt-in
-behind a snippet:
-
-- **virtio-gpu** (`-S virtio-gpu`) swaps the Cortex-A53 panel off ramfb. Proven
-  on the guest side but with no browser bridge yet, so nothing renders in the
-  page under it — and measurements say it is not the way to a faster display
-  anyway. Written up in
-  [docs/next-drivers.md](docs/next-drivers.md#virtio-gpu--vendored-guest-side-proven-not-a-display-speed-up).
-- **virtio-gpio** (`-S virtio-gpio`) gives the Cortex-A53 the GPIO panel, on
-  virtio-mmio slot 2. This is the same browser buttons and LEDs the Cortex-M3
-  gets from `qemu,host-gpio`, but reached through a *standard* device: the guest
-  runs a stock VIRTIO driver instead of one written against a bespoke register
-  block, and because the device offers `VIRTIO_GPIO_F_IRQ`, buttons interrupt
-  the guest rather than being polled by it. The trade is latency — every GPIO
-  call is a virtqueue round trip, so the API is thread-context only.
-
-  Going virtio does *not* remove the downstream QEMU patch: `hw/virtio/` ships
-  only `vhost-user-gpio`, which forwards the virtqueues to a separate daemon
-  process, and a wasm build in a browser tab has none to run. What changed is
-  where the bespoke part lives. It is no longer a GPIO device model in C but a
-  **generic virtio bridge**
-  ([`tools/qemu-jit-patches/0010-hw-virtio-add-generic-browser-virtio-bridge.patch`](tools/qemu-jit-patches/0010-hw-virtio-add-generic-browser-virtio-bridge.patch)),
-  which forwards whole virtqueue chains to the page and lets the *device model*
-  be TypeScript — [`src/virtio/devices/gpio.ts`](src/virtio/devices/gpio.ts).
-  The virtio device id, queue count, features and config space are command-line
-  properties, so the same C file is a GPIO controller, an I2C adapter, or
-  whatever comes next, and adding one needs no QEMU rebuild. See
-  [docs/virtio-bridge.md](docs/virtio-bridge.md). The Cortex-M3 keeps its MMIO
-  device: the LM3S6965 machine has no virtio-mmio bus.
-
-## Touch input: the display panel is a tablet
-
-Clicking and dragging on the Cortex-A53 display panel presses the guest's
-touchscreen. It reaches Zephyr as a **stock `virtio-tablet-device`** on
-virtio-mmio slot 3 — the slot the board's own devicetree reserves for
-`virtio_input0`, with `zephyr,touch` already pointing at it — driven by
-Zephyr's upstream `virtio,input` driver. Nothing in this repo models the
-device, and there is no shield overlay for it; a build only needs
-`CONFIG_INPUT=y` ([`zephyr-module/conf/touch.conf`](zephyr-module/conf/touch.conf))
-to compile the driver the devicetree already asks for. LVGL picks the pointer
-up from the same chosen node, so the Music Player demo became clickable without
-an application change — and it now waits for that click instead of running
-LVGL's auto-play script, which ended by blanking the screen after ~35 seconds.
-
-What the emulator *does* need is a way in. QEMU's input core is normally fed by
-a UI backend, and qemu-wasm is built without SDL, GTK or VNC, so
-`tools/qemu-jit-patches/0009-hw-misc-add-browser-input-bridge.patch` supplies
-the missing frontend: page JavaScript ([`src/hostInput.ts`](src/hostInput.ts))
-appends events to a lock-free ring and a `QEMU_CLOCK_VIRTUAL` timer replays
-them into `qemu_input_*()` on QEMU's own thread. That makes it the first bridge
-here whose *device* is entirely off-the-shelf on both sides — the patch adds
-plumbing, not hardware. The primary button is reported as `BTN_TOUCH` rather
-than `BTN_LEFT`, which is what Zephyr's touch consumers read; the secondary and
-middle buttons and the wheel pass through for anything that wants them.
-
-## Networking: the page is the LAN
-
-The guest has a real Ethernet interface (stock QEMU NICs: `stellaris_enet` on
-Cortex-M3, virtio-net on Cortex-A53), but its cable ends in this browser tab:
-a patched-in `browser` netdev hands every frame to page JavaScript, and
-**the page plays the entire network** ([src/net/](src/net)) — gateway
-`192.0.2.2`, DHCP, DNS, and every "remote host" at once. It is a sandbox, not
-a NAT: **no packet ever reaches the real internet.** Exactly two things
-escape the tab, both as ordinary browser requests:
-
-| The guest does…                        | What actually happens                                                                                                                             |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| DHCP                                   | The page leases it `192.0.2.1` (same address the static samples use)                                                                              |
-| DNS lookup                             | **Real** answer, fetched via DNS-over-HTTPS — offline it invents a `203.0.113.x` |
-| HTTP to any host on `:80`/`:8080`      | Re-issued as a **real** `fetch()` over https. Readable only if the site allows CORS; `http://host.internal/` always works                          |
-| `net ping <any address>`               | The **page** replies, pretending to be that host — a reachability prop, not a probe. Nothing was pinged                                            |
-| HTTPS, raw TCP/UDP to the internet     | Impossible — browser pages have no raw sockets                                                                                                    |
-| Runs a server (`http_server`, `echo_server`) | Reachable only from the Network panel's GET/echo tools — the page dials in over its own TCP                                                  |
-| SNTP                                   | Answered with your browser's clock                                                                                                                |
-| `zperf udp upload 192.0.2.2 5001 …`    | Measured by an in-page iperf2-compatible sink                                                                                                     |
-
-Because every frame crosses the page, the Network panel shows live RX/TX
-charts, a tiny tcpdump with one-click **.pcap download** (opens in Wireshark),
-link up/down, and latency/loss injection. The stack is dependency-free
-TypeScript with a vitest suite (`npm test`); under the mock backend a scripted
-fake guest drives the same stack, so the panel demos without a QEMU build.
-The same summary lives behind the ⓘ button in the panel itself.
-
-Fuller networking is on the radar: an **opt-in uplink** that would tunnel the
-guest's frames over a WebSocket to a local [passt](https://passt.top/)
-(or gvisor-tap-vsock) gateway, giving real DHCP/DNS/TCP/UDP — even real ping —
-when you run a small daemon next to the dev server. The in-page sandbox would
-remain the default: it needs no helper and nothing to trust.
-
-## Deploying
-
-Pushes to `main` deploy the site to GitHub Pages. The emulator binaries and
-guest ELFs are not checked into git, so they travel as **two release assets**,
-pinned independently:
-
-| Asset | Repository variable | Produced by | Rebuild cost |
-| --- | --- | --- | --- |
-| `qemu-wasm-emulator.tar.gz` | `EMULATOR_RELEASE` | `tools/build-qemu-wasm.sh` | slow, containerised, ~100 MB |
-| `zephyr-images.tar.gz` | `IMAGES_RELEASE` | `tools/build-zephyr-image.sh` | minutes, small |
-
-They are separate so the slow half can stay where it is. `IMAGES_RELEASE` falls
-back to `EMULATOR_RELEASE` when unset, and releases cut before the split — which
-carry a single `qemu-wasm-artifacts.tar.gz` — still deploy unchanged. Without
-either variable, Pages ships the mock backend only.
-
-Prerequisites for anything below are Docker and an authenticated
-[GitHub CLI](https://cli.github.com/) (`gh auth login`).
-
-### A page-only change
-
-Push to `main`. Nothing to rebuild, nothing to release — the deploy reuses
-whatever the two variables already point at.
-
-### A guest-only change — a new sample, a shield or driver edit
-
-No QEMU build, and the emulator binary is neither rebuilt nor re-uploaded:
-
-```console
-TAG=v12
-
-# Rebuild every board/app entry in tools/samples.manifest.
-tools/build-zephyr-image.sh
-
-# Package and release just the guest images.
-tools/package-emulator.sh "$TAG" --images
-
-# Make future pushes use them, and deploy immediately.
-gh variable set IMAGES_RELEASE --body "$TAG"
-gh workflow run pages.yml -f images_release="$TAG"
-```
-
-### An emulator change — QEMU patches, a browser bridge
-
-This is the slow path, and the only one that needs it:
-
-```console
-git switch main
-git pull --ff-only origin main
-
-TAG=v12
-
-# Use a fresh source tree so this release cannot reuse an older QEMU checkout.
-QEMU_BUILD_DIR="$(mktemp -d)"
-QEMU_WORKDIR="$QEMU_BUILD_DIR" tools/build-qemu-wasm.sh
-
-# Rebuild every board/app entry in tools/samples.manifest.
-tools/build-zephyr-image.sh
-
-# Install the pinned web dependencies, then type-check and verify the build.
-npm ci
-npm run build
-
-# Create the release and upload both assets.
-tools/package-emulator.sh "$TAG"
-
-# Make future pushes use this release, and deploy it immediately.
-gh variable set EMULATOR_RELEASE --body "$TAG"
-gh variable set IMAGES_RELEASE --body "$TAG"
-gh workflow run pages.yml -f emulator_release="$TAG" -f images_release="$TAG"
-
-# Inspect the release and the latest Pages runs.
-gh release view "$TAG"
-gh run list --workflow pages.yml --limit 5
-
-rm -rf -- "$QEMU_BUILD_DIR"
-```
-
-Replace `v12` with the next release tag. The QEMU build is the slow part;
-`tools/build-qemu-wasm.sh` builds Cortex-M with TCI and Cortex-A53 with the
-WebAssembly JIT. For faster development rebuilds, omit `QEMU_WORKDIR` to reuse
-the cached `.qemu-wasm-build` source and dependency image. You can also rebuild
-one emulator target or one guest, for example:
-
-```console
-tools/build-qemu-wasm.sh aarch64-softmmu
-tools/build-zephyr-image.sh qemu_cortex_a53 display
-```
-
-See the usage comments at the top of each script for all accepted options.
-
-`tools/package-emulator.sh` takes `--emulator` or `--images` to package one half
-alone; with neither it packages both. Given a tag it creates the GitHub release,
-or replaces just those assets if the tag already exists. The explicit workflow
-dispatch deploys a new release without requiring another source commit.
-
-A couple of details are handled for you: static hosts can't set the cross-origin isolation headers QEMU needs, so the deployed build uses [`coi-serviceworker`](https://github.com/gzuidhof/coi-serviceworker) to add them client-side. And since the emulator is GPLv2-licensed QEMU, this repo being public — with release notes pointing at the pinned sources — satisfies the corresponding-source requirement.
+Two closed-out investigations are kept for the evidence rather than the
+conclusion: [docs/a53-lvgl-stack.md](docs/a53-lvgl-stack.md) (a guest stack
+overflow that looked convincingly like a JIT miscompilation) and
+[docs/audio-feasibility.md](docs/audio-feasibility.md) (why audio did not go
+over virtio-sound).
 
 ## Stack
 
-Vite, React, TypeScript, Tailwind, shadcn/ui, and [`xterm-pty`](https://github.com/mame/xterm-pty) for the terminal.
+Vite, React, TypeScript, Tailwind, shadcn/ui, and [`xterm-pty`](https://github.com/mame/xterm-pty) for the terminal. `npm test` runs the vitest suite; `npm run typecheck` type-checks without emitting.
