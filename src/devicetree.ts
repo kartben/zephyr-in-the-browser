@@ -67,12 +67,14 @@ function build(source: 'sample' | 'user', name: string, text: string): DeviceTre
 
 /** Install a user-supplied devicetree for the current custom ELF. */
 export function setUserDts(name: string, text: string) {
+  fetchEpoch++ // a stale sample fetch must not clobber this
   current = build('user', name, text)
   notify()
 }
 
 /** Forget the devicetree — e.g. when the guest changes under it. */
 export function clear() {
+  fetchEpoch++ // ...nor resurrect what was just cleared
   if (current === null) return
   current = null
   notify()
@@ -119,8 +121,13 @@ let fetchEpoch = 0
 /**
  * Fetch and install the devicetree shipped next to a bundled sample. Never
  * throws; an absent or malformed asset clears the store instead, which is the
- * pre-DTS behavior. Only the newest call wins, so a quick sample switch
- * cannot land a stale tree.
+ * pre-DTS behavior.
+ *
+ * Only the newest *state* wins: every mutation of the store — a newer sample
+ * fetch, a user devicetree, a clear — bumps the epoch, so a fetch that was
+ * still in flight when any of those happened (a sample's .dts queued behind
+ * the multi-MB emulator assets, say, while the user drops their own ELF+DTS)
+ * lands dead instead of clobbering the newer truth.
  */
 export async function loadSampleDts(assetUrl: string, name: string): Promise<void> {
   const epoch = ++fetchEpoch
@@ -157,6 +164,7 @@ export async function claimStashedDts(): Promise<void> {
     return // private mode, blocked storage — fall back to no devicetree
   }
   if (!record) return
+  fetchEpoch++ // a claimed handoff outranks any in-flight sample fetch
   current = build('user', record.name, record.text)
   notify()
 }
