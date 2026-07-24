@@ -78,6 +78,29 @@ devicetree does not declare answers `i2c scan` but binds no driver. The
 `accel0` alias lives in the virtio-i2c snippet rather than the shield, so a
 build without the bus never carries a dangling alias.
 
+## The devicetree is the source of truth
+
+What the panels show is grounded in the *running build's* flattened
+devicetree, not in hardcoded mirrors of the overlays.
+[`tools/build-zephyr-image.sh`](../tools/build-zephyr-image.sh) ships each
+sample's `build/zephyr/zephyr.dts` next to its ELF; the page parses it
+([`src/dts/`](../src/dts)) into a store ([`src/devicetree.ts`](../src/devicetree.ts))
+that the peripheral surfaces read:
+
+- which I2C addresses have a bound driver (the "driver"/"bus only" tags, from
+  the bridged `virtio,i2c` node's enabled children),
+- the GPIO panel's pins and labels (from `gpio-keys`/`gpio-leds` wiring) and
+  the controller name its shell hints quote,
+- which panels exist at all — a build without the virtio-i2c snippet shows no
+  I2C panel even though the machine always carries the adapter.
+
+A user-supplied ELF gets the same treatment when its `zephyr.dts` is dropped
+or picked alongside it; without one, every panel the machine exposes shows
+expanded, as before. When no devicetree is known at all (older image
+tarballs), the old hardcoded tables in
+[`src/virtio/devices/registry.ts`](../src/virtio/devices/registry.ts) and
+[`src/hostGpio.ts`](../src/hostGpio.ts) take over, so nothing regresses.
+
 ## The vendored drivers
 
 The module also carries pristine copies of two not-yet-upstream Zephyr drivers
