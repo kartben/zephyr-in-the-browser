@@ -8,7 +8,6 @@ import { OledPanel } from '@/components/OledPanel'
 import { NetworkPanel } from '@/components/NetworkPanel'
 import { PerformancePanel } from '@/components/PerformancePanel'
 import { SensorCard } from '@/components/SensorCard'
-import { SensorPanel } from '@/components/SensorPanel'
 import { i2cModel, isBound, subscribeBinds } from '@/virtio'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
 import type { PanelKind } from '@/boards'
@@ -62,7 +61,6 @@ export function PeripheralPanels({ primaryPanels, expandAll = false }: Periphera
           <SensorCard key={chip.address} chip={chip} defaultExpanded={expanded('sensor')} />
         ))}
         <GnssPanel defaultExpanded={expanded('gnss')} />
-        <SensorPanel defaultExpanded={expanded('sensor')} />
         <GpioPanel defaultExpanded={expanded('gpio')} />
         <OledPanel defaultExpanded={expanded('oled')} />
         <AudioPanel defaultExpanded={expanded('audio')} />

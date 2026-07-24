@@ -12,8 +12,9 @@ import { createGpioModel } from './devices/gpio'
 import { createI2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
+import { createLm75 } from './devices/sensors/lm75'
+import { createAdxl345 } from './devices/sensors/adxl345'
 import { createSsd1306 } from './devices/chips/ssd1306'
-import { get as getSensor, subscribe as subscribeSensor } from '@/hostSensor'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
 /** VIRTIO GPIO controller, name=gpio on the Cortex-A53 command line. */
@@ -31,8 +32,21 @@ export const i2cModel = createI2cModel('i2c')
 export const eeprom = createAt24({ address: 0x50 })
 i2cModel.attachChip(eeprom)
 
+/**
+ * The temperature parts. Both hold a reading of their own now, driven from
+ * their sensor cards (src/components/SensorCard.tsx) — the retired
+ * qemu,host-sensor bridge used to feed the TMP112 from a shared slider, but a
+ * simulated sensor is a first-class device here, not a readout of an MMIO one.
+ */
 export const tmp112 = createTmp112({ address: 0x48 })
 i2cModel.attachChip(tmp112)
+
+export const lm75 = createLm75({ address: 0x49 })
+i2cModel.attachChip(lm75)
+
+/** A 3-axis accelerometer, which the card can point at the device's own tilt. */
+export const adxl345 = createAdxl345({ address: 0x53 })
+i2cModel.attachChip(adxl345)
 
 /**
  * The one chip with something to show. Zephyr's stock `solomon,ssd1306-i2c`
@@ -42,22 +56,6 @@ i2cModel.attachChip(tmp112)
  */
 export const ssd1306 = createSsd1306({ address: 0x3c })
 i2cModel.attachChip(ssd1306)
-
-/**
- * The Sensor panel's temperature slider drives the TMP112 as well as the
- * `qemu,host-sensor` MMIO device it was built for. One slider, two guest-side
- * paths: a bespoke driver written for this project, and Zephyr's stock
- * `ti,tmp112` talking to a chip over a real bus. Channel 3 is Temperature —
- * see CHANNELS in src/hostSensor.ts.
- *
- * Subscribed at module load rather than on attach so the chip holds a sane
- * reading before any guest boots, and keeps it across a restart.
- */
-const TEMPERATURE_CHANNEL = 3
-subscribeSensor(() => {
-  const celsius = getSensor(TEMPERATURE_CHANNEL)
-  if (celsius !== undefined) tmp112.setCelsius(celsius)
-})
 
 /**
  * Called by the qemu backend once its module is live. Registration happens

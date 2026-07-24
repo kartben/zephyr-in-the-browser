@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createSensorChip, type SensorDecl } from './model'
+import { createSensorChip, type SensorChip, type SensorDecl } from './model'
+import { createLm75 } from './lm75'
+import { createAdxl345 } from './adxl345'
 
 /**
  * A made-up two-channel part exercising the machine directly (no bridge): an
@@ -101,5 +103,90 @@ describe('createSensorChip', () => {
     const chip = createSensorChip(decl, { address: 0x41, name: 'Demo #2' })
     expect(chip.address).toBe(0x41)
     expect(chip.name).toBe('Demo #2')
+  })
+})
+
+describe('LM75', () => {
+  /** Decode the temp register the way the `lm75` driver does: int16 >> 7, *0.5. */
+  function decode(be: number[]): number {
+    const raw = (be[0] << 8) | be[1]
+    const signed = (raw << 16) >> 16
+    return (signed >> 7) * 0.5
+  }
+
+  function readTemp(chip: SensorChip): number {
+    chip.write(Uint8Array.of(0x00))
+    return decode(Array.from(chip.read(2)))
+  }
+
+  it('round-trips temperatures at 0.5 °C resolution', () => {
+    const chip = createLm75()
+    for (const c of [0, 22, 25.5, 0.5, 125, -0.5, -10, -55]) {
+      chip.setChannel('temp', c)
+      expect(readTemp(chip)).toBeCloseTo(c, 4)
+    }
+  })
+
+  it('sign-extends negatives rather than wrapping', () => {
+    const chip = createLm75()
+    chip.setChannel('temp', -10)
+    chip.write(Uint8Array.of(0x00))
+    // -10 °C is -20 counts; left-justified by 7 that is 0xF600.
+    expect(Array.from(chip.read(2))).toEqual([0xf6, 0x00])
+  })
+
+  it('clamps to the range the 9-bit field can hold', () => {
+    const chip = createLm75()
+    chip.setChannel('temp', 999)
+    expect(readTemp(chip)).toBeCloseTo(127.5, 4)
+    chip.setChannel('temp', -999)
+    expect(readTemp(chip)).toBeCloseTo(-128, 4)
+  })
+
+  it('reads back the config byte the driver wrote', () => {
+    const chip = createLm75()
+    chip.write(Uint8Array.of(0x01, 0x01)) // shutdown
+    expect(chip.getAttr('shutdown')).toBe(true)
+    chip.write(Uint8Array.of(0x01))
+    expect(Array.from(chip.read(1))).toEqual([0x01])
+  })
+})
+
+describe('ADXL345', () => {
+  const G = 9.80665
+
+  /** Decode one axis: signed 16-bit little-endian, 256 LSB/g, into m/s². */
+  function decodeAxis(lo: number, hi: number): number {
+    const raw = ((hi << 8) | lo) << 16 >> 16
+    return (raw / 256) * G
+  }
+
+  it('answers the DEVID probe with 0xE5', () => {
+    const chip = createAdxl345()
+    chip.write(Uint8Array.of(0x00))
+    expect(Array.from(chip.read(1))).toEqual([0xe5])
+  })
+
+  it('bursts X/Y/Z out of consecutive registers in one read', () => {
+    const chip = createAdxl345()
+    chip.setChannel('accel_x', 1.5)
+    chip.setChannel('accel_y', -2.5)
+    chip.setChannel('accel_z', G)
+
+    // What the driver does: point at DATAX0, read all six data bytes at once.
+    chip.write(Uint8Array.of(0x32))
+    const d = Array.from(chip.read(6))
+    expect(decodeAxis(d[0], d[1])).toBeCloseTo(1.5, 1)
+    expect(decodeAxis(d[2], d[3])).toBeCloseTo(-2.5, 1)
+    expect(decodeAxis(d[4], d[5])).toBeCloseTo(G, 1)
+  })
+
+  it('declares a browser tilt source on every axis', () => {
+    const chip = createAdxl345()
+    expect(chip.decl.channels.map((c) => c.source)).toEqual([
+      'orientation-x',
+      'orientation-y',
+      'orientation-z',
+    ])
   })
 })

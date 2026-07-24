@@ -50,7 +50,6 @@ export interface Board {
   /** Optional browser bridges physically present on this machine. */
   peripherals?: {
     gnss?: boolean
-    hostSensor?: boolean
     hostGpio?: boolean
     hostAudio?: boolean
     hostMic?: boolean
@@ -115,10 +114,11 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
-    description: 'Interactive Zephyr shell, with `sensor get`, `gpio` and `hostaudio`',
+    description: 'Interactive Zephyr shell, with `gpio` and `hostaudio`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-    // The shell is the interface to all three host bridges it advertises.
-    primaryPanels: ['sensor', 'gpio', 'audio'],
+    // The shell is the interface to the host bridges it advertises. This board
+    // has no I2C bus, so no simulated sensors — the sensor cards are A53-only.
+    primaryPanels: ['gpio', 'audio'],
   },
   {
     // Event-driven end to end (shell in, logs out), so it dodges the TCI
@@ -331,7 +331,6 @@ export const BOARDS: Board[] = [
     kernelFsPath: '/pack/zephyr.elf',
     peripherals: {
       gnss: true,
-      hostSensor: true,
       hostGpio: true,
       hostAudio: true,
       hostMic: true,
@@ -415,7 +414,6 @@ export const BOARDS: Board[] = [
     kernelFsPath: '/pack/zephyr.elf',
     peripherals: {
       gnss: true,
-      hostSensor: true,
       hostGpio: true,
       hostAudio: true,
       hostMic: true,

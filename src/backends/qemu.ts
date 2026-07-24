@@ -1,4 +1,3 @@
-import { attach as attachHostSensor, detach as detachHostSensor } from '@/hostSensor'
 import { attach as attachHostDisplay, detach as detachHostDisplay } from '@/hostDisplay'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { attach as attachHostGpio, detach as detachHostGpio } from '@/hostGpio'
@@ -295,8 +294,6 @@ export function createQemuBackend(): PtyBackend {
       // running on it, and the models must be registered before it polls.
       if (board.peripherals?.virtio) attachVirtio(instance)
       else detachVirtio()
-      if (board.peripherals?.hostSensor) attachHostSensor(instance)
-      else detachHostSensor()
       // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
       if (board.peripherals?.ramfb) attachHostDisplay(instance)
       else detachHostDisplay()
@@ -320,7 +317,6 @@ export function createQemuBackend(): PtyBackend {
 
     async reset() {
       detachVirtio()
-      detachHostSensor()
       detachHostDisplay()
       detachHostGnss()
       detachHostGpio()
