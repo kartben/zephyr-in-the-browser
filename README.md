@@ -84,11 +84,17 @@ behind a snippet:
 
   Going virtio does *not* remove the downstream QEMU patch: `hw/virtio/` ships
   only `vhost-user-gpio`, which forwards the virtqueues to a separate daemon
-  process, and a wasm build in a browser tab has none to run. What changes is
-  which side is bespoke —
-  [`tools/qemu-jit-patches/0010-hw-virtio-add-browser-backed-virtio-gpio.patch`](tools/qemu-jit-patches/0010-hw-virtio-add-browser-backed-virtio-gpio.patch)
-  implements the spec'd device so the guest side does not have to be. The
-  Cortex-M3 keeps its MMIO device: the LM3S6965 machine has no virtio-mmio bus.
+  process, and a wasm build in a browser tab has none to run. What changed is
+  where the bespoke part lives. It is no longer a GPIO device model in C but a
+  **generic virtio bridge**
+  ([`tools/qemu-jit-patches/0010-hw-virtio-add-generic-browser-virtio-bridge.patch`](tools/qemu-jit-patches/0010-hw-virtio-add-generic-browser-virtio-bridge.patch)),
+  which forwards whole virtqueue chains to the page and lets the *device model*
+  be TypeScript — [`src/virtio/devices/gpio.ts`](src/virtio/devices/gpio.ts).
+  The virtio device id, queue count, features and config space are command-line
+  properties, so the same C file is a GPIO controller, an I2C adapter, or
+  whatever comes next, and adding one needs no QEMU rebuild. See
+  [docs/virtio-bridge.md](docs/virtio-bridge.md). The Cortex-M3 keeps its MMIO
+  device: the LM3S6965 machine has no virtio-mmio bus.
 
 ## Touch input: the display panel is a tablet
 

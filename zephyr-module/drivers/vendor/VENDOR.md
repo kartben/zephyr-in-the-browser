@@ -71,7 +71,10 @@ is not vendored — it tests the driver in the Zephyr tree, not here.
 Note that the device this driver talks to is **not** stock QEMU: `hw/virtio/`
 ships only `vhost-user-gpio`, a shim onto an external daemon that a
 single-process wasm build has no way to run. The browser-backed device model is
-`tools/qemu-jit-patches/0010-hw-virtio-add-browser-backed-virtio-gpio.patch`.
+the *generic* browser virtio bridge,
+`tools/qemu-jit-patches/0010-hw-virtio-add-generic-browser-virtio-bridge.patch`,
+whose GPIO device model is TypeScript — `src/virtio/devices/gpio.ts`. See
+`docs/virtio-bridge.md`.
 
 ### Checking for drift
 

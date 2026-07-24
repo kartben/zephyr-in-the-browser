@@ -118,15 +118,22 @@ directories under `tools/`:
 * The `qemu-host-gpio` device: input pins driven from JavaScript and output pins
   read back by it, exposed through `qemu_host_gpio_set_inputs` /
   `qemu_host_gpio_get_outputs`. Cortex-M3 only.
-* A **VIRTIO GPIO device** (`hw/virtio/virtio-gpio.c`), AArch64 only, driving
-  the same panel through the same shape of entry point
-  (`qemu_virtio_gpio_set_inputs` / `qemu_virtio_gpio_get_outputs`) but speaking
-  the standard virtio protocol, so the guest side is a stock Zephyr driver. It
-  exists for the same reason the input-core frontend does: `hw/virtio/` ships
-  only `vhost-user-gpio`, which forwards the virtqueues to a daemon in another
-  process, and this build has no second process. Interrupts are real here —
-  `VIRTIO_GPIO_F_IRQ` and the event virtqueue — with input edges detected by a
-  `QEMU_CLOCK_VIRTUAL` timer so no virtqueue is ever touched off the QEMU thread.
+* A **generic virtio bridge** (`hw/virtio/virtio-browser.c`), AArch64 only,
+  exposed through just two entry points — `qemu_virtio_browser_count` and
+  `qemu_virtio_browser_area` — no matter how many devices it carries. It keeps
+  only what must run on the QEMU thread under the BQL (popping chains,
+  gathering their iovecs, pushing to the used ring, raising the interrupt) and
+  forwards each chain to the page over a pair of SPSC rings; the *device model*
+  is TypeScript. Device id, queue count, feature bits and config space are qdev
+  properties, so one C file serves every virtio device type — today a VIRTIO
+  GPIO controller (`src/virtio/devices/gpio.ts`), with real interrupts via
+  `VIRTIO_GPIO_F_IRQ` and its event virtqueue. It exists for the same reason
+  the input-core frontend does: `hw/virtio/` ships only vhost-user shims, which
+  forward virtqueues to a daemon in another process, and this build has no
+  second process. Its completion drain runs on `QEMU_CLOCK_REALTIME` rather
+  than the virtual clock — this is the first bridge where the guest *blocks* on
+  a browser answer, and under `-icount … sleep=on` a virtual-clock timer would
+  warp past the browser and inflate guest time. See `docs/virtio-bridge.md`.
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
 * A **frontend for QEMU's input core** (`hw/misc/qemu-browser-input.c`),

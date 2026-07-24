@@ -55,16 +55,28 @@ reports `-ENOTSUP`, so it pairs with the shell rather than the IRQ-driven button
 sample; wiring a GPIO IRQ line to the Stellaris NVIC is the obvious follow-up.
 
 **Interrupts landed on the Cortex-A53 instead**, by a different route: a standard
-**VIRTIO GPIO** device (`hw/virtio/virtio-gpio.c`, JIT patch 0010) on virtio-mmio
-slot 2, behind the vendored upstream `virtio,gpio` driver and the `-S virtio-gpio`
-snippet. It offers `VIRTIO_GPIO_F_IRQ`, so `gpio-keys` runs interrupt-driven and
-`samples/basic/button` is packaged for that board. Note what going virtio does
-*not* buy: QEMU has no virtio-gpio device model — `hw/virtio/vhost-user-gpio.c`
-forwards the virtqueues to a separate daemon process, which a wasm build in a tab
-cannot run — so the downstream patch does not go away, it just moves the bespoke
-part from the guest to the host. The M3 keeps its MMIO device because the
-LM3S6965 machine has no virtio-mmio bus to move onto, and because a pin read
-there never leaves the guest, where every virtio call is a virtqueue round trip.
+**VIRTIO GPIO** controller on virtio-mmio slot 2, behind the vendored upstream
+`virtio,gpio` driver and the `-S virtio-gpio` snippet. It offers
+`VIRTIO_GPIO_F_IRQ`, so `gpio-keys` runs interrupt-driven and
+`samples/basic/button` is packaged for that board. The M3 keeps its MMIO device
+because the LM3S6965 machine has no virtio-mmio bus to move onto, and because a
+pin read there never leaves the guest, where every virtio call is a virtqueue
+round trip.
+
+That device *was* 576 lines of C (`hw/virtio/virtio-gpio.c`, JIT patch 0010),
+written because QEMU has no virtio-gpio device model — `vhost-user-gpio.c`
+forwards the virtqueues to a separate daemon process, which a wasm build in a
+tab cannot run. Going virtio had therefore not removed the downstream patch, it
+had only moved the bespoke part from the guest to the host, and the next virtio
+device would have cost another such file.
+
+**It is now zero lines of C.** The GPIO device model is
+[`src/virtio/devices/gpio.ts`](../src/virtio/devices/gpio.ts), running on the
+generic bridge described in [virtio-bridge.md](virtio-bridge.md) — see the
+section below, which this supersedes. Two things also got *better* in the move,
+because the model now lives where the events originate: input edges are exact
+rather than sampled on a 10 ms timer, and a guest-driven output notifies the
+panel synchronously instead of being polled at 100 ms.
 
 Original rationale, kept for the record —
 the highest demo-value-per-effort item, and it reuses shapes we already have in
@@ -151,6 +163,26 @@ degree that QEMU's existing backend for it already works headless. That is why
 virtio-input cost ~200 lines and virtio-snd (`audio-feasibility.md`) would
 still cost an audiodev — and it is the real reason to reach for virtio, rather
 than the "no patch" framing this section started with.
+
+#### The amendment: the host-side cost is now paid once, not per device
+
+The scorecard above is still true device by device, but it stopped being the
+thing that governs the *next* device. The host side is now a single generic
+bridge — [`virtio-bridge.md`](virtio-bridge.md), JIT patch 0010 — that carries
+whole virtqueue chains out to the page and takes its device id, queue count,
+feature bits and config space from the QEMU command line. So:
+
+- A new virtio **device type** costs no C and no QEMU rebuild. It is a
+  TypeScript file under `src/virtio/devices/` plus one `-device` argument.
+- What remains per device is the **guest driver**, when Zephyr does not already
+  have one. For virtio-i2c it does not, and that — not the QEMU side — is now
+  the dominant cost of the next device.
+
+The proof is virtio-gpio: 576 lines of C device model deleted, replaced by
+`src/virtio/devices/gpio.ts`, with the guest binary, the vendored `virtio,gpio`
+driver and the devicetree all untouched. Restated, the rule is now: **virtio
+removes the guest-side cost; the bridge removes the per-device host-side one;
+what is left is whichever side has no driver yet.**
 
 #### virtio-gpu — vendored, guest-side proven, *not* a display speed-up
 
