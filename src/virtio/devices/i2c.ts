@@ -84,6 +84,18 @@ export function createI2cModel(name = 'i2c'): I2cModel {
   let log: I2cTransaction[] = []
   let nextId = 1
 
+  /*
+   * Snapshots for useSyncExternalStore, which compares with Object.is. Both
+   * halves of that contract bite: a getter that builds a fresh array every
+   * call spins React forever, and one that mutates in place never re-renders.
+   * So these are rebuilt exactly when their contents change, and returned
+   * as-is otherwise.
+   */
+  let chipsSnapshot: I2cChip[] = []
+  const refreshChips = () => {
+    chipsSnapshot = [...bus.values()].sort((a, b) => a.address - b.address)
+  }
+
   /**
    * Set while a transfer is being failed off. The driver sets FAIL_NEXT on
    * every message but the last, so a failure partway through must take the
@@ -97,7 +109,8 @@ export function createI2cModel(name = 'i2c'): I2cModel {
   }
 
   function record(entry: Omit<I2cTransaction, 'id'>) {
-    log.push({ id: nextId++, ...entry })
+    // A new array rather than a push, so subscribers see a changed reference.
+    log = [...log, { id: nextId++, ...entry }]
     if (log.length > LOG_CAP) log = log.slice(-LOG_CAP)
     notify()
   }
@@ -184,16 +197,18 @@ export function createI2cModel(name = 'i2c'): I2cModel {
         )
       }
       bus.set(chip.address, chip)
+      refreshChips()
       notify()
       return () => {
         if (bus.get(chip.address) === chip) {
           bus.delete(chip.address)
+          refreshChips()
           notify()
         }
       }
     },
 
-    chips: () => [...bus.values()].sort((a, b) => a.address - b.address),
+    chips: () => chipsSnapshot,
     transactions: () => log,
     clearTransactions() {
       log = []
