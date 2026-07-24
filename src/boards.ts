@@ -65,6 +65,12 @@ export interface Board {
      * `ramfb` (or virtio-gpu) panel to aim at.
      */
     hostInput?: boolean
+    /**
+     * The generic virtio bridge — `-device virtio-browser-device`, whose device
+     * models are TypeScript under src/virtio/. Needs a virtio-mmio bus, so it
+     * is an A53-only affair. See docs/virtio-bridge.md.
+     */
+    virtio?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
@@ -371,10 +377,21 @@ export const BOARDS: Board[] = [
       'virtio-tablet-device,bus=virtio-mmio-bus.3',
       // GPIO: a standard VIRTIO GPIO device on the slot the shield overlay
       // reserves for it (0x0a000400, SPI 18), driven by the vendored
-      // virtio,gpio driver. ngpio must match the overlay's ngpios. QEMU has no
-      // such device model of its own — see the JIT patch of the same name.
+      // virtio,gpio driver. QEMU has no virtio-gpio device model of its own,
+      // and now neither do we: this is the *generic* bridge, and the device
+      // model is src/virtio/devices/gpio.ts. `name=gpio` is what binds the two.
+      //
+      // device-id 41 is VIRTIO_ID_GPIO; two queues are the request and event
+      // queues; feature bit 0 is VIRTIO_GPIO_F_IRQ, without which the guest
+      // driver polls instead of taking interrupts. `config` is the device's
+      // config space as hex — struct virtio_gpio_config { le16 ngpio; u8
+      // padding[2]; le32 gpio_names_size; } — so 8 lines and no names. It is a
+      // property rather than something the page supplies because the guest can
+      // read config space before the page has attached. ngpio must match the
+      // overlay's ngpios.
       '-device',
-      'virtio-gpio-device,bus=virtio-mmio-bus.2,ngpio=8',
+      'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
+        'queues=2,features=0x1,config=0800000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -391,6 +408,7 @@ export const BOARDS: Board[] = [
       // instruction counter advances.
       perfStats: true,
       hostNet: true,
+      virtio: true,
     },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',

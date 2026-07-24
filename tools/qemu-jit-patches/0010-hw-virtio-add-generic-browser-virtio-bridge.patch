@@ -1,0 +1,740 @@
+diff --git a/hw/virtio/Kconfig b/hw/virtio/Kconfig
+index 7648a2d..b47eb72 100644
+--- a/hw/virtio/Kconfig
++++ b/hw/virtio/Kconfig
+@@ -6,6 +6,11 @@ config VIRTIO_RNG
+     default y
+     depends on VIRTIO
+ 
++config VIRTIO_BROWSER
++    bool
++    default y
++    depends on VIRTIO
++
+ config VIRTIO_NSM
+    bool
+    depends on LIBCBOR && VIRTIO
+diff --git a/hw/virtio/meson.build b/hw/virtio/meson.build
+index 164f6fd..602c01a 100644
+--- a/hw/virtio/meson.build
++++ b/hw/virtio/meson.build
+@@ -7,6 +7,7 @@ system_virtio_ss.add(when: 'CONFIG_VIRTIO_CRYPTO', if_true: files('virtio-crypto
+ system_virtio_ss.add(when: 'CONFIG_VHOST_VSOCK_COMMON', if_true: files('vhost-vsock-common.c'))
+ system_virtio_ss.add(when: 'CONFIG_VIRTIO_IOMMU', if_true: files('virtio-iommu.c'))
+ system_virtio_ss.add(when: 'CONFIG_VHOST_VDPA_DEV', if_true: files('vdpa-dev.c'))
++system_virtio_ss.add(when: 'CONFIG_VIRTIO_BROWSER', if_true: files('virtio-browser.c'))
+ 
+ specific_virtio_ss = ss.source_set()
+ specific_virtio_ss.add(files('virtio.c'))
+diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
+new file mode 100644
+index 0000000..7c06366
+--- /dev/null
++++ b/hw/virtio/virtio-browser.c
+@@ -0,0 +1,706 @@
++/*
++ * Generic browser-backed VIRTIO device.
++ *
++ * Every peripheral this project has added so far cost a QEMU C patch, and
++ * hw/virtio/virtio-gpio.c made that worse rather than better: the guest gained
++ * a stock driver, but 576 lines of device model moved into QEMU because
++ * hw/virtio/ ships only vhost-user-gpio.c, a shim onto a daemon that a
++ * single-process wasm build in a browser tab has no way to run.
++ *
++ * This is that shim, with the daemon replaced by page JavaScript and the UNIX
++ * socket by shared memory. What stays here is only what must happen on the
++ * QEMU thread under the BQL -- popping descriptor chains, gathering and
++ * scattering their iovecs, pushing to the used ring, raising the interrupt.
++ * Everything that makes a device *that* device is a TypeScript file. The
++ * virtio device id, queue count, feature bits and config space are properties,
++ * so one C file is a GPIO controller, an I2C adapter, or whatever comes next:
++ *
++ *   -device virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,\
++ *           device-id=41,queues=2,features=0x1,config=0800000000000000
++ *
++ * Threading follows hw/misc/qemu-browser-input.c: the entry points reachable
++ * from JavaScript hand out a pointer and a count, the page touches nothing but
++ * ring memory, and a timer on the QEMU thread does every virtqueue operation.
++ *
++ * The drain timer runs on QEMU_CLOCK_REALTIME, and that is deliberate -- every
++ * other bridge here uses the virtual clock. This is the first one where the
++ * guest *blocks* on an answer from the browser, and under -icount with
++ * sleep=on the virtual clock warps forward to the next deadline whenever the
++ * vCPUs idle. A virtual-clock drain would therefore race ahead of the browser,
++ * fire on an empty ring, warp again, and inflate guest time while making no
++ * progress. Completions arrive on real time, so they are polled on real time.
++ *
++ * Nothing here is browser-specific: the entry points are ordinary C, so the
++ * rings can be driven from a native test harness with no browser in the loop.
++ *
++ * See docs/virtio-bridge.md in the embedding project for the wire contract.
++ *
++ * Copyright (c) 2026
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/bswap.h"
++#include "qemu/cutils.h"
++#include "qemu/iov.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "qemu/timer.h"
++#include "qapi/error.h"
++#include "hw/qdev-properties.h"
++#include "hw/virtio/virtio.h"
++#include "migration/vmstate.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define TYPE_VIRTIO_BROWSER "virtio-browser-device"
++OBJECT_DECLARE_SIMPLE_TYPE(VirtIOBrowser, VIRTIO_BROWSER)
++
++/* "VBRG", little-endian. */
++#define VIRTIO_BROWSER_MAGIC   0x47524256u
++#define VIRTIO_BROWSER_VERSION 1
++
++#define VIRTIO_BROWSER_MAX_DEVICES 16
++#define VIRTIO_BROWSER_MAX_QUEUES  8
++/* Outstanding chains. Must exceed what a device parks: virtio-gpio holds one
++ * event chain per line, so a 32-line controller needs 32 of these idle. */
++#define VIRTIO_BROWSER_MAX_TOKENS  64
++#define VIRTIO_BROWSER_CONFIG_MAX  64
++#define VIRTIO_BROWSER_RING_SIZE   (64 * 1024)
++/* A chain larger than this is a device-model mismatch, not a big transfer. */
++#define VIRTIO_BROWSER_MAX_PAYLOAD 4096
++
++#define VIRTIO_BROWSER_DRAIN_IDLE_MS 10
++#define VIRTIO_BROWSER_DRAIN_BUSY_MS 1
++
++/* Record headers, in bytes. Both are multiples of 4, so a payload padded to 4
++ * keeps every subsequent record aligned. */
++#define VIRTIO_BROWSER_REQ_HDR 16
++#define VIRTIO_BROWSER_CMP_HDR 12
++
++/* A token of all-ones is not a record but "skip to the next lap". */
++#define VIRTIO_BROWSER_TOKEN_SKIP 0xffffffffu
++
++/* Completion flags. */
++#define VIRTIO_BROWSER_CMP_OK   0x0
++/* The page declines the chain: complete it having written nothing. */
++#define VIRTIO_BROWSER_CMP_FAIL 0x1
++
++/*
++ * The page's view of one device. Followed in memory by the two rings, at
++ * req_off and cmp_off from the base of this struct.
++ *
++ * Each index word has exactly one writer, named below; the other side only
++ * reads it. TOTAL_MEMORY=2GB with no ALLOW_MEMORY_GROWTH means this block
++ * never moves, so the page can hold typed-array views over it forever.
++ */
++typedef struct VirtioBrowserArea {
++    uint32_t magic;       /* QEMU */
++    uint32_t version;     /* QEMU */
++    uint32_t device_id;   /* QEMU */
++    uint32_t num_queues;  /* QEMU */
++    char     name[16];    /* QEMU, NUL-padded */
++    uint32_t req_off;     /* QEMU */
++    uint32_t req_size;    /* QEMU */
++    uint32_t cmp_off;     /* QEMU */
++    uint32_t cmp_size;    /* QEMU */
++    uint32_t req_wr;      /* QEMU */
++    uint32_t req_rd;      /* page */
++    uint32_t cmp_wr;      /* page */
++    uint32_t cmp_rd;      /* QEMU */
++    uint32_t outstanding; /* QEMU, advisory */
++    uint32_t reset_gen;   /* QEMU */
++    uint32_t config_len;  /* QEMU */
++    uint32_t config_gen;  /* page */
++    uint8_t  config[VIRTIO_BROWSER_CONFIG_MAX]; /* seeded by QEMU, page-writable */
++} VirtioBrowserArea;
++
++typedef struct VirtioBrowserToken {
++    VirtQueueElement *elem;
++    VirtQueue *vq;
++    uint16_t generation;
++    bool in_use;
++} VirtioBrowserToken;
++
++struct VirtIOBrowser {
++    VirtIODevice parent_obj;
++
++    /* Properties. */
++    char *name;
++    char *config_hex;
++    uint64_t features;
++    uint16_t device_id;
++    uint16_t num_queues;
++    uint16_t queue_size;
++
++    VirtQueue *vq[VIRTIO_BROWSER_MAX_QUEUES];
++    VirtioBrowserToken tokens[VIRTIO_BROWSER_MAX_TOKENS];
++    uint32_t outstanding;
++
++    /* One allocation: the area followed by both rings. */
++    uint8_t *block;
++    VirtioBrowserArea *area;
++    uint8_t *req_ring;
++    uint8_t *cmp_ring;
++
++    /* Queues that could not be pumped for want of ring space or tokens. */
++    uint32_t stalled;
++    uint32_t config_gen_seen;
++
++    QEMUTimer *drain;
++};
++
++/*
++ * Registry, so the page can enumerate instances without a device handle. A
++ * machine has a handful of these at most.
++ */
++static VirtIOBrowser *browser_devices[VIRTIO_BROWSER_MAX_DEVICES];
++static uint32_t browser_device_count;
++
++/*
++ * Entry points for the embedding host, reachable from page JavaScript as
++ * Module._qemu_virtio_browser_count() and Module._qemu_virtio_browser_area(i).
++ * Deliberately the only two: everything else the page needs is in the area,
++ * so adding a device type never adds an export.
++ *
++ * Declared here rather than in a header because nothing inside QEMU calls
++ * them; the declarations exist only to keep -Wmissing-prototypes quiet.
++ */
++uint32_t qemu_virtio_browser_count(void);
++uintptr_t qemu_virtio_browser_area(uint32_t index);
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_browser_count(void)
++{
++    return qatomic_read(&browser_device_count);
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_virtio_browser_area(uint32_t index)
++{
++    if (index >= qatomic_read(&browser_device_count)) {
++        return 0;
++    }
++    return (uintptr_t)browser_devices[index]->area;
++}
++
++static uint32_t align4(uint32_t n)
++{
++    return (n + 3) & ~3u;
++}
++
++/* --- token table ---------------------------------------------------------- */
++
++static uint32_t token_alloc(VirtIOBrowser *b, VirtQueueElement *elem,
++                            VirtQueue *vq)
++{
++    for (uint32_t slot = 0; slot < VIRTIO_BROWSER_MAX_TOKENS; slot++) {
++        VirtioBrowserToken *t = &b->tokens[slot];
++
++        if (t->in_use) {
++            continue;
++        }
++        t->elem = elem;
++        t->vq = vq;
++        t->in_use = true;
++        b->outstanding++;
++        qatomic_set(&b->area->outstanding, b->outstanding);
++        return slot | ((uint32_t)t->generation << 16);
++    }
++    /* Callers check b->outstanding first, so this is unreachable. */
++    g_assert_not_reached();
++}
++
++/*
++ * Claim the element a token refers to, or NULL if the token is stale -- one
++ * that survived a reset, or a second completion for a chain already pushed.
++ * The generation makes those detectable rather than a use-after-free.
++ */
++static VirtQueueElement *token_claim(VirtIOBrowser *b, uint32_t token,
++                                     VirtQueue **vq)
++{
++    uint32_t slot = token & 0xffff;
++    uint16_t generation = token >> 16;
++    VirtioBrowserToken *t;
++    VirtQueueElement *elem;
++
++    if (slot >= VIRTIO_BROWSER_MAX_TOKENS) {
++        return NULL;
++    }
++    t = &b->tokens[slot];
++    if (!t->in_use || t->generation != generation) {
++        return NULL;
++    }
++
++    elem = t->elem;
++    *vq = t->vq;
++    t->elem = NULL;
++    t->vq = NULL;
++    t->in_use = false;
++    t->generation++;
++    b->outstanding--;
++    qatomic_set(&b->area->outstanding, b->outstanding);
++    return elem;
++}
++
++/* --- request ring (QEMU writes, the page reads) --------------------------- */
++
++/*
++ * Append one request. Returns false when the ring has no room, in which case
++ * nothing was written and the caller must put the chain back.
++ */
++static bool req_write(VirtIOBrowser *b, uint32_t token, uint16_t queue,
++                      const struct iovec *iov, unsigned iov_cnt,
++                      uint32_t out_len, uint32_t in_cap)
++{
++    VirtioBrowserArea *area = b->area;
++    uint32_t size = area->req_size;
++    uint32_t rec = VIRTIO_BROWSER_REQ_HDR + align4(out_len);
++    uint32_t wr = area->req_wr;
++    uint32_t rd = qatomic_read(&area->req_rd);
++    uint32_t off = wr % size;
++    uint32_t pad = size - off < rec ? size - off : 0;
++    uint8_t *p;
++
++    if (size - ((wr - rd) & 0xffffffffu) < pad + rec) {
++        return false;
++    }
++
++    if (pad) {
++        stl_le_p(b->req_ring + off, VIRTIO_BROWSER_TOKEN_SKIP);
++        wr += pad;
++        off = 0;
++    }
++
++    p = b->req_ring + off;
++    stl_le_p(p, token);
++    stw_le_p(p + 4, queue);
++    stw_le_p(p + 6, 0); /* flags, reserved */
++    stl_le_p(p + 8, out_len);
++    stl_le_p(p + 12, in_cap);
++    if (out_len) {
++        iov_to_buf(iov, iov_cnt, 0, p + VIRTIO_BROWSER_REQ_HDR, out_len);
++    }
++
++    /* Publish only once the record is whole. */
++    qatomic_store_release(&area->req_wr, wr + rec);
++    return true;
++}
++
++/* --- virtqueue -> request ring -------------------------------------------- */
++
++static void virtio_browser_pump(VirtIOBrowser *b, VirtQueue *vq)
++{
++    VirtIODevice *vdev = VIRTIO_DEVICE(b);
++    uint16_t qidx = virtio_get_queue_index(vq);
++    bool notify = false;
++
++    for (;;) {
++        VirtQueueElement *elem;
++        size_t out_len, in_cap;
++        uint32_t token;
++
++        if (b->outstanding >= VIRTIO_BROWSER_MAX_TOKENS) {
++            b->stalled |= 1u << qidx;
++            break;
++        }
++
++        elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
++        if (!elem) {
++            break;
++        }
++
++        out_len = iov_size(elem->out_sg, elem->out_num);
++        in_cap = iov_size(elem->in_sg, elem->in_num);
++
++        /*
++         * Too big to bounce. Completing it empty is the only honest answer:
++         * the bridge has no idea what this device's error status looks like,
++         * and holding the chain would hang the driver.
++         */
++        if (out_len > VIRTIO_BROWSER_MAX_PAYLOAD) {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "virtio-browser(%s): %zu-byte chain on queue %u "
++                          "exceeds the %d-byte bounce limit\n",
++                          b->name, out_len, qidx, VIRTIO_BROWSER_MAX_PAYLOAD);
++            virtqueue_push(vq, elem, 0);
++            g_free(elem);
++            notify = true;
++            continue;
++        }
++
++        token = token_alloc(b, elem, vq);
++        if (!req_write(b, token, qidx, elem->out_sg, elem->out_num, out_len,
++                       in_cap)) {
++            VirtQueue *unused;
++
++            token_claim(b, token, &unused);
++            virtqueue_unpop(vq, elem, 0);
++            g_free(elem);
++            b->stalled |= 1u << qidx;
++            break;
++        }
++    }
++
++    if (notify) {
++        virtio_notify(vdev, vq);
++    }
++}
++
++static void virtio_browser_handle_queue(VirtIODevice *vdev, VirtQueue *vq)
++{
++    virtio_browser_pump(VIRTIO_BROWSER(vdev), vq);
++}
++
++/* --- completion ring (the page writes, QEMU reads) ------------------------ */
++
++static void virtio_browser_drain(void *opaque)
++{
++    VirtIOBrowser *b = opaque;
++    VirtIODevice *vdev = VIRTIO_DEVICE(b);
++    VirtioBrowserArea *area = b->area;
++    uint32_t size = area->cmp_size;
++    uint32_t wr = qatomic_load_acquire(&area->cmp_wr);
++    uint32_t rd = area->cmp_rd;
++    uint32_t notified = 0;
++    uint32_t stalled;
++
++    while (rd != wr) {
++        uint32_t off = rd % size;
++        const uint8_t *p = b->cmp_ring + off;
++        uint32_t token = ldl_le_p(p);
++        uint16_t flags;
++        uint32_t in_len, rec;
++        VirtQueueElement *elem;
++        VirtQueue *vq;
++        size_t written = 0;
++
++        if (token == VIRTIO_BROWSER_TOKEN_SKIP) {
++            rd += size - off;
++            continue;
++        }
++
++        flags = lduw_le_p(p + 4);
++        in_len = ldl_le_p(p + 8);
++        rec = VIRTIO_BROWSER_CMP_HDR + align4(in_len);
++
++        /*
++         * The page publishes cmp_wr only once a record is whole, so a record
++         * that runs past it means the ring is corrupt. Resync rather than
++         * read on into whatever follows.
++         */
++        if (in_len > VIRTIO_BROWSER_MAX_PAYLOAD || rec > ((wr - rd) & 0xffffffffu)) {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "virtio-browser(%s): corrupt completion, resyncing\n",
++                          b->name);
++            rd = wr;
++            break;
++        }
++
++        elem = token_claim(b, token, &vq);
++        if (!elem) {
++            /* Stale: a completion that outlived its reset. Not fatal. */
++            rd += rec;
++            continue;
++        }
++
++        if (!(flags & VIRTIO_BROWSER_CMP_FAIL) && in_len) {
++            written = iov_from_buf(elem->in_sg, elem->in_num, 0,
++                                   p + VIRTIO_BROWSER_CMP_HDR, in_len);
++            if (written < in_len) {
++                qemu_log_mask(LOG_GUEST_ERROR,
++                              "virtio-browser(%s): %u-byte answer truncated to "
++                              "%zu by the guest's buffer\n",
++                              b->name, in_len, written);
++            }
++        }
++
++        virtqueue_push(vq, elem, written);
++        g_free(elem);
++        notified |= 1u << virtio_get_queue_index(vq);
++        rd += rec;
++    }
++
++    qatomic_set(&area->cmp_rd, rd);
++
++    for (uint16_t q = 0; q < b->num_queues; q++) {
++        if (notified & (1u << q)) {
++            virtio_notify(vdev, b->vq[q]);
++        }
++    }
++
++    /* Ring space or tokens may have freed up; retry whatever could not run. */
++    stalled = b->stalled;
++    b->stalled = 0;
++    for (uint16_t q = 0; q < b->num_queues; q++) {
++        if (stalled & (1u << q)) {
++            virtio_browser_pump(b, b->vq[q]);
++        }
++    }
++
++    /* The page changed config space and wants the guest told. */
++    if (qatomic_read(&area->config_gen) != b->config_gen_seen) {
++        b->config_gen_seen = qatomic_read(&area->config_gen);
++        virtio_notify_config(vdev);
++    }
++
++    timer_mod(b->drain, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +
++                            (b->outstanding || b->stalled
++                                 ? VIRTIO_BROWSER_DRAIN_BUSY_MS
++                                 : VIRTIO_BROWSER_DRAIN_IDLE_MS));
++}
++
++/* --- VirtIODevice ---------------------------------------------------------- */
++
++static void virtio_browser_get_config(VirtIODevice *vdev, uint8_t *config)
++{
++    VirtIOBrowser *b = VIRTIO_BROWSER(vdev);
++
++    /* Read straight from the area, so a page write is visible immediately. */
++    memcpy(config, b->area->config, b->area->config_len);
++}
++
++static void virtio_browser_set_config(VirtIODevice *vdev,
++                                      const uint8_t *config)
++{
++    VirtIOBrowser *b = VIRTIO_BROWSER(vdev);
++
++    memcpy(b->area->config, config, b->area->config_len);
++}
++
++static uint64_t virtio_browser_get_features(VirtIODevice *vdev,
++                                            uint64_t features, Error **errp)
++{
++    VirtIOBrowser *b = VIRTIO_BROWSER(vdev);
++
++    return features | b->features;
++}
++
++static void virtio_browser_reset(VirtIODevice *vdev)
++{
++    VirtIOBrowser *b = VIRTIO_BROWSER(vdev);
++    VirtioBrowserArea *area = b->area;
++
++    for (uint32_t slot = 0; slot < VIRTIO_BROWSER_MAX_TOKENS; slot++) {
++        VirtioBrowserToken *t = &b->tokens[slot];
++
++        if (!t->in_use) {
++            continue;
++        }
++        /*
++         * Dropped rather than completed: the queues are going away with the
++         * driver that was waiting on them.
++         */
++        virtqueue_detach_element(t->vq, t->elem, 0);
++        g_free(t->elem);
++        t->elem = NULL;
++        t->vq = NULL;
++        t->in_use = false;
++        t->generation++;
++    }
++    b->outstanding = 0;
++    b->stalled = 0;
++    qatomic_set(&area->outstanding, 0);
++
++    /*
++     * Neither side rewinds an index the other owns. QEMU skips whatever the
++     * page had queued; the page, seeing reset_gen move, takes req_wr as its
++     * new baseline. Zeroing both would be a race for no gain.
++     */
++    qatomic_set(&area->cmp_rd, qatomic_read(&area->cmp_wr));
++    qatomic_set(&area->reset_gen, qatomic_read(&area->reset_gen) + 1);
++}
++
++static int hex_digit(char c)
++{
++    if (c >= '0' && c <= '9') {
++        return c - '0';
++    }
++    if (c >= 'a' && c <= 'f') {
++        return c - 'a' + 10;
++    }
++    if (c >= 'A' && c <= 'F') {
++        return c - 'A' + 10;
++    }
++    return -1;
++}
++
++/* Parse the `config=` property: an even-length string of hex digits. */
++static bool virtio_browser_parse_config(VirtIOBrowser *b, Error **errp)
++{
++    size_t len;
++
++    if (!b->config_hex) {
++        return true;
++    }
++    len = strlen(b->config_hex);
++    if (len % 2) {
++        error_setg(errp, "'config' must have an even number of hex digits");
++        return false;
++    }
++    if (len / 2 > VIRTIO_BROWSER_CONFIG_MAX) {
++        error_setg(errp, "'config' is longer than the %d-byte maximum",
++                   VIRTIO_BROWSER_CONFIG_MAX);
++        return false;
++    }
++    for (size_t i = 0; i < len / 2; i++) {
++        int hi = hex_digit(b->config_hex[2 * i]);
++        int lo = hex_digit(b->config_hex[2 * i + 1]);
++
++        if (hi < 0 || lo < 0) {
++            error_setg(errp, "'config' is not valid hex");
++            return false;
++        }
++        b->area->config[i] = (hi << 4) | lo;
++    }
++    b->area->config_len = len / 2;
++    return true;
++}
++
++static void virtio_browser_device_realize(DeviceState *dev, Error **errp)
++{
++    VirtIODevice *vdev = VIRTIO_DEVICE(dev);
++    VirtIOBrowser *b = VIRTIO_BROWSER(dev);
++    VirtioBrowserArea *area;
++    size_t area_bytes = align4(sizeof(VirtioBrowserArea));
++
++    if (!b->name || !b->name[0]) {
++        error_setg(errp, "'name' is required -- the page matches devices by it");
++        return;
++    }
++    if (strlen(b->name) >= sizeof(area->name)) {
++        error_setg(errp, "'name' must be shorter than %zu characters",
++                   sizeof(area->name));
++        return;
++    }
++    if (!b->device_id) {
++        error_setg(errp, "'device-id' is required");
++        return;
++    }
++    if (b->num_queues == 0 || b->num_queues > VIRTIO_BROWSER_MAX_QUEUES) {
++        error_setg(errp, "'queues' must be between 1 and %d",
++                   VIRTIO_BROWSER_MAX_QUEUES);
++        return;
++    }
++    if (browser_device_count >= VIRTIO_BROWSER_MAX_DEVICES) {
++        error_setg(errp, "at most %d virtio-browser devices are supported",
++                   VIRTIO_BROWSER_MAX_DEVICES);
++        return;
++    }
++
++    b->block = g_malloc0(area_bytes + 2 * VIRTIO_BROWSER_RING_SIZE);
++    b->area = area = (VirtioBrowserArea *)b->block;
++    b->req_ring = b->block + area_bytes;
++    b->cmp_ring = b->req_ring + VIRTIO_BROWSER_RING_SIZE;
++
++    area->magic = VIRTIO_BROWSER_MAGIC;
++    area->version = VIRTIO_BROWSER_VERSION;
++    area->device_id = b->device_id;
++    area->num_queues = b->num_queues;
++    pstrcpy(area->name, sizeof(area->name), b->name);
++    area->req_off = area_bytes;
++    area->req_size = VIRTIO_BROWSER_RING_SIZE;
++    area->cmp_off = area_bytes + VIRTIO_BROWSER_RING_SIZE;
++    area->cmp_size = VIRTIO_BROWSER_RING_SIZE;
++
++    if (!virtio_browser_parse_config(b, errp)) {
++        g_free(b->block);
++        b->block = NULL;
++        return;
++    }
++
++    virtio_init(vdev, b->device_id, area->config_len);
++
++    for (uint16_t q = 0; q < b->num_queues; q++) {
++        b->vq[q] = virtio_add_queue(vdev, b->queue_size,
++                                    virtio_browser_handle_queue);
++    }
++
++    browser_devices[browser_device_count] = b;
++    qatomic_set(&browser_device_count, browser_device_count + 1);
++
++    b->drain = timer_new_ms(QEMU_CLOCK_REALTIME, virtio_browser_drain, b);
++    timer_mod(b->drain, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +
++                            VIRTIO_BROWSER_DRAIN_IDLE_MS);
++}
++
++static void virtio_browser_device_unrealize(DeviceState *dev)
++{
++    VirtIODevice *vdev = VIRTIO_DEVICE(dev);
++    VirtIOBrowser *b = VIRTIO_BROWSER(dev);
++
++    timer_free(b->drain);
++    for (uint16_t q = b->num_queues; q > 0; q--) {
++        virtio_del_queue(vdev, q - 1);
++    }
++    virtio_cleanup(vdev);
++    g_free(b->block);
++    b->block = NULL;
++}
++
++/*
++ * Not migrated, for the same reason virtio-gpio is not: the parked chains
++ * cannot be, and the page is the other end of the wires anyway.
++ */
++static const VMStateDescription vmstate_virtio_browser = {
++    .name = "virtio-browser",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .fields = (const VMStateField[]) {
++        VMSTATE_VIRTIO_DEVICE,
++        VMSTATE_END_OF_LIST()
++    },
++};
++
++static const Property virtio_browser_properties[] = {
++    /* Matched by the page. Required: index order is a command-line accident. */
++    DEFINE_PROP_STRING("name", VirtIOBrowser, name),
++    /* virtio device id: 41 gpio, 34 i2c, ... */
++    DEFINE_PROP_UINT16("device-id", VirtIOBrowser, device_id, 0),
++    DEFINE_PROP_UINT16("queues", VirtIOBrowser, num_queues, 1),
++    DEFINE_PROP_UINT16("queue-size", VirtIOBrowser, queue_size, 64),
++    /*
++     * Device-specific feature bits, and the initial contents of config space
++     * as hex. Both are properties rather than page-supplied because the guest
++     * can read them before the page has attached.
++     */
++    DEFINE_PROP_UINT64("features", VirtIOBrowser, features, 0),
++    DEFINE_PROP_STRING("config", VirtIOBrowser, config_hex),
++};
++
++static void virtio_browser_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    VirtioDeviceClass *vdc = VIRTIO_DEVICE_CLASS(klass);
++
++    device_class_set_props(dc, virtio_browser_properties);
++    dc->vmsd = &vmstate_virtio_browser;
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++    vdc->realize = virtio_browser_device_realize;
++    vdc->unrealize = virtio_browser_device_unrealize;
++    vdc->get_config = virtio_browser_get_config;
++    vdc->set_config = virtio_browser_set_config;
++    vdc->get_features = virtio_browser_get_features;
++    vdc->reset = virtio_browser_reset;
++}
++
++static const TypeInfo virtio_browser_info = {
++    .name = TYPE_VIRTIO_BROWSER,
++    .parent = TYPE_VIRTIO_DEVICE,
++    .instance_size = sizeof(VirtIOBrowser),
++    .class_init = virtio_browser_class_init,
++};
++
++static void virtio_register_types(void)
++{
++    type_register_static(&virtio_browser_info);
++}
++
++type_init(virtio_register_types)

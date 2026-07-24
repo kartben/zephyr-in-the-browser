@@ -1,28 +1,28 @@
 /**
  * Browser end of the GPIO bridge.
  *
- * Two QEMU devices land here, one per board, and they present the same pair of
- * entry points: `*_set_inputs(mask)` writes the input pins the guest reads, and
- * `*_get_outputs()` returns the output pins the guest drives.
+ * Two very different devices land here, one per board, and this module hides
+ * the difference so a single panel drives both.
  *
- * - `qemu_host_gpio_*` — the Cortex-M3's qemu,host-gpio, a small MMIO register
- *   block. A guest read is a single load that never leaves the guest.
- * - `qemu_virtio_gpio_*` — the Cortex-A53's standard VIRTIO GPIO device, which
- *   a stock Zephyr driver speaks to. Every guest operation is a virtqueue round
- *   trip, but the device has a real interrupt path, so buttons wake the guest
- *   instead of being polled by it.
+ * - **Cortex-M3 — `qemu,host-gpio`.** A small MMIO register block in QEMU
+ *   (`tools/qemu-patches/0005-*`). A guest read is a single load that never
+ *   leaves the guest, and the page reaches the pins through two exported C
+ *   functions. Inputs are push, outputs are pull: the guest changes them
+ *   whenever it likes, so we poll on an interval. The LM3S6965 machine has no
+ *   virtio-mmio bus to move onto, so it keeps this.
  *
- * The difference is entirely on the far side of the wires: both act on memory
- * shared with the pthread QEMU runs on, so setting an input is a plain call and
- * reading the outputs never enters the guest. Which is why one panel drives
- * both, and this module only has to pick whichever pair the build exports.
+ * - **Cortex-A53 — VIRTIO GPIO.** A standard VIRTIO GPIO controller the
+ *   vendored upstream `virtio,gpio` driver binds to. The *device model* is
+ *   TypeScript — `src/virtio/devices/gpio.ts`, running on the generic bridge —
+ *   so nothing is polled at all: an input edge fires the guest's interrupt
+ *   synchronously, and a guest-driven output notifies this module the moment
+ *   it is written.
  *
- * Inputs are push (a button click updates the whole word immediately); outputs
- * are pull (the guest changes them whenever it likes, so we poll on an interval
- * and notify when the word changes). Deliberately not part of the PtyBackend
- * seam: the bridge is optional, and a backend with no GPIO device need not know
- * it exists.
+ * Deliberately not part of the PtyBackend seam: the bridge is optional, and a
+ * backend with no GPIO device need not know it exists.
  */
+
+import { gpioModel, isBound, subscribeBinds } from '@/virtio'
 
 /** Pin roles. Must match the ngpios and wiring the guest overlay declares. */
 export interface Pin {
@@ -48,66 +48,64 @@ export const LEDS: Pin[] = [
 interface GpioExports {
   _qemu_host_gpio_set_inputs?: (mask: number) => void
   _qemu_host_gpio_get_outputs?: () => number
-  _qemu_virtio_gpio_set_inputs?: (mask: number) => void
-  _qemu_virtio_gpio_get_outputs?: () => number
 }
 
-/** The entry-point pair actually found in the module, or null if it has none. */
-interface GpioBridge {
+/** The MMIO entry-point pair, when the running build carries that device. */
+interface MmioBridge {
   setInputs: (mask: number) => void
   getOutputs: () => number
-  /** Devicetree label of the controller, for the panel's shell hint. */
-  node: string
 }
 
-/**
- * Prefer the MMIO device where both exist. Only one is ever wired up on a given
- * machine, but the emulator artifact is per-architecture rather than per-board,
- * so a build can export both sets of symbols.
- */
-function bind(mod: GpioExports | null): GpioBridge | null {
-  if (typeof mod?._qemu_host_gpio_set_inputs === 'function' &&
-      typeof mod._qemu_host_gpio_get_outputs === 'function') {
+function bindMmio(mod: GpioExports | null): MmioBridge | null {
+  if (
+    typeof mod?._qemu_host_gpio_set_inputs === 'function' &&
+    typeof mod._qemu_host_gpio_get_outputs === 'function'
+  ) {
     return {
       setInputs: mod._qemu_host_gpio_set_inputs,
       getOutputs: mod._qemu_host_gpio_get_outputs,
-      node: 'host_gpio',
-    }
-  }
-  if (typeof mod?._qemu_virtio_gpio_set_inputs === 'function' &&
-      typeof mod._qemu_virtio_gpio_get_outputs === 'function') {
-    return {
-      setInputs: mod._qemu_virtio_gpio_set_inputs,
-      getOutputs: mod._qemu_virtio_gpio_get_outputs,
-      node: 'virtio_gpio0',
     }
   }
   return null
 }
 
-let bridge: GpioBridge | null = null
+let mmio: MmioBridge | null = null
 let poller: ReturnType<typeof setInterval> | undefined
+let unsubscribeModel: (() => void) | undefined
+let unsubscribeBinds: (() => void) | undefined
 const listeners = new Set<() => void>()
 
 /** What the browser is driving onto the input pins, one bit per pin. */
 let inputs = 0
-/** Last output word read back from the guest, one bit per pin. */
+/** Last output word seen from the guest, one bit per pin. */
 let outputs = 0
 
 /**
- * Called by the qemu backend once its module is live. A build without the
- * device patch simply lacks the exports, which `available()` reports.
+ * Called by the qemu backend once its module is live. A build with neither
+ * device simply binds nothing, which `available()` reports.
+ *
+ * The virtio path is not resolved here: the generic bridge binds its devices
+ * on its first poll, which can be after this runs, so we watch for the bind
+ * instead of latching the panel off.
  */
 export function attach(mod: unknown) {
   detach()
-  bridge = bind(mod as GpioExports | null)
-  if (bridge) {
+  mmio = bindMmio(mod as GpioExports | null)
+
+  if (mmio) {
     // Push the seeded input state so the guest reads something defined, then
     // start pulling outputs. 100 ms is imperceptible for a blinking LED yet
     // costs almost nothing — the read is a single shared-memory load.
-    bridge.setInputs(inputs)
-    poll()
-    poller = setInterval(poll, 100)
+    mmio.setInputs(inputs)
+    pollMmio()
+    poller = setInterval(pollMmio, 100)
+  } else {
+    unsubscribeBinds = subscribeBinds(notify)
+    unsubscribeModel = gpioModel.subscribe(() => {
+      outputs = gpioModel.getOutputs() & 0xff
+      notify()
+    })
+    gpioModel.setInputs(inputs)
   }
   notify()
 }
@@ -115,13 +113,17 @@ export function attach(mod: unknown) {
 export function detach() {
   if (poller !== undefined) clearInterval(poller)
   poller = undefined
-  bridge = null
+  unsubscribeModel?.()
+  unsubscribeModel = undefined
+  unsubscribeBinds?.()
+  unsubscribeBinds = undefined
+  mmio = null
   outputs = 0
   notify()
 }
 
 export function available(): boolean {
-  return bridge !== null
+  return mmio !== null || isBound(gpioModel.name)
 }
 
 /**
@@ -130,7 +132,7 @@ export function available(): boolean {
  * hint, which is otherwise wrong on whichever board it was not written for.
  */
 export function controllerNode(): string {
-  return bridge?.node ?? 'host_gpio'
+  return mmio ? 'host_gpio' : 'virtio_gpio0'
 }
 
 export function getInputs(): number {
@@ -154,7 +156,10 @@ export function setInput(pin: number, high: boolean) {
   const next = high ? inputs | (1 << pin) : inputs & ~(1 << pin)
   if (next === inputs) return
   inputs = next
-  bridge?.setInputs(inputs)
+  if (mmio) mmio.setInputs(inputs)
+  // On the virtio path this is what raises the guest's interrupt, and it does
+  // so at the instant of the edge rather than at the next sampling tick.
+  else gpioModel.setInputs(inputs)
   notify()
 }
 
@@ -163,8 +168,8 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-function poll() {
-  const next = bridge?.getOutputs() ?? 0
+function pollMmio() {
+  const next = mmio?.getOutputs() ?? 0
   // The device masks to its pin count, but a guest could in principle write
   // wider; keep only the low 8 so the UI never lights a pin it doesn't show.
   const masked = next & 0xff
