@@ -1,4 +1,7 @@
 import type { PtyBackend, Slave, StartOptions } from './types'
+import { sampleDtsAsset } from '@/boards'
+import { loadSampleDts } from '@/devicetree'
+import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { createFakeNetModule } from '@/net/testing/fakeModule'
 import { FakeGuest } from '@/net/testing/fakeGuest'
@@ -57,9 +60,18 @@ export function createMockBackend(): PtyBackend {
     label: 'Mock shell',
     resetRequiresReload: false,
 
-    async start(slave: Slave, { board, onStatus, signal }: StartOptions) {
+    async start(slave: Slave, { board, sampleId, onStatus, signal }: StartOptions) {
       teardown()
       onStatus({ status: 'loading', detail: 'starting mock' })
+
+      // Same devicetree side-channel as the real backend, so the panels story
+      // can be exercised without QEMU whenever the .dts assets are served.
+      if (!getGuestImage()) {
+        void loadSampleDts(
+          `${import.meta.env.BASE_URL}qemu/${sampleDtsAsset(board, sampleId)}`,
+          `${sampleId}.dts`,
+        )
+      }
 
       // A short pause so the loading state is actually observable, and so the
       // banner reads like a boot rather than appearing all at once.

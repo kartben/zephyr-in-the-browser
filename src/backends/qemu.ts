@@ -8,7 +8,8 @@ import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
-import { sampleAsset } from '@/boards'
+import { loadSampleDts } from '@/devicetree'
+import { sampleAsset, sampleDtsAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -200,6 +201,13 @@ export function createQemuBackend(): PtyBackend {
         status: 'loading',
         detail: custom ? `loading ${custom.name}` : `loading ${sampleId}`,
       })
+      // The sample's devicetree rides along, ungated: it must never delay or
+      // fail a boot, and its absence (an older image tarball) is a supported
+      // state that just means the panels fall back to their static tables. A
+      // custom ELF's tree, if any, was installed by the drop flow instead.
+      if (!custom) {
+        void loadSampleDts(url(sampleDtsAsset(board, sampleId)), `${sampleId}.dts`)
+      }
       const preloaded = [
         {
           fsPath: board.kernelFsPath,

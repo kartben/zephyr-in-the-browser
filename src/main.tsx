@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
+import { claimStashedDts } from './devicetree'
 import './index.css'
 
 /*
@@ -15,7 +16,7 @@ import './index.css'
  * The emulator probe rides along for the same reason: the default backend has
  * to be settled before the terminal mounts and starts one.
  */
-Promise.all([claimStashed(), detectQemuAssets()]).finally(() => {
+Promise.all([claimStashed(), claimStashedDts(), detectQemuAssets()]).finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
