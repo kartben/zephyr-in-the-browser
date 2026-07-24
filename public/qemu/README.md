@@ -105,7 +105,8 @@ wasm64 experiment so the result does not require WebAssembly Memory64.
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
 working, while the AArch64 artifact supplies the 64-bit `virt` machine. Both
 include the browser terminal, the ramfb exports, the GNSS UART, and the
-host-sensor, host-audio, host-mic and browser-netdev bridges. Cortex-M3 alone
+host-sensor (inert, see below), host-audio, host-mic and browser-netdev
+bridges. Cortex-M3 alone
 gets the host-GPIO device — the LM3S6965 machine has no virtio-mmio bus to
 reach the generic bridge — while AArch64 alone gets the input bridge, the
 generic virtio bridge and the guest-icount export.
@@ -117,7 +118,11 @@ directories under `tools/`:
   the guest's stdio goes nowhere. It has to go in the meson cross file:
   `--extra-ldflags` does not reach the link, and meson snapshots that file at
   configure time, so changing it needs a reconfigure rather than a relink.
-* The `qemu-host-sensor` device (see the sensor bridge in the top-level README).
+* The `qemu-host-sensor` device. Retained but **inert**: sensors are now
+  simulated I²C chips on the generic virtio bridge, so no devicetree node
+  references this device and nothing binds it. It is dropped on the next
+  rebuild of the patch series — the audio, mic and GPIO patches carry its lines
+  as diff context, so removing it is a rebase rather than a deletion.
 * The `qemu-host-gpio` device: input pins driven from JavaScript and output pins
   read back by it, exposed through `qemu_host_gpio_set_inputs` /
   `qemu_host_gpio_get_outputs`. Cortex-M3 only.
@@ -278,7 +283,7 @@ the browser's texture upload. In a browser comparison with the same JIT
 emulator, the sample reached `Display starts` at 130 ms of guest time, versus
 370 ms for the 1024×768 image (about 2.8× faster). The panel appears only after
 the guest configures ramfb, and can be collapsed or dismissed independently of
-the terminal and sensor panel.
+the terminal and the other device panels.
 
 This is output-only for now. No virtio input device is connected to browser
 pointer events, and keyboard input remains attached to the serial terminal.

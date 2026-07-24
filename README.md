@@ -8,12 +8,12 @@ browser-backed peripheral gets its own floating panel:
 
 | Panel | What the guest sees |
 | --- | --- |
-| **Sensor** | A host-fed sensor aliased as `accel0`, `temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr sensor samples run unmodified |
+| **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, an ADXL345 accelerometer — each with its own card of sliders and config bits, read through stock Zephyr drivers. The accelerometer can follow your device's real tilt |
 | **GPIO** | Clickable buttons and live LED indicators |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
-| **I²C** | A real bus with simulated chips on it — a TMP112 thermometer, an AT24 EEPROM, and an SSD1306 OLED whose pixels get their own panel — plus every byte that crosses the bus |
+| **I²C** | The bus those sensors ride, plus an AT24 EEPROM and an SSD1306 OLED whose pixels get their own panel. Attach and detach chips while the guest runs, and watch every byte that crosses the bus |
 | **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
 
 ## Quick start
