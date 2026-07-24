@@ -7,6 +7,7 @@ import { attach as attachHostMic, detach as detachHostMic } from '@/hostMic'
 import { attach as attachGuestStats, detach as detachGuestStats } from '@/guestStats'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
+import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
 import { sampleAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
@@ -290,6 +291,10 @@ export function createQemuBackend(): PtyBackend {
 
       // Each emulator can contain optional browser bridge exports; board
       // metadata decides which bridges belong to the selected machine.
+      // The generic virtio bridge goes first: hostGpio binds to a device model
+      // running on it, and the models must be registered before it polls.
+      if (board.peripherals?.virtio) attachVirtio(instance)
+      else detachVirtio()
       if (board.peripherals?.hostSensor) attachHostSensor(instance)
       else detachHostSensor()
       // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
@@ -314,6 +319,7 @@ export function createQemuBackend(): PtyBackend {
     },
 
     async reset() {
+      detachVirtio()
       detachHostSensor()
       detachHostDisplay()
       detachHostGnss()
