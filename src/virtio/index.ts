@@ -12,6 +12,7 @@ import { createGpioModel } from './devices/gpio'
 import { createI2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
+import { createSsd1306 } from './devices/chips/ssd1306'
 import { get as getSensor, subscribe as subscribeSensor } from '@/hostSensor'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
@@ -32,6 +33,15 @@ i2cModel.attachChip(eeprom)
 
 export const tmp112 = createTmp112({ address: 0x48 })
 i2cModel.attachChip(tmp112)
+
+/**
+ * The one chip with something to show. Zephyr's stock `solomon,ssd1306-i2c`
+ * renders into its GDDRAM over the bus and OledPanel paints it onto a canvas,
+ * so the display API — and LVGL on top of it — ends up on a screen that is an
+ * array in this module.
+ */
+export const ssd1306 = createSsd1306({ address: 0x3c })
+i2cModel.attachChip(ssd1306)
 
 /**
  * The Sensor panel's temperature slider drives the TMP112 as well as the

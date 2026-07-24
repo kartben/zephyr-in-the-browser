@@ -4,6 +4,7 @@ import { createFakeBridge, type FakeDevice } from './testing/fakeBridge'
 import { createI2cModel, type I2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
+import { createSsd1306 } from './devices/chips/ssd1306'
 import { attach, detach, pollOnce, register } from './transport'
 
 const VIRTIO_ID_I2C_ADAPTER = 34
@@ -232,6 +233,102 @@ describe('virtio-i2c model', () => {
         if (read(address, 1).status === MSG_OK) found.push(address)
       }
       expect(found).toEqual([0x48, 0x50])
+    })
+  })
+
+  describe('SSD1306', () => {
+    const CONTROL_CMD = 0x00
+    const CONTROL_DATA = 0x40
+
+    /** One I2C write with its control byte, as the driver sends it. */
+    function send(address: number, control: number, payload: number[] | Uint8Array) {
+      return write(address, Uint8Array.of(control, ...payload))
+    }
+
+    /**
+     * The command block Zephyr's ssd1306_write_default emits before the pixels:
+     * horizontal addressing, then the column and page windows.
+     */
+    function addressWindow(x: number, y: number, w: number, h: number) {
+      return [0x20, 0x00, 0x21, x, x + w - 1, 0x22, y >> 3, ((y + h) >> 3) - 1]
+    }
+
+    it('renders a full frame into GDDRAM, chunked the way the driver chunks it', () => {
+      const oled = createSsd1306({ address: 0x3c })
+      i2c.attachChip(oled)
+
+      const frame = new Uint8Array(1024)
+      for (let i = 0; i < frame.length; i++) frame[i] = (i * 7) & 0xff
+
+      send(0x3c, CONTROL_CMD, addressWindow(0, 0, 128, 64))
+      // The driver splits data at SSD1306_I2C_CHUNK_SIZE = 132 bytes, each
+      // chunk its own I2C write — so the cursor has to survive between them.
+      for (let off = 0; off < frame.length; off += 132) {
+        send(0x3c, CONTROL_DATA, frame.subarray(off, Math.min(off + 132, frame.length)))
+      }
+
+      expect(oled.memory).toEqual(frame)
+      expect(oled.version()).toBeGreaterThan(0)
+    })
+
+    it('honours a partial window rather than writing the whole panel', () => {
+      const oled = createSsd1306({ address: 0x3c })
+      i2c.attachChip(oled)
+
+      // One 8-pixel-tall band, 4 columns wide, at x=10 y=16 (page 2).
+      send(0x3c, CONTROL_CMD, addressWindow(10, 16, 4, 8))
+      send(0x3c, CONTROL_DATA, [0xaa, 0xbb, 0xcc, 0xdd])
+
+      expect(Array.from(oled.memory.subarray(2 * 128 + 10, 2 * 128 + 14))).toEqual([
+        0xaa, 0xbb, 0xcc, 0xdd,
+      ])
+      // Nothing outside the window moved.
+      expect(oled.memory[2 * 128 + 9]).toBe(0)
+      expect(oled.memory[2 * 128 + 14]).toBe(0)
+      expect(oled.memory[1 * 128 + 10]).toBe(0)
+    })
+
+    it('wraps column then page inside the window, in horizontal mode', () => {
+      const oled = createSsd1306({ address: 0x3c })
+      i2c.attachChip(oled)
+
+      // A 2-column, 2-page window: four bytes should fill it in that order.
+      send(0x3c, CONTROL_CMD, [0x20, 0x00, 0x21, 5, 6, 0x22, 0, 1])
+      send(0x3c, CONTROL_DATA, [1, 2, 3, 4])
+
+      expect(oled.memory[0 * 128 + 5]).toBe(1)
+      expect(oled.memory[0 * 128 + 6]).toBe(2)
+      expect(oled.memory[1 * 128 + 5]).toBe(3)
+      expect(oled.memory[1 * 128 + 6]).toBe(4)
+    })
+
+    it('tracks display on/off and inversion', () => {
+      const oled = createSsd1306({ address: 0x3c })
+      i2c.attachChip(oled)
+
+      expect(oled.isOn()).toBe(false)
+      send(0x3c, CONTROL_CMD, [0xaf])
+      expect(oled.isOn()).toBe(true)
+      send(0x3c, CONTROL_CMD, [0xa7])
+      expect(oled.isInverted()).toBe(true)
+      send(0x3c, CONTROL_CMD, [0xa6, 0xae])
+      expect(oled.isInverted()).toBe(false)
+      expect(oled.isOn()).toBe(false)
+    })
+
+    it('steps over command arguments instead of running them as commands', () => {
+      const oled = createSsd1306({ address: 0x3c })
+      i2c.attachChip(oled)
+
+      // 0xd5's argument is 0xaf, which is also "display on" — a state machine
+      // that did not consume arguments would switch the panel on here.
+      send(0x3c, CONTROL_CMD, [0xd5, 0xaf])
+      expect(oled.isOn()).toBe(false)
+    })
+
+    it('NAKs reads, which the driver never issues', () => {
+      i2c.attachChip(createSsd1306({ address: 0x3c }))
+      expect(read(0x3c, 1).status).toBe(MSG_ERR)
     })
   })
 
