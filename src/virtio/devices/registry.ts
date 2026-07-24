@@ -19,6 +19,8 @@
 import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
 import { createSsd1306 } from './chips/ssd1306'
+import { createAdxl345 } from './sensors/adxl345'
+import { createLm75 } from './sensors/lm75'
 import { createTmp112 } from './sensors/tmp112'
 
 export type ChipKind = 'sensor' | 'eeprom' | 'display'
@@ -44,6 +46,20 @@ export const CHIP_TYPES: ChipType[] = [
     create: (address) => createTmp112({ address }),
   },
   {
+    id: 'lm75',
+    label: 'LM75 temperature',
+    kind: 'sensor',
+    defaultAddress: 0x49,
+    create: (address) => createLm75({ address }),
+  },
+  {
+    id: 'adxl345',
+    label: 'ADXL345 accelerometer',
+    kind: 'sensor',
+    defaultAddress: 0x53,
+    create: (address) => createAdxl345({ address }),
+  },
+  {
     id: 'at24',
     label: 'AT24C02 EEPROM',
     kind: 'eeprom',
@@ -65,6 +81,8 @@ export const CHIP_TYPES: ChipType[] = [
  */
 export const DT_SLOTS: Record<number, string> = {
   0x48: 'tmp112',
+  0x49: 'lm75',
+  0x53: 'adxl345',
   0x50: 'at24',
   0x3c: 'ssd1306',
 }

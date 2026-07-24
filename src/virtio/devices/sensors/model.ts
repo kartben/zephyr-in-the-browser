@@ -126,6 +126,16 @@ export interface SensorDecl {
   defaultAddress: number
   /** Mask applied to the pointer byte (TMP112 keeps only the low two bits). */
   pointerMask?: number
+  /**
+   * Whether a read walks forward through the register file. Off (default): a
+   * read repeats the pointed register, which is how a point-then-read part like
+   * TMP112 behaves. On: a read that outruns the pointed register continues into
+   * the next one by address, the way a burst-read part (an accelerometer's
+   * X/Y/Z at consecutive registers) streams. The register addresses must be
+   * laid out contiguously in byte space for this to line up. The pointer itself
+   * is not advanced — a burst re-points first, as `i2c_burst_read` does.
+   */
+  autoIncrement?: boolean
   registers: RegisterDecl[]
   channels: ChannelDecl[]
   attributes?: AttrDecl[]
@@ -242,14 +252,32 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
     },
 
     read(length) {
-      const reg = regByAddr.get(pointer)
-      const bytes = reg?.bytes ?? 2
-      const endian = reg?.endian ?? 'be'
-      const word = currentWord(pointer)
-      const pattern = wordToBytes(word, bytes, endian)
       const out = new Uint8Array(length)
-      // A read longer than the register repeats it, the way a real part does
-      // rather than running off into whatever follows in the address space.
+
+      if (decl.autoIncrement) {
+        // Stream forward across the register file: emit the pointed register,
+        // then the next by address, and so on. A gap between declared registers
+        // reads as open bus (0xff), like the real part.
+        let addr = pointer
+        let i = 0
+        while (i < length) {
+          const reg = regByAddr.get(addr)
+          if (!reg) {
+            out[i++] = 0xff
+            addr += 1
+            continue
+          }
+          const pattern = wordToBytes(currentWord(addr), reg.bytes, reg.endian ?? 'be')
+          for (const b of pattern) if (i < length) out[i++] = b
+          addr += reg.bytes
+        }
+        return out
+      }
+
+      const reg = regByAddr.get(pointer)
+      const pattern = wordToBytes(currentWord(pointer), reg?.bytes ?? 2, reg?.endian ?? 'be')
+      // A read longer than the register repeats it, the way a point-then-read
+      // part does rather than running off into whatever follows.
       for (let i = 0; i < length; i++) out[i] = pattern[i % pattern.length]
       return out
     },
