@@ -12,14 +12,22 @@ guest-side driver already exists upstream.
 Everything currently wired is one of these. New drivers should reuse a shape,
 not invent a fourth unless they must.
 
-1. **Host → guest, shared memory** — `qemu,host-sensor`.
-   JS calls `_qemu_host_sensor_set(channel, value)`, which writes into memory the
-   guest reads over MMIO. No proxying, no JS on the guest's read path. See
-   [`src/hostSensor.ts`](../src/hostSensor.ts),
-   [`zephyr-module/drivers/qemu_host_sensor.c`](../zephyr-module/drivers/qemu_host_sensor.c),
-   and `tools/qemu-patches/0001-hw-misc-add-qemu-host-sensor.patch`.
+1. **Host → guest, shared memory** — `qemu,host-gpio`.
+   JS writes into memory the guest reads over MMIO. No proxying, no JS on the
+   guest's read path. See [`src/hostGpio.ts`](../src/hostGpio.ts),
+   [`zephyr-module/drivers/qemu_host_gpio.c`](../zephyr-module/drivers/qemu_host_gpio.c),
+   and `tools/qemu-patches/0005-hw-misc-add-qemu-host-gpio.patch`.
    *Cheapest shape.* Good for anything that is "a value the browser knows and the
    guest reads."
+
+   This shape was pioneered by `qemu,host-sensor`, which is now **retired**: a
+   sensor behind a bespoke MMIO device needs a bespoke driver, whereas a
+   simulated I²C chip on the generic virtio bridge gets the same values into the
+   guest through an *unmodified in-tree* driver. Worth weighing before reaching
+   for this shape — if the thing you are modelling exists as a real chip on a
+   real bus, simulate the chip instead. See
+   [peripherals.md](peripherals.md#simulated-ic-sensors) and
+   [virtio-bridge.md](virtio-bridge.md).
 
 2. **Guest → host, exported framebuffer** — `qemu,ramfb`.
    The guest writes pixels; QEMU already maps that buffer, so the patch just
@@ -100,7 +108,9 @@ Why it wins:
   `qemu,host-gpio` MMIO device whose input levels JS sets and whose output levels
   JS reads. The bespoke route sidesteps any question of whether the stock board
   wires `gpio-keys`, and it is a ~single-file QEMU device modeled directly on
-  `qemu_host_sensor.c`.
+  the then-current `qemu_host_sensor.c`. *(Done, both ways: the M3 got the
+  bespoke device, the A53 a stock VIRTIO GPIO on the generic bridge. The
+  host-sensor it was modelled on has since been retired.)*
 - **Both directions in one panel.** A row of toggle buttons and a row of LED
   indicators exercises host→guest *and* guest→host in one small piece of UI.
 

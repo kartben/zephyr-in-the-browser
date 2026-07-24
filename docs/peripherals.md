@@ -10,24 +10,58 @@ new device should reuse — see [next-drivers.md](next-drivers.md) and
 
 ## The browser_bridge shield
 
-The browser-fed peripherals — GNSS UART, host sensor, host GPIO, host audio out
-(I2S), host microphone (DMIC), and the browser-sized ramfb — reach the guest
-through a Zephyr shield, **`browser_bridge`**
+The browser-fed peripherals — GNSS UART, host GPIO, host audio out (I2S), host
+microphone (DMIC), and the browser-sized ramfb — reach the guest through a
+Zephyr shield, **`browser_bridge`**
 ([zephyr-module/boards/shields/browser_bridge/](../zephyr-module/boards/shields/browser_bridge)),
-applied to every packaged build. Its overlays alias the host sensor as `accel0`,
-`temp0`/`ambient-temp0`, `light0`, `humidity0` and `press0`, so stock Zephyr
-sensor samples build unmodified against browser-fed readings. Building any app
-against the browser machines is just:
+applied to every packaged build. Building any app against the browser machines
+is just:
 
 ```console
 west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-module -DSHIELD=browser_bridge
 ```
 
 Each machine instantiates the devices where the overlays expect them: the
-Stellaris patches in `tools/qemu-patches/` put the sensor at 0x40060000, the
-GPIO controller at 0x40061000, the audio out at 0x40062000 and the microphone at
-0x40063000; the virt patches in `tools/qemu-jit-patches/` put the sensor at
-0x090c0000, the audio out at 0x090d0000 and the microphone at 0x090e0000.
+Stellaris patches in `tools/qemu-patches/` put the GPIO controller at
+0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the
+virt patches in `tools/qemu-jit-patches/` put the audio out at 0x090d0000 and
+the microphone at 0x090e0000.
+
+Sensors used to be here too, as a `qemu,host-sensor` MMIO device aliased
+`accel0`/`temp0`/`light0`/…, so stock sensor samples bound to a bespoke device
+invented for this project. They are now **simulated I²C parts** instead (below),
+which is a better trade: the guest binds *unmodified in-tree drivers* to chips
+that behave like the real silicon. The MMIO device is still instantiated by
+`tools/qemu-patches/0001-…-host-sensor.patch` and its virt counterpart, but no
+devicetree node references it, so nothing binds it and it does nothing. Those
+two patches are retired on the next qemu-wasm rebuild — the audio, mic and GPIO
+patches carry their lines as diff context, so dropping them is a rebase of the
+series rather than a deletion.
+
+## Simulated I²C sensors
+
+The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
+*TypeScript*, not C: a TMP112 and an LM75 thermometer, an ADXL345
+accelerometer, an AT24 EEPROM and an SSD1306 OLED, all under
+[`src/virtio/devices/`](../src/virtio/devices). The guest side is entirely
+stock — `ti,tmp112`, `lm75`, `adi,adxl345`, `atmel,at24`, `solomon,ssd1306` —
+so `sensor get adxl345@53` reads a value the page made up through the same
+driver a real board would use.
+
+Sensors are declared rather than hand-written
+([`src/virtio/devices/sensors/model.ts`](../src/virtio/devices/sensors/model.ts)):
+a part lists its registers, the channels a human drives and the config bits it
+exposes, and the framework synthesises both the chip's register machine and its
+control card. Adding a sensor is a declaration plus a devicetree node in
+[`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)
+and its `CONFIG_*` in [`conf/i2c.conf`](../zephyr-module/conf/i2c.conf).
+
+Because the bus is page-side, chips can be **attached and detached while the
+guest runs**. Detaching one the devicetree declares makes its driver NAK
+exactly as if the part fell off the board; attaching at an address the
+devicetree does not declare answers `i2c scan` but binds no driver. The
+`accel0` alias lives in the virtio-i2c snippet rather than the shield, so a
+build without the bus never carries a dangling alias.
 
 ## The vendored drivers
 
