@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react'
 import { FileUp } from 'lucide-react'
 
 /**
- * Whole-window drop target for guest images.
+ * Whole-window drop target for guest images and their devicetrees.
  *
  * Drag events fire per-element and bubble, so a naive dragleave handler
  * flickers as the pointer crosses child boundaries. Counting enter/leave pairs
  * is the standard fix — the overlay hides only when the count returns to zero.
+ *
+ * Every dropped file is forwarded: classification (ELF vs .dts vs junk) needs
+ * the bytes, which is the caller's business, and dropping `zephyr.elf` +
+ * `zephyr.dts` together is the expected power move.
  */
-export function DropOverlay({ onFile }: { onFile: (file: File) => void }) {
+export function DropOverlay({ onFiles }: { onFiles: (files: File[]) => void }) {
   const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
@@ -37,8 +41,8 @@ export function DropOverlay({ onFile }: { onFile: (file: File) => void }) {
       e.preventDefault()
       depth = 0
       setDragging(false)
-      const file = e.dataTransfer?.files?.[0]
-      if (file) onFile(file)
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length > 0) onFiles(files)
     }
 
     window.addEventListener('dragenter', onEnter)
@@ -51,7 +55,7 @@ export function DropOverlay({ onFile }: { onFile: (file: File) => void }) {
       window.removeEventListener('dragover', onOver)
       window.removeEventListener('drop', onDrop)
     }
-  }, [onFile])
+  }, [onFiles])
 
   if (!dragging) return null
 
@@ -62,7 +66,8 @@ export function DropOverlay({ onFile }: { onFile: (file: File) => void }) {
         <p className="text-sm font-medium">Drop an ELF to boot it</p>
         <p className="max-w-xs text-xs text-muted-foreground">
           Replaces the board's stock image. The machine stays whatever the board
-          selector says, so the ELF has to be built for it.
+          selector says, so the ELF has to be built for it. Drop the build's
+          zephyr.dts with it and the peripheral panels follow the devicetree.
         </p>
       </div>
     </div>

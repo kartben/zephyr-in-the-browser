@@ -21,7 +21,7 @@ import {
   chosen,
   compatibles,
   gpioSpecs,
-  isOkay,
+  isEffectivelyOkay,
   numberProp,
   pathOf,
   prop,
@@ -101,13 +101,7 @@ const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c'])
 /** The GPIO controllers the browser panel drives, one per board. */
 const BRIDGED_GPIO_COMPATS = new Set(['qemu,host-gpio', 'virtio,gpio'])
 
-/** Enabled for real: this node and every ancestor is status-okay. */
-function effectivelyOkay(node: DtsNode): boolean {
-  for (let n: DtsNode | null = node; n; n = n.parent) {
-    if (!isOkay(n)) return false
-  }
-  return true
-}
+const effectivelyOkay = isEffectivelyOkay
 
 function labelOf(node: DtsNode): string {
   return node.labels[0] ?? node.name

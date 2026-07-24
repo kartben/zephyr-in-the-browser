@@ -77,6 +77,14 @@ export function isOkay(node: DtsNode): boolean {
   return status === 'okay' || status === 'ok'
 }
 
+/** Enabled for real: this node and every ancestor is status-okay. */
+export function isEffectivelyOkay(node: DtsNode): boolean {
+  for (let n: DtsNode | null = node; n; n = n.parent) {
+    if (!isOkay(n)) return false
+  }
+  return true
+}
+
 /** Hex unit address (`tmp112@48` → 0x48), when it is a plain number. */
 export function unitAddressNumber(node: DtsNode): number | undefined {
   if (node.unitAddress === undefined) return undefined
