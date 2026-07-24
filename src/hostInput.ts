@@ -13,16 +13,21 @@
  * write index is published **once per packet**, so QEMU never observes
  * coordinates without the SYNC that commits them.
  *
- * Motion is coalesced to one packet per animation frame. The drain timer runs
- * on QEMU's *virtual* clock, which under `-icount shift=4` can lag wall time
- * badly while the guest is busy, so flooding the ring only costs latency and
- * dropped packets — the newest position is the only one that matters anyway.
+ * Motion is coalesced to at most one packet every `MOTION_INTERVAL_MS`, on a
+ * timer of its own rather than on `requestAnimationFrame`: the guest's cost per
+ * motion event has nothing to do with how often the *page* paints, and tying
+ * the two made every drag a frame staler on a 60 Hz display than on a 120 Hz
+ * one. Flooding the ring only costs latency and dropped packets anyway — the
+ * newest position is the only one that matters.
  *
  * The primary button is reported as `BTN_TOUCH`, not `BTN_LEFT`: the panel is a
  * touch surface, the board's devicetree points `zephyr,touch` at this device,
  * and Zephyr's touch consumers (LVGL's pointer indev, the draw_touch_events
  * sample) all read `INPUT_BTN_TOUCH`. Secondary and middle buttons map straight
  * through for applications that want them.
+ *
+ * Being a touch surface also means there is no hover: motion is only sent while
+ * something is held, so a mouse crossing the panel costs the guest nothing.
  */
 
 interface InputExports {
@@ -57,6 +62,15 @@ const ABS_MAX = 0x7fff
 
 const WORDS_PER_EVENT = 4
 
+/**
+ * Minimum spacing between motion packets, in milliseconds. 125 Hz is finer than
+ * a 600x400 panel can show and is a rate the guest keeps up with: driven at this
+ * spacing for 1.5 s, draw_touch_events ends only ~16 ms behind the last point,
+ * so no backlog accumulates. It is deliberately *not* the frame interval — the
+ * limit is what the guest can redraw, not what the browser can paint.
+ */
+const MOTION_INTERVAL_MS = 8
+
 /** DOM PointerEvent.buttons bits, in the order we diff them. */
 const BUTTON_MAP: Array<{ mask: number; button: number }> = [
   { mask: 1, button: BTN_TOUCH },
@@ -74,10 +88,12 @@ let ringBuffer: ArrayBufferLike | null = null
 /** Last position pushed to the guest, in QEMU absolute units. */
 let lastX = -1
 let lastY = -1
-/** Position waiting for the next frame, or null when nothing moved. */
+/** Position waiting for the next flush, or null when nothing moved. */
 let pendingX: number | null = null
 let pendingY: number | null = null
-let frame = 0
+/** Pending motion flush, and when the last one went out. */
+let motionTimer: ReturnType<typeof setTimeout> | 0 = 0
+let lastMotionAt = 0
 
 /** DOM button bitmask currently held down. */
 let heldButtons = 0
@@ -97,8 +113,9 @@ export function attach(mod: unknown) {
 }
 
 export function detach() {
-  if (frame) cancelAnimationFrame(frame)
-  frame = 0
+  if (motionTimer) clearTimeout(motionTimer)
+  motionTimer = 0
+  lastMotionAt = 0
   exports = null
   ringView = null
   ringBuffer = null
@@ -178,7 +195,8 @@ function clampAbs(normalized: number): number {
 }
 
 function flushMotion() {
-  frame = 0
+  motionTimer = 0
+  lastMotionAt = performance.now()
   if (pendingX === null || pendingY === null) return
   const x = pendingX
   const y = pendingY
@@ -196,14 +214,27 @@ function flushMotion() {
 
 /**
  * Absolute pointer position over the guest display, as fractions of its width
- * and height. Coalesced to one packet per frame — a pointermove burst at
- * 120 Hz would otherwise outrun the guest's drain.
+ * and height. The first move of a gesture goes out at once; the rest are
+ * coalesced to one packet per `MOTION_INTERVAL_MS`, since a 1 kHz mouse would
+ * otherwise interrupt the guest far more often than it can redraw.
+ *
+ * Motion with nothing held is dropped: this is a touch surface, and a finger
+ * that is not touching has no position to report. Forwarding it anyway was
+ * worse than merely redundant — a packet ends in SYNC, which is a *complete*
+ * input report, so every hover step reached the guest as a touch event with
+ * BTN_TOUCH clear. draw_touch_events logged one `TOUCH RELEASE` per mouse
+ * move and redrew for each. Presses are unaffected: `setButtons` puts the
+ * position in the same packet as the button, so a press never lands stale.
  */
 export function movePointer(nx: number, ny: number) {
-  if (!available()) return
+  if (!heldButtons || !available()) return
   pendingX = clampAbs(nx)
   pendingY = clampAbs(ny)
-  if (!frame) frame = requestAnimationFrame(flushMotion)
+  if (motionTimer) return
+
+  const wait = lastMotionAt + MOTION_INTERVAL_MS - performance.now()
+  if (wait <= 0) flushMotion()
+  else motionTimer = setTimeout(flushMotion, wait)
 }
 
 /**
@@ -229,8 +260,12 @@ export function setButtons(nx: number, ny: number, buttons: number) {
     lastY = y
     heldButtons = buttons
     // A queued move would now be stale, and re-sending this point is a no-op.
+    // The press carried a position, so it also starts the motion interval.
     pendingX = null
     pendingY = null
+    if (motionTimer) clearTimeout(motionTimer)
+    motionTimer = 0
+    lastMotionAt = performance.now()
   }
 }
 
