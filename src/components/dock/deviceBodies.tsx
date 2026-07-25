@@ -33,17 +33,31 @@ import { cn } from '@/lib/utils'
 import type { DeviceNode } from '@/deviceTopology'
 import * as hostGnss from '@/hostGnss'
 import * as hostNet from '@/hostNet'
+import { setWindowed } from '@/lib/dockStore'
 import { i2cModel } from '@/virtio'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 import type { Ssd1306Chip } from '@/virtio/devices/chips/ssd1306'
 
-export function DeviceBody({ node }: { node: DeviceNode }) {
+export function DeviceBody({
+  node,
+  variant = 'dock',
+}: {
+  node: DeviceNode
+  /** Only memory differs today: the dock gets a preview, the window the editor. */
+  variant?: 'dock' | 'window'
+}) {
   switch (node.body) {
     case 'sensor':
       return <SensorBody chip={node.chip as SensorChip} />
     case 'memory':
-      return <MemoryBody chip={node.chip as MemoryChip} />
+      return (
+        <MemoryBody
+          chip={node.chip as MemoryChip}
+          compact={variant === 'dock'}
+          onOpenWindow={variant === 'dock' ? () => setWindowed(node.key, true) : undefined}
+        />
+      )
     case 'oled':
       return <OledBody />
     case 'i2c':

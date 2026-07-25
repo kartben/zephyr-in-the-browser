@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { MemoryStick } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
+import { HexPreview } from '@/components/HexPreview'
 import { HexView } from '@/components/HexView'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 
@@ -42,30 +43,51 @@ export function MemoryCard({
 }
 
 /**
- * The hex dump and its trimmings without the frame, shared by the dock row and
- * the floating window. The dump wants ~27rem; inside a narrower dock the view
- * scrolls sideways rather than wrapping.
+ * The hex dump and its trimmings without the frame. Two densities: `compact`
+ * (the dock row) shows a two-row pointer-following preview with a "Hex editor"
+ * hand-off to a floating window; full (the window) is the whole editable dump.
  */
-export function MemoryBody({ chip }: { chip: MemoryChip }) {
+export function MemoryBody({
+  chip,
+  compact = false,
+  onOpenWindow,
+}: {
+  chip: MemoryChip
+  compact?: boolean
+  /** Compact mode's "Hex editor" button — pops the full editor out. */
+  onOpenWindow?: () => void
+}) {
   const { size, pageSize } = chip.decl
 
   return (
-    <div className="space-y-2 px-3 py-3">
-      <div className="flex items-baseline gap-2">
+    <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
+      <div className="flex items-baseline gap-3">
         <span className="font-mono text-[10px] text-muted-foreground">
           {size} B{pageSize ? ` · ${pageSize} B pages` : ''}
         </span>
+        {compact && onOpenWindow && (
+          <button
+            onClick={onOpenWindow}
+            className="ml-auto text-[10px] text-primary underline-offset-2 hover:underline"
+          >
+            Hex editor ⧉
+          </button>
+        )}
         <button
           onClick={() => chip.erase()}
-          className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+          className={
+            compact && onOpenWindow
+              ? 'text-[10px] text-muted-foreground underline-offset-2 hover:underline'
+              : 'ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline'
+          }
         >
           erase
         </button>
       </div>
 
-      <HexView chip={chip} />
+      {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
 
-      <Hints chip={chip} />
+      {!compact && <Hints chip={chip} />}
     </div>
   )
 }

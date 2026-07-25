@@ -46,7 +46,7 @@ export function FloatingWindows({ boardId }: { boardId: string }) {
             )
           }
         >
-          <DeviceBody node={node} />
+          <DeviceBody node={node} variant="window" />
         </PanelFrame>
       ))}
     </>
