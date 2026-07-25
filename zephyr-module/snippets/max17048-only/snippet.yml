@@ -1,0 +1,17 @@
+name: max17048-only
+description: >
+  MAX17048 fuel gauge alone on the browser I²C bus: enable the part at 0x36
+  plus fuel-gauge0 alias for samples/drivers/fuel_gauge, and disable the
+  default temperature / accel / EEPROM / OLED / LCD / HT16K33 / PWM / DAC
+  parts so the dock stays focused on the battery card.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

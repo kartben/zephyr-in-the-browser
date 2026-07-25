@@ -10,6 +10,7 @@ import {
   Gauge,
   GitBranch,
   Activity,
+  BatteryCharging,
   Grid3x3,
   Monitor,
   Network,
@@ -67,6 +68,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   led: Grid3x3,
   pwm: Activity,
   dac: Waves,
+  'fuel-gauge': BatteryCharging,
   trace: Activity,
 }
 
@@ -85,6 +87,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   led: 'LED',
   pwm: 'PWM',
   dac: 'DAC',
+  'fuel-gauge': 'battery',
   trace: 'trace',
 }
 

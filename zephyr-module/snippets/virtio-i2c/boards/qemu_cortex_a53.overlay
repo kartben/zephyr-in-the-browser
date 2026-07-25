@@ -206,6 +206,17 @@
 		#io-channel-cells = <1>;
 		status = "disabled";
 	};
+
+	/*
+	 * Maxim MAX17048 Li-ion fuel gauge. Matches createMax17048({ address: 0x36 })
+	 * in src/virtio/index.ts (Adafruit / Zephyr shield default). Disabled by
+	 * default; samples/drivers/fuel_gauge uses -S max17048-only.
+	 */
+	max17048_0: max17048@36 {
+		compatible = "maxim,max17048";
+		reg = <0x36>;
+		status = "disabled";
+	};
 };
 
 /*

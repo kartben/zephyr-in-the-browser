@@ -49,3 +49,7 @@
 		dac-resolution = <12>;
 	};
 };
+
+&max17048_0 {
+	status = "disabled";
+};

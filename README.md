@@ -18,6 +18,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **LED matrix** | A Holtek HT16K33 16×8 LED driver at 0x70 — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix; the dock paints display RAM with a JSON register map |
 | **PWM** | An NXP PCA9685 16-channel PWM at 0x60 — stock `samples/drivers/led/pwm` fades and blinks via `pwm-leds`; the dock shows LED brightness and an annotated duty-cycle chart |
 | **DAC** | A Microchip MCP4725 12-bit DAC at 0x61 — stock `samples/drivers/dac` writes a sawtooth; the dock charts Vout over time (framework-ready for more DAC parts) |
+| **Fuel gauge** | A Maxim MAX17048 at 0x36 — stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card with Registers (framework-ready for more gauges) |
 | **GPIO** | Clickable buttons (`gpio-keys`) and a separate LED-class row for `gpio-leds`, wired per the running build’s tree |
 | **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
