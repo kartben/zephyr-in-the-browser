@@ -52,6 +52,8 @@ export const pcf8523Decl: RtcDecl = {
   shellLabel: 'pcf8523@68',
   defaultAddress: 0x68,
   alarmsCount: 1,
+  // Zephyr PCF8523_RTC_ALARM_TIME_MASK = minute|hour|monthday|weekday (0x4e).
+  alarmFields: ['minute', 'hour', 'day', 'weekday'],
 }
 
 export interface Pcf8523Options {
