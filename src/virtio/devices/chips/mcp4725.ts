@@ -32,7 +32,6 @@ const DECL: DacDecl = {
   resolutionBits: 12,
   vrefMv: 3300,
   detailKeys: ['mode', 'eeprom'],
-  historyMs: 5000,
 }
 
 export type Mcp4725PowerDown = 'normal' | '1k' | '100k' | '500k'
@@ -78,7 +77,6 @@ export function createMcp4725({
   const listeners = new Set<() => void>()
   const history = createDacHistory({
     channelCount: decl.channelCount,
-    historyMs: decl.historyMs,
   })
   const byAddr = new Map(MCP4725_REGISTERS.map((r) => [r.addr, r]))
 

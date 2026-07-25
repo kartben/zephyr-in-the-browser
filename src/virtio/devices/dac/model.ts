@@ -10,6 +10,15 @@
 
 import type { I2cChip } from '../i2c'
 import type { FieldDecl, RegisterDecl } from '../registers/types'
+import { dacNowMs } from './clock'
+
+/** Scope window choices (ms). Default {@link DAC_DEFAULT_WINDOW_MS}. */
+export const DAC_WINDOW_MS_OPTIONS = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const
+
+export const DAC_DEFAULT_WINDOW_MS = 10_000
+
+/** How long providers retain samples — covers the largest scope window. */
+export const DAC_HISTORY_RETENTION_MS = 30_000
 
 export interface DacDecl {
   name: string
@@ -24,11 +33,6 @@ export interface DacDecl {
   vrefMv: number
   /** Optional metrics strip keys (MCP4725: mode, eeprom). */
   detailKeys?: readonly string[]
-  /**
-   * How much output history the chart keeps (ms of wall time). Default
-   * ~5000 so one sawtooth period of the stock sample fits.
-   */
-  historyMs?: number
 }
 
 export interface DacChannel {
@@ -42,7 +46,7 @@ export interface DacChannel {
 }
 
 export interface DacSample {
-  /** performance.now() (or chip-local ms) when the code changed. */
+  /** {@link dacNowMs} when the code changed (guest virtual time when available). */
   t: number
   channel: number
   volts: number
@@ -108,32 +112,43 @@ export function formatDacCode(code: number, resolutionBits: number): string {
   return `${code} / ${max}`
 }
 
+export function formatDacWindow(ms: number): string {
+  if (ms >= 1000 && ms % 1000 === 0) return `${ms / 1000} s`
+  return `${ms} ms`
+}
+
 /**
  * Per-channel ring of output samples for the Vout chart. Providers call
  * {@link DacHistory.push} whenever a channel's code changes.
+ *
+ * Retention is long enough for the largest scope window; the panel picks the
+ * visible slice. Capacity assumes ~1 sample/ms (stock `samples/drivers/dac`).
  */
 export function createDacHistory(opts: {
   channelCount: number
-  historyMs?: number
+  retentionMs?: number
+  /** Override clock (tests). Defaults to {@link dacNowMs}. */
+  now?: () => number
 }): {
   push(channel: number, code: number, volts: number, t?: number): void
   get(channel: number): readonly DacSample[]
 } {
-  const historyMs = opts.historyMs ?? 5000
+  const retentionMs = opts.retentionMs ?? DAC_HISTORY_RETENTION_MS
+  // 1 kHz guest writes × retention, plus headroom for bursts.
+  const maxPoints = Math.max(4096, Math.ceil(retentionMs * 1.25))
+  const nowFn = opts.now ?? dacNowMs
   const rings: DacSample[][] = Array.from({ length: opts.channelCount }, () => [])
 
   const prune = (channel: number, now: number) => {
     const ring = rings[channel]
     if (!ring) return
-    const cutoff = now - historyMs
+    const cutoff = now - retentionMs
     while (ring.length > 0 && ring[0]!.t < cutoff) ring.shift()
-    // Cap absolute size so a bursty guest cannot grow without bound.
-    const maxPoints = 2048
     if (ring.length > maxPoints) ring.splice(0, ring.length - maxPoints)
   }
 
   return {
-    push(channel, code, volts, t = performance.now()) {
+    push(channel, code, volts, t = nowFn()) {
       if (channel < 0 || channel >= rings.length) return
       const ring = rings[channel]!
       const last = ring[ring.length - 1]
@@ -149,7 +164,7 @@ export function createDacHistory(opts: {
     },
     get(channel) {
       if (channel < 0 || channel >= rings.length) return []
-      prune(channel, performance.now())
+      prune(channel, nowFn())
       return rings[channel]!
     },
   }

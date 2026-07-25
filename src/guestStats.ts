@@ -45,12 +45,32 @@ let peak = 0
 let history: number[] = []
 const listeners = new Set<() => void>()
 
+/**
+ * Must match `-icount shift=N` on the A53 board in `boards.ts`. QEMU virtual
+ * time is `icount << shift` nanoseconds; we only export the instruction count.
+ */
+const ICOUNT_SHIFT = 4
+
 /** The raw guest instruction count, or null when icount is not driving it. */
 function readCount(): number | null {
   const fn = exports?._qemu_browser_guest_icount
   if (typeof fn !== 'function') return null
   const value = fn()
   return Number.isFinite(value) && value >= 0 ? value : null
+}
+
+/**
+ * Guest virtual time in milliseconds (`QEMU_CLOCK_VIRTUAL`), or null when
+ * icount is not driving the machine. Prefer this over `performance.now()` for
+ * scopes of guest-paced signals (`k_sleep` loops): under
+ * `-icount shift=4,align=off` wall time runs ahead/behind guest sleep, so a
+ * wall-clock chart makes the stock DAC sawtooth look far shorter than its
+ * advertised ~4 s period.
+ */
+export function guestVirtualNowMs(): number | null {
+  const count = readCount()
+  if (count === null) return null
+  return (count * 2 ** ICOUNT_SHIFT) / 1e6
 }
 
 function sample() {
