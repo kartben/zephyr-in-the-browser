@@ -26,7 +26,7 @@ the list matters for a given workload:
 | 1 | ~~The bridge's "1 ms" hot poll is really ~4 ms~~ **(a) done**, (b)/(c) open | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
-| 4 | Every ARM machine QEMU ships is compiled in | build | High, startup only | Low | Low |
+| 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
 | 7 | QEMU's 10 ms idle drain sets first-request latency | virtio patch | Medium, I²C-bound | Low | Low |
@@ -242,11 +242,38 @@ does not pass `--without-default-devices`, which is what governs machines and
 device models. So both binaries carry QEMU's entire ARM machine catalogue, while
 this project boots exactly two machines: `lm3s6965evb` and `virt`.
 
-The fix is `--without-default-devices` plus a minimal
-`configs/devices/<target>-softmmu/default.mak` selecting `CONFIG_STELLARIS` for
-arm and `CONFIG_ARM_VIRT` for aarch64; Kconfig pulls in whatever those machines
-depend on and drops the rest. Trimming ARM softmmu builds this way routinely
-halves them or better.
+**Patched, unmeasured** — `0010-configs-devices-trim-to-the-machines-we-boot.patch`
+(`0012-` in the JIT series) adds `configs/devices/<target>-softmmu/browser.mak`,
+selected by `configure --with-devices-<arch>=browser`. Each artifact keeps
+exactly one machine: `CONFIG_STELLARIS` for arm, `CONFIG_ARM_VIRT` for aarch64.
+Trimming ARM softmmu builds this way routinely halves them or better.
+
+**Not** `--without-default-devices`, which is what this document originally
+proposed and would have been a quiet disaster. It switches minikconf from
+`--defconfig` to `--allnoconfig` (`meson.build:3478`), which turns *every*
+`default y` into `n` — including `CONFIG_VIRTIO_BROWSER` and the `qemu-host-*`
+devices this project patches in, plus `CONFIG_VIRTIO_NET` and
+`CONFIG_VIRTIO_INPUT`. All of those are `default y depends on VIRTIO` and none
+is `select`ed by any machine, because they are named on the QEMU command line
+instead. They would have vanished with no error and the bridges would simply not
+have been there. Disabling boards by name cannot do that: Kconfig `select` still
+pulls in everything the kept machine needs, so what goes is only what nothing
+refers to.
+
+Two things worth knowing for anyone editing those files:
+
+- **A symbol may be assigned once.** minikconf raises "contradiction between
+  clauses" on a second, conflicting assignment rather than letting the later one
+  win, so the aarch64 file cannot `include ../arm-softmmu/browser.mak` and then
+  re-enable `ARM_VIRT` the way upstream's aarch64 `default.mak` includes arm's.
+  The 32-bit list is repeated instead.
+- **Upstream's list is stale.** `default.mak` carries every board as a
+  commented-out `=n` line, which makes it look like a complete inventory. It is
+  not: diffing it against the `default y` symbols in `hw/arm/Kconfig` turns up
+  `ALLWINNER_R40`, `MAX78000FTHR` and `FSL_IMX8MP_EVK`, which are real machines
+  absent from the comments. They are disabled explicitly. `ARM_V7M` is left on
+  deliberately — it is the CPU core, and hw/arm/Kconfig says it "must be
+  included in a TCG build due to translate.c".
 
 This buys nothing in steady state — it is download and browser wasm-compile time,
 so it is *startup*, which for a demo people try once from a link is arguably the
@@ -254,6 +281,12 @@ most user-visible number there is. It also makes the odd fact that the arm
 artifact is 80 % larger than the aarch64 one worth a look while in there; both
 are `--target-list` single-target builds, so the gap is a difference between the
 two source trees rather than something inherent.
+
+`CONFIG_PCI_DEVICES=n` is left commented in both files with the reasoning
+written out. It is very likely safe — the guest is virtio-mmio end to end, and
+`virt` only *implies* PCI_DEVICES so the PCIe bridge it `select`s outright
+survives — but it has not been tried, and being wrong costs an hours-long
+rebuild. It is the first thing to flip once a build has succeeded.
 
 ## 5. The Emscripten SDK is pinned to 3.1.50
 
@@ -373,10 +406,10 @@ to the one bridge where the failure mode is something the user can hear.
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
 2. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
    is a precondition for trusting item 2. Compare MIPS before and after.
-3. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
+3. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
+   3 without confounding it, since one moves size and the other speed.
+4. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
-4. Item 4 (`--without-default-devices`) — mechanical, and startup is the number
-   most visitors actually experience.
 5. Item 1(b)+(c) and items 8/9 together — one worker, all the shared-heap
    bridges, `Atomics.wait`, and a QEMU-side notify. The largest piece of work
    here and the one that retires the most of this document.

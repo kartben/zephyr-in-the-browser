@@ -159,7 +159,7 @@ patch, not the checkout under `.qemu-wasm-build/`. The build script restores
 tracked files to the pinned revision before applying the series on every run, so
 hand-edits to the source tree do not survive.
 
-Twelve browser integrations are supplied by the target-specific patch
+Thirteen browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -170,6 +170,15 @@ directories under `tools/`:
 * `-O3` on the same link line, for the reasons in "The link line" above — the
   one patch here that is not an integration at all, just the optimisation level
   the build was silently missing.
+* `configs/devices/<target>-softmmu/browser.mak`, picked up by
+  `--with-devices-<arch>=browser`, cutting QEMU's ARM machine catalogue down to
+  the one machine each artifact boots: `lm3s6965evb` (`CONFIG_STELLARIS`) for
+  arm, `virt` (`CONFIG_ARM_VIRT`) for aarch64. Deliberately not
+  `--without-default-devices`, which would switch Kconfig to `--allnoconfig` and
+  silently drop every `default y` device — including the browser bridges above,
+  `virtio-net-device` and `virtio-tablet-device`, none of which any machine
+  `select`s because they are named on the command line. See the header of either
+  .mak file; `docs/performance.md` has the reasoning and what to trim next.
 * The `qemu-host-sensor` device. Retained but **inert**: sensors are now
   simulated I²C chips on the generic virtio bridge, so no devicetree node
   references this device and nothing binds it. It is dropped on the next
