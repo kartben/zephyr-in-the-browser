@@ -41,6 +41,14 @@ const MSG_ERR = 1
 /** How many transactions the log keeps, newest last. */
 const LOG_CAP = 500
 
+/**
+ * Cap how often transaction-log subscribers (the I²C traffic pane) re-render.
+ * Accel chart samples the ADXL over virtio-i2c many times a second; rebuilding
+ * a log array and waking React on every message steals the main thread from
+ * qemu-wasm. Attach/detach still notify immediately.
+ */
+const LOG_NOTIFY_MS = 50
+
 export interface I2cChip {
   /** 7-bit address. */
   readonly address: number
@@ -83,8 +91,12 @@ export interface I2cModel extends VirtioDeviceModel {
 export function createI2cModel(name = 'i2c'): I2cModel {
   const bus = new Map<number, I2cChip>()
   const listeners = new Set<() => void>()
-  let log: I2cTransaction[] = []
+  /** Append-only working log; a snapshot is published for React on a timer. */
+  const log: I2cTransaction[] = []
+  let logSnapshot: I2cTransaction[] = []
   let nextId = 1
+  let logNotifyTimer: ReturnType<typeof setTimeout> | undefined
+  let logDirty = false
 
   /*
    * Snapshots for useSyncExternalStore, which compares with Object.is. Both
@@ -110,11 +122,24 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     for (const fn of listeners) fn()
   }
 
-  function record(entry: Omit<I2cTransaction, 'id'>) {
-    // A new array rather than a push, so subscribers see a changed reference.
-    log = [...log, { id: nextId++, ...entry }]
-    if (log.length > LOG_CAP) log = log.slice(-LOG_CAP)
+  const publishLog = () => {
+    logNotifyTimer = undefined
+    if (!logDirty) return
+    logDirty = false
+    logSnapshot = log.slice()
     notify()
+  }
+
+  const scheduleLogNotify = () => {
+    logDirty = true
+    if (logNotifyTimer !== undefined) return
+    logNotifyTimer = setTimeout(publishLog, LOG_NOTIFY_MS)
+  }
+
+  function record(entry: Omit<I2cTransaction, 'id'>) {
+    log.push({ id: nextId++, ...entry })
+    if (log.length > LOG_CAP) log.splice(0, log.length - LOG_CAP)
+    scheduleLogNotify()
   }
 
   function handle(req: VirtioRequest) {
@@ -218,9 +243,28 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     },
 
     chips: () => chipsSnapshot,
-    transactions: () => log,
+    transactions() {
+      // Direct readers (tests) flush so they see the latest entry without
+      // waiting out the UI throttle. React only reaches this after publishLog
+      // has notified, when the snapshot is already fresh and stable.
+      if (logDirty) {
+        if (logNotifyTimer !== undefined) {
+          clearTimeout(logNotifyTimer)
+          logNotifyTimer = undefined
+        }
+        logDirty = false
+        logSnapshot = log.slice()
+      }
+      return logSnapshot
+    },
     clearTransactions() {
-      log = []
+      log.length = 0
+      logSnapshot = []
+      logDirty = false
+      if (logNotifyTimer !== undefined) {
+        clearTimeout(logNotifyTimer)
+        logNotifyTimer = undefined
+      }
       notify()
     },
 

@@ -195,7 +195,38 @@ function Mono({ children, className }: { children: React.ReactNode; className?: 
 
 function SensorBadge({ chip }: { chip: SensorChip }) {
   useSyncExternalStore(
-    chip.subscribe,
+    useCallback(
+      (onStoreChange) => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        let last = 0
+        const deliver = () => {
+          last = performance.now()
+          onStoreChange()
+        }
+        const unsubscribe = chip.subscribe(() => {
+          const now = performance.now()
+          const wait = 50 - (now - last)
+          if (wait <= 0) {
+            if (timer !== undefined) {
+              clearTimeout(timer)
+              timer = undefined
+            }
+            deliver()
+            return
+          }
+          if (timer !== undefined) return
+          timer = setTimeout(() => {
+            timer = undefined
+            deliver()
+          }, wait)
+        })
+        return () => {
+          unsubscribe()
+          if (timer !== undefined) clearTimeout(timer)
+        }
+      },
+      [chip],
+    ),
     useCallback(() => chipRevision(chip), [chip]),
     () => '',
   )

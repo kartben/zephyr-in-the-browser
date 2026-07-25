@@ -87,16 +87,45 @@ describe('createSensorChip', () => {
     expect(Array.from(chip.read(3))).toEqual([0xab, 0xab, 0xab])
   })
 
-  it('notifies subscribers on channel and attribute changes', () => {
+  it('notifies subscribers on channel and attribute changes', async () => {
     const chip = createSensorChip(decl)
     const fn = vi.fn()
     const off = chip.subscribe(fn)
     chip.setChannel('level', 5)
     chip.setAttr('boost', true)
-    expect(fn).toHaveBeenCalledTimes(2)
+    // Notifies coalesce within a turn so a multi-axis tilt update is one render.
+    await Promise.resolve()
+    expect(fn).toHaveBeenCalledTimes(1)
     off()
     chip.setChannel('level', 6)
-    expect(fn).toHaveBeenCalledTimes(2)
+    await Promise.resolve()
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips notifies when the channel value is unchanged', async () => {
+    const chip = createSensorChip(decl)
+    const fn = vi.fn()
+    chip.subscribe(fn)
+    chip.setChannel('level', 5)
+    await Promise.resolve()
+    expect(fn).toHaveBeenCalledTimes(1)
+    chip.setChannel('level', 5)
+    await Promise.resolve()
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips notifies when only engineering noise changes the encoding', async () => {
+    const chip = createAdxl345()
+    const fn = vi.fn()
+    chip.subscribe(fn)
+    chip.setChannel('accel_x', 1.0)
+    await Promise.resolve()
+    expect(fn).toHaveBeenCalledTimes(1)
+    // Well under one LSB at 256 LSB/g (~0.038 m/s²): wire word stays put.
+    chip.setChannel('accel_x', 1.0 + 0.001)
+    await Promise.resolve()
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(chip.getChannel('accel_x')).toBeCloseTo(1.001)
   })
 
   it('places a second instance at an overridden address', () => {

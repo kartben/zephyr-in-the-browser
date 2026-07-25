@@ -25,10 +25,46 @@ import type { SensorChip } from '@/virtio/devices/sensors/model'
  * lists.
  */
 
-/** Subscribe a component to a chip's changes, re-rendering on each notify. */
+/** ~20 Hz is plenty for a slider readout; the guest still reads live values. */
+const SENSOR_UI_MS = 50
+
+/**
+ * Subscribe a component to a chip's changes, re-rendering on each notify —
+ * but capped. Follow-tilt and fast slider drags can outrun what a dock row
+ * needs to show, and every React commit on this thread is time stolen from
+ * qemu-wasm's main loop (which paints the accelerometer chart).
+ */
 function useChip(chip: SensorChip) {
   const [, force] = useReducer((n: number) => n + 1, 0)
-  useEffect(() => chip.subscribe(force), [chip])
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let last = 0
+    const refresh = () => {
+      last = performance.now()
+      force()
+    }
+    const unsubscribe = chip.subscribe(() => {
+      const now = performance.now()
+      const wait = SENSOR_UI_MS - (now - last)
+      if (wait <= 0) {
+        if (timer !== undefined) {
+          clearTimeout(timer)
+          timer = undefined
+        }
+        refresh()
+        return
+      }
+      if (timer !== undefined) return
+      timer = setTimeout(() => {
+        timer = undefined
+        refresh()
+      }, wait)
+    })
+    return () => {
+      unsubscribe()
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [chip])
 }
 
 export function SensorBody({ chip }: { chip: SensorChip }) {

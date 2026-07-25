@@ -269,10 +269,18 @@ display driver, `CONFIG_LV_COLOR_DEPTH=16`, and an RGB565 upload path in
 `FOURCC_AR24` check both assume 32bpp; doing only some of them adds a conversion
 and loses). What remains is LVGL's own rendering, which the copy was masking.
 
-So the case for finishing virtio-gpu is *not* frame rate. It is that a flush
-event would let the browser stop re-uploading unchanged frames: the render
-worker currently uploads at a fixed 30 Hz while the guest produces roughly
-4–10, so most texture uploads are redundant.
+The browser-side render worker already skips unchanged frames via a checksum
+(and skips the checksum itself once a short dirty streak shows the guest is
+animating). A virtio-gpu flush event would still be nicer than guessing from
+pixels, but it is no longer what stands between a still panel and a wasted
+upload. For the LVGL accelerometer chart specifically, the packaged build now
+samples at 20 Hz with 30 points per series — the rate the upstream sample's
+own README uses as its worked example — because the default 50 Hz / 50 points
+outpaces what the emulated A53 can paint.
+
+So the case for finishing virtio-gpu is *not* frame rate. It is a clean damage
+signal and the broader "guest display over virtio" story once a wasm bridge
+exists.
 
 ### 3. Audio — output first, and *not* via virtio — ✅ done
 
