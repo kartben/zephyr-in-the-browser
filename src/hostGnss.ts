@@ -70,6 +70,42 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
+/*
+ * "Follow browser location" lives here, not in the panel that toggles it: the
+ * geolocation watch must survive the panel collapsing, popping out, or the
+ * dock rearranging its rows — following is a property of the fix source, not
+ * of whichever widget happens to be showing it.
+ */
+let following = false
+let stopWatch: (() => void) | undefined
+let watchError = ''
+
+export function followingBrowser(): boolean {
+  return following
+}
+
+/** Last geolocation error while following, '' when none. */
+export function locationError(): string {
+  return watchError
+}
+
+export function setFollowBrowser(on: boolean): void {
+  if (on === following) return
+  following = on
+  if (on) {
+    stopWatch = watchBrowserPosition((message) => {
+      if (watchError === message) return
+      watchError = message
+      notify()
+    })
+  } else {
+    stopWatch?.()
+    stopWatch = undefined
+    watchError = ''
+  }
+  notify()
+}
+
 function finite(value: number | undefined, fallback: number) {
   return value !== undefined && Number.isFinite(value) ? value : fallback
 }
