@@ -18,7 +18,7 @@
 import type { PanelKind } from '@/boards'
 import type { DeviceTreeState } from '@/devicetree'
 import type { DtsDocument, DtsInsights, DtsNode, I2cSlot } from '@/dts'
-import { byPath, chosen, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf } from '@/dts'
+import { byPath, chosen, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regAddress } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
@@ -58,6 +58,7 @@ export type BodyKind =
   | 'oled'
   | 'auxdisplay'
   | 'led'
+  | 'pwm-leds'
   | 'pwm'
   | 'dac'
   | 'rtc'
@@ -109,6 +110,11 @@ export interface DeviceNode {
   crumb?: string
   /** Live chip handle, for sensor/memory/oled bodies. */
   chip?: I2cChip
+  /**
+   * Children of a `pwm-leds` group when `body` is `pwm-leds` — channel index
+   * and DT label, brightness read from {@link chip}'s PwmChip channels.
+   */
+  pwmLeds?: Array<{ channel: number; label: string }>
   /** Controller label scoping an 'i2c' body's roster/traffic. */
   busLabel?: string
   /** The legacy panel kind whose expand-on-boot rule this row inherits. */
@@ -537,6 +543,42 @@ function deriveFromTree(
       crumb: `pin ${first?.id}`,
       panelKind: 'buzzer',
     })
+  }
+
+  // pwm-leds groups: brightness strip driven by an attached PwmChip. Sibling of
+  // the PWM controller row — see docs/pwm-leds.md.
+  if (avail.i2c && insights.pwmLeds.length > 0) {
+    const groups = new Map<string, typeof insights.pwmLeds>()
+    for (const led of insights.pwmLeds) {
+      const list = groups.get(led.groupPath) ?? []
+      list.push(led)
+      groups.set(led.groupPath, list)
+    }
+    for (const [, leds] of groups) {
+      const first = leds[0]
+      if (!first) continue
+      const controller = byPath(doc, first.controllerPath)
+      const address = controller ? regAddress(controller) : undefined
+      const chip =
+        address !== undefined
+          ? chips.find((c) => c.address === address && isPwmChip(c))
+          : undefined
+      if (!chip || !isPwmChip(chip)) continue
+      push({
+        key: uniqueKey(ids, 'pwm-leds'),
+        nodeName: first.groupName,
+        label: 'PWM LEDs',
+        compatible: 'pwm-leds',
+        deviceClass: 'led',
+        path: first.groupPath,
+        presence: 'interactive',
+        body: 'pwm-leds',
+        crumb: first.controllerLabel,
+        chip,
+        pwmLeds: leds.map((led) => ({ channel: led.channel, label: led.label })),
+        panelKind: 'led',
+      })
+    }
   }
 
   // I2C buses: every enumerated bus gets a row; only the bridged, bound one is

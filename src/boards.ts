@@ -315,12 +315,12 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   },
   {
     // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
-    // The dock draws an annotated duty-cycle chart (PwmChip framework).
+    // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',
     label: 'PWM LED',
-    description: 'Fades and blinks PWM LEDs on a PCA9685; duty chart in the page',
+    description: 'Fades and blinks PWM LEDs on a PCA9685; LEDs + duty chart in the page',
     zephyrSample: 'samples/drivers/led/pwm',
-    primaryPanels: ['pwm', 'i2c'],
+    primaryPanels: ['led', 'pwm', 'i2c'],
   },
   {
     // Stock DAC sample against the browser MCP4725 at 0x61. The dock paints

@@ -177,3 +177,50 @@ export function gpioSpecs(doc: DtsDocument, node: DtsNode, name = 'gpios'): Gpio
   }
   return specs
 }
+
+export interface PwmSpec {
+  controller?: DtsNode
+  /** The reference as written, useful even when the label resolves nowhere. */
+  controllerLabel: string
+  channel: number
+  /** Period in nanoseconds when the controller exposes one (else 0). */
+  periodNs: number
+  flags: number
+}
+
+/**
+ * Decode a `pwms = <&ctrl channel period flags …>` property, consuming
+ * `#pwm-cells` from each resolved controller (default 3: channel, period, flags).
+ * Controllers with fewer cells leave the missing trailing fields at 0.
+ */
+export function pwmSpecs(doc: DtsDocument, node: DtsNode, name = 'pwms'): PwmSpec[] {
+  const specs: PwmSpec[] = []
+  for (const value of prop(node, name)?.values ?? []) {
+    if (value.kind !== 'cells') continue
+    const cells = value.cells
+    for (let i = 0; i < cells.length; ) {
+      const head = cells[i]
+      if (head.kind === 'number') {
+        i++ // stray cell — tolerate and move on
+        continue
+      }
+      const controller = resolveRef(doc, head)
+      const width = (controller && numberProp(controller, '#pwm-cells')) ?? 3
+      const args = cells.slice(i + 1, i + 1 + width)
+      const channel = args[0]?.kind === 'number' ? args[0].value : undefined
+      const periodNs = args[1]?.kind === 'number' ? args[1].value : 0
+      const flags = args[2]?.kind === 'number' ? args[2].value : 0
+      if (channel !== undefined) {
+        specs.push({
+          controller,
+          controllerLabel: head.kind === 'ref' ? head.label : head.path,
+          channel,
+          periodNs,
+          flags,
+        })
+      }
+      i += 1 + width
+    }
+  }
+  return specs
+}

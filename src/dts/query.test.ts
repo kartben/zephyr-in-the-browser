@@ -6,6 +6,7 @@ import {
   chosen,
   compatibles,
   gpioSpecs,
+  pwmSpecs,
   isOkay,
   numberProp,
   regAddress,
@@ -75,6 +76,43 @@ describe('query helpers', () => {
     const specs = gpioSpecs(doc, doc.root.children[0])
     expect(specs).toEqual([
       { controller: undefined, controllerLabel: 'nowhere', pin: 7, flags: 1 },
+    ])
+  })
+
+  it('decodes pwms specs against the controller cell width', () => {
+    const doc = parseDts(`
+      /dts-v1/;
+      / {
+        pca9685_0: pca9685@60 {
+          compatible = "nxp,pca9685-pwm";
+          #pwm-cells = <3>;
+        };
+        led0: s-led-0 {
+          pwms = <&pca9685_0 0 20000000 0>;
+        };
+      };
+    `)
+    expect(pwmSpecs(doc, byLabel(doc, 'led0')!)).toEqual([
+      {
+        controller: byLabel(doc, 'pca9685_0'),
+        controllerLabel: 'pca9685_0',
+        channel: 0,
+        periodNs: 20_000_000,
+        flags: 0,
+      },
+    ])
+  })
+
+  it('keeps the written label when a pwms ref resolves nowhere', () => {
+    const doc = parseDts('/dts-v1/; / { l { pwms = <&nowhere 2 1000 1>; }; };')
+    expect(pwmSpecs(doc, doc.root.children[0])).toEqual([
+      {
+        controller: undefined,
+        controllerLabel: 'nowhere',
+        channel: 2,
+        periodNs: 1000,
+        flags: 1,
+      },
     ])
   })
 

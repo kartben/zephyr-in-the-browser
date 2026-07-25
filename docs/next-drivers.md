@@ -428,8 +428,11 @@ GPIO LEDs already cover the blinky story.
 `0x60` (`chips/pca9685.ts` + `maps/pca9685.json`). Dock card
 (`PwmPanel.tsx` / `PwmBody`) paints an annotated ~1.25-period duty chart and a
 channel strip sized from `decl.channelCount` — no PCA9685 imports in the UI.
-Guest side: stock `nxp,pca9685-pwm` via `-S pca9685-only` / `conf/pca9685.conf`,
-packaging `samples/drivers/led/pwm`. Address is 0x60 to avoid `ina219@40`.
+When the tree has okay `pwm-leds` (as in `-S pca9685-only`), a sibling LED-class
+row (`PwmLedsBody`) paints brightness from the same channels — see
+[pwm-leds.md](pwm-leds.md). Guest side: stock `nxp,pca9685-pwm` via
+`-S pca9685-only` / `conf/pca9685.conf`, packaging `samples/drivers/led/pwm`.
+Address is 0x60 to avoid `ina219@40`.
 
 #### 4d. DAC — ✅ done (MCP4725); more providers next
 

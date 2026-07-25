@@ -21,6 +21,7 @@ import {
   SquareChevronRight,
   Activity,
   Grid3x3,
+  Lightbulb,
   Vibrate,
   Volume2,
   Waves,
@@ -38,6 +39,7 @@ import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { DacBody } from '@/components/DacPanel'
 import { PwmBody } from '@/components/PwmPanel'
+import { PwmLedsBadge, PwmLedsBody } from '@/components/PwmLedsPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
 import { cn } from '@/lib/utils'
@@ -89,6 +91,13 @@ export function DeviceBody({
       return <AuxdisplayBody chip={node.chip as Jhd1313LcdChip} />
     case 'led':
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
+    case 'pwm-leds':
+      return (
+        <PwmLedsBody
+          chip={node.chip as PwmChip}
+          leds={node.pwmLeds ?? []}
+        />
+      )
     case 'pwm':
       return <PwmBody chip={node.chip as PwmChip} />
     case 'dac':
@@ -126,6 +135,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Monitor
     case 'led':
       return Grid3x3
+    case 'pwm-leds':
+      return Lightbulb
     case 'pwm':
       return Activity
     case 'dac':
@@ -153,7 +164,7 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
     case 'auxdisplay':
       return Monitor
     case 'led':
-      return Grid3x3
+      return Lightbulb
     case 'pwm':
       return Activity
     case 'dac':
@@ -213,6 +224,13 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
         </Mono>
       )
     }
+    case 'pwm-leds':
+      return (
+        <PwmLedsBadge
+          chip={node.chip as PwmChip}
+          leds={node.pwmLeds ?? []}
+        />
+      )
     case 'pwm': {
       const chip = node.chip as PwmChip
       const ch = chip.getChannel(0)
@@ -286,14 +304,22 @@ export function GroupBadge({
     }
   }
   if (deviceClass === 'led') {
-    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'led')?.chip as
-      | Ht16k33Chip
-      | undefined
-    if (chip) {
+    const matrix = nodes.find((n) => n.presence === 'interactive' && n.body === 'led')
+      ?.chip as Ht16k33Chip | undefined
+    if (matrix) {
       return (
         <Mono>
-          {chip.cols}×{chip.rows}
+          {matrix.cols}×{matrix.rows}
         </Mono>
+      )
+    }
+    const strip = nodes.find((n) => n.presence === 'interactive' && n.body === 'pwm-leds')
+    if (strip?.chip) {
+      return (
+        <PwmLedsBadge
+          chip={strip.chip as PwmChip}
+          leds={strip.pwmLeds ?? []}
+        />
       )
     }
   }

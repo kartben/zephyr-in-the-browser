@@ -16,7 +16,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **RTC** | A PCF8523 real-time clock: live date/time, sync from the browser, and alarm armed/fired state — through Zephyr's stock RTC driver and shell (`rtc get` / `rtc set_alarm`) |
 | **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight — Zephyr's stock auxdisplay driver writes "Hello World"; the backlight is a JSON register map at 0x62 |
 | **LED matrix** | A Holtek HT16K33 16×8 LED driver at 0x70 — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix; the dock paints display RAM with a JSON register map |
-| **PWM** | An NXP PCA9685 16-channel PWM at 0x60 — stock `samples/drivers/led/pwm` fades and blinks; the dock draws an annotated duty-cycle chart (framework-ready for more PWM parts) |
+| **PWM** | An NXP PCA9685 16-channel PWM at 0x60 — stock `samples/drivers/led/pwm` fades and blinks via `pwm-leds`; the dock shows LED brightness and an annotated duty-cycle chart |
 | **DAC** | A Microchip MCP4725 12-bit DAC at 0x61 — stock `samples/drivers/dac` writes a sawtooth; the dock charts Vout over time (framework-ready for more DAC parts) |
 | **GPIO** | Clickable buttons and live LED indicators, wired per the devicetree's `gpio-keys`/`gpio-leds` |
 | **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |

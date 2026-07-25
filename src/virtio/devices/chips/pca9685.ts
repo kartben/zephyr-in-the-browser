@@ -3,7 +3,8 @@
  *
  * First {@link PwmChip} provider. Matches Zephyr's `drivers/pwm/pwm_pca9685.c`:
  * MODE1/MODE2, LEDn_ON/OFF, PRE_SCALE. Stock `samples/drivers/led/pwm` drives
- * this through `pwm-leds` + the LED API.
+ * this through `pwm-leds` + the LED API; the dock shows both the LED strip and
+ * the PWM duty chart (see docs/pwm-leds.md).
  */
 
 import type { I2cChip } from '../i2c'

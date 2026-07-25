@@ -25,6 +25,7 @@ import {
   numberProp,
   pathOf,
   prop,
+  pwmSpecs,
   regAddress,
   stringProp,
 } from './query'
@@ -61,6 +62,25 @@ export interface BuzzerPin {
   activeHigh: boolean
 }
 
+/** One child of a `pwm-leds` group, wired to a PWM channel. */
+export interface PwmLed {
+  /** Channel index on the PWM controller. */
+  channel: number
+  label: string
+  /** Period from the `pwms` specifier, nanoseconds (0 when the controller omits it). */
+  periodNs: number
+  /** Zephyr PWM_POLARITY_INVERTED = BIT(0). */
+  inverted: boolean
+  /** PWM controller node path (for matching an attached chip). */
+  controllerPath: string
+  /** Controller label as written (`pca9685_0`), for crumbs. */
+  controllerLabel: string
+  /** Path of the parent `pwm-leds` group. */
+  groupPath: string
+  /** Node name of the parent group (`pwmleds`). */
+  groupName: string
+}
+
 export interface GpioController {
   controllerLabel: string
   path: string
@@ -86,6 +106,8 @@ export interface DtsInsights {
   aliases: Record<string, string>
   i2cBuses: I2cBus[]
   gpioControllers: GpioController[]
+  /** Children of okay `pwm-leds` groups that resolve a PWM controller. */
+  pwmLeds: PwmLed[]
   /** Panels this build can meaningfully use. */
   panels: Set<PanelKind>
 }
@@ -253,6 +275,32 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
   return controllers.map(({ node: _node, ...controller }) => controller)
 }
 
+function collectPwmLeds(doc: DtsDocument): PwmLed[] {
+  const leds: PwmLed[] = []
+  for (const group of doc.compatIndex.get('pwm-leds') ?? []) {
+    if (!effectivelyOkay(group)) continue
+    const groupPath = pathOf(group)
+    for (const child of group.children) {
+      if (!effectivelyOkay(child)) continue
+      for (const spec of pwmSpecs(doc, child)) {
+        if (!spec.controller) continue
+        leds.push({
+          channel: spec.channel,
+          label: stringProp(child, 'label') ?? labelOf(child),
+          periodNs: spec.periodNs,
+          // Zephyr PWM_POLARITY_INVERTED = BIT(0).
+          inverted: (spec.flags & 0x1) !== 0,
+          controllerPath: pathOf(spec.controller),
+          controllerLabel: spec.controllerLabel,
+          groupPath,
+          groupName: group.name,
+        })
+      }
+    }
+  }
+  return leds
+}
+
 function collectMemory(doc: DtsDocument): Array<{ base: number; bytes: number }> {
   const regions: Array<{ base: number; bytes: number }> = []
   walk(doc.root, (node) => {
@@ -290,6 +338,7 @@ export function emphasisPanels(insights: DtsInsights): Set<PanelKind> {
 export function computeInsights(doc: DtsDocument): DtsInsights {
   const i2cBuses = collectI2cBuses(doc)
   const gpioControllers = collectGpioControllers(doc)
+  const pwmLeds = collectPwmLeds(doc)
   const chosenTable = chosen(doc)
 
   const bridgedBuses = i2cBuses.filter((bus) => bus.bridged)
@@ -313,7 +362,8 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313')) panels.add('auxdisplay')
-  if (hasOkayCompat(doc, 'holtek,ht16k33')) panels.add('led')
+  // HT16K33 matrix and pwm-leds both earn the LED panel slot — different bodies.
+  if (hasOkayCompat(doc, 'holtek,ht16k33') || pwmLeds.length > 0) panels.add('led')
   if (hasOkayCompat(doc, 'nxp,pca9685-pwm')) panels.add('pwm')
   if (hasOkayCompat(doc, 'microchip,mcp4725')) panels.add('dac')
   // 'perf' is a machine property (-icount), invisible to the guest tree.
@@ -340,6 +390,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     aliases: aliasTable,
     i2cBuses,
     gpioControllers,
+    pwmLeds,
     panels,
   }
 }

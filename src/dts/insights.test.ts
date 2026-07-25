@@ -95,6 +95,63 @@ describe('computeInsights', () => {
     expect(insights.panels.has('gpio')).toBe(true)
   })
 
+  it('discovers pwm-leds children on a PCA9685 controller', () => {
+    const insights = insightsOf(`
+      /dts-v1/;
+      / {
+        soc {
+          i2c@0 {
+            compatible = "virtio,i2c";
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+            pca9685_0: pca9685@60 {
+              compatible = "nxp,pca9685-pwm";
+              reg = <0x60>;
+              #pwm-cells = <3>;
+              status = "okay";
+            };
+          };
+        };
+        pwmleds {
+          compatible = "pwm-leds";
+          s_led0: s-led-0 {
+            pwms = <&pca9685_0 0 20000000 0>;
+            label = "PWM LED 0";
+          };
+          s_led1: s-led-1 {
+            pwms = <&pca9685_0 1 20000000 0>;
+            label = "PWM LED 1";
+          };
+        };
+      };
+    `)
+    expect(insights.pwmLeds).toEqual([
+      {
+        channel: 0,
+        label: 'PWM LED 0',
+        periodNs: 20_000_000,
+        inverted: false,
+        controllerPath: '/soc/i2c@0/pca9685@60',
+        controllerLabel: 'pca9685_0',
+        groupPath: '/pwmleds',
+        groupName: 'pwmleds',
+      },
+      {
+        channel: 1,
+        label: 'PWM LED 1',
+        periodNs: 20_000_000,
+        inverted: false,
+        controllerPath: '/soc/i2c@0/pca9685@60',
+        controllerLabel: 'pca9685_0',
+        groupPath: '/pwmleds',
+        groupName: 'pwmleds',
+      },
+    ])
+    expect(insights.panels.has('led')).toBe(true)
+    expect(insights.panels.has('pwm')).toBe(true)
+  })
+
   it('grounds the M3 build on the MMIO bridge', () => {
     const insights = insightsOf(m3Blinky)
 
