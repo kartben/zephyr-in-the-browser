@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
 import { SampleGallery } from '@/components/SampleGallery'
+import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
 import { DtsViewer } from '@/components/DtsViewer'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import type { BackendStatus } from '@/backends'
@@ -67,6 +68,9 @@ export function TopBar({
         />
 
         <RunningDtsButton />
+
+        <PanelsMenu boardId={boardId} />
+        <DockToggle />
 
         <StatusPill status={status} detail={detail} />
 
