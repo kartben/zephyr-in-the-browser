@@ -90,9 +90,12 @@ index 0000000..7c06366
 +
 +#ifdef __EMSCRIPTEN__
 +#include <emscripten.h>
++#include <emscripten/threading.h>
 +#else
 +#define EMSCRIPTEN_KEEPALIVE
 +#endif
++
++#include "qemu/main-loop.h"
 +
 +#define TYPE_VIRTIO_BROWSER "virtio-browser-device"
 +OBJECT_DECLARE_SIMPLE_TYPE(VirtIOBrowser, VIRTIO_BROWSER)
@@ -206,16 +209,28 @@ index 0000000..7c06366
 +static uint32_t browser_device_count;
 +
 +/*
-+ * Entry points for the embedding host, reachable from page JavaScript as
-+ * Module._qemu_virtio_browser_count() and Module._qemu_virtio_browser_area(i).
-+ * Deliberately the only two: everything else the page needs is in the area,
-+ * so adding a device type never adds an export.
-+ *
-+ * Declared here rather than in a header because nothing inside QEMU calls
-+ * them; the declarations exist only to keep -Wmissing-prototypes quiet.
++ * Entry points for the embedding host. count/area discover instances; the
++ * rest of the wire protocol lives in the shared area. kick/wake_addr are the
++ * page→QEMU completion wake — without them the guest stays halted until the
++ * drain timer (measured ~50 I²C Hz on dac). Declared here rather than in a
++ * header because nothing inside QEMU calls them; they exist to keep
++ * -Wmissing-prototypes quiet.
 + */
 +uint32_t qemu_virtio_browser_count(void);
 +uintptr_t qemu_virtio_browser_area(uint32_t index);
++uintptr_t qemu_virtio_browser_wake_addr(void);
++void qemu_virtio_browser_kick(void);
++
++/*
++ * Futex word the page Atomics.notify-s after publishing cmp_wr. kick() also
++ * futex-wakes it and runs drain immediately on the QEMU thread (PROXY_TO_PTHREAD
++ * proxies the export, which itself breaks an idle Atomics.wait in the
++ * emulator's sleep path).
++ */
++static uint32_t virtio_browser_wake;
++static bool virtio_browser_draining;
++
++static void virtio_browser_drain(void *opaque);
 +
 +EMSCRIPTEN_KEEPALIVE
 +uint32_t qemu_virtio_browser_count(void)
@@ -230,6 +245,43 @@ index 0000000..7c06366
 +        return 0;
 +    }
 +    return (uintptr_t)browser_devices[index]->area;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_virtio_browser_wake_addr(void)
++{
++    return (uintptr_t)&virtio_browser_wake;
++}
++
++/*
++ * Page-side completion landed in the cmp ring. Drain every instance now and
++ * poke the main loop so a halted vCPU under -icount sleep=on resumes without
++ * waiting out the realtime drain timer (~1–10 ms, measured as the ~50 Hz
++ * sawtooth ceiling). Safe to call re-entrantly: overlapping kicks coalesce.
++ */
++EMSCRIPTEN_KEEPALIVE
++void qemu_virtio_browser_kick(void)
++{
++    uint32_t n = qatomic_read(&browser_device_count);
++
++    qatomic_set(&virtio_browser_wake, qatomic_read(&virtio_browser_wake) + 1);
++#ifdef __EMSCRIPTEN__
++    emscripten_futex_wake(&virtio_browser_wake, INT32_MAX);
++#endif
++
++    if (virtio_browser_draining) {
++        qemu_notify_event();
++        return;
++    }
++    virtio_browser_draining = true;
++    for (uint32_t i = 0; i < n; i++) {
++        VirtIOBrowser *b = browser_devices[i];
++        if (b && b->drain) {
++            virtio_browser_drain(b);
++        }
++    }
++    virtio_browser_draining = false;
++    qemu_notify_event();
 +}
 +
 +static uint32_t align4(uint32_t n)

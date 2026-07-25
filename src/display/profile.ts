@@ -52,7 +52,7 @@ interface Counters {
   bridgeStart: BridgeStats
 }
 
-const ZERO_BRIDGE: BridgeStats = { hotPolls: 0, hotGapMsSum: 0, hotPollsSlow: 0, requests: 0 }
+const ZERO_BRIDGE: BridgeStats = { hotPolls: 0, hotGapMsSum: 0, hotPollsSlow: 0, requests: 0, kicks: 0 }
 
 const empty = (): Counters => ({
   guestFrames: 0,

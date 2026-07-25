@@ -8,11 +8,18 @@
  * makes a device *that* device is a `VirtioDeviceModel` in this directory. See
  * docs/virtio-bridge.md for the contract.
  *
- * Two exports carry every device, present and future:
- * `_qemu_virtio_browser_count()` and `_qemu_virtio_browser_area(i)`. Devices
- * are matched by the `name=` given on the QEMU command line rather than by
- * index or device id — index order is a command-line accident, and two
- * instances can share a device id (two I2C buses).
+ * Two exports discover devices: `_qemu_virtio_browser_count()` and
+ * `_qemu_virtio_browser_area(i)`. Devices are matched by the `name=` given on
+ * the QEMU command line rather than by index or device id — index order is a
+ * command-line accident, and two instances can share a device id (two I2C
+ * buses).
+ *
+ * Completions are kicked back into QEMU rather than waiting on its drain
+ * timer: after publishing `cmp_wr` the page `Atomics.notify`s a shared wake
+ * word and calls `_qemu_virtio_browser_kick()`, which drains on the QEMU
+ * thread and `qemu_notify_event()`s a halted vCPU. Without that, every
+ * blocking transfer sat until the next realtime drain tick (~50 Hz on dac).
+ * Old emulators without the export keep working — they just stay on the timer.
  *
  * Polling is adaptive. Idle costs one `Atomics.load` per device per 50 ms; for
  * a short window after any request it switches to a loop paced at ~1 ms.
@@ -65,6 +72,10 @@ import {
 interface BridgeExports {
   _qemu_virtio_browser_count?: () => number
   _qemu_virtio_browser_area?: (index: number) => number
+  /** Byte offset of the futex word the page Atomics.notify-s on completion. */
+  _qemu_virtio_browser_wake_addr?: () => number
+  /** Drain cmp rings now and wake a halted vCPU (PROXY_TO_PTHREAD). */
+  _qemu_virtio_browser_kick?: () => void
   HEAPU8?: Uint8Array
 }
 
@@ -192,6 +203,12 @@ export interface BridgeStats {
   hotPollsSlow: number
   /** Requests drained off the request rings. */
   requests: number
+  /**
+   * Completions that triggered a page→QEMU wake (`Atomics.notify` + kick
+   * export). Diff two samples: a healthy dac sawtooth should show kicks ≈
+   * requests once the rebuilt emulator is in place.
+   */
+  kicks: number
 }
 
 /**
@@ -205,11 +222,14 @@ let hotPolls = 0
 let hotGapMsSum = 0
 let hotPollsSlow = 0
 let requestsSeen = 0
+let kicksSeen = 0
 /** When the previous hot poll ran, or 0 when the last one was an idle tick. */
 let lastHotPollAt = 0
+/** Int32 index of the emulator's wake futex, or -1 when the export is absent. */
+let wakeWordIndex = -1
 
 export function stats(): BridgeStats {
-  return { hotPolls, hotGapMsSum, hotPollsSlow, requests: requestsSeen }
+  return { hotPolls, hotGapMsSum, hotPollsSlow, requests: requestsSeen, kicks: kicksSeen }
 }
 
 /**
@@ -249,8 +269,13 @@ export function register(model: VirtioDeviceModel) {
 export function attach(mod: unknown) {
   detach()
   exports = mod as BridgeExports
-  // Deliberately not resolved here: attach runs as soon as the module exists,
-  // which can be before QEMU's machine init has realized the devices. The poll
+  // Wake futex is a process-lifetime global in QEMU — safe to resolve now,
+  // unlike device areas which appear only after machine init.
+  const wakeAddr = exports._qemu_virtio_browser_wake_addr?.()
+  wakeWordIndex =
+    typeof wakeAddr === 'number' && wakeAddr > 0 && (wakeAddr & 3) === 0 ? wakeAddr >> 2 : -1
+  // Deliberately not resolving devices here: attach runs as soon as the module
+  // exists, which can be before QEMU's machine init has realized them. The poll
   // loop rescans while it finds none, so an early attach does not latch off.
   schedule(0)
 }
@@ -263,6 +288,7 @@ export function detach() {
   // Not the counters — those are free-running by contract — only the mark the
   // next gap would be measured against, which is meaningless across a detach.
   lastHotPollAt = 0
+  wakeWordIndex = -1
   const had = bridges.length
   bridges = []
   exports = null
@@ -397,6 +423,7 @@ function flush(b: Bridge) {
   // emulator has gone away — the GPIO model completes an event chain straight
   // out of a panel click. Without this the reply would fault on a null heap.
   if (!heap || !view || !words) return
+  let published = 0
   while (b.outbox.length) {
     const next = b.outbox[0]
     const rd = load(b.areaBase + AREA.cmpRd)
@@ -411,11 +438,44 @@ function flush(b: Bridge) {
       next.flags,
       next.payload,
     )
-    if (wr === null) return // full; retry next tick
+    if (wr === null) {
+      if (published) wakeQemu()
+      return // full; retry next tick
+    }
     b.cmpWr = wr
     // Publish only once the record is whole.
     store(b.areaBase + AREA.cmpWr, wr)
     b.outbox.shift()
+    published++
+  }
+  if (published) wakeQemu()
+}
+
+/**
+ * Tell QEMU a completion is waiting. Two channels on purpose:
+ *
+ * 1. `Atomics.notify` on the shared wake word — lock-free from the page, wakes
+ *    any futex wait the emulator (or a future drain path) parks on.
+ * 2. `_qemu_virtio_browser_kick()` — proxied onto the QEMU pthread, drains the
+ *    cmp rings immediately and `qemu_notify_event()`s so `-icount sleep=on`
+ *    does not sit on the realtime drain timer.
+ *
+ * Either alone is enough on a rebuilt emulator; doing both covers the case
+ * where the worker is in a generic sleep futex rather than our wake word.
+ * Absent exports (old wasm) this is a no-op and the timer remains the path.
+ */
+function wakeQemu() {
+  kicksSeen += 1
+  if (words && wakeWordIndex >= 0) {
+    Atomics.add(words, wakeWordIndex, 1)
+    Atomics.notify(words, wakeWordIndex)
+  }
+  try {
+    exports?._qemu_virtio_browser_kick?.()
+  } catch (err) {
+    // A throw here would abort the model's reply and hang the guest on the
+    // semaphore; log and let the drain timer cover it.
+    console.error('[virtio] kick failed; drain timer will retry', err)
   }
 }
 

@@ -77,7 +77,9 @@ export function createFakeBridge(
     ringSize: spec.ringSize ?? 4096,
   }))
   // Offset 0 is left unused: a real device pointer is never null, and the
-  // transport reads a zero from _area(i) as "no such device".
+  // transport reads a zero from _area(i) as "no such device". Offset 8 holds
+  // the wake futex word mirrored from qemu_virtio_browser_wake_addr.
+  const WAKE_ADDR = 8
   const HEAP_BASE = 16
   const total = layouts.reduce((n, l) => n + AREA_BYTES + 2 * l.ringSize, HEAP_BASE)
   const bytes = align4(total)
@@ -208,6 +210,13 @@ export function createFakeBridge(
       HEAPU8: heap,
       _qemu_virtio_browser_count: () => specs.length,
       _qemu_virtio_browser_area: (i: number) => areaBases[i] ?? 0,
+      _qemu_virtio_browser_wake_addr: () => WAKE_ADDR,
+      // Completions are already visible on the fake heap; kick is a no-op so
+      // tests exercise the page path without needing a drain timer.
+      _qemu_virtio_browser_kick: () => {
+        Atomics.add(words, WAKE_ADDR >> 2, 1)
+        Atomics.notify(words, WAKE_ADDR >> 2)
+      },
     },
     device(name) {
       const d = devices.get(name)
