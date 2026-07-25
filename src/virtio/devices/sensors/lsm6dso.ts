@@ -23,39 +23,18 @@
  * (4.375 mdps/LSB) tables, keyed off the FS bits the guest last wrote.
  */
 
+import lsm6dsoMap from './maps/lsm6dso.json'
+import { registersFromJson, type RegisterMapJson } from './registerMap'
 import { createSensorChip, type CodecCtx, type SensorChip, type SensorDecl } from './model'
 
-const REG_FUNC_CFG_ACCESS = 0x01
-const REG_FIFO_CTRL1 = 0x07
-const REG_FIFO_CTRL2 = 0x08
-const REG_FIFO_CTRL3 = 0x09
-const REG_FIFO_CTRL4 = 0x0a
-const REG_INT1_CTRL = 0x0d
-const REG_INT2_CTRL = 0x0e
-const REG_WHO_AM_I = 0x0f
 const REG_CTRL1_XL = 0x10
 const REG_CTRL2_G = 0x11
-const REG_CTRL3_C = 0x12
-const REG_CTRL4_C = 0x13
-const REG_CTRL5_C = 0x14
-const REG_CTRL6_C = 0x15
-const REG_CTRL7_G = 0x16
-const REG_CTRL8_XL = 0x17
-const REG_CTRL9_XL = 0x18
-const REG_CTRL10_C = 0x19
-const REG_STATUS = 0x1e
 const REG_OUTX_G = 0x22
 const REG_OUTY_G = 0x24
 const REG_OUTZ_G = 0x26
 const REG_OUTX_A = 0x28
 const REG_OUTY_A = 0x2a
 const REG_OUTZ_A = 0x2c
-
-const WHO_AM_I = 0x6c
-/** CTRL3_C after reset: IF_INC=1, so burst reads auto-increment. */
-const CTRL3_C_RESET = 0x04
-/** STATUS_REG: XLDA | GDA always ready — polling never waits on us. */
-const STATUS_READY = 0x03
 
 const G = 9.80665
 /** Zephyr GAIN_UNIT_XL — µg per LSB at ±2 g, then scaled by FS. */
@@ -174,33 +153,7 @@ export const lsm6dsoDecl: SensorDecl = {
   // SA0 low — the common strap, and clear of the ADXL at 0x53 / temps at 0x48/49.
   defaultAddress: 0x6a,
   autoIncrement: true,
-  registers: [
-    { addr: REG_FUNC_CFG_ACCESS, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_FIFO_CTRL1, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_FIFO_CTRL2, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_FIFO_CTRL3, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_FIFO_CTRL4, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_INT1_CTRL, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_INT2_CTRL, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_WHO_AM_I, bytes: 1, access: 'ro', reset: WHO_AM_I },
-    { addr: REG_CTRL1_XL, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL2_G, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL3_C, bytes: 1, access: 'rw', reset: CTRL3_C_RESET },
-    { addr: REG_CTRL4_C, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL5_C, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL6_C, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL7_G, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL8_XL, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL9_XL, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_CTRL10_C, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_STATUS, bytes: 1, access: 'ro', reset: STATUS_READY },
-    { addr: REG_OUTX_G, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_OUTY_G, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_OUTZ_G, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_OUTX_A, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_OUTY_A, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_OUTZ_A, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-  ],
+  registers: registersFromJson(lsm6dsoMap as RegisterMapJson),
   channels: [
     accelAxis('accel_x', 'Accel X', 'accel_x', REG_OUTX_A, 'orientation-x', 0),
     accelAxis('accel_y', 'Accel Y', 'accel_y', REG_OUTY_A, 'orientation-y', 0),

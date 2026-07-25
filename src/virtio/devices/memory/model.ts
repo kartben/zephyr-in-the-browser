@@ -97,11 +97,12 @@ export interface MemoryChipOptions {
 
 /**
  * Whether a chip on the bus is a declared memory part (and so has a card).
- * Checks `poke` rather than `memory`, since the SSD1306 exposes GDDRAM under
- * that name and is a display, not storage.
+ * Sensors also expose `poke` (register-map edits) and the SSD1306 exposes
+ * GDDRAM as `memory`, so the discriminant is the EEPROM-specific surface:
+ * `erase` + `version`.
  */
 export function isMemoryChip(chip: I2cChip): chip is MemoryChip {
-  return 'decl' in chip && 'poke' in chip
+  return 'decl' in chip && 'erase' in chip && 'version' in chip && 'poke' in chip
 }
 
 /** Hex-encode a byte array for localStorage (512 chars for a 256-byte AT24). */

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from 'react'
 import { CheckControl, SelectControl, SliderControl } from '@/components/controls/ControlRow'
+import { RegisterMapButton } from '@/components/RegisterMap'
 import {
   groupDrivesChannel,
   isFollowingGroup,
@@ -22,9 +23,10 @@ import type { SensorChip } from '@/virtio/devices/sensors/model'
  * (src/virtio/devices/sensors/model.ts): one slider line per channel, a chip
  * per config attribute, and — where channels name browser sources — one
  * "follow" toggle per source *group*, because the ADXL's three axes are one
- * physical tilt, not three decisions. Adding a sensor is therefore a
- * declaration, not another panel: this body draws whatever the declaration
- * lists.
+ * physical tilt, not three decisions. A collapsed **Registers** control opens
+ * the fine-grained map (names + bitfields from the JSON/TS register file).
+ * Adding a sensor is therefore a declaration, not another panel: this body
+ * draws whatever the declaration lists.
  */
 
 /** ~20 Hz is plenty for a slider readout; the guest still reads live values. */
@@ -183,6 +185,8 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
           .
         </p>
       )}
+
+      <RegisterMapButton chip={chip} />
     </div>
   )
 }

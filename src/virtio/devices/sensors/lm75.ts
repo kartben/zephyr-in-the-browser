@@ -44,10 +44,52 @@ export const lm75Decl: SensorDecl = {
   defaultAddress: 0x49,
   pointerMask: 0x03,
   registers: [
-    { addr: REG_TEMP, bytes: 2, access: 'ro', reset: 0 },
-    { addr: REG_CONFIG, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_THYST, bytes: 2, access: 'rw', reset: encodeTemperature(75) },
-    { addr: REG_TOS, bytes: 2, access: 'rw', reset: encodeTemperature(80) },
+    {
+      name: 'Temperature',
+      addr: REG_TEMP,
+      bytes: 2,
+      access: 'ro',
+      reset: 0,
+      description: '9-bit two\'s-complement temperature, left-justified by 7.',
+      fields: [
+        { name: 'TEMP', lsb: 7, msb: 15, description: 'Temperature counts (0.5 °C/LSB).' },
+      ],
+    },
+    {
+      name: 'Configuration',
+      addr: REG_CONFIG,
+      bytes: 1,
+      access: 'rw',
+      reset: 0,
+      fields: [
+        {
+          name: 'SD',
+          lsb: 0,
+          msb: 0,
+          description: 'Shutdown.',
+          values: [
+            { name: 'Continuous', value: 0 },
+            { name: 'Shutdown', value: 1 },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'Thyst',
+      addr: REG_THYST,
+      bytes: 2,
+      access: 'rw',
+      reset: encodeTemperature(75),
+      description: 'Hysteresis limit.',
+    },
+    {
+      name: 'Tos',
+      addr: REG_TOS,
+      bytes: 2,
+      access: 'rw',
+      reset: encodeTemperature(80),
+      description: 'Overtemperature shutdown limit.',
+    },
   ],
   channels: [
     {
