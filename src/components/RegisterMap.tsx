@@ -66,7 +66,14 @@ function useRegisterMap(chip: RegisterMapSource) {
   }, [chip])
 }
 
-export function RegisterMapButton({ chip }: { chip: RegisterMapSource }) {
+export function RegisterMapButton({
+  chip,
+  label,
+}: {
+  chip: RegisterMapSource
+  /** Override the default "Registers (N)" affordance text. */
+  label?: string
+}) {
   const [open, setOpen] = useState(false)
   if (!hasRegisterMap(chip)) return null
   const count = chip.registers.length
@@ -78,7 +85,7 @@ export function RegisterMapButton({ chip }: { chip: RegisterMapSource }) {
         onClick={() => setOpen(true)}
         className="pt-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       >
-        Registers ({count})
+        {label ?? `Registers (${count})`}
       </button>
       <RegisterMapDialog chip={chip} open={open} onOpenChange={setOpen} />
     </>

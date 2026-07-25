@@ -360,13 +360,16 @@ Classes worth taking next, ranked inside this cheaper track:
 
 #### 4a. Aux display — ✅ done (JHD1313)
 
-**Implemented** as the Grove RGB LCD on virtio-i2c: LCD command stream at
-`0x3e` (`src/virtio/devices/chips/jhd1313.ts`) plus a PCA9633-style backlight
-register file at `0x62` with JSON map
+**Implemented** as the Grove RGB LCD on virtio-i2c: LCD at `0x3e`
+(`src/virtio/devices/chips/jhd1313.ts`) with JSON register map
+(`chips/maps/jhd1313-lcd.json` — Instruction / Data ports plus decoded
+Entry_Mode, Display_Control, Function_Set, DDRAM_AC) and a PCA9633-style
+backlight register file at `0x62`
 (`chips/maps/jhd1313-backlight.json`). Dock card paints a 16×2 character-cell
-canvas with RGB wash (`AuxdisplayPanel.tsx`); Controller on the LCD, Registers
-on the backlight. Guest side is stock `jhd,jhd1313` via `-S jhd1313-only` /
-`conf/jhd1313.conf`, packaging `samples/drivers/auxdisplay`.
+canvas with RGB wash (`AuxdisplayPanel.tsx`); Controller summarises flags,
+separate Registers affordances open the LCD and backlight maps. Guest side is
+stock `jhd,jhd1313` via `-S jhd1313-only` / `conf/jhd1313.conf`, packaging
+`samples/drivers/auxdisplay`.
 
 Original options, kept for the record —
 

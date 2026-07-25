@@ -66,4 +66,29 @@ describe('JHD1313 LCD command stream', () => {
     expect(lcd.cells[16]).toBe('Z'.charCodeAt(0))
     expect(lcd.getControllerState()).toMatchObject({ cursorColumn: 1, cursorRow: 1 })
   })
+
+  it('exposes an Instruction/Data register map with HD44780 shadows', () => {
+    const lcd = createJhd1313Lcd()
+    expect(hasRegisterMap(lcd)).toBe(true)
+    expect(lcd.registers.map((r) => r.name)).toEqual([
+      'Instruction',
+      'Instruction_Co',
+      'Data',
+      'Entry_Mode',
+      'Display_Control',
+      'Function_Set',
+      'DDRAM_AC',
+    ])
+
+    lcd.write?.(new Uint8Array([0x00, 0x0e])) // display on, cursor on
+    lcd.write?.(new Uint8Array([0x00, 0x38])) // function set 8-bit 2-line
+    lcd.write?.(new Uint8Array([0x40, 'Hi'.charCodeAt(0)]))
+    expect(lcd.peek(0x00)).toBe(0x38)
+    expect(lcd.peek(0x08) & 0x0f).toBe(0x0e) // Display_Control
+    expect(lcd.peek(0x40)).toBe('H'.charCodeAt(0))
+
+    lcd.poke(0x81, 0xc0) // DDRAM_AC → line 1
+    expect(lcd.peek(0x81) & 0x7f).toBe(0x40)
+    expect(lcd.getControllerState()).toMatchObject({ cursorColumn: 0, cursorRow: 1 })
+  })
 })
