@@ -1,9 +1,10 @@
 /**
  * Dock body for any {@link PwmChip}.
  *
- * Paints an annotated ~1.25-period square wave for the selected channel, a
- * duty strip sized from `decl.channelCount`, optional detail metrics, and the
- * shared Registers dialog. Provider-agnostic — do not import PCA9685 here.
+ * Paints an annotated square wave for the selected channel (full period
+ * centered, ~⅓ period of context on each side), a fixed-height channel strip,
+ * optional detail metrics, and the shared Registers dialog.
+ * Provider-agnostic — do not import PCA9685 here.
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
@@ -17,6 +18,11 @@ import {
 } from '@/virtio/devices/pwm/model'
 
 const UI_MS = 50
+
+/** Side context as a fraction of one period (⅓ on each side of the center T). */
+const SIDE = 1 / 3
+const T_MIN = -SIDE
+const T_MAX = 1 + SIDE
 
 function useChip(chip: PwmChip) {
   const [, force] = useReducer((n: number) => n + 1, 0)
@@ -52,6 +58,68 @@ function useChip(chip: PwmChip) {
   }, [chip])
 }
 
+/** Instantaneous output level: 1 = HIGH, 0 = LOW. */
+function levelAt(t: number, duty: number, flat: boolean, fullOn: boolean): number {
+  if (flat) return fullOn ? 1 : 0
+  if (duty <= 0) return 0
+  if (duty >= 1) return 1
+  const phase = ((t % 1) + 1) % 1
+  return phase < duty ? 1 : 0
+}
+
+type WavePt = { t: number; level: number }
+
+/** Continuous square-wave polyline from t0→t1, with vertical edges at transitions. */
+function buildWavePoints(
+  t0: number,
+  t1: number,
+  duty: number,
+  flat: boolean,
+  fullOn: boolean,
+): WavePt[] {
+  const pts: WavePt[] = [{ t: t0, level: levelAt(t0, duty, flat, fullOn) }]
+  if (flat || duty <= 0 || duty >= 1) {
+    pts.push({ t: t1, level: levelAt(t1, duty, flat, fullOn) })
+    return pts
+  }
+
+  const edges: number[] = []
+  const k0 = Math.floor(t0) - 1
+  const k1 = Math.ceil(t1) + 1
+  for (let k = k0; k <= k1; k++) {
+    for (const e of [k, k + duty]) {
+      if (e > t0 && e < t1) edges.push(e)
+    }
+  }
+  edges.sort((a, b) => a - b)
+  let prev = t0
+  for (const e of edges) {
+    if (e - prev < 1e-12) continue
+    const before = levelAt(e - 1e-9, duty, flat, fullOn)
+    const after = levelAt(e + 1e-9, duty, flat, fullOn)
+    pts.push({ t: e, level: before })
+    if (before !== after) pts.push({ t: e, level: after })
+    prev = e
+  }
+  pts.push({ t: t1, level: levelAt(t1, duty, flat, fullOn) })
+  return pts
+}
+
+function strokeWave(
+  ctx: CanvasRenderingContext2D,
+  pts: WavePt[],
+  xAt: (t: number) => number,
+  yAt: (level: number) => number,
+) {
+  if (pts.length === 0) return
+  ctx.beginPath()
+  ctx.moveTo(xAt(pts[0]!.t), yAt(pts[0]!.level))
+  for (let i = 1; i < pts.length; i++) {
+    ctx.lineTo(xAt(pts[i]!.t), yAt(pts[i]!.level))
+  }
+  ctx.stroke()
+}
+
 function WaveformCanvas({ ch }: { ch: PwmChannel }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -76,6 +144,9 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     const plotH = cssH - padT - padB
     const yHigh = padT + 8
     const yLow = padT + plotH - 8
+    const span = T_MAX - T_MIN
+    const xAt = (t: number) => padL + ((t - T_MIN) / span) * plotW
+    const yAt = (level: number) => (level >= 0.5 ? yHigh : yLow)
 
     ctx.clearRect(0, 0, cssW, cssH)
     ctx.fillStyle = '#0c0e12'
@@ -92,57 +163,73 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
       ctx.stroke()
     }
 
-    const periods = 1.25
-    const xAt = (tNorm: number) => padL + (tNorm / periods) * plotW
-
     const flat = ch.fullOn || ch.fullOff || ch.periodNs <= 0
     const duty = flat ? (ch.fullOn ? 1 : 0) : Math.max(0, Math.min(1, ch.duty))
-    const edge = duty // end of high within first period
+    const fullOn = ch.fullOn || (!flat && duty >= 1)
 
-    // Trace
+    const all = buildWavePoints(T_MIN, T_MAX, duty, flat, fullOn)
+    const clipRange = (tA: number, tB: number): WavePt[] => {
+      const pts: WavePt[] = [{ t: tA, level: levelAt(tA, duty, flat, fullOn) }]
+      for (const p of all) {
+        if (p.t > tA && p.t < tB) pts.push(p)
+      }
+      pts.push({ t: tB, level: levelAt(tB, duty, flat, fullOn) })
+      return pts
+    }
+
+    const leftPts = clipRange(T_MIN, 0)
+    const midPts = clipRange(0, 1)
+    const rightPts = clipRange(1, T_MAX)
+
     ctx.strokeStyle = '#3ecf8e'
     ctx.lineWidth = 2
     ctx.lineJoin = 'round'
-    ctx.beginPath()
-    if (ch.fullOff || (flat && duty === 0)) {
-      ctx.moveTo(padL, yLow)
-      ctx.lineTo(padL + plotW, yLow)
-    } else if (ch.fullOn) {
-      ctx.moveTo(padL, yHigh)
-      ctx.lineTo(padL + plotW, yHigh)
-    } else {
-      ctx.moveTo(xAt(0), yLow)
-      ctx.lineTo(xAt(0), yHigh)
-      ctx.lineTo(xAt(edge), yHigh)
-      ctx.lineTo(xAt(edge), yLow)
-      ctx.lineTo(xAt(1), yLow)
-      ctx.lineTo(xAt(1), yHigh)
-      ctx.lineTo(xAt(1 + Math.min(edge, 0.25)), yHigh)
-    }
-    ctx.stroke()
+    ctx.lineCap = 'square'
 
-    // Falling-edge guide
-    if (!flat && edge > 0 && edge < 1) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-      ctx.setLineDash([3, 3])
+    // Side context — dotted
+    ctx.setLineDash([4, 3])
+    strokeWave(ctx, leftPts, xAt, yAt)
+    strokeWave(ctx, rightPts, xAt, yAt)
+
+    // Center period — solid (drawn after so joints stay crisp)
+    ctx.setLineDash([])
+    strokeWave(ctx, midPts, xAt, yAt)
+
+    // Period boundary guides
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+    ctx.setLineDash([3, 3])
+    for (const t of [0, 1]) {
       ctx.beginPath()
-      ctx.moveTo(xAt(edge), padT)
-      ctx.lineTo(xAt(edge), padT + plotH)
+      ctx.moveTo(xAt(t), padT)
+      ctx.lineTo(xAt(t), padT + plotH)
       ctx.stroke()
-      ctx.setLineDash([])
     }
+    // Falling-edge guide inside the center period
+    if (!flat && duty > 0 && duty < 1) {
+      ctx.beginPath()
+      ctx.moveTo(xAt(duty), padT)
+      ctx.lineTo(xAt(duty), padT + plotH)
+      ctx.stroke()
+    }
+    ctx.setLineDash([])
 
     ctx.fillStyle = 'rgba(255,255,255,0.55)'
     ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textAlign = 'left'
-    if (!flat) {
-      ctx.fillText('HIGH', xAt(edge / 2) - 12, yHigh - 6)
-      ctx.fillText('LOW', xAt((edge + 1) / 2) - 10, yLow + 14)
-    } else {
+    ctx.textAlign = 'center'
+    if (!flat && duty > 0.02 && duty < 0.98) {
+      ctx.fillText('HIGH', xAt(duty / 2), yHigh - 6)
+      ctx.fillText('LOW', xAt((duty + 1) / 2), yLow + 14)
+      ctx.fillText(`t_high = ${formatPwmDuration(ch.pulseNs)}`, xAt(duty / 2), padT - 8)
+      ctx.fillText(
+        `t_low = ${formatPwmDuration(ch.periodNs - ch.pulseNs)}`,
+        xAt((duty + 1) / 2),
+        padT - 8,
+      )
+    } else if (flat) {
+      ctx.textAlign = 'left'
       ctx.fillText(ch.fullOn ? 'full-on' : 'full-off', padL + 4, yHigh - 6)
     }
 
-    // Duty / freq chip
     const chipLabel = flat
       ? ch.fullOn
         ? 'full-on'
@@ -152,11 +239,11 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     ctx.fillStyle = 'rgba(62,207,142,0.9)'
     ctx.fillText(chipLabel, cssW - padR, 16)
 
-    // Period bracket
+    // Period bracket under the solid center period
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'
     ctx.fillStyle = 'rgba(255,255,255,0.55)'
     ctx.textAlign = 'center'
-    const yBracket = cssH - 10
+    const yBracket = cssH - 12
     const x0 = xAt(0)
     const xT = xAt(1)
     ctx.beginPath()
@@ -167,24 +254,14 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     ctx.stroke()
     ctx.fillText(`T = ${formatPwmDuration(ch.periodNs)}`, (x0 + xT) / 2, yBracket - 8)
 
-    if (!flat && duty > 0.02 && duty < 0.98) {
-      ctx.textAlign = 'center'
-      ctx.fillText(`t_high = ${formatPwmDuration(ch.pulseNs)}`, xAt(edge / 2), padT - 8)
-      ctx.fillText(
-        `t_low = ${formatPwmDuration(ch.periodNs - ch.pulseNs)}`,
-        xAt((edge + 1) / 2),
-        padT - 8,
-      )
-    }
-
     // X ticks
     ctx.fillStyle = 'rgba(255,255,255,0.4)'
-    ctx.textAlign = 'center'
     for (const [label, t] of [
+      ['−T/3', T_MIN],
       ['0', 0],
       ['T/2', 0.5],
       ['T', 1],
-      ['1.25T', 1.25],
+      ['T+T/3', T_MAX],
     ] as const) {
       ctx.fillText(label, xAt(t), cssH - 2)
     }
@@ -194,10 +271,15 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     <canvas
       ref={canvasRef}
       aria-label={`PWM channel ${ch.index} waveform`}
-      className="h-[168px] w-full rounded border border-border bg-black"
+      className="block h-[168px] w-full shrink-0 rounded border border-border bg-black"
     />
   )
 }
+
+const TRACK_H = 24
+const MIN_FILL = 5
+/** Label row is always this tall so "0" vs "CH0" never resizes the strip. */
+const LABEL_H = 12
 
 function ChannelStrip({
   chip,
@@ -209,14 +291,15 @@ function ChannelStrip({
   onSelect: (n: number) => void
 }) {
   const n = chip.decl.channelCount
-  // Fixed track height so duty changes never resize the dock card.
-  const trackH = 24
-  const minFill = 5
   return (
-    <div className="flex items-end gap-0.5" role="listbox" aria-label="PWM channels">
+    <div
+      className="flex h-[44px] shrink-0 items-stretch gap-0.5"
+      role="listbox"
+      aria-label="PWM channels"
+    >
       {Array.from({ length: n }, (_, i) => {
         const ch = chip.getChannel(i)
-        const fill = Math.round(minFill + ch.duty * (trackH - minFill))
+        const fill = Math.round(MIN_FILL + ch.duty * (TRACK_H - MIN_FILL))
         const active = i === selected
         return (
           <button
@@ -228,13 +311,13 @@ function ChannelStrip({
             onClick={() => onSelect(i)}
             className={
               active
-                ? 'flex flex-1 flex-col items-center gap-0.5 rounded border border-primary/70 bg-primary/10 px-0.5 py-1'
-                : 'flex flex-1 flex-col items-center gap-0.5 rounded border border-transparent px-0.5 py-1 hover:bg-muted/40'
+                ? 'flex min-w-0 flex-1 flex-col items-center justify-end gap-0.5 rounded border border-primary/70 bg-primary/10 px-0.5 py-0.5'
+                : 'flex min-w-0 flex-1 flex-col items-center justify-end gap-0.5 rounded border border-transparent px-0.5 py-0.5 hover:bg-muted/40'
             }
           >
             <span
-              className="flex w-full items-end"
-              style={{ height: trackH }}
+              className="flex w-full shrink-0 items-end"
+              style={{ height: TRACK_H }}
               aria-hidden
             >
               <span
@@ -248,8 +331,11 @@ function ChannelStrip({
                 style={{ height: fill }}
               />
             </span>
-            <span className="font-mono text-[8px] tabular-nums text-muted-foreground">
-              {i === selected ? `CH${i}` : i}
+            <span
+              className="flex w-full shrink-0 items-center justify-center font-mono text-[8px] tabular-nums text-muted-foreground"
+              style={{ height: LABEL_H }}
+            >
+              {i}
             </span>
           </button>
         )
@@ -282,7 +368,7 @@ export function PwmBody({ chip }: { chip: PwmChip }) {
     <div className="space-y-2 px-3 py-3">
       <WaveformCanvas ch={ch} />
       <ChannelStrip chip={chip} selected={sel} onSelect={setSelected} />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+      <div className="flex min-h-[16px] flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span className="font-mono tabular-nums">
           CH{sel} · {countHint}
           {ch.inverted ? ' · inv' : ''}
