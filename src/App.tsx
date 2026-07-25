@@ -1,9 +1,18 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
-import { PeripheralPanels } from '@/components/PeripheralPanels'
+import { DisplayPanel } from '@/components/DisplayPanel'
+import { StagePill } from '@/components/StagePill'
+import { Dock } from '@/components/dock/Dock'
+import { FloatingWindows } from '@/components/dock/FloatingWindows'
 import { DropOverlay } from '@/components/DropOverlay'
 import { DtsPromptDialog } from '@/components/DtsPromptDialog'
+import {
+  STAGE_DISPLAY_KEY,
+  getState as getDockState,
+  seedForSelection,
+  subscribe as subscribeDock,
+} from '@/lib/dockStore'
 import {
   clear as clearGuestImage,
   get as getGuestImage,
@@ -26,6 +35,27 @@ import { emphasisPanels } from '@/dts'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } from '@/boards'
+
+/**
+ * The floating widgets over the stage: the display (with its Panels-menu
+ * visibility flag) bottom-right, the MIPS pill bottom-left. Both keep out of
+ * the terminal's way and below the z-50 overlays.
+ */
+function StageOverlays({ displayExpanded }: { displayExpanded: boolean }) {
+  const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
+  return (
+    <>
+      <div className="pointer-events-none absolute bottom-4 left-4 z-20">
+        <StagePill />
+      </div>
+      {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
+        <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end">
+          <DisplayPanel defaultExpanded={displayExpanded} />
+        </div>
+      )}
+    </>
+  )
+}
 
 /**
  * The selection lives in the query string so it can survive the reload that a
@@ -55,6 +85,29 @@ export default function App() {
   const [nonce, setNonce] = useState(0)
   const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
+
+  /*
+   * What opens expanded: the sample's primaryPanels, a DTS-grounded custom
+   * ELF's emphasis set, or everything for an ELF whose peripherals are
+   * unknowable. These feed the dock's per-selection seed — user expansion
+   * choices override the seed and survive a same-selection reload, and a new
+   * selection reseeds (dockStore's contract).
+   */
+  const primaryPanels =
+    customImage !== null && deviceTree?.insights
+      ? emphasisPanels(deviceTree.insights)
+      : samplePrimaryPanels(getBoard(boardId), sampleId)
+  const expandAllPanels = customImage !== null && !deviceTree?.insights
+  useEffect(() => {
+    seedForSelection(
+      customImage !== null
+        ? `custom:${customImage.name}:${deviceTree?.name ?? ''}`
+        : `${boardId}:${sampleId}`,
+      { primary: [...primaryPanels], expandAll: expandAllPanels },
+    )
+    // primaryPanels is derived from exactly these inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardId, sampleId, customImage, deviceTree])
 
   // Current selection, readable from the mount-once terminal callbacks without
   // making them change identity (which would remount the terminal).
@@ -316,32 +369,40 @@ export default function App() {
         onClearImage={handleClearImage}
       />
 
-      <main className="relative min-h-0 flex-1 bg-terminal p-4">
-        {/* Changing board or backend remounts the session, same as Restart. */}
-        <XTerminal
-          key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
-          onSession={handleSession}
-          onTeardown={handleTeardown}
-        />
+      <main className="flex min-h-0 flex-1 bg-terminal">
         {/*
-          Each entry stays hidden unless the running emulator exposes it *and*
-          the guest devicetree (when one is known) declares it usable, and
-          opens collapsed unless the sample is about it. A custom ELF's
-          peripherals are unknown, so expand whatever it lights up — unless its
-          devicetree was supplied, which both grounds the panel set and picks
-          the ones worth opening. Keyed by sample, image and tree so the
-          non-reload paths (mock, pre-commit) re-derive these defaults too.
+          The stage: terminal underneath, screens floating over it. This
+          wrapper is static and always present, so the dock opening or closing
+          never reparents (and so never remounts) the terminal — only its box
+          changes, which the FitAddon's ResizeObserver absorbs.
         */}
-        <PeripheralPanels
-          key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
-          primaryPanels={
-            customImage !== null && deviceTree?.insights
-              ? emphasisPanels(deviceTree.insights)
-              : samplePrimaryPanels(getBoard(boardId), sampleId)
-          }
-          expandAll={customImage !== null && !deviceTree?.insights}
-          dtsPanels={deviceTree?.insights?.panels ?? null}
-        />
+        <div className="relative min-w-0 flex-1 p-4">
+          {/* Changing board or backend remounts the session, same as Restart. */}
+          <XTerminal
+            key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
+            onSession={handleSession}
+            onTeardown={handleTeardown}
+          />
+          {/*
+            The display is output, not controls — it stays a floating stage
+            panel (its render worker dislikes remounts; the dock is for
+            everything else). Keyed by sample, image and tree so the non-reload
+            paths (mock, pre-commit) re-derive its default expansion too.
+          */}
+          <StageOverlays
+            key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
+            displayExpanded={expandAllPanels || primaryPanels.has('display')}
+          />
+        </div>
+
+        {/*
+          The dock: every control surface, one scrollbar, two projections of
+          the same rows (devicetree ⌗ / peripheral classes ▤). Rows appear as
+          the emulator exposes bridges and as the loaded devicetree vouches for
+          them — the derivation in useDeviceTree owns that gating now.
+        */}
+        <Dock boardId={boardId} />
+        <FloatingWindows boardId={boardId} />
       </main>
 
       {/* Whole-window target, so the drop works wherever the pointer is. */}
