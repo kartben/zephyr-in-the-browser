@@ -120,6 +120,27 @@ function strokeWave(
   ctx.stroke()
 }
 
+/** Stroke the same continuous path inside a time window (solid vs dotted). */
+function strokeWaveClipped(
+  ctx: CanvasRenderingContext2D,
+  pts: WavePt[],
+  xAt: (t: number) => number,
+  yAt: (level: number) => number,
+  tA: number,
+  tB: number,
+  cssH: number,
+) {
+  const x0 = xAt(tA)
+  const x1 = xAt(tB)
+  ctx.save()
+  ctx.beginPath()
+  // Pad a hair so vertical edges exactly on the boundary stay visible.
+  ctx.rect(Math.min(x0, x1) - 1, 0, Math.abs(x1 - x0) + 2, cssH)
+  ctx.clip()
+  strokeWave(ctx, pts, xAt, yAt)
+  ctx.restore()
+}
+
 function WaveformCanvas({ ch }: { ch: PwmChannel }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -167,33 +188,23 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     const duty = flat ? (ch.fullOn ? 1 : 0) : Math.max(0, Math.min(1, ch.duty))
     const fullOn = ch.fullOn || (!flat && duty >= 1)
 
-    const all = buildWavePoints(T_MIN, T_MAX, duty, flat, fullOn)
-    const clipRange = (tA: number, tB: number): WavePt[] => {
-      const pts: WavePt[] = [{ t: tA, level: levelAt(tA, duty, flat, fullOn) }]
-      for (const p of all) {
-        if (p.t > tA && p.t < tB) pts.push(p)
-      }
-      pts.push({ t: tB, level: levelAt(tB, duty, flat, fullOn) })
-      return pts
-    }
-
-    const leftPts = clipRange(T_MIN, 0)
-    const midPts = clipRange(0, 1)
-    const rightPts = clipRange(1, T_MAX)
+    // One continuous square-wave polyline. Clip when stroking so the sides are
+    // dotted and the center period is solid — splitting the path at 0/T was
+    // dropping the vertical edges (and drawing diagonals).
+    const pts = buildWavePoints(T_MIN, T_MAX, duty, flat, fullOn)
 
     ctx.strokeStyle = '#3ecf8e'
     ctx.lineWidth = 2
-    ctx.lineJoin = 'round'
-    ctx.lineCap = 'square'
+    ctx.lineJoin = 'miter'
+    ctx.miterLimit = 2
+    ctx.lineCap = 'butt'
 
-    // Side context — dotted
     ctx.setLineDash([4, 3])
-    strokeWave(ctx, leftPts, xAt, yAt)
-    strokeWave(ctx, rightPts, xAt, yAt)
+    strokeWaveClipped(ctx, pts, xAt, yAt, T_MIN, 0, cssH)
+    strokeWaveClipped(ctx, pts, xAt, yAt, 1, T_MAX, cssH)
 
-    // Center period — solid (drawn after so joints stay crisp)
     ctx.setLineDash([])
-    strokeWave(ctx, midPts, xAt, yAt)
+    strokeWaveClipped(ctx, pts, xAt, yAt, 0, 1, cssH)
 
     // Period boundary guides
     ctx.strokeStyle = 'rgba(255,255,255,0.22)'
