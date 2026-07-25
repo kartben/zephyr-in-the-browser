@@ -171,11 +171,14 @@ export function DockGroupRow({
   count,
   collapsed,
   onToggle,
+  badge,
 }: {
   label: string
   count: number
   collapsed: boolean
   onToggle: () => void
+  /** Live summary shown while collapsed, so folding a group isn't going blind. */
+  badge?: React.ReactNode
 }) {
   return (
     <button
@@ -195,6 +198,7 @@ export function DockGroupRow({
         {label}
       </span>
       <span className="font-mono text-[10px] tabular-nums text-muted-foreground/70">{count}</span>
+      {badge && <span className="ml-auto flex min-w-0 items-center pl-2">{badge}</span>}
     </button>
   )
 }

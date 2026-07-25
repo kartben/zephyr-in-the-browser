@@ -30,8 +30,11 @@ import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { SensorBody } from '@/components/SensorCard'
 import { cn } from '@/lib/utils'
-import type { DeviceNode } from '@/deviceTopology'
+import type { DeviceClass, DeviceNode } from '@/deviceTopology'
+import * as hostAudio from '@/hostAudio'
 import * as hostGnss from '@/hostGnss'
+import * as hostGpio from '@/hostGpio'
+import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
 import { i2cModel } from '@/virtio'
@@ -142,9 +145,44 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <GnssBadge />
     case 'net':
       return <NetBadge />
+    case 'gpio':
+      return <GpioBadge />
+    case 'speaker':
+      return <SpeakerBadge />
+    case 'mic':
+      return <MicBadge />
     default:
       return null
   }
+}
+
+/**
+ * A collapsed ▤ group keeps a pulse: the summary badge its header wears.
+ * Same live sub-badges as the rows, chosen per class.
+ */
+export function GroupBadge({
+  deviceClass,
+  nodes,
+}: {
+  deviceClass: DeviceClass
+  nodes: DeviceNode[]
+}) {
+  if (deviceClass === 'sensor') {
+    const chips = nodes.filter((n) => n.presence === 'interactive' && n.body === 'sensor')
+    if (chips.length === 0) return null
+    return (
+      <span className="flex items-center gap-2">
+        {chips.slice(0, 2).map((n) => (
+          <SensorBadge key={n.key} chip={n.chip as SensorChip} />
+        ))}
+      </span>
+    )
+  }
+  if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
+  if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioBadge />
+  if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
+  if (deviceClass === 'gnss' && nodes.some((n) => n.body === 'gnss')) return <GnssBadge />
+  return null
 }
 
 function Mono({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -212,4 +250,44 @@ function NetBadge() {
       {snapshot.guestIp && <Mono>{snapshot.guestIp}</Mono>}
     </span>
   )
+}
+
+function GpioBadge() {
+  const leds = useSyncExternalStore(hostGpio.subscribe, hostGpio.getLeds, useCallback(() => [], []))
+  // A change token so output edges re-render the dots.
+  useSyncExternalStore(
+    hostGpio.subscribe,
+    useCallback(
+      () => hostGpio.getLeds().map((pin) => (hostGpio.isOutputHigh(pin.id) ? '1' : '0')).join(''),
+      [],
+    ),
+    () => '',
+  )
+  if (leds.length === 0) return null
+  return (
+    <span className="flex items-center gap-1" aria-label="LED states">
+      {leds.slice(0, 4).map((pin) => (
+        <span
+          key={pin.id}
+          title={pin.label}
+          className={cn(
+            'size-[7px] rounded-full',
+            hostGpio.isOutputHigh(pin.id)
+              ? 'bg-primary shadow-[0_0_5px_var(--color-primary)]'
+              : 'bg-border',
+          )}
+        />
+      ))}
+    </span>
+  )
+}
+
+function SpeakerBadge() {
+  const audio = useSyncExternalStore(hostAudio.subscribe, hostAudio.getSnapshot, hostAudio.getSnapshot)
+  return <Mono>{audio.enabled ? 'on' : 'muted'}</Mono>
+}
+
+function MicBadge() {
+  const mic = useSyncExternalStore(hostMic.subscribe, hostMic.getSnapshot, hostMic.getSnapshot)
+  return <Mono>{mic.enabled ? 'on' : 'off'}</Mono>
 }
