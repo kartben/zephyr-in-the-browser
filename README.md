@@ -15,6 +15,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, ADXL345 and LSM6DSO motion, LPS22HH pressure, INA219 power, ISL29035 light — each a row of sliders and config bits, read through stock Zephyr drivers. Motion sensors can follow your device's real tilt; the LSM6DSO sample shows `sensor_attr_set` configuring the sampling rate |
 | **RTC** | A PCF8523 real-time clock: live date/time, sync from the browser, and alarm armed/fired state — through Zephyr's stock RTC driver and shell (`rtc get` / `rtc set_alarm`) |
 | **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight — Zephyr's stock auxdisplay driver writes "Hello World"; the backlight is a JSON register map at 0x62 |
+| **LED matrix** | A Holtek HT16K33 16×8 LED driver at 0x70 — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix; the dock paints display RAM with a JSON register map |
 | **GPIO** | Clickable buttons and live LED indicators, wired per the devicetree's `gpio-keys`/`gpio-leds` |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |

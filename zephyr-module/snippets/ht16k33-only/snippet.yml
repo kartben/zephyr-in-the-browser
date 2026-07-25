@@ -1,0 +1,16 @@
+name: ht16k33-only
+description: >
+  HT16K33 LED matrix alone on the browser I²C bus: enable the Holtek part at
+  0x70 and disable the default temperature / accel / EEPROM / OLED / LCD parts
+  so the dock stays focused on samples/drivers/ht16k33.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

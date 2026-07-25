@@ -33,6 +33,10 @@
 	status = "disabled";
 };
 
+&ht16k33_0 {
+	status = "disabled";
+};
+
 / {
 	aliases {
 		rtc = &pcf8523_0;

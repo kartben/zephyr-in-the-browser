@@ -1,0 +1,225 @@
+{
+  "name": "HT16K33",
+  "description": "Holtek HT16K33 LED matrix driver (I²C). Display RAM is 16 row bytes at 0x00–0x0F; System_Setup / Display_Setup / Row_Int / Dimming are command registers (high nibble selects the class). Matches Zephyr drivers/led/ht16k33.c.",
+  "registers": [
+    {
+      "name": "DISP_ROW0",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 0 — bits 0–7 are columns (LEDs 0–7).",
+      "fields": [{ "name": "COLS", "lsb": 0, "msb": 7, "description": "Column bits; 1 = LED on." }]
+    },
+    {
+      "name": "DISP_ROW1",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 1 (LEDs 8–15)."
+    },
+    {
+      "name": "DISP_ROW2",
+      "addr": "0x02",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 2 (LEDs 16–23)."
+    },
+    {
+      "name": "DISP_ROW3",
+      "addr": "0x03",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 3 (LEDs 24–31)."
+    },
+    {
+      "name": "DISP_ROW4",
+      "addr": "0x04",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 4 (LEDs 32–39)."
+    },
+    {
+      "name": "DISP_ROW5",
+      "addr": "0x05",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 5 (LEDs 40–47)."
+    },
+    {
+      "name": "DISP_ROW6",
+      "addr": "0x06",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 6 (LEDs 48–55)."
+    },
+    {
+      "name": "DISP_ROW7",
+      "addr": "0x07",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 7 (LEDs 56–63)."
+    },
+    {
+      "name": "DISP_ROW8",
+      "addr": "0x08",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 8 (LEDs 64–71)."
+    },
+    {
+      "name": "DISP_ROW9",
+      "addr": "0x09",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 9 (LEDs 72–79)."
+    },
+    {
+      "name": "DISP_ROW10",
+      "addr": "0x0A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 10 (LEDs 80–87)."
+    },
+    {
+      "name": "DISP_ROW11",
+      "addr": "0x0B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 11 (LEDs 88–95)."
+    },
+    {
+      "name": "DISP_ROW12",
+      "addr": "0x0C",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 12 (LEDs 96–103)."
+    },
+    {
+      "name": "DISP_ROW13",
+      "addr": "0x0D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 13 (LEDs 104–111)."
+    },
+    {
+      "name": "DISP_ROW14",
+      "addr": "0x0E",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 14 (LEDs 112–119)."
+    },
+    {
+      "name": "DISP_ROW15",
+      "addr": "0x0F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Display RAM row 15 (LEDs 120–127)."
+    },
+    {
+      "name": "System_Setup",
+      "addr": "0x20",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 32,
+      "description": "System setup command (0x20|S). S=1 turns the internal oscillator on.",
+      "fields": [
+        {
+          "name": "S",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Oscillator enable.",
+          "values": [
+            { "name": "Standby", "value": 0 },
+            { "name": "Run", "value": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Display_Setup",
+      "addr": "0x80",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 128,
+      "description": "Display on/off and blink (0x80|B1|B0|D). Zephyr led_blink programs the blink bits for the whole matrix.",
+      "fields": [
+        {
+          "name": "D",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Display on.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        },
+        {
+          "name": "BLINK",
+          "lsb": 1,
+          "msb": 2,
+          "description": "Blink frequency.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "2 Hz", "value": 1 },
+            { "name": "1 Hz", "value": 2 },
+            { "name": "0.5 Hz", "value": 3 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Row_Int",
+      "addr": "0xA0",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 160,
+      "description": "ROW/INT pin configuration (0xA0|…). Default row-driver output; keyscan IRQ mode unused in v1.",
+      "fields": [
+        {
+          "name": "ROW_INT",
+          "lsb": 0,
+          "msb": 0,
+          "description": "0 = ROW output, 1 = INT output."
+        },
+        {
+          "name": "ACT",
+          "lsb": 1,
+          "msb": 1,
+          "description": "INT active level when ROW_INT=1."
+        }
+      ]
+    },
+    {
+      "name": "Dimming",
+      "addr": "0xE0",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 239,
+      "description": "Digital dimming (0xE0|P3–P0). Level 0 = 1/16 duty, 15 = 16/16. Zephyr led_set_brightness maps 0–100% onto these 16 steps.",
+      "fields": [
+        {
+          "name": "LEVEL",
+          "lsb": 0,
+          "msb": 3,
+          "description": "Brightness step 0–15."
+        }
+      ]
+    }
+  ]
+}

@@ -97,6 +97,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
   'atmel,at24': 'at24',
   'solomon,ssd1306': 'ssd1306',
   'jhd,jhd1313': 'jhd1313',
+  'holtek,ht16k33': 'ht16k33',
   'nxp,pcf8523': 'pcf8523',
 }
 
@@ -282,6 +283,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313')) panels.add('auxdisplay')
+  if (hasOkayCompat(doc, 'holtek,ht16k33')) panels.add('led')
   // 'perf' is a machine property (-icount), invisible to the guest tree.
 
   const aliasTable: Record<string, string> = {}

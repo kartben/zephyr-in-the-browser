@@ -19,6 +19,7 @@ import {
   Network,
   Pointer,
   SquareChevronRight,
+  Grid3x3,
   Volume2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -27,6 +28,7 @@ import { AuxdisplayBody } from '@/components/AuxdisplayPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
+import { LedMatrixBody } from '@/components/LedPanel'
 import { MemoryBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
@@ -41,6 +43,7 @@ import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
 import { i2cModel } from '@/virtio'
+import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import type { RtcChip } from '@/virtio/devices/rtc/model'
@@ -70,6 +73,8 @@ export function DeviceBody({
       return <OledBody />
     case 'auxdisplay':
       return <AuxdisplayBody chip={node.chip as Jhd1313LcdChip} />
+    case 'led':
+      return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
     case 'rtc':
       return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
@@ -99,6 +104,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return MonitorDot
     case 'auxdisplay':
       return Monitor
+    case 'led':
+      return Grid3x3
     case 'rtc':
       return Clock
     case 'i2c':
@@ -117,6 +124,10 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
   switch (node.deviceClass) {
     case 'display':
       return Monitor
+    case 'auxdisplay':
+      return Monitor
+    case 'led':
+      return Grid3x3
     case 'i2c-bus':
       return Cable
     case 'serial':
@@ -159,6 +170,14 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return (
         <Mono>
           {chip.columns}×{chip.rows}
+        </Mono>
+      )
+    }
+    case 'led': {
+      const chip = node.chip as Ht16k33Chip
+      return (
+        <Mono>
+          {chip.cols}×{chip.rows}
         </Mono>
       )
     }
@@ -214,6 +233,18 @@ export function GroupBadge({
       return (
         <Mono>
           {chip.columns}×{chip.rows}
+        </Mono>
+      )
+    }
+  }
+  if (deviceClass === 'led') {
+    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'led')?.chip as
+      | Ht16k33Chip
+      | undefined
+    if (chip) {
+      return (
+        <Mono>
+          {chip.cols}×{chip.rows}
         </Mono>
       )
     }
