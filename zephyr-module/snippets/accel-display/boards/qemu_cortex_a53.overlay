@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Accelerometer-chart ramfb: 480×320 (was 600×400 on the shield). Must match
+ * any virtio-gpu scanout if that snippet is ever combined with this one.
+ */
+
+&ramfb0 {
+	width = <480>;
+	height = <320>;
+};
+
+&virtio_gpu0 {
+	width = <480>;
+	height = <320>;
+};

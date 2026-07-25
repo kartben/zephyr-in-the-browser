@@ -85,11 +85,13 @@ function sampleGuestFrame() {
   const frame = getFrame()
   if (!frame || frame.byteLength < 4) return
   if (snap.pointer % 4 !== 0 || frame.byteLength % 4 !== 0) return
-  // Sparse FNV over every 16th pixel — enough to catch chart updates, cheap
-  // enough not to steal the main thread from qemu-wasm while we measure it.
+  /**
+ * Sparse FNV over every 4th pixel — thin chart strokes are easy to miss at
+ * coarser strides, which made a live-but-flat trace report guestFps=0.
+ */
   const words = new Uint32Array(frame.buffer, frame.byteOffset, frame.byteLength / 4)
   let hash = 0x811c9dc5
-  for (let i = 0; i < words.length; i += 16) hash = Math.imul(hash ^ words[i], 0x01000193)
+  for (let i = 0; i < words.length; i += 4) hash = Math.imul(hash ^ words[i], 0x01000193)
   if (hasDigest && hash === lastDigest) return
   lastDigest = hash
   hasDigest = true
