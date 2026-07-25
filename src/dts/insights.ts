@@ -362,8 +362,14 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313')) panels.add('auxdisplay')
-  // HT16K33 matrix and pwm-leds both earn the LED panel slot — different bodies.
-  if (hasOkayCompat(doc, 'holtek,ht16k33') || pwmLeds.length > 0) panels.add('led')
+  // HT16K33 matrix, pwm-leds, and bridged gpio-leds all earn the LED panel slot.
+  if (
+    hasOkayCompat(doc, 'holtek,ht16k33') ||
+    pwmLeds.length > 0 ||
+    gpioControllers.some((c) => c.bridged && c.leds.length > 0)
+  ) {
+    panels.add('led')
+  }
   if (hasOkayCompat(doc, 'nxp,pca9685-pwm')) panels.add('pwm')
   if (hasOkayCompat(doc, 'microchip,mcp4725')) panels.add('dac')
   // 'perf' is a machine property (-icount), invisible to the guest tree.

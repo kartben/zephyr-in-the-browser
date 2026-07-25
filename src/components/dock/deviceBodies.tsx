@@ -31,7 +31,7 @@ import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
 import { GnssBody } from '@/components/GnssPanel'
-import { GpioBody } from '@/components/GpioPanel'
+import { GpioBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
 import { LedMatrixBody } from '@/components/LedPanel'
 import { MemoryBody } from '@/components/MemoryCard'
@@ -108,6 +108,8 @@ export function DeviceBody({
       return <I2cBody busLabel={node.busLabel} />
     case 'gpio':
       return <GpioBody />
+    case 'gpio-leds':
+      return <GpioLedsBody />
     case 'buzzer':
       return <BuzzerBody />
     case 'gnss':
@@ -136,6 +138,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
     case 'led':
       return Grid3x3
     case 'pwm-leds':
+      return Lightbulb
+    case 'gpio-leds':
       return Lightbulb
     case 'pwm':
       return Activity
@@ -231,6 +235,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
           leds={node.pwmLeds ?? []}
         />
       )
+    case 'gpio-leds':
+      return <GpioLedsBadge />
     case 'pwm': {
       const chip = node.chip as PwmChip
       const ch = chip.getChannel(0)
@@ -321,6 +327,9 @@ export function GroupBadge({
           leds={strip.pwmLeds ?? []}
         />
       )
+    }
+    if (nodes.some((n) => n.presence === 'interactive' && n.body === 'gpio-leds')) {
+      return <GpioLedsBadge />
     }
   }
   if (deviceClass === 'pwm') {
@@ -459,6 +468,21 @@ function NetBadge() {
 }
 
 function GpioBadge() {
+  const buttons = useSyncExternalStore(
+    hostGpio.subscribe,
+    hostGpio.getButtons,
+    useCallback(() => [], []),
+  )
+  if (buttons.length === 0) return null
+  return (
+    <Mono>
+      {buttons.length} {buttons.length === 1 ? 'btn' : 'btns'}
+    </Mono>
+  )
+}
+
+/** Collapsed LED dots for the gpio-leds row (moved out of the GPIO badge). */
+function GpioLedsBadge() {
   const leds = useSyncExternalStore(hostGpio.subscribe, hostGpio.getLeds, useCallback(() => [], []))
   // A change token so output edges re-render the dots.
   useSyncExternalStore(

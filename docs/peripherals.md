@@ -150,11 +150,14 @@ that the peripheral surfaces read:
 
 - which I2C addresses have a bound driver (the "driver"/"bus only" tags, from
   the bridged `virtio,i2c` node's enabled children),
-- the GPIO panel's pins and labels (from `gpio-keys`/`gpio-leds` wiring) and
+- the GPIO panel's buttons (from `gpio-keys`) and the LED-class `gpio-leds` row, and
   the controller name its shell hints quote,
 - a Buzzer dock row when the tree has an okay `gpio-buzzer` on the bridged
   controller (pin level observed the same way LEDs are; shake + Vibration API /
   Web Audio on the page — not through I2S),
+- a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged
+  controller (LED-class sibling of the GPIO button card — same split as
+  gpio-buzzer),
 - a PWM LEDs dock row when the tree has okay `pwm-leds` children whose
   controller is an attached `PwmChip` (brightness from channel duty; see
   [pwm-leds.md](pwm-leds.md)),

@@ -95,6 +95,13 @@ describe('computeInsights', () => {
     expect(insights.panels.has('gpio')).toBe(true)
   })
 
+  it('marks led panel when bridged gpio-leds are present', () => {
+    const insights = insightsOf(a53Blinky)
+    expect(insights.gpioControllers[0]?.leds.length).toBeGreaterThan(0)
+    expect(insights.panels.has('led')).toBe(true)
+    expect(insights.panels.has('gpio')).toBe(true)
+  })
+
   it('discovers pwm-leds children on a PCA9685 controller', () => {
     const insights = insightsOf(`
       /dts-v1/;

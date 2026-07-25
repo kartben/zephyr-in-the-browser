@@ -187,7 +187,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Blinky',
     description: 'Blinks LED0 on the host GPIO bridge',
     zephyrSample: 'samples/basic/blinky',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['led', 'gpio'],
   },
   {
     // gpio-buzzer on host_gpio pin 5; LED0 stays on pin 4. Frequency args are
@@ -196,7 +196,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
-    primaryPanels: ['buzzer', 'gpio'],
+    primaryPanels: ['buzzer', 'gpio', 'led'],
   },
   {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
@@ -205,7 +205,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Button',
     description: 'A host GPIO button lights an LED via the input subsystem',
     zephyrSample: 'samples/basic/button',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['gpio', 'led'],
   },
 ]
 
@@ -353,7 +353,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Blinky',
     description: 'Blinks LED0 over a VIRTIO GPIO device',
     zephyrSample: 'samples/basic/blinky',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['led', 'gpio'],
   },
   {
     // gpio-buzzer on virtio_gpio0 pin 5 (LED0 stays on 4). Same dock body as
@@ -362,7 +362,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer over VIRTIO GPIO; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
-    primaryPanels: ['buzzer', 'gpio'],
+    primaryPanels: ['buzzer', 'gpio', 'led'],
   },
   {
     // Interrupt-driven, unlike the Cortex-M3 build: this device offers
@@ -372,7 +372,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Button',
     description: 'A browser button lights an LED, over an interrupt-driven VIRTIO GPIO',
     zephyrSample: 'samples/basic/button',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['gpio', 'led'],
   },
   {
     id: 'shell',

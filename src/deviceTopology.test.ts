@@ -3,6 +3,7 @@ import { computeInsights, parseDts } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
 import { createPca9685 } from '@/virtio/devices/chips/pca9685'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
+import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
 import type { Availability, DeviceInventory, Row } from './deviceTopology'
 import { buildRowList, deriveDeviceInventory } from './deviceTopology'
@@ -228,6 +229,23 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(buzzer.crumb).toBe('pin 5')
     expect(buzzer.label).toBe('Browser buzzer')
     expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
+  })
+
+  it('emits a gpio-leds dock row in the LED class', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(a53Blinky),
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const leds = nodeByKey(inv, 'gpio-leds')
+    expect(leds.presence).toBe('interactive')
+    expect(leds.body).toBe('gpio-leds')
+    expect(leds.deviceClass).toBe('led')
+    expect(leds.compatible).toBe('gpio-leds')
+    expect(leds.panelKind).toBe('led')
+    expect(leds.label).toBe('GPIO LEDs')
+    expect(nodeByKey(inv, 'gpio').body).toBe('gpio')
   })
 
   it('emits a pwm-leds dock row alongside the PCA9685 PWM chip', () => {

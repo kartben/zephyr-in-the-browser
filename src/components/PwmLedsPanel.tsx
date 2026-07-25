@@ -1,7 +1,7 @@
 /**
  * Dock body for a `pwm-leds` group.
  *
- * Same cell chrome as {@link GpioBody}'s LED pins (dot + label in a bordered
+ * Same cell chrome as {@link GpioLedsBody} (dot + label in a bordered
  * secondary tile). Brightness is channel duty from the attached {@link PwmChip}
  * — opacity on the same primary fill/glow the GPIO LEDs use when high.
  * Labels come from the running build's flattened tree.

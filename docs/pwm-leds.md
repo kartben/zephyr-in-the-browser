@@ -9,12 +9,17 @@ This note is the spec for the page-side half: discover `pwm-leds` from the
 running build’s flattened tree, and show **both** an LED strip and the
 existing PWM panel for that sample.
 
+**Same rule for `gpio-leds`:** they leave the GPIO button card and get their
+own LED-class dock row (`GpioLedsBody`, `panelKind: 'led'`), so Blinky expands
+the LEDs group the same way PWM LED expands pwm-leds. The ▤ class label is
+**LEDs** (HT16K33, gpio-leds, pwm-leds).
+
 ## Goal
 
 When the running tree has an okay `compatible = "pwm-leds"` node whose
 children point at a PWM controller the page models:
 
-1. A dock row under the **LED controllers** class paints those LEDs with
+1. A dock row under the **LEDs** class paints those LEDs with
    brightness taken from the provider’s channel duty.
 2. The PWM controller row (`PwmBody`) stays as it is — duty chart, channel
    strip, Registers.
@@ -80,7 +85,7 @@ The PCA9685 chip row is unchanged (`deviceClass: 'pwm'`, `body: 'pwm'`,
 
 ## UI
 
-`PwmLedsBody` reuses **GpioBody’s LED cell chrome** (bordered secondary tile,
+`PwmLedsBody` reuses **GpioLedsBody’s LED cell chrome** (bordered secondary tile,
 `size-3` primary dot with the same glow when lit, DT `label` underneath). Duty
 only scales the dot’s opacity; no extra metrics row. Footer matches the HT16K33 /
 PWM cards: one factual line about `pwm-leds`, not invented shell commands

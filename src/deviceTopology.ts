@@ -59,6 +59,7 @@ export type BodyKind =
   | 'auxdisplay'
   | 'led'
   | 'pwm-leds'
+  | 'gpio-leds'
   | 'pwm'
   | 'dac'
   | 'rtc'
@@ -141,7 +142,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   sensor: 'Sensors',
   display: 'Displays',
   auxdisplay: 'Aux displays',
-  led: 'LED controllers',
+  led: 'LEDs',
   pwm: 'PWM',
   dac: 'DAC',
   memory: 'Memory',
@@ -523,6 +524,27 @@ function deriveFromTree(
     })
   }
 
+  // gpio-leds groups: LED-class row, like pwm-leds / gpio-buzzer — not folded
+  // into the GPIO button grid.
+  const bridgedLeds = insights.gpioControllers.find(
+    (ctl) => ctl.bridged && ctl.leds.length > 0,
+  )
+  if (bridgedLeds && avail.gpio) {
+    const ledsNode = nodesByCompatible(doc, 'gpio-leds').find(isEffectivelyOkay)
+    push({
+      key: uniqueKey(ids, 'gpio-leds'),
+      nodeName: ledsNode?.name ?? 'leds',
+      label: 'GPIO LEDs',
+      compatible: 'gpio-leds',
+      deviceClass: 'led',
+      path: ledsNode ? pathOf(ledsNode) : '/leds',
+      presence: 'interactive',
+      body: 'gpio-leds',
+      crumb: bridgedLeds.controllerLabel,
+      panelKind: 'led',
+    })
+  }
+
   // gpio-buzzer leaves: one dock body for every buzzers on the bridged controller.
   // Not folded into the GPIO grid — shake / vibrate deserves its own row.
   const bridgedBuzz = insights.gpioControllers.find(
@@ -832,6 +854,20 @@ function deriveFallback(
       body: 'gpio',
       crumb: names.gpio.label,
       panelKind: 'gpio',
+    })
+    // Fallback fan-out always includes LEDs (hostGpio FALLBACK_LEDS) — same
+    // LED-class split as the devicetree path.
+    nodes.push({
+      key: uniqueKey(ids, 'gpio-leds'),
+      nodeName: 'leds',
+      label: 'GPIO LEDs',
+      compatible: 'gpio-leds',
+      deviceClass: 'led',
+      path: '/leds',
+      presence: 'interactive',
+      body: 'gpio-leds',
+      crumb: names.gpio.label,
+      panelKind: 'led',
     })
   }
 
