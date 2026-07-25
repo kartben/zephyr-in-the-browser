@@ -10,10 +10,12 @@ import { LayoutGrid, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import * as guestStats from '@/guestStats'
+import * as hostTrace from '@/hostTrace'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
 import {
   STAGE_DISPLAY_KEY,
   STAGE_PERF_KEY,
+  STAGE_TRACE_KEY,
   getState,
   resetLayout,
   setHidden,
@@ -47,6 +49,7 @@ export function PanelsMenu({ boardId }: { boardId: string }) {
 
   const devices = inventory.nodes.filter((node) => node.presence === 'interactive')
   const hasDisplay = inventory.nodes.some((node) => node.key === 'display')
+  const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
 
   return (
     <span ref={rootRef} className="relative">
@@ -85,7 +88,7 @@ export function PanelsMenu({ boardId }: { boardId: string }) {
             </>
           )}
 
-          {(hasDisplay || stats.available) && (
+          {(hasDisplay || stats.available || trace.available || state.seed.primary.includes('trace')) && (
             <>
               <MenuHeading>Stage</MenuHeading>
               {hasDisplay && (
@@ -104,10 +107,18 @@ export function PanelsMenu({ boardId }: { boardId: string }) {
                   onChange={(shown) => setHidden(STAGE_PERF_KEY, !shown)}
                 />
               )}
+              {(trace.available || state.seed.primary.includes('trace')) && (
+                <PanelToggle
+                  label="Trace"
+                  detail="CTF schedule Gantt"
+                  checked={state.devices[STAGE_TRACE_KEY]?.hidden !== true}
+                  onChange={(shown) => setHidden(STAGE_TRACE_KEY, !shown)}
+                />
+              )}
             </>
           )}
 
-          {devices.length === 0 && !hasDisplay && !stats.available && (
+          {devices.length === 0 && !hasDisplay && !stats.available && !trace.available && (
             <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
               Nothing to manage yet — panels appear as the guest exposes devices.
             </p>

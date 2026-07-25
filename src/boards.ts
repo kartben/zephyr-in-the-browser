@@ -11,7 +11,17 @@
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
-export type PanelKind = 'display' | 'gnss' | 'sensor' | 'gpio' | 'audio' | 'perf' | 'net' | 'i2c' | 'oled'
+export type PanelKind =
+  | 'display'
+  | 'gnss'
+  | 'sensor'
+  | 'gpio'
+  | 'audio'
+  | 'perf'
+  | 'net'
+  | 'i2c'
+  | 'oled'
+  | 'trace'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
@@ -70,6 +80,11 @@ export interface Board {
      * is an A53-only affair. See docs/virtio-bridge.md.
      */
     virtio?: boolean
+    /**
+     * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
+     * Needs `-semihosting` on the argv; the Trace stage panel follows it.
+     */
+    hostTrace?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
@@ -251,6 +266,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/philosophers',
   },
   {
+    // Stock CTF + semihosting sample: writes tracing.bin into the emulator FS;
+    // the Trace stage panel follows it live (docs/tracing-feasibility.md).
+    id: 'tracing',
+    label: 'Tracing',
+    description: 'Live CTF schedule view — thread lanes like Zephyr’s trace_viewer',
+    zephyrSample: 'samples/subsys/tracing/basic',
+    primaryPanels: ['trace'],
+  },
+  {
     // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
@@ -392,6 +416,10 @@ export const BOARDS: Board[] = [
       'shift=4,align=off,sleep=on',
       '-rtc',
       'clock=vm',
+      // ARM semihosting: Zephyr's CTF tracing backend appends to ./tracing.bin
+      // in the Emscripten FS; hostTrace.ts polls it for the Trace panel. Harmless
+      // when the guest never opens a semihost file.
+      '-semihosting',
       // Zephyr's virtio-mmio driver only speaks modern (v2) transports.
       '-global',
       'virtio-mmio.force-legacy=false',
@@ -452,6 +480,8 @@ export const BOARDS: Board[] = [
       perfStats: true,
       hostNet: true,
       virtio: true,
+      // Semihosting CTF follow — pairs with -semihosting above.
+      hostTrace: true,
     },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',

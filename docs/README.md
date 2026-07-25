@@ -23,6 +23,8 @@ real time to chase, and the misleading part is worth recognising again:
   convincingly like a wasm-JIT miscompilation.
 - [audio-feasibility.md](audio-feasibility.md) — why audio did not go over
   virtio-sound.
+- [tracing-feasibility.md](tracing-feasibility.md) — live CTF Gantt via
+  Zephyr semihosting + an in-page port of `trace_viewer.py`.
 
 ## The page
 
