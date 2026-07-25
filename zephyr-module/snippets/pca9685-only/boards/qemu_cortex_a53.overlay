@@ -1,0 +1,64 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/led/pwm: PCA9685 + pwm-leds. Stock sample binds
+ * DT_COMPAT_GET_ANY_STATUS_OKAY(pwm_leds).
+ */
+
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+&pca9685_0 {
+	status = "okay";
+};
+
+&tmp112_0 {
+	status = "disabled";
+};
+
+&lm75_0 {
+	status = "disabled";
+};
+
+&adxl345_0 {
+	status = "disabled";
+};
+
+&ssd1306_0 {
+	status = "disabled";
+};
+
+&eeprom0 {
+	status = "disabled";
+};
+
+&auxdisplay_0 {
+	status = "disabled";
+};
+
+&ht16k33_0 {
+	status = "disabled";
+};
+
+/ {
+	pwmleds {
+		compatible = "pwm-leds";
+
+		s_led0: s-led-0 {
+			pwms = <&pca9685_0 0 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+			label = "PWM LED 0";
+		};
+		s_led1: s-led-1 {
+			pwms = <&pca9685_0 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+			label = "PWM LED 1";
+		};
+		s_led2: s-led-2 {
+			pwms = <&pca9685_0 2 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+			label = "PWM LED 2";
+		};
+		s_led3: s-led-3 {
+			pwms = <&pca9685_0 3 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+			label = "PWM LED 3";
+		};
+	};
+};

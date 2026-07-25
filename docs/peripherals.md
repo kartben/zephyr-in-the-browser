@@ -46,11 +46,12 @@ an AT24 EEPROM and an SSD1306 OLED by default, under
 [`src/virtio/devices/`](../src/virtio/devices). Optional extras — an LSM6DSO
 IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035 light
 sensor, a PCF8523 RTC, a JHD1313 character LCD (Grove RGB, with its
-PCA9633-style backlight at `0x62`), and an HT16K33 LED matrix at `0x70` —
+PCA9633-style backlight at `0x62`), an HT16K33 LED matrix at `0x70`, and a
+PCA9685 PWM controller at `0x60` —
 stay `status = "disabled"` in the
 virtio-i2c overlay so everyday builds (accel chart, OLED display, …) do not
 clutter the dock. The shell turns most of them on with `-S i2c-sensors-extra`;
-each dedicated sensor / RTC / auxdisplay / LED sample uses a `*-only` snippet that
+each dedicated sensor / RTC / auxdisplay / LED / PWM sample uses a `*-only` snippet that
 enables that part and disables the default temperature / accel nodes. The
 EEPROM sample uses `-S eeprom-only` the same way (sensors and OLED off,
 `eeprom-0` aliased). The page attaches matching models only while the guest
@@ -58,13 +59,14 @@ tree marks those nodes okay.
 
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
-`atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313`, `holtek,ht16k33` — so `sensor get lps22hh@5c`
+`atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313`, `holtek,ht16k33`,
+`nxp,pca9685-pwm` — so `sensor get lps22hh@5c`
 reads a value the page made up through the same driver a real board would use. The LSM6DSO is the
 advanced motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set`
 to put accel and gyro at 12.5 Hz, and the panel's ODR selects update when those
 CTRL register writes land.
 
-Chips are **declared rather than hand-written**, by whichever of three small
+Chips are **declared rather than hand-written**, by whichever of four small
 frameworks fits, and each synthesises both the chip's behaviour on the bus and
 the card that drives it — so adding a part is a declaration, not another panel:
 
@@ -94,9 +96,14 @@ the card that drives it — so adding a part is a declaration, not another panel
   non-I²C RTC can reuse the same card. Alarms show as armed / fired when the
   guest (or the card) programs the compare registers — shell
   `rtc set_alarm` under `CONFIG_RTC_ALARM`.
+- **PWM** ([`pwm/model.ts`](../src/virtio/devices/pwm/model.ts)) — channels
+  with period + duty (`PwmDecl` / `PwmChannel` / `isPwmChip`). The dock paints
+  an annotated ~1.25-period square wave and a channel strip sized from the
+  declaration. The first provider is the I²C PCA9685 at `0x60`; a later PWM
+  part reuses `PwmBody` with only a new provider + packaging.
 
 **Register maps** are shared across register-file parts — sensors, the
-PCF8523, both halves of the JHD1313, and the HT16K33 today — via [`registers/`](../src/virtio/devices/registers)
+PCF8523, both halves of the JHD1313, the HT16K33, and the PCA9685 today — via [`registers/`](../src/virtio/devices/registers)
 (SVD-inspired JSON under `sensors/maps/`, `rtc/maps/`, and `chips/maps/`) and
 the collapsed **Registers** dialog on each card
 ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). Channel codecs and
@@ -107,7 +114,8 @@ JHD1313 LCD address *does* get a map — Instruction (0x00) / Instruction_Co
 and DDRAM_AC shadows (`chips/maps/jhd1313-lcd.json`) — and its backlight at
 0x62 is a separate PCA9633-style map (`jhd1313-backlight.json`). The HT16K33
 maps display RAM rows 0x00–0x0F plus System_Setup / Display_Setup / Row_Int /
-Dimming (`chips/maps/ht16k33.json`).
+Dimming (`chips/maps/ht16k33.json`). The PCA9685 maps MODE1/2, LEDn_ON/OFF,
+and PRE_SCALE (`chips/maps/pca9685.json`).
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)

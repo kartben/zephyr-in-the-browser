@@ -33,3 +33,7 @@
 &ht16k33_0 {
 	status = "disabled";
 };
+
+&pca9685_0 {
+	status = "disabled";
+};

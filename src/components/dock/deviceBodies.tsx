@@ -19,6 +19,7 @@ import {
   Network,
   Pointer,
   SquareChevronRight,
+  Activity,
   Grid3x3,
   Vibrate,
   Volume2,
@@ -34,6 +35,7 @@ import { LedMatrixBody } from '@/components/LedPanel'
 import { MemoryBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
+import { PwmBody } from '@/components/PwmPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
 import { cn } from '@/lib/utils'
@@ -48,6 +50,10 @@ import { i2cModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
+import {
+  formatPwmDuty,
+  type PwmChip,
+} from '@/virtio/devices/pwm/model'
 import type { RtcChip } from '@/virtio/devices/rtc/model'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 import type { Ssd1306Chip } from '@/virtio/devices/chips/ssd1306'
@@ -77,6 +83,8 @@ export function DeviceBody({
       return <AuxdisplayBody chip={node.chip as Jhd1313LcdChip} />
     case 'led':
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
+    case 'pwm':
+      return <PwmBody chip={node.chip as PwmChip} />
     case 'rtc':
       return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
@@ -110,6 +118,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Monitor
     case 'led':
       return Grid3x3
+    case 'pwm':
+      return Activity
     case 'rtc':
       return Clock
     case 'i2c':
@@ -134,6 +144,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Monitor
     case 'led':
       return Grid3x3
+    case 'pwm':
+      return Activity
     case 'i2c-bus':
       return Cable
     case 'serial':
@@ -186,6 +198,15 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return (
         <Mono>
           {chip.cols}×{chip.rows}
+        </Mono>
+      )
+    }
+    case 'pwm': {
+      const chip = node.chip as PwmChip
+      const ch = chip.getChannel(0)
+      return (
+        <Mono>
+          CH0 · {formatPwmDuty(ch.duty)}
         </Mono>
       )
     }
@@ -255,6 +276,19 @@ export function GroupBadge({
       return (
         <Mono>
           {chip.cols}×{chip.rows}
+        </Mono>
+      )
+    }
+  }
+  if (deviceClass === 'pwm') {
+    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'pwm')?.chip as
+      | PwmChip
+      | undefined
+    if (chip) {
+      const ch = chip.getChannel(0)
+      return (
+        <Mono>
+          {chip.decl.channelCount} ch · {formatPwmDuty(ch.duty)}
         </Mono>
       )
     }

@@ -421,11 +421,15 @@ RGB LED is a strong dock card and every one of these *is* a register file, so
 the map rule applies cleanly. Slightly less "new class" than auxdisplay because
 GPIO LEDs already cover the blinky story.
 
-#### 4c. PWM — `nxp,pca9685`
+#### 4c. PWM — ✅ done (PCA9685); more providers next
 
-I²C 16-channel PWM. Stock Zephyr PWM API, no browser bridge beyond the chip
-model. Pairs naturally with `samples/basic/blinky`-style demos pointed at a PWM
-LED, or with servo-ish UI. Register map is well documented.
+**Implemented** as a bus-agnostic `PwmChip` framework
+(`src/virtio/devices/pwm/model.ts`) with the first provider NXP PCA9685 at
+`0x60` (`chips/pca9685.ts` + `maps/pca9685.json`). Dock card
+(`PwmPanel.tsx` / `PwmBody`) paints an annotated ~1.25-period duty chart and a
+channel strip sized from `decl.channelCount` — no PCA9685 imports in the UI.
+Guest side: stock `nxp,pca9685-pwm` via `-S pca9685-only` / `conf/pca9685.conf`,
+packaging `samples/drivers/led/pwm`. Address is 0x60 to avoid `ina219@40`.
 
 #### 4d. Fuel gauge / charger
 
@@ -523,8 +527,9 @@ shell is a UX problem before it is a driver problem.
    4), `samples/drivers/buzzer/tone`, dock Lucide shake + Vibration API / Web
    Audio. Observes existing GPIO outputs — no new QEMU device. `pwm-buzzer`
    (pitch) remains a follow-up.
-6. **More I²C classes** — PWM (`pca9685`), fuel-gauge / charger — each a stock
-   sample and a mandatory register map.
+6. ~~**PWM (I²C)**~~ — ✅ done; `PwmChip` framework + `nxp,pca9685-pwm` with
+   `samples/drivers/led/pwm`, duty-cycle chart. More PWM providers are
+   declaration + packaging only. Then fuel-gauge / charger.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 
 ## Sources

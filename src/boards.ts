@@ -25,6 +25,7 @@ export type PanelKind =
   | 'oled'
   | 'auxdisplay'
   | 'led'
+  | 'pwm'
   | 'trace'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
@@ -310,6 +311,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Walks, blinks and dims a 16×8 I²C LED matrix (HT16K33) in the page',
     zephyrSample: 'samples/drivers/ht16k33',
     primaryPanels: ['led', 'i2c'],
+  },
+  {
+    // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
+    // The dock draws an annotated duty-cycle chart (PwmChip framework).
+    id: 'pwm_led',
+    label: 'PWM LED',
+    description: 'Fades and blinks PWM LEDs on a PCA9685; duty chart in the page',
+    zephyrSample: 'samples/drivers/led/pwm',
+    primaryPanels: ['pwm', 'i2c'],
   },
   {
     id: 'philosophers',

@@ -1,0 +1,1087 @@
+{
+  "name": "PCA9685",
+  "description": "NXP PCA9685 16-channel 12-bit PWM Fm+ I²C LED controller. Matches Zephyr drivers/pwm/pwm_pca9685.c (MODE1/2, LEDn_ON/OFF, PRE_SCALE).",
+  "registers": [
+    {
+      "name": "MODE1",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Mode register 1 — SLEEP, AI (auto-increment), RESTART.",
+      "fields": [
+        {
+          "name": "ALLCALL",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Respond to LED All Call."
+        },
+        {
+          "name": "SUB3",
+          "lsb": 1,
+          "msb": 1
+        },
+        {
+          "name": "SUB2",
+          "lsb": 2,
+          "msb": 2
+        },
+        {
+          "name": "SUB1",
+          "lsb": 3,
+          "msb": 3
+        },
+        {
+          "name": "SLEEP",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = low power; PRE_SCALE writable."
+        },
+        {
+          "name": "AI",
+          "lsb": 5,
+          "msb": 5,
+          "description": "Register auto-increment.",
+          "values": [
+            {
+              "name": "Off",
+              "value": 0
+            },
+            {
+              "name": "On",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "name": "EXTCLK",
+          "lsb": 6,
+          "msb": 6
+        },
+        {
+          "name": "RESTART",
+          "lsb": 7,
+          "msb": 7,
+          "description": "Restart enabled outputs after SLEEP."
+        }
+      ]
+    },
+    {
+      "name": "MODE2",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 4,
+      "description": "Mode register 2 — output drive and change-on-ACK.",
+      "fields": [
+        {
+          "name": "OUTNE",
+          "lsb": 0,
+          "msb": 1
+        },
+        {
+          "name": "OUTDRV",
+          "lsb": 2,
+          "msb": 2,
+          "description": "0 = open-drain, 1 = totem-pole.",
+          "values": [
+            {
+              "name": "Open-drain",
+              "value": 0
+            },
+            {
+              "name": "Totem-pole",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "name": "OCH",
+          "lsb": 3,
+          "msb": 3,
+          "description": "Outputs change on ACK when set."
+        },
+        {
+          "name": "INVRT",
+          "lsb": 4,
+          "msb": 4
+        }
+      ]
+    },
+    {
+      "name": "LED0_ON_L",
+      "addr": "0x06",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 0 ON count low byte."
+    },
+    {
+      "name": "LED0_ON_H",
+      "addr": "0x07",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 0 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED0_OFF_L",
+      "addr": "0x08",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 0 OFF count low byte."
+    },
+    {
+      "name": "LED0_OFF_H",
+      "addr": "0x09",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 0 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED1_ON_L",
+      "addr": "0x0A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 1 ON count low byte."
+    },
+    {
+      "name": "LED1_ON_H",
+      "addr": "0x0B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 1 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED1_OFF_L",
+      "addr": "0x0C",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 1 OFF count low byte."
+    },
+    {
+      "name": "LED1_OFF_H",
+      "addr": "0x0D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 1 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED2_ON_L",
+      "addr": "0x0E",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 2 ON count low byte."
+    },
+    {
+      "name": "LED2_ON_H",
+      "addr": "0x0F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 2 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED2_OFF_L",
+      "addr": "0x10",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 2 OFF count low byte."
+    },
+    {
+      "name": "LED2_OFF_H",
+      "addr": "0x11",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 2 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED3_ON_L",
+      "addr": "0x12",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 3 ON count low byte."
+    },
+    {
+      "name": "LED3_ON_H",
+      "addr": "0x13",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 3 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED3_OFF_L",
+      "addr": "0x14",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 3 OFF count low byte."
+    },
+    {
+      "name": "LED3_OFF_H",
+      "addr": "0x15",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 3 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED4_ON_L",
+      "addr": "0x16",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 4 ON count low byte."
+    },
+    {
+      "name": "LED4_ON_H",
+      "addr": "0x17",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 4 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED4_OFF_L",
+      "addr": "0x18",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 4 OFF count low byte."
+    },
+    {
+      "name": "LED4_OFF_H",
+      "addr": "0x19",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 4 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED5_ON_L",
+      "addr": "0x1A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 5 ON count low byte."
+    },
+    {
+      "name": "LED5_ON_H",
+      "addr": "0x1B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 5 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED5_OFF_L",
+      "addr": "0x1C",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 5 OFF count low byte."
+    },
+    {
+      "name": "LED5_OFF_H",
+      "addr": "0x1D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 5 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED6_ON_L",
+      "addr": "0x1E",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 6 ON count low byte."
+    },
+    {
+      "name": "LED6_ON_H",
+      "addr": "0x1F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 6 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED6_OFF_L",
+      "addr": "0x20",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 6 OFF count low byte."
+    },
+    {
+      "name": "LED6_OFF_H",
+      "addr": "0x21",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 6 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED7_ON_L",
+      "addr": "0x22",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 7 ON count low byte."
+    },
+    {
+      "name": "LED7_ON_H",
+      "addr": "0x23",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 7 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED7_OFF_L",
+      "addr": "0x24",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 7 OFF count low byte."
+    },
+    {
+      "name": "LED7_OFF_H",
+      "addr": "0x25",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 7 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED8_ON_L",
+      "addr": "0x26",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 8 ON count low byte."
+    },
+    {
+      "name": "LED8_ON_H",
+      "addr": "0x27",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 8 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED8_OFF_L",
+      "addr": "0x28",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 8 OFF count low byte."
+    },
+    {
+      "name": "LED8_OFF_H",
+      "addr": "0x29",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 8 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED9_ON_L",
+      "addr": "0x2A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 9 ON count low byte."
+    },
+    {
+      "name": "LED9_ON_H",
+      "addr": "0x2B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 9 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED9_OFF_L",
+      "addr": "0x2C",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 9 OFF count low byte."
+    },
+    {
+      "name": "LED9_OFF_H",
+      "addr": "0x2D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 9 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED10_ON_L",
+      "addr": "0x2E",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 10 ON count low byte."
+    },
+    {
+      "name": "LED10_ON_H",
+      "addr": "0x2F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 10 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED10_OFF_L",
+      "addr": "0x30",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 10 OFF count low byte."
+    },
+    {
+      "name": "LED10_OFF_H",
+      "addr": "0x31",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 10 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED11_ON_L",
+      "addr": "0x32",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 11 ON count low byte."
+    },
+    {
+      "name": "LED11_ON_H",
+      "addr": "0x33",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 11 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED11_OFF_L",
+      "addr": "0x34",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 11 OFF count low byte."
+    },
+    {
+      "name": "LED11_OFF_H",
+      "addr": "0x35",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 11 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED12_ON_L",
+      "addr": "0x36",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 12 ON count low byte."
+    },
+    {
+      "name": "LED12_ON_H",
+      "addr": "0x37",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 12 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED12_OFF_L",
+      "addr": "0x38",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 12 OFF count low byte."
+    },
+    {
+      "name": "LED12_OFF_H",
+      "addr": "0x39",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 12 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED13_ON_L",
+      "addr": "0x3A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 13 ON count low byte."
+    },
+    {
+      "name": "LED13_ON_H",
+      "addr": "0x3B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 13 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED13_OFF_L",
+      "addr": "0x3C",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 13 OFF count low byte."
+    },
+    {
+      "name": "LED13_OFF_H",
+      "addr": "0x3D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 13 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED14_ON_L",
+      "addr": "0x3E",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 14 ON count low byte."
+    },
+    {
+      "name": "LED14_ON_H",
+      "addr": "0x3F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 14 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED14_OFF_L",
+      "addr": "0x40",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 14 OFF count low byte."
+    },
+    {
+      "name": "LED14_OFF_H",
+      "addr": "0x41",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 14 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "LED15_ON_L",
+      "addr": "0x42",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 15 ON count low byte."
+    },
+    {
+      "name": "LED15_ON_H",
+      "addr": "0x43",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 15 ON count high nibble + full-on.",
+      "fields": [
+        {
+          "name": "ON",
+          "lsb": 0,
+          "msb": 3,
+          "description": "ON count bits 11:8."
+        },
+        {
+          "name": "FULL_ON",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully on."
+        }
+      ]
+    },
+    {
+      "name": "LED15_OFF_L",
+      "addr": "0x44",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Channel 15 OFF count low byte."
+    },
+    {
+      "name": "LED15_OFF_H",
+      "addr": "0x45",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 16,
+      "description": "Channel 15 OFF count high nibble + full-off. Reset full-off.",
+      "fields": [
+        {
+          "name": "OFF",
+          "lsb": 0,
+          "msb": 3,
+          "description": "OFF count bits 11:8."
+        },
+        {
+          "name": "FULL_OFF",
+          "lsb": 4,
+          "msb": 4,
+          "description": "1 = channel fully off."
+        }
+      ]
+    },
+    {
+      "name": "PRE_SCALE",
+      "addr": "0xFE",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 30,
+      "description": "PWM frequency prescaler. Writable only while MODE1.SLEEP=1. f ≈ 25 MHz / (4096 × (PRE_SCALE+1)).",
+      "fields": [
+        {
+          "name": "PRE_SCALE",
+          "lsb": 0,
+          "msb": 7
+        }
+      ]
+    }
+  ]
+}

@@ -42,3 +42,7 @@
 		rtc = &pcf8523_0;
 	};
 };
+
+&pca9685_0 {
+	status = "disabled";
+};
