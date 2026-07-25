@@ -106,8 +106,9 @@ Aimed-for, not pixel-identical:
 - Time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
 - Default live-follow window of **1 s** for the tracing sample (zoom/pan still
   free); the window *is* the selection — no movable playhead
-- Live follow pinned to the newest events; pan/zoom detaches; an action
-  re-syncs
+- Zoom (± / wheel / pinch) while LIVE only changes the follow window size;
+  pan still detaches from follow
+- Live follow pinned to the newest events; pan detaches; an action re-syncs
 - Info strip reports running thread + selected lane at the window's right edge
 - Compact metrics for the visible window (CPU busy, switch rate)
 
