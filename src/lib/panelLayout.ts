@@ -42,6 +42,51 @@ export function loadPanelLayout(id: string): Partial<PanelLayout> | null {
   }
 }
 
+/**
+ * The dock re-keyed per-chip panels by bus instance (`virtio_i2c0:48`) instead
+ * of role (`sensor:48`), and the Simulation readout stopped being a PanelFrame
+ * altogether. Move saved float geometry to the new keys — copy, then delete —
+ * so an existing user's dragged windows survive the rename. Never clobbers a
+ * value already stored under a new key.
+ */
+const LEGACY_KEY_MIGRATIONS: Record<string, string> = {
+  'sensor:48': 'virtio_i2c0:48',
+  'sensor:49': 'virtio_i2c0:49',
+  'sensor:53': 'virtio_i2c0:53',
+  'memory:50': 'virtio_i2c0:50',
+  oled: 'virtio_i2c0:3c',
+  i2c: 'virtio_i2c0',
+}
+const LEGACY_REMOVALS = ['perf']
+
+export function migratePanelLayoutKeys(): void {
+  try {
+    for (const [from, to] of Object.entries(LEGACY_KEY_MIGRATIONS)) {
+      const raw = localStorage.getItem(key(from))
+      if (raw === null) continue
+      if (localStorage.getItem(key(to)) === null) localStorage.setItem(key(to), raw)
+      localStorage.removeItem(key(from))
+    }
+    for (const id of LEGACY_REMOVALS) localStorage.removeItem(key(id))
+  } catch {
+    /* storage unavailable — nothing to migrate */
+  }
+}
+
+/** Drop every saved float box; the Panels menu's "Reset layout" calls this. */
+export function clearAllPanelLayouts(): void {
+  try {
+    const doomed: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const stored = localStorage.key(i)
+      if (stored?.startsWith('zephyr.panel.')) doomed.push(stored)
+    }
+    doomed.forEach((k) => localStorage.removeItem(k))
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Persist a panel's layout, silently tolerating quota or private-mode errors. */
 export function savePanelLayout(id: string, layout: PanelLayout): void {
   // Nothing worth storing once a panel is docked with no custom box — clear the
