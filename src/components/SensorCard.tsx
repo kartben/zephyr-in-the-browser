@@ -1,7 +1,8 @@
-import { useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useSyncExternalStore } from 'react'
 import { Gauge } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
-import { LIVE_SOURCES, startLiveSource } from '@/virtio/devices/sensors/liveSource'
+import { isFollowing, setFollow, subscribe as subscribeFollows } from '@/lib/followStore'
+import { LIVE_SOURCES } from '@/virtio/devices/sensors/liveSource'
 import type { AttrDecl, ChannelDecl, SensorChip } from '@/virtio/devices/sensors/model'
 
 /**
@@ -64,16 +65,15 @@ function useChip(chip: SensorChip) {
 
 function ChannelRow({ chip, channel }: { chip: SensorChip; channel: ChannelDecl }) {
   useChip(chip)
-  const [follow, setFollow] = useState(false)
+  // Follow state lives in the follow store so the browser source keeps driving
+  // the channel while this row is unmounted (collapsed card, popped-out body).
+  const follow = useSyncExternalStore(
+    subscribeFollows,
+    useCallback(() => isFollowing(chip, channel.key), [chip, channel.key]),
+    () => false,
+  )
   const value = chip.getChannel(channel.key)
   const step = channel.step ?? (channel.max - channel.min) / 200
-
-  // While following, the browser source drives the channel and the slider is
-  // read-only. Nothing to start for a channel with no source.
-  useEffect(() => {
-    if (!follow || !channel.source) return
-    return startLiveSource(channel.source, (v) => chip.setChannel(channel.key, v))
-  }, [follow, channel.source, channel.key, chip])
 
   return (
     <div className="space-y-1">
@@ -99,7 +99,7 @@ function ChannelRow({ chip, channel }: { chip: SensorChip; channel: ChannelDecl 
           <input
             type="checkbox"
             checked={follow}
-            onChange={(e) => setFollow(e.target.checked)}
+            onChange={(e) => setFollow(chip, channel.key, e.target.checked)}
             className="accent-[var(--color-primary)]"
           />
           Follow {LIVE_SOURCES[channel.source].label}

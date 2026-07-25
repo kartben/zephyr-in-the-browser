@@ -1,12 +1,14 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { MapPin } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import {
   available,
+  followingBrowser,
   getSnapshot,
+  locationError,
   setFix,
+  setFollowBrowser,
   subscribe,
-  watchBrowserPosition,
   type GnssFix,
 } from '@/hostGnss'
 
@@ -30,13 +32,9 @@ const FIELDS: Array<{
 export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
   const fix = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [live, setLive] = useState(false)
-  const [locationError, setLocationError] = useState('')
-
-  useEffect(() => {
-    if (!live) return
-    return watchBrowserPosition(setLocationError)
-  }, [live])
+  // Lives in hostGnss so the geolocation watch survives this panel unmounting.
+  const live = useSyncExternalStore(subscribe, followingBrowser, () => false)
+  const watchError = useSyncExternalStore(subscribe, locationError, () => '')
 
   if (!isAvailable) return null
 
@@ -53,13 +51,13 @@ export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
           <input
             type="checkbox"
             checked={live}
-            onChange={(event) => setLive(event.target.checked)}
+            onChange={(event) => setFollowBrowser(event.target.checked)}
             className="accent-[var(--color-primary)]"
           />
           Follow browser location
         </label>
 
-        {locationError && <p className="text-[11px] text-destructive">{locationError}</p>}
+        {watchError && <p className="text-[11px] text-destructive">{watchError}</p>}
 
         <div className="grid grid-cols-2 gap-2">
           {FIELDS.map((field) => (
