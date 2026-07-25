@@ -23,7 +23,7 @@ the list matters for a given workload:
 
 | # | Opportunity | Where | Impact | Effort | Risk |
 | --- | --- | --- | --- | --- | --- |
-| 1 | The bridge's "1 ms" hot poll is really ~4 ms (timer nesting clamp) | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
+| 1 | ~~The bridge's "1 ms" hot poll is really ~4 ms~~ **(a) done**, (b)/(c) open | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
 | 3 | Nothing sets an optimisation level at *link* | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships is compiled in | build | High, startup only | Low | Low |
@@ -49,11 +49,18 @@ something new:
 - `node tools/profile-accel.mjs` drives the whole thing under Playwright and
   prints a ten-second sample.
 
-The one instrument that is missing is a **round-trip histogram** for the virtio
-bridge: the interval from `req_wr` moving to the matching completion being
-published, sampled in `pollBridge`. Items 1 and 7 are both guesses at where a
-~10 ms round trip goes, and a histogram would replace the guessing with a
-number for the cost of about twenty lines in `transport.ts`.
+Item 1 added two of them: `bridgePollMs` (the pace the bridge's hot loop
+actually achieves, against the 1 ms it asks for) and `bridgeHz` (requests
+drained per second), both in the same snapshot, plus a `bridge_poll_clamped`
+note when the pace slips. `tools/probe-timer-clamp.mjs` measures the browser
+behaviour underneath them in isolation.
+
+What is still missing is the other half of the round trip: the page cannot see
+how long QEMU took to notice a completion. Item 7 is a guess for that reason,
+and settling it means counting on the QEMU side — the interval from a completion
+being published to the drain timer picking it up — which is a handful of lines
+in `virtio-browser.c` and an export the page can read the way it reads the
+icount.
 
 ## 1. The bridge's hot poll runs at 4 ms, not the 1 ms it documents
 
@@ -76,16 +83,29 @@ drain (item 7) plus main-loop granularity accounts for most of that; a genuine
 
 Three fixes, in increasing order of both payoff and work:
 
-**(a) Reset the nesting level — a few lines.** The nesting level is inherited
-from the task that calls `setTimeout`. A task started by `postMessage` has
-nesting level 0, so a `setTimeout(poll, 1)` issued from a `message` handler is
-not clamped. The channel is already there and already used for the attach kick:
-route the hot-path reschedule through `hotChannel.port2.postMessage(0)`, and in
-the handler call `setTimeout(poll, HOT_PERIOD_MS)` instead of `poll()` directly.
-That keeps the deliberate 1 ms pace — which exists to avoid the ~700k
+**(a) Reset the nesting level — a few lines. Done.** The nesting level is
+inherited from the task that calls `setTimeout`, and a task started by
+`postMessage` sits at level 0, so a `setTimeout(poll, 1)` issued from a
+`message` handler is not clamped. The channel was already there for the attach
+kick; the hot path now posts to it and arms the timer inside the handler,
+keeping the deliberate 1 ms pace — which exists to avoid the ~700k
 `Atomics.load`/s busy-loop the file documents — while actually getting 1 ms.
-Expected: round trip ~10 ms → ~6 ms, so OLED ~11 → ~18 fps, on the strength of
-arithmetic rather than measurement.
+
+[`tools/probe-timer-clamp.mjs`](../tools/probe-timer-clamp.mjs) measures both
+shapes in Chromium and is the evidence for the change:
+
+| Rearmed from | Steady-state period |
+| --- | --- |
+| the previous timer's callback (before) | 4.14 ms |
+| a `MessagePort` message handler (after) | 1.13 ms |
+
+So ~3 ms comes off every blocking transfer. Against the ~10 ms round trip the
+OLED measured, that is arithmetic worth about 11 → 16 fps — which
+`bridgePollMs`, `bridgeHz` and `i2cHz` in
+[`src/display/profile.ts`](../src/display/profile.ts) now report directly, so
+the next person does not have to take the arithmetic on trust. `transport.ts`
+counts the gaps between consecutive hot polls for exactly that reason: the pace
+was wrong for a long time precisely because nothing looked at it.
 
 **(b) Move the bridge into a worker — the real fix.** The Emscripten heap is a
 `SharedArrayBuffer`, which is why
@@ -337,10 +357,9 @@ to the one bridge where the failure mode is something the user can hear.
 
 ## Suggested order
 
-1. Item 3 (link `-O3`) — one rebuild, no code, and it is a precondition for
+1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
+2. Item 3 (link `-O3`) — one rebuild, no code, and it is a precondition for
    trusting item 2.
-2. Item 1(a) (`postMessage` nesting reset) — a few lines, immediately measurable
-   as `i2cHz` in the existing profiler.
 3. Item 2's `ASYNCIFY_ADVISE` run — no change, just the list, and it either
    promotes item 2 to the top of the list or removes it from it.
 4. Item 4 (`--without-default-devices`) — mechanical, and startup is the number
