@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackDefs, makeEventDef } from './metadata'
-import { TraceReader, laneOrder, threadLabel, renderStateRows } from './reader'
+import {
+  TraceReader,
+  laneOrder,
+  threadLabel,
+  renderStateRows,
+  fmtTime,
+  niceTimeStep,
+  threadRunningAt,
+  windowStats,
+  contextSwitchesIn,
+} from './reader'
 
 function encU16(n: number): number[] {
   return [n & 0xff, (n >> 8) & 0xff]
@@ -83,5 +93,41 @@ describe('TraceReader', () => {
       ['name', 'str20'],
     ])
     expect(def.size).toBe(24)
+  })
+})
+
+describe('time-axis helpers', () => {
+  it('fmtTime picks ns / µs / ms / s like the Python viewer', () => {
+    expect(fmtTime(500)).toBe('500ns')
+    expect(fmtTime(1_500)).toBe('1.500µs')
+    expect(fmtTime(2_500_000)).toBe('2.500ms')
+    expect(fmtTime(1_250_000_000)).toBe('1.250s')
+  })
+
+  it('niceTimeStep lands on a 1/2/5×10^n ladder', () => {
+    expect(niceTimeStep(1_000_000_000, 5)).toBe(200_000_000)
+    expect(niceTimeStep(5_000_000, 5)).toBe(1_000_000)
+  })
+
+  it('windowStats and threadRunningAt match the visible window', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const a = 0x1000
+    const b = 0x2000
+    const bytes = [
+      ...record(0, 0x13, [...encU32(a), ...encName('thread_a')]),
+      ...record(0, 0x13, [...encU32(b), ...encName('thread_b')]),
+      ...record(1_000, 0x11, [...encU32(a), ...encName('thread_a')]),
+      ...record(5_000, 0x10, [...encU32(a), ...encName('thread_a')]),
+      ...record(5_000, 0x11, [...encU32(b), ...encName('thread_b')]),
+      ...record(9_000, 0x10, [...encU32(b), ...encName('thread_b')]),
+    ]
+    reader.feed(Uint8Array.from(bytes))
+    expect(threadRunningAt(reader.tr, 3_000)).toBe(a)
+    expect(threadRunningAt(reader.tr, 7_000)).toBe(b)
+    const { per, spanNs } = windowStats(reader.tr, 0, 10_000)
+    expect(spanNs).toBe(10_000)
+    expect(per.get(a)?.run).toBe(4_000)
+    expect(per.get(b)?.run).toBe(4_000)
+    expect(contextSwitchesIn(reader.tr, 0, 10_000)).toBe(2)
   })
 })

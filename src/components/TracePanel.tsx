@@ -1,32 +1,37 @@
 /**
  * Live Zephyr CTF schedule view — the browser cousin of
- * scripts/tracing/trace_viewer.py. One lane per thread, coloured by
- * run/ready/blocked/sleep; follows the live edge until the user pans.
+ * scripts/tracing/trace_viewer.py.
  *
- * Interaction is touch-first: drag the plot to pan, pinch or ± to zoom,
- * tap a lane label to select, tap the plot to park the playhead. Wheel
- * zoom still works on desktop.
+ * Same core concepts as the terminal viewer:
+ * - Gantt lanes coloured by run / ready / blocked / sleep / suspended
+ * - A time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
+ * - Live follow pinned to the newest events until the user pans/zooms
+ * - A compact info strip (legend + running thread + selected lane) and a
+ *   CPU / context-switch metrics line for the visible window
+ *
+ * Deliberately no playhead: the Python viewer's cursor is useful with a
+ * keyboard; here the window *is* the selection, and the info strip reports
+ * state at the live edge of that window. Interaction is touch-first — drag
+ * to pan, pinch or ± to zoom.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import {
-  Activity,
-  Crosshair,
-  Maximize2,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react'
+import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   STATE_COLOR,
   STATE_LABEL,
+  contextSwitchesIn,
   fmtTime,
   laneOrder,
+  niceTimeStep,
   renderStateRows,
   stateAt,
   threadLabel,
+  threadRunningAt,
+  windowStats,
   type ThreadState,
   type Trace,
 } from '@/ctf'
@@ -39,16 +44,16 @@ import {
   subscribe as subscribeDock,
 } from '@/lib/dockStore'
 
-/** Lane geometry — slightly taller than the terminal viewer so colour bars read on a phone. */
 const LANE_H = 22
 const LABEL_W = 72
 const PAD = 8
-/** Live follow window: tight enough that a few context switches fill the plot. */
-const DEFAULT_LIVE_WINDOW_NS = 5_000_000 // 5 ms
-const MIN_WINDOW_NS = 50_000 // 50 µs
+/** Space reserved above the lanes for the time-axis ruler + labels. */
+const AXIS_H = 28
+/** Default live-follow window — matches a comfortable glance at the tracing sample. */
+const DEFAULT_LIVE_WINDOW_NS = 1_000_000_000 // 1 s
+const MIN_WINDOW_NS = 1_000_000 // 1 ms
 const ZOOM_IN = 0.7
 const ZOOM_OUT = 1.4
-/** Pointer travel beyond this (css px) counts as a pan, not a tap. */
 const PAN_THRESHOLD_PX = 8
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
@@ -75,7 +80,7 @@ function zoomAround(
   pivot: number,
 ): { t0: number; t1: number } {
   const span = view.t1 - view.t0
-  const next = Math.max(MIN_WINDOW_NS, Math.min(tr.t1 - tr.t0, span * factor))
+  const next = Math.max(MIN_WINDOW_NS, Math.min(Math.max(MIN_WINDOW_NS, tr.t1 - tr.t0), span * factor))
   const frac = span > 0 ? (pivot - view.t0) / span : 0.5
   const t0 = pivot - next * frac
   return clampView(tr, t0, t0 + next)
@@ -86,7 +91,6 @@ function paint(
   tr: Trace,
   view0: number,
   view1: number,
-  playhead: number,
   follow: boolean,
   selectedLane: number | null,
 ) {
@@ -97,7 +101,7 @@ function paint(
     return segs && segs.some(([, , st]) => st !== 'dead')
   })
   const plotRows = lanes.length + (tr.isrSpans.length ? 1 : 0)
-  const cssH = Math.max(96, PAD * 2 + plotRows * LANE_H + 28)
+  const cssH = Math.max(120, AXIS_H + PAD + plotRows * LANE_H + 8)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width = Math.floor(cssW * dpr)
     canvas.height = Math.floor(cssH * dpr)
@@ -108,16 +112,60 @@ function paint(
   ctx.clearRect(0, 0, cssW, cssH)
 
   const plotW = Math.max(1, cssW - LABEL_W - PAD)
-  // Prefer ~1 css-px columns so short switches stay visible when zoomed in.
+  const span = Math.max(1, view1 - view0)
   const cols = Math.max(64, Math.floor(plotW))
   const rows = renderStateRows(tr, lanes, view0, view1, cols)
   const colW = plotW / cols
+  const lanesTop = AXIS_H
 
+  // --- Time-axis ruler (trace_viewer.py lines 1192–1198) -----------------
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText('t', 4, 12)
+
+  const step = niceTimeStep(span, Math.max(3, Math.floor(plotW / 72)))
+  const firstTick = Math.ceil(view0 / step) * step
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
+  ctx.lineWidth = 1
+  // Baseline.
+  ctx.beginPath()
+  ctx.moveTo(LABEL_W, 18)
+  ctx.lineTo(LABEL_W + plotW, 18)
+  ctx.stroke()
+
+  for (let t = firstTick; t <= view1 + step * 0.01; t += step) {
+    const x = LABEL_W + ((t - view0) / span) * plotW
+    if (x < LABEL_W - 0.5 || x > LABEL_W + plotW + 0.5) continue
+    ctx.beginPath()
+    ctx.moveTo(x, 14)
+    ctx.lineTo(x, 22)
+    ctx.stroke()
+    const label = fmtTime(t - tr.t0)
+    const tw = ctx.measureText(label).width
+    let lx = x - tw / 2
+    lx = Math.max(LABEL_W, Math.min(LABEL_W + plotW - tw, lx))
+    ctx.fillText(label, lx, 12)
+  }
+
+  // End labels always visible (absolute from t0), like the Python viewer.
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
+  const leftLbl = fmtTime(view0 - tr.t0)
+  const rightLbl = fmtTime(view1 - tr.t0)
+  ctx.fillText(leftLbl, LABEL_W, 26)
+  ctx.fillText(rightLbl, LABEL_W + plotW - ctx.measureText(rightLbl).width, 26)
+  if (follow) {
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
+    ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
+  }
+
+  // --- Lanes -------------------------------------------------------------
   ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
-  ctx.fillRect(LABEL_W, PAD, plotW, lanes.length * LANE_H)
+  ctx.fillRect(LABEL_W, lanesTop, plotW, lanes.length * LANE_H)
 
   lanes.forEach((tid, row) => {
-    const y = PAD + row * LANE_H
+    const y = lanesTop + row * LANE_H
     const label = threadLabel(tr, tid)
     const selected = selectedLane === tid
     ctx.fillStyle = selected ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.95)'
@@ -136,19 +184,17 @@ function paint(
       if (!st || st === 'dead') continue
       ctx.fillStyle = STATE_COLOR[st]
       ctx.globalAlpha = st === 'run' ? 1 : 0.78
-      // Overlap neighbours by 0.75px so adjacent same-state cells don't seam.
       ctx.fillRect(LABEL_W + c * colW, y + 3, Math.max(1.25, colW + 0.75), LANE_H - 6)
     }
     ctx.globalAlpha = 1
   })
 
   if (tr.isrSpans.length) {
-    const y = PAD + lanes.length * LANE_H
+    const y = lanesTop + lanes.length * LANE_H
     ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.fillText('[ISR]', 4, y + LANE_H / 2)
-    const span = Math.max(1, view1 - view0)
     for (const [s, e] of tr.isrSpans) {
       if (e <= view0 || s >= view1) continue
       const x0 = LABEL_W + ((Math.max(s, view0) - view0) / span) * plotW
@@ -156,30 +202,6 @@ function paint(
       ctx.fillStyle = 'rgba(168, 85, 247, 0.8)'
       ctx.fillRect(x0, y + 3, Math.max(2, x1 - x0), LANE_H - 6)
     }
-  }
-
-  if (playhead >= view0 && playhead <= view1) {
-    const span = Math.max(1, view1 - view0)
-    const x = LABEL_W + ((playhead - view0) / span) * plotW
-    ctx.strokeStyle = 'rgba(248, 250, 252, 0.95)'
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.moveTo(x, PAD)
-    ctx.lineTo(x, PAD + plotRows * LANE_H)
-    ctx.stroke()
-  }
-
-  const axisY = PAD + plotRows * LANE_H + 4
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.85)'
-  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-  ctx.textBaseline = 'alphabetic'
-  ctx.fillText(fmtTime(0), LABEL_W, axisY + 12)
-  const endLabel = fmtTime(view1 - view0)
-  if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
-    ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), axisY + 12)
-  } else {
-    ctx.fillText(endLabel, LABEL_W + plotW - ctx.measureText(endLabel).width, axisY + 12)
   }
 
   canvas.style.height = `${cssH}px`
@@ -195,9 +217,7 @@ type Gesture =
     }
   | {
       kind: 'pinch'
-      /** Initial finger distance. */
       startDist: number
-      /** View span at pinch start. */
       startSpan: number
       pivot: number
       origin: { t0: number; t1: number }
@@ -211,7 +231,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   const [follow, setFollow] = useState(true)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
-  const [playhead, setPlayhead] = useState(0)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
   viewRef.current = view
 
@@ -229,44 +248,40 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       const t1 = tr.t1
       const t0 = Math.max(tr.t0, t1 - windowNs)
       setView({ t0, t1 })
-      setPlayhead(t1)
     }
   }, [tr, follow, snap.eventCount])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
-    paint(canvas, tr, view.t0, view.t1, playhead, follow, selectedLane)
-  }, [tr, view, playhead, follow, snap.eventCount, selectedLane])
+    paint(canvas, tr, view.t0, view.t1, follow, selectedLane)
+  }, [tr, view, follow, snap.eventCount, selectedLane])
 
-  // Keep the canvas sized under orientation / dock changes.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
       if (!tr || !viewRef.current) return
-      paint(canvas, tr, viewRef.current.t0, viewRef.current.t1, playhead, follow, selectedLane)
+      paint(canvas, tr, viewRef.current.t0, viewRef.current.t1, follow, selectedLane)
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [tr, playhead, follow, selectedLane])
+  }, [tr, follow, selectedLane])
 
   const applyZoom = useCallback(
     (factor: number) => {
       if (!tr || !view) return
       setFollow(false)
-      const pivot = Math.min(Math.max(playhead, view.t0), view.t1)
-      const next = zoomAround(tr, view, factor, pivot)
-      setView(next)
+      const pivot = (view.t0 + view.t1) / 2
+      setView(zoomAround(tr, view, factor, pivot))
     },
-    [tr, view, playhead],
+    [tr, view],
   )
 
   const fitAll = useCallback(() => {
     if (!tr || tr.events.length === 0) return
     setFollow(false)
     setView({ t0: tr.t0, t1: Math.max(tr.t0 + MIN_WINDOW_NS, tr.t1) })
-    setPlayhead(tr.t1)
   }, [tr])
 
   const panByFraction = useCallback(
@@ -286,8 +301,28 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const expanded = defaultExpanded || effectiveExpandedIn(dock, STAGE_TRACE_KEY, 'trace')
   const lanes = tr ? laneOrder(tr) : []
   const lane = selectedLane ?? lanes[0] ?? null
+  // Info strip reports state at the right edge of the window (live edge when
+  // following) — same role as the Python viewer's cursor, without a movable one.
+  const probeTs = view?.t1 ?? tr?.t1 ?? 0
+  const runningTid = tr ? threadRunningAt(tr, probeTs) : null
   const [st, reason] =
-    tr && lane !== null ? stateAt(tr, lane, playhead) : ([null, ''] as [ThreadState | null, string])
+    tr && lane !== null ? stateAt(tr, lane, probeTs) : ([null, ''] as [ThreadState | null, string])
+  const stats = tr && view ? windowStats(tr, view.t0, view.t1) : null
+  const switches = tr && view ? contextSwitchesIn(tr, view.t0, view.t1) : 0
+  let cpuBusy = 0
+  if (tr && stats) {
+    const idleIds = new Set(
+      [...tr.threads.entries()].filter(([, info]) => info.name === 'idle').map(([id]) => id),
+    )
+    let runTotal = 0
+    let idleRun = 0
+    for (const [tid, acc] of stats.per) {
+      runTotal += acc.run ?? 0
+      if (idleIds.has(tid)) idleRun += acc.run ?? 0
+    }
+    cpuBusy = Math.max(0, Math.min(1, (runTotal - idleRun) / stats.spanNs))
+  }
+  const secs = stats ? stats.spanNs / 1e9 : 0
 
   return (
     <PanelFrame
@@ -295,7 +330,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       title="Trace"
       icon={Activity}
       defaultExpanded={expanded}
-      // Cap on desktop; `fill` + the stage wrapper make phones nearly full-bleed.
       dockedWidth={34}
       fill
       side="left"
@@ -331,7 +365,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
           </p>
         ) : (
           <>
-            {/* Zoom / pan toolbar — 44px-class targets for thumbs. */}
             <div className="flex items-center gap-1 px-0.5">
               <Button
                 type="button"
@@ -429,8 +462,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                 if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
                 g.moved = true
                 setFollow(false)
-                const canvas = e.currentTarget
-                const plotW = Math.max(1, canvas.clientWidth - LABEL_W - PAD)
+                const plotW = Math.max(1, e.currentTarget.clientWidth - LABEL_W - PAD)
                 const span = g.origin.t1 - g.origin.t0
                 const dt = (-dx / plotW) * span
                 setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
@@ -445,20 +477,15 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   /* ignore */
                 }
                 if (g.moved || !view || !tr) return
-                // Tap: select lane or park playhead.
+                // Tap on a lane label selects it (Python: up/down).
                 const rect = e.currentTarget.getBoundingClientRect()
                 const x = e.clientX - rect.left
                 const y = e.clientY - rect.top
-                if (x < LABEL_W) {
-                  const row = Math.floor((y - PAD) / LANE_H)
+                if (x < LABEL_W && y >= AXIS_H) {
+                  const row = Math.floor((y - AXIS_H) / LANE_H)
                   const order = laneOrder(tr)
                   if (row >= 0 && row < order.length) setSelectedLane(order[row]!)
-                  return
                 }
-                setFollow(false)
-                const plotW = Math.max(1, rect.width - LABEL_W - PAD)
-                const frac = Math.min(1, Math.max(0, (x - LABEL_W) / plotW))
-                setPlayhead(view.t0 + frac * (view.t1 - view.t0))
               }}
               onPointerCancel={() => {
                 gestureRef.current = null
@@ -491,7 +518,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                 const factor = g.startDist / Math.max(1, dist)
                 const nextSpan = Math.max(
                   MIN_WINDOW_NS,
-                  Math.min(tr.t1 - tr.t0, g.startSpan * factor),
+                  Math.min(Math.max(MIN_WINDOW_NS, tr.t1 - tr.t0), g.startSpan * factor),
                 )
                 const frac =
                   g.origin.t1 > g.origin.t0
@@ -508,10 +535,12 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
             />
 
             <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-              Drag to pan · pinch or ± to zoom · tap to set playhead
+              Drag to pan · pinch or ± to zoom · tap a lane name to select
             </p>
 
+            {/* Colour legend — same states as the terminal viewer. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
+              <span className="text-foreground/80">states:</span>
               {(Object.keys(STATE_LABEL) as ThreadState[])
                 .filter((s) => s !== 'dead')
                 .map((s) => (
@@ -524,29 +553,52 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   </span>
                 ))}
             </div>
-            <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
-              <span className="text-foreground">{fmtTime(playhead - (tr.t0 || 0))}</span>
+
+            {/* Metrics line — CPU busy + ctxsw over the visible window. */}
+            {stats && (
+              <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
+                {' · '}
+                <span>
+                  ctxsw {switches}
+                  {secs > 0 ? ` (${(switches / secs).toFixed(0)}/s)` : ''}
+                </span>
+                {' · '}
+                <span className="text-foreground">window {fmtTime(stats.spanNs)}</span>
+                {snap.desync && (
+                  <span className="ml-2 text-amber-500">desync — unknown CTF id</span>
+                )}
+              </div>
+            )}
+
+            {/* Info strip — running thread + selected lane at the window's right edge. */}
+            <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+              <div>
+                <span className="text-muted-foreground">running: </span>
+                <span className="font-mono text-foreground">
+                  {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
+                </span>
+                {runningTid !== null && (
+                  <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
+                )}
+              </div>
               {lane !== null && (
-                <>
-                  {' · '}
-                  <span className="text-foreground">{threadLabel(tr, lane)}</span>
+                <div className="mt-0.5">
+                  <span className="text-muted-foreground">lane: </span>
+                  <span className="font-mono text-foreground">{threadLabel(tr, lane)}</span>
                   {st && (
                     <>
-                      {' · '}
-                      <span style={{ color: STATE_COLOR[st] }}>{STATE_LABEL[st]}</span>
-                      {reason ? ` (${reason})` : ''}
+                      {' → '}
+                      <span style={{ color: STATE_COLOR[st] }}>
+                        {st === 'blk' && reason
+                          ? `blocked on ${reason}`
+                          : st === 'slp' && reason
+                            ? reason
+                            : STATE_LABEL[st]}
+                      </span>
                     </>
                   )}
-                </>
-              )}
-              {view && (
-                <>
-                  {' · '}
-                  <span className="text-foreground">win {fmtTime(view.t1 - view.t0)}</span>
-                </>
-              )}
-              {snap.desync && (
-                <span className="ml-2 text-amber-500">desync — unknown CTF id</span>
+                </div>
               )}
             </div>
           </>
