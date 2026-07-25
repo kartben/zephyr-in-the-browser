@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useState } from 'react'
 import { CheckControl, ControlRow, SelectControl } from '@/components/controls/ControlRow'
+import { RegisterMapButton } from '@/components/RegisterMap'
 import {
   alarmMask,
   formatAlarm,
@@ -359,6 +360,7 @@ export function RtcBody({ chip }: { chip: RtcChip }) {
       </div>
 
       <Hints chip={chip} />
+      <RegisterMapButton chip={chip} />
     </div>
   )
 }

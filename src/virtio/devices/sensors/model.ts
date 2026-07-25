@@ -26,62 +26,10 @@
  */
 
 import type { I2cChip } from '../i2c'
-import { insertField } from './fields'
+import { insertField } from '../registers/fields'
+import type { Endian, FieldDecl, RegisterDecl } from '../registers/types'
 
-/** Byte order of a multi-byte register on the wire. */
-export type Endian = 'be' | 'le'
-
-/**
- * One named bitfield inside a register — the SVD-inspired half of the map.
- *
- * Inclusive `[lsb, msb]` matches CMSIS-SVD's `bitRange`. Enumerated `values`
- * are optional display/edit metadata for the register-map UI; they do not
- * change bus behaviour on their own. Human-facing toggles still live on
- * {@link AttrDecl} so a slider card stays simple while the map stays complete.
- */
-export interface FieldDecl {
-  /** Short datasheet name (e.g. `ODR_XL`, `EM`). */
-  name: string
-  /** Least-significant bit, inclusive. */
-  lsb: number
-  /** Most-significant bit, inclusive. */
-  msb: number
-  description?: string
-  /** Optional enumerated encodings for this field. */
-  values?: Array<{ name: string; value: number; description?: string }>
-}
-
-/** One register in the chip's address space. */
-export interface RegisterDecl {
-  /** Pointer value that selects this register. */
-  addr: number
-  /**
-   * Width in bytes. 1–2 cover most parts; 3 is for left-aligned 24-bit samples
-   * (e.g. LPS22HH pressure).
-   */
-  bytes: 1 | 2 | 3
-  /**
-   * `ro` registers ignore writes, the way a temperature register does — the
-   * driver reads them but the part fills them in. `rw` registers store what the
-   * driver writes (config, thresholds) and read it back.
-   */
-  access: 'rw' | 'ro'
-  /** Value held at power-on / reset. */
-  reset: number
-  /** Byte order for a multi-byte register. Defaults to big-endian. */
-  endian?: Endian
-  /**
-   * This 1-byte register returns the high byte of the word at `highByteOf`.
-   * Used when a driver reads MSB and LSB as separate point-then-read bytes
-   * (ISL29035 DATA_MSB / DATA_LSB) rather than one burst.
-   */
-  highByteOf?: number
-  /** Datasheet / SVD-style register name (e.g. `CTRL1_XL`). */
-  name?: string
-  description?: string
-  /** Named bitfields within this register, for the register-map UI. */
-  fields?: FieldDecl[]
-}
+export type { Endian, FieldDecl, RegisterDecl } from '../registers/types'
 
 /**
  * What an encoder is allowed to see: the chip's current register values, so a
@@ -187,6 +135,8 @@ export interface SensorChip extends I2cChip {
   write(bytes: Uint8Array): boolean
   read(length: number): Uint8Array
   readonly decl: SensorDecl
+  /** Same list as `decl.registers` — {@link RegisterMapSource} surface. */
+  readonly registers: readonly RegisterDecl[]
   /** Drive a channel, in engineering units. Ignores non-finite input. */
   setChannel(key: string, value: number): void
   getChannel(key: string): number
@@ -320,6 +270,7 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
     address,
     name,
     decl,
+    registers: decl.registers,
 
     write(bytes) {
       if (bytes.length === 0) return true
@@ -445,4 +396,9 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
 }
 
 /** Re-export field helpers so callers can peek/decode without a second import. */
-export { extractField, formatBitRange, formatRegHex, decodeFieldLabel } from './fields'
+export {
+  extractField,
+  formatBitRange,
+  formatRegHex,
+  decodeFieldLabel,
+} from '../registers/fields'

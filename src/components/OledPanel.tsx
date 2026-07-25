@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { OledControllerButton } from '@/components/OledController'
 import { ssd1306 } from '@/virtio'
 
 /**
@@ -97,6 +98,7 @@ export function OledBody() {
         <code className="font-mono text-foreground">solomon,ssd1306-i2c</code> driver,
         drawing over the browser&apos;s I2C bus — nine transfers per full frame.
       </p>
+      <OledControllerButton chip={ssd1306} />
     </div>
   )
 }

@@ -1,0 +1,265 @@
+{
+  "name": "PCF8523",
+  "description": "NXP PCF8523 RTC register file — subset matching Zephyr's nxp,pcf8523 driver.",
+  "registers": [
+    {
+      "name": "Control_1",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Oscillator stop, 12/24h mode, and interrupt enables.",
+      "fields": [
+        {
+          "name": "CAP_SEL",
+          "lsb": 7,
+          "msb": 7,
+          "description": "Internal oscillator capacitor selection."
+        },
+        {
+          "name": "STOP",
+          "lsb": 5,
+          "msb": 5,
+          "description": "Stop the RTC clock.",
+          "values": [
+            { "name": "Running", "value": 0 },
+            { "name": "Stopped", "value": 1 }
+          ]
+        },
+        {
+          "name": "SR",
+          "lsb": 4,
+          "msb": 4,
+          "description": "Software reset."
+        },
+        {
+          "name": "12_24",
+          "lsb": 3,
+          "msb": 3,
+          "values": [
+            { "name": "24-hour", "value": 0 },
+            { "name": "12-hour", "value": 1 }
+          ]
+        },
+        { "name": "SIE", "lsb": 2, "msb": 2, "description": "Second interrupt enable." },
+        { "name": "AIE", "lsb": 1, "msb": 1, "description": "Alarm interrupt enable." },
+        { "name": "CIE", "lsb": 0, "msb": 0, "description": "Correction interrupt enable." }
+      ]
+    },
+    {
+      "name": "Control_2",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Watchdog/countdown and sticky alarm flags (clear on write-0).",
+      "fields": [
+        { "name": "WTAF", "lsb": 7, "msb": 7, "description": "Watchdog timer alarm flag." },
+        { "name": "CTAF", "lsb": 6, "msb": 6, "description": "Countdown timer A flag." },
+        { "name": "CTBF", "lsb": 5, "msb": 5, "description": "Countdown timer B flag." },
+        { "name": "SF", "lsb": 4, "msb": 4, "description": "Second interrupt flag." },
+        {
+          "name": "AF",
+          "lsb": 3,
+          "msb": 3,
+          "description": "Alarm flag (sticky until cleared).",
+          "values": [
+            { "name": "Idle", "value": 0 },
+            { "name": "Fired", "value": 1 }
+          ]
+        },
+        { "name": "WTAIE", "lsb": 2, "msb": 2 },
+        { "name": "CTAIE", "lsb": 1, "msb": 1 },
+        { "name": "CTBIE", "lsb": 0, "msb": 0 }
+      ]
+    },
+    {
+      "name": "Seconds",
+      "addr": "0x03",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "BCD seconds; OS bit flags oscillator integrity.",
+      "fields": [
+        {
+          "name": "OS",
+          "lsb": 7,
+          "msb": 7,
+          "description": "Oscillator stop / integrity flag.",
+          "values": [
+            { "name": "OK", "value": 0 },
+            { "name": "Stopped", "value": 1 }
+          ]
+        },
+        { "name": "SECONDS", "lsb": 0, "msb": 6, "description": "BCD seconds 00–59." }
+      ]
+    },
+    {
+      "name": "Minutes",
+      "addr": "0x04",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [{ "name": "MINUTES", "lsb": 0, "msb": 6, "description": "BCD minutes 00–59." }]
+    },
+    {
+      "name": "Hours",
+      "addr": "0x05",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [{ "name": "HOURS", "lsb": 0, "msb": 5, "description": "BCD hours (24h)." }]
+    },
+    {
+      "name": "Days",
+      "addr": "0x06",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [{ "name": "DAYS", "lsb": 0, "msb": 5, "description": "BCD day of month 01–31." }]
+    },
+    {
+      "name": "Weekdays",
+      "addr": "0x07",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [
+        {
+          "name": "WEEKDAYS",
+          "lsb": 0,
+          "msb": 2,
+          "description": "Day of week 0=Sunday … 6=Saturday.",
+          "values": [
+            { "name": "Sun", "value": 0 },
+            { "name": "Mon", "value": 1 },
+            { "name": "Tue", "value": 2 },
+            { "name": "Wed", "value": 3 },
+            { "name": "Thu", "value": 4 },
+            { "name": "Fri", "value": 5 },
+            { "name": "Sat", "value": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Months",
+      "addr": "0x08",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [{ "name": "MONTHS", "lsb": 0, "msb": 4, "description": "BCD month 01–12." }]
+    },
+    {
+      "name": "Years",
+      "addr": "0x09",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [{ "name": "YEARS", "lsb": 0, "msb": 7, "description": "BCD years since 2000." }]
+    },
+    {
+      "name": "Minute_alarm",
+      "addr": "0x0A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x80",
+      "description": "Alarm minute compare. AEN=1 disables the field.",
+      "fields": [
+        {
+          "name": "AEN_M",
+          "lsb": 7,
+          "msb": 7,
+          "values": [
+            { "name": "Armed", "value": 0 },
+            { "name": "Disabled", "value": 1 }
+          ]
+        },
+        { "name": "MINUTE", "lsb": 0, "msb": 6, "description": "BCD minute compare." }
+      ]
+    },
+    {
+      "name": "Hour_alarm",
+      "addr": "0x0B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x80",
+      "fields": [
+        {
+          "name": "AEN_H",
+          "lsb": 7,
+          "msb": 7,
+          "values": [
+            { "name": "Armed", "value": 0 },
+            { "name": "Disabled", "value": 1 }
+          ]
+        },
+        { "name": "HOUR", "lsb": 0, "msb": 5 }
+      ]
+    },
+    {
+      "name": "Day_alarm",
+      "addr": "0x0C",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x80",
+      "fields": [
+        {
+          "name": "AEN_D",
+          "lsb": 7,
+          "msb": 7,
+          "values": [
+            { "name": "Armed", "value": 0 },
+            { "name": "Disabled", "value": 1 }
+          ]
+        },
+        { "name": "DAY", "lsb": 0, "msb": 5 }
+      ]
+    },
+    {
+      "name": "Weekday_alarm",
+      "addr": "0x0D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x80",
+      "fields": [
+        {
+          "name": "AEN_W",
+          "lsb": 7,
+          "msb": 7,
+          "values": [
+            { "name": "Armed", "value": 0 },
+            { "name": "Disabled", "value": 1 }
+          ]
+        },
+        { "name": "WEEKDAY", "lsb": 0, "msb": 2 }
+      ]
+    },
+    {
+      "name": "Tmr_CLKOUT_ctrl",
+      "addr": "0x0F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x38",
+      "description": "CLKOUT frequency and timer control.",
+      "fields": [
+        {
+          "name": "COF",
+          "lsb": 3,
+          "msb": 5,
+          "description": "CLKOUT frequency.",
+          "values": [
+            { "name": "32768 Hz", "value": 0 },
+            { "name": "16384 Hz", "value": 1 },
+            { "name": "8192 Hz", "value": 2 },
+            { "name": "4096 Hz", "value": 3 },
+            { "name": "1024 Hz", "value": 4 },
+            { "name": "32 Hz", "value": 5 },
+            { "name": "1 Hz", "value": 6 },
+            { "name": "Low", "value": 7 }
+          ]
+        }
+      ]
+    }
+  ]
+}

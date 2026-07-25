@@ -81,9 +81,29 @@ export interface Ssd1306Chip extends I2cChip {
   isOn(): boolean
   /** Whether the driver asked for inverted output. */
   isInverted(): boolean
+  /**
+   * Live controller state derived from the last commands the guest sent —
+   * not an I²C register file (the SSD1306 is a command stream). The dock's
+   * Controller inspector reads this.
+   */
+  getControllerState(): Ssd1306ControllerState
   /** Bumped on every change, so a renderer can skip identical frames. */
   version(): number
   subscribe(fn: () => void): () => void
+}
+
+/** Command-derived SSD1306 state the inspector shows. */
+export interface Ssd1306ControllerState {
+  on: boolean
+  inverted: boolean
+  contrast: number
+  addressingMode: 'horizontal' | 'vertical' | 'page' | `mode-${number}`
+  columnStart: number
+  columnEnd: number
+  pageStart: number
+  pageEnd: number
+  cursorColumn: number
+  cursorPage: number
 }
 
 export function createSsd1306({
@@ -98,6 +118,7 @@ export function createSsd1306({
 
   let on = false
   let inverted = false
+  let contrast = 0x7f
   let mode = MODE_PAGE // the chip's own reset default
   let generation = 0
 
@@ -108,6 +129,13 @@ export function createSsd1306({
   let pageEnd = pages - 1
   let col = 0
   let page = 0
+
+  const modeName = (): Ssd1306ControllerState['addressingMode'] => {
+    if (mode === MODE_HORIZONTAL) return 'horizontal'
+    if (mode === MODE_VERTICAL) return 'vertical'
+    if (mode === MODE_PAGE) return 'page'
+    return `mode-${mode}`
+  }
 
   const notify = () => {
     generation++
@@ -137,6 +165,7 @@ export function createSsd1306({
       if (ONE_ARG.has(cmd)) {
         const arg = bytes[i++] ?? 0
         if (cmd === CMD_SET_MEM_ADDRESSING_MODE) mode = arg & 0x03
+        else if (cmd === CMD_SET_CONTRAST) contrast = arg & 0xff
         continue
       }
 
@@ -230,6 +259,18 @@ export function createSsd1306({
 
     isOn: () => on,
     isInverted: () => inverted,
+    getControllerState: () => ({
+      on,
+      inverted,
+      contrast,
+      addressingMode: modeName(),
+      columnStart: colStart,
+      columnEnd: colEnd,
+      pageStart,
+      pageEnd,
+      cursorColumn: col,
+      cursorPage: page,
+    }),
     version: () => generation,
 
     subscribe(fn) {

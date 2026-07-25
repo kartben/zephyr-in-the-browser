@@ -71,14 +71,7 @@ the card that drives it — so adding a part is a declaration, not another panel
   read-write registers, channel values encoded at read time, optional
   auto-incrementing burst reads) and a card of sliders and toggles. A channel
   can name a browser source, which is how the ADXL345's axes follow the
-  device's real tilt. Register files can also carry **SVD-inspired names and
-  bitfields** — either inline on `RegisterDecl` or loaded from JSON under
-  [`sensors/maps/`](../src/virtio/devices/sensors/maps) via
-  [`registerMap.ts`](../src/virtio/devices/sensors/registerMap.ts). Channel
-  codecs stay in TypeScript (they are functions); the map is data. Each sensor
-  card has a collapsed **Registers** affordance that opens a live map: address,
-  name, access, current word, and expandable fields (editable on `rw`
-  registers).
+  device's real tilt.
 - **Memory** ([`memory/model.ts`](../src/virtio/devices/memory/model.ts)) —
   a part lists its geometry: size, word-address width, page size, erased value.
   The framework builds the word-address pointer with its auto-increment and
@@ -89,7 +82,8 @@ the card that drives it — so adding a part is a declaration, not another panel
   backing store in `localStorage` (`zephyr.eeprom.50`) across page reloads, so
   Zephyr's stock `samples/drivers/eeprom` boot counter keeps counting after an
   "MCU reset"; the card's **erase** button clears both the live image and the
-  stored one.
+  stored one. The hex dump *is* the fine-grained view — EEPROMs are a flat
+  address space, not named SVD registers.
 - **RTC** ([`rtc/model.ts`](../src/virtio/devices/rtc/model.ts)) — a
   bus-agnostic datetime + alarms surface (`getTime` / `setTime` /
   `syncFromBrowser` / `getAlarms`). The first provider is the I²C PCF8523 at
@@ -97,6 +91,16 @@ the card that drives it — so adding a part is a declaration, not another panel
   non-I²C RTC can reuse the same card. Alarms show as armed / fired when the
   guest (or the card) programs the compare registers — shell
   `rtc set_alarm` under `CONFIG_RTC_ALARM`.
+
+**Register maps** are shared across register-file parts — sensors and the
+PCF8523 today — via [`registers/`](../src/virtio/devices/registers) (SVD-inspired
+JSON under `sensors/maps/` and `rtc/maps/`) and the collapsed **Registers**
+dialog on each card ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)).
+Channel codecs and RTC BCD timekeeping stay in their own frameworks; the map is
+data. The SSD1306 is a *command stream*, not a register file — its card keeps
+the GDDRAM canvas and adds a collapsed **Controller** inspector for
+command-derived state (on/invert/contrast/window) instead of pretending at
+SVD registers.
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)

@@ -4,10 +4,13 @@
  * An RTC is datetime + alarms, not sensor channels and not a hex dump. The
  * first provider is an I²C PCF8523, but {@link RtcChip} deliberately does not
  * mention I²C: a SPI part, an SoC RTC, or `zephyr,rtc-emul` could implement the
- * same handle and reuse {@link RtcBody} unchanged.
+ * same handle and reuse {@link RtcBody} unchanged. When a provider *does* have
+ * a pointered register file, it also implements {@link RegisterMapSource} so
+ * the shared Registers inspector can open on the card.
  */
 
 import type { I2cChip } from '../i2c'
+import type { FieldDecl, RegisterDecl } from '../registers/types'
 
 /** Broken-down wall time the card and guest drivers share. */
 export interface RtcDateTime {
@@ -69,12 +72,17 @@ export const RTC_ALARM_MASK = {
 /**
  * What every RTC provider must expose to the dock. Extends {@link I2cChip} only
  * because today's providers ride the virtio-i2c bus — the RTC-shaped methods
- * are what {@link isRtcChip} and the card care about.
+ * are what {@link isRtcChip} and the card care about. I²C parts with a named
+ * register file also carry the {@link RegisterMapSource} methods so the shared
+ * Registers dialog can open; a future non-register RTC can leave
+ * `registers` empty and omit peek/poke.
  */
 export interface RtcChip extends I2cChip {
   write(bytes: Uint8Array): boolean
   read(length: number): Uint8Array
   readonly decl: RtcDecl
+  /** Named register file for the inspector; empty when the provider has none. */
+  readonly registers: readonly RegisterDecl[]
   /** Live wall time, advancing while the oscillator runs. */
   getTime(): RtcDateTime
   /** Program the clock (also clears the oscillator-stop flag). */
@@ -98,6 +106,11 @@ export interface RtcChip extends I2cChip {
   clearPending(id: number): void
   /** True while the oscillator-stop / integrity flag would make get_time fail. */
   oscillatorStopped(): boolean
+  /** Live register word (time regs reflect the advancing oscillator). */
+  peek(addr: number): number
+  getPointer(): number
+  poke(addr: number, value: number): void
+  setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   subscribe(fn: () => void): () => void
 }
 
