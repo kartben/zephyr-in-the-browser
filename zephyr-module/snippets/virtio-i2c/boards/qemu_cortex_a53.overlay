@@ -140,13 +140,15 @@
 };
 
 /*
- * Point the generic accelerometer alias at the ADXL345 on this bus. It lives in
- * the snippet, not the shield, so a build without I2C never carries a dangling
- * accel0 — and a build with it (the LVGL accelerometer_chart) resolves
- * DEVICE_DT_GET(DT_ALIAS(accel0)) to a real, driver-bound node.
+ * Point the generic accelerometer alias at the ADXL345 on this bus, and the
+ * EEPROM sample's eeprom-0 at the AT24. Both live in the snippet, not the
+ * shield, so a build without I2C never carries a dangling alias — and a build
+ * with it resolves DEVICE_DT_GET(DT_ALIAS(accel0)) / DT_ALIAS(eeprom_0) to a
+ * real, driver-bound node.
  */
 / {
 	aliases {
 		accel0 = &adxl345_0;
+		eeprom-0 = &eeprom0;
 	};
 };

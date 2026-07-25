@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createMemoryChip, isMemoryChip, type MemoryDecl } from './model'
 import { createAt24 } from './at24'
@@ -106,5 +106,80 @@ describe('createMemoryChip', () => {
     // The SSD1306 exposes GDDRAM as `memory` but is a display, not storage.
     expect(isMemoryChip(createSsd1306())).toBe(false)
     expect(isMemoryChip(createTmp112())).toBe(false)
+  })
+})
+
+/** Minimal Storage for the node test environment. */
+class MemoryStorage {
+  private map = new Map<string, string>()
+  get length() {
+    return this.map.size
+  }
+  key(i: number) {
+    return [...this.map.keys()][i] ?? null
+  }
+  getItem(k: string) {
+    return this.map.get(k) ?? null
+  }
+  setItem(k: string, v: string) {
+    this.map.set(k, String(v))
+  }
+  removeItem(k: string) {
+    this.map.delete(k)
+  }
+  clear() {
+    this.map.clear()
+  }
+}
+
+describe('memory chip persistence', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reloads written bytes from localStorage under persistKey', () => {
+    const key = 'zephyr.eeprom.test'
+    const first = createAt24({ persistKey: key })
+    first.write(Uint8Array.of(0x00, 0xee, 0x97, 0x03, 0x01))
+
+    // A fresh chip with the same key is a page reload.
+    const second = createAt24({ persistKey: key })
+    expect(Array.from(second.memory.slice(0, 5))).toEqual([0xee, 0x97, 0x03, 0x01, 0xff])
+    expect(localStorage.getItem(key)).toMatch(/^[0-9a-f]+$/)
+    expect(localStorage.getItem(key)!.length).toBe(512)
+  })
+
+  it('does not rewrite storage on a read (pointer-only change)', () => {
+    const key = 'zephyr.eeprom.test-read'
+    const chip = createAt24({ persistKey: key })
+    chip.write(Uint8Array.of(0x00, 0xaa))
+    const before = localStorage.getItem(key)
+    const setItem = vi.spyOn(localStorage, 'setItem')
+    chip.write(Uint8Array.of(0x00)) // seek
+    chip.read(4)
+    expect(setItem).not.toHaveBeenCalled()
+    expect(localStorage.getItem(key)).toBe(before)
+  })
+
+  it('erase() drops the storage key so a blank part stays blank', () => {
+    const key = 'zephyr.eeprom.test-erase'
+    const chip = createAt24({ persistKey: key })
+    chip.poke(0, 0x42)
+    expect(localStorage.getItem(key)).not.toBeNull()
+    chip.erase()
+    expect(localStorage.getItem(key)).toBeNull()
+
+    const again = createAt24({ persistKey: key })
+    expect(again.memory.every((b) => b === 0xff)).toBe(true)
+  })
+
+  it('ignores a corrupt or wrong-length image', () => {
+    const key = 'zephyr.eeprom.test-corrupt'
+    localStorage.setItem(key, 'deadbeef') // too short
+    const chip = createAt24({ persistKey: key })
+    expect(chip.memory.every((b) => b === 0xff)).toBe(true)
   })
 })

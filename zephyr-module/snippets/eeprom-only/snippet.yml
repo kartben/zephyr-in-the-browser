@@ -1,0 +1,13 @@
+name: eeprom-only
+description: >
+  AT24 EEPROM alone on the browser I²C bus: disable the default temperature /
+  accel / OLED parts so the dock stays focused on the hex dump. Also aliases
+  eeprom-0 for samples/drivers/eeprom.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

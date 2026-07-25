@@ -12,9 +12,12 @@
  * {@link I2cChip} the bus carries unchanged, plus the surface its card needs —
  * the backing store to render, a version counter to coalesce repaints against,
  * the pointer to show where the guest is reading, and poke/erase so the page
- * can plant bytes for the guest to find. The AT24 re-expressed this way is
- * behaviour-for-behaviour the hand-written part it replaced, which is what says
- * the model is right (see the EEPROM cases in src/virtio/i2c.test.ts).
+ * can plant bytes for the guest to find. An optional `persistKey` keeps the
+ * backing store in localStorage across page reloads — the board AT24 uses it
+ * so the stock EEPROM boot-counter sample survives an "MCU reset". The AT24
+ * re-expressed this way is behaviour-for-behaviour the hand-written part it
+ * replaced, which is what says the model is right (see the EEPROM cases in
+ * src/virtio/i2c.test.ts).
  *
  * Deliberately not modelled, exactly as before: write cycle time. A real AT24
  * NAKs for a few milliseconds after a write while the page programs, and
@@ -83,6 +86,13 @@ export interface MemoryChipOptions {
   name?: string
   /** Override the capacity (an AT24 variant on the same declaration). */
   size?: number
+  /**
+   * localStorage key for the backing store. When set, contents survive page
+   * reloads — which is what makes an EEPROM an EEPROM across a "MCU reset"
+   * (`location.reload` in this app). Omit for a volatile part, or in tests
+   * that do not stub storage.
+   */
+  persistKey?: string
 }
 
 /**
@@ -94,6 +104,40 @@ export function isMemoryChip(chip: I2cChip): chip is MemoryChip {
   return 'decl' in chip && 'poke' in chip
 }
 
+/** Hex-encode a byte array for localStorage (512 chars for a 256-byte AT24). */
+function toHex(bytes: Uint8Array): string {
+  let hex = ''
+  for (let i = 0; i < bytes.length; i++) hex += bytes[i]!.toString(16).padStart(2, '0')
+  return hex
+}
+
+/**
+ * Restore a previously saved image, or null when missing/corrupt/unavailable.
+ * A blank (all-erased) part is stored as an absent key, so a fresh create and
+ * a post-erase create look the same.
+ */
+function loadPersisted(key: string, size: number): Uint8Array | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw || raw.length !== size * 2 || !/^[0-9a-fA-F]+$/.test(raw)) return null
+    const out = new Uint8Array(size)
+    for (let i = 0; i < size; i++) out[i] = parseInt(raw.slice(i * 2, i * 2 + 2), 16)
+    return out
+  } catch {
+    return null // private mode, SSR, or blocked storage
+  }
+}
+
+/** Persist, or drop the key when every cell is erased (storage hygiene). */
+function savePersisted(key: string, memory: Uint8Array, erased: number): void {
+  try {
+    if (memory.every((b) => b === erased)) localStorage.removeItem(key)
+    else localStorage.setItem(key, toHex(memory))
+  } catch {
+    /* quota or blocked — the part still works for this session */
+  }
+}
+
 /** Build a live {@link MemoryChip} from a declaration. */
 export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {}): MemoryChip {
   const address = opts.address ?? decl.defaultAddress
@@ -101,14 +145,22 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
   const size = opts.size ?? decl.size
   const erased = decl.erased ?? 0xff
   const { addressWidth } = decl
+  const persistKey = opts.persistKey
 
   const memory = new Uint8Array(size).fill(erased)
+  if (persistKey) {
+    const saved = loadPersisted(persistKey, size)
+    if (saved) memory.set(saved)
+  }
   let pointer = 0
   let version = 0
 
   const listeners = new Set<() => void>()
-  const notify = () => {
+  // `persist` is for content changes only — a read moves the pointer (the card
+  // redraws it) but must not rewrite localStorage on every guest poll.
+  const notify = (persist = true) => {
     version++
+    if (persist && persistKey) savePersisted(persistKey, memory, erased)
     for (const fn of listeners) fn()
   }
 
@@ -125,27 +177,28 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
       if (bytes.length < addressWidth) return true
 
       let addr = 0
-      for (let i = 0; i < addressWidth; i++) addr = (addr << 8) | bytes[i]
+      for (let i = 0; i < addressWidth; i++) addr = (addr << 8) | bytes[i]!
       pointer = addr % size
 
       // Anything after the address is data, written from there and wrapping at
       // the end of the device.
+      const wrote = bytes.length > addressWidth
       for (let i = addressWidth; i < bytes.length; i++) {
-        memory[pointer] = bytes[i]
+        memory[pointer] = bytes[i]!
         pointer = (pointer + 1) % size
       }
-      notify()
+      notify(wrote)
       return true
     },
 
     read(length) {
       const out = new Uint8Array(length)
       for (let i = 0; i < length; i++) {
-        out[i] = memory[pointer]
+        out[i] = memory[pointer]!
         pointer = (pointer + 1) % size
       }
       // The pointer moved, and the card draws it — so a read is a change too.
-      notify()
+      notify(false)
       return out
     },
 
