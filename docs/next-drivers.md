@@ -431,13 +431,23 @@ channel strip sized from `decl.channelCount` — no PCA9685 imports in the UI.
 Guest side: stock `nxp,pca9685-pwm` via `-S pca9685-only` / `conf/pca9685.conf`,
 packaging `samples/drivers/led/pwm`. Address is 0x60 to avoid `ina219@40`.
 
-#### 4d. Fuel gauge / charger
+#### 4d. DAC — `microchip,mcp4725` (next)
+
+**Spec:** [`dac-mcp4725-spec.md`](dac-mcp4725-spec.md) (dock mockup included).
+
+New **Analog out** dock class. Framework-first (`DacChip` / history ring) so a
+later multi-channel DAC is declaration-only. First provider MCP4725 at
+**0x61** (0x60 taken by PCA9685), stock `samples/drivers/dac` sawtooth, Vout
+trace + level bar. Prefer DAC over ADC: guest writes → page shows; ADC
+overlaps the existing sensor “page feeds quantity” story.
+
+#### 4e. Fuel gauge / charger
 
 `samples/drivers/fuel_gauge` and `samples/drivers/charger` — another dock
 class (battery), pure I²C register files. Great once the power-monitor story
 (INA219) wants a sibling that speaks "SoC %" rather than "amps".
 
-#### 4e. Webcam — still the stretch
+#### 4f. Webcam — still the stretch
 
 Unchanged: coolest, heaviest, lowest certainty. No QEMU camera a Zephyr driver
 consumes; needs a bespoke `video` driver + host buffer →
@@ -529,8 +539,11 @@ shell is a UX problem before it is a driver problem.
    (pitch) remains a follow-up.
 6. ~~**PWM (I²C)**~~ — ✅ done; `PwmChip` framework + `nxp,pca9685-pwm` with
    `samples/drivers/led/pwm`, duty-cycle chart. More PWM providers are
-   declaration + packaging only. Then fuel-gauge / charger.
-7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
+   declaration + packaging only.
+7. **DAC (I²C)** — `microchip,mcp4725` next; full spec + mockup in
+   [`dac-mcp4725-spec.md`](dac-mcp4725-spec.md). Then fuel-gauge / charger;
+   ADC later if wanted.
+8. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 
 ## Sources
 
