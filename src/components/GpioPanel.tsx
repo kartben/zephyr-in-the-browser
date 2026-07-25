@@ -1,9 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { CircuitBoard } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
 import { cn } from '@/lib/utils'
 import {
-  available,
   controllerNode,
   getButtons,
   getLeds,
@@ -25,18 +22,6 @@ import {
  * `gpio get <controller> <pin>` and `gpio set <controller> <pin> <0|1>`, where
  * the controller is whichever device is bound — the hint below names it.
  */
-export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const isAvailable = useSyncExternalStore(subscribe, available, () => false)
-
-  if (!isAvailable) return null
-
-  return (
-    <PanelFrame id="gpio" title="Host GPIO" icon={CircuitBoard} defaultExpanded={defaultExpanded}>
-      <GpioBody />
-    </PanelFrame>
-  )
-}
-
 /** Buttons and LEDs without the frame, shared by the dock row and the window. */
 export function GpioBody() {
   const node = useSyncExternalStore(subscribe, controllerNode, () => 'host_gpio')

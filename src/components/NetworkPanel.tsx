@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Download, Info, Network, Pause, Play, Trash2 } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
+import { Download, Info, Pause, Play, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SliderControl } from '@/components/controls/ControlRow'
 import { Disclosure } from '@/components/dock/Disclosure'
@@ -13,7 +12,6 @@ import {
   subscribe as subscribeDock,
 } from '@/lib/dockStore'
 import {
-  available,
   buildPcapBlob,
   clearCapture,
   echoToGuest,
@@ -25,38 +23,6 @@ import {
   setLink,
   subscribe,
 } from '@/hostNet'
-
-/**
- * The Ethernet bridge's cockpit: interface status, live RX/TX throughput,
- * link + impairment controls, a tcpdump-style capture with .pcap export, and
- * client tools that dial INTO servers the guest runs. Everything rides
- * src/hostNet.ts and the src/net/ stack — the panel is pure presentation.
- */
-export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-
-  if (!snapshot.available || !available()) return null
-
-  return (
-    <PanelFrame
-      id="net"
-      title="Network"
-      icon={Network}
-      defaultExpanded={defaultExpanded}
-      status={
-        <span
-          className={cn('size-2 rounded-full', snapshot.linkUp ? 'bg-success' : 'bg-destructive')}
-          role="status"
-          aria-label={snapshot.linkUp ? 'Link up' : 'Link down'}
-        />
-      }
-    >
-      <div className="max-h-[min(30rem,65vh)] overflow-y-auto">
-        <NetworkBody />
-      </div>
-    </PanelFrame>
-  )
-}
 
 /**
  * The cockpit without the frame, shared by the dock row and the floating
