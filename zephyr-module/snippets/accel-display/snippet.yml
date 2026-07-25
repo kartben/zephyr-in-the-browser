@@ -3,5 +3,16 @@ description: >
   Shrink the Cortex-A53 ramfb for the accelerometer chart. LVGL software-
   renders every refresh; 480×320 is still a readable 3:2 panel but cuts the
   pixel count by 36% versus the shield's 600×400 default.
-append:
-  EXTRA_DTC_OVERLAY_FILE: boards/${BOARD}.overlay
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently. Both qualified spellings
+# are listed for the same reason. Do not use a top-level append with
+# boards/${BOARD}.overlay: Zephyr does not expand ${BOARD} there, and the
+# unresolved path makes *every* module build fail at snippet load time.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
