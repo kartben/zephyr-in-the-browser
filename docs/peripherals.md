@@ -44,24 +44,24 @@ The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
 *TypeScript*, not C: TMP112 and LM75 thermometers, an ADXL345 accelerometer,
 an AT24 EEPROM and an SSD1306 OLED by default, under
 [`src/virtio/devices/`](../src/virtio/devices). Optional extras — an LSM6DSO
-IMU, an LPS22HH barometer, an INA219 power monitor, and an ISL29035 light
-sensor — stay `status = "disabled"` in the virtio-i2c overlay so everyday
-builds (accel chart, OLED display, …) do not clutter the dock. The shell
-turns them all on with `-S i2c-sensors-extra`; each dedicated sensor sample
-uses a `*-only` snippet that enables that part and disables the default
-temperature / accel nodes. The EEPROM sample uses `-S eeprom-only` the same
-way (sensors and OLED off, `eeprom-0` aliased). The page attaches matching
-models only while the guest tree marks those nodes okay.
+IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035 light
+sensor, and a PCF8523 RTC — stay `status = "disabled"` in the virtio-i2c
+overlay so everyday builds (accel chart, OLED display, …) do not clutter the
+dock. The shell turns them all on with `-S i2c-sensors-extra`; each dedicated
+sensor / RTC sample uses a `*-only` snippet that enables that part and
+disables the default temperature / accel nodes. The EEPROM sample uses
+`-S eeprom-only` the same way (sensors and OLED off, `eeprom-0` aliased). The
+page attaches matching models only while the guest tree marks those nodes okay.
 
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
-`st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `atmel,at24`,
-`solomon,ssd1306` — so `sensor get lps22hh@5c` reads a value the page made up
-through the same driver a real board would use. The LSM6DSO is the advanced
-motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set` to put
-accel and gyro at 12.5 Hz, and the panel's ODR selects update when those CTRL
-register writes land.
+`st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
+`atmel,at24`, `solomon,ssd1306` — so `sensor get lps22hh@5c` reads a value the
+page made up through the same driver a real board would use. The LSM6DSO is the
+advanced motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set`
+to put accel and gyro at 12.5 Hz, and the panel's ODR selects update when those
+CTRL register writes land.
 
-Chips are **declared rather than hand-written**, by whichever of two small
+Chips are **declared rather than hand-written**, by whichever of three small
 frameworks fits, and each synthesises both the chip's behaviour on the bus and
 the card that drives it — so adding a part is a declaration, not another panel:
 
@@ -72,8 +72,8 @@ the card that drives it — so adding a part is a declaration, not another panel
   auto-incrementing burst reads) and a card of sliders and toggles. A channel
   can name a browser source, which is how the ADXL345's axes follow the
   device's real tilt.
-- **Memory** ([`memory/model.ts`](../src/virtio/devices/memory/model.ts)) — a
-  part lists its geometry: size, word-address width, page size, erased value.
+- **Memory** ([`memory/model.ts`](../src/virtio/devices/memory/model.ts)) —
+  a part lists its geometry: size, word-address width, page size, erased value.
   The framework builds the word-address pointer with its auto-increment and
   wrap, and a card that is a live hex dump. Erased cells are dimmed so written
   bytes stand out, bytes the guest just changed light up, the read pointer is
@@ -83,6 +83,13 @@ the card that drives it — so adding a part is a declaration, not another panel
   Zephyr's stock `samples/drivers/eeprom` boot counter keeps counting after an
   "MCU reset"; the card's **erase** button clears both the live image and the
   stored one.
+- **RTC** ([`rtc/model.ts`](../src/virtio/devices/rtc/model.ts)) — a
+  bus-agnostic datetime + alarms surface (`getTime` / `setTime` /
+  `syncFromBrowser` / `getAlarms`). The first provider is the I²C PCF8523 at
+  `0x68`; the dock body keys off the RTC handle, not the bus, so a later
+  non-I²C RTC can reuse the same card. Alarms show as armed / fired when the
+  guest (or the card) programs the compare registers — shell
+  `rtc set_alarm` under `CONFIG_RTC_ALARM`.
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)

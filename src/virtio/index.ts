@@ -21,6 +21,7 @@ import { createLps22hh } from './devices/sensors/lps22hh'
 import { createIna219 } from './devices/sensors/ina219'
 import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
+import { createPcf8523 } from './devices/rtc/pcf8523'
 import { FALLBACK_DT_SLOTS } from './devices/registry'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
@@ -69,6 +70,9 @@ export const isl29035 = createIsl29035({ address: 0x44 })
  */
 export const ssd1306 = createSsd1306({ address: 0x3c })
 
+/** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
+export const pcf8523 = createPcf8523({ address: 0x68 })
+
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x3c, ssd1306],
@@ -79,6 +83,7 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x50, eeprom],
   [0x53, adxl345],
   [0x5c, lps22hh],
+  [0x68, pcf8523],
   [0x6a, lsm6dso],
 ])
 

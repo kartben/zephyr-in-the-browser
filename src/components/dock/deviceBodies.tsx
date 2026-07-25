@@ -9,6 +9,7 @@ import { useCallback, useSyncExternalStore } from 'react'
 import {
   Cable,
   CircuitBoard,
+  Clock,
   Gauge,
   MapPin,
   MemoryStick,
@@ -28,6 +29,7 @@ import { I2cBody } from '@/components/I2cPanel'
 import { MemoryBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
+import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
 import { cn } from '@/lib/utils'
 import type { DeviceClass, DeviceNode } from '@/deviceTopology'
@@ -39,6 +41,7 @@ import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
 import { i2cModel } from '@/virtio'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
+import type { RtcChip } from '@/virtio/devices/rtc/model'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 import type { Ssd1306Chip } from '@/virtio/devices/chips/ssd1306'
 
@@ -63,6 +66,8 @@ export function DeviceBody({
       )
     case 'oled':
       return <OledBody />
+    case 'rtc':
+      return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
       return <I2cBody busLabel={node.busLabel} />
     case 'gpio':
@@ -88,6 +93,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return MemoryStick
     case 'oled':
       return MonitorDot
+    case 'rtc':
+      return Clock
     case 'i2c':
       return Cable
     case 'gpio':
@@ -114,6 +121,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Gauge
     case 'memory':
       return MemoryStick
+    case 'rtc':
+      return Clock
     default:
       return node.key === 'input' ? Pointer : Cable
   }
@@ -139,6 +148,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
         </Mono>
       )
     }
+    case 'rtc':
+      return <RtcBadge chip={node.chip as RtcChip} />
     case 'i2c':
       return <BusBadge />
     case 'gnss':
@@ -177,6 +188,10 @@ export function GroupBadge({
         ))}
       </span>
     )
+  }
+  if (deviceClass === 'rtc') {
+    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'rtc')?.chip
+    if (chip) return <RtcBadge chip={chip as RtcChip} />
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioBadge />

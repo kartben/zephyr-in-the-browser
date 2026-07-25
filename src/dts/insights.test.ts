@@ -9,7 +9,7 @@ import twoBuses from './fixtures/two_i2c_buses.dts?raw'
 const insightsOf = (src: string) => computeInsights(parseDts(src))
 
 describe('computeInsights', () => {
-  it('grounds the A53 shell build: nine chips, no GPIO', () => {
+  it('grounds the A53 shell build: ten chips, no GPIO', () => {
     const insights = insightsOf(a53Shell)
 
     expect(insights.model).toBe('QEMU Cortex-A53')
@@ -28,6 +28,7 @@ describe('computeInsights', () => {
       [0x50, 'at24'],
       [0x53, 'adxl345'],
       [0x5c, 'lps22hh'],
+      [0x68, 'pcf8523'],
       [0x6a, 'lsm6dso'],
     ])
 
