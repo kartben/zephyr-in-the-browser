@@ -139,20 +139,26 @@ touch a virtqueue off the QEMU thread.
   of the browser, fire on an empty ring, warp again, and inflate guest time
   while making no progress. The drain therefore runs on `QEMU_CLOCK_REALTIME`:
   1 ms while tokens are parked, 10 ms idle.
-- **QEMU → page.** A `MessagePort` loop for 250 ms after any request, falling
-  back to a 50 ms timer when idle.
+- **QEMU → page.** A paced `MessagePort`/timer loop for 100 ms after any
+  request (1 ms between polls), falling back to a 50 ms timer when idle.
 
-  The port rather than `setTimeout(…, 0)`, because of what a *background* tab
-  does. Nested `setTimeout(0)` is clamped to ~4 ms while visible but to about a
-  second while hidden — measured at 681 ms per tick in the tab this was
-  developed against. Since a guest thread sits in `k_sem_take(…, K_FOREVER)`
-  until the page answers, that clamp is not a slow page, it is a frozen guest:
-  an `i2c scan` crawling at one address per second. `postMessage` delivery is
-  not throttled, so a burst runs at full speed whether or not anyone is
-  watching. The cost is that the loop competes for the main thread while the
-  window is open — it yields between macrotasks rather than blocking, and the
-  window only stays open while requests keep arriving, but it is why the idle
-  path stays on a plain timer.
+  The port rather than an unpaced `setTimeout(…, 0)`, because of what a
+  *background* tab does. Nested `setTimeout(0)` is clamped to ~4 ms while
+  visible but to about a second while hidden — measured at 681 ms per tick in
+  the tab this was developed against. Since a guest thread sits in
+  `k_sem_take(…, K_FOREVER)` until the page answers, that clamp is not a slow
+  page, it is a frozen guest: an `i2c scan` crawling at one address per second.
+  `postMessage` delivery is not throttled, so a burst can run whether or not
+  anyone is watching.
+
+  An *unpaced* port loop (delay 0 for the whole hot window) has the opposite
+  problem in a *foreground* tab: with a continuously busy device such as the
+  accelerometer chart over virtio-i2c it was measured at ~700k
+  `Atomics.load`s/s on the main thread, starving the qemu-wasm proxy that
+  shares it. The 1 ms pace keeps ring drain in a single tick and answers well
+  inside a guest sample period, while dropping that load rate by ~650×. Hot
+  wakeups therefore use a 1 ms timer; the port remains available for the
+  initial attach kick. The idle path stays on the plain 50 ms timer.
 
 At rest this is one shared-memory read per device per 50 ms. Under load a
 blocking transfer costs QEMU's 1 ms drain plus however fast the page's event
