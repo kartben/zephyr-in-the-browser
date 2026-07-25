@@ -1,0 +1,171 @@
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index b1d8d8e..30b625d 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -161,3 +161,5 @@ system_ss.add(when: 'CONFIG_SBSA_REF', if_true: files('sbsa_ec.c'))
+ 
+ # HPPA devices
+ system_ss.add(when: 'CONFIG_LASI', if_true: files('lasi.c'))
++
++system_ss.add(files('qemu-browser-gnss.c'))
+diff --git a/hw/misc/qemu-browser-gnss.c b/hw/misc/qemu-browser-gnss.c
+new file mode 100644
+index 0000000..3d04eed
+--- /dev/null
++++ b/hw/misc/qemu-browser-gnss.c
+@@ -0,0 +1,103 @@
++/*
++ * Browser-fed NMEA character backend.
++ *
++ * Page JavaScript writes NMEA bytes into a single-producer/single-consumer
++ * ring. A virtual-clock timer drains them into an ordinary QEMU character
++ * frontend, keeping PL011 state confined to QEMU's runtime thread.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/timer.h"
++#include "chardev/char.h"
++#include "hw/misc/qemu-browser-gnss.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++#define GNSS_BUFFER_SIZE 2048
++#define GNSS_BUFFER_MASK (GNSS_BUFFER_SIZE - 1)
++#define GNSS_POLL_MS 20
++
++typedef struct BrowserGnssState {
++    Chardev *chr;
++    QEMUTimer *timer;
++    uint8_t buffer[GNSS_BUFFER_SIZE];
++    uint32_t head;
++    uint32_t tail;
++} BrowserGnssState;
++
++static BrowserGnssState browser_gnss;
++
++/*
++ * Called from the browser thread. Only the ring is shared with QEMU; the
++ * character frontend itself is touched exclusively by browser_gnss_drain().
++ */
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_gnss_feed_byte(int value)
++{
++    uint32_t head, next;
++
++    if (!browser_gnss.chr || value < 0 || value > UINT8_MAX) {
++        return 0;
++    }
++
++    head = qatomic_read(&browser_gnss.head);
++    next = (head + 1) & GNSS_BUFFER_MASK;
++    if (next == qatomic_read(&browser_gnss.tail)) {
++        return 0;
++    }
++
++    browser_gnss.buffer[head] = value;
++    qatomic_set(&browser_gnss.head, next);
++    return 1;
++}
++
++static void browser_gnss_drain(void *opaque)
++{
++    BrowserGnssState *s = opaque;
++    uint32_t head, tail;
++    int writable, count;
++
++    for (;;) {
++        head = qatomic_read(&s->head);
++        tail = qatomic_read(&s->tail);
++        if (tail == head) {
++            break;
++        }
++
++        writable = qemu_chr_be_can_write(s->chr);
++        if (writable <= 0) {
++            break;
++        }
++
++        count = MIN((uint32_t)writable,
++                    MIN(head > tail ? head - tail : GNSS_BUFFER_SIZE - tail,
++                        (uint32_t)INT_MAX));
++        qemu_chr_be_write(s->chr, &s->buffer[tail], count);
++        qatomic_set(&s->tail, (tail + count) & GNSS_BUFFER_MASK);
++    }
++
++    timer_mod(s->timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + GNSS_POLL_MS);
++}
++
++Chardev *qemu_browser_gnss_chardev(void)
++{
++    BrowserGnssState *s = &browser_gnss;
++
++    if (s->chr) {
++        return s->chr;
++    }
++
++    s->chr = qemu_chr_new("browser-gnss", "null", NULL);
++    s->timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, browser_gnss_drain, s);
++    timer_mod(s->timer,
++              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + GNSS_POLL_MS);
++    return s->chr;
++}
+diff --git a/hw/riscv/virt.c b/hw/riscv/virt.c
+index 47e573f..a8e452f 100644
+--- a/hw/riscv/virt.c
++++ b/hw/riscv/virt.c
+@@ -28,6 +28,7 @@
+ #include "hw/sysbus.h"
+ #include "hw/qdev-properties.h"
+ #include "hw/char/serial-mm.h"
++#include "hw/misc/qemu-browser-gnss.h"
+ #include "target/riscv/cpu.h"
+ #include "hw/core/sysbus-fdt.h"
+ #include "target/riscv/pmu.h"
+@@ -1705,6 +1706,14 @@ static void virt_machine_init(MachineState *machine)
+         0, qdev_get_gpio_in(mmio_irqchip, UART0_IRQ), 399193,
+         serial_hd(0), DEVICE_LITTLE_ENDIAN);
+ 
++    /*
++     * Browser-fed GNSS UART: second 16550 at 0x1000b000 (PLIC IRQ 12), in the
++     * hole after virtio and before fw_cfg. Matches qemu_riscv32.overlay.
++     */
++    serial_mm_init(system_memory, 0x1000b000,
++        0, qdev_get_gpio_in(mmio_irqchip, 12), 399193,
++        qemu_browser_gnss_chardev(), DEVICE_LITTLE_ENDIAN);
++
+     sysbus_create_simple("goldfish_rtc", s->memmap[VIRT_RTC].base,
+         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
+ 
+diff --git a/include/hw/misc/qemu-browser-gnss.h b/include/hw/misc/qemu-browser-gnss.h
+new file mode 100644
+index 0000000..fa2b37f
+--- /dev/null
++++ b/include/hw/misc/qemu-browser-gnss.h
+@@ -0,0 +1,19 @@
++/*
++ * Browser-fed NMEA character backend.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_MISC_QEMU_BROWSER_GNSS_H
++#define HW_MISC_QEMU_BROWSER_GNSS_H
++
++#include "chardev/char.h"
++
++/*
++ * Returns a singleton backend. The browser fills its lock-free byte ring and
++ * a QEMU timer drains those bytes into the UART frontend on the QEMU thread.
++ */
++int qemu_browser_gnss_feed_byte(int value);
++Chardev *qemu_browser_gnss_chardev(void);
++
++#endif
