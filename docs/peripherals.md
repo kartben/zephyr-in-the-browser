@@ -42,16 +42,23 @@ series rather than a deletion.
 
 The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
 *TypeScript*, not C: TMP112 and LM75 thermometers, an ADXL345 accelerometer,
-an LSM6DSO IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035
-light sensor, an AT24 EEPROM and an SSD1306 OLED, all under
-[`src/virtio/devices/`](../src/virtio/devices). The guest side is entirely
-stock — `ti,tmp112`, `lm75`, `adi,adxl345`, `st,lsm6dso`, `st,lps22hh`,
-`ti,ina219`, `isil,isl29035`, `atmel,at24`, `solomon,ssd1306` — so
-`sensor get lps22hh@5c` reads a value the page made up through the same driver
-a real board would use. The LSM6DSO is the advanced motion case: Zephyr's
-`samples/sensor/lsm6dso` calls `sensor_attr_set` to put accel and gyro at
-12.5 Hz, and the panel's ODR selects update when those CTRL register writes
-land.
+an AT24 EEPROM and an SSD1306 OLED by default, under
+[`src/virtio/devices/`](../src/virtio/devices). Optional extras — an LSM6DSO
+IMU, an LPS22HH barometer, an INA219 power monitor, and an ISL29035 light
+sensor — stay `status = "disabled"` in the virtio-i2c overlay so everyday
+builds (accel chart, OLED display, …) do not clutter the dock. The shell
+turns them all on with `-S i2c-sensors-extra`; each dedicated sensor sample
+uses a `*-only` snippet that enables that part and disables the default
+temperature / accel nodes. The page attaches matching models only while the
+guest tree marks those nodes okay.
+
+The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
+`st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `atmel,at24`,
+`solomon,ssd1306` — so `sensor get lps22hh@5c` reads a value the page made up
+through the same driver a real board would use. The LSM6DSO is the advanced
+motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set` to put
+accel and gyro at 12.5 Hz, and the panel's ODR selects update when those CTRL
+register writes land.
 
 Chips are **declared rather than hand-written**, by whichever of two small
 frameworks fits, and each synthesises both the chip's behaviour on the bus and

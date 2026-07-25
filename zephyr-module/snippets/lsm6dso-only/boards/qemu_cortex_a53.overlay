@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/sensor/lsm6dso: IMU only. EEPROM and OLED stay available on the bus.
+ */
+
+&lsm6dso_0 {
+	status = "okay";
+};
+
+&tmp112_0 {
+	status = "disabled";
+};
+
+&lm75_0 {
+	status = "disabled";
+};
+
+&adxl345_0 {
+	status = "disabled";
+};

@@ -8,8 +8,10 @@
  * docs/virtio-bridge.md.
  */
 
+import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { createGpioModel } from './devices/gpio'
 import { createI2cModel } from './devices/i2c'
+import type { I2cChip } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
@@ -19,6 +21,7 @@ import { createLps22hh } from './devices/sensors/lps22hh'
 import { createIna219 } from './devices/sensors/ina219'
 import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
+import { FALLBACK_DT_SLOTS } from './devices/registry'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
 /** VIRTIO GPIO controller, name=gpio on the Cortex-A53 command line. */
@@ -28,45 +31,33 @@ export const gpioModel = createGpioModel('gpio')
 export const i2cModel = createI2cModel('i2c')
 
 /**
- * What is soldered to the browser's I2C bus. Attached once at module load
- * rather than per attach, so the EEPROM keeps its contents across a guest
- * restart — which is what a real board does, and what makes writing to it and
- * then rebooting a demo worth doing.
+ * What can be soldered to the browser's I2C bus. Instances are created once so
+ * EEPROM contents (and sensor slider state) survive attach/detach across a
+ * guest restart — which is what a real board does. Which of them are *on* the
+ * bus follows the running build's devicetree: extra sensors stay off until a
+ * snippet enables their nodes, and dedicated samples drop the default sensors
+ * so the dock is not cluttered. See syncManagedChips below.
  */
 export const eeprom = createAt24({ address: 0x50 })
-i2cModel.attachChip(eeprom)
 
-/**
- * The temperature parts. Both hold a reading of their own now, driven from
- * their sensor cards (src/components/SensorCard.tsx) — the retired
- * qemu,host-sensor bridge used to feed the TMP112 from a shared slider, but a
- * simulated sensor is a first-class device here, not a readout of an MMIO one.
- */
 export const tmp112 = createTmp112({ address: 0x48 })
-i2cModel.attachChip(tmp112)
 
 export const lm75 = createLm75({ address: 0x49 })
-i2cModel.attachChip(lm75)
 
 /** A 3-axis accelerometer, which the card can point at the device's own tilt. */
 export const adxl345 = createAdxl345({ address: 0x53 })
-i2cModel.attachChip(adxl345)
 
 /**
  * A 6-axis IMU (accel + gyro). The stock `st,lsm6dso` driver configures its
  * ODR through sensor attributes — which is what samples/sensor/lsm6dso shows.
  */
 export const lsm6dso = createLsm6dso({ address: 0x6a })
-i2cModel.attachChip(lsm6dso)
 
 export const lps22hh = createLps22hh({ address: 0x5c })
-i2cModel.attachChip(lps22hh)
 
 export const ina219 = createIna219({ address: 0x40 })
-i2cModel.attachChip(ina219)
 
 export const isl29035 = createIsl29035({ address: 0x44 })
-i2cModel.attachChip(isl29035)
 
 /**
  * The one chip with something to show. Zephyr's stock `solomon,ssd1306-i2c`
@@ -75,7 +66,61 @@ i2cModel.attachChip(isl29035)
  * array in this module.
  */
 export const ssd1306 = createSsd1306({ address: 0x3c })
-i2cModel.attachChip(ssd1306)
+
+/** Board defaults + optional extras the overlay declares; keyed by address. */
+const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
+  [0x3c, ssd1306],
+  [0x40, ina219],
+  [0x44, isl29035],
+  [0x48, tmp112],
+  [0x49, lm75],
+  [0x50, eeprom],
+  [0x53, adxl345],
+  [0x5c, lps22hh],
+  [0x6a, lsm6dso],
+])
+
+/**
+ * Addresses the running build wants answered. Prefer the loaded tree's bridged
+ * slots (empty when the build has no I2C); fall back to the hardcoded defaults
+ * only when no usable tree is known.
+ */
+function wantedManagedAddresses(): Set<number> {
+  const insights = getDeviceTree()?.insights
+  if (insights) {
+    const addrs = new Set<number>()
+    for (const bus of insights.i2cBuses) {
+      if (!bus.bridged) continue
+      for (const slot of bus.slots) addrs.add(slot.address)
+    }
+    return addrs
+  }
+  return new Set(Object.keys(FALLBACK_DT_SLOTS).map(Number))
+}
+
+/**
+ * Attach or detach each managed chip so the bus matches the guest DT (or the
+ * fallback table). Leaves a non-managed chip the user attached alone — only
+ * our singletons are steered.
+ */
+export function syncManagedChips() {
+  const wanted = wantedManagedAddresses()
+  const onBus = new Map(i2cModel.chips().map((chip) => [chip.address, chip]))
+
+  for (const [address, chip] of MANAGED_CHIPS) {
+    const current = onBus.get(address)
+    if (wanted.has(address)) {
+      if (current === chip) continue
+      if (current !== undefined) continue // user-attached stranger; leave it
+      i2cModel.attachChip(chip)
+    } else if (current === chip) {
+      i2cModel.detachChip(address)
+    }
+  }
+}
+
+syncManagedChips()
+subscribeDeviceTree(syncManagedChips)
 
 /**
  * Called by the qemu backend once its module is live. Registration happens

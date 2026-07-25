@@ -21,6 +21,14 @@ describe('hasDriver', () => {
     expect(hasDriver(0x20)).toBe(false)
   })
 
+  it('does not claim optional sensors from the fallback table', () => {
+    expect(hasDriver(0x48)).toBe(true)
+    expect(hasDriver(0x6a)).toBe(false)
+    expect(hasDriver(0x5c)).toBe(false)
+    expect(hasDriver(0x40)).toBe(false)
+    expect(hasDriver(0x44)).toBe(false)
+  })
+
   it('declares nothing when the loaded tree has no bridged bus', () => {
     setUserDts('blinky.dts', a53Blinky)
     // The fallback table would say yes; the blinky devicetree knows better.
