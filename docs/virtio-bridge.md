@@ -173,9 +173,17 @@ touch a virtqueue off the QEMU thread.
   | the previous timer's callback | 4.14 ms |
   | a `MessagePort` message handler | 1.13 ms |
 
-  Since the guest blocks on the page, that difference is added to the latency of
-  every transfer it makes. The idle path stays on the plain 50 ms timer, where
-  one message hop per tick would cost more than it saves.
+  What that difference is *not* worth is guest latency, which is the reason it
+  was made and is worth recording as wrong: an `i2c scan` — 116 blocking round
+  trips — takes 1.57 s with the port hop and 1.58 s without, on one machine
+  against one emulator. A blocking transfer costs ~13.5 ms end to end and the
+  page's poll is ~1.2 ms of it; the rest is on the QEMU side of the wire. The
+  hop stays because it is strictly less main-thread work for strictly better
+  scheduling, not because the guest can tell. See
+  [performance.md](performance.md#what-the-measurements-showed).
+
+  The idle path stays on the plain 50 ms timer, where one message hop per tick
+  would cost more than it saves.
 
   `stats()` in `src/virtio/transport.ts` counts the gaps between consecutive hot
   polls so this can be checked rather than assumed; `src/display/profile.ts`
@@ -183,19 +191,19 @@ touch a virtqueue off the QEMU thread.
   a `bridge_poll_clamped` note.
 
 At rest this is one shared-memory read per device per 50 ms. Under load a
-blocking transfer costs QEMU's 1 ms drain plus however fast the page's event
-loop turns. The end-to-end figure worth quoting is the one that was actually
-measured: a 116-address `i2c scan` — 116 blocking round trips back to back —
-completes in under ten seconds in a *hidden* tab, against roughly two minutes
-before the port replaced the timer.
+blocking transfer was measured at **~13.5 ms end to end** — 116 of them in a
+1.57 s `i2c scan` — of which the page's poll is ~1.2 ms. The rest is QEMU's
+side: the nominal 1 ms drain, plus whatever the wasm main loop actually
+achieves between vCPU slices, which nothing here has measured yet.
 
-The remaining levers, in order, are the ones
-[performance.md](performance.md) tracks: moving the poll into a worker, where
-`Atomics.wait` replaces the whole hot-window apparatus with a sub-millisecond
-blocking wait that no clamp applies to; a `memory.atomic.notify` on the QEMU
-side after it publishes `req_wr`, turning that wait into a real wakeup; and
-`qemu_bh_schedule()` from the page to wake the main loop on completion rather
-than have it poll.
+That split is what reorders the remaining levers, and it is the opposite of the
+order this document used to give. Page-side work — moving the poll into a worker
+so `Atomics.wait` replaces the whole hot-window apparatus — is now the *last*
+thing worth doing for latency, because it is chasing 1.2 ms of 13.5. The two
+that attack the QEMU side come first: a counter that says what the drain
+interval really is, and then either a `memory.atomic.notify` after `req_wr` is
+published or a `qemu_bh_schedule()` from the page on completion, so neither side
+is waiting on a timer to notice the other.
 
 ## What a backgrounded tab costs
 
@@ -204,11 +212,18 @@ GPIO read was answered inside QEMU and never touched the page's event loop. Now
 the guest blocks until the page answers, so the page's scheduling is the
 guest's scheduling.
 
-The `MessagePort` hot path above is what makes that survivable — a burst in a
-hidden tab runs at full speed. What remains is the *first* request after an
-idle period, which the 50 ms timer notices, and that timer is throttled to
-roughly a second while hidden. So a background tab adds about a second of
-latency to the start of a burst and nothing after it.
+The `MessagePort` hot path above is what was supposed to make that survivable —
+a burst in a hidden tab running at full speed. **Treat that as unverified
+today.** The hot loop posts a message and then arms an ordinary `setTimeout`
+from its handler, and a timer in a hidden tab is throttled whatever task armed
+it; only the message hop itself escapes. Headless Chromium keeps reporting
+`visibilityState: "visible"`, so this could not be re-measured here. Whoever has
+a real browser to hand should check it before relying on the paragraph below.
+
+If it does hold, what remains is the *first* request after an idle period, which
+the 50 ms timer notices, and that timer is throttled to roughly a second while
+hidden. So a background tab adds about a second of latency to the start of a
+burst and nothing after it.
 
 Nothing is ever lost: no timeout, no dropped chain, and the watchdog below does
 not fire, because the request is answered as soon as the page runs. A guest
