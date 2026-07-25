@@ -1,0 +1,23 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on every optional sensor the virtio-i2c overlay declares disabled.
+ * Requires -S virtio-i2c (which defines the labelled nodes below).
+ */
+
+&lsm6dso_0 {
+	status = "okay";
+};
+
+&lps22hh_0 {
+	status = "okay";
+};
+
+&ina219_0 {
+	status = "okay";
+};
+
+&isl29035_0 {
+	status = "okay";
+};

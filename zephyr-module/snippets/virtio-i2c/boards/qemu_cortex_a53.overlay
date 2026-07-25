@@ -6,12 +6,12 @@
  * browser has on the bus. The node itself is declared (disabled) by the
  * browser_bridge shield, whose overlay documents the slot and the QEMU side.
  *
- * The chips are page-side models (src/virtio/devices/chips/), so this overlay
- * and src/virtio/index.ts have to agree on what is soldered where: devicetree
- * is static, and a node here whose address the page is not answering for will
- * simply fail to bind. That is not a bug to hide — a chip the page detaches
- * NAKs exactly like one that fell off the board, which makes a bus error a
- * thing this simulator can actually demonstrate.
+ * The chips are page-side models (src/virtio/devices/), so this overlay and
+ * src/virtio/index.ts have to agree on what is soldered where. Extra sensors
+ * start disabled; enabling snippets turn them on, and the page attaches the
+ * matching models only while those nodes are okay. A node whose address the
+ * page is not answering for simply fails to bind — a chip the page detaches
+ * NAKs exactly like one that fell off the board.
  *
  * Snippet overlays are applied after the shield's, so virtio_i2c0 already
  * exists by the time this runs.
@@ -74,32 +74,27 @@
 	};
 
 	/*
-	 * Matches createLsm6dso({ address: 0x6a }) in src/virtio/index.ts: a
-	 * 6-axis IMU whose ODR the stock st,lsm6dso driver sets through sensor
-	 * attributes. samples/sensor/lsm6dso finds it via DEVICE_DT_GET_ONE;
-	 * `sensor get lsm6dso@6a` reads it from the shell. No irq-gpios — the
-	 * browser bus has no INT line, so the sample runs in polling mode.
+	 * Extra sensors stay disabled here so everyday virtio-i2c builds
+	 * (accel_chart, oled, …) do not clutter the dock. Enable them with:
+	 *   -S i2c-sensors-extra   (shell: all four)
+	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only
+	 *     (dedicated sample: that part alone, defaults off)
+	 *
+	 * The page attaches matching TypeScript models only while these nodes
+	 * are okay — see syncManagedChips in src/virtio/index.ts.
 	 */
 	lsm6dso_0: lsm6dso@6a {
 		compatible = "st,lsm6dso";
 		reg = <0x6a>;
-		status = "okay";
+		status = "disabled";
 	};
 
-	/*
-	 * Matches createLps22hh({ address: 0x5c }) — pressure + temperature,
-	 * polled one-shot by samples/sensor/lps22hh.
-	 */
 	lps22hh_0: lps22hh@5c {
 		compatible = "st,lps22hh";
 		reg = <0x5c>;
-		status = "okay";
+		status = "disabled";
 	};
 
-	/*
-	 * Matches createIna219({ address: 0x40 }). Shunt/LSB/ADC match the
-	 * upstream sample overlay so page-side encoding round-trips.
-	 */
 	ina219_0: ina219@40 {
 		compatible = "ti,ina219";
 		reg = <0x40>;
@@ -109,16 +104,13 @@
 		badc = <13>;
 		shunt-milliohm = <100>;
 		lsb-microamp = <10>;
-		status = "okay";
+		status = "disabled";
 	};
 
-	/*
-	 * Matches createIsl29035({ address: 0x44 }). No int-gpios — polling.
-	 */
 	isl29035_0: isl29035@44 {
 		compatible = "isil,isl29035";
 		reg = <0x44>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/*

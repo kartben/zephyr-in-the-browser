@@ -1,0 +1,12 @@
+name: lps22hh-only
+description: >
+  LPS22HH alone on the browser I²C bus: enable the barometer and disable the
+  default temperature / accel parts so the dock stays focused on this sample.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

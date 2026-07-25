@@ -116,19 +116,16 @@ export const CHIP_TYPES: ChipType[] = [
 
 /**
  * Fallback for builds whose devicetree is unknown: the addresses the
- * qemu_cortex_a53 virtio-i2c snippet overlay declares, mapped to the chip type
- * that belongs there. Kept in sync with the overlay by hand — but only
+ * qemu_cortex_a53 virtio-i2c snippet overlay declares *enabled by default*
+ * (TMP112, LM75, ADXL345, AT24, SSD1306). Optional sensors stay off until a
+ * sample's tree enables them. Kept in sync with the overlay by hand — but only
  * consulted when no zephyr.dts is loaded.
  */
 export const FALLBACK_DT_SLOTS: Record<number, string> = {
-  0x40: 'ina219',
-  0x44: 'isl29035',
   0x48: 'tmp112',
   0x49: 'lm75',
   0x50: 'at24',
   0x53: 'adxl345',
-  0x5c: 'lps22hh',
-  0x6a: 'lsm6dso',
   0x3c: 'ssd1306',
 }
 

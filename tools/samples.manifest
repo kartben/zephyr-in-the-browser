@@ -10,9 +10,10 @@
 # - conf             optional Kconfig fragments, relative to zephyr-module/,
 #                    comma-separated
 # - snippet          optional snippets (west build -S ...), comma-separated.
-#                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio
-#                    and virtio-i2c; leave the conf field empty (a bare "::")
-#                    to use snippets without fragments.
+#                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
+#                    virtio-i2c, i2c-sensors-extra, and the *-only sensor
+#                    snippets; leave the conf field empty (a bare "::") to use
+#                    snippets without fragments.
 #
 # Every build also applies the browser_bridge shield (zephyr-module/boards/
 # shields/browser_bridge), which adds the browser-fed peripherals and their
@@ -45,12 +46,12 @@ qemu_cortex_a53:display:samples/drivers/display
 qemu_cortex_a53:touch:samples/subsys/input/draw_touch_events
 qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf
 qemu_cortex_a53:accel_chart:samples/modules/lvgl/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c
-qemu_cortex_a53:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c
-qemu_cortex_a53:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c
-qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c
-qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c
+qemu_cortex_a53:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c,lsm6dso-only
+qemu_cortex_a53:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps22hh-only
+qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
+qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
 qemu_cortex_a53:philosophers:samples/philosophers
-qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c
+qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c,i2c-sensors-extra
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
 qemu_cortex_a53:http_server:samples/net/sockets/dumb_http_server:conf/net.conf

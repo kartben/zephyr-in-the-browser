@@ -1,0 +1,13 @@
+name: i2c-sensors-extra
+description: >
+  Enable the optional I²C sensors (LSM6DSO, LPS22HH, INA219, ISL29035) on the
+  browser bus. Pair with virtio-i2c; used by the shell sample so every part is
+  reachable without cluttering single-sensor demos.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
