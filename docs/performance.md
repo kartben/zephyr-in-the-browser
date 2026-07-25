@@ -26,11 +26,11 @@ the list matters for a given workload:
 | --- | --- | --- | --- | --- | --- |
 | 1 | The bridge's "1 ms" hot poll was really ~4 ms — **fixed, and it changed nothing the guest can see** | `src/virtio/transport.ts` | **None measured** | Low → Medium | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
-| 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
-| 4 | Every ARM machine QEMU ships was compiled in — **measured: arm 34.4 → 8.4 MB** | build | High, startup only | Low | Low |
+| 3 | Nothing set an optimisation level at *link* — **shipped; no measurable speed change** | build | **None measured** | Very low | Low |
+| 4 | Every ARM machine QEMU ships was compiled in — **shipped: arm 34.4→8.4 MB, aarch64 19.1→15.9 MB** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
-| 7 | **QEMU owns the round trip** — the page is ~1 ms of ~13 ms | virtio patch | **High, I²C-bound** | Low | Low |
+| 7 | **QEMU owns the round trip** — the page is 1.2 ms of a measured 12.2 ms | virtio patch | **High, I²C-bound** | Low | Low |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
@@ -48,10 +48,13 @@ went from **34,378,542 to 8,355,153 bytes — 4.1×** — and `npcm7xx_bootrom.b
 `aspeed_i2c_bus_recv` — the generated trace-event name table is built for every
 subsystem regardless of device Kconfig. Machine models, not strings.)
 
-**Items 3 and 4 are not live on the A53 board.** `qemu-system-aarch64.wasm` is
-still 19,144,429 bytes and its tail hashes identically to a copy taken before
-any of this work: that artifact has not been rebuilt. Anything measured on
-Cortex-A53 today is the old emulator with a new page on top.
+**Item 3 shipped and moved nothing measurable.** Once the A53 emulator was
+rebuilt, the old 19.1 MB binary and the new 15.9 MB one were run against the
+same page, the same guest and the same machine: **24.73 vs 24.89 MIPS**, 58 vs
+61 i2cHz, 3.2 vs 3.3 s to boot. So link-time `-O3` is not a speedup here, and
+the reasoning behind item 2 loses its main supporting argument — unoptimised
+Asyncify instrumentation was the mechanism this was supposed to expose. It is
+not a regression either, and it comes with the size win below, so it stays.
 
 **Item 1(a) does not do what this document predicted.** The mechanism change is
 real — `bridgePollMs` reads **1.15–1.26 ms** live, against the 4.14 ms a nested
@@ -77,6 +80,41 @@ scheduling, it is what makes `bridgePollMs` meaningful, and the instrumentation
 it added is what turned this section from arithmetic into measurement. But it
 should not be described as a speedup, and this document should not have
 predicted one with the confidence it did.
+
+### State of main, audited
+
+Everything above was measured while the tree was mid-flight. Re-run against
+`a629acb` with both artifacts rebuilt and both regressions fixed:
+
+| | Result |
+| --- | --- |
+| Cortex-M3 `shell` | boots — GPIO and audio bridges register, prompt up (the `split-irq` abort is gone) |
+| A53 `accel_chart` | ramfb back to **480×320**, i2cHz **93**, `bridgePollMs` 1.12 |
+| `i2c scan`, 116 blocking round trips | **1.42 s → 12.2 ms per round trip**, of which the page's poll is 1.24 ms |
+| `qemu-system-arm.wasm` | 8.36 MB (was 34.4) |
+| `qemu-system-aarch64.wasm` | 15.9 MB (was 19.1) |
+| guest `.dts` sidecars | served again, both boards |
+
+Two things worth carrying forward from the fixes:
+
+- **The device lists are tree-specific and cannot be copied between the two
+  patch series.** minikconf's `compute_config()` runs `check_undefined()` first
+  and aborts on any symbol the tree never declares, so naming
+  `CONFIG_MAX78000FTHR` — which the pinned ktock fork predates — failed
+  *configure* for aarch64 while being correct against upstream. This document
+  previously claimed such a symbol was "created and ignored"; that was wrong and
+  cost a build. Both `.mak` headers now say so.
+- **An edit to either list is checkable in seconds without a rebuild.** Run
+  `scripts/minikconf.py` from a sparse checkout of the tree in question against
+  the list; all four combinations (arm and aarch64 on upstream, aarch64 on the
+  JIT fork, plus the `QEMU_AARCH64_ACCEL=tci` fallback) currently configure
+  clean.
+
+One instrument bug spotted while auditing: on `accel_chart`, `guestFps` reads 0
+while the render worker reports `uploadFps` 6.3. The worker only uploads a frame
+that differs from the last, so the guest is painting and it is the main thread's
+sparse-hash sampler in `src/display/profile.ts` that is missing it. Nothing else
+depends on that number, but it should not be trusted until fixed.
 
 Two things this could not settle here, both worth doing on real hardware:
 
@@ -485,20 +523,19 @@ to the one bridge where the failure mode is something the user can hear.
 ## Suggested order
 
 Reordered by what the measurements said, not by what this document originally
-guessed.
+guessed. Items 1, 3 and 4 are done; two of the three moved nothing.
 
-1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done. Pace 4.14 → 1.15 ms;
-   **no guest-visible change**, which is the finding, not a footnote.
-2. ~~Item 4 (trim the machine list)~~ — done and confirmed on arm, 4.1× smaller.
-3. **Rebuild aarch64.** Everything below needs it: it is the board with the MIPS
-   readout, the display, and the virtio bridge, and it is still running the old
-   emulator.
-4. **Item 7's counter** — the interval from a completion being published to
-   QEMU's drain picking it up. It is a handful of lines and it is the only way
-   to find the ~12 ms that dominates every blocking transfer. Nothing else on
-   the I²C-latency path is worth doing before this number exists.
-5. Item 3's number, from the same aarch64 rebuild — MIPS before and after.
-6. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
-   promotes item 2 to the top of the list or removes it from it.
-7. Items 8/9, and item 1(b) if a worker is wanted for main-thread contention
-   and hidden-tab behaviour — no longer for latency.
+1. **Item 7's counter** — the interval from a completion being published to
+   QEMU's drain picking it up. A blocking transfer costs 12.2 ms and the page
+   owns 1.2 ms of it; nothing else on the I²C path is worth doing until the
+   other 11 ms has a name. A handful of lines in `virtio-browser.c` plus an
+   export the page reads the way it reads the icount.
+2. **Item 2's `ASYNCIFY_ADVISE` run** — one flag in the link patch. Item 3
+   producing no speedup weakens the hypothesis behind it, so this is now as
+   likely to close item 2 as to promote it. Either is worth knowing.
+3. **Item 6, the `-icount` shift sweep** — a one-character edit and a rerun of
+   `tools/profile-accel.mjs` at shift 1–5. Still the cheapest untried lever.
+4. **Item 5, the 2023 emsdk pin** — everything items 2 and 3 can do is capped by
+   that toolchain's Binaryen.
+5. Items 8/9, and item 1(b) if a worker is wanted for main-thread contention and
+   hidden-tab behaviour — no longer for latency.

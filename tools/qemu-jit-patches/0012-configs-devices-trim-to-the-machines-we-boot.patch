@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..e71d3a8
 --- /dev/null
 +++ b/configs/devices/aarch64-softmmu/browser.mak
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,94 @@
 +# Device configuration for zephyr-in-the-browser's aarch64-softmmu artifact.
 +#
 +# Selected by tools/build-qemu-wasm.sh with --with-devices-aarch64=browser.
@@ -27,6 +27,13 @@ index 0000000..e71d3a8
 +# boards are therefore repeated here, with ARM_VIRT left alone and STELLARIS --
 +# the one the arm artifact keeps -- turned off, since this artifact never boots
 +# it.
++#
++# This list is not interchangeable with the copy in the other patch series.
++# minikconf aborts configure with "undefined symbol FOO" for anything this tree
++# never declares, and the two pinned trees do not declare the same set -- the
++# ktock fork predates CONFIG_MAX78000FTHR, so naming it here failed the build
++# while the same line is correct against upstream. Check an edit by running
++# scripts/minikconf.py from the tree in question rather than by rebuilding.
 +
 +# 32-bit boards, none of which this artifact runs.
 +CONFIG_CUBIEBOARD=n
@@ -96,7 +103,7 @@ new file mode 100644
 index 0000000..06f5c21
 --- /dev/null
 +++ b/configs/devices/arm-softmmu/browser.mak
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,92 @@
 +# Device configuration for zephyr-in-the-browser's arm-softmmu artifact.
 +#
 +# Selected by tools/build-qemu-wasm.sh with --with-devices-arm=browser, which
@@ -118,11 +125,23 @@ index 0000000..06f5c21
 +# cannot do that: Kconfig `select` still pulls in everything the machine we keep
 +# needs, so what goes away is only what nothing we run refers to.
 +#
-+# An assignment here is final -- minikconf raises "contradiction between
-+# clauses" if the same symbol is assigned twice -- which is also why this file
-+# does not `include ../arm-softmmu/default.mak` the way aarch64's default.mak
-+# does. A symbol that does not exist in the tree being built is created and
-+# ignored, so the same list is safe against both pinned QEMU trees.
++# Two minikconf rules bite when editing this list, and both fail the *configure*
++# rather than the build:
++#
++#   * An assignment is final. Assigning the same symbol twice with different
++#     values raises "contradiction between clauses" rather than letting the
++#     later one win, which is why this file does not `include
++#     ../arm-softmmu/default.mak` the way aarch64's default.mak does.
++#   * Every symbol named here must exist *in the tree being built*.
++#     compute_config() runs check_undefined() first and aborts with "undefined
++#     symbol FOO" on anything never declared by a `config FOO`. So this list is
++#     NOT portable between the two pinned QEMU trees: the aarch64 list in
++#     tools/qemu-jit-patches/ has to drop symbols the older ktock tree lacks
++#     (CONFIG_MAX78000FTHR was exactly this, and cost a build). Regenerating one
++#     series is not licence to copy it over the other.
++#
++# Both are cheap to check without a rebuild: run scripts/minikconf.py from the
++# tree in question against this file. See docs/performance.md.
 +
 +# Boards.
 +CONFIG_ARM_VIRT=n
