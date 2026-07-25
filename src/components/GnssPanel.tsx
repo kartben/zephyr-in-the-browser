@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { MapPin } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
+import { CheckControl, NumberControl } from '@/components/controls/ControlRow'
 import {
   available,
   followingBrowser,
@@ -57,44 +58,30 @@ export function GnssBody() {
   const watchError = useSyncExternalStore(subscribe, locationError, () => '')
 
   return (
-    <div className="space-y-3 px-3 py-3">
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={live}
-            onChange={(event) => setFollowBrowser(event.target.checked)}
-            className="accent-[var(--color-primary)]"
-          />
-          Follow browser location
-        </label>
+    <div className="space-y-1 px-3 py-2.5">
+      <div className="flex flex-wrap gap-1.5 pb-1">
+        <CheckControl label="Follow browser location" checked={live} onChange={setFollowBrowser} />
+      </div>
 
-        {watchError && <p className="text-[11px] text-destructive">{watchError}</p>}
+      {watchError && <p className="text-[11px] text-destructive">{watchError}</p>}
 
-        <div className="grid grid-cols-2 gap-2">
-          {FIELDS.map((field) => (
-            <label key={field.key} className="space-y-1 text-[11px] text-muted-foreground">
-              <span>{field.label}</span>
-              <span className="flex items-center rounded-md border border-input bg-background px-2">
-                <input
-                  type="number"
-                  aria-label={field.label}
-                  value={fix[field.key]}
-                  min={field.min}
-                  max={field.max}
-                  step={field.step}
-                  disabled={live && field.key !== 'satellites'}
-                  onChange={(event) => setFix({ [field.key]: Number(event.target.value) })}
-                  className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs text-foreground outline-none disabled:opacity-50"
-                />
-                {field.unit && <span className="ml-1">{field.unit}</span>}
-              </span>
-            </label>
-          ))}
-        </div>
+      {FIELDS.map((field) => (
+        <NumberControl
+          key={field.key}
+          label={field.label}
+          unit={field.unit}
+          value={fix[field.key]}
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          disabled={live && field.key !== 'satellites'}
+          onChange={(value) => setFix({ [field.key]: value })}
+        />
+      ))}
 
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          GGA and RMC fixes are sent once per second to Zephyr’s generic NMEA GNSS driver.
-        </p>
+      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+        GGA and RMC fixes are sent once per second to Zephyr’s generic NMEA GNSS driver.
+      </p>
     </div>
   )
 }

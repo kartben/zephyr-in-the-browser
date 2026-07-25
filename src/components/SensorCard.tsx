@@ -1,23 +1,30 @@
 import { useCallback, useEffect, useReducer, useSyncExternalStore } from 'react'
 import { Gauge } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
-import { isFollowing, setFollow, subscribe as subscribeFollows } from '@/lib/followStore'
-import { LIVE_SOURCES } from '@/virtio/devices/sensors/liveSource'
-import type { AttrDecl, ChannelDecl, SensorChip } from '@/virtio/devices/sensors/model'
+import { CheckControl, SelectControl, SliderControl } from '@/components/controls/ControlRow'
+import {
+  groupDrivesChannel,
+  isFollowingGroup,
+  setFollowGroup,
+  subscribe as subscribeFollows,
+} from '@/lib/followStore'
+import {
+  SOURCE_GROUPS,
+  sourceGroupOf,
+  type LiveSourceGroup,
+} from '@/virtio/devices/sensors/liveSource'
+import type { SensorChip } from '@/virtio/devices/sensors/model'
 
 /**
  * The generic control surface for a simulated I2C sensor.
  *
  * Everything it renders comes from the chip's declaration
- * (src/virtio/devices/sensors/model.ts): a slider per channel, a toggle or
- * select per config attribute, and — where a channel names a browser source —
- * a checkbox to follow that source instead of the slider. Adding a sensor is
- * therefore a declaration, not another panel: this card draws whatever the
- * declaration lists.
- *
- * The card is a *device*, so it lives on the devices edge. The bus it rides is
- * incidental here and is the I2C panel's concern; this shows the thing, not the
- * wire.
+ * (src/virtio/devices/sensors/model.ts): one slider line per channel, a chip
+ * per config attribute, and — where channels name browser sources — one
+ * "follow" toggle per source *group*, because the ADXL's three axes are one
+ * physical tilt, not three decisions. Adding a sensor is therefore a
+ * declaration, not another panel: this body draws whatever the declaration
+ * lists.
  */
 export function SensorCard({
   chip,
@@ -43,20 +50,89 @@ export function SensorCard({
   )
 }
 
-/**
- * The card's content without the frame, so the dock can mount the same
- * controls as a row body and the floating window can reuse them unchanged.
- */
+/** Subscribe a component to a chip's changes, re-rendering on each notify. */
+function useChip(chip: SensorChip) {
+  const [, force] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => chip.subscribe(force), [chip])
+}
+
 export function SensorBody({ chip }: { chip: SensorChip }) {
+  useChip(chip)
   const hex = chip.address.toString(16).padStart(2, '0')
+
+  // The source groups this chip can follow, in channel order, deduplicated.
+  const groups: LiveSourceGroup[] = []
+  for (const channel of chip.decl.channels) {
+    if (!channel.source) continue
+    const group = sourceGroupOf(channel.source)
+    if (!groups.includes(group)) groups.push(group)
+  }
+
+  // Re-render when any follow toggles; the snapshot is a cheap value token.
+  useSyncExternalStore(
+    subscribeFollows,
+    useCallback(
+      () => groups.filter((group) => isFollowingGroup(chip, group)).join(','),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [chip],
+    ),
+    () => '',
+  )
+
+  const bitAttrs = chip.decl.attributes?.filter((a) => !a.bits) ?? []
+  const fieldAttrs = chip.decl.attributes?.filter((a) => a.bits) ?? []
+
   return (
-    <div className="space-y-3 px-3 py-3">
-      {chip.decl.channels.map((c) => (
-        <ChannelRow key={c.key} chip={chip} channel={c} />
+    <div className="space-y-1 px-3 py-2.5">
+      {chip.decl.channels.map((channel) => {
+        const group = channel.source ? sourceGroupOf(channel.source) : undefined
+        const driven = group !== undefined && groupDrivesChannel(chip, group, channel.key)
+        return (
+          <SliderControl
+            key={channel.key}
+            label={channel.label}
+            value={chip.getChannel(channel.key)}
+            unit={channel.unit}
+            min={channel.min}
+            max={channel.max}
+            step={channel.step ?? (channel.max - channel.min) / 200}
+            disabled={driven}
+            onChange={(value) => chip.setChannel(channel.key, value)}
+          />
+        )
+      })}
+
+      {(groups.length > 0 || bitAttrs.length > 0) && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {groups.map((group) => (
+            <CheckControl
+              key={group}
+              label={`Follow ${SOURCE_GROUPS[group].label}`}
+              checked={isFollowingGroup(chip, group)}
+              onChange={(on) => setFollowGroup(chip, group, on)}
+            />
+          ))}
+          {bitAttrs.map((attr) => (
+            <CheckControl
+              key={attr.key}
+              label={attr.label}
+              checked={Boolean(chip.getAttr(attr.key))}
+              onChange={(on) => chip.setAttr(attr.key, on)}
+            />
+          ))}
+        </div>
+      )}
+
+      {fieldAttrs.map((attr) => (
+        <SelectControl
+          key={attr.key}
+          label={attr.label}
+          value={Number(chip.getAttr(attr.key))}
+          options={attr.bits!.options}
+          onChange={(value) => chip.setAttr(attr.key, value)}
+        />
       ))}
-      {chip.decl.attributes?.map((a) => (
-        <AttributeRow key={a.key} chip={chip} attr={a} />
-      ))}
+
       {chip.decl.shellLabel && (
         <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
           Read it in the guest with{' '}
@@ -67,94 +143,5 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
         </p>
       )}
     </div>
-  )
-}
-
-/** Subscribe a component to a chip's changes, re-rendering on each notify. */
-function useChip(chip: SensorChip) {
-  const [, force] = useReducer((n: number) => n + 1, 0)
-  useEffect(() => chip.subscribe(force), [chip])
-}
-
-function ChannelRow({ chip, channel }: { chip: SensorChip; channel: ChannelDecl }) {
-  useChip(chip)
-  // Follow state lives in the follow store so the browser source keeps driving
-  // the channel while this row is unmounted (collapsed card, popped-out body).
-  const follow = useSyncExternalStore(
-    subscribeFollows,
-    useCallback(() => isFollowing(chip, channel.key), [chip, channel.key]),
-    () => false,
-  )
-  const value = chip.getChannel(channel.key)
-  const step = channel.step ?? (channel.max - channel.min) / 200
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs">{channel.label}</span>
-        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-          {value.toFixed(2)} {channel.unit}
-        </span>
-      </div>
-      <input
-        type="range"
-        min={channel.min}
-        max={channel.max}
-        step={step}
-        value={value}
-        disabled={follow}
-        aria-label={channel.label}
-        onChange={(e) => chip.setChannel(channel.key, Number(e.target.value))}
-        className="h-1 w-full cursor-pointer appearance-none rounded-full bg-secondary accent-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-      />
-      {channel.source && (
-        <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={follow}
-            onChange={(e) => setFollow(chip, channel.key, e.target.checked)}
-            className="accent-[var(--color-primary)]"
-          />
-          Follow {LIVE_SOURCES[channel.source].label}
-        </label>
-      )}
-    </div>
-  )
-}
-
-function AttributeRow({ chip, attr }: { chip: SensorChip; attr: AttrDecl }) {
-  useChip(chip)
-
-  if (attr.bits) {
-    const current = Number(chip.getAttr(attr.key))
-    return (
-      <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{attr.label}</span>
-        <select
-          value={current}
-          aria-label={attr.label}
-          onChange={(e) => chip.setAttr(attr.key, Number(e.target.value))}
-          className="rounded-md border border-input bg-background px-2 py-1 font-mono text-[11px] text-foreground outline-none"
-        >
-          {attr.bits.options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    )
-  }
-
-  return (
-    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-      <input
-        type="checkbox"
-        checked={Boolean(chip.getAttr(attr.key))}
-        onChange={(e) => chip.setAttr(attr.key, e.target.checked)}
-        className="accent-[var(--color-primary)]"
-      />
-      {attr.label}
-    </label>
   )
 }

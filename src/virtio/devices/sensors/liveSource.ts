@@ -22,6 +22,22 @@ export const LIVE_SOURCES: Record<LiveSourceKind, LiveSourceInfo> = {
   battery: { label: 'battery level' },
 }
 
+/**
+ * One browser sensor feeds several channels — the three orientation axes are
+ * one physical tilt. Grouping is what lets a chip offer a single "follow
+ * device tilt" toggle instead of three identical checkboxes.
+ */
+export type LiveSourceGroup = 'orientation' | 'battery'
+
+export function sourceGroupOf(kind: LiveSourceKind): LiveSourceGroup {
+  return kind === 'battery' ? 'battery' : 'orientation'
+}
+
+export const SOURCE_GROUPS: Record<LiveSourceGroup, LiveSourceInfo> = {
+  orientation: { label: 'device tilt' },
+  battery: { label: 'battery level' },
+}
+
 const G = 9.80665
 
 /**
