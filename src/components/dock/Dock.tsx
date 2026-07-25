@@ -1,0 +1,226 @@
+/**
+ * The device dock: a full-height sidebar that replaced the two floating panel
+ * columns. One scrollable body renders the whole device inventory as a flat
+ * keyed list in either of two projections — ⌗ nested like the devicetree, ▤
+ * grouped by peripheral class — over the *same* row components, so switching
+ * views rearranges DOM nodes without remounting a single body.
+ */
+
+import { useCallback, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Boxes, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { DtsViewer } from '@/components/DtsViewer'
+import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/DockRow'
+import { cn } from '@/lib/utils'
+import { buildRowList, type DockView } from '@/deviceTopology'
+import { get as getDeviceTree } from '@/devicetree'
+import { useDeviceTree } from '@/hooks/useDeviceTree'
+import {
+  DOCK_MAX_WIDTH,
+  DOCK_MIN_WIDTH,
+  effectiveExpandedIn,
+  getState,
+  setOpen,
+  setView,
+  setWidth,
+  subscribe,
+  toggleGroup,
+} from '@/lib/dockStore'
+
+const REM = 16
+const clampWidth = (w: number) => Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, w))
+
+export function Dock({ boardId }: { boardId: string }) {
+  const state = useSyncExternalStore(subscribe, getState, getState)
+  const inventory = useDeviceTree(boardId)
+
+  // Width while dragging the left edge is transient; the store (and storage)
+  // only hear about it on release, so a drag is not a localStorage firehose.
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  const dragging = useRef(false)
+  const latestDragWidth = useRef(0)
+  const width = dragWidth ?? state.width
+
+  if (!state.open) return null
+
+  const rows = buildRowList(inventory, state.view)
+  const hidden = new Set(
+    Object.entries(state.devices)
+      .filter(([, v]) => v.hidden)
+      .map(([key]) => key),
+  )
+
+  const rendered: ReactNode[] = []
+  let collapsedClass: string | null = null
+  for (const row of rows) {
+    if (row.kind === 'group') {
+      const collapsed = state.groups[row.deviceClass]?.collapsed ?? false
+      collapsedClass = collapsed ? row.deviceClass : null
+      rendered.push(
+        <DockGroupRow
+          key={row.key}
+          label={row.label}
+          count={row.count}
+          collapsed={collapsed}
+          onToggle={() => toggleGroup(row.deviceClass)}
+        />,
+      )
+      continue
+    }
+    if (row.kind === 'struct') {
+      rendered.push(<DockStructRow key={row.key} name={row.name} depth={row.depth} note={row.note} />)
+      continue
+    }
+    const node = row.node
+    if (state.view === 'classes' && collapsedClass === node.deviceClass) continue
+    if (hidden.has(node.key) || (node.parentKey && hidden.has(node.parentKey))) continue
+    rendered.push(
+      <DockDeviceRow
+        key={node.key}
+        node={node}
+        depth={row.depth}
+        view={state.view}
+        windowed={state.devices[node.key]?.windowed === true}
+        expanded={effectiveExpandedIn(state, node.key, node.panelKind)}
+      />,
+    )
+  }
+
+  return (
+    <aside
+      aria-label="Devices"
+      className="relative flex h-full shrink-0 flex-col border-l border-border bg-card"
+      style={{ width: `${width}rem` }}
+    >
+      {/* Left-edge width handle. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the device dock"
+        className="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize touch-none hover:bg-primary/30"
+        onPointerDown={(e) => {
+          dragging.current = true
+          latestDragWidth.current = state.width
+          setDragWidth(state.width)
+          e.currentTarget.setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          if (!dragging.current) return
+          const next = clampWidth((window.innerWidth - e.clientX) / REM)
+          latestDragWidth.current = next
+          setDragWidth(next)
+        }}
+        onPointerUp={() => {
+          if (!dragging.current) return
+          dragging.current = false
+          setWidth(latestDragWidth.current)
+          setDragWidth(null)
+        }}
+        onPointerCancel={() => {
+          dragging.current = false
+          setDragWidth(null)
+        }}
+      />
+
+      <header className="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-1.5">
+        <span className="text-xs font-semibold">Devices</span>
+        <ViewSwitch view={state.view} />
+        <span className="ml-auto flex items-center gap-0.5">
+          <RunningTreeButton />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label="Collapse the device dock"
+            title="Collapse the dock (reopen from the top bar)"
+            onClick={() => setOpen(false)}
+          >
+            <ChevronsRight className="size-3.5" />
+          </Button>
+        </span>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+        {inventory.nodes.length === 0 ? (
+          <p className="px-2 py-3 text-[11px] leading-relaxed text-muted-foreground">
+            Waiting for the guest to expose devices — panels appear as the emulator's bridges
+            come up.
+          </p>
+        ) : (
+          rendered
+        )}
+      </div>
+    </aside>
+  )
+}
+
+/** ⌗ / ▤ — two arrangements of the same rows. */
+function ViewSwitch({ view }: { view: DockView }) {
+  return (
+    <span className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Dock view">
+      <ViewButton active={view === 'devicetree'} onClick={() => setView('devicetree')} label="Devicetree">
+        <ListTree className="size-3" aria-hidden />
+        Tree
+      </ViewButton>
+      <ViewButton active={view === 'classes'} onClick={() => setView('classes')} label="Peripheral classes">
+        <Boxes className="size-3" aria-hidden />
+        Classes
+      </ViewButton>
+    </span>
+  )
+}
+
+function ViewButton({
+  active,
+  onClick,
+  label,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1 px-1.5 py-0.5 text-[10px]',
+        active ? 'bg-primary/15 font-semibold text-primary' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Opens the running build's devicetree in the full-fidelity viewer. */
+function RunningTreeButton() {
+  const [open, setDialogOpen] = useState(false)
+  const load = useCallback(() => Promise.resolve(getDeviceTree()?.text ?? null), [])
+  const tree = getDeviceTree()
+  if (!tree) return null
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6"
+        aria-label="View the full devicetree"
+        title={`Devicetree: ${tree.name}`}
+        onClick={() => setDialogOpen(true)}
+      >
+        <FileCode2 className="size-3.5" />
+      </Button>
+      <DtsViewer
+        open={open}
+        onOpenChange={setDialogOpen}
+        title={`${tree.name} — running build`}
+        load={load}
+      />
+    </>
+  )
+}

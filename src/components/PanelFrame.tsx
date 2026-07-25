@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from 'react'
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { ChevronDown, Dock, PictureInPicture2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -15,25 +7,6 @@ import { loadPanelLayout, savePanelLayout, type PanelBox } from '@/lib/panelLayo
 
 /** 1rem in CSS px, matching the Tailwind default so rem widths convert cleanly. */
 const REM = 16
-
-interface PanelControls {
-  collapsed: boolean
-  /** Force the panel open — for a header action whose content lives in the body. */
-  expand: () => void
-}
-
-const PanelControlsContext = createContext<PanelControls | null>(null)
-
-/**
- * Read a panel's controls from within its body or header actions. Lets, say, a
- * Network "About" toggle expand the frame it lives in. Throws outside a
- * PanelFrame so a misplaced consumer fails loudly rather than silently.
- */
-export function usePanelControls(): PanelControls {
-  const controls = useContext(PanelControlsContext)
-  if (!controls) throw new Error('usePanelControls must be used within a PanelFrame')
-  return controls
-}
 
 interface PanelFrameProps {
   /**
@@ -60,6 +33,12 @@ interface PanelFrameProps {
   status?: ReactNode
   /** Extra header buttons, placed before the built-in undock/collapse/close. */
   actions?: ReactNode
+  /**
+   * Controlled window mode, for bodies whose home is the dock: the frame is
+   * always floating, and both the dock button and the X hand control back to
+   * the caller (returning the body to its dock row) instead of self-managing.
+   */
+  windowed?: { onClose: () => void }
   /** Panel body — rendered only while expanded. */
   children: ReactNode
 }
@@ -84,13 +63,20 @@ export function PanelFrame({
   side = 'right',
   status,
   actions,
+  windowed,
   children,
 }: PanelFrameProps) {
   const [saved] = useState(() => loadPanelLayout(id))
   const [collapsed, setCollapsed] = useState(!defaultExpanded)
   const [dismissed, setDismissed] = useState(false)
-  const [floating, setFloating] = useState(saved?.floating ?? false)
-  const [rect, setRect] = useState<PanelBox | null>(saved?.rect ?? null)
+  const [floating, setFloating] = useState(windowed ? true : (saved?.floating ?? false))
+  const [rect, setRect] = useState<PanelBox | null>(() => {
+    if (saved?.rect) return saved.rect
+    if (!windowed) return null
+    // A window opens floating with nothing saved yet: seed its box now, the
+    // same math undock() uses on first pop-out.
+    return clampBox(seedBox(dockedWidth, side))
+  })
 
   const { dragHandlers, resizeHandlers } = useDragResize(rect, setRect)
 
@@ -103,24 +89,12 @@ export function PanelFrame({
     // Seed a box from the docked width, popping out near this panel's own edge
     // on first undock, then reuse whatever the user last left. clampBox keeps it
     // on-screen.
-    const width = dockedWidth * REM
-    const margin = REM
-    const seeded: PanelBox = rect ?? {
-      x: side === 'left' ? margin : window.innerWidth - width - margin,
-      y: window.innerHeight / 3,
-      w: width,
-      h: 24 * REM,
-    }
-    setRect(clampBox(seeded))
+    setRect(clampBox(rect ?? seedBox(dockedWidth, side)))
     setFloating(true)
   }
 
-  const dock = () => setFloating(false)
-
-  const controls = useMemo<PanelControls>(
-    () => ({ collapsed, expand: () => setCollapsed(false) }),
-    [collapsed],
-  )
+  const dock = () => (windowed ? windowed.onClose() : setFloating(false))
+  const close = () => (windowed ? windowed.onClose() : setDismissed(true))
 
   if (dismissed) return null
 
@@ -132,7 +106,6 @@ export function PanelFrame({
       : undefined
 
   return (
-    <PanelControlsContext.Provider value={controls}>
     <div
       className={cn(
         'pointer-events-auto overflow-hidden rounded-lg border border-border bg-card shadow-lg',
@@ -161,7 +134,13 @@ export function PanelFrame({
             variant="ghost"
             size="icon"
             className="size-6"
-            aria-label={floating ? `Dock ${title} panel` : `Undock ${title} panel`}
+            aria-label={
+              windowed
+                ? `Return ${title} to the dock`
+                : floating
+                  ? `Dock ${title} panel`
+                  : `Undock ${title} panel`
+            }
             aria-pressed={floating}
             onClick={floating ? dock : undock}
           >
@@ -181,8 +160,8 @@ export function PanelFrame({
             variant="ghost"
             size="icon"
             className="size-6"
-            aria-label={`Hide ${title} panel`}
-            onClick={() => setDismissed(true)}
+            aria-label={windowed ? `Close ${title} window` : `Hide ${title} panel`}
+            onClick={close}
           >
             <X className="size-3.5" />
           </Button>
@@ -206,6 +185,17 @@ export function PanelFrame({
         />
       )}
     </div>
-    </PanelControlsContext.Provider>
   )
+}
+
+/** First-pop-out box: docked width, a third down, hugging the panel's edge. */
+function seedBox(dockedWidth: number, side: 'left' | 'right'): PanelBox {
+  const width = dockedWidth * REM
+  const margin = REM
+  return {
+    x: side === 'left' ? margin : window.innerWidth - width - margin,
+    y: window.innerHeight / 3,
+    w: width,
+    h: 24 * REM,
+  }
 }
