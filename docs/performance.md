@@ -1,0 +1,350 @@
+# Where the performance is
+
+A survey of the levers worth pulling, ordered by expected payoff per hour spent.
+Nothing here is a measured result of a change — it is a reading of the code and
+of the deployed artifacts, with the experiment that would settle each item
+written next to it. Where a number is quoted from an existing measurement in
+this repository it says so; where it is an expectation it says that too.
+
+Two things are worth stating before the list, because they decide which half of
+the list matters for a given workload:
+
+- **The guest blocks on the page.** Since the generic virtio bridge moved device
+  models into TypeScript, a sensor read or an OLED chunk is a guest thread in
+  `k_sem_take(…, K_FOREVER)` waiting for the browser's event loop. For anything
+  driven over I²C — the OLED, the accel chart, `i2c scan`, every sensor sample —
+  *latency*, not emulator throughput, is the limit.
+- **Everything else is emulator throughput.** Boot time, LVGL frame rate, the
+  philosophers, the shell's responsiveness: these are bounded by how fast the
+  wasm build executes guest instructions, which is a build-configuration
+  question and barely a JavaScript question at all.
+
+## Summary
+
+| # | Opportunity | Where | Impact | Effort | Risk |
+| --- | --- | --- | --- | --- | --- |
+| 1 | The bridge's "1 ms" hot poll is really ~4 ms (timer nesting clamp) | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
+| 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
+| 3 | Nothing sets an optimisation level at *link* | build | Medium–High, everything | Very low | Low |
+| 4 | Every ARM machine QEMU ships is compiled in | build | High, startup only | Low | Low |
+| 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
+| 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
+| 7 | QEMU's 10 ms idle drain sets first-request latency | virtio patch | Medium, I²C-bound | Low | Low |
+| 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
+| 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
+| 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
+
+## Instruments that already exist
+
+Measure before and after with what is already here rather than building
+something new:
+
+- `?profile=1` on the URL, then `window.__zephyrProfile.snapshot()`
+  ([`src/display/profile.ts`](../src/display/profile.ts)) — guest paint rate,
+  texture uploads, digest and draw cost, **`i2cHz`**, and **`mips`**.
+- The Performance panel's MIPS readout
+  ([`src/guestStats.ts`](../src/guestStats.ts)) reads QEMU's guest instruction
+  counter directly. It is the honest dial for anything in the build section
+  below, and it only advances on the A53 board, which is the `-icount` one.
+- `node tools/profile-accel.mjs` drives the whole thing under Playwright and
+  prints a ten-second sample.
+
+The one instrument that is missing is a **round-trip histogram** for the virtio
+bridge: the interval from `req_wr` moving to the matching completion being
+published, sampled in `pollBridge`. Items 1 and 7 are both guesses at where a
+~10 ms round trip goes, and a histogram would replace the guessing with a
+number for the cost of about twenty lines in `transport.ts`.
+
+## 1. The bridge's hot poll runs at 4 ms, not the 1 ms it documents
+
+[`src/virtio/transport.ts:483`](../src/virtio/transport.ts) paces the hot poll
+with `schedule(HOT_PERIOD_MS)`, which lands on `setTimeout(poll, 1)` at line 499
+— scheduled from inside `poll`, which was itself invoked from a timer callback. That is the textbook shape for the HTML spec's
+timer nesting clamp: once the nesting level passes 5, every browser raises the
+minimum to 4 ms. The loop reaches nesting level 5 after five iterations — about
+5 ms into any burst — and stays there for the rest of the hot window. The
+comment at that line, and the "1 ms between polls" in
+[`docs/virtio-bridge.md`](virtio-bridge.md#timing), describe an intent the
+browser does not honour.
+
+The corroborating measurement is already in the tree:
+[`src/virtio/devices/chips/ssd1306.ts:13`](../src/virtio/devices/chips/ssd1306.ts)
+records "~100 blocking transfers per second", i.e. **~10 ms per round trip**,
+and derives the OLED's ~11 fps from it. A 4 ms page poll plus QEMU's 1 ms busy
+drain (item 7) plus main-loop granularity accounts for most of that; a genuine
+1 ms poll would not.
+
+Three fixes, in increasing order of both payoff and work:
+
+**(a) Reset the nesting level — a few lines.** The nesting level is inherited
+from the task that calls `setTimeout`. A task started by `postMessage` has
+nesting level 0, so a `setTimeout(poll, 1)` issued from a `message` handler is
+not clamped. The channel is already there and already used for the attach kick:
+route the hot-path reschedule through `hotChannel.port2.postMessage(0)`, and in
+the handler call `setTimeout(poll, HOT_PERIOD_MS)` instead of `poll()` directly.
+That keeps the deliberate 1 ms pace — which exists to avoid the ~700k
+`Atomics.load`/s busy-loop the file documents — while actually getting 1 ms.
+Expected: round trip ~10 ms → ~6 ms, so OLED ~11 → ~18 fps, on the strength of
+arithmetic rather than measurement.
+
+**(b) Move the bridge into a worker — the real fix.** The Emscripten heap is a
+`SharedArrayBuffer`, which is why
+[`src/display/renderWorker.ts`](../src/display/renderWorker.ts) can already read
+the framebuffer from another thread. A worker can call `Atomics.wait`, which the
+main thread cannot, and `Atomics.wait(words, reqWrIndex, seen, 0.25)` is a
+precise sub-millisecond sleep that parks the thread instead of spinning, is not
+subject to any timer clamp, and does not slow down when the tab is hidden. The
+whole "hot window versus idle timer, MessagePort versus setTimeout" apparatus in
+`transport.ts` collapses into one blocking wait. The device models
+(`src/virtio/devices/`) move with it — they are pure TypeScript with vitest
+suites and no DOM dependency — and publish UI state to the main thread on a
+coalesced `postMessage`, exactly as the render worker does. Expected: round trip
+into the sub-millisecond range, bounded by QEMU's drain rather than by the page,
+and a hidden tab that behaves like a visible one. This also erases item 8's
+contribution for the busiest poller.
+
+**(c) Make QEMU wake the page instead of being polled.** With (b) in place, one
+line on the QEMU side turns the wait from a timeout into a real wakeup: after
+`qatomic_store_release` publishes `req_wr` in `virtio-browser.c`, call
+`__builtin_wasm_memory_atomic_notify` on that address. `Atomics.wait` in the
+worker returns immediately rather than after the poll interval, and the idle
+cost drops to nothing at all. `docs/virtio-bridge.md` lists proxying a wake onto
+the page as the first lever to reach for if measurement ever demands better;
+this is that lever, and cheaper than the `MAIN_THREAD_ASYNC_EM_ASM` form it
+suggests, because a shared-memory futex needs no proxying.
+
+## 2. Asyncify very likely instruments the TCG execution path
+
+`configs/meson/emscripten.txt` links with `-sASYNCIFY=1`, and QEMU's wasm
+coroutine backend (`util/coroutine-wasm.c`, selected here by
+`--with-coroutine=wasm`) is built on `emscripten/fiber.h`, which is Asyncify.
+So Asyncify is structural — it cannot simply be dropped — but *how much of the
+binary it instruments* is a build parameter, and nothing in this project has
+ever looked at it.
+
+This matters because Asyncify's cost is paid per call in every instrumented
+function: a state check on entry, spilling locals to the unwind stack, and a
+rewind path. Its analysis is a whole-program reachability question — any
+function that could be on the stack when a suspend happens must be instrumented
+— and it resolves indirect calls conservatively. QEMU is built out of indirect
+calls: `MemoryRegionOps` handlers, `qdev` methods, TCG helpers, and the TCI
+interpreter's dispatch. The plausible outcome is that nearly everything is
+instrumented, including `cpu_exec` and the interpreter loop that *is* the
+Cortex-M3 board's entire execution model.
+
+The diagnostic is one build away and costs nothing to run:
+
+```
+emcc … -sASYNCIFY_ADVISE
+```
+
+which prints every instrumented function and the call path that forced it. If
+`tcg_qemu_tb_exec`, the TCI dispatch loop, or the softmmu load/store helpers
+appear, prune them with `-sASYNCIFY_REMOVE=…` (or invert it with
+`-sASYNCIFY_ONLY=…` once the real suspend set is known) and re-measure with the
+MIPS panel.
+
+Risk is real and worth stating plainly: removing a function that genuinely can
+be on the stack across a suspend corrupts the unwind rather than failing
+loudly. The safe path is to prune only functions the advise output shows are
+reached exclusively from the vCPU execution path, and to boot every sample in
+`tools/samples.manifest` afterwards — the network and display samples especially,
+since they are the ones that suspend for real.
+
+Expected payoff if the hypothesis holds: Asyncify overhead on hot code is
+routinely 1.5–2×, and the TCI board pays it on every interpreted guest
+instruction. This is the largest single number on the page, and also the least
+certain — which is exactly why the advise run should come first.
+
+## 3. Nothing sets an optimisation level at link time
+
+`configs/meson/emscripten.txt` sets `c_link_args` to `-pthread -sASYNCIFY=1
+-sPROXY_TO_PTHREAD=1 …` — no `-O`. QEMU's `meson.build` sets
+`optimization=2` in its `default_options`, but meson passes optimisation flags
+to the *compiler*, not the linker, and for Emscripten the link step is where
+Binaryen runs. With no `-O` on the link line, emcc's link-time optimisation
+level is 0, which means:
+
+- **wasm-opt's post-link passes do not run.** Asyncify's instrumentation pass
+  still runs, because the feature requires it, but the cleanup that normally
+  follows it does not. Emscripten's own Asyncify documentation is explicit that
+  building without optimisation instruments far more code than necessary — so
+  this compounds item 2 rather than being independent of it.
+- **`ASSERTIONS` defaults to on** at `-O0`, adding checks throughout the JS glue
+  and the runtime.
+- The JS glue is not minified (the deployed `qemu-system-aarch64.js` is 172 KB).
+
+The change is a patch against `configs/meson/emscripten.txt` in
+`tools/qemu-patches/` and `tools/qemu-jit-patches/`, adding `-O3` and
+`-sASSERTIONS=0` to `c_link_args`/`cpp_link_args`. It has to go in that file for
+the same reason `--js-library` does, and which
+[`public/qemu/README.md`](../public/qemu/README.md) already documents:
+`--extra-ldflags` does not reach the link, and meson snapshots the cross file at
+configure time, so it needs a reconfigure rather than a relink.
+
+Verify what actually happens today with `EMCC_DEBUG=1` on the final link and
+read the `wasm-opt` invocation in the log. This is the cheapest experiment in
+this document — one rebuild, no code — and it is a prerequisite for trusting any
+measurement of item 2.
+
+Debug information is *not* a problem, incidentally: the deployed `.wasm` has
+neither a name section nor `.debug_*` sections, because meson's `-g` is
+compile-only and emcc strips at link. That one is already fine.
+
+## 4. Every ARM machine QEMU ships is in the download
+
+The deployed artifacts:
+
+| Artifact | Raw | gzip (as GitHub Pages serves it) |
+| --- | --- | --- |
+| `qemu-system-arm.wasm` | 34.4 MB | — |
+| `qemu-system-aarch64.wasm` | 19.1 MB | 4.8 MB |
+
+Reading strings out of the deployed aarch64 binary turns up `npcm7xx_bootrom.bin`,
+`npcm8xx_bootrom.bin`, "Tioga Pass Single2", "BMC Storage Module" and
+"Mellanox ConnectX-6 DX OCP3.0" — Nuvoton BMC machines, an OCP server board and a
+PCIe NIC, none of which this project can reach. The build passes
+`--without-default-features`, which turns off *features* (SDL, VNC, curses); it
+does not pass `--without-default-devices`, which is what governs machines and
+device models. So both binaries carry QEMU's entire ARM machine catalogue, while
+this project boots exactly two machines: `lm3s6965evb` and `virt`.
+
+The fix is `--without-default-devices` plus a minimal
+`configs/devices/<target>-softmmu/default.mak` selecting `CONFIG_STELLARIS` for
+arm and `CONFIG_ARM_VIRT` for aarch64; Kconfig pulls in whatever those machines
+depend on and drops the rest. Trimming ARM softmmu builds this way routinely
+halves them or better.
+
+This buys nothing in steady state — it is download and browser wasm-compile time,
+so it is *startup*, which for a demo people try once from a link is arguably the
+most user-visible number there is. It also makes the odd fact that the arm
+artifact is 80 % larger than the aarch64 one worth a look while in there; both
+are `--target-list` single-target builds, so the gap is a difference between the
+two source trees rather than something inherent.
+
+## 5. The Emscripten SDK is pinned to 3.1.50
+
+`tools/Dockerfile.deps:16` pins `EMSDK_VERSION_QEMU=3.1.50` with a
+`# TODO: support recent version` next to it — a September 2023 toolchain,
+inherited from ktock's Dockerfile. Everything in items 2 and 3 is executed by
+that toolchain's LLVM and Binaryen, so their payoff is capped by it. A newer
+emsdk is worth trying on its own merits, and worth trying *before* concluding
+anything about Asyncify pruning.
+
+One thing not to chase yet: JSPI (`-sJSPI`) removes Asyncify instrumentation
+entirely and would be the ideal answer to item 2, but QEMU's coroutine backend
+here is `emscripten_fiber_*`, which is Asyncify by construction. Switching would
+mean a different coroutine backend upstream, not a link flag. Worth watching, not
+worth attempting.
+
+## 6. `-icount shift=4` has never been swept
+
+[`src/boards.ts:436`](../src/boards.ts) starts the A53 with
+`-icount shift=4,align=off,sleep=on`: 16 ns of virtual time per guest
+instruction, i.e. a guest that believes it is running on a 62.5 MIPS CPU. The
+`sleep=on` half is doing real work and should stay — it is what warps the virtual
+clock forward when the vCPUs idle, and therefore what keeps `k_msleep` samples
+from running at wall-clock speed. But `shift=4` itself appears to be an
+inherited default rather than something measured.
+
+The shift decides how much *guest work* fits between two timer ticks. At
+shift=4, Zephyr's 100 Hz tick interrupts every 625k instructions; at shift=1 it
+would be every 5M. For a throughput-bound guest — LVGL compositing, the accel
+chart — that is a straight reduction in interrupt and scheduler overhead per unit
+of useful work. The cost is fidelity: the guest's clock diverges further from
+wall time, and `blinky` already blinks faster than 1 Hz, as
+[`src/boards.ts:110`](../src/boards.ts) notes.
+
+The experiment is a one-character edit and a rerun of `tools/profile-accel.mjs`
+at shift 1, 2, 3, 4, 5, reading `mips` and `guestFps`. Cheap enough that not
+having the curve is the only real problem here.
+
+## 7. QEMU's idle drain sets the latency of the first request
+
+`virtio-browser.c` drains completions on a `QEMU_CLOCK_REALTIME` timer at
+`VIRTIO_BROWSER_DRAIN_BUSY_MS 1` while tokens are parked and
+`VIRTIO_BROWSER_DRAIN_IDLE_MS 10` otherwise. During an OLED frame the busy value
+applies and adds ~1 ms to every round trip — second only to item 1 in the
+~10 ms budget. Between bursts the idle value adds up to 10 ms to the *first*
+transfer, which is the one a user feels when they click something in a panel.
+
+The clean version of this is the same shape as item 1(c) in the other direction:
+have the page's completion write wake the QEMU main loop rather than have QEMU
+poll for it. `qemu_bh_schedule` is the documented lever and is designed to be
+called cross-thread, but its `aio_notify` path writes to an event notifier, and
+whether that is safe to trigger from the browser main thread in this build needs
+checking before anything is built on it. Failing that, dropping the idle value to
+2–3 ms costs one timer wakeup every few milliseconds on a thread that is
+otherwise idle, and is worth measuring against the current 10.
+
+## 8. Seven pollers share the thread that runs xterm and React
+
+Attached at once on the A53 board, all on the main thread:
+
+| Poller | Period | File |
+| --- | --- | --- |
+| virtio bridge | 1 ms hot (really 4), 50 ms idle | `src/virtio/transport.ts:483` |
+| net | 10 ms hot, 100 ms idle | `src/hostNet.ts:398` |
+| GPIO (MMIO boards) | 100 ms | `src/hostGpio.ts:135` |
+| audio | 100 ms | `src/hostAudio.ts:67` |
+| display metadata | 200 ms | `src/hostDisplay.ts:89` |
+| trace | 200 ms | `src/hostTrace.ts:181` |
+| guest stats | 500 ms | `src/guestStats.ts:99` |
+| GNSS transmit | 1000 ms | `src/hostGnss.ts:35` |
+
+Each is individually cheap — most are a single shared-memory load — but they
+share the thread with xterm.js, React, and Emscripten's proxied main-thread work,
+and `transport.ts` already documents catching the display falling behind because
+of main-thread contention. The framebuffer upload was moved off this thread for
+exactly that reason; the bridges were not.
+
+Two directions, either of which is worth doing: fold the slow pollers into one
+timer that runs all of them (one wakeup at 100 ms instead of five staggered
+ones), and move the fast ones into the worker from item 1(b), which is where
+they want to live anyway — they are all shared-heap readers with no DOM
+dependency.
+
+## 9. Audio is pulled on a 100 ms timer
+
+`src/hostAudio.ts:67` pulls PCM out of the guest's ring on a 100 ms
+`setInterval` and schedules it `LEAD_SECONDS = 0.06` ahead of the AudioContext
+clock. A 60 ms lead against a 100 ms poll has no margin: any main-thread stall
+longer than 60 ms — a React re-render storm, a large terminal write, a GC — is an
+audible gap, and in a hidden tab, where timers clamp to ~1 s, it is silence.
+
+An `AudioWorklet` reading the same ring straight out of the shared heap removes
+the timer from the path entirely: the audio thread is real-time, never clamped,
+and never waits on the main thread. It is the same argument as item 1(b), applied
+to the one bridge where the failure mode is something the user can hear.
+
+## 10. Startup details
+
+- **The default board is the interpreter one.** `DEFAULT_BOARD_ID` is
+  `BOARDS[0].id`, the Cortex-M3, which runs pure TCI — while the A53 runs the
+  wasm JIT, measured at 6.5× TCI in
+  [`public/qemu/README.md`](../public/qemu/README.md). First impressions of the
+  emulator's speed are formed on the slower of the two. Whether the default
+  should move is a product call, not a performance one, but it should be a
+  deliberate call.
+- **Nothing warms the wasm.** The emulator is fetched only when the user starts a
+  board. A `<link rel="prefetch">` for the default board's `.wasm`, or a
+  `fetch()` at idle, would overlap a ~5 MB (gzipped) download with the user
+  reading the page.
+- **`coi-serviceworker` costs a reload.** On GitHub Pages the cross-origin
+  isolation headers come from a service worker that has to register and then
+  reload the page. That is one extra full page load on every first visit, before
+  anything else on this list gets a chance to matter.
+
+## Suggested order
+
+1. Item 3 (link `-O3`) — one rebuild, no code, and it is a precondition for
+   trusting item 2.
+2. Item 1(a) (`postMessage` nesting reset) — a few lines, immediately measurable
+   as `i2cHz` in the existing profiler.
+3. Item 2's `ASYNCIFY_ADVISE` run — no change, just the list, and it either
+   promotes item 2 to the top of the list or removes it from it.
+4. Item 4 (`--without-default-devices`) — mechanical, and startup is the number
+   most visitors actually experience.
+5. Item 1(b)+(c) and items 8/9 together — one worker, all the shared-heap
+   bridges, `Atomics.wait`, and a QEMU-side notify. The largest piece of work
+   here and the one that retires the most of this document.

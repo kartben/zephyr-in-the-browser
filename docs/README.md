@@ -10,6 +10,7 @@ other end of the wire.
 | [networking.md](networking.md) | Why the page *is* the LAN, and exactly what does and does not leave the tab |
 | [virtio-bridge.md](virtio-bridge.md) | The generic virtio bridge, which lets a device model be TypeScript instead of QEMU C |
 | [next-drivers.md](next-drivers.md) | The bridge shapes already proven here, and what to add next |
+| [performance.md](performance.md) | Where the time goes — emulator build flags, bridge round-trip latency, and the experiment that settles each |
 | [../public/qemu/README.md](../public/qemu/README.md) | The emulator itself: how it is built, what is patched into it, and its known limits |
 | [deploying.md](deploying.md) | Cutting a release and deploying to GitHub Pages |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
