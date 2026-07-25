@@ -23,6 +23,8 @@ real time to chase, and the misleading part is worth recognising again:
   convincingly like a wasm-JIT miscompilation.
 - [audio-feasibility.md](audio-feasibility.md) — why audio did not go over
   virtio-sound.
+- [gdb-feasibility.md](gdb-feasibility.md) — why a debugger is feasible (QEMU's
+  gdbstub over a browser chardev) and why shipping GDB-as-Wasm is not.
 
 ## The page
 
