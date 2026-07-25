@@ -1,9 +1,9 @@
 /**
  * Dock body for the JHD1313 character LCD.
  *
- * Paints the chip's cell buffer as a 5×8-ish monospace grid with an RGB
- * backlight wash from the linked PCA9633-style register file. Controller
- * inspects command-derived state; Registers opens the backlight map.
+ * Paints the chip's cell buffer as a monospace grid with an RGB backlight wash.
+ * Controller summarises live HD44780 flags; Registers opens the LCD Instruction/
+ * Data map; Backlight registers opens the PCA9633-style map at 0x62.
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
@@ -89,10 +89,11 @@ function AuxdisplayControllerButton({ chip }: { chip: Jhd1313LcdChip }) {
               {chip.name} · 0x{hex}
             </DialogTitle>
             <DialogDescription>
-              Command-derived HD44780 state — the LCD address is a command
-              stream (0x00/0x80 = command, 0x40 = DDRAM data), not a register
-              file. The RGB backlight at 0x62 has the Registers map.
-            </DialogDescription>
+            Live HD44780 flags derived from Instruction-register writes. Open
+            LCD registers for the full IR/DR map and decoded Entry_Mode /
+            Display_Control / Function_Set / DDRAM_AC shadows; backlight PWM
+            lives on the separate chip at 0x62.
+          </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto border-t border-border px-5 py-3">
             <dl className="space-y-1.5">
@@ -244,12 +245,15 @@ export function AuxdisplayBody({ chip }: { chip: Jhd1313LcdChip }) {
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         Zephyr&apos;s stock{' '}
         <code className="font-mono text-foreground">jhd,jhd1313</code> auxdisplay
-        driver — LCD commands at 0x{chip.address.toString(16)}, RGB backlight
-        register file at 0x62.
+        driver — LCD Instruction/Data at 0x{chip.address.toString(16)}, RGB
+        backlight register file at 0x62.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <AuxdisplayControllerButton chip={chip} />
-        {bl ? <RegisterMapButton chip={bl} /> : null}
+        <RegisterMapButton chip={chip} label={`LCD registers (${chip.registers.length})`} />
+        {bl ? (
+          <RegisterMapButton chip={bl} label={`Backlight registers (${bl.registers.length})`} />
+        ) : null}
       </div>
     </div>
   )

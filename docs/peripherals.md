@@ -95,16 +95,16 @@ the card that drives it — so adding a part is a declaration, not another panel
   `rtc set_alarm` under `CONFIG_RTC_ALARM`.
 
 **Register maps** are shared across register-file parts — sensors, the
-PCF8523, and the JHD1313 backlight today — via [`registers/`](../src/virtio/devices/registers)
+PCF8523, and both halves of the JHD1313 today — via [`registers/`](../src/virtio/devices/registers)
 (SVD-inspired JSON under `sensors/maps/`, `rtc/maps/`, and `chips/maps/`) and
 the collapsed **Registers** dialog on each card
 ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). Channel codecs and
 RTC BCD timekeeping stay in their own frameworks; the map is data. The SSD1306
-and the JHD1313 LCD address are *command streams*, not register files — their
-cards keep a canvas (GDDRAM / character cells) and add a collapsed
-**Controller** inspector for command-derived state instead of pretending at
-SVD registers. The JHD1313's second address (RGB backlight) *is* a register
-file and gets a JSON map.
+stays a pure *command stream* (Controller inspector, no fake SVD rows). The
+JHD1313 LCD address *does* get a map — Instruction (0x00) / Instruction_Co
+(0x80) / Data (0x40) plus decoded Entry_Mode, Display_Control, Function_Set,
+and DDRAM_AC shadows (`chips/maps/jhd1313-lcd.json`) — and its backlight at
+0x62 is a separate PCA9633-style map (`jhd1313-backlight.json`).
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)
