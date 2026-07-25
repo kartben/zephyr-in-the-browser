@@ -21,6 +21,7 @@ export type PanelKind =
   | 'net'
   | 'i2c'
   | 'oled'
+  | 'auxdisplay'
   | 'trace'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
@@ -279,6 +280,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Set and read date/time on a PCF8523, over I²C',
     zephyrSample: 'samples/drivers/rtc',
     primaryPanels: ['i2c'],
+  },
+  {
+    // Character LCD via Zephyr's auxdisplay API against the Grove JHD1313
+    // (LCD @0x3e + RGB backlight @0x62) modelled in the page.
+    id: 'auxdisplay',
+    label: 'Aux display',
+    description: '“Hello World” on a 16×2 I²C character LCD (JHD1313) in the page',
+    zephyrSample: 'samples/drivers/auxdisplay',
+    primaryPanels: ['auxdisplay', 'i2c'],
   },
   {
     id: 'philosophers',

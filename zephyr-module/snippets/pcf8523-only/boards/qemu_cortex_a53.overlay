@@ -29,6 +29,10 @@
 	status = "disabled";
 };
 
+&auxdisplay_0 {
+	status = "disabled";
+};
+
 / {
 	aliases {
 		rtc = &pcf8523_0;

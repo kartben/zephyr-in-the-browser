@@ -22,6 +22,7 @@ import { byPath, chosen, compatibles, isEffectivelyOkay, nodesByCompatible, path
 import type { I2cChip } from '@/virtio/devices/i2c'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
+import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
 import { isRtcChip } from '@/virtio/devices/rtc/model'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
@@ -32,6 +33,7 @@ export type DockView = 'devicetree' | 'classes'
 export type DeviceClass =
   | 'sensor'
   | 'display'
+  | 'auxdisplay'
   | 'memory'
   | 'rtc'
   | 'i2c-bus'
@@ -47,6 +49,7 @@ export type BodyKind =
   | 'sensor'
   | 'memory'
   | 'oled'
+  | 'auxdisplay'
   | 'rtc'
   | 'i2c'
   | 'gpio'
@@ -120,6 +123,7 @@ export type Row =
 export const CLASS_LABELS: Record<DeviceClass, string> = {
   sensor: 'Sensors',
   display: 'Displays',
+  auxdisplay: 'Aux displays',
   memory: 'Memory',
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
@@ -134,6 +138,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
 const CLASS_ORDER: DeviceClass[] = [
   'sensor',
   'display',
+  'auxdisplay',
   'memory',
   'rtc',
   'i2c-bus',
@@ -149,6 +154,7 @@ const KIND_TO_CLASS: Record<ChipKind, DeviceClass> = {
   sensor: 'sensor',
   eeprom: 'memory',
   display: 'display',
+  auxdisplay: 'auxdisplay',
   rtc: 'rtc',
 }
 
@@ -163,6 +169,8 @@ const CHIP_COMPAT: Record<string, string> = {
   isl29035: 'isil,isl29035',
   at24: 'atmel,at24',
   ssd1306: 'solomon,ssd1306',
+  jhd1313: 'jhd,jhd1313',
+  'jhd1313-backlight': 'jhd,jhd1313',
   pcf8523: 'nxp,pcf8523',
 }
 
@@ -175,14 +183,20 @@ function chipClass(chip: I2cChip): DeviceClass {
   if (isSensorChip(chip)) return 'sensor'
   if (isMemoryChip(chip)) return 'memory'
   if (isRtcChip(chip)) return 'rtc'
+  if (isJhd1313Lcd(chip) || isJhd1313Backlight(chip)) return 'auxdisplay'
   if ('isOn' in chip && 'memory' in chip) return 'display'
   return 'other'
 }
 
-function chipBody(cls: DeviceClass): BodyKind | undefined {
+function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
   if (cls === 'sensor') return 'sensor'
   if (cls === 'memory') return 'memory'
   if (cls === 'display') return 'oled'
+  if (cls === 'auxdisplay') {
+    // Backlight is edited from the LCD card's Registers affordance; no own body.
+    if (chip && isJhd1313Backlight(chip)) return undefined
+    return 'auxdisplay'
+  }
   if (cls === 'rtc') return 'rtc'
   return undefined
 }
@@ -192,6 +206,7 @@ function chipPanelKind(cls: DeviceClass): PanelKind | undefined {
   if (cls === 'sensor') return 'sensor'
   if (cls === 'memory') return 'i2c'
   if (cls === 'display') return 'oled'
+  if (cls === 'auxdisplay') return 'auxdisplay'
   if (cls === 'rtc') return 'i2c'
   return undefined
 }
@@ -236,6 +251,9 @@ function liveBusChildren(
     const crumb = `${busLabel} · 0x${hex(address)}`
 
     if (chip) {
+      // Backlight is a side-channel address on the JHD1313 module (DT property
+      // backlight-addr), not its own child node — the LCD card owns its UI.
+      if (isJhd1313Backlight(chip)) continue
       const cls = chipClass(chip)
       rows.push({
         key: uniqueKey(ids, `${busLabel}:${hex(address)}`),
@@ -247,7 +265,7 @@ function liveBusChildren(
         parentKey: busKey,
         presence: 'interactive',
         tag: slot ? undefined : 'bus only',
-        body: chipBody(cls),
+        body: chipBody(cls, chip),
         crumb,
         chip,
         busLabel,

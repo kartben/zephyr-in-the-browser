@@ -2,8 +2,13 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/eeprom: EEPROM only. The stock sample binds DT_ALIAS(eeprom_0).
+ * samples/drivers/auxdisplay: JHD1313 only. Stock sample binds
+ * DT_NODELABEL(auxdisplay_0).
  */
+
+&auxdisplay_0 {
+	status = "okay";
+};
 
 &tmp112_0 {
 	status = "disabled";
@@ -21,12 +26,6 @@
 	status = "disabled";
 };
 
-&auxdisplay_0 {
+&eeprom0 {
 	status = "disabled";
-};
-
-/ {
-	aliases {
-		eeprom-0 = &eeprom0;
-	};
 };

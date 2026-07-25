@@ -59,6 +59,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   net: Network,
   i2c: Cable,
   oled: Tv,
+  auxdisplay: Monitor,
   trace: Activity,
 }
 
@@ -72,6 +73,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   net: 'network',
   i2c: 'I2C',
   oled: 'OLED',
+  auxdisplay: 'LCD',
   trace: 'trace',
 }
 
