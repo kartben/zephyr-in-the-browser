@@ -24,34 +24,43 @@ function fakeAccel(address: number) {
   return { chip, values }
 }
 
-let started: Array<{ kind: LiveSourceKind; stop: ReturnType<typeof vi.fn> }> = []
+let startedKinds: LiveSourceKind[] = []
+let orientationStarts = 0
+let orientationStops: Array<ReturnType<typeof vi.fn>> = []
 
 beforeEach(() => {
   follow.pruneFollows([])
-  started = []
+  startedKinds = []
+  orientationStarts = 0
+  orientationStops = []
   follow.setLiveSourceStarter((kind, push) => {
-    const stop = vi.fn()
-    started.push({ kind, stop })
+    startedKinds.push(kind)
     push(4.2)
+    return vi.fn()
+  })
+  follow.setOrientationGroupStarter((push) => {
+    orientationStarts += 1
+    const stop = vi.fn()
+    orientationStops.push(stop)
+    push('orientation-x', 1.1)
+    push('orientation-y', 2.2)
+    push('orientation-z', 3.3)
     return stop
   })
 })
 
 describe('followStore (grouped)', () => {
-  it('one toggle starts every channel of the group and drives the chip', () => {
+  it('one orientation toggle starts a single group listener and drives every axis', () => {
     const { chip, values } = fakeAccel(0x53)
     follow.setFollowGroup(chip, 'orientation', true)
 
     expect(follow.isFollowingGroup(chip, 'orientation')).toBe(true)
-    expect(started.map((s) => s.kind)).toEqual([
-      'orientation-x',
-      'orientation-y',
-      'orientation-z',
-    ])
-    // All three axes received the pushed value; the sourceless channel none.
-    expect(values.get('ax')).toEqual([4.2])
-    expect(values.get('ay')).toEqual([4.2])
-    expect(values.get('az')).toEqual([4.2])
+    expect(orientationStarts).toBe(1)
+    expect(startedKinds).toEqual([])
+    // All three axes received the projected values; the sourceless channel none.
+    expect(values.get('ax')).toEqual([1.1])
+    expect(values.get('ay')).toEqual([2.2])
+    expect(values.get('az')).toEqual([3.3])
     expect(values.has('plain')).toBe(false)
   })
 
@@ -68,10 +77,10 @@ describe('followStore (grouped)', () => {
     const { chip } = fakeAccel(0x53)
     follow.setFollowGroup(chip, 'orientation', true)
     follow.setFollowGroup(chip, 'orientation', true)
-    expect(started).toHaveLength(3)
+    expect(orientationStarts).toBe(1)
 
     follow.setFollowGroup(chip, 'orientation', false)
-    for (const s of started) expect(s.stop).toHaveBeenCalledTimes(1)
+    expect(orientationStops[0]).toHaveBeenCalledTimes(1)
     expect(follow.isFollowingGroup(chip, 'orientation')).toBe(false)
   })
 
@@ -79,7 +88,8 @@ describe('followStore (grouped)', () => {
     const { chip } = fakeAccel(0x48)
     follow.setFollowGroup(chip, 'battery', true)
     expect(follow.isFollowingGroup(chip, 'battery')).toBe(false)
-    expect(started).toHaveLength(0)
+    expect(startedKinds).toHaveLength(0)
+    expect(orientationStarts).toBe(0)
   })
 
   it('prunes follows for chips that left the bus', () => {
@@ -92,17 +102,16 @@ describe('followStore (grouped)', () => {
 
     expect(follow.isFollowingGroup(a.chip, 'orientation')).toBe(true)
     expect(follow.isFollowingGroup(b.chip, 'orientation')).toBe(false)
-    // b's three subscriptions all stopped.
-    for (const s of started.slice(3)) expect(s.stop).toHaveBeenCalledTimes(1)
+    expect(orientationStops[1]).toHaveBeenCalledTimes(1)
   })
 
   it('notifies subscribers on every transition', () => {
     const { chip } = fakeAccel(0x53)
-    const seen = vi.fn()
-    const unsubscribe = follow.subscribe(seen)
+    const fn = vi.fn()
+    const off = follow.subscribe(fn)
     follow.setFollowGroup(chip, 'orientation', true)
     follow.setFollowGroup(chip, 'orientation', false)
-    unsubscribe()
-    expect(seen).toHaveBeenCalledTimes(2)
+    expect(fn).toHaveBeenCalledTimes(2)
+    off()
   })
 })

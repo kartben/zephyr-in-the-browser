@@ -215,8 +215,18 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
   let pointer = decl.registers[0]?.addr ?? 0
 
   const listeners = new Set<() => void>()
+  // Coalesce notifies that land in the same turn (e.g. three orientation axes
+  // from one DeviceOrientationEvent) so React pays for one render, not N.
+  // queueMicrotask keeps the model testable without fake timers; the guest
+  // never waits on these listeners — it reads registers on demand.
+  let notifyScheduled = false
   const notify = () => {
-    for (const fn of listeners) fn()
+    if (notifyScheduled) return
+    notifyScheduled = true
+    queueMicrotask(() => {
+      notifyScheduled = false
+      for (const fn of listeners) fn()
+    })
   }
 
   const ctx: CodecCtx = { reg: (addr) => regs.get(addr) ?? 0 }
@@ -284,7 +294,19 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
 
     setChannel(key, value) {
       if (!channelValues.has(key) || !Number.isFinite(value)) return
+      const previous = channelValues.get(key)!
+      if (previous === value) return
       channelValues.set(key, value)
+      // Orientation noise often moves the engineering value without changing
+      // the on-wire register word. Skip the UI notify in that case — the next
+      // guest read already sees the stored value via currentWord().
+      const channel = decl.channels.find((c) => c.key === key)
+      const reg = channel ? regByAddr.get(channel.reg) : undefined
+      if (channel && reg) {
+        const before = toWord(channel.encode(previous, ctx), reg.bytes)
+        const after = toWord(channel.encode(value, ctx), reg.bytes)
+        if (before === after) return
+      }
       notify()
     },
     getChannel: (key) => channelValues.get(key) ?? 0,

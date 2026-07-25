@@ -15,8 +15,9 @@
  * thread — which is why the main-thread renderers still keep one — but this
  * thread has nothing to compete with. What replaces it is a checksum: a frame is
  * uploaded only when it differs from the last, so an idle panel costs one read
- * of the framebuffer and no upload at all, cheaper than the 30 uploads a second
- * it used to cost while showing the same pixels.
+ * of the framebuffer and no upload at all. While the guest is animating (chart
+ * samples, music demo), the checksum is skipped after a short dirty streak so
+ * the hashing itself does not tax every present.
  */
 import { createWebGLRenderer, type FrameRenderer, type UploadMode } from './renderers'
 
@@ -61,6 +62,17 @@ let frameHandle = 0
 /** Checksum of the last uploaded frame, and whether one has been uploaded. */
 let lastDigest = 0
 let hasDrawn = false
+/**
+ * Consecutive frames that differed from their predecessor. Once the guest is
+ * clearly animating, hashing every pixel before each upload is pure overhead —
+ * chart samples change every frame. Stay on a hot path that always uploads,
+ * and only re-arm the checksum after a quiet stretch so an idle panel still
+ * costs nothing.
+ */
+let dirtyStreak = 0
+const HOT_AFTER = 3
+/** Re-check for a still frame about once a second while hot (~60 Hz present). */
+const HOT_RECHECK_EVERY = 60
 
 // Worker requestAnimationFrame drives OffscreenCanvas presentation where it
 // exists (all current WebGL2-capable browsers); fall back to a timer otherwise.
@@ -90,6 +102,7 @@ function buildRenderer(view: OffscreenCanvas, snap: WorkerSnapshot): boolean {
   renderer?.dispose()
   renderer = null
   hasDrawn = false
+  dirtyStreak = 0
   try {
     view.width = snap.width
     view.height = snap.height
@@ -125,9 +138,17 @@ function frame() {
 
   // Skip frames the guest has not touched. The guest writes the framebuffer
   // directly and ramfb has no dirty bit to read, so the content is the signal.
-  const hash = digest(buffer, snapshot.pointer, length)
-  if (hasDrawn && hash !== null && hash === lastDigest) return
-  lastDigest = hash ?? 0
+  const hot = dirtyStreak >= HOT_AFTER
+  const recheck = hot && dirtyStreak % HOT_RECHECK_EVERY === 0
+  if (!hot || recheck) {
+    const hash = digest(buffer, snapshot.pointer, length)
+    if (hasDrawn && hash !== null && hash === lastDigest) {
+      dirtyStreak = 0
+      return
+    }
+    lastDigest = hash ?? 0
+  }
+  dirtyStreak += 1
   hasDrawn = true
 
   // Re-view every frame: an in-place heap growth keeps the SharedArrayBuffer's
@@ -142,6 +163,7 @@ self.addEventListener('message', (event: MessageEvent) => {
     buffer = message.buffer
     snapshot = message.snapshot
     hasDrawn = false
+    dirtyStreak = 0
     if (!running) {
       running = true
       frameHandle = schedule(frame)
@@ -152,6 +174,7 @@ self.addEventListener('message', (event: MessageEvent) => {
     buffer = message.buffer
     snapshot = message.snapshot
     hasDrawn = false
+    dirtyStreak = 0
   } else if (message.type === 'stop') {
     running = false
     unschedule(frameHandle)
@@ -161,5 +184,6 @@ self.addEventListener('message', (event: MessageEvent) => {
     buffer = null
     snapshot = null
     hasDrawn = false
+    dirtyStreak = 0
   }
 })

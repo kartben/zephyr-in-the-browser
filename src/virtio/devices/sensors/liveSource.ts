@@ -68,17 +68,45 @@ function startBattery(push: (value: number) => void): () => void {
   }
 }
 
-function startOrientation(
-  kind: 'orientation-x' | 'orientation-y' | 'orientation-z',
-  push: (value: number) => void,
+type OrientationAxis = 'orientation-x' | 'orientation-y' | 'orientation-z'
+
+function projectOrientation(
+  e: DeviceOrientationEvent,
+): Record<OrientationAxis, number> | null {
+  if (e.beta === null || e.gamma === null) return null
+  const beta = (e.beta * Math.PI) / 180 // front-back tilt
+  const gamma = (e.gamma * Math.PI) / 180 // left-right tilt
+  return {
+    'orientation-x': -G * Math.sin(gamma),
+    'orientation-y': G * Math.sin(beta) * Math.cos(gamma),
+    'orientation-z': G * Math.cos(beta) * Math.cos(gamma),
+  }
+}
+
+function startOrientation(kind: OrientationAxis, push: (value: number) => void): () => void {
+  const onOrient = (e: DeviceOrientationEvent) => {
+    const projected = projectOrientation(e)
+    if (projected) push(projected[kind])
+  }
+  window.addEventListener('deviceorientation', onOrient)
+  return () => window.removeEventListener('deviceorientation', onOrient)
+}
+
+/**
+ * One DeviceOrientationEvent feeds every axis. Prefer this over three
+ * startLiveSource('orientation-*') calls: a single listener, and — when the
+ * chip coalesces setChannel notifies — one React update per tilt sample
+ * instead of three stacked ones competing with the qemu-wasm main loop.
+ */
+export function startOrientationGroup(
+  push: (axis: OrientationAxis, value: number) => void,
 ): () => void {
   const onOrient = (e: DeviceOrientationEvent) => {
-    if (e.beta === null || e.gamma === null) return
-    const beta = (e.beta * Math.PI) / 180 // front-back tilt
-    const gamma = (e.gamma * Math.PI) / 180 // left-right tilt
-    if (kind === 'orientation-x') push(-G * Math.sin(gamma))
-    else if (kind === 'orientation-y') push(G * Math.sin(beta) * Math.cos(gamma))
-    else push(G * Math.cos(beta) * Math.cos(gamma))
+    const projected = projectOrientation(e)
+    if (!projected) return
+    push('orientation-x', projected['orientation-x'])
+    push('orientation-y', projected['orientation-y'])
+    push('orientation-z', projected['orientation-z'])
   }
   window.addEventListener('deviceorientation', onOrient)
   return () => window.removeEventListener('deviceorientation', onOrient)

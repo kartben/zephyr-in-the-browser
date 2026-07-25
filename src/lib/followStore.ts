@@ -10,7 +10,12 @@
  * one physical tilt, so they follow — and stop following — together.
  */
 
-import { sourceGroupOf, startLiveSource, type LiveSourceGroup } from '@/virtio/devices/sensors/liveSource'
+import {
+  sourceGroupOf,
+  startLiveSource,
+  startOrientationGroup,
+  type LiveSourceGroup,
+} from '@/virtio/devices/sensors/liveSource'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 
 type Starter = typeof startLiveSource
@@ -19,6 +24,14 @@ let starter: Starter = startLiveSource
 /** Test seam: the real starter touches window/navigator. */
 export function setLiveSourceStarter(fn: Starter): void {
   starter = fn
+}
+
+type OrientationStarter = typeof startOrientationGroup
+let orientationStarter: OrientationStarter = startOrientationGroup
+
+/** Test seam for the grouped orientation path. */
+export function setOrientationGroupStarter(fn: OrientationStarter): void {
+  orientationStarter = fn
 }
 
 interface Follow {
@@ -67,12 +80,23 @@ export function setFollowGroup(chip: SensorChip, group: LiveSourceGroup, follow:
     return
   }
 
-  // One start per member channel: each axis projects the same browser sensor
-  // differently, so each gets its own subscription, torn down as a set.
-  const stops = chip.decl.channels
-    .filter((c) => c.source !== undefined && sourceGroupOf(c.source) === group)
-    .map((c) => starter(c.source!, (value) => chip.setChannel(c.key, value)))
-  if (stops.length === 0) return
+  const members = chip.decl.channels.filter(
+    (c) => c.source !== undefined && sourceGroupOf(c.source) === group,
+  )
+  if (members.length === 0) return
+
+  // Orientation is one physical sensor: one browser listener writes every
+  // member channel. Other groups (battery) still start one source per channel.
+  const stops =
+    group === 'orientation'
+      ? [
+          orientationStarter((axis, value) => {
+            const channel = members.find((c) => c.source === axis)
+            if (channel) chip.setChannel(channel.key, value)
+          }),
+        ]
+      : members.map((c) => starter(c.source!, (value) => chip.setChannel(c.key, value)))
+
   follows.set(key, { chip, stops })
   notify()
 }
