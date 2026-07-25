@@ -4,6 +4,9 @@ import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 import { createLm75 } from './lm75'
 import { createAdxl345 } from './adxl345'
 import { createLsm6dso } from './lsm6dso'
+import { createLps22hh } from './lps22hh'
+import { createIna219 } from './ina219'
+import { createIsl29035 } from './isl29035'
 
 /**
  * A made-up two-channel part exercising the machine directly (no bridge): an
@@ -261,5 +264,71 @@ describe('LSM6DSO', () => {
     const counts2 = (at2g[1] << 8) | at2g[0]
     const counts4 = (at4g[1] << 8) | at4g[0]
     expect(counts2).toBeCloseTo(counts4 * 2, -1)
+  })
+})
+
+describe('LPS22HH', () => {
+  it('answers WHO_AM_I with 0xB3 and keeps STATUS ready', () => {
+    const chip = createLps22hh()
+    chip.write(Uint8Array.of(0x0f))
+    expect(Array.from(chip.read(1))).toEqual([0xb3])
+    chip.write(Uint8Array.of(0x27))
+    expect(Array.from(chip.read(1))).toEqual([0x03])
+  })
+
+  it('bursts a 24-bit pressure sample that decodes to kPa', () => {
+    const chip = createLps22hh()
+    chip.setChannel('pressure', 101.325)
+    chip.write(Uint8Array.of(0x28))
+    const [xl, l, h] = Array.from(chip.read(3))
+    const raw = xl | (l << 8) | (h << 16)
+    // HAL left-aligns then Zephyr does >> 8; on-wire count / 40960 = kPa.
+    expect(raw / 40960).toBeCloseTo(101.325, 2)
+  })
+
+  it('encodes temperature at 100 LSB/°C', () => {
+    const chip = createLps22hh()
+    chip.setChannel('temp', 21.5)
+    chip.write(Uint8Array.of(0x2b))
+    const [lo, hi] = Array.from(chip.read(2))
+    const raw = ((hi << 8) | lo) << 16 >> 16
+    expect(raw / 100).toBeCloseTo(21.5, 4)
+  })
+})
+
+describe('INA219', () => {
+  it('keeps CNVR set so the conversion poll returns immediately', () => {
+    const chip = createIna219()
+    chip.setChannel('voltage', 3.3)
+    chip.write(Uint8Array.of(0x02))
+    const [hi, lo] = Array.from(chip.read(2))
+    const word = (hi << 8) | lo
+    expect(word & 0x02).toBe(0x02) // CNVR
+    expect(((word >> 3) & 0x3fff) * 0.004).toBeCloseTo(3.3, 2)
+  })
+
+  it('round-trips current at the sample overlay LSB', () => {
+    const chip = createIna219()
+    chip.setChannel('current', 0.157)
+    chip.write(Uint8Array.of(0x04))
+    const [hi, lo] = Array.from(chip.read(2))
+    const raw = ((hi << 8) | lo) << 16 >> 16
+    expect(raw * 10 * 0.00001).toBeCloseTo(0.157, 3)
+  })
+})
+
+describe('ISL29035', () => {
+  it('serves LSB and MSB as separate point-then-read bytes', () => {
+    const chip = createIsl29035()
+    chip.setChannel('light', 1000) // 4K range → sample = 1000/4000 * 65536 = 16384
+    chip.write(Uint8Array.of(0x02))
+    expect(Array.from(chip.read(1))).toEqual([0x00]) // low byte of 16384
+    chip.write(Uint8Array.of(0x03))
+    expect(Array.from(chip.read(1))).toEqual([0x40]) // high byte
+  })
+
+  it('starts with the sample\'s 4K lux range selected', () => {
+    const chip = createIsl29035()
+    expect(chip.getAttr('lux_range')).toBe(1)
   })
 })

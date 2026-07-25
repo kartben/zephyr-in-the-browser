@@ -32,8 +32,11 @@ export type Endian = 'be' | 'le'
 export interface RegisterDecl {
   /** Pointer value that selects this register. */
   addr: number
-  /** Width in bytes. 1 or 2 covers every part modelled here. */
-  bytes: 1 | 2
+  /**
+   * Width in bytes. 1–2 cover most parts; 3 is for left-aligned 24-bit samples
+   * (e.g. LPS22HH pressure).
+   */
+  bytes: 1 | 2 | 3
   /**
    * `ro` registers ignore writes, the way a temperature register does — the
    * driver reads them but the part fills them in. `rw` registers store what the
@@ -42,8 +45,14 @@ export interface RegisterDecl {
   access: 'rw' | 'ro'
   /** Value held at power-on / reset. */
   reset: number
-  /** Byte order for a 2-byte register. Defaults to big-endian. */
+  /** Byte order for a multi-byte register. Defaults to big-endian. */
   endian?: Endian
+  /**
+   * This 1-byte register returns the high byte of the word at `highByteOf`.
+   * Used when a driver reads MSB and LSB as separate point-then-read bytes
+   * (ISL29035 DATA_MSB / DATA_LSB) rather than one burst.
+   */
+  highByteOf?: number
 }
 
 /**
@@ -172,25 +181,41 @@ export function isSensorChip(chip: I2cChip): chip is SensorChip {
   return 'decl' in chip && 'setChannel' in chip
 }
 
-/** Two's-complement of `value` in a `bytes`-wide word. */
-function toWord(value: number, bytes: 1 | 2): number {
-  return value & (bytes === 1 ? 0xff : 0xffff)
+/** Mask a value into a `bytes`-wide word. */
+function toWord(value: number, bytes: 1 | 2 | 3): number {
+  if (bytes === 1) return value & 0xff
+  if (bytes === 2) return value & 0xffff
+  return value & 0xffffff
 }
 
 /** Split a register word into `bytes` bytes in the given order. */
-function wordToBytes(value: number, bytes: 1 | 2, endian: Endian): number[] {
+function wordToBytes(value: number, bytes: 1 | 2 | 3, endian: Endian): number[] {
   if (bytes === 1) return [value & 0xff]
-  const hi = (value >> 8) & 0xff
-  const lo = value & 0xff
-  return endian === 'le' ? [lo, hi] : [hi, lo]
+  if (bytes === 2) {
+    const hi = (value >> 8) & 0xff
+    const lo = value & 0xff
+    return endian === 'le' ? [lo, hi] : [hi, lo]
+  }
+  const b0 = value & 0xff
+  const b1 = (value >> 8) & 0xff
+  const b2 = (value >> 16) & 0xff
+  return endian === 'le' ? [b0, b1, b2] : [b2, b1, b0]
 }
 
 /** Assemble `bytes` bytes in the given order back into a register word. */
-function bytesToWord(src: Uint8Array, bytes: 1 | 2, endian: Endian): number {
+function bytesToWord(src: Uint8Array, bytes: 1 | 2 | 3, endian: Endian): number {
   if (bytes === 1) return src[0] ?? 0
-  const first = src[0] ?? 0
-  const second = src[1] ?? 0
-  return endian === 'le' ? ((second << 8) | first) & 0xffff : ((first << 8) | second) & 0xffff
+  if (bytes === 2) {
+    const first = src[0] ?? 0
+    const second = src[1] ?? 0
+    return endian === 'le' ? ((second << 8) | first) & 0xffff : ((first << 8) | second) & 0xffff
+  }
+  const a = src[0] ?? 0
+  const b = src[1] ?? 0
+  const c = src[2] ?? 0
+  return endian === 'le'
+    ? ((c << 16) | (b << 8) | a) & 0xffffff
+    : ((a << 16) | (b << 8) | c) & 0xffffff
 }
 
 /**
@@ -223,10 +248,14 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
 
   /** The word a read at `pointer` should return right now. */
   function currentWord(addr: number): number {
+    const reg = regByAddr.get(addr)
+    if (reg?.highByteOf !== undefined) {
+      return (currentWord(reg.highByteOf) >> 8) & 0xff
+    }
     const channel = chanByReg.get(addr)
     if (channel) {
       const value = channelValues.get(channel.key) ?? channel.min
-      return toWord(channel.encode(value, ctx), regByAddr.get(addr)?.bytes ?? 2)
+      return toWord(channel.encode(value, ctx), reg?.bytes ?? 2)
     }
     return regs.get(addr) ?? 0
   }

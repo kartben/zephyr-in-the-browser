@@ -27,7 +27,10 @@ import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
 import { createSsd1306 } from './chips/ssd1306'
 import { createAdxl345 } from './sensors/adxl345'
+import { createIna219 } from './sensors/ina219'
+import { createIsl29035 } from './sensors/isl29035'
 import { createLm75 } from './sensors/lm75'
+import { createLps22hh } from './sensors/lps22hh'
 import { createLsm6dso } from './sensors/lsm6dso'
 import { createTmp112 } from './sensors/tmp112'
 
@@ -75,6 +78,27 @@ export const CHIP_TYPES: ChipType[] = [
     create: (address) => createLsm6dso({ address }),
   },
   {
+    id: 'lps22hh',
+    label: 'LPS22HH pressure',
+    kind: 'sensor',
+    defaultAddress: 0x5c,
+    create: (address) => createLps22hh({ address }),
+  },
+  {
+    id: 'ina219',
+    label: 'INA219 power monitor',
+    kind: 'sensor',
+    defaultAddress: 0x40,
+    create: (address) => createIna219({ address }),
+  },
+  {
+    id: 'isl29035',
+    label: 'ISL29035 light',
+    kind: 'sensor',
+    defaultAddress: 0x44,
+    create: (address) => createIsl29035({ address }),
+  },
+  {
     id: 'at24',
     label: 'AT24C02 EEPROM',
     kind: 'eeprom',
@@ -97,11 +121,14 @@ export const CHIP_TYPES: ChipType[] = [
  * consulted when no zephyr.dts is loaded.
  */
 export const FALLBACK_DT_SLOTS: Record<number, string> = {
+  0x40: 'ina219',
+  0x44: 'isl29035',
   0x48: 'tmp112',
   0x49: 'lm75',
-  0x53: 'adxl345',
-  0x6a: 'lsm6dso',
   0x50: 'at24',
+  0x53: 'adxl345',
+  0x5c: 'lps22hh',
+  0x6a: 'lsm6dso',
   0x3c: 'ssd1306',
 }
 

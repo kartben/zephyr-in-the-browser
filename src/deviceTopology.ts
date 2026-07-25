@@ -152,6 +152,9 @@ const CHIP_COMPAT: Record<string, string> = {
   lm75: 'lm75',
   adxl345: 'adi,adxl345',
   lsm6dso: 'st,lsm6dso',
+  lps22hh: 'st,lps22hh',
+  ina219: 'ti,ina219',
+  isl29035: 'isil,isl29035',
   at24: 'atmel,at24',
   ssd1306: 'solomon,ssd1306',
 }
