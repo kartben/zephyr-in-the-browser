@@ -161,6 +161,28 @@ build_one() {
   cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
   printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
 
+  # A snippet that matches no board key is not an error to Zephyr: it is
+  # silently ignored, exactly as snippets/accel-display/snippet.yml warns. That
+  # bit once — accel_chart shipped at the shield's 600x400 instead of the
+  # snippet's 480x320, which is 56% more pixels for a software renderer to push
+  # on every frame, and the only visible symptom was "the chart got slow".
+  #
+  # zephyr.dts records the overlay each property came from, so the flattened
+  # tree is the receipt: if a requested snippet contributed nothing, its
+  # directory name never appears. Checked here rather than trusted.
+  if [ -n "$snippets" ]; then
+    local missing=""
+    for snippet in $(echo "$snippets" | tr ',' ' '); do
+      grep -q "snippets/$snippet/" "$dest/$id.dts" || missing="$missing $snippet"
+    done
+    if [ -n "$missing" ]; then
+      echo "    ERROR: snippet(s)$missing left no trace in $id.dts — not applied." >&2
+      echo "           Check the board keys in zephyr-module/snippets/<name>/snippet.yml" >&2
+      echo "           against this build's BOARD/BOARD_QUALIFIERS ($board)." >&2
+      exit 1
+    fi
+  fi
+
   # The picker in the UI only shows ids it knows about.
   grep -q "id: '$id'" "$ROOT/src/boards.ts" \
     || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2
