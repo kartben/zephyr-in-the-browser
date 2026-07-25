@@ -58,6 +58,8 @@ export interface GpioModel extends VirtioDeviceModel {
   setInputs(mask: number): void
   getInputs(): number
   getOutputs(): number
+  /** Runtime direction the guest last programmed (`in` / `out` / `none`). */
+  getDirection(line: number): 'in' | 'out' | 'none'
   subscribe(fn: () => void): () => void
 }
 
@@ -160,6 +162,7 @@ export function createGpioModel(name = 'gpio'): GpioModel {
           return
         }
         direction[line] = value
+        notify()
         ok()
         break
 
@@ -298,6 +301,14 @@ export function createGpioModel(name = 'gpio'): GpioModel {
 
     getInputs: () => inputs,
     getOutputs: () => outputs,
+
+    getDirection(line) {
+      if (line < 0 || line >= ngpio) return 'none'
+      const d = direction[line]
+      if (d === DIRECTION_IN) return 'in'
+      if (d === DIRECTION_OUT) return 'out'
+      return 'none'
+    },
 
     subscribe(fn) {
       listeners.add(fn)

@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GPIO dock mockup — keys / leds / controller</title>
+    <style>
+      /* Tokens from src/index.css :root (dark default). */
+      :root {
+        --background: oklch(0.15 0.004 285.8);
+        --foreground: oklch(0.92 0.004 286.3);
+        --muted: oklch(0.21 0.006 285.9);
+        --muted-foreground: oklch(0.65 0.011 286.1);
+        --border: oklch(0.27 0.007 286);
+        --primary: oklch(0.62 0.19 292);
+        --secondary: oklch(0.24 0.006 286);
+        --success: oklch(0.7 0.16 152);
+        --radius: 0.5rem;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; border-color: var(--border); }
+      body {
+        margin: 0;
+        background: #0a0a0c;
+        color: var(--foreground);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .page { width: 400px; margin: 20px auto 40px; }
+      .note {
+        font: 11px/1.45 var(--font-mono);
+        color: #888;
+        margin: 0 0 10px;
+      }
+      .stage {
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .group {
+        display: flex; align-items: center; gap: 6px;
+        padding: 7px 8px 3px; font-size: 10px; font-weight: 600;
+        letter-spacing: 0.04em; text-transform: uppercase;
+        color: var(--muted-foreground);
+      }
+      .row-head {
+        display: flex; min-height: 28px; align-items: center; gap: 4px;
+        padding-right: 6px;
+      }
+      .row-btn {
+        display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px;
+        border-radius: 6px; padding: 4px 0 4px 4px;
+      }
+      .chev { width: 12px; height: 12px; color: color-mix(in oklch, var(--muted-foreground) 70%, transparent); transform: rotate(90deg); flex-shrink: 0; }
+      .icon { width: 14px; height: 14px; color: var(--primary); flex-shrink: 0; }
+      .name { font-size: 12px; font-weight: 500; white-space: nowrap; }
+      .crumb { font-family: var(--font-mono); font-size: 10px; color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .badge { margin-left: auto; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); padding-left: 4px; flex-shrink: 0; }
+      .body { border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent); padding: 10px 12px 12px; }
+      .sec { font-size: 11px; font-weight: 500; color: var(--muted-foreground); margin-bottom: 6px; }
+      .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+      .btn {
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        border: 1px solid var(--primary); background: var(--primary); color: var(--background);
+        border-radius: 6px; padding: 6px 0; font-size: 11px; font-weight: 500;
+      }
+      .btn.idle {
+        border-color: var(--border); background: var(--secondary); color: var(--muted-foreground);
+      }
+      .btn .lvl { font-family: var(--font-mono); font-size: 10px; opacity: 0.85; }
+      .led {
+        display: flex; flex-direction: column; align-items: center; gap: 4px;
+        border: 1px solid var(--border); background: var(--secondary);
+        border-radius: 6px; padding: 6px 0; font-size: 11px; color: var(--muted-foreground);
+      }
+      .dot {
+        width: 12px; height: 12px; border-radius: 9999px; border: 1px solid var(--border);
+      }
+      .dot.on {
+        border-color: var(--primary); background: var(--primary);
+        box-shadow: 0 0 6px 1px var(--primary);
+      }
+
+      /* Compact GPIO controller table — the proposal */
+      .pins {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .pins th {
+        text-align: left;
+        font-weight: 500;
+        color: var(--muted-foreground);
+        font-size: 10px;
+        padding: 0 6px 4px 0;
+        border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+      }
+      .pins td {
+        padding: 3px 6px 3px 0;
+        border-bottom: 1px solid color-mix(in oklch, var(--border) 35%, transparent);
+        vertical-align: middle;
+        white-space: nowrap;
+      }
+      .pins tr:last-child td { border-bottom: none; }
+      .pins .pin { font-family: var(--font-mono); color: var(--muted-foreground); width: 1%; padding-right: 8px; }
+      .pins .dir {
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: 0.02em;
+        min-width: 28px;
+      }
+      .pins .dir.in { color: var(--foreground); }
+      .pins .dir.out { color: var(--primary); }
+      .pins .dir.none { color: color-mix(in oklch, var(--muted-foreground) 45%, transparent); }
+      .pins .lvl-cell { width: 1%; padding-right: 8px; }
+      .lvl-dot {
+        display: inline-block; width: 7px; height: 7px; border-radius: 9999px;
+        background: var(--border); vertical-align: middle;
+      }
+      .lvl-dot.hi { background: var(--primary); box-shadow: 0 0 5px var(--primary); }
+      .pins .flags {
+        font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground);
+      }
+      .pins .use {
+        font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground);
+        max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+      }
+      .pins .use strong { color: var(--foreground); font-weight: 500; }
+      .pins tr.idle td { opacity: 0.45; }
+      .legend {
+        margin-top: 8px;
+        font: 10px/1.4 var(--font-mono);
+        color: color-mix(in oklch, var(--muted-foreground) 85%, transparent);
+      }
+      .alt {
+        margin-top: 28px;
+      }
+      .alt h2 {
+        font: 11px/1.3 var(--font-mono);
+        color: #888;
+        font-weight: 500;
+        margin: 0 0 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <p class="note">
+        Proposal A — Blinky+button tree on virtio_gpio0 (ngpios=8).<br/>
+        Keys and LEDs leave the controller card (same split as pwm-leds / buzzer).<br/>
+        Controller = compact pin table: live dir/level + DT flags + consumer.
+      </p>
+      <div class="stage" id="a">
+        <div class="group">Keys</div>
+        <div class="row-head">
+          <div class="row-btn">
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+            <span class="name">GPIO Keys</span>
+            <span class="crumb">virtio_gpio0</span>
+          </div>
+          <span class="badge">1 btn</span>
+        </div>
+        <div class="body">
+          <div class="sec">Inputs — buttons</div>
+          <div class="grid4">
+            <div class="btn"><span>Browser SW0</span><span class="lvl">1</span></div>
+          </div>
+        </div>
+
+        <div class="group">LEDs</div>
+        <div class="row-head">
+          <div class="row-btn">
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+            <span class="name">GPIO LEDs</span>
+            <span class="crumb">virtio_gpio0</span>
+          </div>
+          <span class="badge"><span style="display:inline-block;width:7px;height:7px;border-radius:99px;background:var(--primary);box-shadow:0 0 5px var(--primary)"></span></span>
+        </div>
+        <div class="body">
+          <div class="sec">Outputs — LEDs</div>
+          <div class="grid4">
+            <div class="led"><span class="dot on"></span><span>Browser LED0</span></div>
+          </div>
+        </div>
+
+        <div class="group">GPIO</div>
+        <div class="row-head">
+          <div class="row-btn">
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+            <span class="name">virtio_gpio0</span>
+            <span class="crumb">virtio,gpio · 8 pins</span>
+          </div>
+          <span class="badge">2 claimed</span>
+        </div>
+        <div class="body" style="padding-top:8px">
+          <table class="pins">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>dir</th>
+                <th></th>
+                <th>flags</th>
+                <th>used by</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="pin">0</td>
+                <td class="dir in">IN</td>
+                <td class="lvl-cell"><span class="lvl-dot hi" title="level high"></span></td>
+                <td class="flags">AH</td>
+                <td class="use"><strong>SW0</strong> · keys</td>
+              </tr>
+              <tr class="idle">
+                <td class="pin">1</td>
+                <td class="dir none">—</td>
+                <td class="lvl-cell"><span class="lvl-dot"></span></td>
+                <td class="flags">—</td>
+                <td class="use">—</td>
+              </tr>
+              <tr class="idle">
+                <td class="pin">2</td>
+                <td class="dir none">—</td>
+                <td class="lvl-cell"><span class="lvl-dot"></span></td>
+                <td class="flags">—</td>
+                <td class="use">—</td>
+              </tr>
+              <tr class="idle">
+                <td class="pin">3</td>
+                <td class="dir none">—</td>
+                <td class="lvl-cell"><span class="lvl-dot"></span></td>
+                <td class="flags">—</td>
+                <td class="use">—</td>
+              </tr>
+              <tr>
+                <td class="pin">4</td>
+                <td class="dir out">OUT</td>
+                <td class="lvl-cell"><span class="lvl-dot hi" title="level high"></span></td>
+                <td class="flags">AH</td>
+                <td class="use"><strong>LED0</strong> · leds</td>
+              </tr>
+              <tr class="idle">
+                <td class="pin">5</td>
+                <td class="dir none">—</td>
+                <td class="lvl-cell"><span class="lvl-dot"></span></td>
+                <td class="flags">—</td>
+                <td class="use">—</td>
+              </tr>
+              <tr class="idle">
+                <td class="pin">6</td>
+                <td class="dir none">—</td>
+                <td class="lvl-cell"><span class="lvl-dot"></span></td>
+                <td class="flags">—</td>
+                <td class="use">—</td>
+              </tr>
+              <tr class="idle">
+                <td class="pin">7</td>
+                <td class="dir none">—</td>
+                <td class="lvl-cell"><span class="lvl-dot"></span></td>
+                <td class="flags">—</td>
+                <td class="use">—</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="legend">dir from runtime · flags/consumer from DT (AH = ACTIVE_HIGH) · click IN pins to drive</p>
+        </div>
+      </div>
+
+      <div class="alt">
+        <h2>Proposal B — claimed pins only (hide idle rows)</h2>
+        <p class="note" style="margin-bottom:8px">Same data, denser when ngpios is large. Unclaimed pins stay invisible until something binds them.</p>
+        <div class="stage">
+          <div class="group">GPIO</div>
+          <div class="row-head">
+            <div class="row-btn">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+              <span class="name">virtio_gpio0</span>
+              <span class="crumb">virtio,gpio · 8 pins</span>
+            </div>
+            <span class="badge">2 / 8</span>
+          </div>
+          <div class="body" style="padding-top:8px">
+            <table class="pins">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>dir</th>
+                  <th></th>
+                  <th>flags</th>
+                  <th>used by</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="pin">0</td>
+                  <td class="dir in">IN</td>
+                  <td class="lvl-cell"><span class="lvl-dot hi"></span></td>
+                  <td class="flags">AH</td>
+                  <td class="use"><strong>SW0</strong> · keys</td>
+                </tr>
+                <tr>
+                  <td class="pin">4</td>
+                  <td class="dir out">OUT</td>
+                  <td class="lvl-cell"><span class="lvl-dot hi"></span></td>
+                  <td class="flags">AH</td>
+                  <td class="use"><strong>LED0</strong> · leds</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="legend">IN pins still clickable to press · OUT is read-only live level</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

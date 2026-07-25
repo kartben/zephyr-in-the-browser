@@ -248,6 +248,22 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(nodeByKey(inv, 'gpio').body).toBe('gpio')
   })
 
+  it('emits a gpio-keys dock row in the Keys class', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(a53Blinky),
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const keys = nodeByKey(inv, 'gpio-keys')
+    expect(keys.presence).toBe('interactive')
+    expect(keys.body).toBe('gpio-keys')
+    expect(keys.deviceClass).toBe('keys')
+    expect(keys.compatible).toBe('gpio-keys')
+    expect(keys.panelKind).toBe('keys')
+    expect(keys.label).toBe('GPIO Keys')
+  })
+
   it('emits a pwm-leds dock row alongside the PCA9685 PWM chip', () => {
     const chip = createPca9685({ address: 0x60 })
     const inv = deriveDeviceInventory(

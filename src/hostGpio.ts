@@ -30,9 +30,23 @@ import { gpioModel, isBound, subscribeBinds } from '@/virtio'
 export interface Pin {
   id: number
   label: string
+  /** DT flags when known; 0 = ACTIVE_HIGH with no pull/drive extras. */
+  flags: number
 }
 
 export type { BuzzerPin }
+
+export type PinDirection = 'in' | 'out' | 'none'
+
+export type PinConsumerKind = 'keys' | 'leds' | 'buzzer'
+
+export interface ClaimedPin {
+  id: number
+  direction: PinDirection
+  /** DT flags when a consumer declared them; undefined if runtime-only. */
+  flags?: number
+  consumer?: { kind: PinConsumerKind; label: string }
+}
 
 /**
  * The full pin fan-out of the bridge, for builds whose devicetree is unknown:
@@ -41,17 +55,17 @@ export type { BuzzerPin }
  * gpio-leds nodes actually wire instead — see getButtons/getLeds.
  */
 const FALLBACK_BUTTONS: Pin[] = [
-  { id: 0, label: 'SW0' },
-  { id: 1, label: 'SW1' },
-  { id: 2, label: 'SW2' },
-  { id: 3, label: 'SW3' },
+  { id: 0, label: 'SW0', flags: 0 },
+  { id: 1, label: 'SW1', flags: 0 },
+  { id: 2, label: 'SW2', flags: 0 },
+  { id: 3, label: 'SW3', flags: 0 },
 ]
 
 const FALLBACK_LEDS: Pin[] = [
-  { id: 4, label: 'LED0' },
-  { id: 5, label: 'LED1' },
-  { id: 6, label: 'LED2' },
-  { id: 7, label: 'LED3' },
+  { id: 4, label: 'LED0', flags: 0 },
+  { id: 5, label: 'LED1', flags: 0 },
+  { id: 6, label: 'LED2', flags: 0 },
+  { id: 7, label: 'LED3', flags: 0 },
 ]
 
 /*
@@ -64,11 +78,13 @@ let derived: {
   leds: Pin[]
   buzzers: BuzzerPin[]
   node: string | null
+  ngpios: number
 } = {
   buttons: FALLBACK_BUTTONS,
   leds: FALLBACK_LEDS,
   buzzers: [],
   node: null,
+  ngpios: 8,
 }
 
 function recomputeDerived() {
@@ -79,8 +95,15 @@ function recomputeDerived() {
         leds: bridged.leds,
         buzzers: bridged.buzzers,
         node: bridged.controllerLabel,
+        ngpios: bridged.ngpios ?? 8,
       }
-    : { buttons: FALLBACK_BUTTONS, leds: FALLBACK_LEDS, buzzers: [], node: null }
+    : {
+        buttons: FALLBACK_BUTTONS,
+        leds: FALLBACK_LEDS,
+        buzzers: [],
+        node: null,
+        ngpios: 8,
+      }
 }
 
 /** What the browser drives: gpio-keys pins when a devicetree says, else 0-3. */
@@ -96,6 +119,98 @@ export function getLeds(): Pin[] {
 /** gpio-buzzer pins declared on the bridged controller (empty when none). */
 export function getBuzzers(): BuzzerPin[] {
   return derived.buzzers
+}
+
+/** Controller width from DT `ngpios` (fallback 8). */
+export function getNgpios(): number {
+  return derived.ngpios
+}
+
+/**
+ * Runtime direction for one line. Virtio exposes the guest-programmed
+ * direction; MMIO host-gpio has none — infer from DT consumer role when
+ * claimed, else `none`.
+ */
+export function getPinDirection(pin: number): PinDirection {
+  if (!mmio && isBound(gpioModel.name)) {
+    return gpioModel.getDirection(pin)
+  }
+  if (derived.buttons.some((p) => p.id === pin)) return 'in'
+  if (derived.leds.some((p) => p.id === pin) || derived.buzzers.some((p) => p.id === pin)) {
+    return 'out'
+  }
+  return 'none'
+}
+
+/**
+ * Proposal B claimed pins: DT consumers and/or live IN/OUT, sorted by index.
+ * Snapshot identity changes whenever derived wiring or directions change —
+ * callers that need a stable subscribe token should join pin ids + dirs.
+ */
+export function getClaimedPins(): ClaimedPin[] {
+  const byId = new Map<number, ClaimedPin>()
+
+  const claim = (
+    id: number,
+    consumer: ClaimedPin['consumer'],
+    flags: number | undefined,
+    inferred: PinDirection,
+  ) => {
+    const runtime = getPinDirection(id)
+    const direction = runtime !== 'none' ? runtime : inferred
+    const prev = byId.get(id)
+    byId.set(id, {
+      id,
+      direction,
+      flags: flags ?? prev?.flags,
+      consumer: consumer ?? prev?.consumer,
+    })
+  }
+
+  for (const pin of derived.buttons) {
+    claim(pin.id, { kind: 'keys', label: pin.label }, pin.flags, 'in')
+  }
+  for (const pin of derived.leds) {
+    claim(pin.id, { kind: 'leds', label: pin.label }, pin.flags, 'out')
+  }
+  for (const pin of derived.buzzers) {
+    claim(
+      pin.id,
+      { kind: 'buzzer', label: pin.label },
+      pin.activeHigh ? 0 : 1,
+      'out',
+    )
+  }
+
+  // Runtime-only claims (guest configured a line with no DT consumer).
+  const n = Math.min(derived.ngpios, 32)
+  for (let id = 0; id < n; id++) {
+    if (byId.has(id)) continue
+    const direction = getPinDirection(id)
+    if (direction === 'none') continue
+    byId.set(id, { id, direction })
+  }
+
+  return [...byId.values()].sort((a, b) => a.id - b.id)
+}
+
+/** Stable subscribe token for claimed pin dir/level changes. */
+export function claimedPinsToken(): string {
+  return getClaimedPins()
+    .map((p) => {
+      const level =
+        p.direction === 'in'
+          ? isInputHigh(p.id)
+            ? '1'
+            : '0'
+          : p.direction === 'out'
+            ? isOutputHigh(p.id)
+              ? '1'
+              : '0'
+            : '-'
+      return `${p.id}:${p.direction}:${level}:${p.consumer?.kind ?? ''}`
+    })
+    .join('|')
 }
 
 interface GpioExports {

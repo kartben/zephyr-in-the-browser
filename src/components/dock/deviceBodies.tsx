@@ -22,6 +22,7 @@ import {
   Activity,
   Grid3x3,
   Lightbulb,
+  Gamepad2,
   Vibrate,
   Volume2,
   Waves,
@@ -31,7 +32,7 @@ import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
 import { GnssBody } from '@/components/GnssPanel'
-import { GpioBody, GpioLedsBody } from '@/components/GpioPanel'
+import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
 import { LedMatrixBody } from '@/components/LedPanel'
 import { MemoryBody } from '@/components/MemoryCard'
@@ -108,6 +109,8 @@ export function DeviceBody({
       return <I2cBody busLabel={node.busLabel} />
     case 'gpio':
       return <GpioBody />
+    case 'gpio-keys':
+      return <GpioKeysBody />
     case 'gpio-leds':
       return <GpioLedsBody />
     case 'buzzer':
@@ -151,6 +154,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Cable
     case 'gpio':
       return CircuitBoard
+    case 'gpio-keys':
+      return Gamepad2
     case 'buzzer':
       return Vibrate
     case 'gnss':
@@ -179,6 +184,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return SquareChevronRight
     case 'gpio':
       return CircuitBoard
+    case 'keys':
+      return Gamepad2
     case 'buzzer':
       return Vibrate
     case 'sensor':
@@ -260,7 +267,9 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
     case 'net':
       return <NetBadge />
     case 'gpio':
-      return <GpioBadge />
+      return <GpioControllerBadge />
+    case 'gpio-keys':
+      return <GpioKeysBadge />
     case 'buzzer':
       return <BuzzerBadge />
     case 'speaker':
@@ -355,7 +364,8 @@ export function GroupBadge({
     }
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
-  if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioBadge />
+  if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioControllerBadge />
+  if (deviceClass === 'keys' && nodes.some((n) => n.body === 'gpio-keys')) return <GpioKeysBadge />
   if (deviceClass === 'buzzer' && nodes.some((n) => n.body === 'buzzer')) return <BuzzerBadge />
   if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
   if (deviceClass === 'gnss' && nodes.some((n) => n.body === 'gnss')) return <GnssBadge />
@@ -467,7 +477,18 @@ function NetBadge() {
   )
 }
 
-function GpioBadge() {
+function GpioControllerBadge() {
+  useSyncExternalStore(hostGpio.subscribe, hostGpio.claimedPinsToken, () => '')
+  const claimed = hostGpio.getClaimedPins().length
+  const ngpios = hostGpio.getNgpios()
+  return (
+    <Mono>
+      {claimed} / {ngpios}
+    </Mono>
+  )
+}
+
+function GpioKeysBadge() {
   const buttons = useSyncExternalStore(
     hostGpio.subscribe,
     hostGpio.getButtons,

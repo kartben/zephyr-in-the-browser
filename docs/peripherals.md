@@ -155,9 +155,12 @@ that the peripheral surfaces read:
 - a Buzzer dock row when the tree has an okay `gpio-buzzer` on the bridged
   controller (pin level observed the same way LEDs are; shake + Vibration API /
   Web Audio on the page — not through I2S),
+- a GPIO Keys dock row when the tree has okay `gpio-keys` on the bridged
+  controller (Keys class — buttons leave the controller card),
 - a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged
-  controller (LED-class sibling of the GPIO button card — same split as
-  gpio-buzzer),
+  controller (LED-class sibling — same split as gpio-buzzer),
+- a claimed-pin table on the GPIO controller card (dir + level + DT flags +
+  `used by` → reveal; see [gpio-controller.md](gpio-controller.md)),
 - a PWM LEDs dock row when the tree has okay `pwm-leds` children whose
   controller is an attached `PwmChip` (brightness from channel duty; see
   [pwm-leds.md](pwm-leds.md)),

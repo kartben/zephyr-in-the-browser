@@ -468,10 +468,12 @@ describe('virtio-gpio model', () => {
     gpio.subscribe(() => seen.push(gpio.getOutputs()))
 
     request(MSG_SET_DIRECTION, 4, DIRECTION_OUT)
+    // Direction changes also notify (claimed-pin table dir column).
+    expect(seen).toEqual([0])
     expect(request(MSG_SET_VALUE, 4, 1).status).toBe(STATUS_OK)
     expect(gpio.getOutputs()).toBe(0b0001_0000)
     // Push, not poll: the page learns the moment the guest writes.
-    expect(seen).toEqual([0b0001_0000])
+    expect(seen).toEqual([0, 0b0001_0000])
     expect(request(MSG_GET_VALUE, 4)).toEqual({ status: STATUS_OK, value: 1 })
   })
 

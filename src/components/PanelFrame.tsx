@@ -113,6 +113,7 @@ export function PanelFrame({
 
   return (
     <div
+      data-dock-key={id}
       className={cn(
         'pointer-events-auto overflow-hidden rounded-lg border border-border bg-card shadow-lg',
         floating && 'fixed z-40 flex flex-col',
@@ -126,9 +127,11 @@ export function PanelFrame({
       }
     >
       <div
+        data-dock-focus
+        tabIndex={-1}
         {...(floating ? dragHandlers : {})}
         className={cn(
-          'flex items-center gap-2 px-3 py-2',
+          'flex items-center gap-2 px-3 py-2 outline-none',
           !collapsed && 'border-b border-border',
           floating && 'cursor-move touch-none select-none',
         )}

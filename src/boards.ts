@@ -17,6 +17,7 @@ export type PanelKind =
   | 'gnss'
   | 'sensor'
   | 'gpio'
+  | 'keys'
   | 'buzzer'
   | 'audio'
   | 'perf'
@@ -200,12 +201,12 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   },
   {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
-    // lights led0 (pin 4) — click SW0 in the GPIO panel to press it.
+    // lights led0 (pin 4) — click SW0 in the Keys panel to press it.
     id: 'basic_button',
     label: 'Button',
     description: 'A host GPIO button lights an LED via the input subsystem',
     zephyrSample: 'samples/basic/button',
-    primaryPanels: ['gpio', 'led'],
+    primaryPanels: ['keys', 'led', 'gpio'],
   },
 ]
 
@@ -372,7 +373,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Button',
     description: 'A browser button lights an LED, over an interrupt-driven VIRTIO GPIO',
     zephyrSample: 'samples/basic/button',
-    primaryPanels: ['gpio', 'led'],
+    primaryPanels: ['keys', 'led', 'gpio'],
   },
   {
     id: 'shell',
