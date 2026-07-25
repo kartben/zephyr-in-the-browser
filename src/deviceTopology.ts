@@ -25,6 +25,7 @@ import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
+import { isDacChip } from '@/virtio/devices/dac/model'
 import { isPwmChip } from '@/virtio/devices/pwm/model'
 import { isRtcChip } from '@/virtio/devices/rtc/model'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
@@ -38,6 +39,7 @@ export type DeviceClass =
   | 'auxdisplay'
   | 'led'
   | 'pwm'
+  | 'dac'
   | 'memory'
   | 'rtc'
   | 'i2c-bus'
@@ -57,6 +59,7 @@ export type BodyKind =
   | 'auxdisplay'
   | 'led'
   | 'pwm'
+  | 'dac'
   | 'rtc'
   | 'i2c'
   | 'gpio'
@@ -134,6 +137,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   auxdisplay: 'Aux displays',
   led: 'LED controllers',
   pwm: 'PWM',
+  dac: 'DAC',
   memory: 'Memory',
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
@@ -152,6 +156,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'auxdisplay',
   'led',
   'pwm',
+  'dac',
   'memory',
   'rtc',
   'i2c-bus',
@@ -171,6 +176,7 @@ const KIND_TO_CLASS: Record<ChipKind, DeviceClass> = {
   auxdisplay: 'auxdisplay',
   led: 'led',
   pwm: 'pwm',
+  dac: 'dac',
   rtc: 'rtc',
 }
 
@@ -188,6 +194,7 @@ const CHIP_COMPAT: Record<string, string> = {
   jhd1313: 'jhd,jhd1313',
   ht16k33: 'holtek,ht16k33',
   pca9685: 'nxp,pca9685-pwm',
+  mcp4725: 'microchip,mcp4725',
   pcf8523: 'nxp,pcf8523',
 }
 
@@ -203,6 +210,7 @@ function chipClass(chip: I2cChip): DeviceClass {
   if (isJhd1313Lcd(chip) || isJhd1313Backlight(chip)) return 'auxdisplay'
   if (isHt16k33(chip)) return 'led'
   if (isPwmChip(chip)) return 'pwm'
+  if (isDacChip(chip)) return 'dac'
   if ('isOn' in chip && 'memory' in chip) return 'display'
   return 'other'
 }
@@ -218,6 +226,7 @@ function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
   }
   if (cls === 'led') return 'led'
   if (cls === 'pwm') return 'pwm'
+  if (cls === 'dac') return 'dac'
   if (cls === 'rtc') return 'rtc'
   return undefined
 }
@@ -230,6 +239,7 @@ function chipPanelKind(cls: DeviceClass): PanelKind | undefined {
   if (cls === 'auxdisplay') return 'auxdisplay'
   if (cls === 'led') return 'led'
   if (cls === 'pwm') return 'pwm'
+  if (cls === 'dac') return 'dac'
   if (cls === 'rtc') return 'i2c'
   return undefined
 }

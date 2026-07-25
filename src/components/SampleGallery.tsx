@@ -19,6 +19,7 @@ import {
   Tv,
   Vibrate,
   Volume2,
+  Waves,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -65,6 +66,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   auxdisplay: Monitor,
   led: Grid3x3,
   pwm: Activity,
+  dac: Waves,
   trace: Activity,
 }
 
@@ -82,6 +84,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   auxdisplay: 'LCD',
   led: 'LED',
   pwm: 'PWM',
+  dac: 'DAC',
   trace: 'trace',
 }
 

@@ -37,3 +37,7 @@
 &pca9685_0 {
 	status = "disabled";
 };
+
+&mcp4725_0 {
+	status = "disabled";
+};

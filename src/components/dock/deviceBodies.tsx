@@ -23,6 +23,7 @@ import {
   Grid3x3,
   Vibrate,
   Volume2,
+  Waves,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
@@ -35,6 +36,7 @@ import { LedMatrixBody } from '@/components/LedPanel'
 import { MemoryBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
+import { DacBody } from '@/components/DacPanel'
 import { PwmBody } from '@/components/PwmPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
@@ -50,6 +52,10 @@ import { i2cModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
+import {
+  formatDacVolts,
+  type DacChip,
+} from '@/virtio/devices/dac/model'
 import {
   formatPwmDuty,
   type PwmChip,
@@ -85,6 +91,8 @@ export function DeviceBody({
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
     case 'pwm':
       return <PwmBody chip={node.chip as PwmChip} />
+    case 'dac':
+      return <DacBody chip={node.chip as DacChip} />
     case 'rtc':
       return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
@@ -120,6 +128,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Grid3x3
     case 'pwm':
       return Activity
+    case 'dac':
+      return Waves
     case 'rtc':
       return Clock
     case 'i2c':
@@ -146,6 +156,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Grid3x3
     case 'pwm':
       return Activity
+    case 'dac':
+      return Waves
     case 'i2c-bus':
       return Cable
     case 'serial':
@@ -209,6 +221,11 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
           CH0 · {formatPwmDuty(ch.duty)}
         </Mono>
       )
+    }
+    case 'dac': {
+      const chip = node.chip as DacChip
+      const ch = chip.getChannel(0)
+      return <Mono>{formatDacVolts(ch.volts)}</Mono>
     }
     case 'rtc':
       return <RtcBadge chip={node.chip as RtcChip} />
@@ -291,6 +308,15 @@ export function GroupBadge({
           {chip.decl.channelCount} ch · {formatPwmDuty(ch.duty)}
         </Mono>
       )
+    }
+  }
+  if (deviceClass === 'dac') {
+    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'dac')?.chip as
+      | DacChip
+      | undefined
+    if (chip) {
+      const ch = chip.getChannel(0)
+      return <Mono>{formatDacVolts(ch.volts)}</Mono>
     }
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />

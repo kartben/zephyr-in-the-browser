@@ -431,13 +431,24 @@ channel strip sized from `decl.channelCount` — no PCA9685 imports in the UI.
 Guest side: stock `nxp,pca9685-pwm` via `-S pca9685-only` / `conf/pca9685.conf`,
 packaging `samples/drivers/led/pwm`. Address is 0x60 to avoid `ina219@40`.
 
-#### 4d. Fuel gauge / charger
+#### 4d. DAC — ✅ done (MCP4725); more providers next
+
+**Implemented** as a bus-agnostic `DacChip` framework
+(`src/virtio/devices/dac/model.ts`) with the first provider Microchip MCP4725 at
+`0x61` (`chips/mcp4725.ts` + `maps/mcp4725.json`). Dock card
+(`DacPanel.tsx` / `DacBody`) paints a Vout-over-time history chart and level bar
+sized from `decl` — no MCP4725 imports in the UI. Guest side: stock
+`microchip,mcp4725` via `-S mcp4725-only` / `conf/mcp4725.conf`, packaging
+`samples/drivers/dac` with `/zephyr,user` dac / channel / resolution props.
+Address is 0x61 to avoid `pca9685@60`.
+
+#### 4e. Fuel gauge / charger
 
 `samples/drivers/fuel_gauge` and `samples/drivers/charger` — another dock
 class (battery), pure I²C register files. Great once the power-monitor story
 (INA219) wants a sibling that speaks "SoC %" rather than "amps".
 
-#### 4e. Webcam — still the stretch
+#### 4f. Webcam — still the stretch
 
 Unchanged: coolest, heaviest, lowest certainty. No QEMU camera a Zephyr driver
 consumes; needs a bespoke `video` driver + host buffer →
@@ -529,6 +540,9 @@ shell is a UX problem before it is a driver problem.
    (pitch) remains a follow-up.
 6. ~~**PWM (I²C)**~~ — ✅ done; `PwmChip` framework + `nxp,pca9685-pwm` with
    `samples/drivers/led/pwm`, duty-cycle chart. More PWM providers are
+   declaration + packaging only.
+6½. ~~**DAC (I²C)**~~ — ✅ done; `DacChip` framework + `microchip,mcp4725` with
+   `samples/drivers/dac`, Vout history chart. More DAC providers are
    declaration + packaging only. Then fuel-gauge / charger.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 

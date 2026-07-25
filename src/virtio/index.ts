@@ -23,6 +23,7 @@ import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
 import { createHt16k33 } from './devices/chips/ht16k33'
 import { createJhd1313Pair } from './devices/chips/jhd1313'
+import { createMcp4725 } from './devices/chips/mcp4725'
 import { createPca9685 } from './devices/chips/pca9685'
 import { createPcf8523 } from './devices/rtc/pcf8523'
 import { FALLBACK_DT_SLOTS } from './devices/registry'
@@ -87,6 +88,9 @@ export const ht16k33 = createHt16k33({ address: 0x70 })
 /** NXP PCA9685 16-ch PWM @ 0x60 — stock samples/drivers/led/pwm. */
 export const pca9685 = createPca9685({ address: 0x60 })
 
+/** Microchip MCP4725 12-bit DAC @ 0x61 — stock samples/drivers/dac. */
+export const mcp4725 = createMcp4725({ address: 0x61 })
+
 /** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
@@ -102,6 +106,7 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x53, adxl345],
   [0x5c, lps22hh],
   [0x60, pca9685],
+  [0x61, mcp4725],
   [0x62, jhd1313Backlight],
   [0x68, pcf8523],
   [0x6a, lsm6dso],

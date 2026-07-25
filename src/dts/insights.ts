@@ -109,6 +109,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
   'jhd,jhd1313': 'jhd1313',
   'holtek,ht16k33': 'ht16k33',
   'nxp,pca9685-pwm': 'pca9685',
+  'microchip,mcp4725': 'mcp4725',
   'nxp,pcf8523': 'pcf8523',
 }
 
@@ -314,6 +315,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (hasOkayCompat(doc, 'jhd,jhd1313')) panels.add('auxdisplay')
   if (hasOkayCompat(doc, 'holtek,ht16k33')) panels.add('led')
   if (hasOkayCompat(doc, 'nxp,pca9685-pwm')) panels.add('pwm')
+  if (hasOkayCompat(doc, 'microchip,mcp4725')) panels.add('dac')
   // 'perf' is a machine property (-icount), invisible to the guest tree.
 
   const aliasTable: Record<string, string> = {}
