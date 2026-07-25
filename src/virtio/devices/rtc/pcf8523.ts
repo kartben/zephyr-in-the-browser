@@ -18,6 +18,9 @@ import {
   type RtcDateTime,
   type RtcDecl,
 } from './model'
+import { insertField } from '../registers/fields'
+import { registersFromJson, type RegisterMapJson } from '../registers'
+import pcf8523Map from './maps/pcf8523.json'
 
 const REG_CONTROL_1 = 0x00
 const REG_CONTROL_2 = 0x01
@@ -34,6 +37,9 @@ const REG_DAY_ALARM = 0x0c
 const REG_WEEKDAY_ALARM = 0x0d
 const REG_TMR_CLKOUT = 0x0f
 const REG_COUNT = 0x14
+
+const PCF8523_REGISTERS = registersFromJson(pcf8523Map as RegisterMapJson)
+const REG_BY_ADDR = new Map(PCF8523_REGISTERS.map((r) => [r.addr, r]))
 
 const CONTROL_1_STOP = 0x20
 const CONTROL_2_AF = 0x08
@@ -229,6 +235,7 @@ export function createPcf8523({ address, name, time }: Pcf8523Options = {}): Rtc
     address: address ?? pcf8523Decl.defaultAddress,
     name: name ?? pcf8523Decl.name,
     decl: pcf8523Decl,
+    registers: PCF8523_REGISTERS,
 
     write(bytes) {
       if (bytes.length === 0) return true
@@ -253,6 +260,35 @@ export function createPcf8523({ address, name, time }: Pcf8523Options = {}): Rtc
       }
       notify()
       return out
+    },
+
+    peek(addr) {
+      syncAdvance()
+      if (addr < 0 || addr >= REG_COUNT) return 0
+      return regs[addr]!
+    },
+
+    getPointer: () => pointer,
+
+    poke(addr, value) {
+      const decl = REG_BY_ADDR.get(addr)
+      if (decl && decl.access !== 'rw') return
+      if (addr < 0 || addr >= REG_COUNT) return
+      syncAdvance()
+      writeReg(addr, value & 0xff)
+      notify()
+    },
+
+    setField(addr, field, value) {
+      const decl = REG_BY_ADDR.get(addr)
+      if (!decl || decl.access !== 'rw') return
+      if (field.msb < field.lsb) return
+      syncAdvance()
+      const current = regs[addr]!
+      const next = insertField(current, field, value) & 0xff
+      if (next === current) return
+      writeReg(addr, next)
+      notify()
     },
 
     getTime() {

@@ -1,13 +1,13 @@
 /**
- * Live SVD-style register map for a {@link SensorChip}.
+ * Live SVD-style register map for any {@link RegisterMapSource}.
  *
- * The sensor card stays a slider surface; this dialog is the fine-grained view
- * — every declared register, its live word, and the named bitfields from the
- * JSON / TypeScript map. Collapsed by default: the card only shows a small
+ * Sensor cards, RTC cards, and future register-file parts share this dialog —
+ * the kind-specific UI stays a slider / clock / … surface; this is the
+ * fine-grained view. Collapsed by default: the card only shows a small
  * "Registers" affordance until you open it.
  */
 
-import { useState } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import {
   Dialog,
@@ -22,15 +22,54 @@ import {
   extractField,
   formatBitRange,
   formatRegHex,
+} from '@/virtio/devices/registers/fields'
+import {
+  hasRegisterMap,
   type FieldDecl,
   type RegisterDecl,
-  type SensorChip,
-} from '@/virtio/devices/sensors/model'
+  type RegisterMapSource,
+} from '@/virtio/devices/registers/types'
 
-export function RegisterMapButton({ chip }: { chip: SensorChip }) {
+/** ~20 Hz is plenty for a register readout. */
+const REGMAP_UI_MS = 50
+
+function useRegisterMap(chip: RegisterMapSource) {
+  const [, force] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let last = 0
+    const refresh = () => {
+      last = performance.now()
+      force()
+    }
+    const unsubscribe = chip.subscribe(() => {
+      const now = performance.now()
+      const wait = REGMAP_UI_MS - (now - last)
+      if (wait <= 0) {
+        if (timer !== undefined) {
+          clearTimeout(timer)
+          timer = undefined
+        }
+        refresh()
+        return
+      }
+      if (timer !== undefined) return
+      timer = setTimeout(() => {
+        timer = undefined
+        refresh()
+      }, wait)
+    })
+    return () => {
+      unsubscribe()
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [chip])
+}
+
+export function RegisterMapButton({ chip }: { chip: RegisterMapSource }) {
   const [open, setOpen] = useState(false)
-  const count = chip.decl.registers.length
-  if (count === 0) return null
+  if (!hasRegisterMap(chip)) return null
+  const count = chip.registers.length
 
   return (
     <>
@@ -51,12 +90,13 @@ function RegisterMapDialog({
   open,
   onOpenChange,
 }: {
-  chip: SensorChip
+  chip: RegisterMapSource
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  useRegisterMap(chip)
   const hex = chip.address.toString(16).padStart(2, '0')
-  const named = chip.decl.registers.filter((r) => r.name).length
+  const named = chip.registers.filter((r) => r.name).length
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -67,14 +107,14 @@ function RegisterMapDialog({
           </DialogTitle>
           <DialogDescription>
             {named > 0
-              ? `${chip.decl.registers.length} registers · ${named} named — live values as the guest would read them.`
-              : `${chip.decl.registers.length} registers — live values as the guest would read them.`}
+              ? `${chip.registers.length} registers · ${named} named — live values as the guest would read them.`
+              : `${chip.registers.length} registers — live values as the guest would read them.`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-auto border-t border-border px-3 py-2">
           <div className="space-y-0.5">
-            {chip.decl.registers.map((reg) => (
+            {chip.registers.map((reg) => (
               <RegisterRow key={reg.addr} chip={chip} reg={reg} />
             ))}
           </div>
@@ -84,7 +124,7 @@ function RegisterMapDialog({
   )
 }
 
-function RegisterRow({ chip, reg }: { chip: SensorChip; reg: RegisterDecl }) {
+function RegisterRow({ chip, reg }: { chip: RegisterMapSource; reg: RegisterDecl }) {
   const [open, setOpen] = useState(false)
   const word = chip.peek(reg.addr)
   const pointed = chip.getPointer() === reg.addr
@@ -148,7 +188,7 @@ function FieldRow({
   field,
   word,
 }: {
-  chip: SensorChip
+  chip: RegisterMapSource
   reg: RegisterDecl
   field: FieldDecl
   word: number
@@ -176,7 +216,6 @@ function FieldRow({
           onChange={(e) => chip.setField(reg.addr, field, Number(e.target.value))}
           className="max-w-[11rem] rounded border border-input bg-background px-1.5 py-0.5 font-mono text-[10px] outline-none"
         >
-          {/* Keep the live value selectable even if it is not in the enum list. */}
           {!field.values.some((entry) => entry.value === value) && (
             <option value={value}>{formatRegHex(value, 1)}</option>
           )}

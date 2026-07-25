@@ -32,11 +32,17 @@ const fakeRtc = (address: number, name: string): I2cChip =>
     address,
     name,
     decl: {},
+    registers: [],
     getTime() {},
     syncFromBrowser() {},
     getAlarms() {
       return []
     },
+    peek: () => 0,
+    getPointer: () => 0,
+    poke() {},
+    setField() {},
+    subscribe: () => () => {},
   }) as unknown as I2cChip
 const fakeOled = (address: number, name: string): I2cChip =>
   ({ address, name, memory: new Uint8Array(0), isOn: () => true }) as unknown as I2cChip
