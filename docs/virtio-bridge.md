@@ -138,7 +138,15 @@ touch a virtqueue off the QEMU thread.
   deadline whenever the vCPUs idle — so a virtual-clock drain would race ahead
   of the browser, fire on an empty ring, warp again, and inflate guest time
   while making no progress. The drain therefore runs on `QEMU_CLOCK_REALTIME`:
-  1 ms while tokens are parked, 10 ms idle.
+  1 ms while tokens are parked, **1 ms idle** (was 10 ms — see below).
+
+  The idle value matters more than it looks. A synchronous guest
+  (`dac_write` → `k_sem_take(K_FOREVER)` → answer → `k_sleep`) drops
+  `outstanding` to zero between every transfer; with `-icount sleep=on` the
+  host then sleeps until the idle drain fires. Measured on Cortex-A53 `dac`
+  with `tools/profile-dac.mjs`: **10 ms idle → ~45 I²C Hz** (one ~4 s
+  sawtooth stretched across ~90 s of wall); **page-side poll was already
+  ~1.2 ms**, so the drain was the ceiling. Idle matches busy at 1 ms.
 - **QEMU → page.** A paced `MessagePort`/timer loop for 100 ms after any
   request (1 ms between polls), falling back to a 50 ms timer when idle.
 

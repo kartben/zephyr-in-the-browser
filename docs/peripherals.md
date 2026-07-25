@@ -104,8 +104,8 @@ the card that drives it — so adding a part is a declaration, not another panel
 - **DAC** ([`dac/model.ts`](../src/virtio/devices/dac/model.ts)) — coded
   channels with volts + history (`DacDecl` / `DacChannel` / `isDacChip`). The
   dock paints a Vout-over-time trace and level bar (default 10 s window window,
-  selectable). Sample timestamps prefer guest virtual time under `-icount` so
-  the stock sawtooth keeps its ~4 s period; wall clock is the fallback. The
+  selectable). Sample timestamps use wall clock — guest icount freezes while
+  the guest blocks on virtio-i2c, which made the sawtooth look stuck. The
   first provider is the I²C MCP4725 at `0x61`; a later multi-channel DAC
   reuses `DacBody` unchanged.
 

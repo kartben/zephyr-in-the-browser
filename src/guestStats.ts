@@ -60,12 +60,13 @@ function readCount(): number | null {
 }
 
 /**
- * Guest virtual time in milliseconds (`QEMU_CLOCK_VIRTUAL`), or null when
- * icount is not driving the machine. Prefer this over `performance.now()` for
- * scopes of guest-paced signals (`k_sleep` loops): under
- * `-icount shift=4,align=off` wall time runs ahead/behind guest sleep, so a
- * wall-clock chart makes the stock DAC sawtooth look far shorter than its
- * advertised ~4 s period.
+ * Guest *instruction* time in milliseconds, or null when icount is not
+ * driving the machine. Derived from `icount_get_raw() << shift` — that is
+ * executed instructions, **not** the full `QEMU_CLOCK_VIRTUAL` (sleep warps
+ * under `-icount sleep=on` are missing). Fine for MIPS; misleading as a
+ * scope time base while the guest blocks on virtio-i2c (the DAC sawtooth
+ * froze at ~2 ms of this counter per wall second). Prefer wall clock for
+ * charts of I²C-bound samples.
  */
 export function guestVirtualNowMs(): number | null {
   const count = readCount()

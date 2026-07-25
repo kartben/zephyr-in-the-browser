@@ -5,9 +5,9 @@
  * readout, and the shared Registers dialog. Provider-agnostic — do not import
  * MCP4725 here.
  *
- * The scope time base prefers guest virtual time (`-icount`) so stock
- * `samples/drivers/dac` shows its ~4 s sawtooth period; wall clock is the
- * fallback when icount is unavailable.
+ * The scope time base is wall clock. Guest icount looked right for the stock
+ * ~4 s period but freezes while the guest blocks on virtio-i2c (see
+ * `dac/clock.ts`); wall time keeps the trace moving with real samples.
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
