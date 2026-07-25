@@ -430,6 +430,10 @@ I²C 16-channel 12-bit PWM. Stock Zephyr PWM + `pwm-leds` path
 chart (~1.25 periods, T / t_high / t_low / duty / Hz). Address **0x60** to
 avoid clashing with `ina219@40`. Register map mandatory.
 
+**Framework first:** land `pwm/model.ts` (`PwmDecl` / `PwmChip` / `isPwmChip`)
+the way sensors / RTC did, so a second PWM provider is declaration + packaging
+only — `PwmBody` must not import PCA9685.
+
 #### 4d. Fuel gauge / charger
 
 `samples/drivers/fuel_gauge` and `samples/drivers/charger` — another dock
