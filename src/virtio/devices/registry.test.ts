@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { clear, setUserDts } from '@/devicetree'
-import { hasDriver, declaredChip } from './registry'
+import type { I2cChip } from './i2c'
+import { CHIP_TYPES, hasDriver, declaredChip, chipType } from './registry'
+import { isJhd1313Backlight, isJhd1313Lcd } from './chips/jhd1313'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 
@@ -52,5 +54,20 @@ describe('declaredChip', () => {
 
   it('names the fallback occupant without a tree', () => {
     expect(declaredChip(0x50)).toEqual({ chipId: 'at24' })
+  })
+})
+
+describe('JHD1313 module attach', () => {
+  it('is one picker entry that creates a linked LCD + backlight pair', () => {
+    const type = chipType('jhd1313')
+    expect(type?.secondaryAddress).toBe(0x62)
+    expect(type?.secondaryLabel).toBe('backlight')
+    const created = type!.create(0x3e, 0x62)
+    expect(Array.isArray(created)).toBe(true)
+    const [lcd, backlight] = created as I2cChip[]
+    expect(isJhd1313Lcd(lcd)).toBe(true)
+    expect(isJhd1313Backlight(backlight)).toBe(true)
+    if (isJhd1313Lcd(lcd)) expect(lcd.backlight).toBe(backlight)
+    expect(CHIP_TYPES.some((t) => t.id === 'jhd1313-backlight')).toBe(false)
   })
 })
