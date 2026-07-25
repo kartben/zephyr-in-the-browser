@@ -53,6 +53,14 @@ export interface DtsPin {
   label: string
 }
 
+/** A gpio-buzzer wired to a controller output. */
+export interface BuzzerPin {
+  id: number
+  label: string
+  /** True when GPIO_ACTIVE_HIGH (Zephyr flag bit0 clear). */
+  activeHigh: boolean
+}
+
 export interface GpioController {
   controllerLabel: string
   path: string
@@ -64,6 +72,8 @@ export interface GpioController {
   buttons: DtsPin[]
   /** gpio-leds entries wired to this controller. */
   leds: DtsPin[]
+  /** gpio-buzzer nodes wired to this controller. */
+  buzzers: BuzzerPin[]
 }
 
 export interface DtsInsights {
@@ -194,6 +204,7 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
       ngpios: numberProp(node, 'ngpios'),
       buttons: [],
       leds: [],
+      buzzers: [],
     })
   })
 
@@ -217,9 +228,25 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
   wire('gpio-keys', 'buttons')
   wire('gpio-leds', 'leds')
 
+  // gpio-buzzer is a leaf node with its own gpios= property (not a group of children).
+  for (const node of doc.compatIndex.get('gpio-buzzer') ?? []) {
+    if (!effectivelyOkay(node)) continue
+    for (const spec of gpioSpecs(doc, node)) {
+      const controller = controllers.find((c) => c.node === spec.controller)
+      if (!controller) continue
+      // Zephyr GPIO_ACTIVE_LOW = BIT(0).
+      controller.buzzers.push({
+        id: spec.pin,
+        label: stringProp(node, 'label') ?? labelOf(node),
+        activeHigh: (spec.flags & 0x1) === 0,
+      })
+    }
+  }
+
   for (const controller of controllers) {
     controller.buttons.sort((a, b) => a.id - b.id)
     controller.leds.sort((a, b) => a.id - b.id)
+    controller.buzzers.sort((a, b) => a.id - b.id)
   }
   return controllers.map(({ node: _node, ...controller }) => controller)
 }
@@ -280,6 +307,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     panels.add('sensor')
   }
   if (gpioControllers.some((controller) => controller.bridged)) panels.add('gpio')
+  if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313')) panels.add('auxdisplay')

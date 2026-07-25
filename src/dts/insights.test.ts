@@ -66,6 +66,35 @@ describe('computeInsights', () => {
     expect(insights.panels.has('gpio')).toBe(true)
   })
 
+  it('discovers a gpio-buzzer on the bridged controller', () => {
+    const insights = insightsOf(`
+      /dts-v1/;
+      / {
+        aliases { buzzer0 = &buzzer0; };
+        soc {
+          virtio_gpio0: gpio@0 {
+            compatible = "virtio,gpio";
+            gpio-controller;
+            #gpio-cells = <2>;
+            ngpios = <8>;
+            status = "okay";
+          };
+        };
+        buzzer0: buzzer {
+          compatible = "gpio-buzzer";
+          gpios = <&virtio_gpio0 5 0>;
+          label = "Browser buzzer";
+        };
+      };
+    `)
+    expect(insights.gpioControllers).toHaveLength(1)
+    expect(insights.gpioControllers[0].buzzers).toEqual([
+      { id: 5, label: 'Browser buzzer', activeHigh: true },
+    ])
+    expect(insights.panels.has('buzzer')).toBe(true)
+    expect(insights.panels.has('gpio')).toBe(true)
+  })
+
   it('grounds the M3 build on the MMIO bridge', () => {
     const insights = insightsOf(m3Blinky)
 

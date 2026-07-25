@@ -17,6 +17,7 @@ export type PanelKind =
   | 'gnss'
   | 'sensor'
   | 'gpio'
+  | 'buzzer'
   | 'audio'
   | 'perf'
   | 'net'
@@ -187,6 +188,15 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['gpio'],
   },
   {
+    // gpio-buzzer on host_gpio pin 5; LED0 stays on pin 4. Frequency args are
+    // on/off only for the GPIO backend — the dock shakes + vibrates/buzzes.
+    id: 'buzzer',
+    label: 'Buzzer',
+    description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
+    zephyrSample: 'samples/drivers/buzzer/tone',
+    primaryPanels: ['buzzer', 'gpio'],
+  },
+  {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
     // lights led0 (pin 4) — click SW0 in the GPIO panel to press it.
     id: 'basic_button',
@@ -324,6 +334,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Blinks LED0 over a VIRTIO GPIO device',
     zephyrSample: 'samples/basic/blinky',
     primaryPanels: ['gpio'],
+  },
+  {
+    // gpio-buzzer on virtio_gpio0 pin 5 (LED0 stays on 4). Same dock body as
+    // the M3 build — observe the GPIO output; no new QEMU device.
+    id: 'buzzer',
+    label: 'Buzzer',
+    description: 'Drives a gpio-buzzer over VIRTIO GPIO; the dock shakes and vibrates',
+    zephyrSample: 'samples/drivers/buzzer/tone',
+    primaryPanels: ['buzzer', 'gpio'],
   },
   {
     // Interrupt-driven, unlike the Cortex-M3 build: this device offers

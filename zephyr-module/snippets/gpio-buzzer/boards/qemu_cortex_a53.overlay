@@ -1,0 +1,21 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/buzzer/tone: gpio-buzzer on virtio_gpio0 pin 5.
+ * Requires -S virtio-gpio so the controller is okay.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		buzzer0 = &buzzer0;
+	};
+
+	buzzer0: buzzer {
+		compatible = "gpio-buzzer";
+		gpios = <&virtio_gpio0 5 GPIO_ACTIVE_HIGH>;
+		label = "Browser buzzer";
+	};
+};

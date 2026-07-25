@@ -86,6 +86,14 @@ because the model now lives where the events originate: input edges are exact
 rather than sampled on a 10 ms timer, and a guest-driven output notifies the
 panel synchronously instead of being polled at 100 ms.
 
+**gpio-buzzer (done).** Stock Zephyr `gpio-buzzer` on a dedicated pin 5 (LED0
+stays on 4), packaged as `samples/drivers/buzzer/tone` behind `-S gpio-buzzer`.
+No new QEMU device — the page observes the same GPIO outputs LEDs use
+(`getBuzzers` / `isBuzzerOn` in `hostGpio.ts`) and a dock body shakes a Lucide
+`Vibrate` icon, with `navigator.vibrate` plus a Web Audio square-wave fallback.
+Frequency args remain on/off only for the GPIO backend; `pwm-buzzer` is the
+pitch follow-up.
+
 Original rationale, kept for the record —
 the highest demo-value-per-effort item, and it reuses shapes we already have in
 both directions:
@@ -511,6 +519,10 @@ shell is a UX problem before it is a driver problem.
 5. ~~**LED matrix (I²C)**~~ — ✅ done; `holtek,ht16k33` with
    `samples/drivers/ht16k33`, display-RAM JSON map, 16×8 dock canvas. LP55xx
    remains a same-class follow-up.
+5½. ~~**gpio-buzzer**~~ — ✅ done; stock `gpio-buzzer` on pin 5 (LED0 stays on
+   4), `samples/drivers/buzzer/tone`, dock Lucide shake + Vibration API / Web
+   Audio. Observes existing GPIO outputs — no new QEMU device. `pwm-buzzer`
+   (pitch) remains a follow-up.
 6. **More I²C classes** — PWM (`pca9685`), fuel-gauge / charger — each a stock
    sample and a mandatory register map.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.

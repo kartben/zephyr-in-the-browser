@@ -20,11 +20,13 @@ import {
   Pointer,
   SquareChevronRight,
   Grid3x3,
+  Vibrate,
   Volume2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody } from '@/components/AuxdisplayPanel'
+import { BuzzerBody } from '@/components/BuzzerPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
@@ -81,6 +83,8 @@ export function DeviceBody({
       return <I2cBody busLabel={node.busLabel} />
     case 'gpio':
       return <GpioBody />
+    case 'buzzer':
+      return <BuzzerBody />
     case 'gnss':
       return <GnssBody />
     case 'speaker':
@@ -112,6 +116,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Cable
     case 'gpio':
       return CircuitBoard
+    case 'buzzer':
+      return Vibrate
     case 'gnss':
       return MapPin
     case 'speaker':
@@ -134,6 +140,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return SquareChevronRight
     case 'gpio':
       return CircuitBoard
+    case 'buzzer':
+      return Vibrate
     case 'sensor':
       return Gauge
     case 'memory':
@@ -191,6 +199,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <NetBadge />
     case 'gpio':
       return <GpioBadge />
+    case 'buzzer':
+      return <BuzzerBadge />
     case 'speaker':
       return <SpeakerBadge />
     case 'mic':
@@ -251,6 +261,7 @@ export function GroupBadge({
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioBadge />
+  if (deviceClass === 'buzzer' && nodes.some((n) => n.body === 'buzzer')) return <BuzzerBadge />
   if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
   if (deviceClass === 'gnss' && nodes.some((n) => n.body === 'gnss')) return <GnssBadge />
   return null
@@ -389,6 +400,29 @@ function GpioBadge() {
       ))}
     </span>
   )
+}
+
+function BuzzerBadge() {
+  const buzzers = useSyncExternalStore(
+    hostGpio.subscribe,
+    hostGpio.getBuzzers,
+    useCallback(() => [], []),
+  )
+  useSyncExternalStore(
+    hostGpio.subscribe,
+    useCallback(
+      () =>
+        hostGpio
+          .getBuzzers()
+          .map((pin) => (hostGpio.isBuzzerOn(pin) ? '1' : '0'))
+          .join(''),
+      [],
+    ),
+    () => '',
+  )
+  if (buzzers.length === 0) return null
+  const anyOn = buzzers.some((pin) => hostGpio.isBuzzerOn(pin))
+  return <Mono className={anyOn ? 'text-amber-400' : undefined}>{anyOn ? 'buzz' : 'idle'}</Mono>
 }
 
 function SpeakerBadge() {

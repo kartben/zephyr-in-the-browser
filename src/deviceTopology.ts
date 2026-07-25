@@ -40,6 +40,7 @@ export type DeviceClass =
   | 'rtc'
   | 'i2c-bus'
   | 'gpio'
+  | 'buzzer'
   | 'gnss'
   | 'audio'
   | 'net'
@@ -56,6 +57,7 @@ export type BodyKind =
   | 'rtc'
   | 'i2c'
   | 'gpio'
+  | 'buzzer'
   | 'gnss'
   | 'speaker'
   | 'mic'
@@ -132,6 +134,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
   gpio: 'GPIO',
+  buzzer: 'Buzzer',
   gnss: 'GNSS',
   audio: 'Audio',
   net: 'Network',
@@ -148,6 +151,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'rtc',
   'i2c-bus',
   'gpio',
+  'buzzer',
   'gnss',
   'audio',
   'net',
@@ -490,6 +494,28 @@ function deriveFromTree(
       body: live ? 'gpio' : undefined,
       crumb: ctl.controllerLabel,
       panelKind: live ? 'gpio' : undefined,
+    })
+  }
+
+  // gpio-buzzer leaves: one dock body for every buzzers on the bridged controller.
+  // Not folded into the GPIO grid — shake / vibrate deserves its own row.
+  const bridgedBuzz = insights.gpioControllers.find(
+    (ctl) => ctl.bridged && ctl.buzzers.length > 0,
+  )
+  if (bridgedBuzz && avail.gpio) {
+    const buzzerNode = nodesByCompatible(doc, 'gpio-buzzer').find(isEffectivelyOkay)
+    const first = bridgedBuzz.buzzers[0]
+    push({
+      key: uniqueKey(ids, 'buzzer'),
+      nodeName: buzzerNode?.name ?? 'buzzer',
+      label: first?.label ?? 'Buzzer',
+      compatible: 'gpio-buzzer',
+      deviceClass: 'buzzer',
+      path: buzzerNode ? pathOf(buzzerNode) : '/buzzer',
+      presence: 'interactive',
+      body: 'buzzer',
+      crumb: `pin ${first?.id}`,
+      panelKind: 'buzzer',
     })
   }
 

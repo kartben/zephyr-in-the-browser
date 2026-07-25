@@ -23,6 +23,7 @@
  */
 
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import type { BuzzerPin } from '@/dts'
 import { gpioModel, isBound, subscribeBinds } from '@/virtio'
 
 /** Pin roles. Must match the ngpios and wiring the guest overlay declares. */
@@ -30,6 +31,8 @@ export interface Pin {
   id: number
   label: string
 }
+
+export type { BuzzerPin }
 
 /**
  * The full pin fan-out of the bridge, for builds whose devicetree is unknown:
@@ -56,17 +59,28 @@ const FALLBACK_LEDS: Pin[] = [
  * computed per call: getButtons/getLeds are useSyncExternalStore snapshots, so
  * they must return the same reference until something actually changed.
  */
-let derived: { buttons: Pin[]; leds: Pin[]; node: string | null } = {
+let derived: {
+  buttons: Pin[]
+  leds: Pin[]
+  buzzers: BuzzerPin[]
+  node: string | null
+} = {
   buttons: FALLBACK_BUTTONS,
   leds: FALLBACK_LEDS,
+  buzzers: [],
   node: null,
 }
 
 function recomputeDerived() {
   const bridged = getDeviceTree()?.insights?.gpioControllers.find((c) => c.bridged)
   derived = bridged
-    ? { buttons: bridged.buttons, leds: bridged.leds, node: bridged.controllerLabel }
-    : { buttons: FALLBACK_BUTTONS, leds: FALLBACK_LEDS, node: null }
+    ? {
+        buttons: bridged.buttons,
+        leds: bridged.leds,
+        buzzers: bridged.buzzers,
+        node: bridged.controllerLabel,
+      }
+    : { buttons: FALLBACK_BUTTONS, leds: FALLBACK_LEDS, buzzers: [], node: null }
 }
 
 /** What the browser drives: gpio-keys pins when a devicetree says, else 0-3. */
@@ -77,6 +91,11 @@ export function getButtons(): Pin[] {
 /** What the guest drives: gpio-leds pins when a devicetree says, else 4-7. */
 export function getLeds(): Pin[] {
   return derived.leds
+}
+
+/** gpio-buzzer pins declared on the bridged controller (empty when none). */
+export function getBuzzers(): BuzzerPin[] {
+  return derived.buzzers
 }
 
 interface GpioExports {
@@ -184,6 +203,12 @@ export function isInputHigh(pin: number): boolean {
 
 export function isOutputHigh(pin: number): boolean {
   return (outputs & (1 << pin)) !== 0
+}
+
+/** Whether a gpio-buzzer is sounding (output matches its active level). */
+export function isBuzzerOn(buzzer: BuzzerPin): boolean {
+  const high = isOutputHigh(buzzer.id)
+  return buzzer.activeHigh ? high : !high
 }
 
 /** Drive one input pin high or low and push the whole word to the device. */
