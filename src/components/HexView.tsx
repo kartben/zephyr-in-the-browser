@@ -171,9 +171,10 @@ function ByteCell({
  * Track a chip's contents for rendering, coalescing a burst of writes into one
  * repaint the way OledPanel does: the guest fills an EEPROM page in several
  * transfers and each one notifies, so painting per notification would redraw
- * the dump many times for one logical change.
+ * the dump many times for one logical change. Exported so HexPreview shares
+ * the exact same pointer/flash semantics instead of approximating them.
  */
-function useMemorySnapshot(chip: MemoryChip) {
+export function useMemorySnapshot(chip: MemoryChip) {
   const [snapshot, setSnapshot] = useState(() => ({
     data: chip.memory.slice(),
     pointer: chip.pointer(),
