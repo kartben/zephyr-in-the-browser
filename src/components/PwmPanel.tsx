@@ -213,7 +213,8 @@ function ChannelStrip({
     <div className="flex items-end gap-0.5" role="listbox" aria-label="PWM channels">
       {Array.from({ length: n }, (_, i) => {
         const ch = chip.getChannel(i)
-        const h = Math.round(2 + ch.duty * 22)
+        // Floor so idle / full-off channels stay visible as click targets.
+        const h = Math.round(5 + ch.duty * 19)
         const active = i === selected
         return (
           <button
@@ -230,7 +231,13 @@ function ChannelStrip({
             }
           >
             <span
-              className={active ? 'w-full rounded-sm bg-primary' : 'w-full rounded-sm bg-success/70'}
+              className={
+                active
+                  ? 'w-full rounded-sm bg-primary'
+                  : ch.duty > 0
+                    ? 'w-full rounded-sm bg-success/70'
+                    : 'w-full rounded-sm bg-muted-foreground/25'
+              }
               style={{ height: h }}
             />
             <span className="font-mono text-[8px] tabular-nums text-muted-foreground">
