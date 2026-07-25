@@ -26,6 +26,7 @@ export type PanelKind =
   | 'auxdisplay'
   | 'led'
   | 'pwm'
+  | 'dac'
   | 'trace'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
@@ -320,6 +321,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Fades and blinks PWM LEDs on a PCA9685; duty chart in the page',
     zephyrSample: 'samples/drivers/led/pwm',
     primaryPanels: ['pwm', 'i2c'],
+  },
+  {
+    // Stock DAC sample against the browser MCP4725 at 0x61. The dock paints
+    // a Vout history chart (DacChip framework).
+    id: 'dac',
+    label: 'DAC',
+    description: 'Sawtooth on a 12-bit MCP4725; Vout chart in the page',
+    zephyrSample: 'samples/drivers/dac',
+    primaryPanels: ['dac', 'i2c'],
   },
   {
     id: 'philosophers',

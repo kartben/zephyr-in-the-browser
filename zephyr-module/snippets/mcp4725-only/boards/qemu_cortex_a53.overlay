@@ -2,10 +2,11 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/rtc: PCF8523 only. Stock sample binds DT_ALIAS(rtc).
+ * samples/drivers/dac: MCP4725 + /zephyr,user channel props. Stock sample
+ * binds DT_PROP(DT_PATH(zephyr_user), dac) and dac-channel-id / dac-resolution.
  */
 
-&pcf8523_0 {
+&mcp4725_0 {
 	status = "okay";
 };
 
@@ -37,16 +38,14 @@
 	status = "disabled";
 };
 
-/ {
-	aliases {
-		rtc = &pcf8523_0;
-	};
-};
-
 &pca9685_0 {
 	status = "disabled";
 };
 
-&mcp4725_0 {
-	status = "disabled";
+/ {
+	zephyr,user {
+		dac = <&mcp4725_0>;
+		dac-channel-id = <0>;
+		dac-resolution = <12>;
+	};
 };

@@ -1,0 +1,66 @@
+{
+  "name": "MCP4725",
+  "description": "Microchip MCP4725 12-bit DAC (I²C). The part is command-oriented (fast-write has no register pointer); these rows are inspector shadows so Registers can poke the live code. Matches Zephyr drivers/dac/dac_mcp4725.c.",
+  "registers": [
+    {
+      "name": "DAC_CODE",
+      "addr": "0x00",
+      "bytes": 2,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Shadow of the last DAC output code (12-bit). Poke updates Vout like a fast-write.",
+      "fields": [
+        {
+          "name": "CODE",
+          "lsb": 0,
+          "msb": 11,
+          "description": "DAC input code 0…4095."
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 128,
+      "description": "Shadow of the first status byte returned on I²C read (RDY in bit 7).",
+      "fields": [
+        {
+          "name": "RDY",
+          "lsb": 7,
+          "msb": 7,
+          "description": "1 = EEPROM write complete / device ready.",
+          "values": [
+            { "name": "Busy", "value": 0 },
+            { "name": "Ready", "value": 1 }
+          ]
+        },
+        {
+          "name": "POR",
+          "lsb": 6,
+          "msb": 6,
+          "description": "Power-on-reset state bit from readback."
+        }
+      ]
+    },
+    {
+      "name": "EEPROM_CODE",
+      "addr": "0x02",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "be",
+      "description": "Last code written to NV EEPROM (if any); 0 when unused.",
+      "fields": [
+        {
+          "name": "CODE",
+          "lsb": 0,
+          "msb": 11,
+          "description": "EEPROM-stored DAC code."
+        }
+      ]
+    }
+  ]
+}

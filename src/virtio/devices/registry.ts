@@ -27,6 +27,7 @@ import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
 import { createHt16k33 } from './chips/ht16k33'
 import { createJhd1313Pair } from './chips/jhd1313'
+import { createMcp4725 } from './chips/mcp4725'
 import { createPca9685 } from './chips/pca9685'
 import { createSsd1306 } from './chips/ssd1306'
 import { createPcf8523 } from './rtc/pcf8523'
@@ -38,7 +39,7 @@ import { createLps22hh } from './sensors/lps22hh'
 import { createLsm6dso } from './sensors/lsm6dso'
 import { createTmp112 } from './sensors/tmp112'
 
-export type ChipKind = 'sensor' | 'eeprom' | 'display' | 'auxdisplay' | 'led' | 'pwm' | 'rtc'
+export type ChipKind = 'sensor' | 'eeprom' | 'display' | 'auxdisplay' | 'led' | 'pwm' | 'dac' | 'rtc'
 
 export interface ChipType {
   /** Stable id, also the select value. */
@@ -156,6 +157,13 @@ export const CHIP_TYPES: ChipType[] = [
     kind: 'pwm',
     defaultAddress: 0x60,
     create: (address) => createPca9685({ address }),
+  },
+  {
+    id: 'mcp4725',
+    label: 'MCP4725 DAC',
+    kind: 'dac',
+    defaultAddress: 0x61,
+    create: (address) => createMcp4725({ address }),
   },
   {
     id: 'pcf8523',

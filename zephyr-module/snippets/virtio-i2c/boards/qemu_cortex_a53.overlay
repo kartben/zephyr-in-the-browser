@@ -193,6 +193,19 @@
 		#pwm-cells = <3>;
 		status = "disabled";
 	};
+
+	/*
+	 * Microchip MCP4725 12-bit DAC. Matches createMcp4725({ address: 0x61 }) in
+	 * src/virtio/index.ts. Adafruit breakouts default to 0x60, but that address
+	 * is already pca9685@60 here — use 0x61 (A0 high) so both can stay declared.
+	 * samples/drivers/dac uses -S mcp4725-only.
+	 */
+	mcp4725_0: mcp4725@61 {
+		compatible = "microchip,mcp4725";
+		reg = <0x61>;
+		#io-channel-cells = <1>;
+		status = "disabled";
+	};
 };
 
 /*
