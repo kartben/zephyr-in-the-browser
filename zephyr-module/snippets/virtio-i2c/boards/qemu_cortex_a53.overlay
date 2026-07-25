@@ -180,6 +180,19 @@
 		reg = <0x70>;
 		status = "disabled";
 	};
+
+	/*
+	 * NXP PCA9685 16-channel PWM. Matches createPca9685({ address: 0x60 }) in
+	 * src/virtio/index.ts. Adafruit's shield defaults to 0x40, but that address
+	 * is already ina219@40 here — use 0x60 so both can stay declared.
+	 * samples/drivers/led/pwm uses -S pca9685-only.
+	 */
+	pca9685_0: pca9685@60 {
+		compatible = "nxp,pca9685-pwm";
+		reg = <0x60>;
+		#pwm-cells = <3>;
+		status = "disabled";
+	};
 };
 
 /*

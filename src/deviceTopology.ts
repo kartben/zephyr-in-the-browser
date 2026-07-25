@@ -22,9 +22,10 @@ import { byPath, chosen, compatibles, isEffectivelyOkay, nodesByCompatible, path
 import type { I2cChip } from '@/virtio/devices/i2c'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
-import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
+import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
+import { isPwmChip } from '@/virtio/devices/pwm/model'
 import { isRtcChip } from '@/virtio/devices/rtc/model'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
 
@@ -36,6 +37,7 @@ export type DeviceClass =
   | 'display'
   | 'auxdisplay'
   | 'led'
+  | 'pwm'
   | 'memory'
   | 'rtc'
   | 'i2c-bus'
@@ -54,6 +56,7 @@ export type BodyKind =
   | 'oled'
   | 'auxdisplay'
   | 'led'
+  | 'pwm'
   | 'rtc'
   | 'i2c'
   | 'gpio'
@@ -130,6 +133,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   display: 'Displays',
   auxdisplay: 'Aux displays',
   led: 'LED controllers',
+  pwm: 'PWM',
   memory: 'Memory',
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
@@ -147,6 +151,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'display',
   'auxdisplay',
   'led',
+  'pwm',
   'memory',
   'rtc',
   'i2c-bus',
@@ -165,6 +170,7 @@ const KIND_TO_CLASS: Record<ChipKind, DeviceClass> = {
   display: 'display',
   auxdisplay: 'auxdisplay',
   led: 'led',
+  pwm: 'pwm',
   rtc: 'rtc',
 }
 
@@ -181,6 +187,7 @@ const CHIP_COMPAT: Record<string, string> = {
   ssd1306: 'solomon,ssd1306',
   jhd1313: 'jhd,jhd1313',
   ht16k33: 'holtek,ht16k33',
+  pca9685: 'nxp,pca9685-pwm',
   pcf8523: 'nxp,pcf8523',
 }
 
@@ -195,6 +202,7 @@ function chipClass(chip: I2cChip): DeviceClass {
   if (isRtcChip(chip)) return 'rtc'
   if (isJhd1313Lcd(chip) || isJhd1313Backlight(chip)) return 'auxdisplay'
   if (isHt16k33(chip)) return 'led'
+  if (isPwmChip(chip)) return 'pwm'
   if ('isOn' in chip && 'memory' in chip) return 'display'
   return 'other'
 }
@@ -209,6 +217,7 @@ function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
     return 'auxdisplay'
   }
   if (cls === 'led') return 'led'
+  if (cls === 'pwm') return 'pwm'
   if (cls === 'rtc') return 'rtc'
   return undefined
 }
@@ -220,6 +229,7 @@ function chipPanelKind(cls: DeviceClass): PanelKind | undefined {
   if (cls === 'display') return 'oled'
   if (cls === 'auxdisplay') return 'auxdisplay'
   if (cls === 'led') return 'led'
+  if (cls === 'pwm') return 'pwm'
   if (cls === 'rtc') return 'i2c'
   return undefined
 }

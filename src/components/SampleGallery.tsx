@@ -64,6 +64,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   oled: Tv,
   auxdisplay: Monitor,
   led: Grid3x3,
+  pwm: Activity,
   trace: Activity,
 }
 
@@ -80,6 +81,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   oled: 'OLED',
   auxdisplay: 'LCD',
   led: 'LED',
+  pwm: 'PWM',
   trace: 'trace',
 }
 
