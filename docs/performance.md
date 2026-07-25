@@ -1,10 +1,11 @@
 # Where the performance is
 
 A survey of the levers worth pulling, ordered by expected payoff per hour spent.
-Nothing here is a measured result of a change — it is a reading of the code and
-of the deployed artifacts, with the experiment that would settle each item
-written next to it. Where a number is quoted from an existing measurement in
-this repository it says so; where it is an expectation it says that too.
+It began as a reading of the code with the experiment that would settle each
+item written next to it; some of those experiments have now been run, and
+[What the measurements showed](#what-the-measurements-showed) records the
+results — including the one that says an item on this list was not worth doing.
+Every number below is labelled measured or expected.
 
 Two things are worth stating before the list, because they decide which half of
 the list matters for a given workload:
@@ -23,16 +24,71 @@ the list matters for a given workload:
 
 | # | Opportunity | Where | Impact | Effort | Risk |
 | --- | --- | --- | --- | --- | --- |
-| 1 | ~~The bridge's "1 ms" hot poll is really ~4 ms~~ **(a) done**, (b)/(c) open | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
+| 1 | The bridge's "1 ms" hot poll was really ~4 ms — **fixed, and it changed nothing the guest can see** | `src/virtio/transport.ts` | **None measured** | Low → Medium | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
-| 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
+| 4 | Every ARM machine QEMU ships was compiled in — **measured: arm 34.4 → 8.4 MB** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
-| 7 | QEMU's 10 ms idle drain sets first-request latency | virtio patch | Medium, I²C-bound | Low | Low |
+| 7 | **QEMU owns the round trip** — the page is ~1 ms of ~13 ms | virtio patch | **High, I²C-bound** | Low | Low |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
+
+## What the measurements showed
+
+Run against the deployed build, in headless Chromium in a container. Absolute
+numbers are slower than a laptop; the comparisons are on identical hardware and
+an identical emulator, so the *ratios* are the part to trust.
+
+**Item 4 works, and is the only one that moved a number so far.** `arm-softmmu`
+went from **34,378,542 to 8,355,153 bytes — 4.1×** — and `npcm7xx_bootrom.bin`,
+"Tioga Pass", `ConnectX`, `raspi` and `versatile` are all gone from the binary.
+(`aspeed` and `allwinner` still match, but on names like
+`aspeed_i2c_bus_recv` — the generated trace-event name table is built for every
+subsystem regardless of device Kconfig. Machine models, not strings.)
+
+**Items 3 and 4 are not live on the A53 board.** `qemu-system-aarch64.wasm` is
+still 19,144,429 bytes and its tail hashes identically to a copy taken before
+any of this work: that artifact has not been rebuilt. Anything measured on
+Cortex-A53 today is the old emulator with a new page on top.
+
+**Item 1(a) does not do what this document predicted.** The mechanism change is
+real — `bridgePollMs` reads **1.15–1.26 ms** live, against the 4.14 ms a nested
+timer gets — but the guest cannot tell. Building the pre-fix bundle from
+`5e66ee8` and serving both against the same emulator on the same machine:
+
+| Workload | Before | After |
+| --- | --- | --- |
+| `i2c scan` (116 blocking round trips) | 1.58 s | 1.57 s |
+| accel_chart, `i2cHz` | 89 /s | 93 /s |
+| accel_chart, `mips` | 3.2 | 3.2 |
+
+`i2c scan` is the back-to-back blocking workload this whole line of reasoning
+was about, and it did not move. Taking ~3 ms out of a ~13.5 ms round trip
+should have shown up and did not, so **the page's poll was never a serial term
+worth 3 ms of it** — the round trip is dominated by something on the QEMU side
+that swallows the change. That reranks the list: item 7 goes to the top of the
+I²C-latency work and item 1(b)/(c) drops to the bottom, because a worker with
+`Atomics.wait` would be removing ~1 ms from ~13.5 ms.
+
+The change stays. It is strictly less main-thread work for strictly better
+scheduling, it is what makes `bridgePollMs` meaningful, and the instrumentation
+it added is what turned this section from arithmetic into measurement. But it
+should not be described as a speedup, and this document should not have
+predicted one with the confidence it did.
+
+Two things this could not settle here, both worth doing on real hardware:
+
+- **Where the other ~12 ms goes.** The page cannot see it. Counting on the QEMU
+  side — completion published to drain timer picking it up — is item 7's
+  experiment and is now the single most valuable measurement outstanding.
+- **What a hidden tab costs now.** Headless Chromium keeps reporting
+  `visibilityState: "visible"`, so the throttling path never engaged. Worth a
+  look on a real browser, because the hot path arms an ordinary `setTimeout`
+  after the port hop, and a timer in a hidden tab is throttled no matter which
+  task armed it — which may mean [virtio-bridge.md](virtio-bridge.md)'s
+  "a burst in a hidden tab runs at full speed" no longer holds.
 
 ## Instruments that already exist
 
@@ -99,15 +155,25 @@ shapes in Chromium and is the evidence for the change:
 | the previous timer's callback (before) | 4.14 ms |
 | a `MessagePort` message handler (after) | 1.13 ms |
 
-So ~3 ms comes off every blocking transfer. Against the ~10 ms round trip the
-OLED measured, that is arithmetic worth about 11 → 16 fps — which
-`bridgePollMs`, `bridgeHz` and `i2cHz` in
-[`src/display/profile.ts`](../src/display/profile.ts) now report directly, so
-the next person does not have to take the arithmetic on trust. `transport.ts`
-counts the gaps between consecutive hot polls for exactly that reason: the pace
-was wrong for a long time precisely because nothing looked at it.
+The pace itself is fixed, and `bridgePollMs` confirms it in production at
+1.15–1.26 ms. **The guest saw no difference at all** — `i2c scan` takes 1.57 s
+against the pre-fix bundle's 1.58 s on the same machine and the same emulator.
+The arithmetic that used to sit here ("~3 ms off every transfer, 11 → 16 fps for
+the OLED") assumed the page's poll was a serial term in the round trip worth
+3 ms of it. It is not. See
+[What the measurements showed](#what-the-measurements-showed).
 
-**(b) Move the bridge into a worker — the real fix.** The Emscripten heap is a
+The instrumentation is the part that earned its keep: `bridgePollMs`,
+`bridgePollSlowPct` and `bridgeHz` in
+[`src/display/profile.ts`](../src/display/profile.ts) are what turned this from
+a plausible story into a disproved one, and `transport.ts` counts the gaps
+between consecutive hot polls because the pace was wrong for a long time
+precisely while nothing looked at it.
+
+**(b) Move the bridge into a worker.** *Deprioritised by the measurement above:
+this would take ~1 ms out of a ~13.5 ms round trip. Worth doing for the hidden-tab
+and main-thread-contention reasons below, not for latency, and not before item 7
+has said where the other ~12 ms goes.* The Emscripten heap is a
 `SharedArrayBuffer`, which is why
 [`src/display/renderWorker.ts`](../src/display/renderWorker.ts) can already read
 the framebuffer from another thread. A worker can call `Atomics.wait`, which the
@@ -123,7 +189,9 @@ into the sub-millisecond range, bounded by QEMU's drain rather than by the page,
 and a hidden tab that behaves like a visible one. This also erases item 8's
 contribution for the busiest poller.
 
-**(c) Make QEMU wake the page instead of being polled.** With (b) in place, one
+**(c) Make QEMU wake the page instead of being polled.** *This half is still
+interesting even after the measurement — it attacks the QEMU side, which is the
+side that turned out to matter.* With (b) in place, one
 line on the QEMU side turns the wait from a timeout into a real wakeup: after
 `qatomic_store_release` publishes `req_wr` in `virtio-browser.c`, call
 `__builtin_wasm_memory_atomic_notify` on that address. `Atomics.wait` in the
@@ -191,8 +259,11 @@ level is 0, which means:
   and the runtime.
 - The JS glue is not minified (the deployed `qemu-system-aarch64.js` is 172 KB).
 
-**Patched, and that is as far as this can be taken here** — a build needs
-Docker and hours, so the number is still owed.
+**Patched; still owed a number.** The arm artifact has been rebuilt with it,
+but that same rebuild also carries item 4, and the two cannot be separated from
+the size alone — arm has no `-icount` and so no MIPS readout to isolate the
+speed half. The aarch64 artifact, which is the one with the MIPS dial, has not
+been rebuilt at all.
 `0009-emscripten-optimise-the-link.patch` (and `0011-` in the JIT series) adds
 `-O3` to `c_link_args`/`cpp_link_args`. `-sASSERTIONS=0` is not in it because
 `ASSERTIONS` already defaults to 0 at any `-O` above zero; one flag is easier to
@@ -242,7 +313,9 @@ does not pass `--without-default-devices`, which is what governs machines and
 device models. So both binaries carry QEMU's entire ARM machine catalogue, while
 this project boots exactly two machines: `lm3s6965evb` and `virt`.
 
-**Patched, unmeasured** — `0010-configs-devices-trim-to-the-machines-we-boot.patch`
+**Patched, and measured on arm: 34,378,542 → 8,355,153 bytes, 4.1×.** The
+aarch64 artifact has not been rebuilt yet, so its 19 MB is unchanged.
+`0010-configs-devices-trim-to-the-machines-we-boot.patch`
 (`0012-` in the JIT series) adds `configs/devices/<target>-softmmu/browser.mak`,
 selected by `configure --with-devices-<arch>=browser`. Each artifact keeps
 exactly one machine: `CONFIG_STELLARIS` for arm, `CONFIG_ARM_VIRT` for aarch64.
@@ -325,14 +398,22 @@ The experiment is a one-character edit and a rerun of `tools/profile-accel.mjs`
 at shift 1, 2, 3, 4, 5, reading `mips` and `guestFps`. Cheap enough that not
 having the curve is the only real problem here.
 
-## 7. QEMU's idle drain sets the latency of the first request
+## 7. QEMU owns the round trip — this is now the top I²C item
+
+Measured: a blocking transfer costs ~13.5 ms end to end (`i2c scan`, 116 of them
+in 1.57 s), and the page's share of that is the ~1.2 ms `bridgePollMs` reports.
+Removing 3 ms from the page's share changed the total by nothing, so **~12 ms of
+every blocking transfer is on the QEMU side of the wire.**
 
 `virtio-browser.c` drains completions on a `QEMU_CLOCK_REALTIME` timer at
 `VIRTIO_BROWSER_DRAIN_BUSY_MS 1` while tokens are parked and
-`VIRTIO_BROWSER_DRAIN_IDLE_MS 10` otherwise. During an OLED frame the busy value
-applies and adds ~1 ms to every round trip — second only to item 1 in the
-~10 ms budget. Between bursts the idle value adds up to 10 ms to the *first*
-transfer, which is the one a user feels when they click something in a panel.
+`VIRTIO_BROWSER_DRAIN_IDLE_MS 10` otherwise — but a 1 ms *nominal* timer is not
+a 1 ms *actual* one in a wasm build, where the main loop turns under Asyncify
+between vCPU slices. The first thing to establish is which of those two numbers
+the drain really achieves, and that is a counter on the QEMU side: the interval
+from a completion being published to the drain picking it up, exported the way
+the guest icount already is. Everything else here is guesswork until that number
+exists.
 
 The clean version of this is the same shape as item 1(c) in the other direction:
 have the page's completion write wake the QEMU main loop rather than have QEMU
@@ -403,13 +484,21 @@ to the one bridge where the failure mode is something the user can hear.
 
 ## Suggested order
 
-1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
-2. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
-   is a precondition for trusting item 2. Compare MIPS before and after.
-3. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
-   3 without confounding it, since one moves size and the other speed.
-4. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
+Reordered by what the measurements said, not by what this document originally
+guessed.
+
+1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done. Pace 4.14 → 1.15 ms;
+   **no guest-visible change**, which is the finding, not a footnote.
+2. ~~Item 4 (trim the machine list)~~ — done and confirmed on arm, 4.1× smaller.
+3. **Rebuild aarch64.** Everything below needs it: it is the board with the MIPS
+   readout, the display, and the virtio bridge, and it is still running the old
+   emulator.
+4. **Item 7's counter** — the interval from a completion being published to
+   QEMU's drain picking it up. It is a handful of lines and it is the only way
+   to find the ~12 ms that dominates every blocking transfer. Nothing else on
+   the I²C-latency path is worth doing before this number exists.
+5. Item 3's number, from the same aarch64 rebuild — MIPS before and after.
+6. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
-5. Item 1(b)+(c) and items 8/9 together — one worker, all the shared-heap
-   bridges, `Atomics.wait`, and a QEMU-side notify. The largest piece of work
-   here and the one that retires the most of this document.
+7. Items 8/9, and item 1(b) if a worker is wanted for main-thread contention
+   and hidden-tab behaviour — no longer for latency.
