@@ -273,10 +273,11 @@ The browser-side render worker already skips unchanged frames via a checksum
 (and skips the checksum itself once a short dirty streak shows the guest is
 animating). A virtio-gpu flush event would still be nicer than guessing from
 pixels, but it is no longer what stands between a still panel and a wasted
-upload. For the LVGL accelerometer chart specifically, the packaged build now
-samples at 20 Hz with 30 points per series — the rate the upstream sample's
-own README uses as its worked example — because the default 50 Hz / 50 points
-outpaces what the emulated A53 can paint.
+upload. For the LVGL accelerometer chart specifically, the packaged build is a small
+fork (`zephyr-module/apps/accelerometer_chart`) that uses circular chart updates
+and a 480×320 ramfb (`-S accel-display`), sampling at 25 Hz with 40 points —
+because the upstream SHIFT-mode full-screen chart outpaces what the emulated
+A53 can paint even when I²C is quiet.
 
 So the case for finishing virtio-gpu is *not* frame rate. It is a clean damage
 signal and the broader "guest display over virtio" story once a wasm bridge

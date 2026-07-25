@@ -227,7 +227,9 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     id: 'accel_chart',
     label: 'Accelerometer Chart',
     description: 'Browser accelerometer traced live on an LVGL chart',
-    zephyrSample: 'samples/modules/lvgl/accelerometer_chart',
+    // Fork under zephyr-module/apps: circular update + smaller ramfb so the
+    // emulated A53 can keep the trace moving in wall-clock time.
+    zephyrSample: 'zephyr-module/apps/accelerometer_chart',
     // The accelerometer feeds the chart, so surface both input and output.
     primaryPanels: ['sensor', 'display'],
   },

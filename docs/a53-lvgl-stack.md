@@ -82,6 +82,11 @@ Give the sample real stack headroom. `zephyr-module/conf/lvgl-accel.conf` sets
 tick — with margin: with the sentinel on, that build runs indefinitely instead
 of overflowing in 40 ms.
 
+The packaged app is a small fork under `zephyr-module/apps/accelerometer_chart`
+(circular chart updates, fewer grid lines) plus the `accel-display` snippet
+(480×320 ramfb). That is a separate, wall-clock performance fix: upstream's
+SHIFT-mode full-screen chart outpaces what the emulated A53 can paint.
+
 The driver gap that pulled the trigger is independently fixed (the host-sensor
 driver now answers `SENSOR_CHAN_ACCEL_XYZ`), so the shipped sample never takes
 the error path. The stack bump is defence in depth against the underlying

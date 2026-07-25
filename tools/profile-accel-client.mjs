@@ -1,5 +1,9 @@
 /**
  * Profile against an already-running vite on :5173.
+ * Drives the ADXL channels with a sine so the chart actually paints new
+ * pixels — a flat trace produces identical frames and reads as guestFps=0
+ * even when the guest is healthy.
+ *
  *   npm run dev -- --host 127.0.0.1 --port 5173
  *   node tools/profile-accel-client.mjs
  */
@@ -35,8 +39,30 @@ try {
   const renderer = await page.evaluate(() => document.querySelector('canvas')?.dataset.renderer)
   console.log('display renderer ready:', renderer)
 
-  // Let the guest settle past boot, then sample.
-  await sleep(3000)
+  // Expose the ADXL chip handle, then oscillate it so every sample changes pixels.
+  const hooked = await page.evaluate(async () => {
+    const mod = await import('/src/virtio/index.ts')
+    const chips = mod.i2cModel.chips()
+    const adxl = chips.find((c) => c.address === 0x53)
+    if (!adxl || typeof adxl.setChannel !== 'function') return false
+    globalThis.__zephyrAdxl = adxl
+    const start = performance.now()
+    const tick = () => {
+      const t = (performance.now() - start) / 1000
+      const chip = globalThis.__zephyrAdxl
+      if (chip) {
+        chip.setChannel('accel_x', Math.sin(t * 2.1) * 8)
+        chip.setChannel('accel_y', Math.cos(t * 1.7) * 6)
+        chip.setChannel('accel_z', 9.8 + Math.sin(t * 0.9) * 2)
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+    return true
+  })
+  console.log('adxl hooked:', hooked)
+
+  await sleep(2000)
 
   const samples = []
   const start = Date.now()
@@ -48,12 +74,13 @@ try {
       `  t=${((Date.now() - start) / 1000).toFixed(1)}s guest=${snap?.guestFps?.toFixed?.(1) ?? '-'} ` +
         `up=${snap?.uploadFps?.toFixed?.(1) ?? '-'} i2c=${snap?.i2cHz?.toFixed?.(0) ?? '-'} ` +
         `mips=${snap?.mips?.toFixed?.(1) ?? '-'} digest=${snap?.digestMs?.toFixed?.(2) ?? '-'} ` +
-        `draw=${snap?.drawMs?.toFixed?.(2) ?? '-'} notes=${(snap?.notes ?? []).join(',')}`,
+        `draw=${snap?.drawMs?.toFixed?.(2) ?? '-'} ${snap?.display?.width ?? '?'}x${snap?.display?.height ?? '?'} ` +
+        `notes=${(snap?.notes ?? []).join(',')}`,
     )
   }
 
   const avg = (key) => samples.reduce((s, x) => s + x[key], 0) / Math.max(1, samples.length)
-  const steady = samples.slice(Math.floor(samples.length / 3)) // drop early noise
+  const steady = samples.slice(Math.floor(samples.length / 3))
   const avgSteady = (key) => steady.reduce((s, x) => s + x[key], 0) / Math.max(1, steady.length)
 
   console.log('\n=== accel_chart profile ===')
