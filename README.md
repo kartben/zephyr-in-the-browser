@@ -3,17 +3,21 @@
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
 It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten,
-emulating Cortex-M3 and Cortex-A53 boards. Alongside the serial terminal, each
-browser-backed peripheral gets its own floating panel:
+emulating Cortex-M3 and Cortex-A53 boards. Alongside the serial terminal, every
+browser-backed peripheral lives in the **device dock** — one scrollable sidebar
+with two arrangements of the same controls: a tree that mirrors the running
+build's devicetree (chips under their I²C bus, the GNSS receiver under its
+UART, real node names and compatibles), and a view grouped by peripheral class.
+Any row pops out into a floating window; collapsed rows keep a live readout.
 
-| Panel | What the guest sees |
+| Device | What the guest sees |
 | --- | --- |
-| **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, an ADXL345 accelerometer — each with its own card of sliders and config bits, read through stock Zephyr drivers. The accelerometer can follow your device's real tilt |
-| **GPIO** | Clickable buttons and live LED indicators |
+| **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, an ADXL345 accelerometer — each a row of sliders and config bits, read through stock Zephyr drivers. The accelerometer can follow your device's real tilt |
+| **GPIO** | Clickable buttons and live LED indicators, wired per the devicetree's `gpio-keys`/`gpio-leds` |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
-| **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet |
+| **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
-| **I²C** | The bus those sensors ride, plus an AT24 EEPROM you can read and edit as a live hex dump and an SSD1306 OLED whose pixels get their own panel. Attach and detach chips while the guest runs, and watch every byte that crosses the bus |
+| **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
 | **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
 
 ## Quick start
