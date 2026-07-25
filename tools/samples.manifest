@@ -51,14 +51,5 @@ qemu_cortex_a53:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps2
 qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
 qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
 qemu_cortex_a53:philosophers:samples/philosophers
+qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c,i2c-sensors-extra
-qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
-qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
-qemu_cortex_a53:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
-qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf
-qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf
-qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf
-qemu_cortex_a53:hello_world:samples/hello_world
-qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
-qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
-qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled

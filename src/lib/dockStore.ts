@@ -28,6 +28,7 @@ export const DOCK_DEFAULT_WIDTH = 20
 /** Stage widgets the Panels menu manages alongside the dock's device rows. */
 export const STAGE_DISPLAY_KEY = 'stage:display'
 export const STAGE_PERF_KEY = 'stage:perf'
+export const STAGE_TRACE_KEY = 'stage:trace'
 
 export interface DockDeviceState {
   /** User override of the seeded default; absent = follow the seed. */

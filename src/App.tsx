@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
 import { DisplayPanel } from '@/components/DisplayPanel'
+import { TracePanel } from '@/components/TracePanel'
 import { StagePill } from '@/components/StagePill'
 import { Dock } from '@/components/dock/Dock'
 import { FloatingWindows } from '@/components/dock/FloatingWindows'
@@ -38,15 +39,22 @@ import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } fr
 
 /**
  * The floating widgets over the stage: the display (with its Panels-menu
- * visibility flag) bottom-right, the MIPS pill bottom-left. Both keep out of
- * the terminal's way and below the z-50 overlays.
+ * visibility flag) bottom-right, the MIPS pill and CTF trace bottom-left. Both
+ * keep out of the terminal's way and below the z-50 overlays.
  */
-function StageOverlays({ displayExpanded }: { displayExpanded: boolean }) {
+function StageOverlays({
+  displayExpanded,
+  traceExpanded,
+}: {
+  displayExpanded: boolean
+  traceExpanded: boolean
+}) {
   const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
   return (
     <>
-      <div className="pointer-events-none absolute bottom-4 left-4 z-20">
+      <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[min(36rem,calc(100%-2rem))] flex-col items-start gap-3">
         <StagePill />
+        <TracePanel defaultExpanded={traceExpanded} />
       </div>
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
         <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end">
@@ -392,6 +400,7 @@ export default function App() {
           <StageOverlays
             key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
             displayExpanded={expandAllPanels || primaryPanels.has('display')}
+            traceExpanded={expandAllPanels || primaryPanels.has('trace')}
           />
         </div>
 
