@@ -103,8 +103,11 @@ the card that drives it — so adding a part is a declaration, not another panel
   part reuses `PwmBody` with only a new provider + packaging.
 - **DAC** ([`dac/model.ts`](../src/virtio/devices/dac/model.ts)) — coded
   channels with volts + history (`DacDecl` / `DacChannel` / `isDacChip`). The
-  dock paints a Vout-over-time trace and level bar. The first provider is the
-  I²C MCP4725 at `0x61`; a later multi-channel DAC reuses `DacBody` unchanged.
+  dock paints a Vout-over-time trace and level bar (default 10 s window window,
+  selectable). Sample timestamps prefer guest virtual time under `-icount` so
+  the stock sawtooth keeps its ~4 s period; wall clock is the fallback. The
+  first provider is the I²C MCP4725 at `0x61`; a later multi-channel DAC
+  reuses `DacBody` unchanged.
 
 **Register maps** are shared across register-file parts — sensors, the
 PCF8523, both halves of the JHD1313, the HT16K33, the PCA9685, and the MCP4725 today — via [`registers/`](../src/virtio/devices/registers)
