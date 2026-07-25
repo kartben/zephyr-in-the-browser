@@ -121,13 +121,55 @@ gets the host-GPIO device — the LM3S6965 machine has no virtio-mmio bus to
 reach the generic bridge — while AArch64 alone gets the input bridge, the
 generic virtio bridge and the guest-icount export.
 
-Eleven browser integrations are supplied by the target-specific patch
+### The link line, and why `-O3` is a patch
+
+QEMU compiles at `-O2` — meson's `default_options` in `meson.build` set
+`optimization=2` — but meson passes optimisation flags to the *compiler* only,
+and for Emscripten the link step is where Binaryen runs. With no `-O` on the
+link line, emcc's link-time optimisation level is 0: wasm-opt's post-link passes
+are skipped, `ASSERTIONS` defaults on, the JS glue is left unminified, and
+Asyncify's instrumentation — which every build here carries, because QEMU's wasm
+coroutine backend is `emscripten_fiber_*` — is emitted without the cleanup that
+normally follows it. Emscripten's own Asyncify documentation is explicit that
+building it unoptimised instruments far more code than necessary.
+
+So the patch series adds `-O3` to `c_link_args`/`cpp_link_args`
+(`0009-emscripten-optimise-the-link.patch`, and `0011-` in the JIT series).
+
+It has to be a patch, for the same reason `--js-library` is one: `configure`
+adds its generated `config-meson.cross` as a machine file **first** and
+`configs/meson/emscripten.txt` **second**, and meson lets the later file win —
+so `emscripten.txt` overwrites the `c_link_args` that `--extra-ldflags` lands in.
+`--extra-cflags` is unaffected and does reach the compile line; it is only the
+link that this applies to.
+
+Two practical notes:
+
+- **wasm-opt at `-O3` on a ~19 MB module is slow and memory hungry** — expect
+  minutes and several GB on top of an already long build. Drop the patch to
+  `-O2` if it OOMs; most of the benefit is there.
+- **Verify rather than assume.** `EMCC_DEBUG=1` on the final link prints the
+  `wasm-opt` invocation, which is where the optimisation level actually shows
+  up. The guest-side number to compare before and after is the Performance
+  panel's MIPS readout.
+
+To experiment with other link flags — `-sASYNCIFY_ADVISE` prints every function
+Asyncify instruments and why, which is the next thing worth knowing — edit the
+patch, not the checkout under `.qemu-wasm-build/`. The build script restores
+tracked files to the pinned revision before applying the series on every run, so
+hand-edits to the source tree do not survive.
+
+Twelve browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
   the guest's stdio goes nowhere. It has to go in the meson cross file:
-  `--extra-ldflags` does not reach the link, and meson snapshots that file at
-  configure time, so changing it needs a reconfigure rather than a relink.
+  `--extra-ldflags` does not reach the link (see above), and meson snapshots
+  that file at configure time, so changing it needs a reconfigure rather than a
+  relink.
+* `-O3` on the same link line, for the reasons in "The link line" above — the
+  one patch here that is not an integration at all, just the optimisation level
+  the build was silently missing.
 * The `qemu-host-sensor` device. Retained but **inert**: sensors are now
   simulated I²C chips on the generic virtio bridge, so no devicetree node
   references this device and nothing binds it. It is dropped on the next
