@@ -34,6 +34,11 @@ interface PanelFrameProps {
   /** Extra header buttons, placed before the built-in undock/collapse/close. */
   actions?: ReactNode
   /**
+   * Fill the parent up to `dockedWidth` — the stage Trace panel uses this so a
+   * phone gets a nearly full-bleed timeline without every dock card stretching.
+   */
+  fill?: boolean
+  /**
    * Controlled window mode, for bodies whose home is the dock: the frame is
    * always floating, and both the dock button and the X hand control back to
    * the caller (returning the body to its dock row) instead of self-managing.
@@ -63,6 +68,7 @@ export function PanelFrame({
   side = 'right',
   status,
   actions,
+  fill = false,
   windowed,
   children,
 }: PanelFrameProps) {
@@ -114,7 +120,9 @@ export function PanelFrame({
       style={
         floating
           ? floatingStyle
-          : { width: `${dockedWidth}rem`, maxWidth: 'calc(100vw - 2rem)' }
+          : fill
+            ? { width: '100%', maxWidth: `${dockedWidth}rem` }
+            : { width: `${dockedWidth}rem`, maxWidth: 'calc(100vw - 2rem)' }
       }
     >
       <div

@@ -7,7 +7,7 @@
  * Writes PNGs under /opt/cursor/artifacts/screenshots/.
  */
 import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import puppeteer from 'puppeteer-core'
 
 const OUT = '/opt/cursor/artifacts/screenshots'
@@ -38,7 +38,7 @@ function record(ts, eid, body) {
   return [...encU64(ts), ...encU16(eid), ...body]
 }
 
-/** A short, recognizable schedule: main → thread_a ↔ thread_b with a sleep. */
+/** Longer span so the 5 ms live window shows chunky context-switch bars. */
 function buildSyntheticCtf() {
   const main = 0x20001000
   const a = 0x20002000
@@ -50,35 +50,62 @@ function buildSyntheticCtf() {
   push(100, 0x13, [...encU32(a), ...encName('thread_a')])
   push(200, 0x13, [...encU32(b), ...encName('thread_b')])
   push(1_000, 0x11, [...encU32(main), ...encName('main')])
-  push(5_000, 0x10, [...encU32(main), ...encName('main')])
-  push(5_000, 0x11, [...encU32(a), ...encName('thread_a')])
-  // sleep enter hint then switch out → sleep state
-  push(8_000, 0x7f, [...encU32(100)])
-  push(8_100, 0x10, [...encU32(a), ...encName('thread_a')])
-  push(8_100, 0x11, [...encU32(b), ...encName('thread_b')])
-  // ISR blip while b runs
-  push(9_000, 0x1b, [])
-  push(9_400, 0x1c, [])
-  push(12_000, 0x10, [...encU32(b), ...encName('thread_b')])
-  push(12_000, 0x11, [...encU32(a), ...encName('thread_a')])
-  push(15_000, 0x10, [...encU32(a), ...encName('thread_a')])
-  push(15_000, 0x11, [...encU32(main), ...encName('main')])
-  // More ping-pong so the live window looks busy
-  for (let i = 0; i < 12; i++) {
-    const t0 = 20_000 + i * 4_000
+
+  let t = 2_000_000 // start busy work at 2 ms
+  for (let i = 0; i < 40; i++) {
     const from = i % 2 === 0 ? a : b
     const to = i % 2 === 0 ? b : a
     const fromName = i % 2 === 0 ? 'thread_a' : 'thread_b'
     const toName = i % 2 === 0 ? 'thread_b' : 'thread_a'
-    push(t0, 0x10, [...encU32(i === 0 ? main : from), ...encName(i === 0 ? 'main' : fromName)])
-    push(t0, 0x11, [...encU32(to), ...encName(toName)])
-    if (i % 3 === 2) {
-      push(t0 + 1_500, 0x7f, [...encU32(50)])
-      push(t0 + 1_600, 0x10, [...encU32(to), ...encName(toName)])
-      push(t0 + 1_600, 0x11, [...encU32(from), ...encName(fromName)])
+    if (i === 0) {
+      push(t, 0x10, [...encU32(main), ...encName('main')])
+    } else {
+      push(t, 0x10, [...encU32(from), ...encName(fromName)])
+    }
+    push(t, 0x11, [...encU32(to), ...encName(toName)])
+    if (i % 5 === 2) {
+      push(t + 200_000, 0x7f, [...encU32(40)])
+      push(t + 220_000, 0x10, [...encU32(to), ...encName(toName)])
+      push(t + 220_000, 0x11, [...encU32(from), ...encName(fromName)])
+      t += 500_000
+    } else {
+      t += 300_000
+    }
+    if (i % 7 === 0) {
+      push(t - 80_000, 0x1b, [])
+      push(t - 40_000, 0x1c, [])
     }
   }
   return Uint8Array.from(bytes)
+}
+
+async function shoot(page, name) {
+  const path = join(OUT, name)
+  await page.screenshot({ path, fullPage: false })
+  console.log('wrote', path)
+}
+
+async function prepare(page) {
+  await page.goto(URL, { waitUntil: 'networkidle0' })
+  await page.waitForFunction(() => typeof globalThis.__zephyrTraceDebugFeed === 'function')
+  // Expand Trace if collapsed.
+  await page.evaluate(() => {
+    const spans = [...document.querySelectorAll('span')]
+    const title = spans.find((s) => s.textContent?.trim() === 'Trace')
+    const card = title?.closest('[class*="shadow"]')
+    const chevron = [...(card?.querySelectorAll('button') ?? [])].find((b) =>
+      (b.getAttribute('aria-label') || '').toLowerCase().includes('expand'),
+    )
+    chevron?.click()
+  })
+  await new Promise((r) => setTimeout(r, 200))
+  const ctf = buildSyntheticCtf()
+  await page.evaluate((arr) => globalThis.__zephyrTraceDebugFeed(Uint8Array.from(arr)), [...ctf])
+  await page.waitForFunction(
+    () => document.querySelector('canvas') && document.querySelector('canvas').height > 40,
+    { timeout: 10_000 },
+  )
+  await new Promise((r) => setTimeout(r, 400))
 }
 
 mkdirSync(OUT, { recursive: true })
@@ -86,63 +113,65 @@ mkdirSync(OUT, { recursive: true })
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME_PATH ?? '/usr/local/bin/google-chrome',
   headless: 'new',
-  args: ['--no-sandbox', '--disable-gpu', '--window-size=1440,900'],
-  defaultViewport: { width: 1440, height: 900, deviceScaleFactor: 1 },
+  args: ['--no-sandbox', '--disable-gpu'],
 })
 
-const page = await browser.newPage()
-page.setDefaultTimeout(60_000)
-
-await page.goto(URL, { waitUntil: 'networkidle0' })
-
-// Wait for the Trace panel chrome (sample primaryPanels expands it).
-await page.waitForFunction(() => {
-  const titles = [...document.querySelectorAll('button, h2, span, div')]
-  return titles.some((el) => (el.textContent || '').trim() === 'Trace')
-})
-
-const waitingPath = join(OUT, 'trace-waiting.png')
-await page.screenshot({ path: waitingPath, fullPage: false })
-console.log('wrote', waitingPath)
-
-// Inject the synthetic CTF stream.
-await page.waitForFunction(() => typeof globalThis.__zephyrTraceDebugFeed === 'function')
-const ctf = buildSyntheticCtf()
-await page.evaluate((arr) => {
-  globalThis.__zephyrTraceDebugFeed(Uint8Array.from(arr))
-}, [...ctf])
-
-// Let React paint the Gantt.
-await page.waitForFunction(() => {
-  const canvas = document.querySelector('canvas')
-  return canvas && canvas.height > 0
-})
-await new Promise((r) => setTimeout(r, 400))
-
-const livePath = join(OUT, 'trace-live.png')
-await page.screenshot({ path: livePath, fullPage: false })
-console.log('wrote', livePath)
-
-// Crop-ish: also grab a tighter shot by scrolling the panel into view and
-// screenshoting just that region if we can find the panel card.
-const panelHandle = await page.evaluateHandle(() => {
-  const buttons = [...document.querySelectorAll('button')]
-  const titleBtn = buttons.find((b) => (b.textContent || '').includes('Trace'))
-  return titleBtn?.closest('[class*="border"]') ?? titleBtn?.parentElement?.parentElement ?? null
-})
-const box = await panelHandle.asElement()?.boundingBox()
-if (box && box.width > 100) {
-  const detailPath = join(OUT, 'trace-panel-detail.png')
-  await page.screenshot({
-    path: detailPath,
-    clip: {
-      x: Math.max(0, box.x - 8),
-      y: Math.max(0, box.y - 8),
-      width: Math.min(1440 - box.x + 8, box.width + 24),
-      height: Math.min(900 - box.y + 8, box.height + 24),
-    },
+// Desktop
+{
+  const page = await browser.newPage()
+  await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 })
+  await prepare(page)
+  await shoot(page, 'trace-desktop.png')
+  const clip = await page.evaluate(() => {
+    const spans = [...document.querySelectorAll('span')]
+    const title = spans.find((s) => s.textContent?.trim() === 'Trace')
+    const card = title?.closest('[class*="shadow"]')
+    if (!card) return null
+    const r = card.getBoundingClientRect()
+    return {
+      x: Math.max(0, r.x - 8),
+      y: Math.max(0, r.y - 8),
+      width: Math.min(window.innerWidth - r.x + 8, r.width + 16),
+      height: Math.min(window.innerHeight - r.y + 8, r.height + 16),
+    }
   })
-  console.log('wrote', detailPath)
+  if (clip?.width > 80) {
+    await page.screenshot({ path: join(OUT, 'trace-desktop-detail.png'), clip })
+    console.log('wrote', join(OUT, 'trace-desktop-detail.png'))
+  }
+  await page.close()
+}
+
+// Mobile (iPhone-ish)
+{
+  const page = await browser.newPage()
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  await prepare(page)
+  // Collapse the dock so the Trace card has the stage.
+  await page.evaluate(() => {
+    const btn = document.querySelector('button[aria-label*="device dock"], button[title*="device dock"]')
+    if (btn && btn.getAttribute('aria-pressed') === 'true') btn.click()
+  })
+  await new Promise((r) => setTimeout(r, 300))
+  await shoot(page, 'trace-mobile.png')
+  const clip = await page.evaluate(() => {
+    const spans = [...document.querySelectorAll('span')]
+    const title = spans.find((s) => s.textContent?.trim() === 'Trace')
+    const card = title?.closest('[class*="shadow"]')
+    if (!card) return null
+    const r = card.getBoundingClientRect()
+    return {
+      x: Math.max(0, r.x - 4),
+      y: Math.max(0, r.y - 4),
+      width: Math.min(window.innerWidth - r.x + 4, r.width + 8),
+      height: Math.min(window.innerHeight - r.y + 4, r.height + 8),
+    }
+  })
+  if (clip?.width > 80) {
+    await page.screenshot({ path: join(OUT, 'trace-mobile-detail.png'), clip })
+    console.log('wrote', join(OUT, 'trace-mobile-detail.png'))
+  }
+  await page.close()
 }
 
 await browser.close()

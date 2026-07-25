@@ -2,10 +2,20 @@
  * Live Zephyr CTF schedule view — the browser cousin of
  * scripts/tracing/trace_viewer.py. One lane per thread, coloured by
  * run/ready/blocked/sleep; follows the live edge until the user pans.
+ *
+ * Interaction is touch-first: drag the plot to pan, pinch or ± to zoom,
+ * tap a lane label to select, tap the plot to park the playhead. Wheel
+ * zoom still works on desktop.
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Activity, Crosshair } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  Activity,
+  Crosshair,
+  Maximize2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -29,9 +39,47 @@ import {
   subscribe as subscribeDock,
 } from '@/lib/dockStore'
 
-const LANE_H = 18
-const LABEL_W = 88
+/** Lane geometry — slightly taller than the terminal viewer so colour bars read on a phone. */
+const LANE_H = 22
+const LABEL_W = 72
 const PAD = 8
+/** Live follow window: tight enough that a few context switches fill the plot. */
+const DEFAULT_LIVE_WINDOW_NS = 5_000_000 // 5 ms
+const MIN_WINDOW_NS = 50_000 // 50 µs
+const ZOOM_IN = 0.7
+const ZOOM_OUT = 1.4
+/** Pointer travel beyond this (css px) counts as a pan, not a tap. */
+const PAN_THRESHOLD_PX = 8
+
+function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
+  const span = Math.max(MIN_WINDOW_NS, t1 - t0)
+  const total = Math.max(MIN_WINDOW_NS, tr.t1 - tr.t0)
+  const win = Math.min(span, total)
+  let a = t0
+  let b = t0 + win
+  if (a < tr.t0) {
+    a = tr.t0
+    b = a + win
+  }
+  if (b > tr.t1) {
+    b = tr.t1
+    a = Math.max(tr.t0, b - win)
+  }
+  return { t0: a, t1: Math.max(a + MIN_WINDOW_NS, b) }
+}
+
+function zoomAround(
+  tr: Trace,
+  view: { t0: number; t1: number },
+  factor: number,
+  pivot: number,
+): { t0: number; t1: number } {
+  const span = view.t1 - view.t0
+  const next = Math.max(MIN_WINDOW_NS, Math.min(tr.t1 - tr.t0, span * factor))
+  const frac = span > 0 ? (pivot - view.t0) / span : 0.5
+  const t0 = pivot - next * frac
+  return clampView(tr, t0, t0 + next)
+}
 
 function paint(
   canvas: HTMLCanvasElement,
@@ -40,14 +88,16 @@ function paint(
   view1: number,
   playhead: number,
   follow: boolean,
+  selectedLane: number | null,
 ) {
   const dpr = window.devicePixelRatio || 1
-  const cssW = canvas.clientWidth
+  const cssW = Math.max(1, canvas.clientWidth)
   const lanes = laneOrder(tr).filter((tid) => {
     const segs = tr.states.get(tid)
     return segs && segs.some(([, , st]) => st !== 'dead')
   })
-  const cssH = Math.max(80, PAD * 2 + (lanes.length + (tr.isrSpans.length ? 1 : 0)) * LANE_H + 28)
+  const plotRows = lanes.length + (tr.isrSpans.length ? 1 : 0)
+  const cssH = Math.max(96, PAD * 2 + plotRows * LANE_H + 28)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width = Math.floor(cssW * dpr)
     canvas.height = Math.floor(cssH * dpr)
@@ -57,89 +107,116 @@ function paint(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, cssW, cssH)
 
-  const plotW = Math.max(1, cssW - LABEL_W - PAD * 2)
-  const cols = Math.max(32, Math.floor(plotW))
+  const plotW = Math.max(1, cssW - LABEL_W - PAD)
+  // Prefer ~1 css-px columns so short switches stay visible when zoomed in.
+  const cols = Math.max(64, Math.floor(plotW))
   const rows = renderStateRows(tr, lanes, view0, view1, cols)
   const colW = plotW / cols
 
-  // Background.
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.35)'
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
   ctx.fillRect(LABEL_W, PAD, plotW, lanes.length * LANE_H)
 
   lanes.forEach((tid, row) => {
     const y = PAD + row * LANE_H
     const label = threadLabel(tr, tid)
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
-    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
+    const selected = selectedLane === tid
+    ctx.fillStyle = selected ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.95)'
+    ctx.font = `${selected ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
     ctx.textBaseline = 'middle'
-    ctx.fillText(label.length > 12 ? `${label.slice(0, 11)}…` : label, 4, y + LANE_H / 2)
+    const trimmed = label.length > 9 ? `${label.slice(0, 8)}…` : label
+    ctx.fillText(trimmed, 4, y + LANE_H / 2)
+    if (selected) {
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.18)'
+      ctx.fillRect(LABEL_W, y, plotW, LANE_H)
+    }
 
     const cells = rows.get(tid) ?? []
     for (let c = 0; c < cells.length; c++) {
       const st = cells[c]
       if (!st || st === 'dead') continue
       ctx.fillStyle = STATE_COLOR[st]
-      ctx.globalAlpha = st === 'run' ? 0.95 : 0.7
-      ctx.fillRect(LABEL_W + c * colW, y + 2, Math.max(1, colW + 0.5), LANE_H - 4)
+      ctx.globalAlpha = st === 'run' ? 1 : 0.78
+      // Overlap neighbours by 0.75px so adjacent same-state cells don't seam.
+      ctx.fillRect(LABEL_W + c * colW, y + 3, Math.max(1.25, colW + 0.75), LANE_H - 6)
     }
     ctx.globalAlpha = 1
   })
 
-  // ISR overlay lane.
   if (tr.isrSpans.length) {
     const y = PAD + lanes.length * LANE_H
     ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.textBaseline = 'middle'
     ctx.fillText('[ISR]', 4, y + LANE_H / 2)
     const span = Math.max(1, view1 - view0)
     for (const [s, e] of tr.isrSpans) {
       if (e <= view0 || s >= view1) continue
       const x0 = LABEL_W + ((Math.max(s, view0) - view0) / span) * plotW
       const x1 = LABEL_W + ((Math.min(e, view1) - view0) / span) * plotW
-      ctx.fillStyle = 'rgba(168, 85, 247, 0.75)'
-      ctx.fillRect(x0, y + 2, Math.max(1, x1 - x0), LANE_H - 4)
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.8)'
+      ctx.fillRect(x0, y + 3, Math.max(2, x1 - x0), LANE_H - 6)
     }
   }
 
-  // Playhead.
   if (playhead >= view0 && playhead <= view1) {
     const span = Math.max(1, view1 - view0)
     const x = LABEL_W + ((playhead - view0) / span) * plotW
-    ctx.strokeStyle = 'rgba(248, 250, 252, 0.9)'
-    ctx.lineWidth = 1
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.95)'
+    ctx.lineWidth = 1.5
     ctx.beginPath()
     ctx.moveTo(x, PAD)
-    ctx.lineTo(x, PAD + (lanes.length + (tr.isrSpans.length ? 1 : 0)) * LANE_H)
+    ctx.lineTo(x, PAD + plotRows * LANE_H)
     ctx.stroke()
   }
 
-  // Axis.
-  const axisY = PAD + (lanes.length + (tr.isrSpans.length ? 1 : 0)) * LANE_H + 4
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
+  const axisY = PAD + plotRows * LANE_H + 4
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.85)'
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+  ctx.textBaseline = 'alphabetic'
   ctx.fillText(fmtTime(0), LABEL_W, axisY + 12)
   const endLabel = fmtTime(view1 - view0)
-  ctx.fillText(endLabel, LABEL_W + plotW - ctx.measureText(endLabel).width, axisY + 12)
   if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.9)'
-    ctx.fillText('LIVE', cssW - 36, axisY + 12)
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
+    ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), axisY + 12)
+  } else {
+    ctx.fillText(endLabel, LABEL_W + plotW - ctx.measureText(endLabel).width, axisY + 12)
   }
 
   canvas.style.height = `${cssH}px`
 }
 
+type Gesture =
+  | {
+      kind: 'pan'
+      pointerId: number
+      startX: number
+      origin: { t0: number; t1: number }
+      moved: boolean
+    }
+  | {
+      kind: 'pinch'
+      /** Initial finger distance. */
+      startDist: number
+      /** View span at pinch start. */
+      startSpan: number
+      pivot: number
+      origin: { t0: number; t1: number }
+    }
+
 export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const gestureRef = useRef<Gesture | null>(null)
+  const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   const [follow, setFollow] = useState(true)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [playhead, setPlayhead] = useState(0)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
+  viewRef.current = view
 
-  // Seed expansion from the sample once; the dock store owns the override.
   useEffect(() => {
     if (defaultExpanded) setExpanded(STAGE_TRACE_KEY, true)
-    // Only on mount / sample-driven default change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultExpanded])
 
@@ -147,8 +224,8 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   useEffect(() => {
     if (!tr || tr.events.length === 0) return
     if (follow) {
-      const span = Math.max(tr.t1 - tr.t0, 1_000_000) // at least 1 ms window
-      const windowNs = Math.min(span, 20_000_000) // 20 ms default live window
+      const span = Math.max(tr.t1 - tr.t0, MIN_WINDOW_NS)
+      const windowNs = Math.min(span, DEFAULT_LIVE_WINDOW_NS)
       const t1 = tr.t1
       const t0 = Math.max(tr.t0, t1 - windowNs)
       setView({ t0, t1 })
@@ -159,18 +236,53 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
-    paint(canvas, tr, view.t0, view.t1, playhead, follow)
-  }, [tr, view, playhead, follow, snap.eventCount])
+    paint(canvas, tr, view.t0, view.t1, playhead, follow, selectedLane)
+  }, [tr, view, playhead, follow, snap.eventCount, selectedLane])
 
-  // Show for the Tracing sample immediately (waiting state), and for any other
-  // sample once semihosting has created tracing.bin.
+  // Keep the canvas sized under orientation / dock changes.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (!tr || !viewRef.current) return
+      paint(canvas, tr, viewRef.current.t0, viewRef.current.t1, playhead, follow, selectedLane)
+    })
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  }, [tr, playhead, follow, selectedLane])
+
+  const applyZoom = useCallback(
+    (factor: number) => {
+      if (!tr || !view) return
+      setFollow(false)
+      const pivot = Math.min(Math.max(playhead, view.t0), view.t1)
+      const next = zoomAround(tr, view, factor, pivot)
+      setView(next)
+    },
+    [tr, view, playhead],
+  )
+
+  const fitAll = useCallback(() => {
+    if (!tr || tr.events.length === 0) return
+    setFollow(false)
+    setView({ t0: tr.t0, t1: Math.max(tr.t0 + MIN_WINDOW_NS, tr.t1) })
+    setPlayhead(tr.t1)
+  }, [tr])
+
+  const panByFraction = useCallback(
+    (frac: number) => {
+      if (!tr || !view) return
+      setFollow(false)
+      const span = view.t1 - view.t0
+      setView(clampView(tr, view.t0 + span * frac, view.t1 + span * frac))
+    },
+    [tr, view],
+  )
+
   if ((!snap.available && !defaultExpanded) || dock.devices[STAGE_TRACE_KEY]?.hidden) {
     return null
   }
 
-  // Prefer the sample-driven prop for PanelFrame's initial open state — the dock
-  // seed lands in a useEffect one tick later, which would otherwise leave the
-  // Tracing sample's panel collapsed on first paint.
   const expanded = defaultExpanded || effectiveExpandedIn(dock, STAGE_TRACE_KEY, 'trace')
   const lanes = tr ? laneOrder(tr) : []
   const lane = selectedLane ?? lanes[0] ?? null
@@ -183,7 +295,10 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       title="Trace"
       icon={Activity}
       defaultExpanded={expanded}
-      dockedWidth={28}
+      // Cap on desktop; `fill` + the stage wrapper make phones nearly full-bleed.
+      dockedWidth={34}
+      fill
+      side="left"
       status={
         snap.eventCount > 0 ? (
           <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
@@ -198,12 +313,13 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
           type="button"
           variant="ghost"
           size="icon"
-          title={follow ? 'Following live edge' : 'Re-sync to live edge'}
+          title={follow ? 'Following live edge' : 'Jump to live edge'}
+          aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
           aria-pressed={follow}
           onClick={() => setFollow(true)}
-          className={cn('size-6', follow && 'text-primary')}
+          className={cn('size-8 touch-manipulation', follow && 'text-primary')}
         >
-          <Crosshair className="size-3.5" />
+          <Crosshair className="size-4" />
         </Button>
       }
     >
@@ -215,52 +331,193 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
           </p>
         ) : (
           <>
+            {/* Zoom / pan toolbar — 44px-class targets for thumbs. */}
+            <div className="flex items-center gap-1 px-0.5">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="size-9 touch-manipulation"
+                title="Zoom in"
+                aria-label="Zoom in"
+                onClick={() => applyZoom(ZOOM_IN)}
+              >
+                <ZoomIn className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="size-9 touch-manipulation"
+                title="Zoom out"
+                aria-label="Zoom out"
+                onClick={() => applyZoom(ZOOM_OUT)}
+              >
+                <ZoomOut className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="size-9 touch-manipulation"
+                title="Fit entire trace"
+                aria-label="Fit entire trace"
+                onClick={fitAll}
+              >
+                <Maximize2 className="size-4" />
+              </Button>
+              <div className="ml-auto flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
+                  title="Pan earlier"
+                  aria-label="Pan earlier"
+                  onClick={() => panByFraction(-0.6)}
+                >
+                  ‹
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
+                  title="Pan later"
+                  aria-label="Pan later"
+                  onClick={() => panByFraction(0.6)}
+                >
+                  ›
+                </Button>
+              </div>
+            </div>
+
             <canvas
               ref={canvasRef}
-              className="w-full cursor-crosshair rounded border border-border/60 bg-slate-950/40"
+              className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
               onWheel={(e) => {
                 if (!view || !tr) return
                 e.preventDefault()
                 setFollow(false)
-                const span = view.t1 - view.t0
-                const factor = e.deltaY > 0 ? 1.25 : 0.8
-                const mid = playhead
-                const nextSpan = Math.max(1000, Math.min(tr.t1 - tr.t0, span * factor))
-                let t0 = mid - nextSpan / 2
-                let t1 = mid + nextSpan / 2
-                if (t0 < tr.t0) {
-                  t0 = tr.t0
-                  t1 = t0 + nextSpan
-                }
-                if (t1 > tr.t1) {
-                  t1 = tr.t1
-                  t0 = Math.max(tr.t0, t1 - nextSpan)
-                }
-                setView({ t0, t1 })
+                const rect = e.currentTarget.getBoundingClientRect()
+                const plotW = Math.max(1, rect.width - LABEL_W - PAD)
+                const x = e.clientX - rect.left
+                const frac =
+                  x < LABEL_W ? 0.5 : Math.min(1, Math.max(0, (x - LABEL_W) / plotW))
+                const pivot = view.t0 + frac * (view.t1 - view.t0)
+                setView(zoomAround(tr, view, e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN, pivot))
               }}
-              onClick={(e) => {
-                if (!view || !tr) return
+              onPointerDown={(e) => {
+                if (!view || !tr || !e.isPrimary) return
+                try {
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                } catch {
+                  /* ignore */
+                }
+                gestureRef.current = {
+                  kind: 'pan',
+                  pointerId: e.pointerId,
+                  startX: e.clientX,
+                  origin: view,
+                  moved: false,
+                }
+              }}
+              onPointerMove={(e) => {
+                const g = gestureRef.current
+                if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId || !tr) return
+                const dx = e.clientX - g.startX
+                if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+                g.moved = true
+                setFollow(false)
+                const canvas = e.currentTarget
+                const plotW = Math.max(1, canvas.clientWidth - LABEL_W - PAD)
+                const span = g.origin.t1 - g.origin.t0
+                const dt = (-dx / plotW) * span
+                setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
+              }}
+              onPointerUp={(e) => {
+                const g = gestureRef.current
+                if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId) return
+                gestureRef.current = null
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId)
+                } catch {
+                  /* ignore */
+                }
+                if (g.moved || !view || !tr) return
+                // Tap: select lane or park playhead.
                 const rect = e.currentTarget.getBoundingClientRect()
                 const x = e.clientX - rect.left
+                const y = e.clientY - rect.top
                 if (x < LABEL_W) {
-                  const row = Math.floor((e.clientY - rect.top - PAD) / LANE_H)
+                  const row = Math.floor((y - PAD) / LANE_H)
                   const order = laneOrder(tr)
                   if (row >= 0 && row < order.length) setSelectedLane(order[row]!)
                   return
                 }
                 setFollow(false)
-                const plotW = rect.width - LABEL_W - PAD * 2
+                const plotW = Math.max(1, rect.width - LABEL_W - PAD)
                 const frac = Math.min(1, Math.max(0, (x - LABEL_W) / plotW))
                 setPlayhead(view.t0 + frac * (view.t1 - view.t0))
               }}
+              onPointerCancel={() => {
+                gestureRef.current = null
+              }}
+              onTouchStart={(e) => {
+                if (!view || !tr || e.touches.length !== 2) return
+                const a = e.touches[0]!
+                const b = e.touches[1]!
+                const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+                const midX = (a.clientX + b.clientX) / 2
+                const rect = e.currentTarget.getBoundingClientRect()
+                const plotW = Math.max(1, rect.width - LABEL_W - PAD)
+                const frac = Math.min(1, Math.max(0, (midX - rect.left - LABEL_W) / plotW))
+                gestureRef.current = {
+                  kind: 'pinch',
+                  startDist: Math.max(1, dist),
+                  startSpan: view.t1 - view.t0,
+                  pivot: view.t0 + frac * (view.t1 - view.t0),
+                  origin: view,
+                }
+                setFollow(false)
+              }}
+              onTouchMove={(e) => {
+                const g = gestureRef.current
+                if (!g || g.kind !== 'pinch' || !tr || e.touches.length !== 2) return
+                e.preventDefault()
+                const a = e.touches[0]!
+                const b = e.touches[1]!
+                const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+                const factor = g.startDist / Math.max(1, dist)
+                const nextSpan = Math.max(
+                  MIN_WINDOW_NS,
+                  Math.min(tr.t1 - tr.t0, g.startSpan * factor),
+                )
+                const frac =
+                  g.origin.t1 > g.origin.t0
+                    ? (g.pivot - g.origin.t0) / (g.origin.t1 - g.origin.t0)
+                    : 0.5
+                const t0 = g.pivot - nextSpan * frac
+                setView(clampView(tr, t0, t0 + nextSpan))
+              }}
+              onTouchEnd={(e) => {
+                if (e.touches.length < 2 && gestureRef.current?.kind === 'pinch') {
+                  gestureRef.current = null
+                }
+              }}
             />
+
+            <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+              Drag to pan · pinch or ± to zoom · tap to set playhead
+            </p>
+
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
               {(Object.keys(STATE_LABEL) as ThreadState[])
                 .filter((s) => s !== 'dead')
                 .map((s) => (
                   <span key={s} className="inline-flex items-center gap-1">
                     <span
-                      className="inline-block size-2 rounded-sm"
+                      className="inline-block size-2.5 rounded-sm"
                       style={{ background: STATE_COLOR[s] }}
                     />
                     {STATE_LABEL[s]}
@@ -280,6 +537,12 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                       {reason ? ` (${reason})` : ''}
                     </>
                   )}
+                </>
+              )}
+              {view && (
+                <>
+                  {' · '}
+                  <span className="text-foreground">win {fmtTime(view.t1 - view.t0)}</span>
                 </>
               )}
               {snap.desync && (
