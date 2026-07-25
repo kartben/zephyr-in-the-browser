@@ -36,24 +36,37 @@ export function SensorCard({
       defaultExpanded={defaultExpanded}
       status={<span className="font-mono text-[10px] text-muted-foreground">I2C · 0x{hex}</span>}
     >
-      <div className="max-h-[min(26rem,60vh)] space-y-3 overflow-y-auto px-3 py-3">
-        {chip.decl.channels.map((c) => (
-          <ChannelRow key={c.key} chip={chip} channel={c} />
-        ))}
-        {chip.decl.attributes?.map((a) => (
-          <AttributeRow key={a.key} chip={chip} attr={a} />
-        ))}
-        {chip.decl.shellLabel && (
-          <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Read it in the guest with{' '}
-            <code className="font-mono text-foreground">
-              sensor get {chip.decl.shellLabel}@{hex}
-            </code>
-            .
-          </p>
-        )}
+      <div className="max-h-[min(26rem,60vh)] overflow-y-auto">
+        <SensorBody chip={chip} />
       </div>
     </PanelFrame>
+  )
+}
+
+/**
+ * The card's content without the frame, so the dock can mount the same
+ * controls as a row body and the floating window can reuse them unchanged.
+ */
+export function SensorBody({ chip }: { chip: SensorChip }) {
+  const hex = chip.address.toString(16).padStart(2, '0')
+  return (
+    <div className="space-y-3 px-3 py-3">
+      {chip.decl.channels.map((c) => (
+        <ChannelRow key={c.key} chip={chip} channel={c} />
+      ))}
+      {chip.decl.attributes?.map((a) => (
+        <AttributeRow key={a.key} chip={chip} attr={a} />
+      ))}
+      {chip.decl.shellLabel && (
+        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+          Read it in the guest with{' '}
+          <code className="font-mono text-foreground">
+            sensor get {chip.decl.shellLabel}@{hex}
+          </code>
+          .
+        </p>
+      )}
+    </div>
   )
 }
 

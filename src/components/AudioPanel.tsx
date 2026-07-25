@@ -35,51 +35,69 @@ export function AudioPanel({ defaultExpanded = true }: { defaultExpanded?: boole
 
   return (
     <PanelFrame id="audio" title="Host Audio" icon={Volume2} defaultExpanded={defaultExpanded}>
-      <div className="space-y-3 px-3 py-3">
-        {audio.available && (
-          <Channel
-            label={
-              audio.rate > 0
-                ? `Speaker — ${(audio.rate / 1000).toFixed(0)} kHz ${
-                    audio.channels === 2 ? 'stereo' : 'mono'
-                  }`
-                : 'Speaker'
-            }
-            enabled={audio.enabled}
-            level={audio.level}
-            enableLabel="Enable sound"
-            disableLabel="Mute"
-            enabledIcon={<VolumeX className="size-3.5" aria-hidden />}
-            disabledIcon={<Volume2 className="size-3.5" aria-hidden />}
-            onToggle={toggleAudio}
-          />
-        )}
-
-        {mic.available && (
-          <Channel
-            label={mic.rate > 0 ? `Microphone — ${(mic.rate / 1000).toFixed(0)} kHz mono` : 'Microphone'}
-            enabled={mic.enabled}
-            level={mic.level}
-            enableLabel="Enable mic"
-            disableLabel="Stop mic"
-            enabledIcon={<MicOff className="size-3.5" aria-hidden />}
-            disabledIcon={<Mic className="size-3.5" aria-hidden />}
-            onToggle={toggleMic}
-            error={mic.error}
-          />
-        )}
-
-        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-          In the guest:{' '}
-          <code className="font-mono text-foreground">hostaudio beep 440 500</code>{' '}
-          queues a tone,{' '}
-          <code className="font-mono text-foreground">hostaudio melody</code> a short
-          tune;{' '}
-          <code className="font-mono text-foreground">dmic vu dmic0</code> meters the
-          mic.
-        </p>
-      </div>
+      {audio.available && <SpeakerBody />}
+      {mic.available && <MicBody />}
     </PanelFrame>
+  )
+}
+
+/**
+ * The two halves of the sound device, as standalone bodies: the devicetree
+ * gives each its own node (qemu,host-audio / qemu,host-mic), so the dock gives
+ * each its own row, and each carries its own shell hint.
+ */
+export function SpeakerBody() {
+  const audio = useSyncExternalStore(subscribeAudio, getAudioSnapshot, getAudioSnapshot)
+
+  return (
+    <div className="space-y-3 px-3 py-3">
+      <Channel
+        label={
+          audio.rate > 0
+            ? `Speaker — ${(audio.rate / 1000).toFixed(0)} kHz ${
+                audio.channels === 2 ? 'stereo' : 'mono'
+              }`
+            : 'Speaker'
+        }
+        enabled={audio.enabled}
+        level={audio.level}
+        enableLabel="Enable sound"
+        disableLabel="Mute"
+        enabledIcon={<VolumeX className="size-3.5" aria-hidden />}
+        disabledIcon={<Volume2 className="size-3.5" aria-hidden />}
+        onToggle={toggleAudio}
+      />
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        In the guest:{' '}
+        <code className="font-mono text-foreground">hostaudio beep 440 500</code>{' '}
+        queues a tone,{' '}
+        <code className="font-mono text-foreground">hostaudio melody</code> a short tune.
+      </p>
+    </div>
+  )
+}
+
+export function MicBody() {
+  const mic = useSyncExternalStore(subscribeMic, getMicSnapshot, getMicSnapshot)
+
+  return (
+    <div className="space-y-3 px-3 py-3">
+      <Channel
+        label={mic.rate > 0 ? `Microphone — ${(mic.rate / 1000).toFixed(0)} kHz mono` : 'Microphone'}
+        enabled={mic.enabled}
+        level={mic.level}
+        enableLabel="Enable mic"
+        disableLabel="Stop mic"
+        enabledIcon={<MicOff className="size-3.5" aria-hidden />}
+        disabledIcon={<Mic className="size-3.5" aria-hidden />}
+        onToggle={toggleMic}
+        error={mic.error}
+      />
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        In the guest: <code className="font-mono text-foreground">dmic vu dmic0</code>{' '}
+        meters the mic.
+      </p>
+    </div>
   )
 }
 

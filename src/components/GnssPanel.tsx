@@ -31,10 +31,6 @@ const FIELDS: Array<{
 /** Controls the NMEA fixes streamed into the guest's second UART. */
 export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
-  const fix = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  // Lives in hostGnss so the geolocation watch survives this panel unmounting.
-  const live = useSyncExternalStore(subscribe, followingBrowser, () => false)
-  const watchError = useSyncExternalStore(subscribe, locationError, () => '')
 
   if (!isAvailable) return null
 
@@ -46,7 +42,22 @@ export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
       defaultExpanded={defaultExpanded}
       status={<span className="font-mono text-[11px] text-muted-foreground">NMEA UART</span>}
     >
-      <div className="max-h-[min(28rem,60vh)] space-y-3 overflow-y-auto px-3 py-3">
+      <div className="max-h-[min(28rem,60vh)] overflow-y-auto">
+        <GnssBody />
+      </div>
+    </PanelFrame>
+  )
+}
+
+/** The fix editor without the frame, shared by the dock row and the window. */
+export function GnssBody() {
+  const fix = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  // Lives in hostGnss so the geolocation watch survives this body unmounting.
+  const live = useSyncExternalStore(subscribe, followingBrowser, () => false)
+  const watchError = useSyncExternalStore(subscribe, locationError, () => '')
+
+  return (
+    <div className="space-y-3 px-3 py-3">
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input
             type="checkbox"
@@ -84,7 +95,6 @@ export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           GGA and RMC fixes are sent once per second to Zephyr’s generic NMEA GNSS driver.
         </p>
-      </div>
-    </PanelFrame>
+    </div>
   )
 }

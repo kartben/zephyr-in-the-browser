@@ -42,7 +42,8 @@ export function OledPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
  * Split out so the canvas and its subscription mount and unmount with the
  * panel body — PanelFrame renders children only while expanded, so a collapsed
  * panel costs nothing rather than repainting into a hidden canvas. Same reason
- * DisplayPanel has a DisplayBody.
+ * DisplayPanel has a DisplayBody. Exported for the dock, whose SSD1306 row
+ * mounts the same canvas; a remount repaints in full from GDDRAM.
  *
  * Repainting is driven by the chip's version counter through a
  * requestAnimationFrame, not by the notification itself: the guest writes a
@@ -50,7 +51,7 @@ export function OledPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
  * notification would draw eight partial frames for every whole one. Coalescing
  * also caps the work at the display refresh rate however fast the guest draws.
  */
-function OledBody() {
+export function OledBody() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {

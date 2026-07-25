@@ -27,6 +27,18 @@ import {
  */
 export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const isAvailable = useSyncExternalStore(subscribe, available, () => false)
+
+  if (!isAvailable) return null
+
+  return (
+    <PanelFrame id="gpio" title="Host GPIO" icon={CircuitBoard} defaultExpanded={defaultExpanded}>
+      <GpioBody />
+    </PanelFrame>
+  )
+}
+
+/** Buttons and LEDs without the frame, shared by the dock row and the window. */
+export function GpioBody() {
   const node = useSyncExternalStore(subscribe, controllerNode, () => 'host_gpio')
   // Devicetree-derived when a zephyr.dts is loaded (with the wiring's own pin
   // labels), the bridge's full fan-out otherwise. A section with no declared
@@ -34,10 +46,7 @@ export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
   const buttons = useSyncExternalStore(subscribe, getButtons, () => [])
   const leds = useSyncExternalStore(subscribe, getLeds, () => [])
 
-  if (!isAvailable) return null
-
   return (
-    <PanelFrame id="gpio" title="Host GPIO" icon={CircuitBoard} defaultExpanded={defaultExpanded}>
       <div className="space-y-3 px-3 py-3">
         {buttons.length > 0 && (
           <div className="space-y-1.5">
@@ -73,7 +82,6 @@ export function GpioPanel({ defaultExpanded = true }: { defaultExpanded?: boolea
           lights an LED.
         </p>
       </div>
-    </PanelFrame>
   )
 }
 

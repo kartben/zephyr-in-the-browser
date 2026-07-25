@@ -56,7 +56,13 @@ export function I2cPanel({ defaultExpanded = true }: { defaultExpanded?: boolean
   )
 }
 
-function I2cBody() {
+/**
+ * The bus workbench without the frame — roster, attach row, traffic trace —
+ * shared by the dock's controller row and the floating window. `busLabel`
+ * names the controller in the shell hint; the roster and trace themselves are
+ * the page's one bridged bus.
+ */
+export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}) {
   const chips = useSyncExternalStore(
     i2cModel.subscribe,
     i2cModel.chips,
@@ -144,7 +150,7 @@ function I2cBody() {
       </div>
 
       <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-        In the guest: <code className="font-mono text-foreground">i2c scan virtio_i2c0</code>{' '}
+        In the guest: <code className="font-mono text-foreground">i2c scan {busLabel}</code>{' '}
         finds every attached chip; a driver only binds at the addresses the devicetree
         declares.
       </p>
