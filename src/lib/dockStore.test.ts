@@ -85,6 +85,24 @@ describe('dockStore persistence', () => {
     dock.setHidden('net', false)
     expect(dock.getState().devices['net']).toBeUndefined()
   })
+
+  it('round-trips body sections and reads them with per-section defaults', () => {
+    expect(dock.sectionOpenIn(dock.getState(), 'net', 'status', true)).toBe(true)
+    expect(dock.sectionOpenIn(dock.getState(), 'net', 'capture', false)).toBe(false)
+
+    dock.setSection('net', 'capture', true)
+    dock.setSection('net', 'status', false)
+    dock.reloadFromStorage()
+
+    expect(dock.sectionOpenIn(dock.getState(), 'net', 'capture', false)).toBe(true)
+    expect(dock.sectionOpenIn(dock.getState(), 'net', 'status', true)).toBe(false)
+    // Sections coexist with the other per-device flags.
+    dock.setHidden('net', true)
+    expect(dock.getState().devices['net']).toEqual({
+      hidden: true,
+      sections: { capture: true, status: false },
+    })
+  })
 })
 
 describe('seeding and expansion precedence', () => {

@@ -71,7 +71,7 @@ export function DeviceBody({
     case 'mic':
       return <MicBody />
     case 'net':
-      return <NetworkBody />
+      return <NetworkBody sectionsKey={node.key} />
     default:
       return null
   }

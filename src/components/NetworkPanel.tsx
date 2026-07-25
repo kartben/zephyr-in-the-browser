@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Download, Info, Network, Pause, Play, Trash2 } from 'lucide-react'
+import { Download, Info, Network, Pause, Play, Trash2 } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import { SliderControl } from '@/components/controls/ControlRow'
+import { Disclosure } from '@/components/dock/Disclosure'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
+import {
+  getState as getDockState,
+  sectionOpenIn,
+  setSection,
+  subscribe as subscribeDock,
+} from '@/lib/dockStore'
 import {
   available,
   buildPcapBlob,
@@ -53,19 +60,26 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
 
 /**
  * The cockpit without the frame, shared by the dock row and the floating
- * window. The "About this network" toggle lives inline with the IP — it used
- * to be a header action reaching into the frame, but a body has no header, and
- * a collapsed row hides the toggle along with everything it would reveal.
+ * window: five disclosures over one column — status and throughput open by
+ * default, link/impairments, capture and tools folded until wanted. The open
+ * set persists per device in dockStore, so it survives reloads, view flips
+ * and pop-outs alike. The "About this network" toggle lives inline with the
+ * IP — a body has no header to put it in.
  */
-export function NetworkBody() {
+export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [showImpairments, setShowImpairments] = useState(false)
+  const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
   const [showAbout, setShowAbout] = useState(false)
 
+  const openOf = (id: string, fallback: boolean) => sectionOpenIn(dock, sectionsKey, id, fallback)
+  const fold = (id: string, fallback: boolean) => ({
+    open: openOf(id, fallback),
+    onToggle: () => setSection(sectionsKey, id, !openOf(id, fallback)),
+  })
+
   return (
-      <div className="space-y-3 px-3 py-3">
-        {/* Interface status */}
-        <div className="space-y-1">
+      <div className="space-y-0.5 px-3 py-2.5">
+        <Disclosure title="Status" meta={snapshot.guestIp ?? '—'} {...fold('status', true)}>
           <div className="flex items-baseline gap-1.5">
             <span className="font-mono text-lg font-semibold tabular-nums">
               {snapshot.guestIp ?? '—'}
@@ -99,36 +113,28 @@ export function NetworkBody() {
             <span>dns</span>
             <span className="text-foreground">{snapshot.dnsIp}</span>
           </div>
-        </div>
+        </Disclosure>
 
-        {/* Throughput */}
-        <div className="space-y-2">
-          <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
-          <ThroughputRow label="RX" hint="browser → guest" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
-          <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-            ↑ {snapshot.txPackets} pkts · {formatBytes(snapshot.txBytes)}
-            {'   '}↓ {snapshot.rxPackets} pkts · {formatBytes(snapshot.rxBytes)}
-          </p>
-        </div>
+        <Disclosure title="Throughput" meta={formatBps(snapshot.txBps)} {...fold('throughput', true)}>
+          <div className="space-y-2">
+            <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
+            <ThroughputRow label="RX" hint="browser → guest" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
+            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              ↑ {snapshot.txPackets} pkts · {formatBytes(snapshot.txBytes)}
+              {'   '}↓ {snapshot.rxPackets} pkts · {formatBytes(snapshot.rxBytes)}
+            </p>
+          </div>
+        </Disclosure>
 
-        {/* Controls */}
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={snapshot.linkUp ? 'outline' : 'default'} className="h-7 text-xs" onClick={() => setLink(!snapshot.linkUp)}>
-            {snapshot.linkUp ? 'Drop link' : 'Raise link'}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs text-muted-foreground"
-            aria-expanded={showImpairments}
-            onClick={() => setShowImpairments((s) => !s)}
-          >
-            <ChevronDown className={cn('size-3 transition-transform', !showImpairments && '-rotate-90')} />
-            Impairments
-          </Button>
-        </div>
-        {showImpairments && (
-          <div className="space-y-1 rounded-md border border-border p-2">
+        <Disclosure
+          title="Link & impairments"
+          meta={snapshot.linkUp ? undefined : 'down'}
+          {...fold('link', false)}
+        >
+          <div className="space-y-1">
+            <Button size="sm" variant={snapshot.linkUp ? 'outline' : 'default'} className="mb-1 h-7 text-xs" onClick={() => setLink(!snapshot.linkUp)}>
+              {snapshot.linkUp ? 'Drop link' : 'Raise link'}
+            </Button>
             <SliderControl
               label="Added latency"
               value={snapshot.impairments.delayMs}
@@ -150,17 +156,21 @@ export function NetworkBody() {
               onChange={(lossPct) => setImpairments({ lossPct })}
             />
           </div>
-        )}
+        </Disclosure>
 
-        <CaptureSection
-          count={snapshot.captureCount}
-          version={snapshot.captureVersion}
-          paused={snapshot.capturePaused}
-        />
+        <Disclosure title="Capture" meta={snapshot.captureCount} {...fold('capture', false)}>
+          <CaptureSection
+            count={snapshot.captureCount}
+            version={snapshot.captureVersion}
+            paused={snapshot.capturePaused}
+          />
+        </Disclosure>
 
-        <ToolsSection guestIp={snapshot.guestIp} />
+        <Disclosure title="Talk to the guest" {...fold('tools', false)}>
+          <ToolsSection guestIp={snapshot.guestIp} />
+        </Disclosure>
 
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
           In the guest shell (where present):{' '}
           <code className="font-mono text-foreground">net iface</code>,{' '}
           <code className="font-mono text-foreground">net ping 192.0.2.2</code>,{' '}
@@ -268,8 +278,7 @@ function CaptureSection({ count, version, paused }: { count: number; version: nu
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1">
-        <span className="text-xs font-medium">Capture</span>
-        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{count}</span>
+        {/* Title and count live on the disclosure header now; just the tools. */}
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
@@ -368,8 +377,6 @@ function ToolsSection({ guestIp }: { guestIp: string | null }) {
 
   return (
     <div className="space-y-2">
-      <span className="text-xs font-medium">Talk to the guest</span>
-
       <div className="flex items-center gap-1.5">
         <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
           <input

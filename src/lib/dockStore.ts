@@ -35,6 +35,8 @@ export interface DockDeviceState {
   hidden?: boolean
   /** Popped out into a floating PanelFrame window. */
   windowed?: boolean
+  /** Open state of a body's internal disclosures (Network's sections). */
+  sections?: Record<string, boolean>
 }
 
 export interface DockSeed {
@@ -169,6 +171,9 @@ function patchDevice(key: string, patch: DockDeviceState): void {
       delete merged[field]
     }
   }
+  if (merged.sections !== undefined && Object.keys(merged.sections).length === 0) {
+    delete merged.sections
+  }
   const devices = { ...state.devices }
   if (Object.keys(merged).length === 0) delete devices[key]
   else devices[key] = merged
@@ -193,6 +198,23 @@ export function isHidden(key: string): boolean {
 
 export function isWindowed(key: string): boolean {
   return state.devices[key]?.windowed === true
+}
+
+/** Persist one of a body's internal disclosures (Network's sections). */
+export function setSection(deviceKey: string, sectionId: string, open: boolean): void {
+  patchDevice(deviceKey, {
+    sections: { ...state.devices[deviceKey]?.sections, [sectionId]: open },
+  })
+}
+
+/** Pure read with a per-section default, mirroring effectiveExpandedIn. */
+export function sectionOpenIn(
+  current: DockState,
+  deviceKey: string,
+  sectionId: string,
+  fallback: boolean,
+): boolean {
+  return current.devices[deviceKey]?.sections?.[sectionId] ?? fallback
 }
 
 export function toggleGroup(deviceClass: DeviceClass): void {
