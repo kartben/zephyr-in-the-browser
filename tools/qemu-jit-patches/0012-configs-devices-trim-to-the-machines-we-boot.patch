@@ -1,0 +1,180 @@
+diff --git a/configs/devices/aarch64-softmmu/browser.mak b/configs/devices/aarch64-softmmu/browser.mak
+new file mode 100644
+index 0000000..e71d3a8
+--- /dev/null
++++ b/configs/devices/aarch64-softmmu/browser.mak
+@@ -0,0 +1,88 @@
++# Device configuration for zephyr-in-the-browser's aarch64-softmmu artifact.
++#
++# Selected by tools/build-qemu-wasm.sh with --with-devices-aarch64=browser.
++# The sibling arm-softmmu/browser.mak explains the reasoning; the short version
++# is that disabling boards by name is safe where --without-default-devices is
++# not, because Kconfig `select` still pulls in whatever the machine we keep
++# needs, while --allnoconfig would silently drop the `default y` bridges this
++# project patches in.
++#
++# Here the machine kept is `virt` (CONFIG_ARM_VIRT), which is what carries the
++# devices the Cortex-A53 command line names:
++#
++#   select FW_CFG_DMA  -> ramfb and ramfb-standalone
++#   select VIRTIO_MMIO -> VIRTIO, and with it virtio-net-device,
++#                         virtio-tablet-device and virtio-browser-device, each
++#                         `default y depends on VIRTIO`
++#
++# Unlike upstream's aarch64 default.mak this does not include the arm-softmmu
++# list: an include would assign CONFIG_ARM_VIRT=n, and minikconf treats a second
++# conflicting assignment as a hard error rather than an override. The 32-bit
++# boards are therefore repeated here, with ARM_VIRT left alone and STELLARIS --
++# the one the arm artifact keeps -- turned off, since this artifact never boots
++# it.
++
++# 32-bit boards, none of which this artifact runs.
++CONFIG_CUBIEBOARD=n
++CONFIG_EXYNOS4=n
++CONFIG_HIGHBANK=n
++CONFIG_INTEGRATOR=n
++CONFIG_FSL_IMX31=n
++CONFIG_MUSICPAL=n
++CONFIG_MPS3R=n
++CONFIG_MUSCA=n
++CONFIG_SX1=n
++CONFIG_STELLARIS=n
++CONFIG_STM32VLDISCOVERY=n
++CONFIG_B_L475E_IOT01A=n
++CONFIG_REALVIEW=n
++CONFIG_VERSATILE=n
++CONFIG_VEXPRESS=n
++CONFIG_ZYNQ=n
++CONFIG_NPCM7XX=n
++CONFIG_COLLIE=n
++CONFIG_ASPEED_SOC=n
++CONFIG_NETDUINO2=n
++CONFIG_NETDUINOPLUS2=n
++CONFIG_OLIMEX_STM32_H405=n
++CONFIG_MPS2=n
++CONFIG_RASPI=n
++CONFIG_DIGIC=n
++CONFIG_SABRELITE=n
++CONFIG_EMCRAFT_SF2=n
++CONFIG_MICROBIT=n
++CONFIG_FSL_IMX25=n
++CONFIG_FSL_IMX7=n
++CONFIG_FSL_IMX6UL=n
++CONFIG_ALLWINNER_H3=n
++
++# Three boards upstream's default.mak does not list, found by diffing that list
++# against the `default y` symbols in hw/arm/Kconfig. The comment list is stale;
++# these are real machines and would otherwise stay in the build.
++CONFIG_ALLWINNER_R40=n
++CONFIG_MAX78000FTHR=n
++
++# 64-bit boards other than virt.
++CONFIG_XLNX_ZYNQMP_ARM=n
++CONFIG_XLNX_VERSAL=n
++CONFIG_SBSA_REF=n
++CONFIG_NPCM8XX=n
++CONFIG_FSL_IMX8MP_EVK=n
++# Off upstream too, kept because this file replaces the default rather than
++# extending it.
++CONFIG_VMAPPLE=n
++
++# ARM_V7M is deliberately not here even though it is `default y` and no machine
++# in this artifact is a v7M part: hw/arm/Kconfig says "currently v7M must be
++# included in a TCG build due to translate.c". It is the CPU core, not a board.
++
++# Optional device groups. Test devices are for QEMU's own test suite.
++CONFIG_TEST_DEVICES=n
++
++# `virt` only implies PCI_DEVICES, so an explicit =n wins and the PCIe *bridge*
++# stays (ARM_VIRT selects it outright) -- only the device models behind it go.
++# The Zephyr guest is virtio-mmio end to end and enumerates no PCI, so this is
++# very likely safe and worth a few more megabytes; left commented because it has
++# not been tried and a rebuild is hours. Flip it first if the download matters
++# more than the risk of one wasted build.
++# CONFIG_PCI_DEVICES=n
+diff --git a/configs/devices/arm-softmmu/browser.mak b/configs/devices/arm-softmmu/browser.mak
+new file mode 100644
+index 0000000..06f5c21
+--- /dev/null
++++ b/configs/devices/arm-softmmu/browser.mak
+@@ -0,0 +1,80 @@
++# Device configuration for zephyr-in-the-browser's arm-softmmu artifact.
++#
++# Selected by tools/build-qemu-wasm.sh with --with-devices-arm=browser, which
++# makes meson read this instead of default.mak.
++#
++# This artifact boots exactly one machine -- lm3s6965evb, i.e. CONFIG_STELLARIS
++# -- so every other ARM board is turned off. Upstream's default.mak carries all
++# of these as commented-out lines under "Boards are selected by default,
++# uncomment to keep out of the build"; this file is that list, uncommented, with
++# STELLARIS left alone.
++#
++# Why this rather than configure --without-default-devices: that switches
++# minikconf from --defconfig to --allnoconfig, which turns *every* `default y`
++# into n. That includes the browser bridges this project patches in
++# (CONFIG_VIRTIO_BROWSER, the qemu-host-* devices), CONFIG_VIRTIO_NET and
++# CONFIG_VIRTIO_INPUT -- all of which are `default y depends on VIRTIO` and none
++# of which any board `select`s, because they are named on the command line
++# instead. They would have gone missing silently. Disabling boards by name
++# cannot do that: Kconfig `select` still pulls in everything the machine we keep
++# needs, so what goes away is only what nothing we run refers to.
++#
++# An assignment here is final -- minikconf raises "contradiction between
++# clauses" if the same symbol is assigned twice -- which is also why this file
++# does not `include ../arm-softmmu/default.mak` the way aarch64's default.mak
++# does. A symbol that does not exist in the tree being built is created and
++# ignored, so the same list is safe against both pinned QEMU trees.
++
++# Boards.
++CONFIG_ARM_VIRT=n
++CONFIG_CUBIEBOARD=n
++CONFIG_EXYNOS4=n
++CONFIG_HIGHBANK=n
++CONFIG_INTEGRATOR=n
++CONFIG_FSL_IMX31=n
++CONFIG_MUSICPAL=n
++CONFIG_MPS3R=n
++CONFIG_MUSCA=n
++CONFIG_SX1=n
++CONFIG_STM32VLDISCOVERY=n
++CONFIG_B_L475E_IOT01A=n
++CONFIG_REALVIEW=n
++CONFIG_VERSATILE=n
++CONFIG_VEXPRESS=n
++CONFIG_ZYNQ=n
++CONFIG_NPCM7XX=n
++CONFIG_COLLIE=n
++CONFIG_ASPEED_SOC=n
++CONFIG_NETDUINO2=n
++CONFIG_NETDUINOPLUS2=n
++CONFIG_OLIMEX_STM32_H405=n
++CONFIG_MPS2=n
++CONFIG_RASPI=n
++CONFIG_DIGIC=n
++CONFIG_SABRELITE=n
++CONFIG_EMCRAFT_SF2=n
++CONFIG_MICROBIT=n
++CONFIG_FSL_IMX25=n
++CONFIG_FSL_IMX7=n
++CONFIG_FSL_IMX6UL=n
++CONFIG_ALLWINNER_H3=n
++
++# Three boards upstream's default.mak does not list, found by diffing that list
++# against the `default y` symbols in hw/arm/Kconfig. The comment list is stale;
++# these are real machines and would otherwise stay in the build.
++CONFIG_ALLWINNER_R40=n
++CONFIG_MAX78000FTHR=n
++
++# ARM_V7M is deliberately not here even though it is `default y` and no machine
++# in this artifact is a v7M part: hw/arm/Kconfig says "currently v7M must be
++# included in a TCG build due to translate.c". It is the CPU core, not a board.
++
++# Optional device groups. Test devices are for QEMU's own test suite.
++CONFIG_TEST_DEVICES=n
++
++# Two more upstream documents as optional, left on because they have not been
++# tried and a rebuild is expensive. lm3s6965evb has no PCI at all, and the
++# I2C on this machine is the SSD0303/SSD0323 the guest never touches -- so both
++# are plausible further trims for whoever rebuilds next.
++# CONFIG_PCI_DEVICES=n
++# CONFIG_I2C_DEVICES=n

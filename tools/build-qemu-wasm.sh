@@ -109,15 +109,25 @@ fetch_subprojects() {
 # first makes the question unnecessary, and makes the failure message below mean
 # what it says.
 #
-# Only tracked files are restored, so the pre-fetched subprojects/ trees and the
-# packagefiles overlay survive. Hand-edits to the QEMU source do not: experiment
-# by editing the patch, not the checkout.
+# Restoring means two things, because patches both modify and create files:
+# `git checkout` puts the tracked ones back, and the files the series *added*
+# have to be removed by hand — they are untracked, so checkout leaves them, and
+# `git apply` refuses to create a file that already exists. Those paths are
+# taken from the patches themselves rather than from a list kept in step with
+# them, and nothing else is touched: `git clean` here would take the pre-fetched
+# subprojects/ trees and the packagefiles overlay with it.
+#
+# Hand-edits to the QEMU source do not survive: experiment by editing the patch,
+# not the checkout.
 apply_local_patches() {
   local src="$1" dir="$2" ref="$3"
   [ -d "$dir" ] || return 0
-  log "Applying local patches (restoring tracked files to $ref first)"
+  log "Applying local patches (restoring the tree to $ref first)"
   cd "$src"
   git checkout -q --force -- .
+  awk '/^new file mode/ { new = 1 }
+       /^\+\+\+ b\// { if (new) print substr($0, 7); new = 0 }' "$dir"/*.patch |
+    while IFS= read -r created; do rm -f "$created"; done
   for patch in "$dir"/*.patch; do
     [ -e "$patch" ] || continue
     if git apply "$patch"; then
@@ -156,16 +166,22 @@ build_qemu() {
   #   --with-coroutine=wasm      upstream has a real wasm backend (not 'fiber')
   #   --enable-tcg-interpreter   mandatory for upstream; omitted for the
   #                              experimental native wasm32 TCG backend
+  #   --with-devices-<arch>      configs/devices/<target>/browser.mak instead of
+  #                              default.mak: every ARM board QEMU ships is
+  #                              otherwise compiled in, and this boots two.
+  #                              Deliberately *not* --without-default-devices —
+  #                              see the header of either .mak.
+  local devices="--with-devices-${target%-softmmu}=browser"
   log "Configuring for $target ($accel)"
   if [ "$accel" = "jit" ]; then
     docker exec "$CONTAINER" emconfigure /qemu/configure \
       --static --target-list="$target" --cross-prefix= \
-      --without-default-features --enable-system \
+      --without-default-features --enable-system "$devices" \
       --with-coroutine=wasm
   else
     docker exec "$CONTAINER" emconfigure /qemu/configure \
       --static --target-list="$target" --cross-prefix= \
-      --without-default-features --enable-system \
+      --without-default-features --enable-system "$devices" \
       --with-coroutine=wasm --enable-tcg-interpreter
   fi
 
