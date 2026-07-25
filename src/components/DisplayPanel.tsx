@@ -17,6 +17,7 @@ import {
   type UploadMode,
 } from '@/display/renderers'
 import type { MainToWorker, WorkerToMain } from '@/display/renderWorker'
+import { profile, recordWorkerFrame, setRenderWorker } from '@/display/profile'
 
 /**
  * How the framebuffer reaches the canvas, in order of preference:
@@ -179,7 +180,11 @@ function DisplayBody({
     // cancel the teardown the paired cleanup just scheduled.
     if (shouldRender && sessionRef.current?.el === canvas) {
       cancelPendingDestroy()
-      return scheduleDestroy
+      setRenderWorker(sessionRef.current.worker)
+      return () => {
+        setRenderWorker(null)
+        scheduleDestroy()
+      }
     }
 
     // Any real transition (first mount, a fresh element) drops the previous
@@ -220,6 +225,7 @@ function DisplayBody({
       const message = event.data
       if (message.type === 'ready') canvas.dataset.renderer = 'worker-webgl2'
       else if (message.type === 'uploadMode') canvas.dataset.frameUpload = message.mode
+      else if (message.type === 'frameStats') recordWorkerFrame(message)
       else if (message.type === 'fatal') fallBack()
     }
 
@@ -230,6 +236,11 @@ function DisplayBody({
       snapshot: { ...snap },
     }
     worker.postMessage(init, [offscreen])
+    if (profile.enabled) {
+      const enableMsg: MainToWorker = { type: 'profile', enabled: true }
+      worker.postMessage(enableMsg)
+    }
+    setRenderWorker(worker)
 
     // The guest reconfigures ramfb rarely; forward each change without tearing
     // the worker down. getFrame() is unused here — the worker owns the read.
@@ -242,7 +253,10 @@ function DisplayBody({
     })
 
     sessionRef.current = { el: canvas, worker, unsubscribe }
-    return scheduleDestroy
+    return () => {
+      setRenderWorker(null)
+      scheduleDestroy()
+    }
   }, [strategy, display.available])
 
   // Fallback path: render on the main thread. Reached only when the worker or

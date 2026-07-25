@@ -15,7 +15,8 @@
  * instances can share a device id (two I2C buses).
  *
  * Polling is adaptive. Idle costs one `Atomics.load` per device per 50 ms; for
- * 250 ms after any request it switches to a `MessagePort` loop.
+ * a short window after any request it switches to a `MessagePort` loop paced at
+ * ~1 ms.
  *
  * The port, rather than `setTimeout(…, 0)`, for a reason that only shows up
  * once the guest starts *blocking* on us. Nested `setTimeout(0)` is clamped to
@@ -26,10 +27,16 @@
  * crawling at one address per second. `postMessage` is not throttled, so the
  * burst runs at full speed whether or not anyone is looking.
  *
- * The cost is that during those 250 ms the loop competes for the main thread.
- * It yields between macrotasks rather than blocking, and the window only stays
- * open while requests keep arriving, so it is bounded by what the guest asks
- * for — but it is the reason the idle path stays on a plain timer.
+ * The 1 ms pace matters too. An unpaced `MessagePort` loop (delay 0 forever
+ * while hot) spins the main thread at hundreds of thousands of Atomics loads
+ * per second for as long as the guest keeps the bridge busy — which the
+ * accelerometer chart does continuously over virtio-i2c. That busy-loop steals
+ * the qemu-wasm main loop's time and the display falls behind. Draining the
+ * rings still happens in a single poll tick; the pace only bounds how often we
+ * *look* for the next request. The cost is that during the hot window the loop
+ * competes for the main thread — it yields between macrotasks rather than
+ * blocking, and the window only stays open while requests keep arriving — but
+ * it is the reason the idle path stays on a plain timer.
  */
 
 import {
@@ -96,7 +103,13 @@ export interface VirtioDeviceModel {
 }
 
 const IDLE_MS = 50
-const HOT_WINDOW_MS = 250
+/** How long after a request we keep the paced hot poll alive. */
+const HOT_WINDOW_MS = 100
+/**
+ * Minimum gap between hot-path polls. Without this, `schedule(0)` via
+ * MessageChannel busy-loops the main thread for the whole hot window.
+ */
+const HOT_PERIOD_MS = 1
 /**
  * A model that never answers hangs the guest on `k_sem_take(…, K_FOREVER)`.
  * Generous, because parking is legal and indefinite: this only catches tokens
@@ -148,6 +161,8 @@ let timer: ReturnType<typeof setTimeout> | 0 = 0
 /** A poll is already queued, by either mechanism. */
 let scheduled = false
 let hotUntil = 0
+/** Earliest wall time a hot poll may run; paces the MessagePort loop. */
+let nextHotAt = 0
 
 /**
  * The hot-path wakeup. A posted message is delivered on the next macrotask and
@@ -440,6 +455,13 @@ function poll() {
   if (!exports) return
 
   const now = performance.now()
+  // A MessageChannel wakeup can land before the hot-period gate opens; yield
+  // until then rather than spinning empty polls.
+  if (now < nextHotAt) {
+    schedule(nextHotAt - now)
+    return
+  }
+
   try {
     if (!bridges.length) rescan()
     for (const b of bridges) pollBridge(b, now)
@@ -450,7 +472,19 @@ function poll() {
     // — silently stops the timer and the guest hangs with no clue why.
     console.error('[virtio] poll failed; the bridge keeps running', err)
   } finally {
-    schedule(now < hotUntil ? 0 : IDLE_MS)
+    const hot = performance.now() < hotUntil
+    if (hot) {
+      // Pace with setTimeout, not MessageChannel(0): an unpaced port loop was
+      // measured at ~700k Atomics.loads/s while accel_chart kept the bridge
+      // hot, starving qemu-wasm on the same thread. 1 ms still answers well
+      // inside a guest sample period. Background-tab timer clamping can stretch
+      // this; that is preferred to a foreground busy-loop.
+      nextHotAt = performance.now() + HOT_PERIOD_MS
+      schedule(HOT_PERIOD_MS)
+    } else {
+      nextHotAt = 0
+      schedule(IDLE_MS)
+    }
   }
 }
 
