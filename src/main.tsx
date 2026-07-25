@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { RegisterMapPreview } from './components/RegisterMapPreview'
 import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
 import { claimStashedDts } from './devicetree'
@@ -8,6 +9,8 @@ import { installProfile } from './display/profile'
 import './index.css'
 
 installProfile()
+
+const preview = new URLSearchParams(location.search).get('preview')
 
 /*
  * A guest image dropped while QEMU was already running is handed across the
@@ -22,7 +25,7 @@ installProfile()
 Promise.all([claimStashed(), claimStashedDts(), detectQemuAssets()]).finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      {preview === 'regmap' ? <RegisterMapPreview /> : <App />}
     </StrictMode>,
   )
 })
