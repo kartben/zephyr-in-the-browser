@@ -21,16 +21,14 @@
  * page-side round trip.
  */
 
+import adxl345Map from './maps/adxl345.json'
+import { registersFromJson, type RegisterMapJson } from './registerMap'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 
-const REG_DEVID = 0x00
-const REG_POWER_CTL = 0x2d
-const REG_DATA_FORMAT = 0x31
 const REG_DATAX = 0x32
 const REG_DATAY = 0x34
 const REG_DATAZ = 0x36
 
-const DEVID = 0xe5
 /** Full-resolution sensitivity: 256 LSB per g. */
 const LSB_PER_G = 256
 const G = 9.80665
@@ -63,14 +61,7 @@ export const adxl345Decl: SensorDecl = {
   // EEPROM at 0x50 and the temperature parts at 0x48/0x49.
   defaultAddress: 0x53,
   autoIncrement: true,
-  registers: [
-    { addr: REG_DEVID, bytes: 1, access: 'ro', reset: DEVID },
-    { addr: REG_POWER_CTL, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_DATA_FORMAT, bytes: 1, access: 'rw', reset: 0 },
-    { addr: REG_DATAX, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_DATAY, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-    { addr: REG_DATAZ, bytes: 2, access: 'ro', reset: 0, endian: 'le' },
-  ],
+  registers: registersFromJson(adxl345Map as RegisterMapJson),
   channels: [
     { ...axis('accel_x', 'Accel X', 'accel_x', REG_DATAX, 'orientation-x'), initial: 0 },
     { ...axis('accel_y', 'Accel Y', 'accel_y', REG_DATAY, 'orientation-y'), initial: 0 },

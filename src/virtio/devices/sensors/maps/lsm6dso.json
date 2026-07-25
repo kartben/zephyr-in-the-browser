@@ -1,0 +1,205 @@
+{
+  "name": "LSM6DSO",
+  "description": "ST LSM6DSO 6-axis IMU — subset matching Zephyr's st,lsm6dso driver + init path.",
+  "registers": [
+    {
+      "name": "FUNC_CFG_ACCESS",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "fields": [
+        { "name": "FUNC_CFG_EN", "lsb": 7, "msb": 7, "description": "Enable access to embedded functions registers." }
+      ]
+    },
+    { "name": "FIFO_CTRL1", "addr": "0x07", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "FIFO_CTRL2", "addr": "0x08", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "FIFO_CTRL3", "addr": "0x09", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "FIFO_CTRL4", "addr": "0x0A", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "INT1_CTRL", "addr": "0x0D", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "INT2_CTRL", "addr": "0x0E", "bytes": 1, "access": "rw", "reset": 0 },
+    {
+      "name": "WHO_AM_I",
+      "addr": "0x0F",
+      "bytes": 1,
+      "access": "ro",
+      "reset": "0x6C",
+      "description": "Device ID; fixed 0x6C.",
+      "fields": [{ "name": "WHO_AM_I", "lsb": 0, "msb": 7 }]
+    },
+    {
+      "name": "CTRL1_XL",
+      "addr": "0x10",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Accelerometer control: ODR and full-scale.",
+      "fields": [
+        {
+          "name": "ODR_XL",
+          "lsb": 4,
+          "msb": 7,
+          "description": "Accelerometer output data rate.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "12.5 Hz", "value": 1 },
+            { "name": "26 Hz", "value": 2 },
+            { "name": "52 Hz", "value": 3 },
+            { "name": "104 Hz", "value": 4 },
+            { "name": "208 Hz", "value": 5 },
+            { "name": "417 Hz", "value": 6 },
+            { "name": "833 Hz", "value": 7 },
+            { "name": "1667 Hz", "value": 8 },
+            { "name": "3333 Hz", "value": 9 },
+            { "name": "6667 Hz", "value": 10 }
+          ]
+        },
+        {
+          "name": "FS_XL",
+          "lsb": 2,
+          "msb": 3,
+          "description": "Accelerometer full-scale.",
+          "values": [
+            { "name": "±2 g", "value": 0 },
+            { "name": "±16 g", "value": 1 },
+            { "name": "±4 g", "value": 2 },
+            { "name": "±8 g", "value": 3 }
+          ]
+        },
+        { "name": "LPF2_XL_EN", "lsb": 1, "msb": 1 }
+      ]
+    },
+    {
+      "name": "CTRL2_G",
+      "addr": "0x11",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Gyroscope control: ODR and full-scale.",
+      "fields": [
+        {
+          "name": "ODR_G",
+          "lsb": 4,
+          "msb": 7,
+          "description": "Gyroscope output data rate.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "12.5 Hz", "value": 1 },
+            { "name": "26 Hz", "value": 2 },
+            { "name": "52 Hz", "value": 3 },
+            { "name": "104 Hz", "value": 4 },
+            { "name": "208 Hz", "value": 5 },
+            { "name": "417 Hz", "value": 6 },
+            { "name": "833 Hz", "value": 7 },
+            { "name": "1667 Hz", "value": 8 },
+            { "name": "3333 Hz", "value": 9 },
+            { "name": "6667 Hz", "value": 10 }
+          ]
+        },
+        {
+          "name": "FS_G",
+          "lsb": 2,
+          "msb": 3,
+          "description": "Gyroscope full-scale (±250/500/1000/2000 dps).",
+          "values": [
+            { "name": "±250 dps", "value": 0 },
+            { "name": "±500 dps", "value": 1 },
+            { "name": "±1000 dps", "value": 2 },
+            { "name": "±2000 dps", "value": 3 }
+          ]
+        },
+        { "name": "FS_125", "lsb": 1, "msb": 1, "description": "Select ±125 dps when FS_G is 0." }
+      ]
+    },
+    {
+      "name": "CTRL3_C",
+      "addr": "0x12",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x04",
+      "fields": [
+        { "name": "BOOT", "lsb": 7, "msb": 7 },
+        { "name": "BDU", "lsb": 6, "msb": 6, "description": "Block data update." },
+        { "name": "H_LACTIVE", "lsb": 5, "msb": 5 },
+        { "name": "PP_OD", "lsb": 4, "msb": 4 },
+        { "name": "SIM", "lsb": 3, "msb": 3 },
+        { "name": "IF_INC", "lsb": 2, "msb": 2, "description": "Register address auto-increment." },
+        { "name": "SW_RESET", "lsb": 0, "msb": 0 }
+      ]
+    },
+    { "name": "CTRL4_C", "addr": "0x13", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "CTRL5_C", "addr": "0x14", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "CTRL6_C", "addr": "0x15", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "CTRL7_G", "addr": "0x16", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "CTRL8_XL", "addr": "0x17", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "CTRL9_XL", "addr": "0x18", "bytes": 1, "access": "rw", "reset": 0 },
+    { "name": "CTRL10_C", "addr": "0x19", "bytes": 1, "access": "rw", "reset": 0 },
+    {
+      "name": "STATUS_REG",
+      "addr": "0x1E",
+      "bytes": 1,
+      "access": "ro",
+      "reset": "0x03",
+      "description": "Data-ready status.",
+      "fields": [
+        { "name": "TDA", "lsb": 2, "msb": 2, "description": "Temperature data available." },
+        { "name": "GDA", "lsb": 1, "msb": 1, "description": "Gyroscope data available." },
+        { "name": "XLDA", "lsb": 0, "msb": 0, "description": "Accelerometer data available." }
+      ]
+    },
+    {
+      "name": "OUTX_G",
+      "addr": "0x22",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Gyro X, little-endian signed counts."
+    },
+    {
+      "name": "OUTY_G",
+      "addr": "0x24",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Gyro Y, little-endian signed counts."
+    },
+    {
+      "name": "OUTZ_G",
+      "addr": "0x26",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Gyro Z, little-endian signed counts."
+    },
+    {
+      "name": "OUTX_A",
+      "addr": "0x28",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Accel X, little-endian signed counts."
+    },
+    {
+      "name": "OUTY_A",
+      "addr": "0x2A",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Accel Y, little-endian signed counts."
+    },
+    {
+      "name": "OUTZ_A",
+      "addr": "0x2C",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Accel Z, little-endian signed counts."
+    }
+  ]
+}

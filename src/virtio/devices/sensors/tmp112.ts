@@ -8,6 +8,10 @@
  * reason to model a real part rather than invent an MMIO device — is that
  * Zephyr's stock `ti,tmp112` binds to it unmodified.
  *
+ * The register file (names, bitfields, reset values) lives in
+ * {@link ./maps/tmp112.json} — an SVD-inspired JSON map. Channel codecs stay
+ * here because they are functions.
+ *
  * Register model, from the datasheet and matching what the driver expects:
  *
  * - Every write starts with a pointer byte (masked to the low two bits). A
@@ -21,12 +25,12 @@
  * One LSB is 0.0625 °C.
  */
 
-import { createSensorChip, type SensorChip, type SensorDecl } from '../sensors/model'
+import tmp112Map from './maps/tmp112.json'
+import { registersFromJson, type RegisterMapJson } from './registerMap'
+import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 
 const REG_TEMPERATURE = 0x00
 const REG_CONFIG = 0x01
-const REG_TLOW = 0x02
-const REG_THIGH = 0x03
 
 /** Extended mode: 13-bit temperature, up to 150 °C. */
 const CONFIG_EM = 1 << 4
@@ -59,13 +63,7 @@ export const tmp112Decl: SensorDecl = {
   defaultAddress: 0x48,
   // The pointer register is two bits wide on this part.
   pointerMask: 0x03,
-  registers: [
-    { addr: REG_TEMPERATURE, bytes: 2, access: 'ro', reset: 0 },
-    // What the driver writes at init; the EM bit is the part that matters here.
-    { addr: REG_CONFIG, bytes: 2, access: 'rw', reset: 0x60a0 },
-    { addr: REG_TLOW, bytes: 2, access: 'rw', reset: 0 },
-    { addr: REG_THIGH, bytes: 2, access: 'rw', reset: 0 },
-  ],
+  registers: registersFromJson(tmp112Map as RegisterMapJson),
   channels: [
     {
       key: 'temp',

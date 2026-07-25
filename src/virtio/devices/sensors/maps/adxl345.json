@@ -1,0 +1,156 @@
+{
+  "name": "ADXL345",
+  "description": "Analog Devices ADXL345 3-axis accelerometer — registers the stock Zephyr driver touches.",
+  "registers": [
+    {
+      "name": "DEVID",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "ro",
+      "reset": "0xE5",
+      "description": "Device ID; fixed 0xE5.",
+      "fields": [
+        {
+          "name": "DEVID",
+          "lsb": 0,
+          "msb": 7,
+          "description": "Device identifier."
+        }
+      ]
+    },
+    {
+      "name": "POWER_CTL",
+      "addr": "0x2D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Power-saving and measurement-mode features.",
+      "fields": [
+        {
+          "name": "LINK",
+          "lsb": 5,
+          "msb": 5,
+          "description": "Link activity/inactivity serial wait."
+        },
+        {
+          "name": "AUTO_SLEEP",
+          "lsb": 4,
+          "msb": 4,
+          "description": "Auto-sleep enable."
+        },
+        {
+          "name": "MEASURE",
+          "lsb": 3,
+          "msb": 3,
+          "description": "Measurement mode.",
+          "values": [
+            { "name": "Standby", "value": 0 },
+            { "name": "Measure", "value": 1 }
+          ]
+        },
+        {
+          "name": "SLEEP",
+          "lsb": 2,
+          "msb": 2,
+          "description": "Sleep mode."
+        },
+        {
+          "name": "WAKEUP",
+          "lsb": 0,
+          "msb": 1,
+          "description": "Wake-up frequency in sleep mode.",
+          "values": [
+            { "name": "8 Hz", "value": 0 },
+            { "name": "4 Hz", "value": 1 },
+            { "name": "2 Hz", "value": 2 },
+            { "name": "1 Hz", "value": 3 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DATA_FORMAT",
+      "addr": "0x31",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Data format control.",
+      "fields": [
+        {
+          "name": "SELF_TEST",
+          "lsb": 7,
+          "msb": 7
+        },
+        {
+          "name": "SPI",
+          "lsb": 6,
+          "msb": 6,
+          "description": "SPI wire mode (ignored on I²C)."
+        },
+        {
+          "name": "INT_INVERT",
+          "lsb": 5,
+          "msb": 5
+        },
+        {
+          "name": "FULL_RES",
+          "lsb": 3,
+          "msb": 3,
+          "description": "Full-resolution mode (maintains 4 mg/LSB).",
+          "values": [
+            { "name": "10-bit", "value": 0 },
+            { "name": "Full res", "value": 1 }
+          ]
+        },
+        {
+          "name": "JUSTIFY",
+          "lsb": 2,
+          "msb": 2,
+          "values": [
+            { "name": "Right", "value": 0 },
+            { "name": "Left", "value": 1 }
+          ]
+        },
+        {
+          "name": "RANGE",
+          "lsb": 0,
+          "msb": 1,
+          "description": "g range.",
+          "values": [
+            { "name": "±2 g", "value": 0 },
+            { "name": "±4 g", "value": 1 },
+            { "name": "±8 g", "value": 2 },
+            { "name": "±16 g", "value": 3 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DATAX",
+      "addr": "0x32",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "X-axis acceleration, little-endian signed counts."
+    },
+    {
+      "name": "DATAY",
+      "addr": "0x34",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Y-axis acceleration, little-endian signed counts."
+    },
+    {
+      "name": "DATAZ",
+      "addr": "0x36",
+      "bytes": 2,
+      "access": "ro",
+      "reset": 0,
+      "endian": "le",
+      "description": "Z-axis acceleration, little-endian signed counts."
+    }
+  ]
+}

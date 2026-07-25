@@ -71,7 +71,14 @@ the card that drives it — so adding a part is a declaration, not another panel
   read-write registers, channel values encoded at read time, optional
   auto-incrementing burst reads) and a card of sliders and toggles. A channel
   can name a browser source, which is how the ADXL345's axes follow the
-  device's real tilt.
+  device's real tilt. Register files can also carry **SVD-inspired names and
+  bitfields** — either inline on `RegisterDecl` or loaded from JSON under
+  [`sensors/maps/`](../src/virtio/devices/sensors/maps) via
+  [`registerMap.ts`](../src/virtio/devices/sensors/registerMap.ts). Channel
+  codecs stay in TypeScript (they are functions); the map is data. Each sensor
+  card has a collapsed **Registers** affordance that opens a live map: address,
+  name, access, current word, and expandable fields (editable on `rw`
+  registers).
 - **Memory** ([`memory/model.ts`](../src/virtio/devices/memory/model.ts)) — a
   part lists its geometry: size, word-address width, page size, erased value.
   The framework builds the word-address pointer with its auto-increment and

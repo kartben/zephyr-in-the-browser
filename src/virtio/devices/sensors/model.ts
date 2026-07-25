@@ -10,10 +10,12 @@
  * read time. Only the register layout and the encoding differ.
  *
  * This module is that plumbing, once. A sensor is a {@link SensorDecl}: its
- * registers, the channels a human drives (a slider), and the config-register
- * attributes a human toggles. {@link createSensorChip} turns the declaration
- * into an {@link I2cChip} the bus can carry unchanged, plus a small control
- * surface (`setChannel`/`setAttr`/…) the panel drives. TMP112 re-expressed this
+ * registers (optionally named, with SVD-inspired bitfields — see
+ * {@link ./registerMap.ts} and `maps/*.json`), the channels a human drives (a
+ * slider), and the config-register attributes a human toggles.
+ * {@link createSensorChip} turns the declaration into an {@link I2cChip} the
+ * bus can carry unchanged, plus a small control surface
+ * (`setChannel`/`setAttr`/`peek`/…) the panel drives. TMP112 re-expressed this
  * way is byte-for-byte the hand-written part — which is what says the model is
  * right (see the TMP112 suite in src/virtio/i2c.test.ts).
  *
@@ -24,9 +26,30 @@
  */
 
 import type { I2cChip } from '../i2c'
+import { insertField } from './fields'
 
 /** Byte order of a multi-byte register on the wire. */
 export type Endian = 'be' | 'le'
+
+/**
+ * One named bitfield inside a register — the SVD-inspired half of the map.
+ *
+ * Inclusive `[lsb, msb]` matches CMSIS-SVD's `bitRange`. Enumerated `values`
+ * are optional display/edit metadata for the register-map UI; they do not
+ * change bus behaviour on their own. Human-facing toggles still live on
+ * {@link AttrDecl} so a slider card stays simple while the map stays complete.
+ */
+export interface FieldDecl {
+  /** Short datasheet name (e.g. `ODR_XL`, `EM`). */
+  name: string
+  /** Least-significant bit, inclusive. */
+  lsb: number
+  /** Most-significant bit, inclusive. */
+  msb: number
+  description?: string
+  /** Optional enumerated encodings for this field. */
+  values?: Array<{ name: string; value: number; description?: string }>
+}
 
 /** One register in the chip's address space. */
 export interface RegisterDecl {
@@ -53,6 +76,11 @@ export interface RegisterDecl {
    * (ISL29035 DATA_MSB / DATA_LSB) rather than one burst.
    */
   highByteOf?: number
+  /** Datasheet / SVD-style register name (e.g. `CTRL1_XL`). */
+  name?: string
+  description?: string
+  /** Named bitfields within this register, for the register-map UI. */
+  fields?: FieldDecl[]
 }
 
 /**
@@ -165,6 +193,24 @@ export interface SensorChip extends I2cChip {
   /** Set an attribute: a boolean for a `bit`, a field value for `bits`. */
   setAttr(key: string, value: boolean | number): void
   getAttr(key: string): boolean | number
+  /**
+   * Live register word as a guest read would see it right now — channel
+   * encoding included. The register-map UI peeks this rather than re-issuing
+   * an I²C transaction.
+   */
+  peek(addr: number): number
+  /** Current pointer register (last pointed-at address). */
+  getPointer(): number
+  /**
+   * Overwrite an entire `rw` register word. Read-only / unknown addresses are
+   * ignored, matching a real part. Used by the register-map editor.
+   */
+  poke(addr: number, value: number): void
+  /**
+   * Read-modify-write a bitfield on an `rw` register. No-op when the address
+   * is missing or read-only.
+   */
+  setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   /** Notified whenever a channel or attribute changes. */
   subscribe(fn: () => void): () => void
 }
@@ -343,6 +389,7 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
     setAttr(key, value) {
       const attr = decl.attributes?.find((a) => a.key === key)
       if (!attr) return
+      const reg = regByAddr.get(attr.reg)
       const current = regs.get(attr.reg) ?? 0
       let next = current
       if (attr.bit !== undefined) {
@@ -352,7 +399,7 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
         next = (current & ~mask) | ((Number(value) << attr.bits.shift) & mask)
       }
       if (next !== current) {
-        regs.set(attr.reg, next & 0xffff)
+        regs.set(attr.reg, toWord(next, reg?.bytes ?? 2))
         notify()
       }
     },
@@ -365,6 +412,29 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
       return 0
     },
 
+    peek: (addr) => currentWord(addr),
+    getPointer: () => pointer,
+
+    poke(addr, value) {
+      const reg = regByAddr.get(addr)
+      if (!reg || reg.access !== 'rw') return
+      const next = toWord(value, reg.bytes)
+      if (regs.get(addr) === next) return
+      regs.set(addr, next)
+      notify()
+    },
+
+    setField(addr, field, value) {
+      const reg = regByAddr.get(addr)
+      if (!reg || reg.access !== 'rw') return
+      if (field.msb < field.lsb) return
+      const current = regs.get(addr) ?? 0
+      const next = toWord(insertField(current, field, value), reg.bytes)
+      if (next === current) return
+      regs.set(addr, next)
+      notify()
+    },
+
     subscribe(fn) {
       listeners.add(fn)
       return () => listeners.delete(fn)
@@ -373,3 +443,6 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
 
   return chip
 }
+
+/** Re-export field helpers so callers can peek/decode without a second import. */
+export { extractField, formatBitRange, formatRegHex, decodeFieldLabel } from './fields'
