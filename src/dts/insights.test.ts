@@ -9,7 +9,7 @@ import twoBuses from './fixtures/two_i2c_buses.dts?raw'
 const insightsOf = (src: string) => computeInsights(parseDts(src))
 
 describe('computeInsights', () => {
-  it('grounds the A53 shell build: five chips, no GPIO', () => {
+  it('grounds the A53 shell build: six chips, no GPIO', () => {
     const insights = insightsOf(a53Shell)
 
     expect(insights.model).toBe('QEMU Cortex-A53')
@@ -25,6 +25,7 @@ describe('computeInsights', () => {
       [0x49, 'lm75'],
       [0x50, 'at24'],
       [0x53, 'adxl345'],
+      [0x6a, 'lsm6dso'],
     ])
 
     // virtio_gpio0 is disabled in this build, so no controller and no panel.

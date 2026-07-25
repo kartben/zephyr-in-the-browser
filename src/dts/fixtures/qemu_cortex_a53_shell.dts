@@ -165,6 +165,12 @@
 					status = "okay";
 				};
 
+				lsm6dso_0: lsm6dso@6a {
+					compatible = "st,lsm6dso";
+					reg = <0x6a>;
+					status = "okay";
+				};
+
 				ssd1306_0: ssd1306@3c {
 					compatible = "solomon,ssd1306";
 					reg = <0x3c>;

@@ -42,11 +42,14 @@ series rather than a deletion.
 
 The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
 *TypeScript*, not C: a TMP112 and an LM75 thermometer, an ADXL345
-accelerometer, an AT24 EEPROM and an SSD1306 OLED, all under
-[`src/virtio/devices/`](../src/virtio/devices). The guest side is entirely
-stock — `ti,tmp112`, `lm75`, `adi,adxl345`, `atmel,at24`, `solomon,ssd1306` —
-so `sensor get adxl345@53` reads a value the page made up through the same
-driver a real board would use.
+accelerometer, an LSM6DSO 6-axis IMU, an AT24 EEPROM and an SSD1306 OLED, all
+under [`src/virtio/devices/`](../src/virtio/devices). The guest side is entirely
+stock — `ti,tmp112`, `lm75`, `adi,adxl345`, `st,lsm6dso`, `atmel,at24`,
+`solomon,ssd1306` — so `sensor get lsm6dso@6a` reads a value the page made up
+through the same driver a real board would use. The LSM6DSO is the advanced
+case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set` to put accel and
+gyro at 12.5 Hz, and the panel's ODR selects update when those CTRL register
+writes land.
 
 Chips are **declared rather than hand-written**, by whichever of two small
 frameworks fits, and each synthesises both the chip's behaviour on the bus and

@@ -12,7 +12,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 
 | Device | What the guest sees |
 | --- | --- |
-| **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, an ADXL345 accelerometer — each a row of sliders and config bits, read through stock Zephyr drivers. The accelerometer can follow your device's real tilt |
+| **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, an ADXL345 accelerometer, an LSM6DSO 6-axis IMU — each a row of sliders and config bits, read through stock Zephyr drivers. The accelerometers can follow your device's real tilt; the LSM6DSO sample shows `sensor_attr_set` configuring the sampling rate |
 | **GPIO** | Clickable buttons and live LED indicators, wired per the devicetree's `gpio-keys`/`gpio-leds` |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
