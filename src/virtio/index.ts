@@ -23,6 +23,7 @@ import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
 import { createHt16k33 } from './devices/chips/ht16k33'
 import { createJhd1313Pair } from './devices/chips/jhd1313'
+import { createMax17048 } from './devices/chips/max17048'
 import { createMcp4725 } from './devices/chips/mcp4725'
 import { createPca9685 } from './devices/chips/pca9685'
 import { createPcf8523 } from './devices/rtc/pcf8523'
@@ -91,11 +92,15 @@ export const pca9685 = createPca9685({ address: 0x60 })
 /** Microchip MCP4725 12-bit DAC @ 0x61 — stock samples/drivers/dac. */
 export const mcp4725 = createMcp4725({ address: 0x61 })
 
+/** Maxim MAX17048 fuel gauge @ 0x36 — stock samples/drivers/fuel_gauge. */
+export const max17048 = createMax17048({ address: 0x36 })
+
 /** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
+  [0x36, max17048],
   [0x3c, ssd1306],
   [0x3e, jhd1313],
   [0x40, ina219],

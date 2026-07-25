@@ -28,6 +28,7 @@ export type PanelKind =
   | 'led'
   | 'pwm'
   | 'dac'
+  | 'fuel-gauge'
   | 'trace'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
@@ -331,6 +332,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Sawtooth on a 12-bit MCP4725; Vout chart in the page',
     zephyrSample: 'samples/drivers/dac',
     primaryPanels: ['dac', 'i2c'],
+  },
+  {
+    // Stock fuel-gauge sample against the browser MAX17048 at 0x36. The dock
+    // paints SoC % / voltage (FuelGaugeChip framework).
+    id: 'fuel_gauge',
+    label: 'Fuel gauge',
+    description: 'Polls SoC % and voltage on a MAX17048; battery card in the page',
+    zephyrSample: 'samples/drivers/fuel_gauge',
+    primaryPanels: ['fuel-gauge', 'i2c'],
   },
   {
     id: 'philosophers',

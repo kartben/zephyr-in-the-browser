@@ -20,6 +20,7 @@ import {
   Pointer,
   SquareChevronRight,
   Activity,
+  BatteryCharging,
   Grid3x3,
   Lightbulb,
   Gamepad2,
@@ -39,6 +40,7 @@ import { MemoryBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { DacBody } from '@/components/DacPanel'
+import { FuelGaugeBody } from '@/components/FuelGaugePanel'
 import { PwmBody } from '@/components/PwmPanel'
 import { PwmLedsBadge, PwmLedsBody } from '@/components/PwmLedsPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
@@ -59,6 +61,10 @@ import {
   formatDacVolts,
   type DacChip,
 } from '@/virtio/devices/dac/model'
+import {
+  formatSocPct,
+  type FuelGaugeChip,
+} from '@/virtio/devices/fuel-gauge/model'
 import {
   formatPwmDuty,
   type PwmChip,
@@ -103,6 +109,8 @@ export function DeviceBody({
       return <PwmBody chip={node.chip as PwmChip} />
     case 'dac':
       return <DacBody chip={node.chip as DacChip} />
+    case 'fuel-gauge':
+      return <FuelGaugeBody chip={node.chip as FuelGaugeChip} />
     case 'rtc':
       return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
@@ -148,6 +156,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Activity
     case 'dac':
       return Waves
+    case 'fuel-gauge':
+      return BatteryCharging
     case 'rtc':
       return Clock
     case 'i2c':
@@ -178,6 +188,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Activity
     case 'dac':
       return Waves
+    case 'fuel-gauge':
+      return BatteryCharging
     case 'i2c-bus':
       return Cable
     case 'serial':
@@ -257,6 +269,10 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       const chip = node.chip as DacChip
       const ch = chip.getChannel(0)
       return <Mono>{formatDacVolts(ch.volts)}</Mono>
+    }
+    case 'fuel-gauge': {
+      const chip = node.chip as FuelGaugeChip
+      return <Mono>{formatSocPct(chip.getReading().socPct)}</Mono>
     }
     case 'rtc':
       return <RtcBadge chip={node.chip as RtcChip} />
@@ -362,6 +378,11 @@ export function GroupBadge({
       const ch = chip.getChannel(0)
       return <Mono>{formatDacVolts(ch.volts)}</Mono>
     }
+  }
+  if (deviceClass === 'fuel-gauge') {
+    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'fuel-gauge')
+      ?.chip as FuelGaugeChip | undefined
+    if (chip) return <Mono>{formatSocPct(chip.getReading().socPct)}</Mono>
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioControllerBadge />

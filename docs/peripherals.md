@@ -47,11 +47,12 @@ an AT24 EEPROM and an SSD1306 OLED by default, under
 IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035 light
 sensor, a PCF8523 RTC, a JHD1313 character LCD (Grove RGB, with its
 PCA9633-style backlight at `0x62`), an HT16K33 LED matrix at `0x70`, a
-PCA9685 PWM controller at `0x60`, and an MCP4725 DAC at `0x61` —
+PCA9685 PWM controller at `0x60`, an MCP4725 DAC at `0x61`, and a MAX17048
+fuel gauge at `0x36` —
 stay `status = "disabled"` in the
 virtio-i2c overlay so everyday builds (accel chart, OLED display, …) do not
 clutter the dock. The shell turns most of them on with `-S i2c-sensors-extra`;
-each dedicated sensor / RTC / auxdisplay / LED / PWM / DAC sample uses a `*-only` snippet that
+each dedicated sensor / RTC / auxdisplay / LED / PWM / DAC / fuel-gauge sample uses a `*-only` snippet that
 enables that part and disables the default temperature / accel nodes. The
 EEPROM sample uses `-S eeprom-only` the same way (sensors and OLED off,
 `eeprom-0` aliased). The page attaches matching models only while the guest
@@ -60,13 +61,13 @@ tree marks those nodes okay.
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
 `atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313`, `holtek,ht16k33`,
-`nxp,pca9685-pwm`, `microchip,mcp4725` — so `sensor get lps22hh@5c`
+`nxp,pca9685-pwm`, `microchip,mcp4725`, `maxim,max17048` — so `sensor get lps22hh@5c`
 reads a value the page made up through the same driver a real board would use. The LSM6DSO is the
 advanced motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set`
 to put accel and gyro at 12.5 Hz, and the panel's ODR selects update when those
 CTRL register writes land.
 
-Chips are **declared rather than hand-written**, by whichever of five small
+Chips are **declared rather than hand-written**, by whichever of six small
 frameworks fits, and each synthesises both the chip's behaviour on the bus and
 the card that drives it — so adding a part is a declaration, not another panel:
 
@@ -111,9 +112,14 @@ the card that drives it — so adding a part is a declaration, not another panel
   the guest blocks on virtio-i2c, which made the sawtooth look stuck. The
   first provider is the I²C MCP4725 at `0x61`; a later multi-channel DAC
   reuses `DacBody` unchanged.
+- **Fuel gauge** ([`fuel-gauge/model.ts`](../src/virtio/devices/fuel-gauge/model.ts)) —
+  SoC % + voltage + charge rate (`FuelGaugeDecl` / `FuelGaugeReading` /
+  `isFuelGaugeChip`). The dock paints a battery card with sliders so the page
+  drives what the guest reads. The first provider is the I²C MAX17048 at
+  `0x36`; a later SBS gauge or charger reuses `FuelGaugeBody` unchanged.
 
 **Register maps** are shared across register-file parts — sensors, the
-PCF8523, both halves of the JHD1313, the HT16K33, the PCA9685, and the MCP4725 today — via [`registers/`](../src/virtio/devices/registers)
+PCF8523, both halves of the JHD1313, the HT16K33, the PCA9685, the MCP4725, and the MAX17048 today — via [`registers/`](../src/virtio/devices/registers)
 (SVD-inspired JSON under `sensors/maps/`, `rtc/maps/`, and `chips/maps/`) and
 the collapsed **Registers** dialog on each card
 ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). Channel codecs and
@@ -127,6 +133,8 @@ maps display RAM rows 0x00–0x0F plus System_Setup / Display_Setup / Row_Int /
 Dimming (`chips/maps/ht16k33.json`). The PCA9685 maps MODE1/2, LEDn_ON/OFF,
 and PRE_SCALE (`chips/maps/pca9685.json`). The MCP4725 maps thin inspector
 shadows for DAC_CODE / STATUS / EEPROM_CODE (`chips/maps/mcp4725.json`).
+The MAX17048 maps VCELL / SOC / MODE / VERSION / CONFIG / CRATE / COMMAND
+(`chips/maps/max17048.json`).
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)

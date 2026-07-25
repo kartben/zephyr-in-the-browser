@@ -447,17 +447,28 @@ waits and made the scope look stuck). Guest side: stock
 `samples/drivers/dac` with `/zephyr,user` dac / channel / resolution props.
 Address is 0x61 to avoid `pca9685@60`.
 
-#### 4e. Fuel gauge / charger
+#### 4e. Fuel gauge / charger — ✅ done (MAX17048); charger next
 
-`samples/drivers/fuel_gauge` and `samples/drivers/charger` — another dock
-class (battery), pure I²C register files. Great once the power-monitor story
-(INA219) wants a sibling that speaks "SoC %" rather than "amps".
+**Implemented** as a bus-agnostic `FuelGaugeChip` framework
+(`src/virtio/devices/fuel-gauge/model.ts`) with the first provider Maxim
+MAX17048 at `0x36` (`chips/max17048.ts` + `maps/max17048.json`). Dock card
+(`FuelGaugePanel.tsx` / `FuelGaugeBody`) paints SoC %, a cell-voltage bar,
+charge rate, and page-side sliders — no MAX17048 imports in the UI. Guest
+side: stock `maxim,max17048` via `-S max17048-only` / `conf/max17048.conf`,
+packaging `samples/drivers/fuel_gauge` with alias `fuel-gauge0`. Address is
+the Adafruit / Zephyr shield default `0x36`.
+
+`samples/drivers/charger` remains the sibling follow-up under the same dock
+class once someone wants "plugged in / charging current" rather than SoC %.
 
 #### 4f. Webcam — still the stretch
 
 Unchanged: coolest, heaviest, lowest certainty. No QEMU camera a Zephyr driver
 consumes; needs a bespoke `video` driver + host buffer →
-`samples/drivers/video/capture`. Park it behind the I²C class work.
+`samples/drivers/video/capture`. The I²C control half of a camera sensor
+(OV7670 SCCB registers) could reuse the register-map + framework pattern, but
+the pixel path is still a new bridge — park it behind the remaining I²C class
+work.
 
 ## The input gap — ✅ closed, the clean way
 
@@ -548,7 +559,10 @@ shell is a UX problem before it is a driver problem.
    declaration + packaging only.
 6½. ~~**DAC (I²C)**~~ — ✅ done; `DacChip` framework + `microchip,mcp4725` with
    `samples/drivers/dac`, Vout history chart. More DAC providers are
-   declaration + packaging only. Then fuel-gauge / charger.
+   declaration + packaging only.
+6¾. ~~**Fuel gauge (I²C)**~~ — ✅ done; `FuelGaugeChip` framework +
+   `maxim,max17048` with `samples/drivers/fuel_gauge`, SoC / voltage card.
+   Charger remains the same-class follow-up.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 
 ## Sources

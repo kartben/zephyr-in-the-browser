@@ -1,0 +1,227 @@
+{
+  "name": "MAX17048",
+  "description": "Analog Devices / Maxim MAX17048 ModelGauge fuel gauge (I²C). 16-bit big-endian registers. Matches Zephyr drivers/fuel_gauge/max17048/max17048.c and datasheet Table 2.",
+  "registers": [
+    {
+      "name": "VCELL",
+      "addr": "0x02",
+      "bytes": 2,
+      "access": "ro",
+      "reset": "0xB900",
+      "endian": "be",
+      "description": "ADC measurement of battery voltage. LSB = 78.125 µV.",
+      "fields": [
+        {
+          "name": "VCELL",
+          "lsb": 0,
+          "msb": 15,
+          "description": "Raw cell voltage counts (µV = counts × 78.125)."
+        }
+      ]
+    },
+    {
+      "name": "SOC",
+      "addr": "0x04",
+      "bytes": 2,
+      "access": "rw",
+      "reset": "0x4B00",
+      "endian": "be",
+      "description": "State of charge. Integer % in high byte; 1/256 % in low byte.",
+      "fields": [
+        {
+          "name": "PCT",
+          "lsb": 8,
+          "msb": 15,
+          "description": "Whole-percent SoC (0…100)."
+        },
+        {
+          "name": "FRAC",
+          "lsb": 0,
+          "msb": 7,
+          "description": "Fractional SoC in 1/256 %."
+        }
+      ]
+    },
+    {
+      "name": "MODE",
+      "addr": "0x06",
+      "bytes": 2,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Special commands (quick-start). Write-only on silicon; kept rw for the inspector.",
+      "fields": [
+        {
+          "name": "QuickStart",
+          "lsb": 14,
+          "msb": 14,
+          "description": "1 = force a quick-start recalibration.",
+          "values": [
+            { "name": "Idle", "value": 0 },
+            { "name": "QuickStart", "value": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "VERSION",
+      "addr": "0x08",
+      "bytes": 2,
+      "access": "ro",
+      "reset": "0x0012",
+      "endian": "be",
+      "description": "IC version. Zephyr checks (value & 0xFFF0) == 0x0010.",
+      "fields": [
+        {
+          "name": "VER",
+          "lsb": 0,
+          "msb": 15,
+          "description": "Production version word."
+        }
+      ]
+    },
+    {
+      "name": "HIBRT",
+      "addr": "0x0A",
+      "bytes": 2,
+      "access": "rw",
+      "reset": "0x8030",
+      "endian": "be",
+      "description": "Hibernate threshold configuration."
+    },
+    {
+      "name": "CONFIG",
+      "addr": "0x0C",
+      "bytes": 2,
+      "access": "rw",
+      "reset": "0x971C",
+      "endian": "be",
+      "description": "Configuration: RCOMP, sleep, ALRT, ATHD.",
+      "fields": [
+        {
+          "name": "RCOMP",
+          "lsb": 8,
+          "msb": 15,
+          "description": "ModelGauge compensation."
+        },
+        {
+          "name": "SLEEP",
+          "lsb": 7,
+          "msb": 7,
+          "description": "Sleep enable."
+        },
+        {
+          "name": "ALRT",
+          "lsb": 5,
+          "msb": 5,
+          "description": "Alert sticky status (clears on write-0)."
+        },
+        {
+          "name": "ATHD",
+          "lsb": 0,
+          "msb": 4,
+          "description": "Alert threshold as empty %."
+        }
+      ]
+    },
+    {
+      "name": "VALRT",
+      "addr": "0x14",
+      "bytes": 2,
+      "access": "rw",
+      "reset": "0x00FF",
+      "endian": "be",
+      "description": "Voltage alert min/max thresholds."
+    },
+    {
+      "name": "CRATE",
+      "addr": "0x16",
+      "bytes": 2,
+      "access": "ro",
+      "reset": "0xFFD0",
+      "endian": "be",
+      "description": "Charge rate. Signed; LSB ≈ 0.208 %/hour. Positive = charging.",
+      "fields": [
+        {
+          "name": "RATE",
+          "lsb": 0,
+          "msb": 15,
+          "description": "Signed charge-rate counts."
+        }
+      ]
+    },
+    {
+      "name": "VRESET",
+      "addr": "0x18",
+      "bytes": 2,
+      "access": "rw",
+      "reset": "0x96",
+      "endian": "be",
+      "description": "Reset voltage and ID/comparator config."
+    },
+    {
+      "name": "STATUS",
+      "addr": "0x1A",
+      "bytes": 2,
+      "access": "rw",
+      "reset": "0x01",
+      "endian": "be",
+      "description": "Alert status bits (RI, VH, VL, VR, HD, SC).",
+      "fields": [
+        {
+          "name": "RI",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Reset indicator."
+        },
+        {
+          "name": "VH",
+          "lsb": 1,
+          "msb": 1,
+          "description": "Voltage high alert."
+        },
+        {
+          "name": "VL",
+          "lsb": 2,
+          "msb": 2,
+          "description": "Voltage low alert."
+        },
+        {
+          "name": "VR",
+          "lsb": 3,
+          "msb": 3,
+          "description": "Voltage reset alert."
+        },
+        {
+          "name": "HD",
+          "lsb": 4,
+          "msb": 4,
+          "description": "SOC low (empty) alert."
+        },
+        {
+          "name": "SC",
+          "lsb": 5,
+          "msb": 5,
+          "description": "SOC change alert."
+        }
+      ]
+    },
+    {
+      "name": "COMMAND",
+      "addr": "0xFE",
+      "bytes": 2,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Special commands. 0x5400 = power-on reset. Write-only on silicon; kept rw for the inspector.",
+      "fields": [
+        {
+          "name": "CMD",
+          "lsb": 0,
+          "msb": 15,
+          "description": "Command word (0x5400 = POR)."
+        }
+      ]
+    }
+  ]
+}
