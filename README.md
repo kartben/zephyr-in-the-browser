@@ -17,6 +17,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight — Zephyr's stock auxdisplay driver writes "Hello World"; the backlight is a JSON register map at 0x62 |
 | **LED matrix** | A Holtek HT16K33 16×8 LED driver at 0x70 — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix; the dock paints display RAM with a JSON register map |
 | **GPIO** | Clickable buttons and live LED indicators, wired per the devicetree's `gpio-keys`/`gpio-leds` |
+| **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |

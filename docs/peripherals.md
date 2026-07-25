@@ -133,6 +133,9 @@ that the peripheral surfaces read:
   the bridged `virtio,i2c` node's enabled children),
 - the GPIO panel's pins and labels (from `gpio-keys`/`gpio-leds` wiring) and
   the controller name its shell hints quote,
+- a Buzzer dock row when the tree has an okay `gpio-buzzer` on the bridged
+  controller (pin level observed the same way LEDs are; shake + Vibration API /
+  Web Audio on the page — not through I2S),
 - which panels exist at all — a build without the virtio-i2c snippet shows no
   I2C panel even though the machine always carries the adapter.
 

@@ -17,6 +17,7 @@ import {
   Terminal,
   Thermometer,
   Tv,
+  Vibrate,
   Volume2,
   X,
 } from 'lucide-react'
@@ -55,6 +56,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   gnss: Satellite,
   sensor: Thermometer,
   gpio: CircuitBoard,
+  buzzer: Vibrate,
   audio: Volume2,
   perf: Gauge,
   net: Network,
@@ -70,6 +72,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   gnss: 'GNSS',
   sensor: 'sensors',
   gpio: 'GPIO',
+  buzzer: 'buzzer',
   audio: 'audio',
   perf: 'perf',
   net: 'network',

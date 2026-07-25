@@ -103,3 +103,50 @@
   background-color: var(--color-border);
   border-radius: 9999px;
 }
+
+/* gpio-buzzer dock card: shake the Lucide icon while the pin is active. */
+@keyframes buzzer-shake {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  20% {
+    transform: translate(-1px, 1px) rotate(-4deg);
+  }
+  40% {
+    transform: translate(1px, -1px) rotate(3deg);
+  }
+  60% {
+    transform: translate(-1px, 0) rotate(-2deg);
+  }
+  80% {
+    transform: translate(1px, 1px) rotate(2deg);
+  }
+}
+
+@keyframes buzzer-pulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+.buzzer-shake {
+  animation: buzzer-shake 0.18s linear infinite;
+}
+
+.buzzer-pulse {
+  animation: buzzer-pulse 0.7s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buzzer-shake,
+  .buzzer-pulse {
+    animation: none;
+  }
+}
+

@@ -191,6 +191,43 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(inv.nodes.some((n) => n.deviceClass === 'i2c-bus')).toBe(false)
     expect(inv.nodes.some((n) => n.key === 'gnss')).toBe(false)
   })
+
+  it('emits a buzzer dock row when gpio-buzzer is on the bridged controller', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(`
+        /dts-v1/;
+        / {
+          model = "QEMU Cortex-A53";
+          soc {
+            virtio_gpio0: gpio@a000400 {
+              compatible = "virtio,gpio";
+              gpio-controller;
+              #gpio-cells = <2>;
+              ngpios = <8>;
+              status = "okay";
+            };
+          };
+          buzzer0: buzzer {
+            compatible = "gpio-buzzer";
+            gpios = <&virtio_gpio0 5 0>;
+            label = "Browser buzzer";
+          };
+        };
+      `),
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const buzzer = nodeByKey(inv, 'buzzer')
+    expect(buzzer.presence).toBe('interactive')
+    expect(buzzer.body).toBe('buzzer')
+    expect(buzzer.deviceClass).toBe('buzzer')
+    expect(buzzer.compatible).toBe('gpio-buzzer')
+    expect(buzzer.panelKind).toBe('buzzer')
+    expect(buzzer.crumb).toBe('pin 5')
+    expect(buzzer.label).toBe('Browser buzzer')
+    expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
+  })
 })
 
 describe('deriveDeviceInventory fallback (no devicetree)', () => {
