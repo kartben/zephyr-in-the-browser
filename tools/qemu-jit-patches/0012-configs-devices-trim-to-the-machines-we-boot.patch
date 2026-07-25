@@ -94,10 +94,10 @@ index 0000000..e71d3a8
 +# CONFIG_PCI_DEVICES=n
 diff --git a/configs/devices/arm-softmmu/browser.mak b/configs/devices/arm-softmmu/browser.mak
 new file mode 100644
-index 0000000..06f5c21
+index 0000000..da6d565
 --- /dev/null
 +++ b/configs/devices/arm-softmmu/browser.mak
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,89 @@
 +# Device configuration for zephyr-in-the-browser's arm-softmmu artifact.
 +#
 +# Selected by tools/build-qemu-wasm.sh with --with-devices-arm=browser, which
@@ -168,6 +168,15 @@ index 0000000..06f5c21
 +# ARM_V7M is deliberately not here even though it is `default y` and no machine
 +# in this artifact is a v7M part: hw/arm/Kconfig says "currently v7M must be
 +# included in a TCG build due to translate.c". It is the CPU core, not a board.
++
++# Not a board, and not optional: hw/arm/stellaris.c instantiates TYPE_SPLIT_IRQ
++# but `config STELLARIS` never selects it -- it was riding on a select from one
++# of the boards above (MPS2, MUSCA, ARMSSE). Trimming those took it away, and
++# lm3s6965evb then died at machine init with "unknown type 'split-irq'" on every
++# guest. Upstream's missing `select SPLIT_IRQ` is the real bug; this is the fix
++# that does not need a QEMU patch. `virt` does not use it, so the aarch64 list
++# does not carry this line.
++CONFIG_SPLIT_IRQ=y
 +
 +# Optional device groups. Test devices are for QEMU's own test suite.
 +CONFIG_TEST_DEVICES=n
