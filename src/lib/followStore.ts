@@ -1,13 +1,16 @@
 /**
- * Which sensor channels are following a browser source ("device tilt",
+ * Which sensor chips are following a browser source group ("device tilt",
  * "battery level"), held at module level rather than in the checkbox that
  * toggled it. The subscription must outlive the widget: a collapsed or
- * popped-out card unmounts its rows, and the old component-local state
- * silently stopped the source mid-follow — a chip should keep tilting with
- * the device whether or not its controls happen to be on screen.
+ * popped-out card unmounts its rows, and component-local state would silently
+ * stop the source mid-follow — a chip should keep tilting with the device
+ * whether or not its controls happen to be on screen.
+ *
+ * Keyed per (chip, source group), not per channel: the ADXL's three axes are
+ * one physical tilt, so they follow — and stop following — together.
  */
 
-import { startLiveSource } from '@/virtio/devices/sensors/liveSource'
+import { sourceGroupOf, startLiveSource, type LiveSourceGroup } from '@/virtio/devices/sensors/liveSource'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 
 type Starter = typeof startLiveSource
@@ -20,13 +23,13 @@ export function setLiveSourceStarter(fn: Starter): void {
 
 interface Follow {
   chip: SensorChip
-  stop: () => void
+  stops: Array<() => void>
 }
 
 const follows = new Map<string, Follow>()
 const listeners = new Set<() => void>()
 
-const keyOf = (chip: SensorChip, channelKey: string) => `${chip.address}:${channelKey}`
+const keyOf = (chip: SensorChip, group: LiveSourceGroup) => `${chip.address}:${group}`
 
 function notify() {
   for (const fn of listeners) fn()
@@ -37,26 +40,40 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-export function isFollowing(chip: SensorChip, channelKey: string): boolean {
-  return follows.has(keyOf(chip, channelKey))
+export function isFollowingGroup(chip: SensorChip, group: LiveSourceGroup): boolean {
+  return follows.has(keyOf(chip, group))
 }
 
-export function setFollow(chip: SensorChip, channelKey: string, follow: boolean): void {
-  const key = keyOf(chip, channelKey)
+/** Whether any channel of this chip is being driven by `group`'s source. */
+export function groupDrivesChannel(
+  chip: SensorChip,
+  group: LiveSourceGroup,
+  channelKey: string,
+): boolean {
+  if (!isFollowingGroup(chip, group)) return false
+  const channel = chip.decl.channels.find((c) => c.key === channelKey)
+  return channel?.source !== undefined && sourceGroupOf(channel.source) === group
+}
+
+export function setFollowGroup(chip: SensorChip, group: LiveSourceGroup, follow: boolean): void {
+  const key = keyOf(chip, group)
   const current = follows.get(key)
   if (follow === (current !== undefined)) return
 
   if (!follow) {
-    current!.stop()
+    for (const stop of current!.stops) stop()
     follows.delete(key)
     notify()
     return
   }
 
-  const channel = chip.decl.channels.find((c) => c.key === channelKey)
-  if (!channel?.source) return
-  const stop = starter(channel.source, (value) => chip.setChannel(channelKey, value))
-  follows.set(key, { chip, stop })
+  // One start per member channel: each axis projects the same browser sensor
+  // differently, so each gets its own subscription, torn down as a set.
+  const stops = chip.decl.channels
+    .filter((c) => c.source !== undefined && sourceGroupOf(c.source) === group)
+    .map((c) => starter(c.source!, (value) => chip.setChannel(c.key, value)))
+  if (stops.length === 0) return
+  follows.set(key, { chip, stops })
   notify()
 }
 
@@ -70,7 +87,7 @@ export function pruneFollows(attached: readonly { address: number }[]): void {
   let changed = false
   for (const [key, follow] of follows) {
     if (alive.has(follow.chip)) continue
-    follow.stop()
+    for (const stop of follow.stops) stop()
     follows.delete(key)
     changed = true
   }

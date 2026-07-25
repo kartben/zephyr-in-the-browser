@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Download, Info, Network, Pause, Play, Trash2 } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
+import { SliderControl } from '@/components/controls/ControlRow'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
 import {
@@ -127,21 +128,25 @@ export function NetworkBody() {
           </Button>
         </div>
         {showImpairments && (
-          <div className="space-y-2 rounded-md border border-border p-2">
-            <ImpairmentSlider
+          <div className="space-y-1 rounded-md border border-border p-2">
+            <SliderControl
               label="Added latency"
               value={snapshot.impairments.delayMs}
               unit="ms"
+              min={0}
               max={500}
               step={10}
+              format={(v) => String(Math.round(v))}
               onChange={(delayMs) => setImpairments({ delayMs })}
             />
-            <ImpairmentSlider
+            <SliderControl
               label="Packet loss"
               value={snapshot.impairments.lossPct}
               unit="%"
+              min={0}
               max={20}
               step={1}
+              format={(v) => String(Math.round(v))}
               onChange={(lossPct) => setImpairments({ lossPct })}
             />
           </div>
@@ -223,43 +228,6 @@ function ThroughputRow({
         <span className="font-mono text-xs tabular-nums">{formatBps(bps)}</span>
       </div>
       <Sparkline values={history} height={28} className="mt-1" ariaLabel={`${label} throughput history`} />
-    </div>
-  )
-}
-
-function ImpairmentSlider({
-  label,
-  value,
-  unit,
-  max,
-  step,
-  onChange,
-}: {
-  label: string
-  value: number
-  unit: string
-  max: number
-  step: number
-  onChange: (value: number) => void
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs">{label}</span>
-        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-          {value} {unit}
-        </span>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={max}
-        step={step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1 w-full cursor-pointer appearance-none rounded-full bg-secondary accent-[var(--color-primary)]"
-      />
     </div>
   )
 }
