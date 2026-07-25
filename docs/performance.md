@@ -25,7 +25,7 @@ the list matters for a given workload:
 | --- | --- | --- | --- | --- | --- |
 | 1 | ~~The bridge's "1 ms" hot poll is really ~4 ms~~ **(a) done**, (b)/(c) open | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
-| 3 | Nothing sets an optimisation level at *link* | build | Medium–High, everything | Very low | Low |
+| 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships is compiled in | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
@@ -152,13 +152,10 @@ interpreter's dispatch. The plausible outcome is that nearly everything is
 instrumented, including `cpu_exec` and the interpreter loop that *is* the
 Cortex-M3 board's entire execution model.
 
-The diagnostic is one build away and costs nothing to run:
-
-```
-emcc … -sASYNCIFY_ADVISE
-```
-
-which prints every instrumented function and the call path that forced it. If
+The diagnostic is one build away and costs nothing to run: add
+`-sASYNCIFY_ADVISE` next to the `-O3` in
+`tools/qemu-*patches/*-emscripten-optimise-the-link.patch` and rebuild. It
+prints every instrumented function and the call path that forced it. If
 `tcg_qemu_tb_exec`, the TCI dispatch loop, or the softmmu load/store helpers
 appear, prune them with `-sASYNCIFY_REMOVE=…` (or invert it with
 `-sASYNCIFY_ONLY=…` once the real suspend set is known) and re-measure with the
@@ -194,18 +191,34 @@ level is 0, which means:
   and the runtime.
 - The JS glue is not minified (the deployed `qemu-system-aarch64.js` is 172 KB).
 
-The change is a patch against `configs/meson/emscripten.txt` in
-`tools/qemu-patches/` and `tools/qemu-jit-patches/`, adding `-O3` and
-`-sASSERTIONS=0` to `c_link_args`/`cpp_link_args`. It has to go in that file for
-the same reason `--js-library` does, and which
-[`public/qemu/README.md`](../public/qemu/README.md) already documents:
-`--extra-ldflags` does not reach the link, and meson snapshots the cross file at
-configure time, so it needs a reconfigure rather than a relink.
+**Patched, and that is as far as this can be taken here** — a build needs
+Docker and hours, so the number is still owed.
+`0009-emscripten-optimise-the-link.patch` (and `0011-` in the JIT series) adds
+`-O3` to `c_link_args`/`cpp_link_args`. `-sASSERTIONS=0` is not in it because
+`ASSERTIONS` already defaults to 0 at any `-O` above zero; one flag is easier to
+attribute a measurement to than two.
 
-Verify what actually happens today with `EMCC_DEBUG=1` on the final link and
-read the `wasm-opt` invocation in the log. This is the cheapest experiment in
-this document — one rebuild, no code — and it is a prerequisite for trusting any
-measurement of item 2.
+It has to be a patch, and now for a verified reason rather than a remembered
+one: `configure` adds its generated `config-meson.cross` as a machine file
+*first* and `configs/meson/emscripten.txt` *second*, and meson lets the later
+file win — so the cross file overwrites the `c_link_args` that `--extra-ldflags`
+lands in (`configure` lines 1880–1881 and 1962–1965). Whence the note in
+[`public/qemu/README.md`](../public/qemu/README.md) that `--extra-ldflags` does
+not reach the link.
+
+To measure: `EMCC_DEBUG=1` on the final link prints the `wasm-opt` invocation,
+which is where the optimisation level shows up, and the Performance panel's MIPS
+readout is the before/after. Expect wasm-opt at `-O3` to cost minutes and
+several GB on a ~19 MB module; `-O2` is the fallback if it OOMs.
+
+Applying this exposed a latent bug in the build script, now fixed: patches are
+applied to the working tree and never committed, so a *reused* source directory
+still carried the previous run's series, and the per-patch "is this one already
+applied?" check stopped working as soon as two patches touched the same lines —
+which the xterm-pty and `-O3` patches both do to `c_link_args`. The series is
+now re-applied to a restored tree every run. The cost is that hand-edits to the
+checkout no longer survive a run, which is why the `ASYNCIFY_ADVISE` experiment
+below says to edit the patch instead.
 
 Debug information is *not* a problem, incidentally: the deployed `.wasm` has
 neither a name section nor `.debug_*` sections, because meson's `-g` is
@@ -358,9 +371,9 @@ to the one bridge where the failure mode is something the user can hear.
 ## Suggested order
 
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
-2. Item 3 (link `-O3`) — one rebuild, no code, and it is a precondition for
-   trusting item 2.
-3. Item 2's `ASYNCIFY_ADVISE` run — no change, just the list, and it either
+2. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
+   is a precondition for trusting item 2. Compare MIPS before and after.
+3. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
 4. Item 4 (`--without-default-devices`) — mechanical, and startup is the number
    most visitors actually experience.

@@ -100,16 +100,27 @@ fetch_subprojects() {
 
 # The target-specific patch directory adds the required browser bridges and
 # puts xterm-pty on the link line.
+#
+# The series is re-applied to a pristine tree every run. Patches are applied to
+# the working tree and never committed, so a reused source directory still
+# carries the last run's series — and asking "is this one already applied?" per
+# patch stops working the moment two of them touch the same lines, which the
+# xterm-pty and link-optimisation patches both do to c_link_args. Restoring
+# first makes the question unnecessary, and makes the failure message below mean
+# what it says.
+#
+# Only tracked files are restored, so the pre-fetched subprojects/ trees and the
+# packagefiles overlay survive. Hand-edits to the QEMU source do not: experiment
+# by editing the patch, not the checkout.
 apply_local_patches() {
   local src="$1" dir="$2" ref="$3"
   [ -d "$dir" ] || return 0
-  log "Applying local patches"
+  log "Applying local patches (restoring tracked files to $ref first)"
   cd "$src"
+  git checkout -q --force -- .
   for patch in "$dir"/*.patch; do
     [ -e "$patch" ] || continue
-    if git apply --reverse --check "$patch" >/dev/null 2>&1; then
-      echo "  - already applied: $(basename "$patch")"
-    elif git apply "$patch"; then
+    if git apply "$patch"; then
       echo "  - applied: $(basename "$patch")"
     else
       echo "  ! FAILED to apply $(basename "$patch") — QEMU $REF has probably moved." >&2
