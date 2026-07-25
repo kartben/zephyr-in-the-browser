@@ -4,14 +4,22 @@
  * Paints a Vout-over-time trace from getHistory, a level bar, code/Vref
  * readout, and the shared Registers dialog. Provider-agnostic — do not import
  * MCP4725 here.
+ *
+ * The scope time base prefers guest virtual time (`-icount`) so stock
+ * `samples/drivers/dac` shows its ~4 s sawtooth period; wall clock is the
+ * fallback when icount is unavailable.
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { RegisterMapButton } from '@/components/RegisterMap'
+import { dacNowMs } from '@/virtio/devices/dac/clock'
 import {
+  DAC_DEFAULT_WINDOW_MS,
+  DAC_WINDOW_MS_OPTIONS,
   dacMaxCode,
   formatDacCode,
   formatDacVolts,
+  formatDacWindow,
   type DacChip,
 } from '@/virtio/devices/dac/model'
 
@@ -54,117 +62,146 @@ function useChip(chip: DacChip) {
 function VoutCanvas({
   chip,
   channel,
+  windowMs,
 }: {
   chip: DacChip
   channel: number
+  windowMs: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const ch = chip.getChannel(channel)
-  const history = chip.getHistory(channel)
-  const historyMs = chip.decl.historyMs ?? 5000
-  const vref = chip.decl.vrefMv / 1000
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    let raf = 0
+    let alive = true
 
-    const dpr = Math.min(2, window.devicePixelRatio || 1)
-    const cssW = canvas.clientWidth || 360
-    const cssH = 168
-    canvas.width = Math.round(cssW * dpr)
-    canvas.height = Math.round(cssH * dpr)
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-
-    const padL = 36
-    const padR = 12
-    const padT = 22
-    const padB = 24
-    const plotW = cssW - padL - padR
-    const plotH = cssH - padT - padB
-
-    ctx.clearRect(0, 0, cssW, cssH)
-    ctx.fillStyle = '#0c0e12'
-    ctx.fillRect(0, 0, cssW, cssH)
-
-    const yAt = (volts: number) => {
-      const n = vref > 0 ? Math.max(0, Math.min(1, volts / vref)) : 0
-      return padT + plotH - n * plotH
-    }
-    const now = performance.now()
-    const t0 = now - historyMs
-    const xAt = (t: number) => padL + ((t - t0) / historyMs) * plotW
-
-    // Grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
-    ctx.lineWidth = 1
-    for (const frac of [0, 0.5, 1]) {
-      const y = yAt(vref * frac)
-      ctx.beginPath()
-      ctx.moveTo(padL, y)
-      ctx.lineTo(padL + plotW, y)
-      ctx.stroke()
-    }
-
-    // Trace
-    const samples = history.length > 0 ? history : [{ t: now, channel, volts: ch.volts, code: ch.code }]
-    ctx.strokeStyle = '#3ecf8e'
-    ctx.lineWidth = 2
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    let started = false
-    // Downsample for draw cost.
-    const step = Math.max(1, Math.floor(samples.length / 400))
-    for (let i = 0; i < samples.length; i += step) {
-      const s = samples[i]!
-      const x = xAt(s.t)
-      const y = yAt(s.volts)
-      if (!started) {
-        ctx.moveTo(x, y)
-        started = true
-      } else {
-        ctx.lineTo(x, y)
+    const paint = () => {
+      if (!alive) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        raf = requestAnimationFrame(paint)
+        return
       }
-    }
-    // Extend to now at current level.
-    ctx.lineTo(xAt(now), yAt(ch.volts))
-    ctx.stroke()
 
-    // Current guide
-    const yNow = yAt(ch.volts)
-    ctx.strokeStyle = 'rgba(62,207,142,0.45)'
-    ctx.setLineDash([4, 3])
-    ctx.beginPath()
-    ctx.moveTo(padL, yNow)
-    ctx.lineTo(padL + plotW, yNow)
-    ctx.stroke()
-    ctx.setLineDash([])
+      const dpr = Math.min(2, window.devicePixelRatio || 1)
+      const cssW = canvas.clientWidth || 360
+      const cssH = 168
+      const pixelW = Math.round(cssW * dpr)
+      const pixelH = Math.round(cssH * dpr)
+      if (canvas.width !== pixelW || canvas.height !== pixelH) {
+        canvas.width = pixelW
+        canvas.height = pixelH
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    ctx.fillStyle = 'rgba(62,207,142,0.95)'
-    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textAlign = 'right'
-    ctx.fillText(`Vout = ${formatDacVolts(ch.volts)}`, padL + plotW, Math.max(padT + 10, yNow - 4))
+      const padL = 36
+      const padR = 12
+      const padT = 22
+      const padB = 24
+      const plotW = cssW - padL - padR
+      const plotH = cssH - padT - padB
+      const vref = chip.decl.vrefMv / 1000
+      const ch = chip.getChannel(channel)
+      const history = chip.getHistory(channel)
+      const now = dacNowMs()
+      const t0 = now - windowMs
 
-    // Axes labels
-    ctx.fillStyle = 'rgba(255,255,255,0.45)'
-    ctx.textAlign = 'right'
-    ctx.fillText(formatDacVolts(vref), padL - 4, padT + 4)
-    ctx.fillText(formatDacVolts(vref / 2), padL - 4, yAt(vref / 2) + 3)
-    ctx.fillText('0', padL - 4, padT + plotH)
+      ctx.clearRect(0, 0, cssW, cssH)
+      ctx.fillStyle = '#0c0e12'
+      ctx.fillRect(0, 0, cssW, cssH)
 
-    ctx.textAlign = 'center'
-    const secs = historyMs / 1000
-    ctx.fillText('0', padL, cssH - 6)
-    ctx.fillText(`${(secs / 2).toFixed(secs >= 4 ? 0 : 1)} s`, padL + plotW / 2, cssH - 6)
-    ctx.fillText(`${secs.toFixed(secs >= 4 ? 0 : 1)} s`, padL + plotW, cssH - 6)
+      const yAt = (volts: number) => {
+        const n = vref > 0 ? Math.max(0, Math.min(1, volts / vref)) : 0
+        return padT + plotH - n * plotH
+      }
+      const xAt = (t: number) => padL + ((t - t0) / windowMs) * plotW
 
-    if (history.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.35)'
+      // Grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+      ctx.lineWidth = 1
+      for (const frac of [0, 0.5, 1]) {
+        const y = yAt(vref * frac)
+        ctx.beginPath()
+        ctx.moveTo(padL, y)
+        ctx.lineTo(padL + plotW, y)
+        ctx.stroke()
+      }
+
+      // Trace as a held level (DAC steps), not a diagonal interpolate.
+      const samples = history.filter((s) => s.t >= t0 - 1)
+      ctx.strokeStyle = '#3ecf8e'
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      let started = false
+      let prevY = yAt(ch.volts)
+      const step = Math.max(1, Math.floor(samples.length / 800))
+      for (let i = 0; i < samples.length; i += step) {
+        const s = samples[i]!
+        const x = xAt(s.t)
+        const y = yAt(s.volts)
+        if (!started) {
+          ctx.moveTo(Math.max(padL, x), y)
+          started = true
+        } else {
+          ctx.lineTo(x, prevY)
+          ctx.lineTo(x, y)
+        }
+        prevY = y
+      }
+      if (started) {
+        ctx.lineTo(xAt(now), prevY)
+      } else {
+        const y = yAt(ch.volts)
+        ctx.moveTo(padL, y)
+        ctx.lineTo(xAt(now), y)
+      }
+      ctx.stroke()
+
+      // Current guide
+      const yNow = yAt(ch.volts)
+      ctx.strokeStyle = 'rgba(62,207,142,0.45)'
+      ctx.setLineDash([4, 3])
+      ctx.beginPath()
+      ctx.moveTo(padL, yNow)
+      ctx.lineTo(padL + plotW, yNow)
+      ctx.stroke()
+      ctx.setLineDash([])
+
+      ctx.fillStyle = 'rgba(62,207,142,0.95)'
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textAlign = 'right'
+      ctx.fillText(`Vout = ${formatDacVolts(ch.volts)}`, padL + plotW, Math.max(padT + 10, yNow - 4))
+
+      // Axes labels — left = oldest edge of the window, right = now.
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'
+      ctx.textAlign = 'right'
+      ctx.fillText(formatDacVolts(vref), padL - 4, padT + 4)
+      ctx.fillText(formatDacVolts(vref / 2), padL - 4, yAt(vref / 2) + 3)
+      ctx.fillText('0', padL - 4, padT + plotH)
+
       ctx.textAlign = 'center'
-      ctx.fillText('waiting for dac_write_value', padL + plotW / 2, padT + plotH / 2)
+      const secs = windowMs / 1000
+      ctx.fillText(`−${formatDacWindow(windowMs)}`, padL, cssH - 6)
+      ctx.fillText(`−${(secs / 2).toFixed(secs >= 4 ? 0 : 1)} s`, padL + plotW / 2, cssH - 6)
+      ctx.fillText('now', padL + plotW, cssH - 6)
+
+      if (history.length === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'
+        ctx.textAlign = 'center'
+        ctx.fillText('waiting for dac_write_value', padL + plotW / 2, padT + plotH / 2)
+      }
+
+      raf = requestAnimationFrame(paint)
     }
-  }, [chip, channel, ch, history, historyMs, vref])
+
+    raf = requestAnimationFrame(paint)
+    return () => {
+      alive = false
+      cancelAnimationFrame(raf)
+    }
+  }, [chip, channel, windowMs])
 
   return (
     <canvas
@@ -178,6 +215,7 @@ function VoutCanvas({
 export function DacBody({ chip }: { chip: DacChip }) {
   useChip(chip)
   const [selected, setSelected] = useState(0)
+  const [windowMs, setWindowMs] = useState(DAC_DEFAULT_WINDOW_MS)
   const sel = Math.min(selected, Math.max(0, chip.decl.channelCount - 1))
   const ch = chip.getChannel(sel)
   const max = dacMaxCode(chip.decl)
@@ -199,9 +237,26 @@ export function DacBody({ chip }: { chip: DacChip }) {
         <span className="font-mono tabular-nums">
           code {formatDacCode(ch.code, chip.decl.resolutionBits)} · {chip.decl.resolutionBits}-bit
         </span>
-        <span className="font-mono tabular-nums">Vref = {formatDacVolts(chip.decl.vrefMv / 1000)}</span>
+        <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums">
+          <label className="flex items-center gap-1">
+            <span className="text-muted-foreground/80">Win</span>
+            <select
+              aria-label="Scope window"
+              className="h-5 max-w-[4.5rem] rounded border border-border bg-background px-1 text-[10px] text-foreground"
+              value={windowMs}
+              onChange={(e) => setWindowMs(Number(e.target.value))}
+            >
+              {DAC_WINDOW_MS_OPTIONS.map((ms) => (
+                <option key={ms} value={ms}>
+                  {formatDacWindow(ms)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span>Vref = {formatDacVolts(chip.decl.vrefMv / 1000)}</span>
+        </div>
       </div>
-      <VoutCanvas chip={chip} channel={sel} />
+      <VoutCanvas chip={chip} channel={sel} windowMs={windowMs} />
       <div className="flex items-center gap-2">
         <div className="h-2 flex-1 overflow-hidden rounded-sm bg-muted">
           <div className="h-full bg-success transition-[width] duration-75" style={{ width: `${fill * 100}%` }} />
