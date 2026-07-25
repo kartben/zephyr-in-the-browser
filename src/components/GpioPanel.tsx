@@ -43,10 +43,7 @@ export function GpioKeysBody() {
   }
 
   return (
-    <div className="space-y-1.5 px-3 py-3">
-      <span className="text-[11px] font-medium text-muted-foreground">
-        Inputs — buttons
-      </span>
+    <div className="px-3 py-3">
       <div className="grid grid-cols-4 gap-1.5">
         {buttons.map((pin) => (
           <ButtonPin key={pin.id} pin={pin} />
@@ -70,10 +67,7 @@ export function GpioLedsBody() {
   }
 
   return (
-    <div className="space-y-1.5 px-3 py-3">
-      <span className="text-[11px] font-medium text-muted-foreground">
-        Outputs — LEDs
-      </span>
+    <div className="px-3 py-3">
       <div className="grid grid-cols-4 gap-1.5">
         {leds.map((pin) => (
           <LedPin key={pin.id} pin={pin} />

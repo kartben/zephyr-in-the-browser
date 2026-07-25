@@ -75,16 +75,11 @@ export function PwmLedsBody({
   }
 
   return (
-    <div className="space-y-3 px-3 py-3">
-      <div className="space-y-1.5">
-        <span className="text-[11px] font-medium text-muted-foreground">
-          Outputs — LEDs
-        </span>
-        <div className="grid grid-cols-4 gap-1.5">
-          {leds.map((led) => (
-            <PwmLedCell key={`${led.channel}:${led.label}`} chip={chip} led={led} />
-          ))}
-        </div>
+    <div className="px-3 py-3">
+      <div className="grid grid-cols-4 gap-1.5">
+        {leds.map((led) => (
+          <PwmLedCell key={`${led.channel}:${led.label}`} chip={chip} led={led} />
+        ))}
       </div>
     </div>
   )

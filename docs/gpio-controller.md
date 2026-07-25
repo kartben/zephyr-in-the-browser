@@ -46,9 +46,8 @@ before `buzzer`).
 
 Move today’s button chrome out of `GpioBody` unchanged:
 
-- Section label: `Inputs — buttons`
 - Same momentary `ButtonPin` grid (press/hold → `setInput`)
-- No footer blurb
+- No section label, no footer blurb
 
 Collapsed badge: `N btn` / `N btns` (what the GPIO badge shows today).
 
