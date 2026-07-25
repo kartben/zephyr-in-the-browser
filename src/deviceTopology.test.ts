@@ -27,6 +27,17 @@ const fakeSensor = (address: number, name: string): I2cChip =>
   ({ address, name, decl: {}, setChannel() {} }) as unknown as I2cChip
 const fakeMemory = (address: number, name: string): I2cChip =>
   ({ address, name, decl: {}, poke() {} }) as unknown as I2cChip
+const fakeRtc = (address: number, name: string): I2cChip =>
+  ({
+    address,
+    name,
+    decl: {},
+    getTime() {},
+    syncFromBrowser() {},
+    getAlarms() {
+      return []
+    },
+  }) as unknown as I2cChip
 const fakeOled = (address: number, name: string): I2cChip =>
   ({ address, name, memory: new Uint8Array(0), isOn: () => true }) as unknown as I2cChip
 
@@ -38,12 +49,13 @@ const A53_DEFAULT_CHIPS: I2cChip[] = [
   fakeSensor(0x53, 'ADXL345 accelerometer'),
 ]
 
-/** Shell with i2c-sensors-extra: defaults plus the four optional parts. */
+/** Shell with i2c-sensors-extra: defaults plus the optional parts. */
 const A53_SHELL_CHIPS: I2cChip[] = [
   ...A53_DEFAULT_CHIPS,
   fakeSensor(0x40, 'INA219 power monitor'),
   fakeSensor(0x44, 'ISL29035 light'),
   fakeSensor(0x5c, 'LPS22HH pressure'),
+  fakeRtc(0x68, 'PCF8523 RTC'),
   fakeSensor(0x6a, 'LSM6DSO IMU'),
 ]
 
@@ -68,7 +80,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(bus.body).toBe('i2c')
     expect(bus.nodeName).toBe('virtio-i2c')
 
-    // All nine chips, in address order, named by their devicetree nodes.
+    // All ten chips, in address order, named by their devicetree nodes.
     const chipRows = inv.nodes.filter((n) => n.parentKey === 'virtio_i2c0')
     expect(chipRows.map((n) => n.key)).toEqual([
       'virtio_i2c0:3c',
@@ -79,6 +91,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
       'virtio_i2c0:50',
       'virtio_i2c0:53',
       'virtio_i2c0:5c',
+      'virtio_i2c0:68',
       'virtio_i2c0:6a',
     ])
     const tmp = nodeByKey(inv, 'virtio_i2c0:48')
@@ -89,6 +102,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(tmp.crumb).toBe('virtio_i2c0 · 0x48')
     expect(nodeByKey(inv, 'virtio_i2c0:50').deviceClass).toBe('memory')
     expect(nodeByKey(inv, 'virtio_i2c0:3c').body).toBe('oled')
+    expect(nodeByKey(inv, 'virtio_i2c0:68').deviceClass).toBe('rtc')
+    expect(nodeByKey(inv, 'virtio_i2c0:68').body).toBe('rtc')
 
     // The ⌗ story: the GNSS receiver hangs off uart1, not off thin air.
     const gnss = nodeByKey(inv, 'gnss')
@@ -109,7 +124,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(treeOf(a53Shell), [], ALL, 'qemu_cortex_a53')
 
     const ghosts = inv.nodes.filter((n) => n.presence === 'ghost')
-    expect(ghosts).toHaveLength(9)
+    expect(ghosts).toHaveLength(10)
     expect(ghosts.every((n) => n.note === 'NAK — detached')).toBe(true)
 
     // A detached declared sensor still files under Sensors, as a ghost.

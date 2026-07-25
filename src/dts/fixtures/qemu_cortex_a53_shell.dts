@@ -195,6 +195,14 @@
 					status = "okay";
 				};
 
+				pcf8523_0: pcf8523@68 {
+					compatible = "nxp,pcf8523";
+					reg = <0x68>;
+					battery-switch-over = "standard";
+					alarms-count = <1>;
+					status = "okay";
+				};
+
 				ssd1306_0: ssd1306@3c {
 					compatible = "solomon,ssd1306";
 					reg = <0x3c>;

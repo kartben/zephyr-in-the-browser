@@ -96,6 +96,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
   'isil,isl29035': 'isl29035',
   'atmel,at24': 'at24',
   'solomon,ssd1306': 'ssd1306',
+  'nxp,pcf8523': 'pcf8523',
 }
 
 const SENSOR_CHIP_IDS = new Set([

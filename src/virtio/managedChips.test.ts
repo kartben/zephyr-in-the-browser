@@ -12,6 +12,7 @@ import {
   lm75,
   lps22hh,
   lsm6dso,
+  pcf8523,
   ssd1306,
   syncManagedChips,
   tmp112,
@@ -34,17 +35,19 @@ describe('syncManagedChips', () => {
     expect(i2cModel.chips()).not.toContain(lps22hh)
     expect(i2cModel.chips()).not.toContain(ina219)
     expect(i2cModel.chips()).not.toContain(isl29035)
+    expect(i2cModel.chips()).not.toContain(pcf8523)
   })
 
   it('attaches every shell extra when the shell tree arrives', () => {
     setUserDts('shell.dts', a53Shell)
-    expect(addresses()).toEqual([0x3c, 0x40, 0x44, 0x48, 0x49, 0x50, 0x53, 0x5c, 0x6a])
+    expect(addresses()).toEqual([0x3c, 0x40, 0x44, 0x48, 0x49, 0x50, 0x53, 0x5c, 0x68, 0x6a])
     expect(i2cModel.chips()).toContain(lsm6dso)
+    expect(i2cModel.chips()).toContain(pcf8523)
   })
 
   it('drops managed chips when the tree has no bridged I2C bus', () => {
     setUserDts('shell.dts', a53Shell)
-    expect(addresses()).toHaveLength(9)
+    expect(addresses()).toHaveLength(10)
 
     setUserDts('blinky.dts', a53Blinky)
     expect(addresses()).toEqual([])

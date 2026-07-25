@@ -1,0 +1,36 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/rtc: PCF8523 only. Stock sample binds DT_ALIAS(rtc).
+ */
+
+&pcf8523_0 {
+	status = "okay";
+};
+
+&tmp112_0 {
+	status = "disabled";
+};
+
+&lm75_0 {
+	status = "disabled";
+};
+
+&adxl345_0 {
+	status = "disabled";
+};
+
+&ssd1306_0 {
+	status = "disabled";
+};
+
+&eeprom0 {
+	status = "disabled";
+};
+
+/ {
+	aliases {
+		rtc = &pcf8523_0;
+	};
+};

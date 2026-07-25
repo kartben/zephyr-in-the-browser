@@ -21,3 +21,7 @@
 &isl29035_0 {
 	status = "okay";
 };
+
+&pcf8523_0 {
+	status = "okay";
+};
