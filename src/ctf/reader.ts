@@ -324,9 +324,25 @@ export function threadLabel(tr: Trace, tid: number): string {
 }
 
 export function fmtTime(ns: number): string {
-  if (ns >= 1_000_000) return `${(ns / 1_000_000).toFixed(3)}ms`
-  if (ns >= 1_000) return `${(ns / 1_000).toFixed(3)}µs`
-  return `${ns}ns`
+  const abs = Math.abs(ns)
+  if (abs >= 1_000_000_000) return `${(ns / 1_000_000_000).toFixed(3)}s`
+  if (abs >= 1_000_000) return `${(ns / 1_000_000).toFixed(3)}ms`
+  if (abs >= 1_000) return `${(ns / 1_000).toFixed(3)}µs`
+  return `${Math.round(ns)}ns`
+}
+
+/**
+ * Nice tick spacing for a time-axis spanning `spanNs`, aiming for ~target ticks.
+ * Returns a step in nanoseconds from a 1/2/5×10^n ladder.
+ */
+export function niceTimeStep(spanNs: number, targetTicks = 5): number {
+  const span = Math.max(1, spanNs)
+  const raw = span / Math.max(2, targetTicks)
+  const exp = Math.floor(Math.log10(raw))
+  const mag = 10 ** exp
+  const norm = raw / mag
+  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10
+  return nice * mag
 }
 
 /**
@@ -425,4 +441,53 @@ export function stateAt(tr: Trace, tid: number, ts: number): [ThreadState | null
   const [s, e, state, reason] = segs[i]!
   if (s <= ts && (ts < e || i === starts.length - 1)) return [state, reason]
   return [null, '']
+}
+
+/** Running thread at ts (single-CPU), or null. */
+export function threadRunningAt(tr: Trace, ts: number): number | null {
+  for (const tid of tr.threads.keys()) {
+    const [st] = stateAt(tr, tid, ts)
+    if (st === 'run') return tid
+  }
+  return null
+}
+
+/**
+ * Per-thread time in each state over [view0, view1], mirroring
+ * scripts/tracing/trace_viewer.py::window_stats.
+ */
+export function windowStats(
+  tr: Trace,
+  view0: number,
+  view1: number,
+): { per: Map<number, Partial<Record<ThreadState, number>>>; spanNs: number } {
+  const spanNs = Math.max(1, view1 - view0)
+  const per = new Map<number, Partial<Record<ThreadState, number>>>()
+  for (const [tid, segs] of tr.states) {
+    const starts = tr.stateStarts.get(tid)
+    if (!starts?.length) continue
+    let i = Math.max(0, bisectRight(starts, view0) - 1)
+    const acc: Partial<Record<ThreadState, number>> = {}
+    while (i < segs.length) {
+      const [s, e, st] = segs[i]!
+      i++
+      if (s >= view1) break
+      if (e <= view0) continue
+      const d = Math.min(e, view1) - Math.max(s, view0)
+      if (d > 0) acc[st] = (acc[st] ?? 0) + d
+    }
+    if (Object.keys(acc).length) per.set(tid, acc)
+  }
+  return { per, spanNs }
+}
+
+/** Count THREAD_SWITCHED_IN events in [view0, view1]. */
+export function contextSwitchesIn(tr: Trace, view0: number, view1: number): number {
+  let n = 0
+  for (const ev of tr.events) {
+    if (ev.ts < view0) continue
+    if (ev.ts > view1) break
+    if (ev.eid === 0x11) n++
+  }
+  return n
 }

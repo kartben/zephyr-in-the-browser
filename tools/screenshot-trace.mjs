@@ -38,7 +38,10 @@ function record(ts, eid, body) {
   return [...encU64(ts), ...encU16(eid), ...body]
 }
 
-/** Longer span so the 5 ms live window shows chunky context-switch bars. */
+/**
+ * ~1.2 s of schedule activity so the default 1 s live window fills the axis
+ * with second/ms ticks (same glance window as the tracing sample).
+ */
 function buildSyntheticCtf() {
   const main = 0x20001000
   const a = 0x20002000
@@ -51,7 +54,8 @@ function buildSyntheticCtf() {
   push(200, 0x13, [...encU32(b), ...encName('thread_b')])
   push(1_000, 0x11, [...encU32(main), ...encName('main')])
 
-  let t = 2_000_000 // start busy work at 2 ms
+  // Slice length ≈ 30 ms → 40 slices ≈ 1.2 s.
+  let t = 2_000_000
   for (let i = 0; i < 40; i++) {
     const from = i % 2 === 0 ? a : b
     const to = i % 2 === 0 ? b : a
@@ -64,16 +68,16 @@ function buildSyntheticCtf() {
     }
     push(t, 0x11, [...encU32(to), ...encName(toName)])
     if (i % 5 === 2) {
-      push(t + 200_000, 0x7f, [...encU32(40)])
-      push(t + 220_000, 0x10, [...encU32(to), ...encName(toName)])
-      push(t + 220_000, 0x11, [...encU32(from), ...encName(fromName)])
-      t += 500_000
+      push(t + 8_000_000, 0x7f, [...encU32(40)])
+      push(t + 10_000_000, 0x10, [...encU32(to), ...encName(toName)])
+      push(t + 10_000_000, 0x11, [...encU32(from), ...encName(fromName)])
+      t += 35_000_000
     } else {
-      t += 300_000
+      t += 30_000_000
     }
     if (i % 7 === 0) {
-      push(t - 80_000, 0x1b, [])
-      push(t - 40_000, 0x1c, [])
+      push(t - 2_000_000, 0x1b, [])
+      push(t - 1_000_000, 0x1c, [])
     }
   }
   return Uint8Array.from(bytes)

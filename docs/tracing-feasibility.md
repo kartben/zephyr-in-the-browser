@@ -3,7 +3,7 @@
 The question: can this tab show the same kind of live Gantt view that
 Zephyr's [`trace_viewer.py`](https://docs.zephyrproject.org/latest/samples/subsys/tracing/basic/README.html#viewing-a-ctf-trace-in-the-terminal)
 draws in a terminal — thread lanes coloured by run/ready/blocked/sleep,
-playhead, follow-the-live-edge — while
+a clear time axis from t0, follow-the-live-edge — while
 `samples/subsys/tracing/basic` runs in the emulator?
 
 **Verdict: yes.** The hard part is not the GUI; it is getting the CTF byte
@@ -22,7 +22,7 @@ that:
 2. Reconstructs a per-thread state machine (run / ready / blocked / sleep /
    suspended) from scheduling events.
 3. Draws a Gantt timeline (curses) with one lane per thread, an ISR overlay,
-   a playhead, zoom/pan, live `--follow`, and a metrics strip.
+   a time-axis ruler, zoom/pan, live `--follow`, and a metrics strip.
 
 Nothing about that needs a host OS beyond "bytes arrive and a canvas can
 paint." A TypeScript port of (1)+(2) plus a canvas panel for (3) is the whole
@@ -88,7 +88,7 @@ wrong shape for *live* follow. Do not pursue it for this panel.
 | CTF decoder + state machine (Python → TS) | ~port of the viewer's non-UI half | **shipped** |
 | Ship Zephyr's TSDL `metadata` as a static asset | 30 KB copy | **shipped** |
 | `hostTrace.ts` polling `Module.FS` | GNSS-sized bridge | **shipped** |
-| Stage `TracePanel` Gantt (lanes, colours, follow, playhead) | new stage overlay | **shipped** |
+| Stage `TracePanel` Gantt (lanes, colours, follow, time axis) | new stage overlay | **shipped** |
 | Smoke-test under a real qemu-wasm build | needs the image CI / local build | **follow-up** |
 | UART chardev fallback | QEMU patch + rebuild | only if semihost fails |
 
@@ -103,9 +103,12 @@ Aimed-for, not pixel-identical:
 - One lane per thread, plus an ISR lane when ISRs appear
 - State colours matching the viewer's legend: run (green), ready (yellow),
   blocked (red), sleep (cyan), suspended (muted)
+- Time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
+- Default live-follow window of **1 s** for the tracing sample (zoom/pan still
+  free); the window *is* the selection — no movable playhead
 - Live follow pinned to the newest events; pan/zoom detaches; an action
   re-syncs
-- Playhead with the selected lane's state/reason
+- Info strip reports running thread + selected lane at the window's right edge
 - Compact metrics for the visible window (CPU busy, switch rate)
 
 Deferred (easy later, not load-bearing): curses-style keyboard map, raw CTF
