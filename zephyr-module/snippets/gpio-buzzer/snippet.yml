@@ -13,6 +13,6 @@ boards:
   qemu_riscv32/qemu_virt_riscv32:
     append:
       EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
-  qemu_cortex_m3:
+  qemu_cortex_m3/ti_lm3s6965:
     append:
       EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay
