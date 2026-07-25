@@ -39,12 +39,19 @@ export type MainToWorker =
       snapshot: WorkerSnapshot
     }
   | { type: 'update'; buffer: ArrayBufferLike; snapshot: WorkerSnapshot }
+  | { type: 'profile'; enabled: boolean }
   | { type: 'stop' }
 
 export type WorkerToMain =
   | { type: 'ready' }
   | { type: 'uploadMode'; mode: UploadMode }
   | { type: 'fatal'; message: string }
+  | {
+      type: 'frameStats'
+      uploaded: boolean
+      digestMs: number
+      drawMs: number
+    }
 
 // DOM lib types `self` as a Window; the runtime is a DedicatedWorkerGlobalScope
 // whose postMessage takes no targetOrigin. Post through a narrow local view.
@@ -73,6 +80,8 @@ let dirtyStreak = 0
 const HOT_AFTER = 3
 /** Re-check for a still frame about once a second while hot (~60 Hz present). */
 const HOT_RECHECK_EVERY = 60
+/** When true, time digest/draw and post frameStats to the main thread. */
+let profiling = false
 
 // Worker requestAnimationFrame drives OffscreenCanvas presentation where it
 // exists (all current WebGL2-capable browsers); fall back to a timer otherwise.
@@ -140,10 +149,16 @@ function frame() {
   // directly and ramfb has no dirty bit to read, so the content is the signal.
   const hot = dirtyStreak >= HOT_AFTER
   const recheck = hot && dirtyStreak % HOT_RECHECK_EVERY === 0
+  let digestMs = 0
+  let uploaded = true
   if (!hot || recheck) {
+    const t0 = profiling ? performance.now() : 0
     const hash = digest(buffer, snapshot.pointer, length)
+    if (profiling) digestMs = performance.now() - t0
     if (hasDrawn && hash !== null && hash === lastDigest) {
       dirtyStreak = 0
+      uploaded = false
+      if (profiling) post({ type: 'frameStats', uploaded: false, digestMs, drawMs: 0 })
       return
     }
     lastDigest = hash ?? 0
@@ -153,7 +168,16 @@ function frame() {
 
   // Re-view every frame: an in-place heap growth keeps the SharedArrayBuffer's
   // identity but enlarges it, and a stale view would clamp to the old length.
+  const t1 = profiling ? performance.now() : 0
   renderer!.draw(new Uint8Array(buffer, snapshot.pointer, length))
+  if (profiling) {
+    post({
+      type: 'frameStats',
+      uploaded,
+      digestMs,
+      drawMs: performance.now() - t1,
+    })
+  }
 }
 
 self.addEventListener('message', (event: MessageEvent) => {
@@ -175,6 +199,8 @@ self.addEventListener('message', (event: MessageEvent) => {
     snapshot = message.snapshot
     hasDrawn = false
     dirtyStreak = 0
+  } else if (message.type === 'profile') {
+    profiling = message.enabled
   } else if (message.type === 'stop') {
     running = false
     unschedule(frameHandle)

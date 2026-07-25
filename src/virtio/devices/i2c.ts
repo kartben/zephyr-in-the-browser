@@ -86,6 +86,8 @@ export interface I2cModel extends VirtioDeviceModel {
   transactions(): readonly I2cTransaction[]
   clearTransactions(): void
   subscribe(fn: () => void): () => void
+  /** Monotonic count of logged transactions — for the display profiler. */
+  transactionCount(): number
 }
 
 export function createI2cModel(name = 'i2c'): I2cModel {
@@ -267,6 +269,8 @@ export function createI2cModel(name = 'i2c'): I2cModel {
       }
       notify()
     },
+
+    transactionCount: () => nextId - 1,
 
     subscribe(fn) {
       listeners.add(fn)

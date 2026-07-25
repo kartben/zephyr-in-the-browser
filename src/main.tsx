@@ -4,7 +4,10 @@ import App from './App'
 import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
 import { claimStashedDts } from './devicetree'
+import { installProfile } from './display/profile'
 import './index.css'
+
+installProfile()
 
 /*
  * A guest image dropped while QEMU was already running is handed across the
