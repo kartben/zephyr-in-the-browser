@@ -8,7 +8,7 @@
 
 import { getFrame, getSnapshot, subscribe as subscribeDisplay } from '@/hostDisplay'
 import { getSnapshot as getStats } from '@/guestStats'
-import { i2cModel } from '@/virtio'
+import { bridgeStats, i2cModel, type BridgeStats } from '@/virtio'
 import type { MainToWorker } from '@/display/renderWorker'
 
 export interface ProfileSnapshot {
@@ -23,6 +23,17 @@ export interface ProfileSnapshot {
   drawMs: number
   /** I²C transactions / second. */
   i2cHz: number
+  /**
+   * Mean gap between consecutive hot-window polls of the virtio bridge, ms —
+   * the pace the loop *achieves*, against the 1 ms it asks for. A reading near
+   * 4 means timer-nesting clamping has it, which costs the guest a round trip's
+   * worth of latency on every blocking transfer. 0 when the bridge stayed idle.
+   */
+  bridgePollMs: number
+  /** Share of those polls that missed the pace, 0..100. */
+  bridgePollSlowPct: number
+  /** Virtio requests drained / second, across every bound device. */
+  bridgeHz: number
   /** Guest MIPS (ema). */
   mips: number
   display: { width: number; height: number; available: boolean }
@@ -37,7 +48,11 @@ interface Counters {
   drawMsSum: number
   drawCount: number
   i2cStart: number
+  /** Bridge counters as they stood when the window opened; free-running. */
+  bridgeStart: BridgeStats
 }
+
+const ZERO_BRIDGE: BridgeStats = { hotPolls: 0, hotGapMsSum: 0, hotPollsSlow: 0, requests: 0 }
 
 const empty = (): Counters => ({
   guestFrames: 0,
@@ -47,6 +62,7 @@ const empty = (): Counters => ({
   drawMsSum: 0,
   drawCount: 0,
   i2cStart: 0,
+  bridgeStart: ZERO_BRIDGE,
 })
 
 let enabled = false
@@ -65,6 +81,9 @@ let lastSnapshot: ProfileSnapshot = {
   digestMs: 0,
   drawMs: 0,
   i2cHz: 0,
+  bridgePollMs: 0,
+  bridgePollSlowPct: 0,
+  bridgeHz: 0,
   mips: 0,
   display: { width: 0, height: 0, available: false },
   notes: [],
@@ -125,6 +144,14 @@ function rollWindow() {
   const stats = getStats()
   const i2cNow = i2cModel.transactionCount()
   const i2cDelta = Math.max(0, i2cNow - c.i2cStart)
+  const bridgeNow = bridgeStats()
+  const hotPolls = Math.max(0, bridgeNow.hotPolls - c.bridgeStart.hotPolls)
+  const bridgePollMs = hotPolls
+    ? Math.max(0, bridgeNow.hotGapMsSum - c.bridgeStart.hotGapMsSum) / hotPolls
+    : 0
+  const bridgePollSlowPct = hotPolls
+    ? (Math.max(0, bridgeNow.hotPollsSlow - c.bridgeStart.hotPollsSlow) / hotPolls) * 100
+    : 0
   const notes: string[] = []
   const guestFps = c.guestFrames / elapsed
   const uploadFps = c.uploads / elapsed
@@ -132,6 +159,9 @@ function rollWindow() {
   if (uploadFps + 0.5 < guestFps) notes.push('uploads_behind_guest')
   if (i2cDelta / elapsed > 40) notes.push('i2c_hot')
   if (c.digestCount && c.digestMsSum / c.digestCount > 0.5) notes.push('digest_expensive')
+  // The hot loop asks for 1 ms. Anything near 4 is the timer nesting clamp,
+  // and every blocking guest transfer pays it — see transport.ts.
+  if (hotPolls > 20 && bridgePollMs > 2) notes.push('bridge_poll_clamped')
 
   lastSnapshot = {
     wallMs: now,
@@ -140,6 +170,9 @@ function rollWindow() {
     digestMs: c.digestCount ? c.digestMsSum / c.digestCount : 0,
     drawMs: c.drawCount ? c.drawMsSum / c.drawCount : 0,
     i2cHz: i2cDelta / elapsed,
+    bridgePollMs,
+    bridgePollSlowPct,
+    bridgeHz: Math.max(0, bridgeNow.requests - c.bridgeStart.requests) / elapsed,
     mips: stats.mips,
     display: {
       width: display.width,
@@ -151,6 +184,7 @@ function rollWindow() {
   windowStart = now
   windowCounters = empty()
   windowCounters.i2cStart = i2cNow
+  windowCounters.bridgeStart = bridgeNow
 }
 
 function enable() {
@@ -159,6 +193,7 @@ function enable() {
   windowStart = performance.now()
   windowCounters = empty()
   windowCounters.i2cStart = i2cModel.transactionCount()
+  windowCounters.bridgeStart = bridgeStats()
   hasDigest = false
   const tick = () => {
     if (!enabled) return

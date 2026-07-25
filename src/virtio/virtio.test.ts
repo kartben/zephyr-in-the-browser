@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createFakeBridge } from './testing/fakeBridge'
 import { createGpioModel } from './devices/gpio'
-import { attach, detach, available, boundNames, pollOnce, register } from './transport'
+import { attach, detach, available, boundNames, pollOnce, register, stats } from './transport'
 import type { VirtioDeviceModel, VirtioRequest } from './transport'
 import { CMP_FAIL, CMP_OK } from './protocol'
 
@@ -370,6 +370,48 @@ describe('virtio transport', () => {
     expect(dev.configGen()).toBe(0)
     bump!()
     expect(dev.configGen()).toBe(1)
+  })
+
+  /*
+   * Every other test here drives the loop by hand through pollOnce. This one
+   * does not touch it: what is under test is the scheduling itself, which is
+   * where the guest's latency comes from once it is blocking on us.
+   *
+   * What it cannot check is the reason the hot path bounces through a
+   * MessagePort before arming its timer — browsers clamp a timer nested inside
+   * another timer's callback to 4 ms, and node does not clamp at all, so the
+   * pace here is honest about the plumbing and says nothing about the clamp.
+   * The number that answers that question is `bridgePollMs` from
+   * src/display/profile.ts, read in a real browser.
+   */
+  it('drives itself, and counts what it drained and how fast it looked', async () => {
+    const bridge = createFakeBridge([
+      { name: 'gpio', deviceId: VIRTIO_ID_GPIO, numQueues: 2, config: GPIO_CONFIG },
+    ])
+    register(createGpioModel())
+    const before = stats()
+
+    attach(bridge.module)
+    const dev = bridge.device('gpio')
+    dev.kick(VQ_REQUEST, gpioRequest(MSG_SET_DIRECTION, 0, DIRECTION_OUT), 8)
+
+    const deadline = Date.now() + 2000
+    while (dev.completions().length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    // Answering opens the hot window; let the loop spin inside it long enough
+    // to have timed itself against a predecessor.
+    await new Promise((resolve) => setTimeout(resolve, 40))
+
+    const after = stats()
+    expect(after.requests).toBe(before.requests + 1)
+    // A request opens the hot window, so the loop should have gone round it a
+    // few times under its own power while we waited.
+    expect(after.hotPolls).toBeGreaterThan(before.hotPolls)
+    const gap =
+      (after.hotGapMsSum - before.hotGapMsSum) / Math.max(1, after.hotPolls - before.hotPolls)
+    expect(gap).toBeGreaterThan(0)
+    expect(gap).toBeLessThan(20)
   })
 })
 

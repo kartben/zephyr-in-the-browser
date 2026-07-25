@@ -156,20 +156,46 @@ touch a virtqueue off the QEMU thread.
   accelerometer chart over virtio-i2c it was measured at ~700k
   `Atomics.load`s/s on the main thread, starving the qemu-wasm proxy that
   shares it. The 1 ms pace keeps ring drain in a single tick and answers well
-  inside a guest sample period, while dropping that load rate by ~650×. Hot
-  wakeups therefore use a 1 ms timer; the port remains available for the
-  initial attach kick. The idle path stays on the plain 50 ms timer.
+  inside a guest sample period, while dropping that load rate by ~650×.
+
+  So a hot wakeup is both: a `postMessage`, and a 1 ms timer armed *from that
+  message's handler*. The ordering is the part that is easy to get wrong and
+  was wrong here for a long time. A browser takes a timer's **nesting level**
+  from the task that scheduled it and clamps the delay to 4 ms once that level
+  passes 5 — so a hot loop that rearms itself with `setTimeout(poll, 1)` from
+  inside `poll` asks for 1 ms and is given 4, for the whole window. A task
+  started by `postMessage` sits at nesting level 0, so the same timer armed from
+  there is honoured. Measured in Chromium by
+  [`tools/probe-timer-clamp.mjs`](../tools/probe-timer-clamp.mjs):
+
+  | Rearmed from | Steady-state period |
+  | --- | --- |
+  | the previous timer's callback | 4.14 ms |
+  | a `MessagePort` message handler | 1.13 ms |
+
+  Since the guest blocks on the page, that difference is added to the latency of
+  every transfer it makes. The idle path stays on the plain 50 ms timer, where
+  one message hop per tick would cost more than it saves.
+
+  `stats()` in `src/virtio/transport.ts` counts the gaps between consecutive hot
+  polls so this can be checked rather than assumed; `src/display/profile.ts`
+  surfaces it as `bridgePollMs`, and flags a window whose mean exceeds 2 ms with
+  a `bridge_poll_clamped` note.
 
 At rest this is one shared-memory read per device per 50 ms. Under load a
 blocking transfer costs QEMU's 1 ms drain plus however fast the page's event
 loop turns. The end-to-end figure worth quoting is the one that was actually
 measured: a 116-address `i2c scan` — 116 blocking round trips back to back —
 completes in under ten seconds in a *hidden* tab, against roughly two minutes
-before the port replaced the timer. If measurement ever demands better,
-the levers in order are: proxying a wake onto the page via
-`MAIN_THREAD_ASYNC_EM_ASM`, `qemu_bh_schedule()` from the page to wake the main
-loop on completion, and a shadow register file the QEMU thread can answer
-cached reads from without leaving the thread at all.
+before the port replaced the timer.
+
+The remaining levers, in order, are the ones
+[performance.md](performance.md) tracks: moving the poll into a worker, where
+`Atomics.wait` replaces the whole hot-window apparatus with a sub-millisecond
+blocking wait that no clamp applies to; a `memory.atomic.notify` on the QEMU
+side after it publishes `req_wr`, turning that wait into a real wakeup; and
+`qemu_bh_schedule()` from the page to wake the main loop on completion rather
+than have it poll.
 
 ## What a backgrounded tab costs
 

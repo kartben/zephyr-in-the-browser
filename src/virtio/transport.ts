@@ -15,28 +15,39 @@
  * instances can share a device id (two I2C buses).
  *
  * Polling is adaptive. Idle costs one `Atomics.load` per device per 50 ms; for
- * a short window after any request it switches to a `MessagePort` loop paced at
- * ~1 ms.
+ * a short window after any request it switches to a loop paced at ~1 ms.
  *
- * The port, rather than `setTimeout(…, 0)`, for a reason that only shows up
- * once the guest starts *blocking* on us. Nested `setTimeout(0)` is clamped to
- * ~4 ms in a visible tab, which is fine — but in a background tab it is clamped
- * to about a second, and measurably so: 681 ms per tick in the tab this was
- * developed against. Since a guest thread sits in `k_sem_take(…, K_FOREVER)`
- * until we answer, that turns a hidden tab into a frozen guest — an `i2c scan`
- * crawling at one address per second. `postMessage` is not throttled, so the
- * burst runs at full speed whether or not anyone is looking.
+ * Both halves of that hot loop — a `MessagePort` hop *and* a timer — are load
+ * bearing, and each is there for a different failure:
  *
- * The 1 ms pace matters too. An unpaced `MessagePort` loop (delay 0 forever
- * while hot) spins the main thread at hundreds of thousands of Atomics loads
- * per second for as long as the guest keeps the bridge busy — which the
- * accelerometer chart does continuously over virtio-i2c. That busy-loop steals
- * the qemu-wasm main loop's time and the display falls behind. Draining the
- * rings still happens in a single poll tick; the pace only bounds how often we
- * *look* for the next request. The cost is that during the hot window the loop
- * competes for the main thread — it yields between macrotasks rather than
- * blocking, and the window only stays open while requests keep arriving — but
- * it is the reason the idle path stays on a plain timer.
+ * The port, because of what a background tab does to `setTimeout`. Nested
+ * `setTimeout(0)` is clamped to ~4 ms in a visible tab, which would be fine —
+ * but in a hidden one it is clamped to about a second, and measurably so:
+ * 681 ms per tick in the tab this was developed against. Since a guest thread
+ * sits in `k_sem_take(…, K_FOREVER)` until we answer, that clamp is not a slow
+ * page, it is a frozen guest — an `i2c scan` crawling at one address per
+ * second. `postMessage` delivery is not throttled, so the burst runs at full
+ * speed whether or not anyone is looking.
+ *
+ * The 1 ms pace, because an unpaced port loop (delay 0 forever while hot) spins
+ * the main thread at hundreds of thousands of Atomics loads per second for as
+ * long as the guest keeps the bridge busy — which the accelerometer chart does
+ * continuously over virtio-i2c. That busy-loop steals the qemu-wasm main loop's
+ * time and the display falls behind. Draining the rings still happens in a
+ * single poll tick; the pace only bounds how often we *look* for the next
+ * request.
+ *
+ * Which leaves the ordering, and it is the whole trick: the timer is armed
+ * *from inside the port's message handler*, never from the previous timer's
+ * callback. A browser derives a timer's nesting level from the task that
+ * scheduled it, and clamps to 4 ms past level 5 — so a hot loop that reschedules
+ * itself with `setTimeout(poll, 1)` from within `poll` asks for 1 ms and gets 4,
+ * for the whole window. A task started by `postMessage` sits at nesting level 0,
+ * so the same `setTimeout(poll, 1)` issued from there is honoured. Measured at
+ * 4.14 ms against 1.13 ms by tools/probe-timer-clamp.mjs, which is ~3 ms off
+ * every blocking transfer the guest makes. `stats()` below is how to tell
+ * whether the pace is real rather than assumed — it was assumed, and wrong, for
+ * as long as nothing looked.
  */
 
 import {
@@ -164,13 +175,67 @@ let hotUntil = 0
 /** Earliest wall time a hot poll may run; paces the MessagePort loop. */
 let nextHotAt = 0
 
+/* --- instrumentation ------------------------------------------------------
+ * Free-running counters, never reset — a reader diffs two samples. Kept always
+ * on because the cost is two adds per poll against clock reads the loop was
+ * making anyway, and because the thing they measure (does the hot loop actually
+ * run at the pace it asks for?) is invisible from the outside and was wrong for
+ * a long time without anyone noticing. src/display/profile.ts reads them.
+ */
+
+export interface BridgeStats {
+  /** Hot-window polls that had a predecessor to be timed against. */
+  hotPolls: number
+  /** Summed gap between consecutive hot polls, ms. Divide for the real pace. */
+  hotGapMsSum: number
+  /** Of those, how many came more than {@link HOT_GAP_SLOW_MS} apart. */
+  hotPollsSlow: number
+  /** Requests drained off the request rings. */
+  requests: number
+}
+
+/**
+ * A hot poll slower than this did not get the pace it asked for. Twice the
+ * period, so ordinary jitter does not count — but well under the 4 ms a clamped
+ * timer would give, so clamping does.
+ */
+const HOT_GAP_SLOW_MS = 2
+
+let hotPolls = 0
+let hotGapMsSum = 0
+let hotPollsSlow = 0
+let requestsSeen = 0
+/** When the previous hot poll ran, or 0 when the last one was an idle tick. */
+let lastHotPollAt = 0
+
+export function stats(): BridgeStats {
+  return { hotPolls, hotGapMsSum, hotPollsSlow, requests: requestsSeen }
+}
+
 /**
  * The hot-path wakeup. A posted message is delivered on the next macrotask and
  * is exempt from the background-tab timer clamp; `setTimeout` is not.
  */
 const hotChannel = typeof MessageChannel === 'function' ? new MessageChannel() : null
-hotChannel?.port1.addEventListener('message', () => poll())
+hotChannel?.port1.addEventListener('message', (ev) => hotWakeup((ev as MessageEvent).data))
 hotChannel?.port1.start()
+
+/**
+ * Runs as a message task, which is the point: a `setTimeout` armed from here
+ * starts at timer nesting level 0, so its 1 ms is honoured rather than clamped
+ * to 4 ms the way it would be if the previous poll had armed it directly.
+ *
+ * A message cannot be cancelled once posted, so this can land after `detach` —
+ * `poll` is the one that checks, and calling it clears the scheduling flags
+ * rather than leaving a timer armed against a dead module.
+ */
+function hotWakeup(delay: unknown) {
+  if (typeof delay !== 'number' || delay <= 0 || !exports) {
+    poll()
+    return
+  }
+  timer = setTimeout(poll, delay)
+}
 
 /**
  * Register a device model. Call before `attach`; a model whose name no device
@@ -195,6 +260,9 @@ export function detach() {
   timer = 0
   scheduled = false
   hotUntil = 0
+  // Not the counters — those are free-running by contract — only the mark the
+  // next gap would be measured against, which is meaningless across a detach.
+  lastHotPollAt = 0
   const had = bridges.length
   bridges = []
   exports = null
@@ -420,6 +488,7 @@ function pollBridge(b: Bridge, now: number) {
       b.reqRd,
       wr,
       ({ token, queue, out, inCap }) => {
+        requestsSeen += 1
         // Copy: `out` is a view into the ring, which QEMU may overwrite the
         // moment we publish req_rd — and a parked request outlives this call
         // by design.
@@ -472,16 +541,24 @@ function poll() {
     // — silently stops the timer and the guest hangs with no clue why.
     console.error('[virtio] poll failed; the bridge keeps running', err)
   } finally {
-    const hot = performance.now() < hotUntil
-    if (hot) {
-      // Pace with setTimeout, not MessageChannel(0): an unpaced port loop was
-      // measured at ~700k Atomics.loads/s while accel_chart kept the bridge
-      // hot, starving qemu-wasm on the same thread. 1 ms still answers well
-      // inside a guest sample period. Background-tab timer clamping can stretch
-      // this; that is preferred to a foreground busy-loop.
-      nextHotAt = performance.now() + HOT_PERIOD_MS
+    const after = performance.now()
+    if (after < hotUntil) {
+      // Paced, not unpaced: an unpaced port loop was measured at ~700k
+      // Atomics.loads/s while accel_chart kept the bridge hot, starving
+      // qemu-wasm on the same thread. 1 ms still answers well inside a guest
+      // sample period. `schedule` routes this through the port so the pace is
+      // the one asked for rather than the 4 ms a nested timer would be given.
+      if (lastHotPollAt) {
+        const gap = after - lastHotPollAt
+        hotGapMsSum += gap
+        if (gap > HOT_GAP_SLOW_MS) hotPollsSlow += 1
+        hotPolls += 1
+      }
+      lastHotPollAt = after
+      nextHotAt = after + HOT_PERIOD_MS
       schedule(HOT_PERIOD_MS)
     } else {
+      lastHotPollAt = 0
       nextHotAt = 0
       schedule(IDLE_MS)
     }
@@ -491,10 +568,12 @@ function poll() {
 function schedule(delay: number) {
   if (scheduled) return
   scheduled = true
-  if (delay === 0 && hotChannel) {
-    // Cannot be cancelled once posted, which is why `poll` checks `exports`
-    // rather than relying on `detach` to stop it.
-    hotChannel.port2.postMessage(0)
+  // Anything at hot-loop pace goes through the port, which both dodges the
+  // background-tab clamp and resets the timer nesting level (see hotWakeup).
+  // The idle timer is left alone: it is one load per device per 50 ms, and a
+  // message hop per tick would cost more than it saves.
+  if (hotChannel && delay <= HOT_PERIOD_MS) {
+    hotChannel.port2.postMessage(delay)
   } else {
     timer = setTimeout(poll, delay)
   }
