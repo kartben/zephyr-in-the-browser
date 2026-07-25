@@ -11,6 +11,7 @@ import { Boxes, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DtsViewer } from '@/components/DtsViewer'
 import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/DockRow'
+import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
 import { buildRowList, type DockView } from '@/deviceTopology'
 import { get as getDeviceTree } from '@/devicetree'
@@ -63,6 +64,14 @@ export function Dock({ boardId }: { boardId: string }) {
           count={row.count}
           collapsed={collapsed}
           onToggle={() => toggleGroup(row.deviceClass)}
+          badge={
+            collapsed ? (
+              <GroupBadge
+                deviceClass={row.deviceClass}
+                nodes={inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)}
+              />
+            ) : undefined
+          }
         />,
       )
       continue
