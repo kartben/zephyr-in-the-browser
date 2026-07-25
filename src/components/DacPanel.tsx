@@ -129,16 +129,18 @@ function VoutCanvas({
       }
 
       // Trace as a held level (DAC steps), not a diagonal interpolate.
-      const samples = history.filter((s) => s.t >= t0 - 1)
+      // Walk the ring in place — no filter() copy of a 30 s / 1 kHz buffer.
+      const first = Math.max(0, history.lowerBound(t0) - 1)
+      const visible = history.length - first
       ctx.strokeStyle = '#3ecf8e'
       ctx.lineWidth = 2
       ctx.lineJoin = 'round'
       ctx.beginPath()
       let started = false
       let prevY = yAt(ch.volts)
-      const step = Math.max(1, Math.floor(samples.length / 800))
-      for (let i = 0; i < samples.length; i += step) {
-        const s = samples[i]!
+      const step = Math.max(1, Math.floor(visible / 800))
+      for (let i = first; i < history.length; i += step) {
+        const s = history.at(i)
         const x = xAt(s.t)
         const y = yAt(s.volts)
         if (!started) {

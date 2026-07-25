@@ -146,8 +146,32 @@ describe('virtio-i2c model', () => {
       dir: 'write',
       ok: true,
       chip: 'AT24C02 EEPROM',
+      byteLength: 2,
     })
     expect(log[log.length - 1].bytes).toEqual(Uint8Array.of(0x00, 0xaa))
+  })
+
+  it('keeps a fixed ring of transactions without shifting the array', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+    for (let i = 0; i < 600; i++) {
+      write(0x50, Uint8Array.of(i & 0xff))
+    }
+    const log = i2c.transactions()
+    expect(log).toHaveLength(500)
+    expect(log[0]!.id).toBe(101)
+    expect(log[log.length - 1]!.id).toBe(600)
+    expect(log[log.length - 1]!.bytes).toEqual(Uint8Array.of(599 & 0xff))
+  })
+
+  it('truncates long payloads in the log but remembers the wire length', () => {
+    i2c.attachChip(createSsd1306({ address: 0x3c }))
+    const payload = new Uint8Array(40)
+    for (let i = 0; i < payload.length; i++) payload[i] = i
+    write(0x3c, Uint8Array.of(0x40, ...payload))
+    const entry = i2c.transactions()[0]!
+    expect(entry.byteLength).toBe(41)
+    expect(entry.bytes.length).toBe(8)
+    expect(entry.bytes[0]).toBe(0x40)
   })
 
   /**

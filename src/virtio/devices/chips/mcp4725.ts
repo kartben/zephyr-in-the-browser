@@ -171,7 +171,7 @@ export function createMcp4725({
     },
     getCode: () => code,
     getChannel,
-    getHistory: (channel) => history.get(channel),
+    getHistory: (channel) => history.view(channel),
     getDetail(key) {
       if (key === 'mode') return lastMode
       if (key === 'eeprom') return eepromCode == null ? '—' : String(eepromCode)

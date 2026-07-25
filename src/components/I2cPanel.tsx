@@ -309,9 +309,11 @@ const HEX = (n: number) => n.toString(16).padStart(2, '0')
 
 function TransactionRow({ entry }: { entry: I2cTransaction }) {
   // Long payloads are truncated rather than wrapped: the interesting bytes of
-  // an I2C message are almost always the first few.
+  // an I2C message are almost always the first few. The model may already have
+  // capped `bytes`; `byteLength` is the on-the-wire size.
   const shown = Array.from(entry.bytes.subarray(0, 6)).map(HEX).join(' ')
-  const elided = entry.bytes.length > 6 ? ` +${entry.bytes.length - 6}` : ''
+  const total = entry.byteLength
+  const elided = total > 6 ? ` +${total - 6}` : ''
 
   return (
     <li className="flex items-baseline gap-1.5 whitespace-nowrap">

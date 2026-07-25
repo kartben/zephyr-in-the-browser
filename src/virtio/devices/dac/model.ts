@@ -67,7 +67,12 @@ export interface DacChip extends I2cChip {
   poke(addr: number, value: number): void
   setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   getChannel(index: number): DacChannel
-  getHistory(channel: number): readonly DacSample[]
+  /**
+   * Zero-copy chronological view of the Vout ring. Prefer walking
+   * {@link DacHistoryView.at} over materialising an array — the stock DAC
+   * sample writes at 1 kHz.
+   */
+  getHistory(channel: number): DacHistoryView
   getDetail?(key: string): string
   version(): number
   subscribe(fn: () => void): () => void
@@ -118,11 +123,31 @@ export function formatDacWindow(ms: number): string {
 }
 
 /**
+ * Chronological view over a channel's ring — no array copy. The chart walks
+ * this on the animation frame; {@link DacHistory.get} materialises only when a
+ * caller needs a real array (tests, one-shots).
+ */
+export interface DacHistoryView {
+  readonly length: number
+  at(index: number): DacSample
+  /**
+   * First chronological index whose `t >= t0`, or `length` if all are older.
+   * Callers that hold a step often want `max(0, index - 1)`.
+   */
+  lowerBound(t0: number): number
+}
+
+/**
  * Per-channel ring of output samples for the Vout chart. Providers call
  * {@link DacHistory.push} whenever a channel's code changes.
  *
  * Retention is long enough for the largest scope window; the panel picks the
  * visible slice. Capacity assumes ~1 sample/ms (stock `samples/drivers/dac`).
+ *
+ * Push/prune are O(dropped) with O(1) per drop — never `shift`/`splice` on the
+ * 1 kHz I²C path. The previous dense-array+shift form copied tens of thousands
+ * of slots per write once the 30 s ring filled, and the sawtooth chart fell
+ * behind the guest.
  */
 export function createDacHistory(opts: {
   channelCount: number
@@ -131,41 +156,111 @@ export function createDacHistory(opts: {
   now?: () => number
 }): {
   push(channel: number, code: number, volts: number, t?: number): void
+  /** Zero-copy walk for the scope. */
+  view(channel: number): DacHistoryView
+  /** Materialised chronological copy — prefer {@link view} on hot paths. */
   get(channel: number): readonly DacSample[]
 } {
   const retentionMs = opts.retentionMs ?? DAC_HISTORY_RETENTION_MS
   // 1 kHz guest writes × retention, plus headroom for bursts.
-  const maxPoints = Math.max(4096, Math.ceil(retentionMs * 1.25))
+  const capacity = Math.max(4096, Math.ceil(retentionMs * 1.25))
   const nowFn = opts.now ?? dacNowMs
-  const rings: DacSample[][] = Array.from({ length: opts.channelCount }, () => [])
 
-  const prune = (channel: number, now: number) => {
-    const ring = rings[channel]
-    if (!ring) return
-    const cutoff = now - retentionMs
-    while (ring.length > 0 && ring[0]!.t < cutoff) ring.shift()
-    if (ring.length > maxPoints) ring.splice(0, ring.length - maxPoints)
+  interface Ring {
+    buf: (DacSample | undefined)[]
+    /** Index of the oldest live sample. */
+    head: number
+    length: number
+    /** Invalidated on structural change; coalesce may mutate in place. */
+    snapshot: DacSample[] | null
   }
+
+  const rings: Ring[] = Array.from({ length: opts.channelCount }, () => ({
+    buf: new Array(capacity),
+    head: 0,
+    length: 0,
+    snapshot: null,
+  }))
+
+  const at = (ring: Ring, index: number): DacSample => {
+    const s = ring.buf[(ring.head + index) % capacity]
+    if (!s) throw new Error('dac history: empty slot')
+    return s
+  }
+
+  const dropOldest = (ring: Ring) => {
+    ring.head = (ring.head + 1) % capacity
+    ring.length--
+    ring.snapshot = null
+  }
+
+  const prune = (ring: Ring, now: number) => {
+    const cutoff = now - retentionMs
+    while (ring.length > 0 && at(ring, 0).t < cutoff) dropOldest(ring)
+    while (ring.length > capacity) dropOldest(ring)
+  }
+
+  const lowerBound = (ring: Ring, t0: number): number => {
+    let lo = 0
+    let hi = ring.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (at(ring, mid).t < t0) lo = mid + 1
+      else hi = mid
+    }
+    return lo
+  }
+
+  const makeView = (ring: Ring): DacHistoryView => ({
+    get length() {
+      return ring.length
+    },
+    at: (index) => at(ring, index),
+    lowerBound: (t0) => lowerBound(ring, t0),
+  })
 
   return {
     push(channel, code, volts, t = nowFn()) {
       if (channel < 0 || channel >= rings.length) return
       const ring = rings[channel]!
-      const last = ring[ring.length - 1]
+      const last = ring.length > 0 ? at(ring, ring.length - 1) : undefined
       // Coalesce sub-millisecond repeats of the same code.
       if (last && last.code === code && t - last.t < 1) {
         last.t = t
         last.volts = volts
-        prune(channel, t)
+        prune(ring, t)
         return
       }
-      ring.push({ t, channel, volts, code })
-      prune(channel, t)
+      const sample: DacSample = { t, channel, volts, code }
+      if (ring.length < capacity) {
+        ring.buf[(ring.head + ring.length) % capacity] = sample
+        ring.length++
+      } else {
+        ring.buf[ring.head] = sample
+        ring.head = (ring.head + 1) % capacity
+      }
+      ring.snapshot = null
+      prune(ring, t)
+    },
+    view(channel) {
+      if (channel < 0 || channel >= rings.length) {
+        return { length: 0, at: () => {
+          throw new Error('dac history: empty')
+        }, lowerBound: () => 0 }
+      }
+      const ring = rings[channel]!
+      prune(ring, nowFn())
+      return makeView(ring)
     },
     get(channel) {
       if (channel < 0 || channel >= rings.length) return []
-      prune(channel, nowFn())
-      return rings[channel]!
+      const ring = rings[channel]!
+      prune(ring, nowFn())
+      if (ring.snapshot) return ring.snapshot
+      const out: DacSample[] = new Array(ring.length)
+      for (let i = 0; i < ring.length; i++) out[i] = at(ring, i)
+      ring.snapshot = out
+      return out
     },
   }
 }

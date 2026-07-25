@@ -49,6 +49,12 @@ const LOG_CAP = 500
  */
 const LOG_NOTIFY_MS = 50
 
+/**
+ * Bytes kept per log entry. The traffic pane shows six; a little headroom is
+ * enough for debug without copying full OLED frame chunks into the ring.
+ */
+const LOG_BYTE_CAP = 8
+
 export interface I2cChip {
   /** 7-bit address. */
   readonly address: number
@@ -71,7 +77,13 @@ export interface I2cTransaction {
   /** 7-bit address. */
   address: number
   dir: 'read' | 'write'
+  /**
+   * Payload bytes for the trace (may be truncated — see {@link byteLength}).
+   * DAC fast-writes are 2 bytes; OLED chunks are capped at {@link LOG_BYTE_CAP}.
+   */
   bytes: Uint8Array
+  /** Full payload length on the wire, before truncation for the log. */
+  byteLength: number
   ok: boolean
   /** Name of the chip that answered, or null when nothing did. */
   chip: string | null
@@ -90,11 +102,25 @@ export interface I2cModel extends VirtioDeviceModel {
   transactionCount(): number
 }
 
+function copyLogBytes(src: Uint8Array): { bytes: Uint8Array; byteLength: number } {
+  const byteLength = src.length
+  if (byteLength <= LOG_BYTE_CAP) {
+    return { bytes: src.slice(), byteLength }
+  }
+  return { bytes: src.slice(0, LOG_BYTE_CAP), byteLength }
+}
+
 export function createI2cModel(name = 'i2c'): I2cModel {
   const bus = new Map<number, I2cChip>()
   const listeners = new Set<() => void>()
-  /** Append-only working log; a snapshot is published for React on a timer. */
-  const log: I2cTransaction[] = []
+  /**
+   * Fixed ring — push is O(1). The previous `array + splice(0, …)` form shifted
+   * every retained entry on each write once the cap filled; at 1 kHz (stock DAC
+   * sawtooth) that alone burned the main thread and the chart lagged the guest.
+   */
+  const log: (I2cTransaction | undefined)[] = new Array(LOG_CAP)
+  let logHead = 0
+  let logLen = 0
   let logSnapshot: I2cTransaction[] = []
   let nextId = 1
   let logNotifyTimer: ReturnType<typeof setTimeout> | undefined
@@ -124,11 +150,19 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     for (const fn of listeners) fn()
   }
 
+  const materializeLog = (): I2cTransaction[] => {
+    const snap: I2cTransaction[] = new Array(logLen)
+    for (let i = 0; i < logLen; i++) {
+      snap[i] = log[(logHead + i) % LOG_CAP]!
+    }
+    return snap
+  }
+
   const publishLog = () => {
     logNotifyTimer = undefined
     if (!logDirty) return
     logDirty = false
-    logSnapshot = log.slice()
+    logSnapshot = materializeLog()
     notify()
   }
 
@@ -139,8 +173,14 @@ export function createI2cModel(name = 'i2c'): I2cModel {
   }
 
   function record(entry: Omit<I2cTransaction, 'id'>) {
-    log.push({ id: nextId++, ...entry })
-    if (log.length > LOG_CAP) log.splice(0, log.length - LOG_CAP)
+    const row: I2cTransaction = { id: nextId++, ...entry }
+    if (logLen < LOG_CAP) {
+      log[(logHead + logLen) % LOG_CAP] = row
+      logLen++
+    } else {
+      log[logHead] = row
+      logHead = (logHead + 1) % LOG_CAP
+    }
     scheduleLogNotify()
   }
 
@@ -195,10 +235,12 @@ export function createI2cModel(name = 'i2c'): I2cModel {
       const data = chip.read?.(length)
       const ok = data != null
       answer(ok, data ?? undefined)
+      const logged = ok ? copyLogBytes((data as Uint8Array).subarray(0, length)) : { bytes: new Uint8Array(), byteLength: 0 }
       record({
         address,
         dir: 'read',
-        bytes: ok ? (data as Uint8Array).slice(0, length) : new Uint8Array(),
+        bytes: logged.bytes,
+        byteLength: logged.byteLength,
         ok,
         chip: chip.name,
       })
@@ -208,7 +250,15 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     const payload = req.out.subarray(OUT_HDR_BYTES)
     const ok = chip.write?.(payload) !== false
     answer(ok)
-    record({ address, dir: 'write', bytes: payload.slice(), ok, chip: chip.name })
+    const logged = copyLogBytes(payload)
+    record({
+      address,
+      dir: 'write',
+      bytes: logged.bytes,
+      byteLength: logged.byteLength,
+      ok,
+      chip: chip.name,
+    })
   }
 
   return {
@@ -255,12 +305,13 @@ export function createI2cModel(name = 'i2c'): I2cModel {
           logNotifyTimer = undefined
         }
         logDirty = false
-        logSnapshot = log.slice()
+        logSnapshot = materializeLog()
       }
       return logSnapshot
     },
     clearTransactions() {
-      log.length = 0
+      logHead = 0
+      logLen = 0
       logSnapshot = []
       logDirty = false
       if (logNotifyTimer !== undefined) {
