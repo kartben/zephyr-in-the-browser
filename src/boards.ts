@@ -187,7 +187,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Blinky',
     description: 'Blinks LED0 on the host GPIO bridge',
     zephyrSample: 'samples/basic/blinky',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['led', 'gpio'],
   },
   {
     // gpio-buzzer on host_gpio pin 5; LED0 stays on pin 4. Frequency args are
@@ -196,7 +196,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
-    primaryPanels: ['buzzer', 'gpio'],
+    primaryPanels: ['buzzer', 'gpio', 'led'],
   },
   {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
@@ -205,7 +205,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Button',
     description: 'A host GPIO button lights an LED via the input subsystem',
     zephyrSample: 'samples/basic/button',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['gpio', 'led'],
   },
 ]
 
@@ -315,12 +315,12 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   },
   {
     // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
-    // The dock draws an annotated duty-cycle chart (PwmChip framework).
+    // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',
     label: 'PWM LED',
-    description: 'Fades and blinks PWM LEDs on a PCA9685; duty chart in the page',
+    description: 'Fades and blinks PWM LEDs on a PCA9685; LEDs + duty chart in the page',
     zephyrSample: 'samples/drivers/led/pwm',
-    primaryPanels: ['pwm', 'i2c'],
+    primaryPanels: ['led', 'pwm', 'i2c'],
   },
   {
     // Stock DAC sample against the browser MCP4725 at 0x61. The dock paints
@@ -353,7 +353,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Blinky',
     description: 'Blinks LED0 over a VIRTIO GPIO device',
     zephyrSample: 'samples/basic/blinky',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['led', 'gpio'],
   },
   {
     // gpio-buzzer on virtio_gpio0 pin 5 (LED0 stays on 4). Same dock body as
@@ -362,7 +362,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer over VIRTIO GPIO; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
-    primaryPanels: ['buzzer', 'gpio'],
+    primaryPanels: ['buzzer', 'gpio', 'led'],
   },
   {
     // Interrupt-driven, unlike the Cortex-M3 build: this device offers
@@ -372,7 +372,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Button',
     description: 'A browser button lights an LED, over an interrupt-driven VIRTIO GPIO',
     zephyrSample: 'samples/basic/button',
-    primaryPanels: ['gpio'],
+    primaryPanels: ['gpio', 'led'],
   },
   {
     id: 'shell',

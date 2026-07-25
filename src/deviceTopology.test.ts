@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { computeInsights, parseDts } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
+import { createPca9685 } from '@/virtio/devices/chips/pca9685'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
+import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
 import type { Availability, DeviceInventory, Row } from './deviceTopology'
 import { buildRowList, deriveDeviceInventory } from './deviceTopology'
@@ -227,6 +229,82 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(buzzer.crumb).toBe('pin 5')
     expect(buzzer.label).toBe('Browser buzzer')
     expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
+  })
+
+  it('emits a gpio-leds dock row in the LED class', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(a53Blinky),
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const leds = nodeByKey(inv, 'gpio-leds')
+    expect(leds.presence).toBe('interactive')
+    expect(leds.body).toBe('gpio-leds')
+    expect(leds.deviceClass).toBe('led')
+    expect(leds.compatible).toBe('gpio-leds')
+    expect(leds.panelKind).toBe('led')
+    expect(leds.label).toBe('GPIO LEDs')
+    expect(nodeByKey(inv, 'gpio').body).toBe('gpio')
+  })
+
+  it('emits a pwm-leds dock row alongside the PCA9685 PWM chip', () => {
+    const chip = createPca9685({ address: 0x60 })
+    const inv = deriveDeviceInventory(
+      treeOf(`
+        /dts-v1/;
+        / {
+          model = "QEMU Cortex-A53";
+          soc {
+            virtio_mmio@a000800 {
+              compatible = "virtio,mmio";
+              status = "okay";
+              virtio_i2c0: virtio-i2c {
+                compatible = "virtio,i2c";
+                #address-cells = <1>;
+                #size-cells = <0>;
+                status = "okay";
+                pca9685_0: pca9685@60 {
+                  compatible = "nxp,pca9685-pwm";
+                  reg = <0x60>;
+                  #pwm-cells = <3>;
+                  status = "okay";
+                };
+              };
+            };
+          };
+          pwmleds {
+            compatible = "pwm-leds";
+            s_led0: s-led-0 {
+              pwms = <&pca9685_0 0 20000000 0>;
+              label = "PWM LED 0";
+            };
+            s_led1: s-led-1 {
+              pwms = <&pca9685_0 1 20000000 0>;
+              label = "PWM LED 1";
+            };
+          };
+        };
+      `),
+      [chip],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const leds = nodeByKey(inv, 'pwm-leds')
+    expect(leds.presence).toBe('interactive')
+    expect(leds.body).toBe('pwm-leds')
+    expect(leds.deviceClass).toBe('led')
+    expect(leds.compatible).toBe('pwm-leds')
+    expect(leds.panelKind).toBe('led')
+    expect(leds.chip).toBe(chip)
+    expect(leds.pwmLeds).toEqual([
+      { channel: 0, label: 'PWM LED 0' },
+      { channel: 1, label: 'PWM LED 1' },
+    ])
+    const pwm = inv.nodes.find((n) => n.body === 'pwm')
+    expect(pwm?.presence).toBe('interactive')
+    expect(pwm?.panelKind).toBe('pwm')
+    expect(pwm?.chip).toBe(chip)
   })
 })
 

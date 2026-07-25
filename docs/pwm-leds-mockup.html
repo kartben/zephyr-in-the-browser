@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>pwm-leds dock mockup (from real styles)</title>
+    <link
+      href="https://cdn.jsdelivr.net/fontsource/fonts/jetbrains-mono:vf@latest/latin-wght-normal.woff2"
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <style>
+      /* Tokens copied from src/index.css :root (dark default). */
+      :root {
+        --background: oklch(0.15 0.004 285.8);
+        --foreground: oklch(0.92 0.004 286.3);
+        --muted: oklch(0.21 0.006 285.9);
+        --muted-foreground: oklch(0.65 0.011 286.1);
+        --card: oklch(0.18 0.005 285.8);
+        --border: oklch(0.27 0.007 286);
+        --primary: oklch(0.62 0.19 292);
+        --secondary: oklch(0.24 0.006 286);
+        --success: oklch(0.7 0.16 152);
+        --radius: 0.5rem;
+        --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; border-color: var(--border); }
+      body {
+        margin: 0;
+        background: #0a0a0c;
+        color: var(--foreground);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .stage {
+        width: 380px;
+        margin: 24px auto;
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .caption {
+        width: 380px;
+        margin: 0 auto 8px;
+        color: #888;
+        font: 11px/1.4 var(--font-mono);
+      }
+      /* Dock row chrome — DockRow.tsx */
+      .row-head {
+        display: flex;
+        min-height: 28px;
+        align-items: center;
+        gap: 4px;
+        padding-right: 6px;
+      }
+      .row-btn {
+        display: flex;
+        min-width: 0;
+        flex: 1;
+        align-items: center;
+        gap: 6px;
+        border-radius: 6px;
+        padding: 4px 0 4px 4px;
+      }
+      .chev { width: 12px; height: 12px; color: color-mix(in oklch, var(--muted-foreground) 70%, transparent); transform: rotate(90deg); flex-shrink: 0; }
+      .icon { width: 14px; height: 14px; color: var(--primary); flex-shrink: 0; }
+      .name { font-size: 12px; font-weight: 500; truncate: true; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .crumb { font-family: var(--font-mono); font-size: 10px; color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .badge { margin-left: auto; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); padding-left: 4px; flex-shrink: 0; }
+      .body-wrap { border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent); }
+      .group {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 8px 4px; font-size: 10px; font-weight: 600;
+        letter-spacing: 0.04em; text-transform: uppercase;
+        color: var(--muted-foreground);
+      }
+      /* PwmLedsBody / GpioBody cells */
+      .pad { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+      .sec-label { font-size: 11px; font-weight: 500; color: var(--muted-foreground); }
+      .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+      .led {
+        display: flex; flex-direction: column; align-items: center; gap: 4px;
+        border: 1px solid var(--border); background: var(--secondary);
+        border-radius: 6px; padding: 6px 0; font-size: 11px; color: var(--muted-foreground);
+      }
+      .dot {
+        width: 12px; height: 12px; border-radius: 9999px; border: 1px solid var(--border);
+        background: transparent;
+      }
+      .dot.on {
+        border-color: var(--primary);
+        background: var(--primary);
+        box-shadow: 0 0 6px 1px var(--primary);
+      }
+      .hint { font-size: 11px; line-height: 1.45; color: var(--muted-foreground); margin: 0; padding-top: 4px; }
+      code { font-family: var(--font-mono); color: var(--foreground); font-size: 11px; }
+      /* PwmBody */
+      .pwm-pad { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+      canvas { display: block; width: 100%; height: 168px; border-radius: 4px; border: 1px solid var(--border); background: #000; }
+      .strip { display: flex; height: 44px; gap: 2px; align-items: stretch; }
+      .ch {
+        flex: 1; min-width: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: flex-end; gap: 2px;
+        border-radius: 4px; border: 1px solid transparent; padding: 2px;
+      }
+      .ch.active { border-color: color-mix(in oklch, var(--primary) 70%, transparent); background: color-mix(in oklch, var(--primary) 10%, transparent); }
+      .bar-slot { width: 100%; height: 24px; display: flex; align-items: flex-end; }
+      .bar { width: 100%; border-radius: 2px; }
+      .bar.on { background: color-mix(in oklch, var(--success) 70%, transparent); }
+      .bar.active { background: var(--primary); }
+      .bar.off { background: color-mix(in oklch, var(--muted-foreground) 25%, transparent); }
+      .ch-lab { height: 12px; font-family: var(--font-mono); font-size: 8px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); display: flex; align-items: center; justify-content: center; width: 100%; }
+      .meta { font-size: 11px; color: var(--muted-foreground); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+      .regs {
+        align-self: flex-start; font-size: 11px; color: var(--muted-foreground);
+        border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="caption">Faithful dock mockup — GpioBody LED cell chrome + PwmBody chart/strip (dark tokens from index.css)</p>
+    <div class="stage" id="stage">
+      <div class="group">LED controllers</div>
+      <div class="row-head">
+        <div class="row-btn">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+          <span class="name">PWM LEDs</span>
+          <span class="crumb">pca9685_0</span>
+        </div>
+        <span class="badge">3/4 on</span>
+      </div>
+      <div class="body-wrap">
+        <div class="pad">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span class="sec-label">Outputs — LEDs</span>
+            <div class="grid4">
+              <div class="led" title="PWM LED 0 (CH0) 80%">
+                <span class="dot on" style="opacity:0.86"></span>
+                <span>PWM LED 0</span>
+              </div>
+              <div class="led" title="PWM LED 1 (CH1) 45%">
+                <span class="dot on" style="opacity:0.615"></span>
+                <span>PWM LED 1</span>
+              </div>
+              <div class="led" title="PWM LED 2 (CH2) 20%">
+                <span class="dot on" style="opacity:0.44"></span>
+                <span>PWM LED 2</span>
+              </div>
+              <div class="led" title="PWM LED 3 (CH3) 0%">
+                <span class="dot"></span>
+                <span>PWM LED 3</span>
+              </div>
+            </div>
+          </div>
+          <p class="hint">Zephyr's stock <code>pwm-leds</code> — brightness from channel duty on the PWM controller below.</p>
+        </div>
+      </div>
+
+      <div class="group">PWM</div>
+      <div class="row-head">
+        <div class="row-btn">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+          <span class="name">PCA9685 PWM</span>
+          <span class="crumb">virtio_i2c0 · 0x60</span>
+        </div>
+        <span class="badge">CH0 · 80%</span>
+      </div>
+      <div class="body-wrap">
+        <div class="pwm-pad">
+          <canvas id="wave" width="700" height="336"></canvas>
+          <div class="strip" id="strip"></div>
+          <div class="meta">CH0 · duty 80% &nbsp;&nbsp; PRE_SCALE 0x1e &nbsp;&nbsp; drive totem-pole</div>
+          <p class="hint" style="padding-top:0"><code>PCA9685</code> — 16-channel PWM (shared period) at 0x60.</p>
+          <button class="regs" type="button">Registers</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      // Duties for the four pwm-leds children (CH0–3) + quieter rest of strip.
+      const duties = Array.from({ length: 16 }, (_, i) =>
+        i === 0 ? 0.8 : i === 1 ? 0.45 : i === 2 ? 0.2 : 0,
+      )
+      const selected = 0
+
+      // Channel strip — PwmPanel ChannelStrip geometry (TRACK_H=24, MIN_FILL=5).
+      const strip = document.getElementById('strip')
+      for (let i = 0; i < 16; i++) {
+        const duty = duties[i]
+        const fill = Math.round(5 + duty * (24 - 5))
+        const active = i === selected
+        const btn = document.createElement('div')
+        btn.className = 'ch' + (active ? ' active' : '')
+        btn.title = 'CH' + i + ' · ' + Math.round(duty * 100) + '%'
+        btn.innerHTML =
+          '<span class="bar-slot"><span class="bar ' +
+          (active ? 'active' : duty > 0 ? 'on' : 'off') +
+          '" style="height:' + fill + 'px"></span></span>' +
+          '<span class="ch-lab">' + i + '</span>'
+        strip.appendChild(btn)
+      }
+
+      // Waveform — same geometry/colors as PwmPanel WaveformCanvas (duty 0.8).
+      const canvas = document.getElementById('wave')
+      const ctx = canvas.getContext('2d')
+      const dpr = 2
+      const cssW = 350
+      const cssH = 168
+      canvas.style.width = cssW + 'px'
+      canvas.style.height = cssH + 'px'
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const SIDE = 1 / 3
+      const T_MIN = -SIDE
+      const T_MAX = 1 + SIDE
+      const padL = 10, padR = 10, padT = 28, padB = 28
+      const plotW = cssW - padL - padR
+      const plotH = cssH - padT - padB
+      const yHigh = padT + 8
+      const yLow = padT + plotH - 8
+      const span = T_MAX - T_MIN
+      const xAt = (t) => padL + ((t - T_MIN) / span) * plotW
+      const yAt = (level) => (level >= 0.5 ? yHigh : yLow)
+      const duty = 0.8
+      ctx.fillStyle = '#0c0e12'
+      ctx.fillRect(0, 0, cssW, cssH)
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+      ctx.lineWidth = 1
+      for (let i = 1; i < 4; i++) {
+        const x = padL + (plotW * i) / 4
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke()
+      }
+      function levelAt(t) {
+        const phase = ((t % 1) + 1) % 1
+        return phase < duty ? 1 : 0
+      }
+      function buildPts(t0, t1) {
+        const pts = [{ t: t0, level: levelAt(t0) }]
+        const edges = []
+        for (let k = Math.floor(t0) - 1; k <= Math.ceil(t1) + 1; k++) {
+          for (const e of [k, k + duty]) if (e > t0 && e < t1) edges.push(e)
+        }
+        edges.sort((a, b) => a - b)
+        for (const e of edges) {
+          pts.push({ t: e, level: levelAt(e - 1e-9) })
+          pts.push({ t: e, level: levelAt(e + 1e-9) })
+        }
+        pts.push({ t: t1, level: levelAt(t1) })
+        return pts
+      }
+      function strokeClipped(pts, tA, tB) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(Math.min(xAt(tA), xAt(tB)) - 1, 0, Math.abs(xAt(tB) - xAt(tA)) + 2, cssH)
+        ctx.clip()
+        ctx.beginPath()
+        ctx.moveTo(xAt(pts[0].t), yAt(pts[0].level))
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(xAt(pts[i].t), yAt(pts[i].level))
+        ctx.stroke()
+        ctx.restore()
+      }
+      const pts = buildPts(T_MIN, T_MAX)
+      ctx.strokeStyle = '#3ecf8e'
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'miter'
+      ctx.setLineDash([4, 3])
+      strokeClipped(pts, T_MIN, 0)
+      strokeClipped(pts, 1, T_MAX)
+      ctx.setLineDash([])
+      strokeClipped(pts, 0, 1)
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+      ctx.setLineDash([3, 3])
+      for (const t of [0, 1, duty]) {
+        ctx.beginPath(); ctx.moveTo(xAt(t), padT); ctx.lineTo(xAt(t), padT + plotH); ctx.stroke()
+      }
+      ctx.setLineDash([])
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText('HIGH', xAt(duty / 2), yHigh - 6)
+      ctx.fillText('LOW', xAt((duty + 1) / 2), yLow + 14)
+      ctx.fillText('t_high = 16.00 ms', xAt(duty / 2), padT - 8)
+      ctx.fillText('t_low = 4.00 ms', xAt((duty + 1) / 2), padT - 8)
+      ctx.textAlign = 'right'
+      ctx.fillStyle = 'rgba(62,207,142,0.9)'
+      ctx.fillText('80% duty · 50.0 Hz', cssW - padR, 16)
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'
+      ctx.textAlign = 'center'
+      const yBracket = cssH - 12
+      ctx.beginPath()
+      ctx.moveTo(xAt(0), yBracket - 4); ctx.lineTo(xAt(0), yBracket)
+      ctx.lineTo(xAt(1), yBracket); ctx.lineTo(xAt(1), yBracket - 4)
+      ctx.stroke()
+      ctx.fillText('T = 20.00 ms', (xAt(0) + xAt(1)) / 2, yBracket - 8)
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'
+      for (const [label, t] of [['−T/3', T_MIN], ['0', 0], ['T/2', 0.5], ['T', 1], ['T+T/3', T_MAX]]) {
+        ctx.fillText(label, xAt(t), cssH - 2)
+      }
+    </script>
+  </body>
+</html>

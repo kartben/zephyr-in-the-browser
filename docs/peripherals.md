@@ -100,7 +100,10 @@ the card that drives it — so adding a part is a declaration, not another panel
   with period + duty (`PwmDecl` / `PwmChannel` / `isPwmChip`). The dock paints
   an annotated ~1.25-period square wave and a channel strip sized from the
   declaration. The first provider is the I²C PCA9685 at `0x60`; a later PWM
-  part reuses `PwmBody` with only a new provider + packaging.
+  part reuses `PwmBody` with only a new provider + packaging. When the tree also
+  has okay `pwm-leds` children pointing at that controller, a separate LED-class
+  dock row paints brightness dots from the same channel duty — see
+  [pwm-leds.md](pwm-leds.md).
 - **DAC** ([`dac/model.ts`](../src/virtio/devices/dac/model.ts)) — coded
   channels with volts + history (`DacDecl` / `DacChannel` / `isDacChip`). The
   dock paints a Vout-over-time trace and level bar (default 10 s window window,
@@ -147,11 +150,17 @@ that the peripheral surfaces read:
 
 - which I2C addresses have a bound driver (the "driver"/"bus only" tags, from
   the bridged `virtio,i2c` node's enabled children),
-- the GPIO panel's pins and labels (from `gpio-keys`/`gpio-leds` wiring) and
+- the GPIO panel's buttons (from `gpio-keys`) and the LED-class `gpio-leds` row, and
   the controller name its shell hints quote,
 - a Buzzer dock row when the tree has an okay `gpio-buzzer` on the bridged
   controller (pin level observed the same way LEDs are; shake + Vibration API /
   Web Audio on the page — not through I2S),
+- a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged
+  controller (LED-class sibling of the GPIO button card — same split as
+  gpio-buzzer),
+- a PWM LEDs dock row when the tree has okay `pwm-leds` children whose
+  controller is an attached `PwmChip` (brightness from channel duty; see
+  [pwm-leds.md](pwm-leds.md)),
 - which panels exist at all — a build without the virtio-i2c snippet shows no
   I2C panel even though the machine always carries the adapter.
 
