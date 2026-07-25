@@ -193,6 +193,11 @@ function Mono({ children, className }: { children: React.ReactNode; className?: 
   )
 }
 
+/** Accel / gyro / magn axes — the ones that used to dump "0.0 · 0.0 · 9.8 · …". */
+function isAxisChannel(zephyr: string): boolean {
+  return /^(accel|gyro|magn)_/.test(zephyr)
+}
+
 function SensorBadge({ chip }: { chip: SensorChip }) {
   useSyncExternalStore(
     useCallback(
@@ -230,11 +235,13 @@ function SensorBadge({ chip }: { chip: SensorChip }) {
     useCallback(() => chipRevision(chip), [chip]),
     () => '',
   )
-  // One channel (a thermometer, a lux reading) fits on the row. Multi-axis
-  // chips (accel, IMU, …) would spill a "0.0 · 0.0 · 9.8 · …" summary across
-  // the header — drop it and leave the expanded body to show the values.
+  // Multi-axis chips (ADXL, LSM6DSO, …) get no row summary — six values do not
+  // fit. Everything else shows its first channel (a thermometer, lux, or the
+  // lead reading on a pressure/power part).
+  const axisCount = chip.decl.channels.filter((c) => isAxisChannel(c.zephyr)).length
+  if (axisCount > 1) return null
   const first = chip.decl.channels[0]
-  if (!first || chip.decl.channels.length > 1) return null
+  if (!first) return null
   return (
     <Mono>
       {chip.getChannel(first.key).toFixed(2)} {first.unit}
