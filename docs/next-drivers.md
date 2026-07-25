@@ -358,7 +358,17 @@ inline without a `maps/*.json`; fold them over when touching those chips.
 
 Classes worth taking next, ranked inside this cheaper track:
 
-#### 4a. Aux display — **next**
+#### 4a. Aux display — ✅ done (JHD1313)
+
+**Implemented** as the Grove RGB LCD on virtio-i2c: LCD command stream at
+`0x3e` (`src/virtio/devices/chips/jhd1313.ts`) plus a PCA9633-style backlight
+register file at `0x62` with JSON map
+(`chips/maps/jhd1313-backlight.json`). Dock card paints a 16×2 character-cell
+canvas with RGB wash (`AuxdisplayPanel.tsx`); Controller on the LCD, Registers
+on the backlight. Guest side is stock `jhd,jhd1313` via `-S jhd1313-only` /
+`conf/jhd1313.conf`, packaging `samples/drivers/auxdisplay`.
+
+Original options, kept for the record —
 
 A new dock class (text LCD), not another sensor row. Zephyr's
 `auxdisplay` subsystem is exactly "character / segment panel, not framebuffer",
@@ -370,24 +380,15 @@ and the stock samples are tiny:
   — 7-segment / digit panels (TM1637 et al.; usually GPIO-bitbang, so a worse
   fit than the I²C path below)
 
-Two I²C shapes, pick one (or both):
+Two I²C shapes:
 
-1. **`jhd,jhd1313` (preferred first cut).** Grove RGB LCD: one I²C address for
-   the HD44780-like command/data stream, a second (`backlight-addr`, default
+1. **`jhd,jhd1313` (shipped).** Grove RGB LCD: one I²C address for the
+   HD44780-like command/data stream, a second (`backlight-addr`, default
    `0x62`) for the RGB backlight controller. The backlight side *is* a register
-   file (mode / PWM regs plus R/G/B at `0x04`/`0x03`/`0x02`) and must land as a
-   JSON map; the LCD address is a command stream like the SSD1306 and keeps a
-   character-cell canvas + controller state, not fake SVD rows. Guest driver is
-   stock (`CONFIG_AUXDISPLAY_JHD1313`).
-2. **`hit,hd44780` behind `nxp,pcf857x`.** The classic I²C backpack. The
-   expander is a one-byte I/O register — textbook register-map material — and
-   Zephyr's HD44780 driver bit-bangs RS/E/data over those GPIOs. Heavier (two
-   chip models, GPIO-controller binding) but reuses the same sample overlay
-   pattern as `esp_wrover_kit.overlay`. Good follow-up once JHD1313 proves the
-   dock card.
-
-Either way the guest stays stock; the page paints a 16×2 (or 20×4) character
-grid the way the OLED panel paints GDDRAM.
+   file and landed as a JSON map; the LCD address is a command stream like the
+   SSD1306 and keeps a character-cell canvas + controller state.
+2. **`hit,hd44780` behind `nxp,pcf857x`.** The classic I²C backpack. Still a
+   good follow-up once someone wants the expander-as-GPIO story.
 
 #### 4b. LED controllers — HT16K33 / LP55xx
 
@@ -489,9 +490,9 @@ shell is a UX problem before it is a driver problem.
    browser side, not virtio (see
    [`audio-feasibility.md`](audio-feasibility.md)). Follow-up candidate: an
    I2S echo-style sample tying mic to speaker in one app.
-4. **Aux display (I²C)** — next; prefer `jhd,jhd1313` with
-   `samples/drivers/auxdisplay`, backlight side as a JSON register map, LCD
-   side as a character-cell canvas. HD44780+PCF8574 is the backpack follow-up.
+4. ~~**Aux display (I²C)**~~ — ✅ done; `jhd,jhd1313` with
+   `samples/drivers/auxdisplay`, backlight JSON register map, LCD character-cell
+   canvas. HD44780+PCF8574 remains the backpack follow-up.
 5. **More I²C classes** — LED (`ht16k33` / LP55xx), PWM (`pca9685`),
    fuel-gauge / charger — each a stock sample and a mandatory register map.
 6. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.

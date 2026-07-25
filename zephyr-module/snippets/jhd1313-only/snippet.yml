@@ -1,0 +1,13 @@
+name: jhd1313-only
+description: >
+  JHD1313 character LCD alone on the browser I²C bus: enable the Grove RGB LCD
+  and disable the default temperature / accel / EEPROM / OLED parts so the dock
+  stays focused on samples/drivers/auxdisplay.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

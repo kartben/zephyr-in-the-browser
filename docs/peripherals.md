@@ -45,18 +45,20 @@ The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
 an AT24 EEPROM and an SSD1306 OLED by default, under
 [`src/virtio/devices/`](../src/virtio/devices). Optional extras — an LSM6DSO
 IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035 light
-sensor, and a PCF8523 RTC — stay `status = "disabled"` in the virtio-i2c
-overlay so everyday builds (accel chart, OLED display, …) do not clutter the
-dock. The shell turns them all on with `-S i2c-sensors-extra`; each dedicated
-sensor / RTC sample uses a `*-only` snippet that enables that part and
-disables the default temperature / accel nodes. The EEPROM sample uses
-`-S eeprom-only` the same way (sensors and OLED off, `eeprom-0` aliased). The
-page attaches matching models only while the guest tree marks those nodes okay.
+sensor, a PCF8523 RTC, and a JHD1313 character LCD (Grove RGB, with its
+PCA9633-style backlight at `0x62`) — stay `status = "disabled"` in the
+virtio-i2c overlay so everyday builds (accel chart, OLED display, …) do not
+clutter the dock. The shell turns most of them on with `-S i2c-sensors-extra`;
+each dedicated sensor / RTC / auxdisplay sample uses a `*-only` snippet that
+enables that part and disables the default temperature / accel nodes. The
+EEPROM sample uses `-S eeprom-only` the same way (sensors and OLED off,
+`eeprom-0` aliased). The page attaches matching models only while the guest
+tree marks those nodes okay.
 
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
-`atmel,at24`, `solomon,ssd1306` — so `sensor get lps22hh@5c` reads a value the
-page made up through the same driver a real board would use. The LSM6DSO is the
+`atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313` — so `sensor get lps22hh@5c`
+reads a value the page made up through the same driver a real board would use. The LSM6DSO is the
 advanced motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set`
 to put accel and gyro at 12.5 Hz, and the panel's ODR selects update when those
 CTRL register writes land.
@@ -92,15 +94,17 @@ the card that drives it — so adding a part is a declaration, not another panel
   guest (or the card) programs the compare registers — shell
   `rtc set_alarm` under `CONFIG_RTC_ALARM`.
 
-**Register maps** are shared across register-file parts — sensors and the
-PCF8523 today — via [`registers/`](../src/virtio/devices/registers) (SVD-inspired
-JSON under `sensors/maps/` and `rtc/maps/`) and the collapsed **Registers**
-dialog on each card ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)).
-Channel codecs and RTC BCD timekeeping stay in their own frameworks; the map is
-data. The SSD1306 is a *command stream*, not a register file — its card keeps
-the GDDRAM canvas and adds a collapsed **Controller** inspector for
-command-derived state (on/invert/contrast/window) instead of pretending at
-SVD registers.
+**Register maps** are shared across register-file parts — sensors, the
+PCF8523, and the JHD1313 backlight today — via [`registers/`](../src/virtio/devices/registers)
+(SVD-inspired JSON under `sensors/maps/`, `rtc/maps/`, and `chips/maps/`) and
+the collapsed **Registers** dialog on each card
+([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). Channel codecs and
+RTC BCD timekeeping stay in their own frameworks; the map is data. The SSD1306
+and the JHD1313 LCD address are *command streams*, not register files — their
+cards keep a canvas (GDDRAM / character cells) and add a collapsed
+**Controller** inspector for command-derived state instead of pretending at
+SVD registers. The JHD1313's second address (RGB backlight) *is* a register
+file and gets a JSON map.
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)

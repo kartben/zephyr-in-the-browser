@@ -21,6 +21,7 @@ import { createLps22hh } from './devices/sensors/lps22hh'
 import { createIna219 } from './devices/sensors/ina219'
 import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
+import { createJhd1313Pair } from './devices/chips/jhd1313'
 import { createPcf8523 } from './devices/rtc/pcf8523'
 import { FALLBACK_DT_SLOTS } from './devices/registry'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
@@ -70,12 +71,21 @@ export const isl29035 = createIsl29035({ address: 0x44 })
  */
 export const ssd1306 = createSsd1306({ address: 0x3c })
 
+/**
+ * Grove RGB character LCD: LCD command stream at 0x3e + PCA9633-style backlight
+ * register file at 0x62. Stock `jhd,jhd1313` / samples/drivers/auxdisplay.
+ */
+const jhd1313Pair = createJhd1313Pair()
+export const jhd1313 = jhd1313Pair.lcd
+export const jhd1313Backlight = jhd1313Pair.backlight
+
 /** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x3c, ssd1306],
+  [0x3e, jhd1313],
   [0x40, ina219],
   [0x44, isl29035],
   [0x48, tmp112],
@@ -83,6 +93,7 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x50, eeprom],
   [0x53, adxl345],
   [0x5c, lps22hh],
+  [0x62, jhd1313Backlight],
   [0x68, pcf8523],
   [0x6a, lsm6dso],
 ])
@@ -91,6 +102,9 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
  * Addresses the running build wants answered. Prefer the loaded tree's bridged
  * slots (empty when the build has no I2C); fall back to the hardcoded defaults
  * only when no usable tree is known.
+ *
+ * The JHD1313 backlight lives at `backlight-addr` on the LCD node, so it never
+ * appears as its own DT child — pull 0x62 in whenever the LCD slot is wanted.
  */
 function wantedManagedAddresses(): Set<number> {
   const insights = getDeviceTree()?.insights
@@ -100,6 +114,7 @@ function wantedManagedAddresses(): Set<number> {
       if (!bus.bridged) continue
       for (const slot of bus.slots) addrs.add(slot.address)
     }
+    if (addrs.has(0x3e)) addrs.add(0x62)
     return addrs
   }
   return new Set(Object.keys(FALLBACK_DT_SLOTS).map(Number))

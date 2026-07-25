@@ -25,6 +25,7 @@ import { get as getDeviceTree } from '@/devicetree'
 import type { I2cSlot } from '@/dts'
 import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
+import { createJhd1313Backlight, createJhd1313Lcd } from './chips/jhd1313'
 import { createSsd1306 } from './chips/ssd1306'
 import { createPcf8523 } from './rtc/pcf8523'
 import { createAdxl345 } from './sensors/adxl345'
@@ -35,7 +36,7 @@ import { createLps22hh } from './sensors/lps22hh'
 import { createLsm6dso } from './sensors/lsm6dso'
 import { createTmp112 } from './sensors/tmp112'
 
-export type ChipKind = 'sensor' | 'eeprom' | 'display' | 'rtc'
+export type ChipKind = 'sensor' | 'eeprom' | 'display' | 'auxdisplay' | 'rtc'
 
 export interface ChipType {
   /** Stable id, also the select value. */
@@ -112,6 +113,24 @@ export const CHIP_TYPES: ChipType[] = [
     kind: 'display',
     defaultAddress: 0x3c,
     create: (address) => createSsd1306({ address }),
+  },
+  {
+    id: 'jhd1313',
+    label: 'JHD1313 LCD',
+    kind: 'auxdisplay',
+    defaultAddress: 0x3e,
+    create: (address) => {
+      // Attach picker only places the LCD; the backlight is a separate bus
+      // endpoint the managed pair (or a manual second attach) answers on.
+      return createJhd1313Lcd({ address })
+    },
+  },
+  {
+    id: 'jhd1313-backlight',
+    label: 'JHD1313 backlight',
+    kind: 'auxdisplay',
+    defaultAddress: 0x62,
+    create: (address) => createJhd1313Backlight({ address }),
   },
   {
     id: 'pcf8523',

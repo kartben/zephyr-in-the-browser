@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
+import { AuxdisplayBody } from '@/components/AuxdisplayPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
@@ -40,6 +41,7 @@ import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
 import { i2cModel } from '@/virtio'
+import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import type { RtcChip } from '@/virtio/devices/rtc/model'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
@@ -66,6 +68,8 @@ export function DeviceBody({
       )
     case 'oled':
       return <OledBody />
+    case 'auxdisplay':
+      return <AuxdisplayBody chip={node.chip as Jhd1313LcdChip} />
     case 'rtc':
       return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
@@ -93,6 +97,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return MemoryStick
     case 'oled':
       return MonitorDot
+    case 'auxdisplay':
+      return Monitor
     case 'rtc':
       return Clock
     case 'i2c':
@@ -148,6 +154,14 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
         </Mono>
       )
     }
+    case 'auxdisplay': {
+      const chip = node.chip as Jhd1313LcdChip
+      return (
+        <Mono>
+          {chip.columns}×{chip.rows}
+        </Mono>
+      )
+    }
     case 'rtc':
       return <RtcBadge chip={node.chip as RtcChip} />
     case 'i2c':
@@ -192,6 +206,17 @@ export function GroupBadge({
   if (deviceClass === 'rtc') {
     const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'rtc')?.chip
     if (chip) return <RtcBadge chip={chip as RtcChip} />
+  }
+  if (deviceClass === 'auxdisplay') {
+    const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'auxdisplay')
+      ?.chip as Jhd1313LcdChip | undefined
+    if (chip) {
+      return (
+        <Mono>
+          {chip.columns}×{chip.rows}
+        </Mono>
+      )
+    }
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioBadge />

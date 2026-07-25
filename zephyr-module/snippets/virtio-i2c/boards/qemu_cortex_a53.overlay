@@ -151,6 +151,24 @@
 		com-invdir;
 		status = "okay";
 	};
+
+	/*
+	 * Grove RGB character LCD. Matches createJhd1313Pair() in
+	 * src/virtio/index.ts (LCD @0x3e, backlight-addr 0x62). Disabled by
+	 * default so everyday builds stay on ramfb / OLED; samples/drivers/
+	 * auxdisplay uses -S jhd1313-only.
+	 *
+	 * Nodename auxdisplay_0 is required: the stock sample binds
+	 * DT_NODELABEL(auxdisplay_0).
+	 */
+	auxdisplay_0: jhd1313@3e {
+		compatible = "jhd,jhd1313";
+		reg = <0x3e>;
+		columns = <16>;
+		rows = <2>;
+		backlight-addr = <0x62>;
+		status = "disabled";
+	};
 };
 
 /*
