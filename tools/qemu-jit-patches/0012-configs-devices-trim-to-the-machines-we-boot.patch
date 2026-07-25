@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..e71d3a8
 --- /dev/null
 +++ b/configs/devices/aarch64-softmmu/browser.mak
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,87 @@
 +# Device configuration for zephyr-in-the-browser's aarch64-softmmu artifact.
 +#
 +# Selected by tools/build-qemu-wasm.sh with --with-devices-aarch64=browser.
@@ -66,7 +66,6 @@ index 0000000..e71d3a8
 +# against the `default y` symbols in hw/arm/Kconfig. The comment list is stale;
 +# these are real machines and would otherwise stay in the build.
 +CONFIG_ALLWINNER_R40=n
-+CONFIG_MAX78000FTHR=n
 +
 +# 64-bit boards other than virt.
 +CONFIG_XLNX_ZYNQMP_ARM=n

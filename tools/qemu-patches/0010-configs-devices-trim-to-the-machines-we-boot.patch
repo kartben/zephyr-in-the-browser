@@ -97,7 +97,7 @@ new file mode 100644
 index 0000000..06f5c21
 --- /dev/null
 +++ b/configs/devices/arm-softmmu/browser.mak
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,86 @@
 +# Device configuration for zephyr-in-the-browser's arm-softmmu artifact.
 +#
 +# Selected by tools/build-qemu-wasm.sh with --with-devices-arm=browser, which
@@ -178,3 +178,9 @@ index 0000000..06f5c21
 +# are plausible further trims for whoever rebuilds next.
 +# CONFIG_PCI_DEVICES=n
 +# CONFIG_I2C_DEVICES=n
++
++# lm3s6965evb (hw/arm/stellaris.c) creates a split-irq for the GPIO-D line,
++# but CONFIG_STELLARIS never selects SPLIT_IRQ -- upstream only gets it because
++# other, now-disabled boards do. With those gone the type is unregistered and
++# the machine aborts at boot ('unknown type split-irq'). Force it in.
++CONFIG_SPLIT_IRQ=y
