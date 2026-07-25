@@ -45,3 +45,7 @@
 &max17048_0 {
 	status = "disabled";
 };
+
+&lp5562_0 {
+	status = "disabled";
+};

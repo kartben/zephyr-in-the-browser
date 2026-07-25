@@ -16,6 +16,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **RTC** | A PCF8523 real-time clock: live date/time, sync from the browser, and alarm armed/fired state — through Zephyr's stock RTC driver and shell (`rtc get` / `rtc set_alarm`) |
 | **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight — Zephyr's stock auxdisplay driver writes "Hello World"; the backlight is a JSON register map at 0x62 |
 | **LED matrix** | A Holtek HT16K33 16×8 LED driver at 0x70 — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix; the dock paints display RAM with a JSON register map |
+| **RGB LED** | A TI LP5562 RGBW driver at 0x30 — stock `samples/drivers/led/lp5562` cycles colors and blinks; the dock paints a mixed orb plus channel meters |
 | **PWM** | An NXP PCA9685 16-channel PWM at 0x60 — stock `samples/drivers/led/pwm` fades and blinks via `pwm-leds`; the dock shows LED brightness and an annotated duty-cycle chart |
 | **DAC** | A Microchip MCP4725 12-bit DAC at 0x61 — stock `samples/drivers/dac` writes a sawtooth; the dock charts Vout over time (framework-ready for more DAC parts) |
 | **Fuel gauge** | A Maxim MAX17048 at 0x36 — stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card with Registers (framework-ready for more gauges) |

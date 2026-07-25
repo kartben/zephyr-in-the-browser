@@ -35,7 +35,7 @@ import { BuzzerBody } from '@/components/BuzzerPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
-import { LedMatrixBody } from '@/components/LedPanel'
+import { LedMatrixBody, RgbLedBody } from '@/components/LedPanel'
 import { MemoryBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
@@ -55,6 +55,7 @@ import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
 import { i2cModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
+import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
 import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import {
@@ -98,6 +99,8 @@ export function DeviceBody({
       return <AuxdisplayBody chip={node.chip as Jhd1313LcdChip} />
     case 'led':
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
+    case 'rgb-led':
+      return <RgbLedBody chip={node.chip as Lp5562Chip} />
     case 'pwm-leds':
       return (
         <PwmLedsBody
@@ -148,6 +151,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Monitor
     case 'led':
       return Grid3x3
+    case 'rgb-led':
+      return Lightbulb
     case 'pwm-leds':
       return Lightbulb
     case 'gpio-leds':
@@ -247,6 +252,15 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
         </Mono>
       )
     }
+    case 'rgb-led': {
+      const chip = node.chip as Lp5562Chip
+      const rgb = chip.getRgb()
+      return (
+        <Mono>
+          R{rgb.r} G{rgb.g} B{rgb.b}
+        </Mono>
+      )
+    }
     case 'pwm-leds':
       return (
         <PwmLedsBadge
@@ -341,6 +355,16 @@ export function GroupBadge({
       return (
         <Mono>
           {matrix.cols}×{matrix.rows}
+        </Mono>
+      )
+    }
+    const rgb = nodes.find((n) => n.presence === 'interactive' && n.body === 'rgb-led')
+      ?.chip as Lp5562Chip | undefined
+    if (rgb) {
+      const c = rgb.getRgb()
+      return (
+        <Mono>
+          R{c.r} G{c.g} B{c.b}
         </Mono>
       )
     }

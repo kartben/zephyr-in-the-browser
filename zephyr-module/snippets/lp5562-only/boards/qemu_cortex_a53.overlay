@@ -2,11 +2,11 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/ht16k33: HT16K33 only. Stock sample binds
- * DT_COMPAT_GET_ANY_STATUS_OKAY(holtek_ht16k33).
+ * samples/drivers/led/lp5562: LP5562 only. Stock sample binds
+ * DEVICE_DT_GET_ANY(ti_lp5562).
  */
 
-&ht16k33_0 {
+&lp5562_0 {
 	status = "okay";
 };
 
@@ -34,6 +34,10 @@
 	status = "disabled";
 };
 
+&ht16k33_0 {
+	status = "disabled";
+};
+
 &pca9685_0 {
 	status = "disabled";
 };
@@ -43,9 +47,5 @@
 };
 
 &max17048_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
 	status = "disabled";
 };

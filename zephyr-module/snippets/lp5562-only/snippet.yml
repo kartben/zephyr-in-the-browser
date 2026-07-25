@@ -1,9 +1,9 @@
-name: max17048-only
+name: lp5562-only
 description: >
-  MAX17048 fuel gauge alone on the browser I²C bus: enable the part at 0x36
-  plus fuel-gauge0 alias for samples/drivers/fuel_gauge, and disable the
-  default temperature / accel / EEPROM / OLED / LCD / HT16K33 / LP5562 /
-  PWM / DAC parts so the dock stays focused on the battery card.
+  LP5562 RGBW LED alone on the browser I²C bus: enable the part at 0x30 for
+  samples/drivers/led/lp5562, and disable the default temperature / accel /
+  EEPROM / OLED / LCD / HT16K33 / PWM / DAC / fuel-gauge parts so the dock
+  stays focused on the RGB LED card.
 
 boards:
   qemu_cortex_a53/qemu_cortex_a53:

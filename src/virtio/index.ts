@@ -22,6 +22,7 @@ import { createIna219 } from './devices/sensors/ina219'
 import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
 import { createHt16k33 } from './devices/chips/ht16k33'
+import { createLp5562 } from './devices/chips/lp5562'
 import { createJhd1313Pair } from './devices/chips/jhd1313'
 import { createMax17048 } from './devices/chips/max17048'
 import { createMcp4725 } from './devices/chips/mcp4725'
@@ -86,6 +87,9 @@ export const jhd1313Backlight = jhd1313Pair.backlight
 /** Holtek HT16K33 16×8 LED matrix — stock samples/drivers/ht16k33. */
 export const ht16k33 = createHt16k33({ address: 0x70 })
 
+/** TI LP5562 RGBW LED @ 0x30 — stock samples/drivers/led/lp5562. */
+export const lp5562 = createLp5562({ address: 0x30 })
+
 /** NXP PCA9685 16-ch PWM @ 0x60 — stock samples/drivers/led/pwm. */
 export const pca9685 = createPca9685({ address: 0x60 })
 
@@ -100,6 +104,7 @@ export const pcf8523 = createPcf8523({ address: 0x68 })
 
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
+  [0x30, lp5562],
   [0x36, max17048],
   [0x3c, ssd1306],
   [0x3e, jhd1313],

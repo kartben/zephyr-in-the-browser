@@ -78,7 +78,8 @@
 	 * (accel_chart, oled, …) do not clutter the dock. Enable them with:
 	 *   -S i2c-sensors-extra   (shell: all optional parts)
 	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only /
-	 *     pcf8523-only / jhd1313-only / ht16k33-only
+	 *     pcf8523-only / jhd1313-only / ht16k33-only / lp5562-only /
+	 *     pca9685-only / mcp4725-only / max17048-only
 	 *     (dedicated sample: that part alone, defaults off)
 	 *
 	 * The page attaches matching TypeScript models only while these nodes
@@ -215,6 +216,18 @@
 	max17048_0: max17048@36 {
 		compatible = "maxim,max17048";
 		reg = <0x36>;
+		status = "disabled";
+	};
+
+	/*
+	 * TI LP5562 RGBW LED driver. Matches createLp5562({ address: 0x30 }) in
+	 * src/virtio/index.ts (Zephyr sample default). Disabled by default;
+	 * samples/drivers/led/lp5562 uses -S lp5562-only. enable-gpios omitted —
+	 * the page model treats the chip as already enabled.
+	 */
+	lp5562_0: lp5562@30 {
+		compatible = "ti,lp5562";
+		reg = <0x30>;
 		status = "disabled";
 	};
 };

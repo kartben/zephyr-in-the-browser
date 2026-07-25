@@ -401,7 +401,7 @@ Two I²C shapes:
 2. **`hit,hd44780` behind `nxp,pcf857x`.** The classic I²C backpack. Still a
    good follow-up once someone wants the expander-as-GPIO story.
 
-#### 4b. LED controllers — ✅ done (HT16K33); LP55xx next
+#### 4b. LED controllers — ✅ done (HT16K33 + LP5562); LP50xx next
 
 **Implemented** as the Holtek HT16K33 on virtio-i2c at `0x70`
 (`src/virtio/devices/chips/ht16k33.ts`) with JSON register map
@@ -410,8 +410,16 @@ Display_Setup / Row_Int / Dimming). Dock card paints a 16×8 LED matrix
 (`LedPanel.tsx`) with brightness and blink; Registers opens the shared map.
 Guest side is stock `holtek,ht16k33` via `-S ht16k33-only` / `conf/ht16k33.conf`
 (keyscan off), packaging `samples/drivers/ht16k33`. LED index = `row*8+col`
-as in Zephyr's driver. LP5562 / LP50xx remain follow-ups under the same dock
-class.
+as in Zephyr's driver.
+
+**Also implemented** as the TI LP5562 RGBW LED at `0x30`
+(`chips/lp5562.ts` + `maps/lp5562.json`). Dock card (`RgbLedBody`) paints a
+mixed RGB orb plus B/G/R/W channel meters; engine programs approximate
+`led_blink` for the stock sample. Guest side: stock `ti,lp5562` via
+`-S lp5562-only` / `conf/lp5562.conf`, packaging `samples/drivers/led/lp5562`
+(`DEVICE_DT_GET_ANY`). LED indices match the sample: B=0, G=1, R=2, W=3.
+`enable-gpios` omitted — the page model treats EN as already asserted.
+LP50xx remains a same-class follow-up.
 
 Original note, kept for the record —
 
@@ -548,8 +556,9 @@ shell is a UX problem before it is a driver problem.
    `samples/drivers/auxdisplay`, backlight JSON register map, LCD character-cell
    canvas. HD44780+PCF8574 remains the backpack follow-up.
 5. ~~**LED matrix (I²C)**~~ — ✅ done; `holtek,ht16k33` with
-   `samples/drivers/ht16k33`, display-RAM JSON map, 16×8 dock canvas. LP55xx
-   remains a same-class follow-up.
+   `samples/drivers/ht16k33`, display-RAM JSON map, 16×8 dock canvas. LP5562
+   RGBW also done (`ti,lp5562`, orb + channel meters). LP50xx remains a
+   same-class follow-up.
 5½. ~~**gpio-buzzer**~~ — ✅ done; stock `gpio-buzzer` on pin 5 (LED0 stays on
    4), `samples/drivers/buzzer/tone`, dock Lucide shake + Vibration API / Web
    Audio. Observes existing GPIO outputs — no new QEMU device. `pwm-buzzer`

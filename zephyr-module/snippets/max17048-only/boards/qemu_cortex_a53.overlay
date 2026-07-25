@@ -46,6 +46,10 @@
 	status = "disabled";
 };
 
+&lp5562_0 {
+	status = "disabled";
+};
+
 / {
 	aliases {
 		fuel-gauge0 = &max17048_0;
