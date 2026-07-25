@@ -1,9 +1,10 @@
 /**
  * Dock body for a `pwm-leds` group.
  *
- * Brightness comes from the attached {@link PwmChip}'s channel duty — the same
- * values the PWM controller card charts. Labels come from the running build's
- * flattened tree. Provider-agnostic: do not import PCA9685 here.
+ * Same cell chrome as {@link GpioBody}'s LED pins (dot + label in a bordered
+ * secondary tile). Brightness is channel duty from the attached {@link PwmChip}
+ * — opacity on the same primary fill/glow the GPIO LEDs use when high.
+ * Labels come from the running build's flattened tree.
  */
 
 import { useEffect, useReducer } from 'react'
@@ -67,8 +68,8 @@ export function PwmLedsBody({
   if (leds.length === 0) {
     return (
       <div className="px-3 py-3 text-[11px] leading-relaxed text-muted-foreground">
-        No <code className="font-mono text-foreground">pwm-leds</code> children in
-        this build.
+        No <code className="font-mono text-foreground">pwm-leds</code> in this
+        build.
       </div>
     )
   }
@@ -77,7 +78,7 @@ export function PwmLedsBody({
     <div className="space-y-3 px-3 py-3">
       <div className="space-y-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">
-          PWM LEDs — brightness from channel duty
+          Outputs — LEDs
         </span>
         <div className="grid grid-cols-4 gap-1.5">
           {leds.map((led) => (
@@ -85,15 +86,20 @@ export function PwmLedsBody({
           ))}
         </div>
       </div>
-      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-        Guest <code className="font-mono text-foreground">led</code> API drives
-        these through <code className="font-mono text-foreground">pwm-leds</code>
-        ; the PWM card next door shows the same channels as a duty chart.
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Zephyr&apos;s stock{' '}
+        <code className="font-mono text-foreground">pwm-leds</code> — brightness
+        from channel duty on the PWM controller below.
       </p>
     </div>
   )
 }
 
+/**
+ * GPIO {@link LedPin} layout: bordered secondary tile, size-3 primary dot,
+ * label. Duty only scales opacity (and title); no extra metrics row.
+ */
 function PwmLedCell({ chip, led }: { chip: PwmChip; led: PwmLedView }) {
   const ch = chip.getChannel(led.channel)
   const brightness = Math.max(0, Math.min(1, ch.duty))
@@ -107,23 +113,14 @@ function PwmLedCell({ chip, led }: { chip: PwmChip; led: PwmLedView }) {
       <span
         aria-hidden
         className={cn(
-          'size-3 rounded-full border transition-[background-color,box-shadow,opacity]',
-          lit ? 'border-primary' : 'border-border bg-transparent',
-        )}
-        style={
+          'size-3 rounded-full border transition-colors',
           lit
-            ? {
-                backgroundColor: 'var(--color-primary)',
-                opacity: 0.25 + 0.75 * brightness,
-                boxShadow: `0 0 ${4 + 4 * brightness}px ${brightness}px var(--color-primary)`,
-              }
-            : undefined
-        }
+            ? 'border-primary bg-primary shadow-[0_0_6px_1px_var(--color-primary)]'
+            : 'border-border bg-transparent',
+        )}
+        style={lit ? { opacity: 0.3 + 0.7 * brightness } : undefined}
       />
       <span className="max-w-full truncate px-0.5 text-center leading-tight">{led.label}</span>
-      <span className="font-mono text-[10px] tabular-nums opacity-80">
-        {formatPwmDuty(brightness)}
-      </span>
     </div>
   )
 }

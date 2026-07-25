@@ -80,12 +80,15 @@ The PCA9685 chip row is unchanged (`deviceClass: 'pwm'`, `body: 'pwm'`,
 
 ## UI
 
-`PwmLedsBody` — a labeled row of dots (GpioBody’s LED grid as the visual
-cousin, not the HT16K33 matrix). Each cell:
+`PwmLedsBody` reuses **GpioBody’s LED cell chrome** (bordered secondary tile,
+`size-3` primary dot with the same glow when lit, DT `label` underneath). Duty
+only scales the dot’s opacity; no extra metrics row. Footer matches the HT16K33 /
+PWM cards: one factual line about `pwm-leds`, not invented shell commands
+(the packaged sample does not enable `CONFIG_LED_SHELL`).
 
-- Label from DT (`label` or node name)
-- Fill / intensity from `chip.getChannel(channel).duty`
-- Collapsed badge: lit count or first LED’s duty
+Mockup rendered from those tokens + `PwmBody`’s real waveform geometry:
+
+[`pwm-leds-mockup.html`](pwm-leds-mockup.html)
 
 No Registers on this card — the PWM controller card already owns the map.
 
