@@ -8,6 +8,7 @@ other end of the wire.
 | --- | --- |
 | [peripherals.md](peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the vendored drivers behind snippets, and touch input |
 | [pwm-leds.md](pwm-leds.md) | Spec: `pwm-leds` dock strip beside the PWM duty chart |
+| [gpio-controller.md](gpio-controller.md) | Spec (Proposal B): claimed-pin GPIO table + `used by` reveal |
 | [networking.md](networking.md) | Why the page *is* the LAN, and exactly what does and does not leave the tab |
 | [virtio-bridge.md](virtio-bridge.md) | The generic virtio bridge, which lets a device model be TypeScript instead of QEMU C |
 | [next-drivers.md](next-drivers.md) | The bridge shapes already proven here, and what to add next |
