@@ -41,6 +41,9 @@ import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } fr
  * The floating widgets over the stage: the display (with its Panels-menu
  * visibility flag) bottom-right, the MIPS pill and CTF trace bottom-left. Both
  * keep out of the terminal's way and below the z-50 overlays.
+ *
+ * The Trace card goes nearly full-bleed on a phone (drag-pan needs width); on
+ * wider viewports it caps so it does not cover the whole terminal.
  */
 function StageOverlays({
   displayExpanded,
@@ -52,8 +55,10 @@ function StageOverlays({
   const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
   return (
     <>
-      <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[min(36rem,calc(100%-2rem))] flex-col items-start gap-3">
-        <StagePill />
+      <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 sm:right-auto sm:max-w-[min(34rem,calc(100%-1.5rem))] md:bottom-4 md:left-4">
+        <div className="self-start">
+          <StagePill />
+        </div>
         <TracePanel defaultExpanded={traceExpanded} />
       </div>
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
