@@ -46,6 +46,9 @@ qemu_cortex_a53:touch:samples/subsys/input/draw_touch_events
 qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf
 qemu_cortex_a53:accel_chart:samples/modules/lvgl/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c
 qemu_cortex_a53:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c
+qemu_cortex_a53:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c
+qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c
+qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2

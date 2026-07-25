@@ -224,6 +224,27 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['sensor', 'i2c'],
   },
   {
+    id: 'lps22hh',
+    label: 'LPS22HH Pressure',
+    description: 'Pressure and temperature from an ST barometer, over I²C',
+    zephyrSample: 'samples/sensor/lps22hh',
+    primaryPanels: ['sensor', 'i2c'],
+  },
+  {
+    id: 'ina219',
+    label: 'INA219 Power',
+    description: 'Bus voltage, current and power from an INA219, over I²C',
+    zephyrSample: 'samples/sensor/ina219',
+    primaryPanels: ['sensor', 'i2c'],
+  },
+  {
+    id: 'isl29035',
+    label: 'ISL29035 Light',
+    description: 'Ambient light in lux from an ISL29035, over I²C',
+    zephyrSample: 'samples/sensor/isl29035',
+    primaryPanels: ['sensor', 'i2c'],
+  },
+  {
     id: 'philosophers',
     label: 'Philosophers',
     description: 'Dining philosophers, animated in-place over VT100',

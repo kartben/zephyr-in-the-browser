@@ -91,11 +91,22 @@ const COMPAT_TO_CHIP: Record<string, string> = {
   'national,lm75': 'lm75',
   'adi,adxl345': 'adxl345',
   'st,lsm6dso': 'lsm6dso',
+  'st,lps22hh': 'lps22hh',
+  'ti,ina219': 'ina219',
+  'isil,isl29035': 'isl29035',
   'atmel,at24': 'at24',
   'solomon,ssd1306': 'ssd1306',
 }
 
-const SENSOR_CHIP_IDS = new Set(['tmp112', 'lm75', 'adxl345', 'lsm6dso'])
+const SENSOR_CHIP_IDS = new Set([
+  'tmp112',
+  'lm75',
+  'adxl345',
+  'lsm6dso',
+  'lps22hh',
+  'ina219',
+  'isl29035',
+])
 
 /** The I2C adapter the page's chips answer on (QEMU's `name=i2c` device). */
 const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c'])

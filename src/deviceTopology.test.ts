@@ -32,10 +32,13 @@ const fakeOled = (address: number, name: string): I2cChip =>
 
 const A53_CHIPS: I2cChip[] = [
   fakeOled(0x3c, 'SSD1306 OLED'),
+  fakeSensor(0x40, 'INA219 power monitor'),
+  fakeSensor(0x44, 'ISL29035 light'),
   fakeSensor(0x48, 'TMP112 temperature'),
   fakeSensor(0x49, 'LM75 temperature'),
   fakeMemory(0x50, 'AT24C02 EEPROM'),
   fakeSensor(0x53, 'ADXL345 accelerometer'),
+  fakeSensor(0x5c, 'LPS22HH pressure'),
   fakeSensor(0x6a, 'LSM6DSO IMU'),
 ]
 
@@ -60,14 +63,17 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(bus.body).toBe('i2c')
     expect(bus.nodeName).toBe('virtio-i2c')
 
-    // All six chips, in address order, named by their devicetree nodes.
+    // All nine chips, in address order, named by their devicetree nodes.
     const chipRows = inv.nodes.filter((n) => n.parentKey === 'virtio_i2c0')
     expect(chipRows.map((n) => n.key)).toEqual([
       'virtio_i2c0:3c',
+      'virtio_i2c0:40',
+      'virtio_i2c0:44',
       'virtio_i2c0:48',
       'virtio_i2c0:49',
       'virtio_i2c0:50',
       'virtio_i2c0:53',
+      'virtio_i2c0:5c',
       'virtio_i2c0:6a',
     ])
     const tmp = nodeByKey(inv, 'virtio_i2c0:48')
@@ -98,7 +104,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(treeOf(a53Shell), [], ALL, 'qemu_cortex_a53')
 
     const ghosts = inv.nodes.filter((n) => n.presence === 'ghost')
-    expect(ghosts).toHaveLength(6)
+    expect(ghosts).toHaveLength(9)
     expect(ghosts.every((n) => n.note === 'NAK — detached')).toBe(true)
 
     // A detached declared sensor still files under Sensors, as a ghost.
@@ -243,7 +249,7 @@ describe('buildRowList', () => {
     const rows = buildRowList(inv, 'classes')
 
     const sensors = rows.find((row) => row.kind === 'group' && row.deviceClass === 'sensor')
-    expect(sensors).toMatchObject({ label: 'Sensors', count: 4 })
+    expect(sensors).toMatchObject({ label: 'Sensors', count: 7 })
 
     // Group headers precede their members; members carry breadcrumbs.
     const sensorIdx = rows.indexOf(sensors!)
