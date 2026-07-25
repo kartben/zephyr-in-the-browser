@@ -111,7 +111,14 @@ index 0000000..7c06366
 +/* A chain larger than this is a device-model mismatch, not a big transfer. */
 +#define VIRTIO_BROWSER_MAX_PAYLOAD 4096
 +
-+#define VIRTIO_BROWSER_DRAIN_IDLE_MS 10
++/*
++ * Idle must stay close to busy. A synchronous guest (dac_write → k_sem_take
++ * forever → answer → k_sleep) drops `outstanding` to zero between every
++ * transfer; with sleep=on the host then sleeps until this idle timer, so a
++ * 10 ms idle was measured at ~45 I²C Hz on the stock DAC sawtooth (want
++ * ~1 kHz). 1 ms keeps the tax inside a single guest tick without spinning.
++ */
++#define VIRTIO_BROWSER_DRAIN_IDLE_MS 1
 +#define VIRTIO_BROWSER_DRAIN_BUSY_MS 1
 +
 +/* Record headers, in bytes. Both are multiples of 4, so a payload padded to 4

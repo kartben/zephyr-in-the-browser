@@ -441,8 +441,8 @@ Address is 0x60 to avoid `ina219@40`.
 `0x61` (`chips/mcp4725.ts` + `maps/mcp4725.json`). Dock card
 (`DacPanel.tsx` / `DacBody`) paints a Vout-over-time history chart and level bar
 sized from `decl` — no MCP4725 imports in the UI. Scope window defaults to 10 s
-(selectable). Timestamps use guest virtual time when `-icount` is live so the
-stock ~4 s sawtooth is not compressed by wall-clock skew. Guest side: stock
+(selectable). Timestamps use wall clock (guest icount freezes on virtio-i2c
+waits and made the scope look stuck). Guest side: stock
 `microchip,mcp4725` via `-S mcp4725-only` / `conf/mcp4725.conf`, packaging
 `samples/drivers/dac` with `/zephyr,user` dac / channel / resolution props.
 Address is 0x61 to avoid `pca9685@60`.

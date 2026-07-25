@@ -46,7 +46,7 @@ export interface DacChannel {
 }
 
 export interface DacSample {
-  /** {@link dacNowMs} when the code changed (guest virtual time when available). */
+  /** {@link dacNowMs} when the code changed (wall clock). */
   t: number
   channel: number
   volts: number

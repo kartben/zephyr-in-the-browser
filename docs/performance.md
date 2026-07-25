@@ -29,7 +29,7 @@ the list matters for a given workload:
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
-| 7 | QEMU's 10 ms idle drain sets first-request latency | virtio patch | Medium, I²C-bound | Low | Low |
+| 7 | QEMU idle drain was 10 ms — **patched to 1 ms, needs rebuild** | virtio patch | High, I²C-bound | Very low | Low |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
@@ -56,11 +56,10 @@ note when the pace slips. `tools/probe-timer-clamp.mjs` measures the browser
 behaviour underneath them in isolation.
 
 What is still missing is the other half of the round trip: the page cannot see
-how long QEMU took to notice a completion. Item 7 is a guess for that reason,
-and settling it means counting on the QEMU side — the interval from a completion
-being published to the drain timer picking it up — which is a handful of lines
-in `virtio-browser.c` and an export the page can read the way it reads the
-icount.
+how long QEMU took to notice a completion. Item 7 is now measured from the
+page side via `tools/profile-dac.mjs` (`i2cHz` / `bridgePollMs`); settling the
+QEMU-side half still means counting the interval from a completion being
+published to the drain timer picking it up.
 
 ## 1. The bridge's hot poll runs at 4 ms, not the 1 ms it documents
 
@@ -325,23 +324,28 @@ The experiment is a one-character edit and a rerun of `tools/profile-accel.mjs`
 at shift 1, 2, 3, 4, 5, reading `mips` and `guestFps`. Cheap enough that not
 having the curve is the only real problem here.
 
-## 7. QEMU's idle drain sets the latency of the first request
+## 7. QEMU's idle drain sets the latency of every synchronous request
 
 `virtio-browser.c` drains completions on a `QEMU_CLOCK_REALTIME` timer at
 `VIRTIO_BROWSER_DRAIN_BUSY_MS 1` while tokens are parked and
-`VIRTIO_BROWSER_DRAIN_IDLE_MS 10` otherwise. During an OLED frame the busy value
-applies and adds ~1 ms to every round trip — second only to item 1 in the
-~10 ms budget. Between bursts the idle value adds up to 10 ms to the *first*
-transfer, which is the one a user feels when they click something in a panel.
+`VIRTIO_BROWSER_DRAIN_IDLE_MS` otherwise. **Measured** on Cortex-A53 `dac`
+(`tools/profile-dac.mjs`): with idle at 10 ms the stock sawtooth runs at
+**~45 I²C Hz** (page poll already ~1.2 ms; guest MIPS ~0.1 — almost always
+blocked). One logical ~4 s period takes ~90 s of wall. The mechanism: a
+synchronous `dac_write` drops `outstanding` to zero between transfers, and
+`-icount sleep=on` then sleeps the host until the idle drain fires — twice
+per loop (sleep wake + completion), which matches the ~22 ms/transfer.
 
-The clean version of this is the same shape as item 1(c) in the other direction:
-have the page's completion write wake the QEMU main loop rather than have QEMU
-poll for it. `qemu_bh_schedule` is the documented lever and is designed to be
-called cross-thread, but its `aio_notify` path writes to an event notifier, and
-whether that is safe to trigger from the browser main thread in this build needs
-checking before anything is built on it. Failing that, dropping the idle value to
-2–3 ms costs one timer wakeup every few milliseconds on a thread that is
-otherwise idle, and is worth measuring against the current 10.
+**Patched to idle = 1 ms** in the virtio-browser series; needs an emulator
+rebuild to land in `public/qemu/`. Expected: I²C Hz into the hundreds, limited
+by the 1 ms busy poll rather than by a 10 ms sleep tax.
+
+The clean version of this is still item 1(c): have the page's completion write
+wake the QEMU main loop rather than have QEMU poll for it. `qemu_bh_schedule`
+is the documented lever and is designed to be called cross-thread, but its
+`aio_notify` path writes to an event notifier, and whether that is safe to
+trigger from the browser main thread in this build needs checking before
+anything is built on it.
 
 ## 8. Seven pollers share the thread that runs xterm and React
 
