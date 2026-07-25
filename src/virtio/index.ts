@@ -32,13 +32,15 @@ export const i2cModel = createI2cModel('i2c')
 
 /**
  * What can be soldered to the browser's I2C bus. Instances are created once so
- * EEPROM contents (and sensor slider state) survive attach/detach across a
- * guest restart — which is what a real board does. Which of them are *on* the
+ * EEPROM contents (and sensor slider state) survive attach/detach within a
+ * session — which is what a real board does. The AT24 also persists its
+ * backing store in localStorage across page reloads ("MCU resets"), so the
+ * stock EEPROM boot-counter sample keeps counting. Which of them are *on* the
  * bus follows the running build's devicetree: extra sensors stay off until a
  * snippet enables their nodes, and dedicated samples drop the default sensors
  * so the dock is not cluttered. See syncManagedChips below.
  */
-export const eeprom = createAt24({ address: 0x50 })
+export const eeprom = createAt24({ address: 0x50, persistKey: 'zephyr.eeprom.50' })
 
 export const tmp112 = createTmp112({ address: 0x48 })
 

@@ -49,8 +49,9 @@ sensor — stay `status = "disabled"` in the virtio-i2c overlay so everyday
 builds (accel chart, OLED display, …) do not clutter the dock. The shell
 turns them all on with `-S i2c-sensors-extra`; each dedicated sensor sample
 uses a `*-only` snippet that enables that part and disables the default
-temperature / accel nodes. The page attaches matching models only while the
-guest tree marks those nodes okay.
+temperature / accel nodes. The EEPROM sample uses `-S eeprom-only` the same
+way (sensors and OLED off, `eeprom-0` aliased). The page attaches matching
+models only while the guest tree marks those nodes okay.
 
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `atmel,at24`,
@@ -77,7 +78,11 @@ the card that drives it — so adding a part is a declaration, not another panel
   wrap, and a card that is a live hex dump. Erased cells are dimmed so written
   bytes stand out, bytes the guest just changed light up, the read pointer is
   marked, and clicking a byte edits it — so you can plant something in the
-  EEPROM and go read it from the shell.
+  EEPROM and go read it from the shell. The board AT24 also persists its
+  backing store in `localStorage` (`zephyr.eeprom.50`) across page reloads, so
+  Zephyr's stock `samples/drivers/eeprom` boot counter keeps counting after an
+  "MCU reset"; the card's **erase** button clears both the live image and the
+  stored one.
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)

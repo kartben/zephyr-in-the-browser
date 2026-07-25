@@ -47,6 +47,7 @@ export function MemoryBody({
         )}
         <button
           onClick={() => chip.erase()}
+          title="Clear every cell (and any saved contents)"
           className={
             compact && onOpenWindow
               ? 'text-[10px] text-muted-foreground underline-offset-2 hover:underline'

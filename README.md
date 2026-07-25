@@ -17,7 +17,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
-| **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
+| **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump (persisted across reloads; erase clears it) or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
 | **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
 
 ## Quick start

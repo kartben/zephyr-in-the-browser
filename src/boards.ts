@@ -262,6 +262,16 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['sensor', 'i2c'],
   },
   {
+    // Boot counter through Zephyr's EEPROM API against the AT24 at 0x50. The
+    // page keeps the chip's bytes in localStorage, so a reload ("MCU reset")
+    // increments the count; the Memory card's erase button clears it.
+    id: 'eeprom',
+    label: 'EEPROM',
+    description: 'Boot counter that survives reloads in the simulated AT24',
+    zephyrSample: 'samples/drivers/eeprom',
+    primaryPanels: ['i2c'],
+  },
+  {
     id: 'philosophers',
     label: 'Philosophers',
     description: 'Dining philosophers, animated in-place over VT100',

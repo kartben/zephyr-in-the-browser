@@ -33,10 +33,15 @@ export interface At24Options {
   /** Size in bytes. 256 is an AT24C02, the one-byte-addressing part. */
   size?: number
   name?: string
+  /**
+   * localStorage key so contents survive page reloads. The board's singleton
+   * AT24 at 0x50 uses this; see createAt24 in src/virtio/index.ts.
+   */
+  persistKey?: string
 }
 
 export type At24Chip = MemoryChip
 
-export function createAt24({ address, size, name }: At24Options = {}): At24Chip {
-  return createMemoryChip(at24Decl, { address, size, name })
+export function createAt24({ address, size, name, persistKey }: At24Options = {}): At24Chip {
+  return createMemoryChip(at24Decl, { address, size, name, persistKey })
 }
