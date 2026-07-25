@@ -15,6 +15,9 @@ import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
 import { createAdxl345 } from './devices/sensors/adxl345'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
+import { createLps22hh } from './devices/sensors/lps22hh'
+import { createIna219 } from './devices/sensors/ina219'
+import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
@@ -55,6 +58,15 @@ i2cModel.attachChip(adxl345)
  */
 export const lsm6dso = createLsm6dso({ address: 0x6a })
 i2cModel.attachChip(lsm6dso)
+
+export const lps22hh = createLps22hh({ address: 0x5c })
+i2cModel.attachChip(lps22hh)
+
+export const ina219 = createIna219({ address: 0x40 })
+i2cModel.attachChip(ina219)
+
+export const isl29035 = createIsl29035({ address: 0x44 })
+i2cModel.attachChip(isl29035)
 
 /**
  * The one chip with something to show. Zephyr's stock `solomon,ssd1306-i2c`

@@ -87,6 +87,41 @@
 	};
 
 	/*
+	 * Matches createLps22hh({ address: 0x5c }) — pressure + temperature,
+	 * polled one-shot by samples/sensor/lps22hh.
+	 */
+	lps22hh_0: lps22hh@5c {
+		compatible = "st,lps22hh";
+		reg = <0x5c>;
+		status = "okay";
+	};
+
+	/*
+	 * Matches createIna219({ address: 0x40 }). Shunt/LSB/ADC match the
+	 * upstream sample overlay so page-side encoding round-trips.
+	 */
+	ina219_0: ina219@40 {
+		compatible = "ti,ina219";
+		reg = <0x40>;
+		brng = <0>;
+		pg = <0>;
+		sadc = <13>;
+		badc = <13>;
+		shunt-milliohm = <100>;
+		lsb-microamp = <10>;
+		status = "okay";
+	};
+
+	/*
+	 * Matches createIsl29035({ address: 0x44 }). No int-gpios — polling.
+	 */
+	isl29035_0: isl29035@44 {
+		compatible = "isil,isl29035";
+		reg = <0x44>;
+		status = "okay";
+	};
+
+	/*
 	 * Matches createSsd1306({ address: 0x3c }) in src/virtio/index.ts, whose
 	 * GDDRAM the OLED panel paints onto a canvas. Declared here so it shows up
 	 * in `i2c scan`, but it only becomes the display when the `oled` snippet

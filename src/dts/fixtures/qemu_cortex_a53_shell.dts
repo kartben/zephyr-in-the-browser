@@ -171,6 +171,30 @@
 					status = "okay";
 				};
 
+				lps22hh_0: lps22hh@5c {
+					compatible = "st,lps22hh";
+					reg = <0x5c>;
+					status = "okay";
+				};
+
+				ina219_0: ina219@40 {
+					compatible = "ti,ina219";
+					reg = <0x40>;
+					brng = <0x0>;
+					pg = <0x0>;
+					sadc = <0xd>;
+					badc = <0xd>;
+					shunt-milliohm = <0x64>;
+					lsb-microamp = <0xa>;
+					status = "okay";
+				};
+
+				isl29035_0: isl29035@44 {
+					compatible = "isil,isl29035";
+					reg = <0x44>;
+					status = "okay";
+				};
+
 				ssd1306_0: ssd1306@3c {
 					compatible = "solomon,ssd1306";
 					reg = <0x3c>;
