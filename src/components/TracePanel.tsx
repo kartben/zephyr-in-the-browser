@@ -5,7 +5,9 @@
  * Same core concepts as the terminal viewer:
  * - Gantt lanes coloured by run / ready / blocked / sleep / suspended
  * - A time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
- * - Live follow pinned to the newest events until the user pans/zooms
+ * - Live follow pinned to the newest events until the user pans
+ * - Zoom (± / wheel / pinch) changes the live window size without leaving
+ *   follow — still anchored on the newest edge
  * - A compact info strip (legend + running thread + selected lane) and a
  *   CPU / context-switch metrics line for the visible window
  *
@@ -73,6 +75,18 @@ function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number 
   return { t0: a, t1: Math.max(a + MIN_WINDOW_NS, b) }
 }
 
+function clampWindowNs(tr: Trace, ns: number): number {
+  const total = Math.max(MIN_WINDOW_NS, tr.t1 - tr.t0)
+  return Math.max(MIN_WINDOW_NS, Math.min(total, ns))
+}
+
+/** Follow view: window of `windowNs` ending at the newest timestamp. */
+function livePinnedView(tr: Trace, windowNs: number): { t0: number; t1: number } {
+  const win = clampWindowNs(tr, windowNs)
+  const t1 = tr.t1
+  return { t0: Math.max(tr.t0, t1 - win), t1 }
+}
+
 function zoomAround(
   tr: Trace,
   view: { t0: number; t1: number },
@@ -80,7 +94,7 @@ function zoomAround(
   pivot: number,
 ): { t0: number; t1: number } {
   const span = view.t1 - view.t0
-  const next = Math.max(MIN_WINDOW_NS, Math.min(Math.max(MIN_WINDOW_NS, tr.t1 - tr.t0), span * factor))
+  const next = clampWindowNs(tr, span * factor)
   const frac = span > 0 ? (pivot - view.t0) / span : 0.5
   const t0 = pivot - next * frac
   return clampView(tr, t0, t0 + next)
@@ -230,8 +244,12 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   const [follow, setFollow] = useState(true)
+  /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
+  const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
+  const followRef = useRef(follow)
+  followRef.current = follow
   viewRef.current = view
 
   useEffect(() => {
@@ -243,13 +261,9 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   useEffect(() => {
     if (!tr || tr.events.length === 0) return
     if (follow) {
-      const span = Math.max(tr.t1 - tr.t0, MIN_WINDOW_NS)
-      const windowNs = Math.min(span, DEFAULT_LIVE_WINDOW_NS)
-      const t1 = tr.t1
-      const t0 = Math.max(tr.t0, t1 - windowNs)
-      setView({ t0, t1 })
+      setView(livePinnedView(tr, liveWindowNs))
     }
-  }, [tr, follow, snap.eventCount])
+  }, [tr, follow, liveWindowNs, snap.eventCount])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -271,11 +285,16 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const applyZoom = useCallback(
     (factor: number) => {
       if (!tr || !view) return
-      setFollow(false)
+      if (follow) {
+        const next = clampWindowNs(tr, (view.t1 - view.t0) * factor)
+        setLiveWindowNs(next)
+        setView(livePinnedView(tr, next))
+        return
+      }
       const pivot = (view.t0 + view.t1) / 2
       setView(zoomAround(tr, view, factor, pivot))
     },
-    [tr, view],
+    [tr, view, follow],
   )
 
   const fitAll = useCallback(() => {
@@ -283,6 +302,11 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
     setFollow(false)
     setView({ t0: tr.t0, t1: Math.max(tr.t0 + MIN_WINDOW_NS, tr.t1) })
   }, [tr])
+
+  const jumpLive = useCallback(() => {
+    if (view) setLiveWindowNs(view.t1 - view.t0)
+    setFollow(true)
+  }, [view])
 
   const panByFraction = useCallback(
     (frac: number) => {
@@ -350,7 +374,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
           title={follow ? 'Following live edge' : 'Jump to live edge'}
           aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
           aria-pressed={follow}
-          onClick={() => setFollow(true)}
+          onClick={jumpLive}
           className={cn('size-8 touch-manipulation', follow && 'text-primary')}
         >
           <Crosshair className="size-4" />
@@ -431,14 +455,20 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
               onWheel={(e) => {
                 if (!view || !tr) return
                 e.preventDefault()
-                setFollow(false)
+                const factor = e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN
+                if (follow) {
+                  const next = clampWindowNs(tr, (view.t1 - view.t0) * factor)
+                  setLiveWindowNs(next)
+                  setView(livePinnedView(tr, next))
+                  return
+                }
                 const rect = e.currentTarget.getBoundingClientRect()
                 const plotW = Math.max(1, rect.width - LABEL_W - PAD)
                 const x = e.clientX - rect.left
                 const frac =
                   x < LABEL_W ? 0.5 : Math.min(1, Math.max(0, (x - LABEL_W) / plotW))
                 const pivot = view.t0 + frac * (view.t1 - view.t0)
-                setView(zoomAround(tr, view, e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN, pivot))
+                setView(zoomAround(tr, view, factor, pivot))
               }}
               onPointerDown={(e) => {
                 if (!view || !tr || !e.isPrimary) return
@@ -506,7 +536,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   pivot: view.t0 + frac * (view.t1 - view.t0),
                   origin: view,
                 }
-                setFollow(false)
+                // Pinch zoom stays in LIVE when already following.
               }}
               onTouchMove={(e) => {
                 const g = gestureRef.current
@@ -516,10 +546,12 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                 const b = e.touches[1]!
                 const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
                 const factor = g.startDist / Math.max(1, dist)
-                const nextSpan = Math.max(
-                  MIN_WINDOW_NS,
-                  Math.min(Math.max(MIN_WINDOW_NS, tr.t1 - tr.t0), g.startSpan * factor),
-                )
+                const nextSpan = clampWindowNs(tr, g.startSpan * factor)
+                if (followRef.current) {
+                  setLiveWindowNs(nextSpan)
+                  setView(livePinnedView(tr, nextSpan))
+                  return
+                }
                 const frac =
                   g.origin.t1 > g.origin.t0
                     ? (g.pivot - g.origin.t0) / (g.origin.t1 - g.origin.t0)
@@ -535,7 +567,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
             />
 
             <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-              Drag to pan · pinch or ± to zoom · tap a lane name to select
+              Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select
             </p>
 
             {/* Colour legend — same states as the terminal viewer. */}
