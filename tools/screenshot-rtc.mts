@@ -15,7 +15,7 @@ const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || '/usr/local/bin/google-chrome',
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 })
-const page = await browser.newPage({ viewport: { width: 900, height: 620 }, deviceScaleFactor: 2 })
+const page = await browser.newPage({ viewport: { width: 960, height: 780 }, deviceScaleFactor: 2 })
 await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 })
 await page.waitForSelector('#shot-armed [data-testid="rtc-body"]')
 await page.waitForSelector('#shot-fired [data-testid="rtc-alarm-fired"]')

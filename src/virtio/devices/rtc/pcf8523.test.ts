@@ -156,4 +156,27 @@ describe('PCF8523', () => {
     expect([...readRegs(chip, REG_MINUTE_ALARM, 4)]).toEqual([0x80, 0x80, 0x80, 0x80])
     expect(chip.getAlarms()[0]?.armed).toBe(false)
   })
+
+  it('matches day-of-month and weekday compares', () => {
+    const chip = createPcf8523()
+    // Saturday 25th at 08:30 — arm weekday=Sat + day=25 + hour=9
+    chip.setAlarm(0, { weekday: 6, day: 25, hour: 9 })
+    expect(chip.getAlarms()[0]).toMatchObject({
+      armed: true,
+      weekday: 6,
+      day: 25,
+      hour: 9,
+      pending: false,
+    })
+    expect(chip.getAlarms()[0]?.minute).toBeUndefined()
+
+    vi.advanceTimersByTime(30 * 60_000) // → 09:00
+    expect(chip.getTime()).toMatchObject({ hour: 9, minute: 0, day: 25, weekday: 6 })
+    expect(chip.getAlarms()[0]?.pending).toBe(true)
+  })
+
+  it('declares the four PCF8523 alarm fields', () => {
+    const chip = createPcf8523()
+    expect(chip.decl.alarmFields).toEqual(['minute', 'hour', 'day', 'weekday'])
+  })
 })

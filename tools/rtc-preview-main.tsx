@@ -7,12 +7,12 @@ import '@/index.css'
 const armed = createPcf8523({
   time: { year: 2026, month: 7, day: 25, weekday: 6, hour: 8, minute: 30, second: 12 },
 })
-armed.setAlarm(0, { hour: 8, minute: 31 })
+armed.setAlarm(0, { hour: 8, minute: 31, day: 25, weekday: 6 })
 
 const fired = createPcf8523({
   time: { year: 2026, month: 7, day: 25, weekday: 6, hour: 8, minute: 31, second: 0 },
 })
-fired.setAlarm(0, { hour: 8, minute: 31 })
+fired.setAlarm(0, { hour: 8, minute: 31, day: 25, weekday: 6 })
 
 function Frame({ title, children }: { title: string; children: ReactNode }) {
   return (

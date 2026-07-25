@@ -20,6 +20,9 @@ export interface RtcDateTime {
   second: number // 0–59
 }
 
+/** Compare fields Zephyr's RTC alarm mask can enable. */
+export type RtcAlarmField = 'minute' | 'hour' | 'day' | 'weekday'
+
 /** One hardware alarm, as the dock wants to show it. */
 export interface RtcAlarm {
   /** Alarm index (PCF8523 has one). */
@@ -29,7 +32,9 @@ export interface RtcAlarm {
   /** Fields that participate in the match (AEN clear on PCF8523). */
   minute?: number
   hour?: number
+  /** Day of month 1–31. */
   day?: number
+  /** Day of week 0=Sunday … 6=Saturday. */
   weekday?: number
   /** Sticky alarm-fired flag (AF), until cleared. */
   pending: boolean
@@ -37,12 +42,29 @@ export interface RtcAlarm {
 
 export interface RtcDecl {
   name: string
-  /** Device name for shell hints (`PCF8523`). */
+  /** Device name for shell hints (`pcf8523@68`). */
   shellLabel?: string
   defaultAddress: number
   /** How many hardware alarms the part exposes. */
   alarmsCount: number
+  /**
+   * Compare fields this part can arm. The dock renders only these — so a
+   * simpler RTC that only does hour+minute does not grow empty day/weekday
+   * rows. PCF8523: minute, hour, day, weekday (Zephyr mask 0x4e).
+   */
+  alarmFields: readonly RtcAlarmField[]
 }
+
+/** Sunday-first labels matching `RtcDateTime.weekday` / Zephyr `tm_wday`. */
+export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+/** Zephyr RTC_ALARM_TIME_MASK bits for the fields PCF8523 supports. */
+export const RTC_ALARM_MASK = {
+  minute: 0x02,
+  hour: 0x04,
+  day: 0x08,
+  weekday: 0x40,
+} as const satisfies Record<RtcAlarmField, number>
 
 /**
  * What every RTC provider must expose to the dock. Extends {@link I2cChip} only
@@ -85,19 +107,34 @@ export function isRtcChip(chip: I2cChip): chip is RtcChip {
 
 export function formatRtcTime(t: RtcDateTime): string {
   const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${t.year}-${pad(t.month)}-${pad(t.day)} ${pad(t.hour)}:${pad(t.minute)}:${pad(t.second)}`
+  const wday = WEEKDAY_SHORT[t.weekday] ?? `w${t.weekday}`
+  return `${wday} ${t.year}-${pad(t.month)}-${pad(t.day)} ${pad(t.hour)}:${pad(t.minute)}:${pad(t.second)}`
 }
 
 export function formatAlarm(alarm: RtcAlarm): string {
   if (!alarm.armed) return 'off'
   const pad = (n: number) => n.toString().padStart(2, '0')
   const parts: string[] = []
+  if (alarm.weekday !== undefined) {
+    parts.push(WEEKDAY_SHORT[alarm.weekday] ?? `wday ${alarm.weekday}`)
+  }
   if (alarm.day !== undefined) parts.push(`day ${alarm.day}`)
-  if (alarm.weekday !== undefined) parts.push(`wday ${alarm.weekday}`)
   if (alarm.hour !== undefined || alarm.minute !== undefined) {
     parts.push(`${pad(alarm.hour ?? 0)}:${pad(alarm.minute ?? 0)}`)
+  } else if (parts.length === 0) {
+    return 'armed'
   }
-  return parts.join(' · ') || 'armed'
+  return parts.join(' · ')
+}
+
+/** Zephyr alarm mask for the enabled fields on an {@link RtcAlarm}. */
+export function alarmMask(alarm: Pick<RtcAlarm, RtcAlarmField>): number {
+  let mask = 0
+  if (alarm.minute !== undefined) mask |= RTC_ALARM_MASK.minute
+  if (alarm.hour !== undefined) mask |= RTC_ALARM_MASK.hour
+  if (alarm.day !== undefined) mask |= RTC_ALARM_MASK.day
+  if (alarm.weekday !== undefined) mask |= RTC_ALARM_MASK.weekday
+  return mask
 }
 
 /** Browser local time as an {@link RtcDateTime}. */
