@@ -335,22 +335,85 @@ Zephyr, this is not a stock path — it is a new bridge.
 Verdict: worth doing after GPIO, before webcam. Keep it a bespoke host-PCM
 bridge; don't wait on virtio-snd.
 
-### 4. Webcam — coolest, heaviest, lowest certainty
+### 4. The I²C class backlog — cheaper than any new bridge
 
-The flashiest option and the one with the least off-the-shelf support.
+GPIO / virtio / audio closed the *bridge* shapes. What is left that still pays
+well is almost never another QEMU device: it is another **binding type** on the
+bus we already have. Zephyr's
+[`dts/bindings/binding-types.txt`](https://github.com/zephyrproject-rtos/zephyr/blob/main/dts/bindings/binding-types.txt)
+lists dozens of peripheral classes; the ones that fit this project are the ones
+with an in-tree I²C (or SPI) driver *and* a stock sample, because the virtio-i2c
+bridge means a new chip is TypeScript + a DT node + a JSON register map — no
+wasm rebuild.
 
-- **No QEMU-emulated camera exists** that a Zephyr driver consumes. Zephyr's
-  video subsystem tests against a *software pattern generator* on `native_sim`,
-  not against an emulated capture device under QEMU.
-- So this needs a **new bespoke Zephyr `video` driver** reading frames from a
-  host buffer, plus a QEMU device to carry them — combining the host-sensor
-  (frames pushed in) and framebuffer-export (a buffer both sides share) shapes.
-  `getUserMedia` → shared frame buffer → guest `video` driver →
-  `samples/drivers/video/capture`.
+**Rule for every new I²C part: model the registers.** Sensors and the PCF8523
+already share [`registers/`](../src/virtio/devices/registers) (SVD-inspired JSON
+under `sensors/maps/` / `rtc/maps/`, live inspector in
+[`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). New chips must ship a
+map the same way — named registers, access, reset, bitfields — not just enough
+bytes for the driver to probe. Command-stream parts (SSD1306 today) stay an
+exception and get a controller inspector instead of fake SVD rows. Debt on the
+existing tree: LM75, LPS22HH, INA219, and ISL29035 still declare registers
+inline without a `maps/*.json`; fold them over when touching those chips.
 
-It is buildable and it would be a great demo, but it is the largest guest-driver
-lift of anything here and carries the most unknowns. Park it as a stretch goal
-behind GPIO, virtio, and audio.
+Classes worth taking next, ranked inside this cheaper track:
+
+#### 4a. Aux display — **next**
+
+A new dock class (text LCD), not another sensor row. Zephyr's
+`auxdisplay` subsystem is exactly "character / segment panel, not framebuffer",
+and the stock samples are tiny:
+
+- [`samples/drivers/auxdisplay`](https://docs.zephyrproject.org/latest/samples/drivers/auxdisplay/README.html)
+  — "Hello World" on a text display
+- [`samples/drivers/auxdisplay_digits`](https://github.com/zephyrproject-rtos/zephyr/tree/main/samples/drivers/auxdisplay_digits)
+  — 7-segment / digit panels (TM1637 et al.; usually GPIO-bitbang, so a worse
+  fit than the I²C path below)
+
+Two I²C shapes, pick one (or both):
+
+1. **`jhd,jhd1313` (preferred first cut).** Grove RGB LCD: one I²C address for
+   the HD44780-like command/data stream, a second (`backlight-addr`, default
+   `0x62`) for the RGB backlight controller. The backlight side *is* a register
+   file (mode / PWM regs plus R/G/B at `0x04`/`0x03`/`0x02`) and must land as a
+   JSON map; the LCD address is a command stream like the SSD1306 and keeps a
+   character-cell canvas + controller state, not fake SVD rows. Guest driver is
+   stock (`CONFIG_AUXDISPLAY_JHD1313`).
+2. **`hit,hd44780` behind `nxp,pcf857x`.** The classic I²C backpack. The
+   expander is a one-byte I/O register — textbook register-map material — and
+   Zephyr's HD44780 driver bit-bangs RS/E/data over those GPIOs. Heavier (two
+   chip models, GPIO-controller binding) but reuses the same sample overlay
+   pattern as `esp_wrover_kit.overlay`. Good follow-up once JHD1313 proves the
+   dock card.
+
+Either way the guest stays stock; the page paints a 16×2 (or 20×4) character
+grid the way the OLED panel paints GDDRAM.
+
+#### 4b. LED controllers — HT16K33 / LP55xx
+
+[`samples/drivers/ht16k33`](https://github.com/zephyrproject-rtos/zephyr/tree/main/samples/drivers/ht16k33)
+and the various `samples/drivers/led/*` I²C parts (LP5562, LP50xx, …). Matrix /
+RGB LED is a strong dock card and every one of these *is* a register file, so
+the map rule applies cleanly. Slightly less "new class" than auxdisplay because
+GPIO LEDs already cover the blinky story.
+
+#### 4c. PWM — `nxp,pca9685`
+
+I²C 16-channel PWM. Stock Zephyr PWM API, no browser bridge beyond the chip
+model. Pairs naturally with `samples/basic/blinky`-style demos pointed at a PWM
+LED, or with servo-ish UI. Register map is well documented.
+
+#### 4d. Fuel gauge / charger
+
+`samples/drivers/fuel_gauge` and `samples/drivers/charger` — another dock
+class (battery), pure I²C register files. Great once the power-monitor story
+(INA219) wants a sibling that speaks "SoC %" rather than "amps".
+
+#### 4e. Webcam — still the stretch
+
+Unchanged: coolest, heaviest, lowest certainty. No QEMU camera a Zephyr driver
+consumes; needs a bespoke `video` driver + host buffer →
+`samples/drivers/video/capture`. Park it behind the I²C class work.
 
 ## The input gap — ✅ closed, the clean way
 
@@ -426,13 +489,20 @@ shell is a UX problem before it is a driver problem.
    browser side, not virtio (see
    [`audio-feasibility.md`](audio-feasibility.md)). Follow-up candidate: an
    I2S echo-style sample tying mic to speaker in one app.
-4. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
+4. **Aux display (I²C)** — next; prefer `jhd,jhd1313` with
+   `samples/drivers/auxdisplay`, backlight side as a JSON register map, LCD
+   side as a character-cell canvas. HD44780+PCF8574 is the backpack follow-up.
+5. **More I²C classes** — LED (`ht16k33` / LP55xx), PWM (`pca9685`),
+   fuel-gauge / charger — each a stock sample and a mandatory register map.
+6. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 
 ## Sources
 
+- [Zephyr binding types](https://github.com/zephyrproject-rtos/zephyr/blob/main/dts/bindings/binding-types.txt)
 - [Zephyr VIRTIO documentation](https://docs.zephyrproject.org/latest/hardware/virtualization/virtio.html)
 - [Antmicro: Extended Virtio support in Zephyr](https://antmicro.com/blog/2025/10/extended-virtio-support-in-zephyr)
 - [PR #89460 — virtio-mmio transport driver](https://github.com/zephyrproject-rtos/zephyr/pull/89460)
 - [PR #94807 — virtio serial/console driver](https://github.com/zephyrproject-rtos/zephyr/pull/94807)
 - [PR #83892 — VIRTIO device API + PCI driver](https://github.com/zephyrproject-rtos/zephyr/pull/83892)
+- [Zephyr auxdisplay sample](https://docs.zephyrproject.org/latest/samples/drivers/auxdisplay/README.html)
 - [Zephyr video capture sample](https://docs.zephyrproject.org/latest/samples/drivers/video/capture/README.html)
