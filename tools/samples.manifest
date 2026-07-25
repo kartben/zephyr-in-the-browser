@@ -11,9 +11,10 @@
 #                    comma-separated
 # - snippet          optional snippets (west build -S ...), comma-separated.
 #                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
-#                    virtio-i2c, i2c-sensors-extra, eeprom-only, jhd1313-only, and
-#                    the *-only sensor / RTC snippets; leave the conf field empty
-#                    (a bare "::") to use snippets without fragments.
+#                    virtio-i2c, i2c-sensors-extra, eeprom-only, jhd1313-only,
+#                    ht16k33-only, and the *-only sensor / RTC snippets; leave
+#                    the conf field empty (a bare "::") to use snippets without
+#                    fragments.
 #
 # Every build also applies the browser_bridge shield (zephyr-module/boards/
 # shields/browser_bridge), which adds the browser-fed peripherals and their
@@ -56,6 +57,7 @@ qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,i
 qemu_cortex_a53:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
+qemu_cortex_a53:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
@@ -85,6 +87,7 @@ qemu_riscv32:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl2
 qemu_riscv32:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
+qemu_riscv32:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
 qemu_riscv32:philosophers:samples/philosophers
 qemu_riscv32:blinky:samples/basic/blinky::virtio-gpio
 qemu_riscv32:basic_button:samples/basic/button::virtio-gpio

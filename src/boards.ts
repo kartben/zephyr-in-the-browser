@@ -23,6 +23,7 @@ export type PanelKind =
   | 'i2c'
   | 'oled'
   | 'auxdisplay'
+  | 'led'
   | 'trace'
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
@@ -290,6 +291,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: '“Hello World” on a 16×2 I²C character LCD (JHD1313) in the page',
     zephyrSample: 'samples/drivers/auxdisplay',
     primaryPanels: ['auxdisplay', 'i2c'],
+  },
+  {
+    // Stock LED sample against the browser HT16K33 at 0x70. The dock paints
+    // the 16×8 display RAM; keyscan is off in this packaging.
+    id: 'ht16k33',
+    label: 'HT16K33 LED',
+    description: 'Walks, blinks and dims a 16×8 I²C LED matrix (HT16K33) in the page',
+    zephyrSample: 'samples/drivers/ht16k33',
+    primaryPanels: ['led', 'i2c'],
   },
   {
     id: 'philosophers',

@@ -10,6 +10,7 @@ import {
   Gauge,
   GitBranch,
   Activity,
+  Grid3x3,
   Monitor,
   Network,
   Satellite,
@@ -60,6 +61,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   i2c: Cable,
   oled: Tv,
   auxdisplay: Monitor,
+  led: Grid3x3,
   trace: Activity,
 }
 
@@ -74,6 +76,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   i2c: 'I2C',
   oled: 'OLED',
   auxdisplay: 'LCD',
+  led: 'LED',
   trace: 'trace',
 }
 

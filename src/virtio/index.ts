@@ -21,6 +21,7 @@ import { createLps22hh } from './devices/sensors/lps22hh'
 import { createIna219 } from './devices/sensors/ina219'
 import { createIsl29035 } from './devices/sensors/isl29035'
 import { createSsd1306 } from './devices/chips/ssd1306'
+import { createHt16k33 } from './devices/chips/ht16k33'
 import { createJhd1313Pair } from './devices/chips/jhd1313'
 import { createPcf8523 } from './devices/rtc/pcf8523'
 import { FALLBACK_DT_SLOTS } from './devices/registry'
@@ -79,6 +80,9 @@ const jhd1313Pair = createJhd1313Pair()
 export const jhd1313 = jhd1313Pair.lcd
 export const jhd1313Backlight = jhd1313Pair.backlight
 
+/** Holtek HT16K33 16×8 LED matrix — stock samples/drivers/ht16k33. */
+export const ht16k33 = createHt16k33({ address: 0x70 })
+
 /** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
@@ -96,6 +100,7 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x62, jhd1313Backlight],
   [0x68, pcf8523],
   [0x6a, lsm6dso],
+  [0x70, ht16k33],
 ])
 
 /**

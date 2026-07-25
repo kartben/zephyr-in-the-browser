@@ -29,3 +29,7 @@
 &eeprom0 {
 	status = "disabled";
 };
+
+&ht16k33_0 {
+	status = "disabled";
+};

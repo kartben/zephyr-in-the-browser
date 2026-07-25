@@ -78,7 +78,7 @@
 	 * (accel_chart, oled, …) do not clutter the dock. Enable them with:
 	 *   -S i2c-sensors-extra   (shell: all optional parts)
 	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only /
-	 *     pcf8523-only
+	 *     pcf8523-only / jhd1313-only / ht16k33-only
 	 *     (dedicated sample: that part alone, defaults off)
 	 *
 	 * The page attaches matching TypeScript models only while these nodes
@@ -167,6 +167,17 @@
 		columns = <16>;
 		rows = <2>;
 		backlight-addr = <0x62>;
+		status = "disabled";
+	};
+
+	/*
+	 * Holtek HT16K33 16×8 LED matrix. Matches createHt16k33({ address: 0x70 })
+	 * in src/virtio/index.ts. Disabled by default; samples/drivers/ht16k33
+	 * uses -S ht16k33-only. Keyscan / irq-gpios are omitted (v1 is LED only).
+	 */
+	ht16k33_0: ht16k33@70 {
+		compatible = "holtek,ht16k33";
+		reg = <0x70>;
 		status = "disabled";
 	};
 };

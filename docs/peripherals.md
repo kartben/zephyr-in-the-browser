@@ -45,11 +45,12 @@ The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
 an AT24 EEPROM and an SSD1306 OLED by default, under
 [`src/virtio/devices/`](../src/virtio/devices). Optional extras — an LSM6DSO
 IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035 light
-sensor, a PCF8523 RTC, and a JHD1313 character LCD (Grove RGB, with its
-PCA9633-style backlight at `0x62`) — stay `status = "disabled"` in the
+sensor, a PCF8523 RTC, a JHD1313 character LCD (Grove RGB, with its
+PCA9633-style backlight at `0x62`), and an HT16K33 LED matrix at `0x70` —
+stay `status = "disabled"` in the
 virtio-i2c overlay so everyday builds (accel chart, OLED display, …) do not
 clutter the dock. The shell turns most of them on with `-S i2c-sensors-extra`;
-each dedicated sensor / RTC / auxdisplay sample uses a `*-only` snippet that
+each dedicated sensor / RTC / auxdisplay / LED sample uses a `*-only` snippet that
 enables that part and disables the default temperature / accel nodes. The
 EEPROM sample uses `-S eeprom-only` the same way (sensors and OLED off,
 `eeprom-0` aliased). The page attaches matching models only while the guest
@@ -57,7 +58,7 @@ tree marks those nodes okay.
 
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
-`atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313` — so `sensor get lps22hh@5c`
+`atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313`, `holtek,ht16k33` — so `sensor get lps22hh@5c`
 reads a value the page made up through the same driver a real board would use. The LSM6DSO is the
 advanced motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set`
 to put accel and gyro at 12.5 Hz, and the panel's ODR selects update when those
@@ -95,7 +96,7 @@ the card that drives it — so adding a part is a declaration, not another panel
   `rtc set_alarm` under `CONFIG_RTC_ALARM`.
 
 **Register maps** are shared across register-file parts — sensors, the
-PCF8523, and both halves of the JHD1313 today — via [`registers/`](../src/virtio/devices/registers)
+PCF8523, both halves of the JHD1313, and the HT16K33 today — via [`registers/`](../src/virtio/devices/registers)
 (SVD-inspired JSON under `sensors/maps/`, `rtc/maps/`, and `chips/maps/`) and
 the collapsed **Registers** dialog on each card
 ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). Channel codecs and
@@ -104,7 +105,9 @@ stays a pure *command stream* (Controller inspector, no fake SVD rows). The
 JHD1313 LCD address *does* get a map — Instruction (0x00) / Instruction_Co
 (0x80) / Data (0x40) plus decoded Entry_Mode, Display_Control, Function_Set,
 and DDRAM_AC shadows (`chips/maps/jhd1313-lcd.json`) — and its backlight at
-0x62 is a separate PCA9633-style map (`jhd1313-backlight.json`).
+0x62 is a separate PCA9633-style map (`jhd1313-backlight.json`). The HT16K33
+maps display RAM rows 0x00–0x0F plus System_Setup / Display_Setup / Row_Int /
+Dimming (`chips/maps/ht16k33.json`).
 
 Either way, the guest half is a devicetree node in
 [`zephyr-module/snippets/virtio-i2c/`](../zephyr-module/snippets/virtio-i2c)
