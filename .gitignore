@@ -24,3 +24,6 @@ public/docs/
 qemu-wasm-emulator.tar.gz
 zephyr-images.tar.gz
 qemu-wasm-artifacts.tar.gz
+
+# macOS AppleDouble sidecars from tar extracts
+._*
