@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useReducer, useSyncExternalStore } from 'react'
-import { Gauge } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
 import { CheckControl, SelectControl, SliderControl } from '@/components/controls/ControlRow'
 import {
   groupDrivesChannel,
@@ -26,29 +24,6 @@ import type { SensorChip } from '@/virtio/devices/sensors/model'
  * declaration, not another panel: this body draws whatever the declaration
  * lists.
  */
-export function SensorCard({
-  chip,
-  defaultExpanded = true,
-}: {
-  chip: SensorChip
-  defaultExpanded?: boolean
-}) {
-  const hex = chip.address.toString(16).padStart(2, '0')
-  return (
-    <PanelFrame
-      id={`sensor:${hex}`}
-      title={chip.name}
-      icon={Gauge}
-      side="right"
-      defaultExpanded={defaultExpanded}
-      status={<span className="font-mono text-[10px] text-muted-foreground">I2C · 0x{hex}</span>}
-    >
-      <div className="max-h-[min(26rem,60vh)] overflow-y-auto">
-        <SensorBody chip={chip} />
-      </div>
-    </PanelFrame>
-  )
-}
 
 /** Subscribe a component to a chip's changes, re-rendering on each notify. */
 function useChip(chip: SensorChip) {

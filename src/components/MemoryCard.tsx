@@ -1,6 +1,4 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { MemoryStick } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView } from '@/components/HexView'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
@@ -16,32 +14,6 @@ import type { MemoryChip } from '@/virtio/devices/memory/model'
  * Like the sensor cards this is a *device*, and lives on the devices edge — the
  * bus it rides is the I2C panel's business.
  */
-export function MemoryCard({
-  chip,
-  defaultExpanded = true,
-}: {
-  chip: MemoryChip
-  defaultExpanded?: boolean
-}) {
-  const hex = chip.address.toString(16).padStart(2, '0')
-
-  return (
-    <PanelFrame
-      id={`memory:${hex}`}
-      title={chip.name}
-      icon={MemoryStick}
-      side="right"
-      // A 16-byte dump plus its offset and ASCII gutters needs the width; the
-      // body scrolls sideways rather than wrapping if the panel is narrower.
-      dockedWidth={27}
-      defaultExpanded={defaultExpanded}
-      status={<span className="font-mono text-[10px] text-muted-foreground">I2C · 0x{hex}</span>}
-    >
-      <MemoryBody chip={chip} />
-    </PanelFrame>
-  )
-}
-
 /**
  * The hex dump and its trimmings without the frame. Two densities: `compact`
  * (the dock row) shows a two-row pointer-following preview with a "Hex editor"

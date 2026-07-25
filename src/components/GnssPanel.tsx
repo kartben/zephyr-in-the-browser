@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { MapPin } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
 import { CheckControl, NumberControl } from '@/components/controls/ControlRow'
 import {
-  available,
   followingBrowser,
   getSnapshot,
   locationError,
@@ -29,28 +26,7 @@ const FIELDS: Array<{
   { key: 'satellites', label: 'Satellites', unit: '', step: 1, min: 0, max: 99 },
 ]
 
-/** Controls the NMEA fixes streamed into the guest's second UART. */
-export function GnssPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const isAvailable = useSyncExternalStore(subscribe, available, () => false)
-
-  if (!isAvailable) return null
-
-  return (
-    <PanelFrame
-      id="gnss"
-      title="GNSS"
-      icon={MapPin}
-      defaultExpanded={defaultExpanded}
-      status={<span className="font-mono text-[11px] text-muted-foreground">NMEA UART</span>}
-    >
-      <div className="max-h-[min(28rem,60vh)] overflow-y-auto">
-        <GnssBody />
-      </div>
-    </PanelFrame>
-  )
-}
-
-/** The fix editor without the frame, shared by the dock row and the window. */
+/** The fix editor for the NMEA stream, shared by the dock row and the window. */
 export function GnssBody() {
   const fix = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   // Lives in hostGnss so the geolocation watch survives this body unmounting.

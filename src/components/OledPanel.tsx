@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
-import { MonitorDot } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
-import { isBound, ssd1306, subscribeBinds } from '@/virtio'
+import { useEffect, useRef } from 'react'
+import { ssd1306 } from '@/virtio'
 
 /**
  * The browser's SSD1306 OLED, painted from the chip's GDDRAM.
@@ -12,32 +10,6 @@ import { isBound, ssd1306, subscribeBinds } from '@/virtio'
  * directly. That is the difference between this and the ramfb display panel,
  * which renders a buffer the guest owns.
  */
-export function OledPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const isAvailable = useSyncExternalStore(
-    subscribeBinds,
-    useCallback(() => isBound('i2c'), []),
-    () => false,
-  )
-
-  if (!isAvailable) return null
-
-  return (
-    <PanelFrame
-      id="oled"
-      title="OLED"
-      icon={MonitorDot}
-      defaultExpanded={defaultExpanded}
-      status={
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {ssd1306.width}x{ssd1306.height} · 0x{ssd1306.address.toString(16)}
-        </span>
-      }
-    >
-      <OledBody />
-    </PanelFrame>
-  )
-}
-
 /**
  * Split out so the canvas and its subscription mount and unmount with the
  * panel body — PanelFrame renders children only while expanded, so a collapsed

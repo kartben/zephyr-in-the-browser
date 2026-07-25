@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from 'react'
 import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import {
   getSnapshot as getAudioSnapshot,
@@ -27,20 +26,6 @@ import {
  * off. Reach the speaker from the shell with `hostaudio beep`; the mic feeds
  * the stock dmic sample.
  */
-export function AudioPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const audio = useSyncExternalStore(subscribeAudio, getAudioSnapshot, getAudioSnapshot)
-  const mic = useSyncExternalStore(subscribeMic, getMicSnapshot, getMicSnapshot)
-
-  if (!audio.available && !mic.available) return null
-
-  return (
-    <PanelFrame id="audio" title="Host Audio" icon={Volume2} defaultExpanded={defaultExpanded}>
-      {audio.available && <SpeakerBody />}
-      {mic.available && <MicBody />}
-    </PanelFrame>
-  )
-}
-
 /**
  * The two halves of the sound device, as standalone bodies: the devicetree
  * gives each its own node (qemu,host-audio / qemu,host-mic), so the dock gives

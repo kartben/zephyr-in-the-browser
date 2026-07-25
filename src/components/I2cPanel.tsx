@@ -1,9 +1,8 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
-import { Cable, X } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
+import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
-import { i2cModel, isBound, subscribeBinds } from '@/virtio'
+import { i2cModel } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
 import type { I2cTransaction } from '@/virtio/devices/i2c'
 
@@ -24,38 +23,6 @@ import type { I2cTransaction } from '@/virtio/devices/i2c'
  *   for a chip (a sensor's slider, the OLED's screen) live on the devices edge;
  *   this side is the bus, not the things on it.
  */
-export function I2cPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const isAvailable = useSyncExternalStore(
-    subscribeBinds,
-    useCallback(() => isBound('i2c'), []),
-    () => false,
-  )
-  const chips = useSyncExternalStore(
-    i2cModel.subscribe,
-    i2cModel.chips,
-    useCallback(() => [], []),
-  )
-
-  if (!isAvailable) return null
-
-  return (
-    <PanelFrame
-      id="i2c"
-      title="I2C bus"
-      icon={Cable}
-      side="left"
-      defaultExpanded={defaultExpanded}
-      status={
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {chips.length} {chips.length === 1 ? 'chip' : 'chips'}
-        </span>
-      }
-    >
-      <I2cBody />
-    </PanelFrame>
-  )
-}
-
 /**
  * The bus workbench without the frame — roster, attach row, traffic trace —
  * shared by the dock's controller row and the floating window. `busLabel`
