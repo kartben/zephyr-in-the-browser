@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 import { createLm75 } from './lm75'
 import { createAdxl345 } from './adxl345'
+import { createLsm6dso } from './lsm6dso'
 
 /**
  * A made-up two-channel part exercising the machine directly (no bridge): an
@@ -188,5 +189,77 @@ describe('ADXL345', () => {
       'orientation-y',
       'orientation-z',
     ])
+  })
+})
+
+describe('LSM6DSO', () => {
+  const G = 9.80665
+
+  /** Decode a little-endian axis at ±2 g (61 µg/LSB) into m/s². */
+  function decodeAccel(lo: number, hi: number): number {
+    const raw = ((hi << 8) | lo) << 16 >> 16
+    return raw * 61 * G * 1e-6
+  }
+
+  /** Decode a little-endian axis at ±250 dps (8750 µdps/LSB) into rad/s. */
+  function decodeGyro(lo: number, hi: number): number {
+    const raw = ((hi << 8) | lo) << 16 >> 16
+    const tenUdeg = (raw * 8750) / 10
+    return (tenUdeg * Math.PI) / 1.8e7
+  }
+
+  it('answers the WHO_AM_I probe with 0x6C', () => {
+    const chip = createLsm6dso()
+    chip.write(Uint8Array.of(0x0f))
+    expect(Array.from(chip.read(1))).toEqual([0x6c])
+  })
+
+  it('bursts accel and gyro out of consecutive registers', () => {
+    const chip = createLsm6dso()
+    chip.setChannel('accel_x', 1.5)
+    chip.setChannel('accel_y', -2.5)
+    chip.setChannel('accel_z', G)
+    chip.setChannel('gyro_x', 0.5)
+    chip.setChannel('gyro_y', -0.25)
+    chip.setChannel('gyro_z', 0)
+
+    chip.write(Uint8Array.of(0x28))
+    const a = Array.from(chip.read(6))
+    expect(decodeAccel(a[0], a[1])).toBeCloseTo(1.5, 1)
+    expect(decodeAccel(a[2], a[3])).toBeCloseTo(-2.5, 1)
+    expect(decodeAccel(a[4], a[5])).toBeCloseTo(G, 1)
+
+    chip.write(Uint8Array.of(0x22))
+    const g = Array.from(chip.read(6))
+    expect(decodeGyro(g[0], g[1])).toBeCloseTo(0.5, 2)
+    expect(decodeGyro(g[2], g[3])).toBeCloseTo(-0.25, 2)
+    expect(decodeGyro(g[4], g[5])).toBeCloseTo(0, 2)
+  })
+
+  it('exposes ODR fields the driver writes via sensor_attr_set', () => {
+    const chip = createLsm6dso()
+    // What st,lsm6dso does for 12.5 Hz: ODR nibble = 1 in CTRL1_XL / CTRL2_G.
+    chip.write(Uint8Array.of(0x10, 0x10))
+    chip.write(Uint8Array.of(0x11, 0x10))
+    expect(chip.getAttr('accel_odr')).toBe(1)
+    expect(chip.getAttr('gyro_odr')).toBe(1)
+
+    chip.setAttr('accel_odr', 4) // 104 Hz from the panel
+    chip.write(Uint8Array.of(0x10))
+    expect(Array.from(chip.read(1))).toEqual([0x40])
+  })
+
+  it('scales accel encoding with the full-scale field', () => {
+    const chip = createLsm6dso()
+    chip.setChannel('accel_x', G)
+    chip.setAttr('accel_fs', 0) // ±2 g → 61 µg/LSB
+    chip.write(Uint8Array.of(0x28))
+    const at2g = Array.from(chip.read(2))
+    chip.setAttr('accel_fs', 2) // ±4 g → 122 µg/LSB — half the counts
+    chip.write(Uint8Array.of(0x28))
+    const at4g = Array.from(chip.read(2))
+    const counts2 = (at2g[1] << 8) | at2g[0]
+    const counts4 = (at4g[1] << 8) | at4g[0]
+    expect(counts2).toBeCloseTo(counts4 * 2, -1)
   })
 })

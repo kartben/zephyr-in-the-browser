@@ -151,6 +151,7 @@ const CHIP_COMPAT: Record<string, string> = {
   tmp112: 'ti,tmp112',
   lm75: 'lm75',
   adxl345: 'adi,adxl345',
+  lsm6dso: 'st,lsm6dso',
   at24: 'atmel,at24',
   ssd1306: 'solomon,ssd1306',
 }

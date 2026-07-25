@@ -217,6 +217,13 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['sensor', 'display'],
   },
   {
+    id: 'lsm6dso',
+    label: 'LSM6DSO IMU',
+    description: 'Accel + gyro with sensor_attr_set sampling rate, over I²C',
+    zephyrSample: 'samples/sensor/lsm6dso',
+    primaryPanels: ['sensor', 'i2c'],
+  },
+  {
     id: 'philosophers',
     label: 'Philosophers',
     description: 'Dining philosophers, animated in-place over VT100',

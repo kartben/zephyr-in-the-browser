@@ -14,6 +14,7 @@ import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
 import { createAdxl345 } from './devices/sensors/adxl345'
+import { createLsm6dso } from './devices/sensors/lsm6dso'
 import { createSsd1306 } from './devices/chips/ssd1306'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
@@ -47,6 +48,13 @@ i2cModel.attachChip(lm75)
 /** A 3-axis accelerometer, which the card can point at the device's own tilt. */
 export const adxl345 = createAdxl345({ address: 0x53 })
 i2cModel.attachChip(adxl345)
+
+/**
+ * A 6-axis IMU (accel + gyro). The stock `st,lsm6dso` driver configures its
+ * ODR through sensor attributes — which is what samples/sensor/lsm6dso shows.
+ */
+export const lsm6dso = createLsm6dso({ address: 0x6a })
+i2cModel.attachChip(lsm6dso)
 
 /**
  * The one chip with something to show. Zephyr's stock `solomon,ssd1306-i2c`

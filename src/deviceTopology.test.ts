@@ -36,6 +36,7 @@ const A53_CHIPS: I2cChip[] = [
   fakeSensor(0x49, 'LM75 temperature'),
   fakeMemory(0x50, 'AT24C02 EEPROM'),
   fakeSensor(0x53, 'ADXL345 accelerometer'),
+  fakeSensor(0x6a, 'LSM6DSO IMU'),
 ]
 
 const nodeByKey = (inv: DeviceInventory, key: string) => {
@@ -59,7 +60,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(bus.body).toBe('i2c')
     expect(bus.nodeName).toBe('virtio-i2c')
 
-    // All five chips, in address order, named by their devicetree nodes.
+    // All six chips, in address order, named by their devicetree nodes.
     const chipRows = inv.nodes.filter((n) => n.parentKey === 'virtio_i2c0')
     expect(chipRows.map((n) => n.key)).toEqual([
       'virtio_i2c0:3c',
@@ -67,6 +68,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
       'virtio_i2c0:49',
       'virtio_i2c0:50',
       'virtio_i2c0:53',
+      'virtio_i2c0:6a',
     ])
     const tmp = nodeByKey(inv, 'virtio_i2c0:48')
     expect(tmp.nodeName).toBe('tmp112@48')
@@ -96,7 +98,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(treeOf(a53Shell), [], ALL, 'qemu_cortex_a53')
 
     const ghosts = inv.nodes.filter((n) => n.presence === 'ghost')
-    expect(ghosts).toHaveLength(5)
+    expect(ghosts).toHaveLength(6)
     expect(ghosts.every((n) => n.note === 'NAK — detached')).toBe(true)
 
     // A detached declared sensor still files under Sensors, as a ghost.
@@ -241,7 +243,7 @@ describe('buildRowList', () => {
     const rows = buildRowList(inv, 'classes')
 
     const sensors = rows.find((row) => row.kind === 'group' && row.deviceClass === 'sensor')
-    expect(sensors).toMatchObject({ label: 'Sensors', count: 3 })
+    expect(sensors).toMatchObject({ label: 'Sensors', count: 4 })
 
     // Group headers precede their members; members carry breadcrumbs.
     const sensorIdx = rows.indexOf(sensors!)

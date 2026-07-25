@@ -28,6 +28,7 @@ import { createAt24 } from './chips/at24'
 import { createSsd1306 } from './chips/ssd1306'
 import { createAdxl345 } from './sensors/adxl345'
 import { createLm75 } from './sensors/lm75'
+import { createLsm6dso } from './sensors/lsm6dso'
 import { createTmp112 } from './sensors/tmp112'
 
 export type ChipKind = 'sensor' | 'eeprom' | 'display'
@@ -67,6 +68,13 @@ export const CHIP_TYPES: ChipType[] = [
     create: (address) => createAdxl345({ address }),
   },
   {
+    id: 'lsm6dso',
+    label: 'LSM6DSO IMU',
+    kind: 'sensor',
+    defaultAddress: 0x6a,
+    create: (address) => createLsm6dso({ address }),
+  },
+  {
     id: 'at24',
     label: 'AT24C02 EEPROM',
     kind: 'eeprom',
@@ -92,6 +100,7 @@ export const FALLBACK_DT_SLOTS: Record<number, string> = {
   0x48: 'tmp112',
   0x49: 'lm75',
   0x53: 'adxl345',
+  0x6a: 'lsm6dso',
   0x50: 'at24',
   0x3c: 'ssd1306',
 }
