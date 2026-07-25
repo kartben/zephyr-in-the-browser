@@ -209,12 +209,14 @@ function ChannelStrip({
   onSelect: (n: number) => void
 }) {
   const n = chip.decl.channelCount
+  // Fixed track height so duty changes never resize the dock card.
+  const trackH = 24
+  const minFill = 5
   return (
     <div className="flex items-end gap-0.5" role="listbox" aria-label="PWM channels">
       {Array.from({ length: n }, (_, i) => {
         const ch = chip.getChannel(i)
-        // Floor so idle / full-off channels stay visible as click targets.
-        const h = Math.round(5 + ch.duty * 19)
+        const fill = Math.round(minFill + ch.duty * (trackH - minFill))
         const active = i === selected
         return (
           <button
@@ -231,15 +233,21 @@ function ChannelStrip({
             }
           >
             <span
-              className={
-                active
-                  ? 'w-full rounded-sm bg-primary'
-                  : ch.duty > 0
-                    ? 'w-full rounded-sm bg-success/70'
-                    : 'w-full rounded-sm bg-muted-foreground/25'
-              }
-              style={{ height: h }}
-            />
+              className="flex w-full items-end"
+              style={{ height: trackH }}
+              aria-hidden
+            >
+              <span
+                className={
+                  active
+                    ? 'w-full rounded-sm bg-primary'
+                    : ch.duty > 0
+                      ? 'w-full rounded-sm bg-success/70'
+                      : 'w-full rounded-sm bg-muted-foreground/25'
+                }
+                style={{ height: fill }}
+              />
+            </span>
             <span className="font-mono text-[8px] tabular-nums text-muted-foreground">
               {i === selected ? `CH${i}` : i}
             </span>
