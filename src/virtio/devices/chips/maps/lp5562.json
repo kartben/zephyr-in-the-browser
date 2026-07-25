@@ -1,0 +1,184 @@
+{
+  "name": "LP5562",
+  "description": "TI LP5562 4-channel RGBW LED driver (I²C). Direct PWM plus three execution engines. Matches Zephyr drivers/led/lp5562.c and datasheet register map.",
+  "registers": [
+    {
+      "name": "ENABLE",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Chip enable and engine execution state.",
+      "fields": [
+        { "name": "ENG3_EXEC", "lsb": 0, "msb": 1, "description": "Engine 3 execution mode." },
+        { "name": "ENG2_EXEC", "lsb": 2, "msb": 3, "description": "Engine 2 execution mode." },
+        { "name": "ENG1_EXEC", "lsb": 4, "msb": 5, "description": "Engine 1 execution mode." },
+        {
+          "name": "CHIP_EN",
+          "lsb": 6,
+          "msb": 6,
+          "description": "1 = chip enabled.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        },
+        { "name": "LOG_EN", "lsb": 7, "msb": 7, "description": "Logarithmic dimming enable." }
+      ]
+    },
+    {
+      "name": "OP_MODE",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Engine operational modes (disabled / load / run / direct).",
+      "fields": [
+        { "name": "ENG3_MODE", "lsb": 0, "msb": 1 },
+        { "name": "ENG2_MODE", "lsb": 2, "msb": 3 },
+        { "name": "ENG1_MODE", "lsb": 4, "msb": 5 }
+      ]
+    },
+    {
+      "name": "B_PWM",
+      "addr": "0x02",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Blue channel direct PWM (0…255). Sample LED index 0."
+    },
+    {
+      "name": "G_PWM",
+      "addr": "0x03",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Green channel direct PWM (0…255). Sample LED index 1."
+    },
+    {
+      "name": "R_PWM",
+      "addr": "0x04",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Red channel direct PWM (0…255). Sample LED index 2."
+    },
+    {
+      "name": "B_CURRENT",
+      "addr": "0x05",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 175,
+      "description": "Blue output current in 0.1 mA units."
+    },
+    {
+      "name": "G_CURRENT",
+      "addr": "0x06",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 175,
+      "description": "Green output current in 0.1 mA units."
+    },
+    {
+      "name": "R_CURRENT",
+      "addr": "0x07",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 175,
+      "description": "Red output current in 0.1 mA units."
+    },
+    {
+      "name": "CONFIG",
+      "addr": "0x08",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Clock select, power-save, PWM frequency.",
+      "fields": [
+        {
+          "name": "CLK",
+          "lsb": 0,
+          "msb": 1,
+          "description": "Clock source.",
+          "values": [
+            { "name": "External", "value": 0 },
+            { "name": "Internal", "value": 1 },
+            { "name": "Auto", "value": 2 }
+          ]
+        },
+        { "name": "PWRSAVE", "lsb": 5, "msb": 5 },
+        { "name": "PWM_558", "lsb": 6, "msb": 6, "description": "1 = 558 Hz PWM (vs 256 Hz)." }
+      ]
+    },
+    {
+      "name": "ENG1_PC",
+      "addr": "0x09",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Engine 1 program counter."
+    },
+    {
+      "name": "ENG2_PC",
+      "addr": "0x0A",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Engine 2 program counter."
+    },
+    {
+      "name": "ENG3_PC",
+      "addr": "0x0B",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Engine 3 program counter."
+    },
+    {
+      "name": "STATUS",
+      "addr": "0x0C",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Engine status / interrupt flags."
+    },
+    {
+      "name": "RESET",
+      "addr": "0x0D",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Write 0xFF to reset the device."
+    },
+    {
+      "name": "W_PWM",
+      "addr": "0x0E",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "White channel direct PWM (0…255). Sample LED index 3."
+    },
+    {
+      "name": "W_CURRENT",
+      "addr": "0x0F",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 175,
+      "description": "White output current in 0.1 mA units."
+    },
+    {
+      "name": "LED_MAP",
+      "addr": "0x70",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Per-channel source: 00=PWM, 01=ENG1, 10=ENG2, 11=ENG3.",
+      "fields": [
+        { "name": "B_SRC", "lsb": 0, "msb": 1, "description": "Blue source." },
+        { "name": "G_SRC", "lsb": 2, "msb": 3, "description": "Green source." },
+        { "name": "R_SRC", "lsb": 4, "msb": 5, "description": "Red source." },
+        { "name": "W_SRC", "lsb": 6, "msb": 7, "description": "White source." }
+      ]
+    }
+  ]
+}

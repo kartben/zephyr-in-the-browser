@@ -1,18 +1,16 @@
 /**
- * Dock body for the HT16K33 LED matrix.
- *
- * Paints the chip's 16×8 display RAM as a grid. Brightness scales cell
- * intensity; blink modes flash the whole matrix. Registers opens the shared
- * SVD-style map — same component sensors and RTC use.
+ * Dock bodies for LED-class I²C parts: HT16K33 matrix and LP5562 RGBW.
  */
 
 import { useEffect, useReducer, useRef } from 'react'
 import { RegisterMapButton } from '@/components/RegisterMap'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
+import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
+import { cn } from '@/lib/utils'
 
 const UI_MS = 50
 
-function useChip(chip: Ht16k33Chip) {
+function useChipVersion(subscribe: (fn: () => void) => () => void, version: () => number) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -21,7 +19,7 @@ function useChip(chip: Ht16k33Chip) {
       last = performance.now()
       force()
     }
-    const unsubscribe = chip.subscribe(() => {
+    const unsubscribe = subscribe(() => {
       const now = performance.now()
       const wait = UI_MS - (now - last)
       if (wait <= 0) {
@@ -43,7 +41,11 @@ function useChip(chip: Ht16k33Chip) {
       unsubscribe()
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [chip])
+  }, [subscribe, version])
+}
+
+function useChip(chip: { subscribe: (fn: () => void) => () => void; version: () => number }) {
+  useChipVersion(chip.subscribe, chip.version)
 }
 
 function blinkPeriodMs(blink: ReturnType<Ht16k33Chip['getBlink']>): number | null {
@@ -98,90 +100,168 @@ function MatrixCanvas({ chip }: { chip: Ht16k33Chip }) {
           const lit = show && (chip.memory[row]! & (1 << col)) !== 0
           if (lit) {
             const g = Math.round(180 + 75 * intensity)
-            const r = Math.round(40 * intensity)
-            const b = Math.round(60 * intensity)
-            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+            ctx.fillStyle = `rgb(${g},${g},${Math.round(40 + 40 * intensity)})`
           } else {
-            ctx.fillStyle = 'rgba(255,255,255,0.06)'
+            ctx.fillStyle = '#1a1d24'
           }
-          ctx.beginPath()
-          ctx.roundRect(x, y, cell, cell, 2)
-          ctx.fill()
+          ctx.fillRect(x, y, cell, cell)
         }
       }
     }
 
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(paint)
-    }
-
     const syncBlink = () => {
-      if (blinkTimer) {
+      if (blinkTimer !== undefined) {
         clearInterval(blinkTimer)
         blinkTimer = undefined
       }
       const period = blinkPeriodMs(chip.getBlink())
       blinkOn = true
-      if (period !== null) {
+      if (period != null) {
         blinkTimer = setInterval(() => {
           blinkOn = !blinkOn
-          schedule()
+          paint()
         }, period / 2)
       }
-      schedule()
+      paint()
     }
 
-    paint()
-    const unsub = chip.subscribe(() => {
-      syncBlink()
+    const unsubscribe = chip.subscribe(() => {
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0
+        syncBlink()
+      })
     })
     syncBlink()
-
     return () => {
-      unsub()
+      unsubscribe()
+      if (blinkTimer !== undefined) clearInterval(blinkTimer)
       if (frame) cancelAnimationFrame(frame)
-      if (blinkTimer) clearInterval(blinkTimer)
     }
   }, [chip])
 
+  return <canvas ref={canvasRef} className="mx-auto block rounded-sm" />
+}
+
+/** HT16K33 16×8 matrix body. */
+export function LedMatrixBody({ chip }: { chip: Ht16k33Chip }) {
+  useChip(chip)
   return (
-    <canvas
-      ref={canvasRef}
-      aria-label="HT16K33 LED matrix"
-      className="w-full rounded border border-border bg-black"
-      style={{ imageRendering: 'auto', aspectRatio: `${chip.cols} / ${chip.rows}` }}
-    />
+    <div className="flex flex-col gap-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] text-muted-foreground">
+          {chip.cols}×{chip.rows}
+          {chip.isDisplayOn() ? '' : ' · off'}
+          {chip.getBlink() !== 'off' ? ` · blink ${chip.getBlink()}` : ''}
+        </div>
+        <RegisterMapButton chip={chip} />
+      </div>
+      <MatrixCanvas chip={chip} />
+    </div>
   )
 }
 
-export function LedMatrixBody({ chip }: { chip: Ht16k33Chip }) {
+/**
+ * LP5562 RGBW body — one big mixed orb plus four channel meters.
+ * Polls while engines may be blinking so the orb keeps flashing.
+ */
+export function RgbLedBody({ chip }: { chip: Lp5562Chip }) {
   useChip(chip)
-  const lit = (() => {
-    let n = 0
-    for (let i = 0; i < chip.rows * chip.cols; i++) if (chip.isLedOn(i)) n++
-    return n
-  })()
-  const brightnessPct = Math.round(((chip.getBrightness() + 1) / 16) * 100)
+  const [, force] = useReducer((n: number) => n + 1, 0)
+
+  // Engines blink without further I²C traffic — keep the orb alive at ~20 Hz.
+  useEffect(() => {
+    const id = setInterval(() => force(), 50)
+    return () => clearInterval(id)
+  }, [chip])
+
+  const rgb = chip.getRgb()
+  const enabled = chip.isChipEnabled()
+  const mix = mixRgbw(rgb)
+  const labels = ['B', 'G', 'R', 'W'] as const
+  const values = [rgb.b, rgb.g, rgb.r, rgb.w]
 
   return (
-    <div className="space-y-2 px-3 py-3">
-      <MatrixCanvas chip={chip} />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="font-mono tabular-nums">
-          {chip.isDisplayOn() ? 'on' : 'off'}
-          {chip.getBlink() !== 'off' ? ` · blink ${chip.getBlink()}` : ''}
-        </span>
-        <span className="font-mono tabular-nums">{brightnessPct}%</span>
-        <span className="font-mono tabular-nums">
-          {lit}/{chip.rows * chip.cols} lit
-        </span>
+    <div className="flex flex-col gap-3 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div
+            className={cn(
+              'size-14 shrink-0 rounded-full border border-border transition-colors duration-75',
+              enabled ? 'shadow-[0_0_18px_rgba(255,255,255,0.18)]' : 'opacity-40',
+            )}
+            style={{
+              background: enabled
+                ? `radial-gradient(circle at 35% 30%, ${mix.glow}, ${mix.fill} 55%, #0c0e12 100%)`
+                : '#1a1d24',
+            }}
+            aria-label={`RGBW ${rgb.r},${rgb.g},${rgb.b},${rgb.w}`}
+          />
+          <div>
+            <div className="font-mono text-sm tabular-nums tracking-tight">
+              R{rgb.r} G{rgb.g} B{rgb.b}
+              {rgb.w > 0 ? ` W${rgb.w}` : ''}
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              LP5562{enabled ? '' : ' · chip off'}
+            </div>
+          </div>
+        </div>
+        <RegisterMapButton chip={chip} />
       </div>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Zephyr&apos;s stock{' '}
-        <code className="font-mono text-foreground">holtek,ht16k33</code> LED
-        driver — 16×8 matrix over I²C at 0x{chip.address.toString(16)}.
-      </p>
-      <RegisterMapButton chip={chip} />
+
+      <div className="grid grid-cols-4 gap-2">
+        {labels.map((label, i) => (
+          <ChannelMeter key={label} label={label} value={values[i]!} accent={channelColor(label)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function channelColor(ch: 'B' | 'G' | 'R' | 'W'): string {
+  if (ch === 'R') return '#f87171'
+  if (ch === 'G') return '#4ade80'
+  if (ch === 'B') return '#60a5fa'
+  return '#e7e5e4'
+}
+
+function mixRgbw(rgb: { r: number; g: number; b: number; w: number }): {
+  fill: string
+  glow: string
+} {
+  const w = rgb.w / 255
+  const r = Math.min(255, Math.round(rgb.r + rgb.w * 0.85))
+  const g = Math.min(255, Math.round(rgb.g + rgb.w * 0.85))
+  const b = Math.min(255, Math.round(rgb.b + rgb.w * 0.85))
+  const a = Math.max(rgb.r, rgb.g, rgb.b, rgb.w) / 255
+  return {
+    fill: `rgba(${r},${g},${b},${0.35 + 0.55 * a})`,
+    glow: `rgba(${Math.min(255, r + 40)},${Math.min(255, g + 40)},${Math.min(255, b + 40)},${0.55 + 0.35 * w})`,
+  }
+}
+
+function ChannelMeter({
+  label,
+  value,
+  accent,
+}: {
+  label: string
+  value: number
+  accent: string
+}) {
+  const pct = Math.round((value / 255) * 100)
+  return (
+    <div className="rounded-sm bg-muted/40 px-1.5 py-1.5">
+      <div className="flex items-baseline justify-between text-[10px]">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono tabular-nums">{pct}%</span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-sm bg-muted">
+        <div
+          className="h-full rounded-sm transition-[width] duration-75"
+          style={{ width: `${pct}%`, background: accent }}
+        />
+      </div>
     </div>
   )
 }

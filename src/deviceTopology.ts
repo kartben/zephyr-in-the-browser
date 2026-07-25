@@ -23,6 +23,7 @@ import type { I2cChip } from '@/virtio/devices/i2c'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
+import { isLp5562 } from '@/virtio/devices/chips/lp5562'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
 import { isDacChip } from '@/virtio/devices/dac/model'
@@ -61,6 +62,7 @@ export type BodyKind =
   | 'oled'
   | 'auxdisplay'
   | 'led'
+  | 'rgb-led'
   | 'pwm-leds'
   | 'gpio-leds'
   | 'pwm'
@@ -210,6 +212,7 @@ const CHIP_COMPAT: Record<string, string> = {
   ssd1306: 'solomon,ssd1306',
   jhd1313: 'jhd,jhd1313',
   ht16k33: 'holtek,ht16k33',
+  lp5562: 'ti,lp5562',
   pca9685: 'nxp,pca9685-pwm',
   mcp4725: 'microchip,mcp4725',
   max17048: 'maxim,max17048',
@@ -227,6 +230,7 @@ function chipClass(chip: I2cChip): DeviceClass {
   if (isRtcChip(chip)) return 'rtc'
   if (isJhd1313Lcd(chip) || isJhd1313Backlight(chip)) return 'auxdisplay'
   if (isHt16k33(chip)) return 'led'
+  if (isLp5562(chip)) return 'led'
   if (isPwmChip(chip)) return 'pwm'
   if (isDacChip(chip)) return 'dac'
   if (isFuelGaugeChip(chip)) return 'fuel-gauge'
@@ -243,7 +247,10 @@ function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
     if (chip && isJhd1313Backlight(chip)) return undefined
     return 'auxdisplay'
   }
-  if (cls === 'led') return 'led'
+  if (cls === 'led') {
+    if (chip && isLp5562(chip)) return 'rgb-led'
+    return 'led'
+  }
   if (cls === 'pwm') return 'pwm'
   if (cls === 'dac') return 'dac'
   if (cls === 'fuel-gauge') return 'fuel-gauge'

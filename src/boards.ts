@@ -316,6 +316,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'i2c'],
   },
   {
+    // Stock RGBW LED sample against the browser LP5562 at 0x30. The dock paints
+    // a mixed RGB orb plus channel meters (engines approximate led_blink).
+    id: 'lp5562',
+    label: 'RGB LED',
+    description: 'Cycles colors and blinks on a TI LP5562 RGBW LED; orb in the page',
+    zephyrSample: 'samples/drivers/led/lp5562',
+    primaryPanels: ['led', 'i2c'],
+  },
+  {
     // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
     // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',
