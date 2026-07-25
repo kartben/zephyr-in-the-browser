@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Download, Info, Network, Pause, Play, Trash2 } from 'lucide-react'
-import { PanelFrame, usePanelControls } from '@/components/PanelFrame'
+import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
@@ -26,8 +26,6 @@ import {
  */
 export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [showImpairments, setShowImpairments] = useState(false)
-  const [showAbout, setShowAbout] = useState(false)
 
   if (!snapshot.available || !available()) return null
 
@@ -44,10 +42,27 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
           aria-label={snapshot.linkUp ? 'Link up' : 'Link down'}
         />
       }
-      actions={<AboutToggle active={showAbout} onToggle={() => setShowAbout((s) => !s)} />}
     >
-      <div className="max-h-[min(30rem,65vh)] space-y-3 overflow-y-auto px-3 py-3">
-        {showAbout && <AboutThisNetwork />}
+      <div className="max-h-[min(30rem,65vh)] overflow-y-auto">
+        <NetworkBody />
+      </div>
+    </PanelFrame>
+  )
+}
+
+/**
+ * The cockpit without the frame, shared by the dock row and the floating
+ * window. The "About this network" toggle lives inline with the IP — it used
+ * to be a header action reaching into the frame, but a body has no header, and
+ * a collapsed row hides the toggle along with everything it would reveal.
+ */
+export function NetworkBody() {
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const [showImpairments, setShowImpairments] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
+
+  return (
+      <div className="space-y-3 px-3 py-3">
         {/* Interface status */}
         <div className="space-y-1">
           <div className="flex items-baseline gap-1.5">
@@ -63,7 +78,18 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
                     ? 'DHCP offered…'
                     : 'waiting for the guest'}
             </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('ml-auto size-6 self-center', showAbout && 'text-primary')}
+              aria-label="How this network works"
+              aria-pressed={showAbout}
+              onClick={() => setShowAbout((s) => !s)}
+            >
+              <Info className="size-3.5" />
+            </Button>
           </div>
+          {showAbout && <AboutThisNetwork />}
           <div className="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[11px] text-muted-foreground">
             <span>mac</span>
             <span className="text-foreground">{snapshot.guestMac ?? '—'}</span>
@@ -136,31 +162,6 @@ export function NetworkPanel({ defaultExpanded = true }: { defaultExpanded?: boo
           <code className="font-mono text-foreground">zperf udp upload 192.0.2.2 5001 10 1K 1M</code>.
         </p>
       </div>
-    </PanelFrame>
-  )
-}
-
-/**
- * Header toggle for the "About this network" disclosure. Lives in the frame's
- * actions slot, so it reaches into the frame to expand it — the explanation it
- * reveals is in the body, which is useless while collapsed.
- */
-function AboutToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
-  const { expand } = usePanelControls()
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className={cn('size-6', active && 'text-primary')}
-      aria-label="How this network works"
-      aria-pressed={active}
-      onClick={() => {
-        onToggle()
-        expand()
-      }}
-    >
-      <Info className="size-3.5" />
-    </Button>
   )
 }
 

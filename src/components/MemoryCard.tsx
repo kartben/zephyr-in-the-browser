@@ -23,7 +23,6 @@ export function MemoryCard({
   defaultExpanded?: boolean
 }) {
   const hex = chip.address.toString(16).padStart(2, '0')
-  const { size, pageSize } = chip.decl
 
   return (
     <PanelFrame
@@ -37,24 +36,37 @@ export function MemoryCard({
       defaultExpanded={defaultExpanded}
       status={<span className="font-mono text-[10px] text-muted-foreground">I2C · 0x{hex}</span>}
     >
-      <div className="space-y-2 px-3 py-3">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {size} B{pageSize ? ` · ${pageSize} B pages` : ''}
-          </span>
-          <button
-            onClick={() => chip.erase()}
-            className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-          >
-            erase
-          </button>
-        </div>
-
-        <HexView chip={chip} />
-
-        <Hints chip={chip} />
-      </div>
+      <MemoryBody chip={chip} />
     </PanelFrame>
+  )
+}
+
+/**
+ * The hex dump and its trimmings without the frame, shared by the dock row and
+ * the floating window. The dump wants ~27rem; inside a narrower dock the view
+ * scrolls sideways rather than wrapping.
+ */
+export function MemoryBody({ chip }: { chip: MemoryChip }) {
+  const { size, pageSize } = chip.decl
+
+  return (
+    <div className="space-y-2 px-3 py-3">
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {size} B{pageSize ? ` · ${pageSize} B pages` : ''}
+        </span>
+        <button
+          onClick={() => chip.erase()}
+          className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+        >
+          erase
+        </button>
+      </div>
+
+      <HexView chip={chip} />
+
+      <Hints chip={chip} />
+    </div>
   )
 }
 
