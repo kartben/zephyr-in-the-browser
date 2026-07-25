@@ -48,6 +48,10 @@ for (const line of readFileSync(path.join(repoRoot, 'tools', 'samples.manifest')
   const trimmed = line.trim()
   if (!trimmed || trimmed.startsWith('#')) continue
   const [board, , samplePath] = trimmed.split(':')
+  // Repo-local apps (zephyr-module/…) have no page on docs.zephyrproject.org —
+  // the gallery already treats them that way in src/sampleDocs.ts. Skipping
+  // here keeps `npm run docs:fetch` from 404ing on forks like accel_chart.
+  if (samplePath.startsWith('zephyr-module/')) continue
   const entry = samples.get(samplePath) ?? { samplePath, boards: [] }
   if (!entry.boards.includes(board)) entry.boards.push(board)
   samples.set(samplePath, entry)
