@@ -230,14 +230,14 @@ function SensorBadge({ chip }: { chip: SensorChip }) {
     useCallback(() => chipRevision(chip), [chip]),
     () => '',
   )
+  // One channel (a thermometer, a lux reading) fits on the row. Multi-axis
+  // chips (accel, IMU, …) would spill a "0.0 · 0.0 · 9.8 · …" summary across
+  // the header — drop it and leave the expanded body to show the values.
   const first = chip.decl.channels[0]
-  if (!first) return null
-  const many = chip.decl.channels.length > 1
+  if (!first || chip.decl.channels.length > 1) return null
   return (
     <Mono>
-      {many
-        ? chip.decl.channels.map((c) => chip.getChannel(c.key).toFixed(1)).join(' · ')
-        : `${chip.getChannel(first.key).toFixed(2)} ${first.unit}`}
+      {chip.getChannel(first.key).toFixed(2)} {first.unit}
     </Mono>
   )
 }
