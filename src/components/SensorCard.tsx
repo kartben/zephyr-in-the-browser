@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from 'react'
 import { CheckControl, SelectControl, SliderControl } from '@/components/controls/ControlRow'
 import {
   groupDrivesChannel,
@@ -8,6 +8,8 @@ import {
 } from '@/lib/followStore'
 import {
   SOURCE_GROUPS,
+  orientationNeedsPermission,
+  requestOrientationPermission,
   sourceGroupOf,
   type LiveSourceGroup,
 } from '@/virtio/devices/sensors/liveSource'
@@ -70,6 +72,7 @@ function useChip(chip: SensorChip) {
 export function SensorBody({ chip }: { chip: SensorChip }) {
   useChip(chip)
   const hex = chip.address.toString(16).padStart(2, '0')
+  const [motionError, setMotionError] = useState<string | null>(null)
 
   // The source groups this chip can follow, in channel order, deduplicated.
   const groups: LiveSourceGroup[] = []
@@ -89,6 +92,29 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
     ),
     () => '',
   )
+
+  // On iOS Safari the permission prompt must be requested synchronously from
+  // this same click, so it happens here rather than after setFollowGroup —
+  // by the time a deferred start ran, the gesture that would authorize it is
+  // gone.
+  const onToggleFollow = (group: LiveSourceGroup, on: boolean) => {
+    if (!on || group !== 'orientation' || !orientationNeedsPermission()) {
+      setMotionError(null)
+      setFollowGroup(chip, group, on)
+      return
+    }
+    void requestOrientationPermission().then((result) => {
+      if (result === 'granted') {
+        setMotionError(null)
+        setFollowGroup(chip, group, true)
+      } else {
+        setMotionError(
+          'Motion access was denied. Enable it in Settings > Safari > Motion & Orientation Access.',
+        )
+        setFollowGroup(chip, group, false)
+      }
+    })
+  }
 
   const bitAttrs = chip.decl.attributes?.filter((a) => !a.bits) ?? []
   const fieldAttrs = chip.decl.attributes?.filter((a) => a.bits) ?? []
@@ -120,7 +146,7 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
               key={group}
               label={`Follow ${SOURCE_GROUPS[group].label}`}
               checked={isFollowingGroup(chip, group)}
-              onChange={(on) => setFollowGroup(chip, group, on)}
+              onChange={(on) => onToggleFollow(group, on)}
             />
           ))}
           {bitAttrs.map((attr) => (
@@ -132,6 +158,10 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
             />
           ))}
         </div>
+      )}
+
+      {motionError && (
+        <p className="pt-1 text-[11px] leading-relaxed text-destructive">{motionError}</p>
       )}
 
       {fieldAttrs.map((attr) => (
