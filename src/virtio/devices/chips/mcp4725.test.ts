@@ -44,7 +44,7 @@ describe('MCP4725', () => {
     chip.write?.(new Uint8Array([0x0f, 0xff]))
     const hist = chip.getHistory(0)
     expect(hist.length).toBeGreaterThanOrEqual(3)
-    expect(hist[hist.length - 1]!.code).toBe(0x0fff)
+    expect(hist.at(hist.length - 1).code).toBe(0x0fff)
   })
 
   it('poke DAC_CODE updates Vout', () => {
