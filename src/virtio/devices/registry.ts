@@ -25,7 +25,7 @@ import { get as getDeviceTree } from '@/devicetree'
 import type { I2cSlot } from '@/dts'
 import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
-import { createJhd1313Backlight, createJhd1313Lcd } from './chips/jhd1313'
+import { createJhd1313Pair } from './chips/jhd1313'
 import { createSsd1306 } from './chips/ssd1306'
 import { createPcf8523 } from './rtc/pcf8523'
 import { createAdxl345 } from './sensors/adxl345'
@@ -46,7 +46,19 @@ export interface ChipType {
   kind: ChipKind
   /** Address the part ships at; seeds the picker. */
   defaultAddress: number
-  create(address: number): I2cChip
+  /**
+   * Optional second endpoint for multi-address modules (JHD1313 backlight).
+   * When set, the attach row collects two addresses and {@link create} receives
+   * both.
+   */
+  secondaryAddress?: number
+  /** Short label for the secondary address field (e.g. `backlight`). */
+  secondaryLabel?: string
+  /**
+   * Build the chip(s) to put on the bus. Most types return one chip; a module
+   * like the JHD1313 returns `[lcd, backlight]` already linked.
+   */
+  create(address: number, secondary?: number): I2cChip | readonly I2cChip[]
 }
 
 /** Every chip type the panel offers to attach. */
@@ -116,21 +128,18 @@ export const CHIP_TYPES: ChipType[] = [
   },
   {
     id: 'jhd1313',
-    label: 'JHD1313 LCD',
+    label: 'JHD1313 LCD (+ backlight)',
     kind: 'auxdisplay',
     defaultAddress: 0x3e,
-    create: (address) => {
-      // Attach picker only places the LCD; the backlight is a separate bus
-      // endpoint the managed pair (or a manual second attach) answers on.
-      return createJhd1313Lcd({ address })
+    secondaryAddress: 0x62,
+    secondaryLabel: 'backlight',
+    create: (address, secondary = 0x62) => {
+      const { lcd, backlight } = createJhd1313Pair({
+        lcdAddress: address,
+        backlightAddress: secondary,
+      })
+      return [lcd, backlight]
     },
-  },
-  {
-    id: 'jhd1313-backlight',
-    label: 'JHD1313 backlight',
-    kind: 'auxdisplay',
-    defaultAddress: 0x62,
-    create: (address) => createJhd1313Backlight({ address }),
   },
   {
     id: 'pcf8523',

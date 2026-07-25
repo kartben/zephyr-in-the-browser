@@ -170,7 +170,6 @@ const CHIP_COMPAT: Record<string, string> = {
   at24: 'atmel,at24',
   ssd1306: 'solomon,ssd1306',
   jhd1313: 'jhd,jhd1313',
-  'jhd1313-backlight': 'jhd,jhd1313',
   pcf8523: 'nxp,pcf8523',
 }
 

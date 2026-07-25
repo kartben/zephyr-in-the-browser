@@ -4,7 +4,8 @@ import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { i2cModel } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
-import type { I2cTransaction } from '@/virtio/devices/i2c'
+import type { I2cChip, I2cTransaction } from '@/virtio/devices/i2c'
+import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 
 /**
  * The browser's I2C bus, as a debug + wiring surface.
@@ -79,7 +80,11 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
               <button
                 aria-label={`Detach ${chip.name}`}
                 title="Detach — the guest driver will start to NAK"
-                onClick={() => i2cModel.detachChip(chip.address)}
+                onClick={() => {
+                  for (const addr of detachAddresses(chip, chips)) {
+                    i2cModel.detachChip(addr)
+                  }
+                }}
                 className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
               >
                 <X className="size-3" />
@@ -129,35 +134,69 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
 function AttachRow({ chips }: { chips: number[] }) {
   const [typeId, setTypeId] = useState(CHIP_TYPES[0].id)
   const [addr, setAddr] = useState(() => CHIP_TYPES[0].defaultAddress.toString(16))
+  const [secondaryAddr, setSecondaryAddr] = useState(() =>
+    (CHIP_TYPES[0].secondaryAddress ?? 0).toString(16),
+  )
   const [error, setError] = useState<string | null>(null)
 
   const occupied = useMemo(() => new Set(chips), [chips])
+  const type = chipType(typeId)
   const parsed = Number.parseInt(addr, 16)
-  const valid = Number.isInteger(parsed) && parsed >= 0x03 && parsed <= 0x77
-  const taken = valid && occupied.has(parsed)
+  const parsedSecondary =
+    type?.secondaryAddress !== undefined ? Number.parseInt(secondaryAddr, 16) : undefined
+  const validPrimary = Number.isInteger(parsed) && parsed >= 0x03 && parsed <= 0x77
+  const validSecondary =
+    parsedSecondary === undefined ||
+    (Number.isInteger(parsedSecondary) &&
+      parsedSecondary >= 0x03 &&
+      parsedSecondary <= 0x77 &&
+      parsedSecondary !== parsed)
+  const valid = validPrimary && validSecondary
+  const takenPrimary = validPrimary && occupied.has(parsed)
+  const takenSecondary =
+    parsedSecondary !== undefined && validSecondary && occupied.has(parsedSecondary)
+  const taken = takenPrimary || takenSecondary
 
   const onTypeChange = (id: string) => {
     setTypeId(id)
     setError(null)
     const t = chipType(id)
-    if (t) setAddr(t.defaultAddress.toString(16))
+    if (t) {
+      setAddr(t.defaultAddress.toString(16))
+      if (t.secondaryAddress !== undefined) {
+        setSecondaryAddr(t.secondaryAddress.toString(16))
+      }
+    }
   }
 
   const attach = () => {
-    const type = chipType(typeId)
     if (!type || !valid) return
     try {
-      i2cModel.attachChip(type.create(parsed))
-      setError(null)
+      const created = type.create(parsed, parsedSecondary)
+      const list = Array.isArray(created) ? created : [created]
+      // Attach all-or-nothing: if a later address collides, roll back earlier ones.
+      const attached: number[] = []
+      try {
+        for (const chip of list) {
+          i2cModel.attachChip(chip)
+          attached.push(chip.address)
+        }
+        setError(null)
+      } catch (err) {
+        for (const address of attached) i2cModel.detachChip(address)
+        throw err
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
 
+  const secondary = type?.secondaryAddress !== undefined
+
   return (
     <div className="space-y-1.5">
       <span className="text-[11px] font-medium text-muted-foreground">Attach</span>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <select
           value={typeId}
           aria-label="Chip type"
@@ -170,18 +209,26 @@ function AttachRow({ chips }: { chips: number[] }) {
             </option>
           ))}
         </select>
-        <span className="flex items-center rounded-md border border-input bg-background px-1.5">
-          <span className="font-mono text-[11px] text-muted-foreground">0x</span>
-          <input
-            aria-label="Address"
-            value={addr}
-            onChange={(e) => {
-              setAddr(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 2))
+        <AddrField
+          label={secondary ? 'LCD' : 'Address'}
+          ariaLabel={secondary ? 'LCD address' : 'Address'}
+          value={addr}
+          onChange={(v) => {
+            setAddr(v)
+            setError(null)
+          }}
+        />
+        {secondary ? (
+          <AddrField
+            label={type.secondaryLabel ?? '2nd'}
+            ariaLabel={`${type.secondaryLabel ?? 'secondary'} address`}
+            value={secondaryAddr}
+            onChange={(v) => {
+              setSecondaryAddr(v)
               setError(null)
             }}
-            className="w-7 bg-transparent py-1 font-mono text-[11px] text-foreground outline-none"
           />
-        </span>
+        ) : null}
         <button
           onClick={attach}
           disabled={!valid || taken}
@@ -193,18 +240,69 @@ function AttachRow({ chips }: { chips: number[] }) {
       {error ? (
         <p className="text-[10px] text-destructive">{error}</p>
       ) : taken ? (
-        <p className="text-[10px] text-destructive">0x{addr} is already taken.</p>
+        <p className="text-[10px] text-destructive">
+          {takenPrimary
+            ? `0x${addr} is already taken.`
+            : `0x${secondaryAddr} is already taken.`}
+        </p>
+      ) : !validSecondary && parsedSecondary === parsed ? (
+        <p className="text-[10px] text-destructive">LCD and backlight need different addresses.</p>
       ) : valid ? (
         <p className="text-[10px] text-muted-foreground">
-          {hasDriver(parsed)
-            ? 'The devicetree binds a driver here.'
-            : 'Bus only — i2c scan finds it, but no guest driver binds.'}
+          {secondary
+            ? hasDriver(parsed)
+              ? 'Places both endpoints; the guest driver binds at the LCD address.'
+              : 'Places both endpoints (bus only — no guest driver at the LCD address).'
+            : hasDriver(parsed)
+              ? 'The devicetree binds a driver here.'
+              : 'Bus only — i2c scan finds it, but no guest driver binds.'}
         </p>
       ) : (
         <p className="text-[10px] text-destructive">Enter an address between 0x03 and 0x77.</p>
       )}
     </div>
   )
+}
+
+function AddrField({
+  label,
+  ariaLabel,
+  value,
+  onChange,
+}: {
+  label: string
+  ariaLabel: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <span className="flex items-center gap-1 rounded-md border border-input bg-background px-1.5">
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className="font-mono text-[11px] text-muted-foreground">0x</span>
+      <input
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 2))}
+        className="w-7 bg-transparent py-1 font-mono text-[11px] text-foreground outline-none"
+      />
+    </span>
+  )
+}
+
+/**
+ * Addresses to take off together. A JHD1313 module is two bus endpoints; pulling
+ * either end should lift the whole module so the canvas does not keep a stale
+ * backlight link.
+ */
+function detachAddresses(chip: I2cChip, onBus: readonly I2cChip[]): number[] {
+  if (isJhd1313Lcd(chip) && chip.backlight) {
+    return [chip.address, chip.backlight.address]
+  }
+  if (isJhd1313Backlight(chip)) {
+    const lcd = onBus.find((c) => isJhd1313Lcd(c) && c.backlight === chip)
+    if (lcd) return [lcd.address, chip.address]
+  }
+  return [chip.address]
 }
 
 const HEX = (n: number) => n.toString(16).padStart(2, '0')
