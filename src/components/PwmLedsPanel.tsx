@@ -86,12 +86,6 @@ export function PwmLedsBody({
           ))}
         </div>
       </div>
-
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Zephyr&apos;s stock{' '}
-        <code className="font-mono text-foreground">pwm-leds</code> — brightness
-        from channel duty on the PWM controller below.
-      </p>
     </div>
   )
 }

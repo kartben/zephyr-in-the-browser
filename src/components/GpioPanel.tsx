@@ -58,7 +58,6 @@ export function GpioBody() {
  * Same cell chrome as before; levels still come from {@link getLeds}.
  */
 export function GpioLedsBody() {
-  const node = useSyncExternalStore(subscribe, controllerNode, () => 'host_gpio')
   const leds = useSyncExternalStore(subscribe, getLeds, () => [])
 
   if (leds.length === 0) {
@@ -82,13 +81,6 @@ export function GpioLedsBody() {
           ))}
         </div>
       </div>
-
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Zephyr&apos;s stock{' '}
-        <code className="font-mono text-foreground">gpio-leds</code> —{' '}
-        <code className="font-mono text-foreground">gpio set {node} 4 1</code>{' '}
-        lights an LED.
-      </p>
     </div>
   )
 }

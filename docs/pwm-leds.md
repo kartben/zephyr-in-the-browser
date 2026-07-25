@@ -87,13 +87,9 @@ The PCA9685 chip row is unchanged (`deviceClass: 'pwm'`, `body: 'pwm'`,
 
 `PwmLedsBody` reuses **GpioLedsBody’s LED cell chrome** (bordered secondary tile,
 `size-3` primary dot with the same glow when lit, DT `label` underneath). Duty
-only scales the dot’s opacity; no extra metrics row. Footer matches the HT16K33 /
-PWM cards: one factual line about `pwm-leds`, not invented shell commands
-(the packaged sample does not enable `CONFIG_LED_SHELL`).
+only scales the dot’s opacity; no footer copy, no extra metrics row.
 
-Mockup rendered from those tokens + `PwmBody`’s real waveform geometry:
-
-[`pwm-leds-mockup.html`](pwm-leds-mockup.html)
+Mockup: [`pwm-leds-mockup.html`](pwm-leds-mockup.html)
 
 No Registers on this card — the PWM controller card already owns the map.
 
