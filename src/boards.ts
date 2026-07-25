@@ -272,6 +272,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['i2c'],
   },
   {
+    // Stock RTC sample against the browser PCF8523 at 0x68. The dock RTC card
+    // shows the same clock; the shell sample adds set_alarm under CONFIG_RTC_ALARM.
+    id: 'rtc',
+    label: 'RTC',
+    description: 'Set and read date/time on a PCF8523, over I²C',
+    zephyrSample: 'samples/drivers/rtc',
+    primaryPanels: ['i2c'],
+  },
+  {
     id: 'philosophers',
     label: 'Philosophers',
     description: 'Dining philosophers, animated in-place over VT100',
@@ -308,7 +317,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
-    description: 'Interactive Zephyr shell, with `i2c`, `sensor`, `hostaudio` and `dmic`',
+    description: 'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
     primaryPanels: ['i2c', 'audio'],
   },

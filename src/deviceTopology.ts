@@ -23,6 +23,7 @@ import type { I2cChip } from '@/virtio/devices/i2c'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
+import { isRtcChip } from '@/virtio/devices/rtc/model'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
 
 export type DockView = 'devicetree' | 'classes'
@@ -32,6 +33,7 @@ export type DeviceClass =
   | 'sensor'
   | 'display'
   | 'memory'
+  | 'rtc'
   | 'i2c-bus'
   | 'gpio'
   | 'gnss'
@@ -45,6 +47,7 @@ export type BodyKind =
   | 'sensor'
   | 'memory'
   | 'oled'
+  | 'rtc'
   | 'i2c'
   | 'gpio'
   | 'gnss'
@@ -118,6 +121,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   sensor: 'Sensors',
   display: 'Displays',
   memory: 'Memory',
+  rtc: 'RTC',
   'i2c-bus': 'I²C buses',
   gpio: 'GPIO',
   gnss: 'GNSS',
@@ -131,6 +135,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'sensor',
   'display',
   'memory',
+  'rtc',
   'i2c-bus',
   'gpio',
   'gnss',
@@ -144,6 +149,7 @@ const KIND_TO_CLASS: Record<ChipKind, DeviceClass> = {
   sensor: 'sensor',
   eeprom: 'memory',
   display: 'display',
+  rtc: 'rtc',
 }
 
 /** Fallback compatibles for the page's chip models, when no tree names them. */
@@ -157,6 +163,7 @@ const CHIP_COMPAT: Record<string, string> = {
   isl29035: 'isil,isl29035',
   at24: 'atmel,at24',
   ssd1306: 'solomon,ssd1306',
+  pcf8523: 'nxp,pcf8523',
 }
 
 function hex(address: number): string {
@@ -167,6 +174,7 @@ function hex(address: number): string {
 function chipClass(chip: I2cChip): DeviceClass {
   if (isSensorChip(chip)) return 'sensor'
   if (isMemoryChip(chip)) return 'memory'
+  if (isRtcChip(chip)) return 'rtc'
   if ('isOn' in chip && 'memory' in chip) return 'display'
   return 'other'
 }
@@ -175,6 +183,7 @@ function chipBody(cls: DeviceClass): BodyKind | undefined {
   if (cls === 'sensor') return 'sensor'
   if (cls === 'memory') return 'memory'
   if (cls === 'display') return 'oled'
+  if (cls === 'rtc') return 'rtc'
   return undefined
 }
 
@@ -183,6 +192,7 @@ function chipPanelKind(cls: DeviceClass): PanelKind | undefined {
   if (cls === 'sensor') return 'sensor'
   if (cls === 'memory') return 'i2c'
   if (cls === 'display') return 'oled'
+  if (cls === 'rtc') return 'i2c'
   return undefined
 }
 

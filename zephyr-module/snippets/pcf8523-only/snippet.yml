@@ -1,8 +1,8 @@
-name: i2c-sensors-extra
+name: pcf8523-only
 description: >
-  Enable the optional I²C parts (LSM6DSO, LPS22HH, INA219, ISL29035, PCF8523)
-  on the browser bus. Pair with virtio-i2c; used by the shell sample so every
-  part is reachable without cluttering single-sensor demos.
+  PCF8523 RTC alone on the browser I²C bus: enable the clock chip and disable
+  the default temperature / accel / EEPROM / OLED parts so the dock stays
+  focused on samples/drivers/rtc (and shell rtc commands).
 
 boards:
   qemu_cortex_a53/qemu_cortex_a53:

@@ -26,6 +26,7 @@ import type { I2cSlot } from '@/dts'
 import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
 import { createSsd1306 } from './chips/ssd1306'
+import { createPcf8523 } from './rtc/pcf8523'
 import { createAdxl345 } from './sensors/adxl345'
 import { createIna219 } from './sensors/ina219'
 import { createIsl29035 } from './sensors/isl29035'
@@ -34,7 +35,7 @@ import { createLps22hh } from './sensors/lps22hh'
 import { createLsm6dso } from './sensors/lsm6dso'
 import { createTmp112 } from './sensors/tmp112'
 
-export type ChipKind = 'sensor' | 'eeprom' | 'display'
+export type ChipKind = 'sensor' | 'eeprom' | 'display' | 'rtc'
 
 export interface ChipType {
   /** Stable id, also the select value. */
@@ -111,6 +112,13 @@ export const CHIP_TYPES: ChipType[] = [
     kind: 'display',
     defaultAddress: 0x3c,
     create: (address) => createSsd1306({ address }),
+  },
+  {
+    id: 'pcf8523',
+    label: 'PCF8523 RTC',
+    kind: 'rtc',
+    defaultAddress: 0x68,
+    create: (address) => createPcf8523({ address }),
   },
 ]
 

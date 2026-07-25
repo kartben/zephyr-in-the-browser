@@ -74,10 +74,11 @@
 	};
 
 	/*
-	 * Extra sensors stay disabled here so everyday virtio-i2c builds
+	 * Extra sensors / RTC stay disabled here so everyday virtio-i2c builds
 	 * (accel_chart, oled, …) do not clutter the dock. Enable them with:
-	 *   -S i2c-sensors-extra   (shell: all four)
-	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only
+	 *   -S i2c-sensors-extra   (shell: all optional parts)
+	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only /
+	 *     pcf8523-only
 	 *     (dedicated sample: that part alone, defaults off)
 	 *
 	 * The page attaches matching TypeScript models only while these nodes
@@ -110,6 +111,19 @@
 	isl29035_0: isl29035@44 {
 		compatible = "isil,isl29035";
 		reg = <0x44>;
+		status = "disabled";
+	};
+
+	/*
+	 * NXP PCF8523 RTC (Adafruit shield address 0x68). Optional like the
+	 * extra sensors: shell enables it via i2c-sensors-extra; the dedicated
+	 * samples/drivers/rtc build uses -S pcf8523-only.
+	 */
+	pcf8523_0: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+		battery-switch-over = "standard";
+		alarms-count = <1>;
 		status = "disabled";
 	};
 
