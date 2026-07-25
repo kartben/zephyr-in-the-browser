@@ -25,6 +25,9 @@
 # single-threaded sleepers like blinky and basic_button, though their timing is
 # not wall-clock accurate — but a few multi-threaded ones (philosophers,
 # synchronization) stall. Cortex-A53 uses the wasm JIT and has no such limit.
+# qemu_riscv32 uses TCI on RISC-V virt with the same virtio bridges as A53
+# (tools/qemu-riscv-patches/); build it with
+# `tools/build-qemu-wasm.sh riscv32-softmmu`.
 #
 # Networking samples talk to the browser page, which implements the whole
 # LAN behind the QEMU "browser" netdev: it answers as gateway/DHCP/SNTP
@@ -66,3 +69,31 @@ qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf
 qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf
 qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf
 qemu_cortex_a53:hello_world:samples/hello_world
+
+# RISC-V 32-bit virt: same virtio / browser-bridge shape as A53. Built with
+# tools/build-qemu-wasm.sh riscv32-softmmu (TCI). Tracing is omitted — that
+# sample rides ARM semihosting on A53.
+qemu_riscv32:gnss:samples/drivers/gnss
+qemu_riscv32:display:samples/drivers/display
+qemu_riscv32:touch:samples/subsys/input/draw_touch_events
+qemu_riscv32:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf
+qemu_riscv32:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,accel-display
+qemu_riscv32:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c,lsm6dso-only
+qemu_riscv32:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps22hh-only
+qemu_riscv32:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
+qemu_riscv32:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
+qemu_riscv32:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
+qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
+qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
+qemu_riscv32:philosophers:samples/philosophers
+qemu_riscv32:blinky:samples/basic/blinky::virtio-gpio
+qemu_riscv32:basic_button:samples/basic/button::virtio-gpio
+qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c,i2c-sensors-extra
+qemu_riscv32:oled:samples/drivers/display::virtio-i2c,oled
+qemu_riscv32:hsm:samples/subsys/smf/hsm_psicc2
+qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf
+qemu_riscv32:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
+qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf
+qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf
+qemu_riscv32:zperf:samples/net/zperf:conf/net.conf
+qemu_riscv32:hello_world:samples/hello_world

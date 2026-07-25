@@ -1,0 +1,27 @@
+diff --git a/configs/devices/riscv32-softmmu/browser.mak b/configs/devices/riscv32-softmmu/browser.mak
+new file mode 100644
+index 0000000..5446bd0
+--- /dev/null
++++ b/configs/devices/riscv32-softmmu/browser.mak
+@@ -0,0 +1,21 @@
++# Device configuration for zephyr-in-the-browser's riscv32-softmmu artifact.
++#
++# Selected by tools/build-qemu-wasm.sh with --with-devices-riscv32=browser.
++# Same approach as the arm/aarch64 browser.mak files: disable every board
++# except the one we boot (CONFIG_RISCV_VIRT). Leaving that symbol alone keeps
++# its `select` edges (VIRTIO_MMIO, FW_CFG_DMA, SERIAL_MM, …) and therefore the
++# `default y depends on VIRTIO` bridges this series patches in.
++
++# Boards other than virt.
++CONFIG_SPIKE=n
++CONFIG_SIFIVE_E=n
++CONFIG_SIFIVE_U=n
++CONFIG_OPENTITAN=n
++CONFIG_MICROCHIP_PFSOC=n
++CONFIG_MICROBLAZE_V=n
++CONFIG_SHAKTI_C=n
++CONFIG_XIANGSHAN_KUNMINGHU=n
++
++# Optional device catalogues — keep off to shrink the wasm binary.
++CONFIG_PCI_DEVICES=n
++CONFIG_TEST_DEVICES=n

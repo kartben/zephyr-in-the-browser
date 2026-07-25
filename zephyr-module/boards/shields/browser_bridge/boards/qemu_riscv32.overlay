@@ -1,0 +1,143 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Browser bridge on the RISC-V 32-bit `virt` machine: GNSS on a second 16550,
+ * ramfb via fw_cfg (same shape as Zephyr's qemu_riscv64 board), host
+ * audio/mic bridges, and virtio-mmio devices matching src/boards.ts slot
+ * indices (net=0, gpu=1, gpio=2, tablet=3, i2c=4).
+ *
+ * MMIO holes used by tools/qemu-riscv-patches/ against hw/riscv/virt.c:
+ *   0x10009000  qemu-host-audio
+ *   0x1000a000  qemu-host-mic
+ *   0x1000b000  GNSS UART (PLIC IRQ 12)
+ *   0x10100000  fw_cfg (stock)
+ *
+ * Virtio-mmio bases are stock: 0x10001000 + n×0x1000 (PLIC IRQs 1–8).
+ */
+
+/ {
+	aliases {
+		gnss = &gnss;
+		dmic0 = &host_mic;
+	};
+
+	chosen {
+		zephyr,display = &ramfb0;
+		zephyr,touch = &virtio_input0;
+	};
+
+	fwcfg0: fw-cfg@10100000 {
+		compatible = "qemu,fw-cfg-mmio";
+		reg = <0x10100000 0x18>;
+		status = "okay";
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ramfb_mem: framebuffer@8fc00000 {
+			reg = <0x8fc00000 0x00400000>; /* 4 MiB */
+			no-map;
+		};
+	};
+
+	ramfb0: ramfb {
+		compatible = "qemu,ramfb";
+		fwcfg = <&fwcfg0>;
+		memory-region = <&ramfb_mem>;
+		width = <600>;
+		height = <400>;
+		status = "okay";
+	};
+
+	soc {
+		uart1: uart@1000b000 {
+			compatible = "ns16550";
+			reg = <0x1000b000 0x100>;
+			reg-shift = <0>;
+			clock-frequency = <3686400>;
+			current-speed = <9600>;
+			interrupt-parent = <&plic>;
+			interrupts = <12 1>;
+			status = "okay";
+
+			gnss: gnss-nmea-generic {
+				compatible = "gnss-nmea-generic";
+			};
+		};
+
+		host_audio: audio@10009000 {
+			compatible = "qemu,host-audio";
+			reg = <0x10009000 0x1000>;
+			status = "okay";
+		};
+
+		host_mic: audio@1000a000 {
+			compatible = "qemu,host-mic";
+			reg = <0x1000a000 0x1000>;
+			status = "okay";
+		};
+	};
+};
+
+/*
+ * virtio-gpu on slot 1 — declared disabled; `-S virtio-gpu` enables it.
+ * Shares ramfb_mem with ramfb0 (mutually exclusive displays).
+ */
+&virtio_mmio1 {
+	status = "disabled";
+
+	virtio_gpu0: virtio-gpu {
+		compatible = "virtio,gpu";
+		memory-region = <&ramfb_mem>;
+		width = <600>;
+		height = <400>;
+		status = "disabled";
+	};
+};
+
+&virtio_mmio2 {
+	status = "disabled";
+
+	virtio_gpio0: virtio-gpio {
+		compatible = "virtio,gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <8>;
+		status = "disabled";
+	};
+};
+
+&virtio_mmio3 {
+	status = "okay";
+
+	virtio_input0: virtio-input {
+		compatible = "virtio,input";
+		display = <&ramfb0>;
+		status = "okay";
+	};
+};
+
+&virtio_mmio4 {
+	status = "disabled";
+
+	virtio_i2c0: virtio-i2c {
+		compatible = "virtio,i2c";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+};
+
+&virtio_mmio0 {
+	status = "okay";
+
+	virtio_net0: virtio-net {
+		compatible = "virtio,net";
+		local-mac-address = [02 00 00 00 00 01];
+		status = "okay";
+	};
+};

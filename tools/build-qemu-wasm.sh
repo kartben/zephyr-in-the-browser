@@ -3,7 +3,8 @@
 # Build a qemu-wasm emulator artifact set into public/qemu/.
 #
 #   tools/build-qemu-wasm.sh [target]        # target defaults to all
-#                                             (arm-softmmu + aarch64-softmmu)
+#                                             (arm-softmmu + aarch64-softmmu;
+#                                              pass riscv32-softmmu explicitly)
 #
 # Environment overrides:
 #   QEMU_REPO             upstream git remote      (default: qemu/qemu)
@@ -15,16 +16,20 @@
 #   JOBS                  parallel build jobs       (default: container nproc)
 #   PLATFORM              docker platform           (default: linux/amd64)
 #
-# The Cortex-M artifact builds upstream QEMU with its TCI interpreter. The
-# Cortex-A53 artifact defaults to ktock/qemu-wasm's experimental wasm32 TCG
-# backend: it starts blocks in TCI, then compiles hot blocks into small Wasm
-# modules. The JIT is not upstream QEMU and previously miscompiled Cortex-M
-# timer paths, so it is deliberately limited to the AArch64 display machine.
-# Set QEMU_AARCH64_ACCEL=tci for the slower all-upstream fallback.
+# The Cortex-M and RISC-V artifacts build upstream QEMU with its TCI
+# interpreter. The Cortex-A53 artifact defaults to ktock/qemu-wasm's
+# experimental wasm32 TCG backend: it starts blocks in TCI, then compiles hot
+# blocks into small Wasm modules. The JIT is not upstream QEMU and previously
+# miscompiled Cortex-M timer paths, so it is deliberately limited to the
+# AArch64 display machine. Set QEMU_AARCH64_ACCEL=tci for the slower
+# all-upstream fallback. RISC-V uses tools/qemu-riscv-patches/ (not the ARM
+# Stellaris series) so machine wiring lands in hw/riscv/virt.c.
 #
 # The dependency image (glib, pixman, zlib, libffi cross-compiled to Wasm) is
 # built from tools/Dockerfile.deps and is the slow part; it is cached, so
-# re-runs skip it.
+# re-runs skip it. `all` still builds only arm + aarch64 — riscv32 is opt-in
+# until its artifact size and release packaging are settled (see
+# docs/riscv32-plan.md).
 
 set -euo pipefail
 
@@ -195,7 +200,8 @@ build_qemu() {
   docker cp "$CONTAINER:/build/$binary.wasm" "$DEST/$binary.wasm"
   # The standalone ramfb device registers this tiny option ROM even though the
   # browser reads its mapped pixels directly instead of using a QEMU frontend.
-  if [ "$target" = "aarch64-softmmu" ]; then
+  # Both AArch64 and RISC-V virt boards may use -device ramfb.
+  if [ "$target" = "aarch64-softmmu" ] || [ "$target" = "riscv32-softmmu" ]; then
     cp "$src/pc-bios/vgabios-ramfb.bin" "$DEST/vgabios-ramfb.bin"
     cp "$src/pc-bios/efi-virtio.rom" "$DEST/efi-virtio.rom"
   fi
@@ -227,6 +233,13 @@ build_target() {
     ref="$JIT_REF"
     patches="$ROOT/tools/qemu-jit-patches"
     accel=jit
+  elif [ "$target" = "riscv32-softmmu" ]; then
+    # Dedicated series: ARM Stellaris / arm-virt patches must not land here.
+    src="$TCI_SRC"
+    repo_url="$REPO_URL"
+    ref="$REF"
+    patches="$ROOT/tools/qemu-riscv-patches"
+    accel=tci
   else
     src="$TCI_SRC"
     repo_url="$REPO_URL"

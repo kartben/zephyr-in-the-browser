@@ -7,7 +7,8 @@
  *
  * `qemuBinary` selects the matching Emscripten JS/Wasm artifact pair. The
  * Cortex-M3 uses arm-softmmu; the 64-bit `virt` machine needed by qemu,ramfb
- * uses aarch64-softmmu.
+ * uses aarch64-softmmu; `qemu_riscv32` uses riscv32-softmmu on the RISC-V
+ * `virt` machine (also with virtio-mmio and ramfb).
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
@@ -77,8 +78,8 @@ export interface Board {
     hostInput?: boolean
     /**
      * The generic virtio bridge — `-device virtio-browser-device`, whose device
-     * models are TypeScript under src/virtio/. Needs a virtio-mmio bus, so it
-     * is an A53-only affair. See docs/virtio-bridge.md.
+     * models are TypeScript under src/virtio/. Needs a virtio-mmio bus (ARM
+     * and RISC-V `virt`). See docs/virtio-bridge.md.
      */
     virtio?: boolean
     /**
@@ -516,6 +517,67 @@ export const BOARDS: Board[] = [
     },
     samples: CORTEX_A53_SAMPLES,
     defaultSampleId: 'display',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
+      { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
+    ],
+    usesDataBundle: false,
+  },
+  {
+    id: 'qemu_riscv32',
+    label: 'QEMU RISC-V 32',
+    zephyrTarget: 'qemu_riscv32',
+    arch: 'RV32IMAFDC',
+    qemuBinary: 'qemu-system-riscv32',
+    args: [
+      '-nographic',
+      '-machine',
+      'virt',
+      '-bios',
+      'none',
+      '-m',
+      '256',
+      // Matches Zephyr boards/qemu/riscv32/board.cmake + qemu_riscv32_defconfig
+      // (CONFIG_RISCV_PMP=y → pmp=on,u=on).
+      '-cpu',
+      'rv32i,i=on,m=on,a=on,f=on,d=on,c=on,zicsr=on,zifencei=on,pmp=on,u=on',
+      '-device',
+      'ramfb',
+      '-vga',
+      'none',
+      '-L',
+      '/pack/pc-bios',
+      '-global',
+      'virtio-mmio.force-legacy=false',
+      '-netdev',
+      'browser,id=n0',
+      '-device',
+      'virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0,mac=02:00:00:00:00:01',
+      '-device',
+      'virtio-tablet-device,bus=virtio-mmio-bus.3',
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
+        'queues=2,features=0x1,config=0800000000000000',
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
+      '-kernel',
+      '/pack/zephyr.elf',
+    ],
+    kernelFsPath: '/pack/zephyr.elf',
+    peripherals: {
+      gnss: true,
+      hostGpio: true,
+      hostAudio: true,
+      hostMic: true,
+      ramfb: true,
+      hostInput: true,
+      hostNet: true,
+      virtio: true,
+      // No -icount / guest-icount export on the TCI riscv32 build yet.
+    },
+    // Same guest apps as A53, minus tracing (ARM semihosting CTF path).
+    samples: CORTEX_A53_SAMPLES.filter((s) => s.id !== 'tracing'),
+    defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },

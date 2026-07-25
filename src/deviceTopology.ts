@@ -594,6 +594,23 @@ const A53_FALLBACK: FallbackNames = {
   input: { nodeName: 'virtio-tablet' },
 }
 
+const RISCV32_FALLBACK: FallbackNames = {
+  console: { nodeName: 'uart@10000000', compatible: 'ns16550', label: 'uart0' },
+  gnssUart: { nodeName: 'uart@1000b000', compatible: 'ns16550', label: 'uart1' },
+  audio: { nodeName: 'audio@10009000' },
+  mic: { nodeName: 'audio@1000a000' },
+  net: { nodeName: 'virtio-net', compatible: 'virtio,net', label: 'virtio_net0' },
+  gpio: { nodeName: 'virtio-gpio', compatible: 'virtio,gpio', label: 'virtio_gpio0' },
+  i2c: {
+    nodeName: 'virtio-i2c',
+    compatible: 'virtio,i2c',
+    label: 'virtio_i2c0',
+    parentPath: '/soc/virtio_mmio@10005000',
+  },
+  display: { nodeName: 'ramfb' },
+  input: { nodeName: 'virtio-input' },
+}
+
 const M3_FALLBACK: FallbackNames = {
   console: { nodeName: 'uart@4000c000', compatible: 'ti,stellaris-uart', label: 'uart0' },
   gnssUart: { nodeName: 'uart@4000d000', compatible: 'ti,stellaris-uart', label: 'uart1' },
@@ -615,7 +632,12 @@ function deriveFallback(
   chips: readonly I2cChip[],
   avail: Availability,
 ): DeviceNode[] {
-  const names = boardId === 'qemu_cortex_m3' ? M3_FALLBACK : A53_FALLBACK
+  const names =
+    boardId === 'qemu_cortex_m3'
+      ? M3_FALLBACK
+      : boardId === 'qemu_riscv32'
+        ? RISCV32_FALLBACK
+        : A53_FALLBACK
   const ids: Ids = { used: new Set() }
   const nodes: DeviceNode[] = []
 
