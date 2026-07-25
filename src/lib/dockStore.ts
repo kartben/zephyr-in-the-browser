@@ -223,6 +223,13 @@ export function toggleGroup(deviceClass: DeviceClass): void {
   set({ ...state, groups: { ...state.groups, [deviceClass]: { collapsed } } })
 }
 
+/** Force a class group's collapsed state (revealDockRow expands without toggle). */
+export function setGroupCollapsed(deviceClass: DeviceClass, collapsed: boolean): void {
+  const current = state.groups[deviceClass]?.collapsed ?? false
+  if (current === collapsed) return
+  set({ ...state, groups: { ...state.groups, [deviceClass]: { collapsed } } })
+}
+
 export function groupCollapsed(deviceClass: DeviceClass): boolean {
   return state.groups[deviceClass]?.collapsed ?? false
 }

@@ -52,6 +52,8 @@ export interface I2cBus {
 export interface DtsPin {
   id: number
   label: string
+  /** Zephyr DT `gpios` flags cell (ACTIVE_LOW, PULL_*, …). */
+  flags: number
 }
 
 /** A gpio-buzzer wired to a controller output. */
@@ -244,6 +246,7 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
           controller[into].push({
             id: spec.pin,
             label: stringProp(child, 'label') ?? labelOf(child),
+            flags: spec.flags,
           })
         }
       }
@@ -358,6 +361,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     panels.add('sensor')
   }
   if (gpioControllers.some((controller) => controller.bridged)) panels.add('gpio')
+  if (gpioControllers.some((c) => c.bridged && c.buttons.length > 0)) panels.add('keys')
   if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')

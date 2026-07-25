@@ -51,11 +51,15 @@ export function DockDeviceRow({
   const secondary = view === 'devicetree' ? node.compatible : node.crumb
 
   return (
-    <div className={cn(node.presence === 'ghost' && 'opacity-70')}>
+    <div
+      data-dock-key={node.key}
+      className={cn(node.presence === 'ghost' && 'opacity-70')}
+    >
       <div className="group flex min-h-7 items-center gap-1 pr-1.5">
         <Guides depth={depth} />
         <button
           type="button"
+          data-dock-focus
           disabled={!interactive || windowed}
           aria-expanded={interactive ? expanded : undefined}
           onClick={() => setExpanded(node.key, !expandedChoice)}

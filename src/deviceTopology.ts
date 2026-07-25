@@ -44,6 +44,7 @@ export type DeviceClass =
   | 'rtc'
   | 'i2c-bus'
   | 'gpio'
+  | 'keys'
   | 'buzzer'
   | 'gnss'
   | 'audio'
@@ -65,6 +66,7 @@ export type BodyKind =
   | 'rtc'
   | 'i2c'
   | 'gpio'
+  | 'gpio-keys'
   | 'buzzer'
   | 'gnss'
   | 'speaker'
@@ -149,6 +151,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
   gpio: 'GPIO',
+  keys: 'Keys',
   buzzer: 'Buzzer',
   gnss: 'GNSS',
   audio: 'Audio',
@@ -168,6 +171,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'rtc',
   'i2c-bus',
   'gpio',
+  'keys',
   'buzzer',
   'gnss',
   'audio',
@@ -524,6 +528,26 @@ function deriveFromTree(
     })
   }
 
+  // gpio-keys: Keys-class row — buttons leave the GPIO controller card.
+  const bridgedKeys = insights.gpioControllers.find(
+    (ctl) => ctl.bridged && ctl.buttons.length > 0,
+  )
+  if (bridgedKeys && avail.gpio) {
+    const keysNode = nodesByCompatible(doc, 'gpio-keys').find(isEffectivelyOkay)
+    push({
+      key: uniqueKey(ids, 'gpio-keys'),
+      nodeName: keysNode?.name ?? 'keys',
+      label: 'GPIO Keys',
+      compatible: 'gpio-keys',
+      deviceClass: 'keys',
+      path: keysNode ? pathOf(keysNode) : '/keys',
+      presence: 'interactive',
+      body: 'gpio-keys',
+      crumb: bridgedKeys.controllerLabel,
+      panelKind: 'keys',
+    })
+  }
+
   // gpio-leds groups: LED-class row, like pwm-leds / gpio-buzzer — not folded
   // into the GPIO button grid.
   const bridgedLeds = insights.gpioControllers.find(
@@ -854,6 +878,18 @@ function deriveFallback(
       body: 'gpio',
       crumb: names.gpio.label,
       panelKind: 'gpio',
+    })
+    nodes.push({
+      key: uniqueKey(ids, 'gpio-keys'),
+      nodeName: 'keys',
+      label: 'GPIO Keys',
+      compatible: 'gpio-keys',
+      deviceClass: 'keys',
+      path: '/keys',
+      presence: 'interactive',
+      body: 'gpio-keys',
+      crumb: names.gpio.label,
+      panelKind: 'keys',
     })
     // Fallback fan-out always includes LEDs (hostGpio FALLBACK_LEDS) — same
     // LED-class split as the devicetree path.

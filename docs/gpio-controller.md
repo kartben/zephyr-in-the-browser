@@ -2,7 +2,7 @@
 
 Confirmed direction from the mockup review: **claimed-pins-only** controller
 table, with **`used by` → jump to the consumer widget** (reveal + blink).
-This note is the build contract. No implementation until you sign off.
+This note is the build contract. **Confirmed — implementing Proposal B.**
 
 Source mockup: [`gpio-controller-mockup.html`](gpio-controller-mockup.html)
 (Proposal B block). Related: the LED split in [`pwm-leds.md`](pwm-leds.md).
@@ -248,14 +248,10 @@ one table path. M3 without a direction register: infer from consumer role
 
 ---
 
-## 9. Confirm
+## 9. Confirmed
 
-Please confirm or amend:
-
-1. **Proposal B** claimed-only table — yes?
-2. **`used by` reveal + blink** as in §5 — yes?
-3. **New `keys` PanelKind / Keys class** — yes? (alternative: fold keys under
-   an existing class — not recommended)
-4. **IN press on the table row** in addition to Keys widget — yes? (keeps
-   controller useful alone)
-5. Anything to drop from flags tokens (`PU`/`PD`/`OD`/…)?
+1. Proposal B claimed-only table — yes
+2. `used by` reveal + blink — yes
+3. New `keys` PanelKind / Keys class — yes
+4. IN press on the table row — yes
+5. Flag tokens `AH`/`AL`/`PU`/`PD`/`OD`/`OS` — keep
