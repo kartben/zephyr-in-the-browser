@@ -104,7 +104,7 @@ Aimed-for, not pixel-identical:
 - State colours matching the viewer's legend: run (green), ready (yellow),
   blocked (red), sleep (cyan), suspended (muted)
 - Time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
-- Default live-follow window of **1 s** for the tracing sample (zoom/pan still
+- Default live-follow window of **4 s** for the tracing sample (zoom/pan still
   free); the window *is* the selection — no movable playhead
 - Zoom (± / wheel / pinch) while LIVE only changes the follow window size;
   pan still detaches from follow
