@@ -16,6 +16,7 @@ import { createSpiModel } from './devices/spi'
 import type { SpiChip } from './devices/spi'
 import { createAt24 } from './devices/chips/at24'
 import { createW25q } from './devices/chips/w25q'
+import { createSct2024 } from './devices/chips/sct2024'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
 import { createAdxl345 } from './devices/sensors/adxl345'
@@ -111,6 +112,13 @@ export const pcf8523 = createPcf8523({ address: 0x68 })
 /** JEDEC SPI NOR on CS0 — stock spi_flash / littlefs; persists for boot-count. */
 export const w25q = createW25q({ cs: 0, persistKey: 'zephyr.w25q.0' })
 
+/**
+ * SCT2024 16-ch LED on SPI CS0 + virtio-gpio LA/OE. Shares CS0 with the NOR in
+ * the managed table — syncManagedSpiChips picks by DT compatible, so only one
+ * is attached for a given sample.
+ */
+export const sct2024 = createSct2024({ cs: 0 })
+
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x30, lp5562],
@@ -132,8 +140,17 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x70, ht16k33],
 ])
 
-/** Managed SPI parts keyed by chip-select. */
-const MANAGED_SPI_CHIPS: ReadonlyMap<number, SpiChip> = new Map<number, SpiChip>([[0, w25q]])
+/**
+ * Managed SPI parts by Zephyr compatible chip id. CS can be shared across
+ * samples (NOR vs SCT2024 both use CS0); selection is by DT `chipId`.
+ */
+const MANAGED_SPI_BY_ID: ReadonlyMap<string, SpiChip> = new Map<string, SpiChip>([
+  ['w25q', w25q],
+  ['sct2024', sct2024],
+])
+
+/** LA on virtio_gpio0 pin 6, OE on pin 7 — matches sct2024-only overlay. */
+sct2024.bindGpio(gpioModel, { la: 6, oe: 7, laActiveLow: true, oeActiveLow: true })
 
 /**
  * Addresses the running build wants answered. Prefer the loaded tree's bridged
@@ -180,35 +197,44 @@ export function syncManagedChips() {
   syncManagedSpiChips()
 }
 
-function wantedManagedSpiCs(): Set<number> {
+/** CS → managed chip the current DT (or fallback) wants on that select. */
+function wantedManagedSpiChips(): Map<number, SpiChip> {
   const insights = getDeviceTree()?.insights
   if (insights) {
-    const selects = new Set<number>()
+    const wanted = new Map<number, SpiChip>()
     for (const bus of insights.spiBuses) {
       if (!bus.bridged) continue
-      for (const slot of bus.slots) selects.add(slot.cs)
+      for (const slot of bus.slots) {
+        if (!slot.chipId) continue
+        const chip = MANAGED_SPI_BY_ID.get(slot.chipId)
+        if (chip) wanted.set(slot.cs, chip)
+      }
     }
-    return selects
+    return wanted
   }
   // Same idea as I²C FALLBACK_DT_SLOTS: before the sample DTS lands (or when
-  // none is shipped), keep answering CS0 so JEDEC probe at driver init does
-  // not race an empty bus into "device not ready".
-  return new Set(MANAGED_SPI_CHIPS.keys())
+  // none is shipped), keep answering CS0 as the NOR so JEDEC probe at driver
+  // init does not race an empty bus into "device not ready".
+  return new Map([[w25q.cs, w25q]])
 }
 
 function syncManagedSpiChips() {
-  const wanted = wantedManagedSpiCs()
+  const wanted = wantedManagedSpiChips()
   const onBus = new Map(spiModel.chips().map((chip) => [chip.cs, chip]))
+  const managed = new Set(MANAGED_SPI_BY_ID.values())
 
-  for (const [cs, chip] of MANAGED_SPI_CHIPS) {
+  for (const [cs, chip] of wanted) {
     const current = onBus.get(cs)
-    if (wanted.has(cs)) {
-      if (current === chip) continue
-      if (current !== undefined) continue
-      spiModel.attachChip(chip)
-    } else if (current === chip) {
-      spiModel.detachChip(cs)
-    }
+    if (current === chip) continue
+    if (current !== undefined && !managed.has(current)) continue // user stranger
+    if (current !== undefined) spiModel.detachChip(cs)
+    spiModel.attachChip(chip)
+  }
+
+  for (const [cs, chip] of onBus) {
+    if (!managed.has(chip)) continue
+    if (wanted.get(cs) === chip) continue
+    spiModel.detachChip(cs)
   }
 }
 

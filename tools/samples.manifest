@@ -13,11 +13,11 @@
 #                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
 #                    virtio-i2c, virtio-spi, gpio-buzzer, i2c-sensors-extra, eeprom-only,
 #                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
-#                    max17048-only, lp5562-only, and the *-only
+#                    max17048-only, lp5562-only, sct2024-only, and the *-only
 #                    sensor / RTC snippets; leave the conf field empty
 #                    (a bare "::") to use snippets without fragments.
 #                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
-#                    max17048-only, lp5562-only, and the *-only
+#                    max17048-only, lp5562-only, sct2024-only, and the *-only
 #                    sensor / RTC snippets; leave the conf field empty
 #                    (a bare "::") to use snippets without fragments.
 #
@@ -68,6 +68,7 @@ qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-onl
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_cortex_a53:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
 qemu_cortex_a53:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:virtio-i2c,lp5562-only
+qemu_cortex_a53:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
 qemu_cortex_a53:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca9685-only
 qemu_cortex_a53:dac:samples/drivers/dac:conf/mcp4725.conf:virtio-i2c,mcp4725-only
 qemu_cortex_a53:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only
@@ -106,6 +107,7 @@ qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_riscv32:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
 qemu_riscv32:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:virtio-i2c,lp5562-only
+qemu_riscv32:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
 qemu_riscv32:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca9685-only
 qemu_riscv32:dac:samples/drivers/dac:conf/mcp4725.conf:virtio-i2c,mcp4725-only
 qemu_riscv32:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only

@@ -25,8 +25,9 @@ import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isLp5562 } from '@/virtio/devices/chips/lp5562'
-import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
+import { isSct2024 } from '@/virtio/devices/chips/sct2024'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
+import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
 import { isDacChip } from '@/virtio/devices/dac/model'
 import { isFuelGaugeChip } from '@/virtio/devices/fuel-gauge/model'
@@ -66,6 +67,7 @@ export type BodyKind =
   | 'auxdisplay'
   | 'led'
   | 'rgb-led'
+  | 'led-bar'
   | 'pwm-leds'
   | 'gpio-leds'
   | 'pwm'
@@ -385,21 +387,22 @@ function liveSpiBusChildren(
 
     if (chip) {
       const flash = isSpiFlashChip(chip)
+      const led = isSct2024(chip)
       rows.push({
         key: uniqueKey(ids, `${busLabel}:${keyCs}`),
         nodeName: slot?.nodeName ?? `spi-dev@${cs}`,
         label: chip.name,
         compatible: slot?.compatible || undefined,
-        deviceClass: flash ? 'memory' : 'other',
+        deviceClass: flash ? 'memory' : led ? 'led' : 'other',
         path: `${busPath}/${slot?.nodeName ?? `spi-dev@${cs}`}`,
         parentKey: busKey,
         presence: 'interactive',
         tag: slot ? undefined : 'bus only',
-        body: flash ? 'spi-flash' : undefined,
+        body: flash ? 'spi-flash' : led ? 'led-bar' : undefined,
         crumb,
         chip,
         busLabel,
-        panelKind: flash ? 'spi' : undefined,
+        panelKind: flash ? 'spi' : led ? 'led' : undefined,
       })
       continue
     }
@@ -410,7 +413,12 @@ function liveSpiBusChildren(
       nodeName: declared.nodeName,
       label: declared.compatible || declared.nodeName,
       compatible: declared.compatible || undefined,
-      deviceClass: declared.chipId === 'w25q' ? 'memory' : 'spi-bus',
+      deviceClass:
+        declared.chipId === 'w25q'
+          ? 'memory'
+          : declared.chipId === 'sct2024'
+            ? 'led'
+            : 'spi-bus',
       path: `${busPath}/${declared.nodeName}`,
       parentKey: busKey,
       presence: 'ghost',
@@ -1129,9 +1137,13 @@ function deriveFallback(
     })
     const slots: SpiSlot[] = spiChips.map((chip) => ({
       cs: chip.cs,
-      compatible: isSpiFlashChip(chip) ? 'jedec,spi-nor' : '',
-      chipId: isSpiFlashChip(chip) ? 'w25q' : undefined,
-      nodeName: `spi-dev@${chip.cs}`,
+      compatible: isSpiFlashChip(chip)
+        ? 'jedec,spi-nor'
+        : isSct2024(chip)
+          ? 'sct,sct2024'
+          : '',
+      chipId: isSpiFlashChip(chip) ? 'w25q' : isSct2024(chip) ? 'sct2024' : undefined,
+      nodeName: isSct2024(chip) ? `sct2024@${chip.cs}` : `spi-dev@${chip.cs}`,
     }))
     nodes.push(...liveSpiBusChildren(ids, busKey, names.spi.label, busPath, slots, spiChips))
   }

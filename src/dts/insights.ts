@@ -158,6 +158,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
 
 const COMPAT_TO_SPI_CHIP: Record<string, string> = {
   'jedec,spi-nor': 'w25q',
+  'sct,sct2024': 'sct2024',
 }
 
 const SENSOR_CHIP_IDS = new Set([
@@ -442,6 +443,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (
     hasOkayCompat(doc, 'holtek,ht16k33') ||
     hasOkayCompat(doc, 'ti,lp5562') ||
+    hasOkayCompat(doc, 'sct,sct2024') ||
     pwmLeds.length > 0 ||
     gpioControllers.some((c) => c.bridged && c.leds.length > 0)
   ) {
