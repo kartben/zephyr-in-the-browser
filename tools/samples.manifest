@@ -16,6 +16,10 @@
 #                    max17048-only, lp5562-only, and the *-only
 #                    sensor / RTC snippets; leave the conf field empty
 #                    (a bare "::") to use snippets without fragments.
+#                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
+#                    max17048-only, lp5562-only, and the *-only
+#                    sensor / RTC snippets; leave the conf field empty
+#                    (a bare "::") to use snippets without fragments.
 #
 # Every build also applies the browser_bridge shield (zephyr-module/boards/
 # shields/browser_bridge), which adds the browser-fed peripherals and their
@@ -58,6 +62,7 @@ qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-
 qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
 qemu_cortex_a53:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_cortex_a53:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
+qemu_cortex_a53:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
 qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_cortex_a53:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
@@ -70,7 +75,7 @@ qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
 qemu_cortex_a53:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
-qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c,i2c-sensors-extra
+qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf:virtio-i2c,i2c-sensors-extra,virtio-spi
 qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
@@ -94,6 +99,7 @@ qemu_riscv32:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-onl
 qemu_riscv32:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
 qemu_riscv32:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_riscv32:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
+qemu_riscv32:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
 qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_riscv32:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
@@ -105,7 +111,7 @@ qemu_riscv32:philosophers:samples/philosophers
 qemu_riscv32:blinky:samples/basic/blinky::virtio-gpio
 qemu_riscv32:basic_button:samples/basic/button::virtio-gpio
 qemu_riscv32:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
-qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf:virtio-i2c,i2c-sensors-extra
+qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf:virtio-i2c,i2c-sensors-extra,virtio-spi
 qemu_riscv32:oled:samples/drivers/display::virtio-i2c,oled
 qemu_riscv32:hsm:samples/subsys/smf/hsm_psicc2
 qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf

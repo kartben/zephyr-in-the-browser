@@ -354,13 +354,15 @@ with an in-tree I²C (or SPI) driver *and* a stock sample, because the virtio-i2
 and virtio-spi bridges mean a new chip is TypeScript + a DT node (+ a JSON
 register map for register-file parts) — no wasm rebuild.
 
-**SPI bus — ✅ done (controller + JEDEC NOR).** Same generic bridge as I2C, on
+**SPI bus — ✅ done (controller + JEDEC NOR + LittleFS).** Same generic bridge as I2C, on
 virtio-mmio slot 5 (`name=spi`, device-id 45). Guest driver vendored from
 kartben/zephyr#469; page model in [`spi.ts`](../src/virtio/devices/spi.ts);
 first chip is a W25Q-class stub
 ([`w25q.ts`](../src/virtio/devices/chips/w25q.ts)) packaged as
-`samples/drivers/spi_flash` behind `-S virtio-spi`. Roster rows on the bus
-panel navigate/blink to the dock card for that chip (same for I²C).
+`samples/drivers/spi_flash` and `samples/subsys/fs/littlefs` behind `-S virtio-spi`
+(storage partition + fstab `lfs1` → `/lfs`). Sparse `localStorage` persist and a
+dock **Filesystem** dialog (`partitions-tool-esp/littlefs`) browse the same image.
+Roster rows on the bus panel navigate/blink to the dock card for that chip (same for I²C).
 
 **Rule for every new I²C part: model the registers.** Sensors and the PCF8523
 already share [`registers/`](../src/virtio/devices/registers) (SVD-inspired JSON
