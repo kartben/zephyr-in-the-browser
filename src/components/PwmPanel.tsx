@@ -142,8 +142,6 @@ function strokeWaveClipped(
 }
 
 const WAVE_H = 196
-/** Minimum gap between t_high / t_low label boxes (css px). */
-const TIMING_LABEL_GAP = 14
 
 function WaveformCanvas({ ch }: { ch: PwmChannel }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -235,26 +233,15 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
       ctx.fillText('HIGH', xAt(duty / 2), yHigh - 8)
       ctx.fillText('LOW', xAt((duty + 1) / 2), yLow + 16)
 
-      const highText = `t_high = ${formatPwmDuration(ch.pulseNs)}`
-      const lowText = `t_low = ${formatPwmDuration(ch.periodNs - ch.pulseNs)}`
-      let xHighLabel = xAt(duty / 2)
-      let xLowLabel = xAt((duty + 1) / 2)
-      const halfHigh = ctx.measureText(highText).width / 2
-      const halfLow = ctx.measureText(lowText).width / 2
-      const needed = halfHigh + halfLow + TIMING_LABEL_GAP
-      if (xLowLabel - xHighLabel < needed) {
-        const mid = (xHighLabel + xLowLabel) / 2
-        xHighLabel = mid - needed / 2
-        xLowLabel = mid + needed / 2
-      }
-      // Keep both labels inside the canvas; prefer shifting as a pair.
-      const minX = padL + halfHigh
-      const maxX = cssW - padR - halfLow
-      const shiftIn = Math.max(0, minX - xHighLabel) - Math.max(0, xLowLabel - maxX)
-      xHighLabel += shiftIn
-      xLowLabel += shiftIn
-      ctx.fillText(highText, xHighLabel, padT - 12)
-      ctx.fillText(lowText, xLowLabel, padT - 12)
+      // Fixed anchors at the period edges — values update, positions don't.
+      ctx.textAlign = 'left'
+      ctx.fillText(`t_high = ${formatPwmDuration(ch.pulseNs)}`, xAt(0) + 4, padT - 12)
+      ctx.textAlign = 'right'
+      ctx.fillText(
+        `t_low = ${formatPwmDuration(ch.periodNs - ch.pulseNs)}`,
+        xAt(1) - 4,
+        padT - 12,
+      )
     } else if (flat) {
       ctx.textAlign = 'left'
       ctx.fillText(ch.fullOn ? 'full-on' : 'full-off', padL + 4, yHigh - 8)
