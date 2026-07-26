@@ -735,3 +735,21 @@ export function sampleAsset(board: Board, sampleId: string): string {
 export function sampleDtsAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.dts`
 }
+
+/**
+ * The annotation catalog shipped next to the image, for a sample that carries
+ * a walkthrough. Absent for every other sample, which is a supported state —
+ * see src/annotations/catalog.ts.
+ */
+export function sampleAnnotationsAsset(board: Board, sampleId: string): string {
+  return `zephyr/${board.zephyrTarget}/${sampleId}.annotations.json`
+}
+
+/**
+ * One of a sample's shipped source files. These are the *stripped* copies the
+ * extractor emits — the `@annotate` blocks removed, because their text is
+ * already in the popup — so line numbers match what the catalog records.
+ */
+export function sampleSourceAsset(board: Board, sampleId: string, file: string): string {
+  return `zephyr/${board.zephyrTarget}/src/${sampleId}/${file}`
+}

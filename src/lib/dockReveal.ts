@@ -3,7 +3,8 @@
  * scroll it into view, and pulse an attention blink on its header.
  */
 
-import type { DeviceClass } from '@/deviceTopology'
+import type { PanelKind } from '@/boards'
+import type { DeviceClass, DeviceInventory } from '@/deviceTopology'
 import {
   getState,
   setExpanded,
@@ -64,4 +65,35 @@ export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
       )
     })
   })
+}
+
+/*
+ * The dock's current inventory, published by hooks/useDeviceTree.
+ *
+ * Callers outside React — an annotation naming a panel it wants looked at —
+ * know a PanelKind, not a row key. Resolving one to the other needs the
+ * inventory, which only exists inside the hook that derives it, so the hook
+ * hands it over here.
+ */
+let inventory: DeviceInventory | null = null
+
+export function publishInventory(next: DeviceInventory): void {
+  inventory = next
+}
+
+/**
+ * Reveal the row that represents a panel kind.
+ *
+ * Prefers an interactive row: `led` matches both the LED indicators and a
+ * ghost row for a part nothing answers for, and pointing the reader at the
+ * ghost would be worse than pointing at nothing. A kind with no row at all is
+ * a no-op — the sample may name a peripheral this board does not have.
+ */
+export function revealPanelKind(kind: string): void {
+  const nodes = inventory?.nodes
+  if (!nodes) return
+  const matches = nodes.filter((node) => node.panelKind === (kind as PanelKind))
+  if (matches.length === 0) return
+  const node = matches.find((n) => n.presence === 'interactive') ?? matches[0]
+  revealDockRow(node.key, node.deviceClass)
 }
