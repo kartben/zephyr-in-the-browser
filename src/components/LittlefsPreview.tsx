@@ -82,15 +82,9 @@ export function LittlefsPreview() {
       )
       link?.click()
       window.setTimeout(() => {
-<<<<<<< HEAD
         const fileBtn = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
           (b) => (b.textContent || '').includes('boot_count'),
         )
-=======
-        const fileBtn = [...document.querySelectorAll('[role="dialog"] button')].find((b) =>
-          (b.textContent || '').includes('boot_count'),
-        ) as HTMLButtonElement | undefined
->>>>>>> 4636775 (fix(littlefs): mount with real littlefs; pin 4 KiB SPI layout pages)
         fileBtn?.click()
       }, 500)
     }, 400)
