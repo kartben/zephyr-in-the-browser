@@ -1,25 +1,19 @@
 /**
- * Dock bodies for steppers: GPIO step/dir (observed edges) and SPI TMC50xx
- * (register-driven motion sim).
+ * Dock bodies for steppers: GPIO step/dir (observed edges) and SPI TMC50xx.
  */
 
-import { useEffect, useReducer, useSyncExternalStore } from 'react'
-import { RotateCw } from 'lucide-react'
+import { useEffect, useReducer, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { RegisterMapButton } from '@/components/RegisterMap'
 import { cn } from '@/lib/utils'
 import { getSteppers, subscribe as subscribeGpio } from '@/hostGpio'
-import {
-  getSnapshot,
-  subscribe,
-  type StepperAxisSnapshot,
-} from '@/hostStepper'
-import type { Tmc50xxChip, Tmc50xxMotorSnapshot } from '@/virtio/devices/chips/tmc50xx'
+import { getSnapshot, subscribe } from '@/hostStepper'
+import type { Tmc50xxChip } from '@/virtio/devices/chips/tmc50xx'
 import { hasRegisterMap } from '@/virtio/devices/registers/types'
 
 /** Visual steps per revolution for the GPIO dial (matches stock sample default). */
 const DIAL_STEPS_PER_REV = 200
 
-/** TMC sample uses 200 full steps × 256 µsteps — dial one rev on that. */
+/** TMC sample: 200 full steps × 256 µsteps per rev. */
 const TMC_DIAL_STEPS_PER_REV = 200 * 256
 
 const UI_MS = 50
@@ -31,53 +25,63 @@ export function StepperBody() {
   if (wiring.length === 0) {
     return (
       <div className="px-3 py-3 text-[11px] text-muted-foreground">
-        No{' '}
-        <code className="font-mono text-foreground">zephyr,gpio-step-dir-stepper-ctrl</code>{' '}
-        in this build&apos;s devicetree.
+        No step/dir controller in this build&apos;s tree.
       </div>
     )
   }
 
   return (
-    <div className="space-y-3 px-3 py-3">
+    <div className="space-y-2 px-3 py-3">
       {snap.axes.map((axis) => (
-        <StepperCard key={axis.id} axis={axis} />
+        <AxisRow
+          key={axis.id}
+          label={axis.label}
+          position={axis.position}
+          stepsPerRev={DIAL_STEPS_PER_REV}
+          stepsPerSec={axis.stepsPerSec}
+          moving={axis.moving}
+          directionPositive={axis.directionPositive}
+          detail={
+            <>
+              STEP {axis.stepPin}
+              <span className={axis.stepActive ? ' text-emerald-400' : ''}>
+                {axis.stepActive ? ' ●' : ' ○'}
+              </span>
+              {' · '}
+              DIR {axis.dirPin}
+              <span className={axis.dirActive ? ' text-sky-400' : ''}>
+                {axis.dirActive ? ' ●' : ' ○'}
+              </span>
+            </>
+          }
+        />
       ))}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Stock Zephyr{' '}
-        <code className="font-mono text-foreground">zephyr,gpio-step-dir-stepper-ctrl</code>{' '}
-        — STEP/DIR on GPIO. Press SW0 in Keys to advance the generic sample
-        modes. Try{' '}
-        <code className="font-mono text-foreground">samples/drivers/stepper/generic</code>.
-      </p>
     </div>
   )
 }
 
-/** SPI TMC50xx: shaft dial + register map for motor 0. */
+/** SPI TMC50xx: shaft dial + optional Registers. */
 export function Tmc50xxStepperBody({ chip }: { chip: Tmc50xxChip }) {
   useChipUi(chip)
   const motor = chip.getMotor(0)
 
   return (
-    <div className="space-y-3 px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] text-muted-foreground">
-          Motor 0 · {motor.enabled ? 'enabled' : 'disabled'}
-          {motor.moving ? ' · moving' : ' · idle'}
-        </div>
-        {hasRegisterMap(chip) ? <RegisterMapButton chip={chip} /> : null}
-      </div>
-      <TmcMotorCard motor={motor} label={chip.name} />
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Stock Zephyr{' '}
-        <code className="font-mono text-foreground">adi,tmc50xx</code> over SPI —
-        positioning mode writes <code className="font-mono text-foreground">XTARGET</code>,
-        the page advances <code className="font-mono text-foreground">XACTUAL</code> and
-        sets <code className="font-mono text-foreground">RAMPSTAT</code> POS_REACHED.
-        Try{' '}
-        <code className="font-mono text-foreground">samples/drivers/stepper/tmc50xx</code>.
-      </p>
+    <div className="px-3 py-3">
+      <AxisRow
+        label={chip.name}
+        position={motor.position}
+        stepsPerRev={TMC_DIAL_STEPS_PER_REV}
+        stepsPerSec={motor.stepsPerSec}
+        moving={motor.moving}
+        directionPositive={motor.directionPositive}
+        detail={
+          <>
+            tgt {motor.target}
+            {motor.enabled ? '' : ' · off'}
+          </>
+        }
+        trailing={hasRegisterMap(chip) ? <RegisterMapButton chip={chip} /> : null}
+      />
     </div>
   )
 }
@@ -116,105 +120,72 @@ function useChipUi(chip: { subscribe: (fn: () => void) => () => void; version: (
   }, [chip])
 }
 
-function StepperCard({ axis }: { axis: StepperAxisSnapshot }) {
-  const angle = ((axis.position % DIAL_STEPS_PER_REV) / DIAL_STEPS_PER_REV) * 360
-  const rate = axis.stepsPerSec
-
-  return (
-    <div className="space-y-2 rounded-md border border-border bg-secondary/30 px-3 py-3">
-      <div className="flex items-center gap-3">
-        <ShaftDial
-          angle={angle}
-          moving={axis.moving}
-          directionPositive={axis.directionPositive}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <RotateCw
-              className={cn(
-                'size-3.5 shrink-0',
-                axis.moving ? 'text-emerald-400' : 'text-muted-foreground',
-                axis.moving && !axis.directionPositive && 'scale-x-[-1]',
-              )}
-              strokeWidth={1.75}
-            />
-            <div className="truncate text-xs font-medium text-foreground">{axis.label}</div>
-          </div>
-          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            STEP {axis.stepPin}
-            <span className={axis.stepActive ? ' text-emerald-400' : ''}>
-              {axis.stepActive ? ' ●' : ' ○'}
-            </span>
-            {' · '}
-            DIR {axis.dirPin}
-            <span className={axis.dirActive ? ' text-sky-400' : ''}>
-              {axis.dirActive ? ' ●' : ' ○'}
-            </span>
-          </div>
-          <MotionReadout
-            position={axis.position}
-            rate={rate}
-            moving={axis.moving}
-            directionPositive={axis.directionPositive}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TmcMotorCard({ motor, label }: { motor: Tmc50xxMotorSnapshot; label: string }) {
-  const wrapped =
-    ((motor.position % TMC_DIAL_STEPS_PER_REV) + TMC_DIAL_STEPS_PER_REV) % TMC_DIAL_STEPS_PER_REV
-  const angle = (wrapped / TMC_DIAL_STEPS_PER_REV) * 360
-
-  return (
-    <div className="space-y-2 rounded-md border border-border bg-secondary/30 px-3 py-3">
-      <div className="flex items-center gap-3">
-        <ShaftDial
-          angle={angle}
-          moving={motor.moving}
-          directionPositive={motor.directionPositive}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <RotateCw
-              className={cn(
-                'size-3.5 shrink-0',
-                motor.moving ? 'text-emerald-400' : 'text-muted-foreground',
-                motor.moving && !motor.directionPositive && 'scale-x-[-1]',
-              )}
-              strokeWidth={1.75}
-            />
-            <div className="truncate text-xs font-medium text-foreground">{label}</div>
-          </div>
-          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            target {motor.target}
-            {' · '}
-            mode {motor.rampMode}
-          </div>
-          <MotionReadout
-            position={motor.position}
-            rate={motor.stepsPerSec}
-            moving={motor.moving}
-            directionPositive={motor.directionPositive}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ShaftDial({
-  angle,
+function AxisRow({
+  label,
+  position,
+  stepsPerRev,
+  stepsPerSec,
   moving,
   directionPositive,
+  detail,
+  trailing,
 }: {
-  angle: number
+  label: string
+  position: number
+  stepsPerRev: number
+  stepsPerSec: number
   moving: boolean
   directionPositive: boolean
+  detail: ReactNode
+  trailing?: ReactNode
 }) {
-  void directionPositive
+  return (
+    <div className="flex items-center gap-3">
+      <ShaftDial position={position} stepsPerRev={stepsPerRev} moving={moving} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <div className="truncate text-xs font-medium text-foreground">{label}</div>
+          {trailing}
+        </div>
+        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{detail}</div>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[11px] tabular-nums">
+          <span>
+            <span className="text-muted-foreground">pos </span>
+            <span className="text-foreground">{position}</span>
+          </span>
+          <span className={cn(moving ? 'text-emerald-400' : 'text-muted-foreground')}>
+            {formatRate(stepsPerSec)}
+          </span>
+          <span className="w-8 text-muted-foreground">
+            {moving ? (directionPositive ? 'CW' : 'CCW') : '—'}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Continuous shaft angle — accumulate position deltas so a rev wrap never
+ * spins the needle the long way (CSS transitions made that jump).
+ */
+function ShaftDial({
+  position,
+  stepsPerRev,
+  moving,
+}: {
+  position: number
+  stepsPerRev: number
+  moving: boolean
+}) {
+  const angleRef = useRef({ pos: position, deg: 0 })
+  if (angleRef.current.pos !== position) {
+    const delta = position - angleRef.current.pos
+    angleRef.current.pos = position
+    angleRef.current.deg += (delta / stepsPerRev) * 360
+  }
+  const angle = angleRef.current.deg
+
   return (
     <div
       className={cn(
@@ -233,10 +204,7 @@ function ShaftDial({
           strokeWidth="1.25"
           className="opacity-40"
         />
-        <g
-          className="origin-center transition-transform duration-75 ease-linear"
-          style={{ transform: `rotate(${angle}deg)` }}
-        >
+        <g style={{ transform: `rotate(${angle}deg)`, transformOrigin: '24px 24px' }}>
           <line
             x1="24"
             y1="24"
@@ -255,45 +223,12 @@ function ShaftDial({
           />
         </g>
       </svg>
-      {moving && (
-        <span className="stepper-pulse pointer-events-none absolute inset-0 rounded-md border border-emerald-400/35" />
-      )}
-    </div>
-  )
-}
-
-function MotionReadout({
-  position,
-  rate,
-  moving,
-  directionPositive,
-}: {
-  position: number
-  rate: number
-  moving: boolean
-  directionPositive: boolean
-}) {
-  return (
-    <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-[11px]">
-      <span>
-        <span className="text-muted-foreground">pos </span>
-        <span className="text-foreground">{position}</span>
-      </span>
-      <span>
-        <span className="text-muted-foreground">vel </span>
-        <span className={moving ? 'text-emerald-400' : 'text-muted-foreground'}>
-          {formatRate(rate)}
-        </span>
-      </span>
-      <span className="text-muted-foreground">
-        {moving ? (directionPositive ? 'CW' : 'CCW') : 'idle'}
-      </span>
     </div>
   )
 }
 
 function formatRate(stepsPerSec: number): string {
-  if (stepsPerSec < 0.05) return '0 steps/s'
-  if (stepsPerSec < 10) return `${stepsPerSec.toFixed(1)} steps/s`
-  return `${Math.round(stepsPerSec)} steps/s`
+  if (stepsPerSec < 0.05) return '0/s'
+  if (stepsPerSec < 10) return `${stepsPerSec.toFixed(1)}/s`
+  return `${Math.round(stepsPerSec)}/s`
 }

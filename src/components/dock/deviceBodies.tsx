@@ -719,8 +719,8 @@ function StepperBadge() {
   const axis = snap.axes[0]
   if (!axis) return null
   return (
-    <Mono className={axis.moving ? 'text-emerald-400' : undefined}>
-      {axis.moving ? `${Math.round(axis.stepsPerSec)}/s` : `${axis.position}`}
+    <Mono className={cn('tabular-nums', axis.moving && 'text-emerald-400')}>
+      {axis.moving ? `${Math.round(axis.stepsPerSec)}/s` : axis.position}
     </Mono>
   )
 }
@@ -730,8 +730,8 @@ function Tmc50xxBadge({ chip }: { chip: Tmc50xxChip }) {
   void version
   const motor = chip.getMotor(0)
   return (
-    <Mono className={motor.moving ? 'text-emerald-400' : undefined}>
-      {motor.moving ? `${Math.round(motor.stepsPerSec)}/s` : `${motor.position}`}
+    <Mono className={cn('tabular-nums', motor.moving && 'text-emerald-400')}>
+      {motor.moving ? `${Math.round(motor.stepsPerSec)}/s` : motor.position}
     </Mono>
   )
 }
