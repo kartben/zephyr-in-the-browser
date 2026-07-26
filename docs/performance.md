@@ -106,31 +106,39 @@ the next person does not have to take the arithmetic on trust. `transport.ts`
 counts the gaps between consecutive hot polls for exactly that reason: the pace
 was wrong for a long time precisely because nothing looked at it.
 
-**(b) Move the bridge into a worker — the real fix.** The Emscripten heap is a
-`SharedArrayBuffer`, which is why
-[`src/display/renderWorker.ts`](../src/display/renderWorker.ts) can already read
-the framebuffer from another thread. A worker can call `Atomics.wait`, which the
-main thread cannot, and `Atomics.wait(words, reqWrIndex, seen, 0.25)` is a
-precise sub-millisecond sleep that parks the thread instead of spinning, is not
-subject to any timer clamp, and does not slow down when the tab is hidden. The
-whole "hot window versus idle timer, MessagePort versus setTimeout" apparatus in
-`transport.ts` collapses into one blocking wait. The device models
-(`src/virtio/devices/`) move with it — they are pure TypeScript with vitest
-suites and no DOM dependency — and publish UI state to the main thread on a
-coalesced `postMessage`, exactly as the render worker does. Expected: round trip
-into the sub-millisecond range, bounded by QEMU's drain rather than by the page,
-and a hidden tab that behaves like a visible one. This also erases item 8's
-contribution for the busiest poller.
+**(b)+(c), spiked and measured: real, and not the payoff expected.** Built
+both — a worker running the `Atomics.wait` loop this section describes
+(`src/virtio/spike/virtioAtomicsWorker.ts`, gated behind `?virtioWorker=1`,
+scoped to the "i2c" device and the MCP4725 chip only, not a full port — see
+that file's header for exactly what is not covered), and the QEMU-side
+`__builtin_wasm_memory_atomic_notify` on `req_wr`
+(`tools/qemu-jit-patches/0018-notify-req-wr-atomic.patch`). Both mechanisms
+work exactly as designed: `waitTimeouts` stayed at 0 across 11k+ requests
+(every single wake is a real notify, none is the fallback timeout), and the
+completion-side relay back to `_qemu_virtio_browser_kick()` — necessarily
+still a `postMessage` to the main thread, since that export's
+`qemu_bh_schedule` has nowhere to land from a worker that never instantiated
+the module — measured at ~0 ms average, sub-millisecond max, once a clock-
+origin calibration bug in the first measurement (a constant ~530-900 ms
+offset on every sample, not real latency) was found and fixed.
 
-**(c) Make QEMU wake the page instead of being polled.** With (b) in place, one
-line on the QEMU side turns the wait from a timeout into a real wakeup: after
-`qatomic_store_release` publishes `req_wr` in `virtio-browser.c`, call
-`__builtin_wasm_memory_atomic_notify` on that address. `Atomics.wait` in the
-worker returns immediately rather than after the poll interval, and the idle
-cost drops to nothing at all. `docs/virtio-bridge.md` lists proxying a wake onto
-the page as the first lever to reach for if measurement ever demands better;
-this is that lever, and cheaper than the `MAIN_THREAD_ASYNC_EM_ASM` form it
-suggests, because a shared-memory futex needs no proxying.
+**And the DAC round trip did not move**: ~800 Hz with the worker, ~800 Hz
+without it, on the same rebuilt tick-rate-fixed guest image. Every hop this
+lever targets — request detection, completion relay, vCPU wake (already
+separately measured at ~0.05-0.07 ms) — is now sub-millisecond, and the
+throughput ceiling did not change, which means `bridgePollMs`'s ~1 ms was
+never the binding constraint once the tick-rate and vendored-sample fixes
+were in (see the DAC entries in `tools/samples.manifest` and
+`zephyr-module/apps/dac_sawtooth`). The remaining ~1.2 ms/request is more
+likely real guest-side cost — the i2c driver stack's own instruction count at
+the guest's measured ~1.1 MIPS — than anything browser-side. **Not
+recommended as a general fix** on this evidence; the engineering cost (moving
+every other device model, including the ones with real DOM dependencies —
+`localStorage`-backed EEPROM/flash persistence, live device-motion sensors —
+that cannot simply move into a worker unchanged) does not currently have a
+measured payoff to justify it. Worth revisiting only if a *different* device
+or workload shows the request-detection or completion-relay hop actually
+dominating its round trip; this one didn't.
 
 ## 2. Asyncify very likely instruments the TCG execution path
 
@@ -347,10 +355,12 @@ land in `public/qemu/`. Expected after rebuild: I²C Hz into the
 hundreds–~1 kHz (page poll ~1 ms), check with `tools/profile-dac.mjs`
 (`kicks` in bridge stats should track `requests`).
 
-The clean long-term shape is still item 1(b)+(c): bridge in a worker with
-`Atomics.wait`, QEMU `memory.atomic.notify` on `req_wr`, and the reverse kick
-we now have for completions. The kick BH is the same cross-thread pattern
-`qemu_bh_schedule` was always meant for.
+Superseded: the ~45 Hz measured here turned out to be dominated by the
+guest's own tick-rate rounding, not this drain mechanism — see
+`zephyr-module/apps/dac_sawtooth` and the DAC entries in
+`tools/samples.manifest`. Item 1(b)+(c) below was built and measured on top of
+that fix; the verdict there is the current word on this path, not "the clean
+long-term shape" this paragraph used to claim.
 
 ## 8. Seven pollers share the thread that runs xterm and React
 
@@ -419,6 +429,9 @@ to the one bridge where the failure mode is something the user can hear.
    3 without confounding it, since one moves size and the other speed.
 4. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
-5. Item 1(b)+(c) and items 8/9 together — one worker, all the shared-heap
-   bridges, `Atomics.wait`, and a QEMU-side notify. The largest piece of work
-   here and the one that retires the most of this document.
+5. ~~Item 1(b)+(c)~~ — spiked (`src/virtio/spike/`, `?virtioWorker=1`) and
+   measured: mechanism works, DAC throughput did not move. Not worth the
+   full-catalogue port on this evidence; see item 1's writeup. Items 8/9's
+   contention and hidden-tab arguments for a worker are separate from the
+   throughput one and untested by this spike — still open if either becomes
+   the actual complaint.
