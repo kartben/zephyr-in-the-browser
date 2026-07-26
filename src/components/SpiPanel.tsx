@@ -5,12 +5,9 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import { revealDockRow } from '@/lib/dockReveal'
 import { spiModel } from '@/virtio'
 import type { SpiChip, SpiTransaction } from '@/virtio/devices/spi'
-import {
-  createSpiLoopback,
-  createW25q,
-  isSpiFlashChip,
-} from '@/virtio/devices/chips/w25q'
-import { createSct2024, isSct2024 } from '@/virtio/devices/chips/sct2024'
+import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
+import { isSct2024 } from '@/virtio/devices/chips/sct2024'
+import { SPI_CHIP_TYPES, spiChipType } from '@/virtio/devices/spiRegistry'
 import type { DeviceClass } from '@/deviceTopology'
 
 /**
@@ -138,40 +135,21 @@ function hasSpiDriver(cs: number): boolean {
   return false
 }
 
-const SPI_TYPES = [
-  {
-    id: 'w25q',
-    label: 'W25Q SPI NOR',
-    defaultCs: 0,
-    create: (cs: number) => createW25q({ cs }),
-  },
-  {
-    id: 'sct2024',
-    label: 'SCT2024 LED',
-    defaultCs: 0,
-    create: (cs: number) => createSct2024({ cs }),
-  },
-  {
-    id: 'loopback',
-    label: 'SPI loopback',
-    defaultCs: 1,
-    create: (cs: number) => createSpiLoopback(cs),
-  },
-] as const
+const SPI_TYPES = SPI_CHIP_TYPES
 
 function AttachRow({ chips }: { chips: number[] }) {
-  const [typeId, setTypeId] = useState<(typeof SPI_TYPES)[number]['id']>(SPI_TYPES[0].id)
+  const [typeId, setTypeId] = useState(SPI_TYPES[0].id)
   const [csText, setCsText] = useState(() => String(SPI_TYPES[0].defaultCs))
   const [error, setError] = useState<string | null>(null)
 
   const occupied = useMemo(() => new Set(chips), [chips])
-  const type = SPI_TYPES.find((t) => t.id === typeId) ?? SPI_TYPES[0]
+  const type = spiChipType(typeId) ?? SPI_TYPES[0]
   const parsed = Number.parseInt(csText, 10)
   const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 255
   const taken = valid && occupied.has(parsed)
 
   const onTypeChange = (id: string) => {
-    const t = SPI_TYPES.find((x) => x.id === id)
+    const t = spiChipType(id)
     if (!t) return
     setTypeId(t.id)
     setCsText(String(t.defaultCs))

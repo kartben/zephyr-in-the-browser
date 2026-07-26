@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
 import { SampleGallery } from '@/components/SampleGallery'
+import { PartsCatalog } from '@/components/PartsCatalog'
 import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
 import { DtsViewer } from '@/components/DtsViewer'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
@@ -69,6 +70,7 @@ export function TopBar({
         />
 
         <RunningDtsButton />
+        <PartsCatalog />
         <PauseButton />
 
         <PanelsMenu boardId={boardId} />
