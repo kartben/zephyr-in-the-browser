@@ -8,6 +8,9 @@ import { Dock } from '@/components/dock/Dock'
 import { FloatingWindows } from '@/components/dock/FloatingWindows'
 import { DropOverlay } from '@/components/DropOverlay'
 import { DtsPromptDialog } from '@/components/DtsPromptDialog'
+import { AnnotationCard } from '@/components/AnnotationCard'
+import { attachAnnotations } from '@/annotations/attach'
+import { loadFor as loadAnnotations, reset as resetAnnotations } from '@/annotations/store'
 import {
   STAGE_DISPLAY_KEY,
   getState as getDockState,
@@ -35,7 +38,14 @@ import {
 import { emphasisPanels } from '@/dts'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
-import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } from '@/boards'
+import {
+  BOARDS,
+  DEFAULT_BOARD_ID,
+  getBoard,
+  getSample,
+  sampleAnnotationsAsset,
+  samplePrimaryPanels,
+} from '@/boards'
 
 /**
  * The floating widgets over the stage: the display (with its Panels-menu
@@ -48,13 +58,22 @@ import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample, samplePrimaryPanels } fr
 function StageOverlays({
   displayExpanded,
   traceExpanded,
+  boardId,
+  sampleId,
 }: {
   displayExpanded: boolean
   traceExpanded: boolean
+  boardId: string
+  sampleId: string
 }) {
   const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
   return (
     <>
+      {/* Above the stage panels, below the z-50 modals: an annotation may have
+          stopped the machine, so it must not end up behind a device card. */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
+        <AnnotationCard board={getBoard(boardId)} sampleId={sampleId} />
+      </div>
       <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 sm:right-auto sm:max-w-[min(34rem,calc(100%-1.5rem))] md:bottom-4 md:left-4">
         <div className="self-start">
           <StagePill />
@@ -129,13 +148,32 @@ export default function App() {
 
   const backendRef = useRef<PtyBackend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const detachAnnotationsRef = useRef<(() => void) | null>(null)
 
-  const handleSession = useCallback(({ slave }: TerminalSession) => {
+  const handleSession = useCallback(({ xterm, slave }: TerminalSession) => {
     const ac = new AbortController()
     abortRef.current = ac
 
     setHardRestart(false)
     setStatus({ status: 'loading' })
+
+    /*
+     * Annotations ride the console as OSC 9700 sequences, so the walkthrough
+     * needs the terminal itself — this is the only place that has it. The
+     * handler consumes what it matches, so an annotated sample's output looks
+     * exactly like an unannotated one's.
+     *
+     * The catalog fetch is fire-and-forget: a sample with no annotations has
+     * no JSON to find, and that is the normal case.
+     */
+    resetAnnotations()
+    detachAnnotationsRef.current = attachAnnotations(xterm)
+    void loadAnnotations(
+      `${import.meta.env.BASE_URL}qemu/${sampleAnnotationsAsset(
+        getBoard(configRef.current.boardId),
+        configRef.current.sampleId,
+      )}`,
+    )
 
     // Drop status updates from a session that has already been torn down —
     // StrictMode's double mount in dev makes this a real ordering hazard.
@@ -193,6 +231,9 @@ export default function App() {
   const handleTeardown = useCallback(() => {
     abortRef.current?.abort(new DOMException('terminal unmounted', 'AbortError'))
     abortRef.current = null
+    detachAnnotationsRef.current?.()
+    detachAnnotationsRef.current = null
+    resetAnnotations()
   }, [])
 
   /**
@@ -406,6 +447,8 @@ export default function App() {
             key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
             displayExpanded={expandAllPanels || primaryPanels.has('display')}
             traceExpanded={expandAllPanels || primaryPanels.has('trace')}
+            boardId={boardId}
+            sampleId={sampleId}
           />
         </div>
 
