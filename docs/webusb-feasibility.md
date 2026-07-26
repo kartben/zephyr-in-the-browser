@@ -67,9 +67,8 @@ A WebUSB passthrough would therefore need a new QEMU C backend — something lik
 
 That is a full USB host proxy, not a small frontend. It is closer in size and
 risk to inventing `net/browser.c` than to the ~200-line input bridge. And unlike
-virtio-gpio, there is no "move the device model to TypeScript" escape hatch:
-USB is not on the generic virtio bridge's device-id list, and Zephyr has no
-virtio-usb guest driver anyway.
+virtio-gpio, there is no ready "move the device model to TypeScript" escape
+hatch either — see [virtio-usb below](#what-about-virtio-usb).
 
 ## Blocker 3: WebUSB itself cannot claim the peripherals people actually want
 
@@ -138,6 +137,65 @@ None of these touch QEMU C, the shield, or the guest binary. They are page-side
 sources, which is why they belong on the I²C-class backlog rather than as a new
 bridge rank item.
 
+## What about virtio-usb?
+
+The natural follow-up, given this project's generic bridge
+([`virtio-bridge.md`](virtio-bridge.md)): skip XHCI entirely, put a
+`virtio-browser-device,name=usb,device-id=49` on a free mmio slot, and speak
+USB over virtqueues the way GPIO/I²C/SPI already do.
+
+**Verdict: same shape as virtio-snd — attractive on paper, not buildable
+here.** The ID exists; the device does not.
+
+### What the spec actually has
+
+Virtio 1.4 reserves **device ID 49 — "USB controller"**
+([oasis-tcs/virtio-spec#211](https://github.com/oasis-tcs/virtio-spec/issues/211),
+committed as an ID-table row only). The reservation describes a dual-role
+controller (host, device, or both, with role switching). There is **no
+chapter 5.x** for it. The device-types preamble is explicit: some listed IDs
+are immature / niche and "we shall speak of them no further." An earlier
+host-controller-only ask for ID 48
+([#193](https://github.com/oasis-tcs/virtio-spec/issues/193)) was superseded
+when 48 went to Media and USB moved to 49.
+
+So today there is:
+
+| Piece | Status |
+| --- | --- |
+| Virtio device ID 49 | Reserved in v1.4 |
+| Protocol (queues, config, URB/transfer ops) | Not in the published spec |
+| QEMU `virtio-usb-*` device model | None upstream |
+| Linux guest driver | None upstream |
+| Zephyr guest driver | None (no virtio UHC/UDC) |
+
+That is a stricter hole than virtio-snd had: sound at least has a finished
+§5.14 and a QEMU device model. USB has a number in a table.
+
+### Why the generic bridge does not rescue it
+
+The bridge removes the *host-side C* cost of a new virtio device type. It does
+not remove:
+
+1. **Inventing the protocol** — without a chapter, a TypeScript
+   `src/virtio/devices/usb.ts` would be a private dialect, not something a
+   stock or upstreamable Zephyr driver can target.
+2. **The guest driver** — Zephyr's USB host stack wants a UHC; its device
+   stack wants a UDC. A virtio-usb driver would be a new UHC (and/or UDC)
+   written against a protocol that does not exist yet. That is a research
+   project, not a snippet + panel.
+3. **The page-side USB world** — even a finished virtio-usb HC still needs
+   something to plug into its ports. Simulated gadgets are fine for demos;
+   *real* dongles still hit WebUSB/WebHID limits (blocker 3). The bridge would
+   carry URBs; it would not make Chromium claim a HID interface.
+
+Put differently: virtio-usb would be the right *transport* if the ecosystem
+caught up — ID reserved, virtio-mmio already on A53, bridge already generic.
+It is the wrong *next move* while the protocol and both drivers are vapour.
+Revisit when a virtio-usb chapter lands and at least one of QEMU or Linux
+ships a reference implementation; until then the liveSource path above is the
+USB-shaped work that actually ships.
+
 ## What about Zephyr USB *device* samples?
 
 Separately useful, and easy to confuse with the above: packaging
@@ -151,22 +209,23 @@ So gadget demos stay parked. If they ever move, the interesting surface is a
 **dock card that speaks the gadget protocol over the existing char/virtio
 bridges** (e.g. show CDC bytes in a panel), not WebUSB.
 
-## When to revisit full USB passthrough
+## When to revisit full USB (XHCI or virtio-usb)
 
-The calculus flips only if **all** of these land:
+Two different doors; either one has to open fully:
 
-1. A Zephyr UHC driver that runs against a HC qemu-wasm can instantiate cheaply
-   (XHCI on `virt`, or OHCI if that generic driver merges and we accept
-   full-speed only),
-2. A browser USB backend in QEMU C (the libusb-shaped hole), and
-3. A demo device whose interface class WebUSB is actually allowed to claim.
+- **XHCI / OHCI path:** a Zephyr UHC for a HC qemu-wasm can instantiate, plus a
+  browser USB backend in QEMU C (the libusb-shaped hole), plus a demo device
+  WebUSB may actually claim.
+- **virtio-usb path:** a published virtio USB controller chapter (not just ID
+  49), a Zephyr virtio UHC/UDC against it, and a page-side port model
+  (simulated gadgets first; WebUSB/WebHID only where the browser allows).
 
-Until then, USB effort here should look like the mic and the tilt sensor: a
-browser API feeding chips the guest already understands. Prefer **WebHID** for
-anything HID-class, **Web Serial** for UART dongles, and **WebUSB** only for
-explicit vendor-class bridges — and keep every one of them behind the existing
-`liveSource` / dock opt-in pattern so Safari and permission-denied Chrome still
-get a working slider.
+Until one of those sets lands, USB effort here should look like the mic and
+the tilt sensor: a browser API feeding chips the guest already understands.
+Prefer **WebHID** for anything HID-class, **Web Serial** for UART dongles, and
+**WebUSB** only for explicit vendor-class bridges — and keep every one of them
+behind the existing `liveSource` / dock opt-in pattern so Safari and
+permission-denied Chrome still get a working slider.
 
 ## Suggested next step
 
