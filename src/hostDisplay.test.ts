@@ -10,7 +10,7 @@ import {
 const FRAME_POINTER = 64
 const FRAME_SEQUENCE_POINTER = 32
 
-function displayModule(frameSeqPointer?: number) {
+function displayModule(frameSeqPointer?: number, frameWaitSupported = false) {
   const heap = new Uint8Array(new SharedArrayBuffer(4096))
   return {
     HEAPU8: heap,
@@ -21,7 +21,12 @@ function displayModule(frameSeqPointer?: number) {
     _qemu_browser_ramfb_get_fourcc: () => FOURCC_AR24,
     ...(frameSeqPointer === undefined
       ? {}
-      : { _qemu_browser_ramfb_get_frame_seq_ptr: () => frameSeqPointer }),
+      : {
+          _qemu_browser_ramfb_get_frame_seq_ptr: () => frameSeqPointer,
+          ...(frameWaitSupported
+            ? { _qemu_browser_ramfb_frame_wait_supported: () => 1 }
+            : {}),
+        }),
   }
 }
 
@@ -46,5 +51,13 @@ describe('hostDisplay', () => {
 
     Atomics.store(sequence, 0, 8)
     expect(getFrameSequence()).toBe(8)
+  })
+
+  it('only enables futex waits for artifacts that explicitly support them', () => {
+    attach(displayModule(FRAME_SEQUENCE_POINTER))
+    expect(getSnapshot().frameWaitSupported).toBe(false)
+
+    attach(displayModule(FRAME_SEQUENCE_POINTER, true))
+    expect(getSnapshot().frameWaitSupported).toBe(true)
   })
 })

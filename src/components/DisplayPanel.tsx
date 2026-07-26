@@ -316,6 +316,16 @@ function DisplayBody({
     }
   }, [strategy, display])
 
+  // An idle worker normally checks at 30 Hz. A press or wheel event is a
+  // direct cause of guest repainting, so start its 60 Hz grace window now
+  // instead of making touch feedback wait for that idle tick.
+  const wakeRenderWorker = () => {
+    const worker = sessionRef.current?.worker
+    if (!worker) return
+    const wake: MainToWorker = { type: 'wake' }
+    worker.postMessage(wake)
+  }
+
   // Pointer capture keeps a drag alive past the canvas edge, so `leave` only
   // fires for a genuine departure and no button can be left stuck down.
   const pointerHandlers = pointer
@@ -331,6 +341,7 @@ function DisplayBody({
           event.currentTarget.setPointerCapture(event.pointerId)
           const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
           if (point) setButtons(point.nx, point.ny, event.buttons)
+          wakeRenderWorker()
         },
         onPointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => {
           const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
@@ -338,7 +349,10 @@ function DisplayBody({
         },
         onPointerCancel: () => releaseButtons(),
         onPointerLeave: () => releaseButtons(),
-        onWheel: (event: React.WheelEvent<HTMLCanvasElement>) => scroll(event.deltaY),
+        onWheel: (event: React.WheelEvent<HTMLCanvasElement>) => {
+          scroll(event.deltaY)
+          wakeRenderWorker()
+        },
         // Without this the secondary button opens the browser's menu instead
         // of reaching the guest.
         onContextMenu: (event: React.MouseEvent<HTMLCanvasElement>) => event.preventDefault(),

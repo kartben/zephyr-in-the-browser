@@ -2,7 +2,7 @@ diff --git a/hw/display/ramfb.c b/hw/display/ramfb.c
 index 8c0f907..10170ce 100644
 --- a/hw/display/ramfb.c
 +++ b/hw/display/ramfb.c
-@@ -19,6 +19,16 @@
+@@ -19,6 +19,17 @@
  #include "ui/console.h"
  #include "system/reset.h"
 
@@ -12,6 +12,7 @@ index 8c0f907..10170ce 100644
 +
 +#ifdef __EMSCRIPTEN__
 +#include <emscripten.h>
++#include <emscripten/threading.h>
 +#else
 +#define EMSCRIPTEN_KEEPALIVE
 +#endif
@@ -19,7 +20,7 @@ index 8c0f907..10170ce 100644
  struct QEMU_PACKED RAMFBCfg {
      uint64_t addr;
      uint32_t fourcc;
-@@ -33,9 +42,126 @@ typedef struct RAMFBCfg RAMFBCfg;
+@@ -33,9 +43,141 @@ typedef struct RAMFBCfg RAMFBCfg;
  struct RAMFBState {
      DisplaySurface *ds;
      uint32_t width, height;
@@ -49,6 +50,7 @@ index 8c0f907..10170ce 100644
 +uintptr_t qemu_browser_ramfb_get_data(void);
 +uint32_t qemu_browser_ramfb_get_fourcc(void);
 +uintptr_t qemu_browser_ramfb_get_frame_seq_ptr(void);
++uint32_t qemu_browser_ramfb_frame_wait_supported(void);
 +
 +EMSCRIPTEN_KEEPALIVE
 +uint32_t qemu_browser_ramfb_get_width(void)
@@ -86,7 +88,21 @@ index 8c0f907..10170ce 100644
 +    return browser_ramfb ? (uintptr_t)&browser_ramfb->browser_frame_seq : 0;
 +}
 +
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_ramfb_frame_wait_supported(void)
++{
++    return 1;
++}
++
 +#define BROWSER_RAMFB_DIRTY_INTERVAL_MS 16
++
++static void ramfb_browser_publish_frame(RAMFBState *s)
++{
++    qatomic_inc(&s->browser_frame_seq);
++#ifdef __EMSCRIPTEN__
++    emscripten_futex_wake(&s->browser_frame_seq, 1);
++#endif
++}
 +
 +static void ramfb_browser_disable_dirty_tracking(RAMFBState *s)
 +{
@@ -116,7 +132,7 @@ index 8c0f907..10170ce 100644
 +            s->browser_mem, snapshot, s->browser_offset, s->browser_size);
 +        g_free(snapshot);
 +        if (dirty) {
-+            qatomic_inc(&s->browser_frame_seq);
++            ramfb_browser_publish_frame(s);
 +        }
 +    }
 +    timer_mod(s->browser_dirty_timer,
@@ -137,7 +153,7 @@ index 8c0f907..10170ce 100644
 +    s->browser_offset = offset;
 +    s->browser_size = (hwaddr)s->stride * (hwaddr)s->height;
 +    memory_region_set_log(mem, true, DIRTY_MEMORY_VGA);
-+    qatomic_inc(&s->browser_frame_seq);
++    ramfb_browser_publish_frame(s);
 +    timer_mod(s->browser_dirty_timer,
 +              qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +
 +              BROWSER_RAMFB_DIRTY_INTERVAL_MS);
@@ -146,7 +162,7 @@ index 8c0f907..10170ce 100644
  static void ramfb_unmap_display_surface(pixman_image_t *image, void *unused)
  {
      void *data = pixman_image_get_data(image);
-@@ -99,6 +226,11 @@ static void ramfb_fw_cfg_write(void *dev, off_t offset, size_t len)
+@@ -99,6 +242,11 @@ static void ramfb_fw_cfg_write(void *dev, off_t offset, size_t len)
  
 +    ramfb_browser_disable_dirty_tracking(s);
 +
@@ -158,7 +174,7 @@ index 8c0f907..10170ce 100644
      s->ds = surface;
 +    ramfb_browser_enable_dirty_tracking(s);
  }
-@@ -146,6 +278,9 @@ RAMFBState *ramfb_setup(Error **errp)
+@@ -146,6 +294,9 @@ RAMFBState *ramfb_setup(Error **errp)
      }
  
      s = g_new0(RAMFBState, 1);
