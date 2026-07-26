@@ -363,7 +363,7 @@ with an in-tree I²C (or SPI) driver *and* a stock sample, because the virtio-i2
 and virtio-spi bridges mean a new chip is TypeScript + a DT node (+ a JSON
 register map for register-file parts) — no wasm rebuild.
 
-**SPI bus — ✅ done (controller + JEDEC NOR + LittleFS + SCT2024 LED).** Same generic bridge as I2C, on
+**SPI bus — ✅ done (controller + JEDEC NOR + LittleFS + SCT2024 LED + WS2812 strip).** Same generic bridge as I2C, on
 virtio-mmio slot 5 (`name=spi`, device-id 45). Guest driver vendored from
 kartben/zephyr#469; page model in [`spi.ts`](../src/virtio/devices/spi.ts);
 first chip is a W25Q-class stub
@@ -376,6 +376,11 @@ Roster rows on the bus panel navigate/blink to the dock card for that chip (same
 The SCT2024 16-channel LED driver (`chips/sct2024.ts` + `maps/sct2024.json`)
 reuses the same bus on CS0 (DT-selected vs the NOR) with LA/OE on virtio-gpio
 pins 6/7; packaging `samples/drivers/led/sct2024` behind `-S sct2024-only`.
+The WS2812 strip (`chips/ws2812.ts`) is a MOSI bitstream decoder — not a
+register-file part and not wall-clock timing: Zephyr's `ws2812_spi` driver
+encodes each data bit as an 8-bit SPI symbol (`spi-one-frame` /
+`spi-zero-frame`), so one 16-pixel update is ~384 bytes in a single virtqueue
+transfer. Packaging `samples/drivers/led/led_strip` behind `-S ws2812-only`.
 
 **Rule for every new I²C part: model the registers.** Sensors and the PCF8523
 already share [`registers/`](../src/virtio/devices/registers) (SVD-inspired JSON
@@ -424,7 +429,7 @@ Two I²C shapes:
 2. **`hit,hd44780` behind `nxp,pcf857x`.** The classic I²C backpack. Still a
    good follow-up once someone wants the expander-as-GPIO story.
 
-#### 4b. LED controllers — ✅ done (HT16K33 + LP5562 + LP5012 + SCT2024)
+#### 4b. LED controllers — ✅ done (HT16K33 + LP5562 + LP5012 + SCT2024 + WS2812)
 
 **Implemented** as the Holtek HT16K33 on virtio-i2c at `0x70`
 (`src/virtio/devices/chips/ht16k33.ts`) with JSON register map
@@ -456,6 +461,15 @@ stock `ti,lp5012` via `-S lp5012-only` / `conf/lp50xx.conf`, packaging
 Guest side: stock `sct,sct2024` via `-S sct2024-only` / `conf/sct2024.conf`,
 packaging `samples/drivers/led/sct2024`. First SPI register-file LED — managed
 SPI attach is now by DT `chipId` so CS0 can be NOR or SCT2024 per sample.
+
+**Also implemented** as the Worldsemi WS2812 on virtio-spi CS0
+(`chips/ws2812.ts` — bitstream decoder, no fake SVD map). Same `RgbLedBody`
+paints a 16-pixel strip. This is the command-stream exception for SPI: Zephyr's
+`worldsemi,ws2812-spi` driver is not speaking SPI to a chip — it bit-bangs a
+single-wire protocol by stuffing one/zero duty symbols into MOSI. The page
+ignores pulse timing (aemu cannot hit µs deadlines) and decodes symbols into
+RGB; traffic is ~24 bytes per pixel per update, one virtqueue RTT. Guest side:
+`-S ws2812-only` / `conf/ws2812.conf`, packaging `samples/drivers/led/led_strip`.
 
 Original note, kept for the record —
 

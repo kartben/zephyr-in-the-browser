@@ -1,5 +1,6 @@
 /**
- * Dock bodies for LED-class parts: HT16K33 matrix, RGB (LP5562 / LP50xx), SCT2024 bar.
+ * Dock bodies for LED-class parts: HT16K33 matrix, RGB (LP5562 / LP50xx / WS2812),
+ * SCT2024 bar.
  */
 
 import { useEffect, useReducer, useRef } from 'react'

@@ -28,6 +28,7 @@ import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isLp5562 } from '@/virtio/devices/chips/lp5562'
 import { isLp50xx } from '@/virtio/devices/chips/lp50xx'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
+import { isWs2812 } from '@/virtio/devices/chips/ws2812'
 import { isPt6314 } from '@/virtio/devices/chips/pt6314'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
@@ -390,27 +391,56 @@ function liveSpiBusChildren(
 
     if (chip) {
       const flash = isSpiFlashChip(chip)
-      const led = isSct2024(chip)
+      const ledBar = isSct2024(chip)
+      const ledStrip = isWs2812(chip)
       const vfd = isPt6314(chip)
       const partId =
         slot?.chipId ??
-        (flash ? 'w25q' : led ? 'sct2024' : vfd ? 'pt6314' : undefined)
+        (flash
+          ? 'w25q'
+          : ledBar
+            ? 'sct2024'
+            : ledStrip
+              ? 'ws2812'
+              : vfd
+                ? 'pt6314'
+                : undefined)
       rows.push({
         key: uniqueKey(ids, `${busLabel}:${keyCs}`),
         nodeName: slot?.nodeName ?? `spi-dev@${cs}`,
         label: chip.name,
         compatible: slot?.compatible || (partId ? partCompatible(partId) : undefined),
-        deviceClass: flash ? 'memory' : led ? 'led' : vfd ? 'auxdisplay' : 'other',
+        deviceClass: flash
+          ? 'memory'
+          : ledBar || ledStrip
+            ? 'led'
+            : vfd
+              ? 'auxdisplay'
+              : 'other',
         path: `${busPath}/${slot?.nodeName ?? `spi-dev@${cs}`}`,
         parentKey: busKey,
         presence: 'interactive',
         tag: slot ? undefined : 'bus only',
-        body: flash ? 'spi-flash' : led ? 'led-bar' : vfd ? 'auxdisplay' : undefined,
+        body: flash
+          ? 'spi-flash'
+          : ledBar
+            ? 'led-bar'
+            : ledStrip
+              ? 'rgb-led'
+              : vfd
+                ? 'auxdisplay'
+                : undefined,
         crumb,
         chip,
         partId,
         busLabel,
-        panelKind: flash ? 'spi' : led ? 'led' : vfd ? 'auxdisplay' : undefined,
+        panelKind: flash
+          ? 'spi'
+          : ledBar || ledStrip
+            ? 'led'
+            : vfd
+              ? 'auxdisplay'
+              : undefined,
       })
       continue
     }
@@ -424,7 +454,7 @@ function liveSpiBusChildren(
       deviceClass:
         declared.chipId === 'w25q'
           ? 'memory'
-          : declared.chipId === 'sct2024'
+          : declared.chipId === 'sct2024' || declared.chipId === 'ws2812'
             ? 'led'
             : declared.chipId === 'pt6314'
               ? 'auxdisplay'
@@ -1174,21 +1204,27 @@ function deriveFallback(
         ? 'jedec,spi-nor'
         : isSct2024(chip)
           ? 'sct,sct2024'
-          : isPt6314(chip)
-            ? 'ptc,pt6314'
-            : '',
+          : isWs2812(chip)
+            ? 'worldsemi,ws2812-spi'
+            : isPt6314(chip)
+              ? 'ptc,pt6314'
+              : '',
       chipId: isSpiFlashChip(chip)
         ? 'w25q'
         : isSct2024(chip)
           ? 'sct2024'
-          : isPt6314(chip)
-            ? 'pt6314'
-            : undefined,
+          : isWs2812(chip)
+            ? 'ws2812'
+            : isPt6314(chip)
+              ? 'pt6314'
+              : undefined,
       nodeName: isSct2024(chip)
         ? `sct2024@${chip.cs}`
-        : isPt6314(chip)
-          ? `pt6314@${chip.cs}`
-          : `spi-dev@${chip.cs}`,
+        : isWs2812(chip)
+          ? `ws2812@${chip.cs}`
+          : isPt6314(chip)
+            ? `pt6314@${chip.cs}`
+            : `spi-dev@${chip.cs}`,
     }))
     nodes.push(...liveSpiBusChildren(ids, busKey, names.spi.label, busPath, slots, spiChips))
   }
