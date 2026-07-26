@@ -49,6 +49,7 @@ import { SensorBody } from '@/components/SensorCard'
 import { cn } from '@/lib/utils'
 import type { DeviceClass, DeviceNode } from '@/deviceTopology'
 import * as hostAudio from '@/hostAudio'
+import * as hostBuzzer from '@/hostBuzzer'
 import * as hostGnss from '@/hostGnss'
 import * as hostGpio from '@/hostGpio'
 import * as hostMic from '@/hostMic'
@@ -616,26 +617,24 @@ function GpioLedsBadge() {
 }
 
 function BuzzerBadge() {
+  // Subscribe to hostBuzzer so the GPIO watch stays alive (and vibrate/audio
+  // keep running) even while the dock body is collapsed.
+  const snap = useSyncExternalStore(
+    hostBuzzer.subscribe,
+    hostBuzzer.getSnapshot,
+    hostBuzzer.getSnapshot,
+  )
   const buzzers = useSyncExternalStore(
     hostGpio.subscribe,
     hostGpio.getBuzzers,
     useCallback(() => [], []),
   )
-  useSyncExternalStore(
-    hostGpio.subscribe,
-    useCallback(
-      () =>
-        hostGpio
-          .getBuzzers()
-          .map((pin) => (hostGpio.isBuzzerOn(pin) ? '1' : '0'))
-          .join(''),
-      [],
-    ),
-    () => '',
-  )
   if (buzzers.length === 0) return null
-  const anyOn = buzzers.some((pin) => hostGpio.isBuzzerOn(pin))
-  return <Mono className={anyOn ? 'text-amber-400' : undefined}>{anyOn ? 'buzz' : 'idle'}</Mono>
+  return (
+    <Mono className={snap.sounding ? 'text-amber-400' : undefined}>
+      {snap.sounding ? 'buzz' : 'idle'}
+    </Mono>
+  )
 }
 
 function SpeakerBadge() {
