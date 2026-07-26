@@ -42,3 +42,9 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # The annotation extractor runs inside the Zephyr build container, so it
+      # is Python rather than another .mjs and needs its own step. Its line
+      # arithmetic decides where every annotation popup points.
+      - name: Test the annotation extractor
+        run: python3 -m unittest discover -s tools -p 'test_*.py'

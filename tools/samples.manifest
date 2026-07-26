@@ -48,6 +48,7 @@ qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
 qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf
 qemu_cortex_m3:hello_world:samples/hello_world
 qemu_cortex_m3:blinky:samples/basic/blinky
+qemu_cortex_m3:guided:zephyr-module/apps/guided_blinky
 qemu_cortex_m3:basic_button:samples/basic/button
 qemu_cortex_m3:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:gpio-buzzer
 
@@ -73,6 +74,7 @@ qemu_cortex_a53:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
+qemu_cortex_a53:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
 qemu_cortex_a53:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf:virtio-i2c,i2c-sensors-extra,virtio-spi
@@ -109,6 +111,7 @@ qemu_riscv32:dac:samples/drivers/dac:conf/mcp4725.conf:virtio-i2c,mcp4725-only
 qemu_riscv32:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only
 qemu_riscv32:philosophers:samples/philosophers
 qemu_riscv32:blinky:samples/basic/blinky::virtio-gpio
+qemu_riscv32:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_riscv32:basic_button:samples/basic/button::virtio-gpio
 qemu_riscv32:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf:virtio-i2c,i2c-sensors-extra,virtio-spi

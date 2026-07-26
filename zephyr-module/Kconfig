@@ -115,3 +115,34 @@ config VIRTIO_GPU_DISPLAY_QUEUE_SIZE
 	help
 	  Number of descriptors allocated for each VIRTIO GPU virtqueue. This
 	  value must be a power of two.
+
+config SAMPLE_ANNOTATIONS
+	bool "Teaching annotations for samples"
+	depends on SERIAL && UART_CONSOLE
+	help
+	  Let a sample explain itself to the page running it.
+
+	  The sample carries its prose in `@annotate` block comments next to
+	  the constructs it explains, and fires them from statements with
+	  SAMPLE_SHOW() / SAMPLE_SHOW_PAUSE(). The browser renders each one as
+	  a popup over the terminal, points the device dock at the peripheral
+	  involved, and can freeze the machine so the reader has time to look.
+
+	  Only ids cross the wire: tools/extract-annotations.py lifts the text
+	  out into an annotations.json the page fetches, so an annotation costs
+	  four bytes of ROM here rather than a paragraph. With this off, every
+	  macro and the whole table compile away to nothing.
+
+	  Needs a console the annotations can be written to, and is
+	  incompatible with the shell — its ANSI traffic interleaves with the
+	  escape sequences and corrupts them.
+
+config SAMPLE_ANNOTATIONS_VALUE_LEN
+	int "Maximum formatted length of a SAMPLE_VALUE()"
+	depends on SAMPLE_ANNOTATIONS
+	default 48
+	range 8 256
+	help
+	  Stack budget for the text a SAMPLE_VALUE() formats. Longer values are
+	  truncated rather than growing the buffer — this is the only part of
+	  an annotation that costs the firmware real bytes.

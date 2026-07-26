@@ -29,12 +29,21 @@ if(EXISTS ${ZEPHYR_BASE}/drivers/i2c/i2c_virtio.c)
   set(OWN_VIRTIO_I2C "")
 endif()
 
+# The module's public headers: qemu_host_audio.h for the audio API, and
+# sample_annotation.h for annotated samples. Unconditional — this used to sit
+# inside the CONFIG_QEMU_HOST_AUDIO block below, where it only resolved because
+# the browser_bridge shield happens to instantiate a qemu,host-audio node on
+# every board. Building without the shield turned a missing -I into an error
+# that pointed at the application.
+zephyr_include_directories(include)
+
 # zephyr_library() is created once and shared by all the drivers.
 if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR CONFIG_QEMU_HOST_MIC OR (CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
    OR (CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
    OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
-   OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C))
+   OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
+   OR CONFIG_SAMPLE_ANNOTATIONS)
   zephyr_library()
 endif()
 
@@ -63,8 +72,6 @@ endif()
 
 if(CONFIG_QEMU_HOST_AUDIO)
   zephyr_library_sources(drivers/qemu_host_audio.c)
-  # The audio driver has a public API (qemu_host_audio.h) for applications.
-  zephyr_include_directories(include)
 endif()
 
 if(CONFIG_QEMU_HOST_AUDIO_SHELL)
@@ -73,4 +80,12 @@ endif()
 
 if(CONFIG_QEMU_HOST_MIC)
   zephyr_library_sources(drivers/qemu_host_mic.c)
+endif()
+
+if(CONFIG_SAMPLE_ANNOTATIONS)
+  zephyr_library_sources(subsys/sample_annotation.c)
+  # The annotation table the generated header instantiates. Each entry is four
+  # bytes of read-only data, and the subsystem walks the section at startup to
+  # tell the page what this build actually linked in.
+  zephyr_iterable_section(NAME sample_annotation GROUP RODATA_REGION)
 endif()
