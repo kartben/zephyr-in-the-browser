@@ -1,7 +1,7 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useState, useSyncExternalStore } from 'react'
 import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
-import { HexView } from '@/components/HexView'
+import { HexView, type HexJump } from '@/components/HexView'
 import { LittlefsBrowserButton } from '@/components/LittlefsBrowser'
 import { MemoryStatsView } from '@/components/MemoryStats'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
@@ -87,6 +87,7 @@ export function SpiFlashBody({
   onOpenWindow?: () => void
 }) {
   const { size, pageSize, sectorSize } = chip.decl
+  const [hexJump, setHexJump] = useState<HexJump | null>(null)
 
   return (
     <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
@@ -118,9 +119,17 @@ export function SpiFlashBody({
         </span>
       </div>
 
-      <FlashStatsView chip={chip} compact={compact} />
+      <FlashStatsView
+        chip={chip}
+        compact={compact}
+        onSectorClick={
+          compact
+            ? undefined
+            : (address) => setHexJump({ address, token: Date.now() })
+        }
+      />
 
-      {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
+      {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} jump={hexJump} />}
 
       {!compact && (
         <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -132,6 +141,7 @@ export function SpiFlashBody({
           <code className="font-mono text-foreground">fs mount littlefs /lfs</code>
           {' · '}
           <code className="font-mono text-foreground">fs ls /lfs</code>
+          {' · click a hex byte to edit · click a sector to jump the dump'}
         </p>
       )}
     </div>

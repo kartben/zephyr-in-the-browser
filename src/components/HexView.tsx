@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { HexBacked } from '@/virtio/devices/memory/model'
 
@@ -19,6 +19,9 @@ const DIFF_SCAN_LIMIT = 4096
 
 const hex2 = (n: number) => n.toString(16).padStart(2, '0')
 
+/** Jump the sliding window to an absolute address (sector map → hex). */
+export type HexJump = { address: number; token: number }
+
 /**
  * A live hex dump of a memory chip's contents.
  *
@@ -34,9 +37,16 @@ const hex2 = (n: number) => n.toString(16).padStart(2, '0')
  *   to find without writing an application to do it.
  *
  * Parts larger than {@link WINDOW_BYTES} page around the live pointer (with
- * prev/next controls) instead of mounting a million cells.
+ * prev/next controls) instead of mounting a million cells. Pass {@link jump}
+ * to snap the window to an address (e.g. a sector-map click).
  */
-export function HexView({ chip }: { chip: HexBacked }) {
+export function HexView({
+  chip,
+  jump = null,
+}: {
+  chip: HexBacked
+  jump?: HexJump | null
+}) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<number | null>(null)
   const [pageBase, setPageBase] = useState(0)
@@ -47,6 +57,13 @@ export function HexView({ chip }: { chip: HexBacked }) {
   const base = windowed ? (follow ? autoBase : pageBase) : 0
   const viewLen = windowed ? Math.min(WINDOW_BYTES, Math.max(0, data.length - base)) : data.length
   const view = useMemo(() => data.subarray(base, base + viewLen), [data, base, viewLen])
+
+  useEffect(() => {
+    if (!jump || !windowed) return
+    const addr = ((jump.address % data.length) + data.length) % data.length
+    setFollow(false)
+    setPageBase(Math.floor(addr / WINDOW_BYTES) * WINDOW_BYTES)
+  }, [jump, windowed, data.length])
 
   const erased = chip.decl.erased ?? 0xff
   const rows = Math.ceil(view.length / BYTES_PER_ROW) || 1
@@ -184,24 +201,36 @@ function ByteCell({
   onCommit: (value: number) => void
   onCancel: () => void
 }) {
+  const cancelled = useRef(false)
+
   if (editing) {
     return (
       <input
         autoFocus
         defaultValue={hex2(value)}
         aria-label={`Byte 0x${offset.toString(16)}`}
-        onFocus={(e) => e.currentTarget.select()}
+        onFocus={(e) => {
+          cancelled.current = false
+          e.currentTarget.select()
+        }}
         onChange={(e) => {
           e.currentTarget.value = e.currentTarget.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 2)
         }}
         onBlur={(e) => {
+          if (cancelled.current) {
+            onCancel()
+            return
+          }
           const parsed = Number.parseInt(e.currentTarget.value, 16)
           if (Number.isNaN(parsed)) onCancel()
           else onCommit(parsed)
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
-          if (e.key === 'Escape') onCancel()
+          if (e.key === 'Escape') {
+            cancelled.current = true
+            e.currentTarget.blur()
+          }
         }}
         className={cn(
           'w-[2ch] bg-primary/20 text-center font-mono text-[10px] text-foreground outline-none',
@@ -213,10 +242,11 @@ function ByteCell({
 
   return (
     <button
+      type="button"
       onClick={onEdit}
       title={`0x${offset.toString(16).padStart(4, '0')} — click to edit`}
       className={cn(
-        'w-[2ch] text-center transition-colors hover:bg-primary/20 hover:text-foreground',
+        'w-[2ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
         flash && 'bg-primary/30 text-foreground',
         !flash && dim && 'text-muted-foreground/35',
         !flash && !dim && 'text-foreground',
@@ -238,6 +268,10 @@ function ByteCell({
  *
  * Large memories (SPI NOR) keep a shared backing reference and only scan a
  * bounded region for the "recently changed" highlight.
+ *
+ * Pointer updates on every notify — SPI NOR bumps `version` only on content
+ * changes, so gating the whole paint on version would freeze the outline
+ * during guest reads.
  */
 export function useMemorySnapshot(chip: HexBacked) {
   const [snapshot, setSnapshot] = useState(() => ({
@@ -256,28 +290,30 @@ export function useMemorySnapshot(chip: HexBacked) {
     const paint = () => {
       frame = 0
       const version = chip.version()
-      if (version === painted) return
-      painted = version
-
       const data = chip.memory
-      const changed = new Set<number>()
-      if (previous && data.length === previous.length && data.length <= DIFF_SCAN_LIMIT) {
-        for (let i = 0; i < data.length; i++) {
-          if (data[i] !== previous[i]) changed.add(i)
+      const pointer = chip.pointer()
+
+      if (version !== painted) {
+        painted = version
+        const changed = new Set<number>()
+        if (previous && data.length === previous.length && data.length <= DIFF_SCAN_LIMIT) {
+          for (let i = 0; i < data.length; i++) {
+            if (data[i] !== previous[i]) changed.add(i)
+          }
+          previous = data.slice()
+        } else if (data.length <= DIFF_SCAN_LIMIT) {
+          previous = data.slice()
+        } else {
+          previous = null
         }
-        previous = data.slice()
-      } else if (data.length <= DIFF_SCAN_LIMIT) {
-        previous = data.slice()
-      } else {
-        previous = null
+        if (changed.size > 0) {
+          setRecent(changed)
+          clearTimeout(flashTimer)
+          flashTimer = setTimeout(() => setRecent(new Set<number>()), FLASH_MS)
+        }
       }
 
-      setSnapshot({ data, pointer: chip.pointer() })
-      if (changed.size > 0) {
-        setRecent(changed)
-        clearTimeout(flashTimer)
-        flashTimer = setTimeout(() => setRecent(new Set<number>()), FLASH_MS)
-      }
+      setSnapshot({ data, pointer })
     }
 
     const schedule = () => {
