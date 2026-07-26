@@ -22,6 +22,9 @@ const hex2 = (n: number) => n.toString(16).padStart(2, '0')
 /** Jump the sliding window to an absolute address (sector map → hex). */
 export type HexJump = { address: number; token: number }
 
+/** Inclusive-exclusive byte range currently shown in the dump. */
+export type HexViewRange = { start: number; end: number }
+
 /**
  * A live hex dump of a memory chip's contents.
  *
@@ -39,13 +42,17 @@ export type HexJump = { address: number; token: number }
  * Parts larger than {@link WINDOW_BYTES} page around the live pointer (with
  * prev/next controls) instead of mounting a million cells. Pass {@link jump}
  * to snap the window to an address (e.g. a sector-map click).
+ * {@link onViewChange} reports the visible range so a sector map can highlight
+ * matching cells when the window moves.
  */
 export function HexView({
   chip,
   jump = null,
+  onViewChange,
 }: {
   chip: HexBacked
   jump?: HexJump | null
+  onViewChange?: (range: HexViewRange) => void
 }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<number | null>(null)
@@ -64,6 +71,10 @@ export function HexView({
     setFollow(false)
     setPageBase(Math.floor(addr / WINDOW_BYTES) * WINDOW_BYTES)
   }, [jump, windowed, data.length])
+
+  useEffect(() => {
+    onViewChange?.({ start: base, end: base + viewLen })
+  }, [base, viewLen, onViewChange])
 
   const erased = chip.decl.erased ?? 0xff
   const rows = Math.ceil(view.length / BYTES_PER_ROW) || 1

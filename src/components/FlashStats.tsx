@@ -72,15 +72,21 @@ function cellTone(erases: number, dirty: boolean, frac: number): string {
   return 'bg-rose-500'
 }
 
+/** Byte range currently shown in the hex dump — sectors that overlap light up. */
+export type FlashViewRange = { start: number; end: number }
+
 export function FlashStatsView({
   chip,
   compact = false,
   onSectorClick,
+  viewRange = null,
 }: {
   chip: SpiFlashChip
   compact?: boolean
   /** Jump the hex window to this sector (full editor only). */
   onSectorClick?: (address: number) => void
+  /** Highlight sectors overlapping the hex dump's visible range. */
+  viewRange?: FlashViewRange | null
 }) {
   const stats = useFlashStats(chip)
   const { size, sectorSize, enduranceCycles } = chip.decl
@@ -148,6 +154,7 @@ export function FlashStatsView({
           sectorSize={sectorSize}
           enduranceCycles={enduranceCycles}
           onSectorClick={onSectorClick}
+          viewRange={viewRange}
         />
       )}
     </div>
@@ -159,16 +166,27 @@ function SectorWearMap({
   sectorSize,
   enduranceCycles,
   onSectorClick,
+  viewRange,
 }: {
   stats: FlashStats
   sectorSize: number
   enduranceCycles?: number
   onSectorClick?: (address: number) => void
+  viewRange?: FlashViewRange | null
 }) {
   const cols = Math.max(8, Math.min(32, Math.round(Math.sqrt(stats.sectorCount))))
   const scaleLabel = enduranceCycles
     ? `wear / ${formatFlashCount(enduranceCycles)} cycle rating`
     : 'wear relative to busiest sector'
+  const viewFirst =
+    viewRange && viewRange.end > viewRange.start
+      ? Math.max(0, Math.floor(viewRange.start / sectorSize))
+      : -1
+  const viewLast =
+    viewFirst >= 0 && viewRange
+      ? Math.min(stats.sectorCount - 1, Math.floor((viewRange.end - 1) / sectorSize))
+      : -1
+  const selectedCount = viewFirst >= 0 ? viewLast - viewFirst + 1 : 0
 
   return (
     <div className="space-y-1">
@@ -176,6 +194,12 @@ function SectorWearMap({
         <span>
           Sectors · {formatFlashSize(sectorSize)} each
           {onSectorClick ? ' · click to show in hex' : ''}
+          {selectedCount > 0 ? (
+            <span className="text-foreground">
+              {' '}
+              · {selectedCount === 1 ? '1 in view' : `${selectedCount} in view`}
+            </span>
+          ) : null}
         </span>
         <span className="font-mono tabular-nums">{scaleLabel}</span>
       </div>
@@ -183,7 +207,7 @@ function SectorWearMap({
         className="grid gap-px rounded-sm bg-border/60 p-px"
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         role="img"
-        aria-label={`Sector wear map, ${stats.sectorCount} sectors`}
+        aria-label={`Sector wear map, ${stats.sectorCount} sectors${selectedCount ? `, ${selectedCount} in hex view` : ''}`}
       >
         {Array.from({ length: stats.sectorCount }, (_, si) => {
           const erases = stats.sectorEraseCounts[si] ?? 0
@@ -191,8 +215,14 @@ function SectorWearMap({
           const frac = wearFraction(erases, stats, enduranceCycles)
           const addr = si * sectorSize
           const used = stats.sectorUsedBytes[si] ?? 0
-          const label = `sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}${onSectorClick ? ' — click to show in hex' : ''}`
-          const tone = cn('aspect-square min-h-[5px] rounded-[1px]', cellTone(erases, dirty, frac))
+          const selected = si >= viewFirst && si <= viewLast
+          const label = `sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}${selected ? ' · in hex view' : ''}${onSectorClick ? ' — click to show in hex' : ''}`
+          const tone = cn(
+            'aspect-square min-h-[5px] rounded-[1px]',
+            cellTone(erases, dirty, frac),
+            selected &&
+              'relative z-[1] shadow-[0_0_0_2px_hsl(var(--primary))]',
+          )
           if (onSectorClick) {
             return (
               <button
@@ -200,8 +230,13 @@ function SectorWearMap({
                 type="button"
                 title={label}
                 aria-label={label}
+                aria-pressed={selected}
                 onClick={() => onSectorClick(addr)}
-                className={cn(tone, 'cursor-pointer hover:ring-1 hover:ring-primary/60')}
+                className={cn(
+                  tone,
+                  'cursor-pointer hover:brightness-110',
+                  !selected && 'hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.6)]',
+                )}
               />
             )
           }
