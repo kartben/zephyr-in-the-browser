@@ -120,9 +120,13 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(uart?.nodeName).toBe('uart@9040000')
     expect(uart?.deviceClass).toBe('uart-bus')
     expect(uart?.key).toBe('uart1')
+    expect(uart?.presence).toBe('interactive')
+    expect(uart?.body).toBe('uart')
+    expect(uart?.busLabel).toBe('uart1')
 
     expect(nodeByKey(inv, 'uart0').note).toBe('→ terminal')
     expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
+    expect(nodeByKey(inv, 'uart0').presence).toBe('inert')
     expect(nodeByKey(inv, 'display').note).toBe('on stage')
     expect(nodeByKey(inv, 'display').nodeName).toBe('ramfb')
     expect(nodeByKey(inv, 'net').nodeName).toBe('virtio-net')

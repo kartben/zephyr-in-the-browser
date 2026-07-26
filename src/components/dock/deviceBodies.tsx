@@ -35,6 +35,7 @@ import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
 import { SpiBody } from '@/components/SpiPanel'
+import { UartBody } from '@/components/UartPanel'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
@@ -54,6 +55,7 @@ import * as hostGpio from '@/hostGpio'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
+import { getInventory, subscribeInventory } from '@/lib/dockReveal'
 import { i2cModel, spiModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
@@ -124,6 +126,8 @@ export function DeviceBody({
       return <I2cBody busLabel={node.busLabel} />
     case 'spi':
       return <SpiBody busLabel={node.busLabel} />
+    case 'uart':
+      return <UartBody busKey={node.key} busLabel={node.busLabel} />
     case 'spi-flash':
       return (
         <SpiFlashBody
@@ -184,6 +188,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
     case 'i2c':
       return Cable
     case 'spi':
+      return Cable
+    case 'uart':
       return Cable
     case 'spi-flash':
       return MemoryStick
@@ -320,6 +326,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <BusBadge />
     case 'spi':
       return <SpiBusBadge />
+    case 'uart':
+      return <UartBusBadge busKey={node.key} />
     case 'spi-flash': {
       const chip = node.chip as import('@/virtio/devices/chips/w25q').SpiFlashChip
       return <Mono>{chip.decl.size} B</Mono>
@@ -446,6 +454,10 @@ export function GroupBadge({
   if (deviceClass === 'buzzer' && nodes.some((n) => n.body === 'buzzer')) return <BuzzerBadge />
   if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
   if (deviceClass === 'spi-bus' && nodes.some((n) => n.body === 'spi')) return <SpiBusBadge />
+  if (deviceClass === 'uart-bus') {
+    const bus = nodes.find((n) => n.body === 'uart')
+    if (bus) return <UartBusBadge busKey={bus.key} />
+  }
   if (deviceClass === 'gnss' && nodes.some((n) => n.body === 'gnss')) return <GnssBadge />
   return null
 }
@@ -541,6 +553,19 @@ function SpiBusBadge() {
   return (
     <Mono>
       {chips.length} {chips.length === 1 ? 'chip' : 'chips'}
+    </Mono>
+  )
+}
+
+function UartBusBadge({ busKey }: { busKey: string }) {
+  const count = useSyncExternalStore(
+    subscribeInventory,
+    () => getInventory()?.nodes.filter((n) => n.parentKey === busKey).length ?? 0,
+    () => 0,
+  )
+  return (
+    <Mono>
+      {count} {count === 1 ? 'device' : 'devices'}
     </Mono>
   )
 }
