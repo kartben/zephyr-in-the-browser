@@ -50,9 +50,12 @@ const DEFAULT_CLOCK_HZ = 10_000_000
 
 /**
  * Floor for reported µsteps/s while a velocity-mode run is active. Positioning
- * completes on the SPI write (QEMU starves rAF); dial just snaps to target.
+ * completes on the SPI write (QEMU starves rAF); the dial still eases for color.
  */
 const MIN_VELOCITY_USTEPS_PER_SEC = 80_000
+
+/** Dock-only ease after an instant positioning arrive (registers already done). */
+const DISPLAY_MOVE_MS = 320
 
 const TMC50XX_REGISTERS = registersFromJson(tmc50xxMap as RegisterMapJson)
 
@@ -134,6 +137,13 @@ export function createTmc50xx({
   let lastTickMs = 0
   let lastNotifyMs = 0
 
+  // Display-only shaft for the dock. Guest SPI always sees register XACTUAL.
+  let displayPos = 0
+  let displayFrom = 0
+  let displayTo = 0
+  let displayStartMs = 0
+  let displayFrame: number | undefined
+
   const listeners = new Set<() => void>()
   const byAddr = new Map(TMC50XX_REGISTERS.map((r) => [r.addr, r]))
 
@@ -196,6 +206,50 @@ export function createTmc50xx({
     }
   }
 
+  const stopDisplay = () => {
+    if (displayFrame !== undefined) {
+      unschedule(displayFrame)
+      displayFrame = undefined
+    }
+  }
+
+  const displayMoving = () => displayFrame !== undefined
+
+  const tickDisplay = (now: number) => {
+    displayFrame = undefined
+    const t = Math.min(1, (now - displayStartMs) / DISPLAY_MOVE_MS)
+    const ease = 1 - (1 - t) * (1 - t)
+    displayPos = displayFrom + (displayTo - displayFrom) * ease
+    if (t < 1) {
+      notify()
+      displayFrame = schedule(tickDisplay)
+      return
+    }
+    displayPos = displayTo
+    notify(true)
+  }
+
+  /** Ease the dial toward `to` while registers already hold the final value. */
+  const startDisplayMove = (to: number) => {
+    stopDisplay()
+    displayFrom = displayPos
+    displayTo = to
+    if (displayFrom === displayTo) {
+      notify(true)
+      return
+    }
+    displayStartMs = performance.now()
+    displayFrame = schedule(tickDisplay)
+    notify(true)
+  }
+
+  const syncDisplay = (pos: number) => {
+    stopDisplay()
+    displayPos = pos
+    displayFrom = pos
+    displayTo = pos
+  }
+
   /**
    * Advance velocity-mode motion. Positioning snaps on write — rAF is starved
    * under qemu-wasm, so guest SPI polls must be enough for correctness.
@@ -218,6 +272,7 @@ export function createTmc50xx({
     const dir = mode === RAMPMODE_POS_VELOCITY ? 1 : -1
     const pos = asSigned32(readRaw(REG_XACTUAL)) + dir * Math.max(1, Math.round(speed * dt))
     writeRaw(REG_XACTUAL, asU32(pos))
+    syncDisplay(pos)
     setMoving(true, dir * (vmax & 0x7fffff))
     clearPositionReached()
     return true
@@ -235,17 +290,19 @@ export function createTmc50xx({
 
   const startVelocity = () => {
     stopAnim()
+    stopDisplay()
     lastTickMs = performance.now()
     advanceVelocity(lastTickMs)
     animFrame = schedule(tickVelocity)
   }
 
-  /** Positioning: arrive immediately so RAMPSTAT is set before the guest polls. */
+  /** Positioning: registers arrive immediately; dial eases for moving color. */
   const completePositioning = () => {
     stopAnim()
     const target = asSigned32(readRaw(REG_XTARGET))
     writeRaw(REG_XACTUAL, asU32(target))
     markPositionReached()
+    startDisplayMove(target)
   }
 
   const onRegisterWrite = (addr: number, value: number) => {
@@ -264,6 +321,7 @@ export function createTmc50xx({
       stopAnim()
       writeRaw(REG_VACTUAL, 0)
       setMoving(false, 0)
+      syncDisplay(asSigned32(v))
       notify(true)
       return
     }
@@ -272,7 +330,9 @@ export function createTmc50xx({
       const mode = readRaw(REG_RAMPMODE) & 0x3
       if (mode === RAMPMODE_HOLD) {
         stopAnim()
+        stopDisplay()
         setMoving(false, 0)
+        syncDisplay(asSigned32(readRaw(REG_XACTUAL)))
         notify(true)
         return
       }
@@ -398,14 +458,20 @@ export function createTmc50xx({
           directionPositive: true,
         }
       }
-      const position = asSigned32(readRaw(REG_XACTUAL))
+      const regPos = asSigned32(readRaw(REG_XACTUAL))
       const target = asSigned32(readRaw(REG_XTARGET))
       const velocity = asSigned32(readRaw(REG_VACTUAL))
       const rampMode = readRaw(REG_RAMPMODE) & 0x3
       const stst = (readRaw(REG_DRVSTATUS) & DRVSTATUS_STST) !== 0
-      const moving = !stst
+      const easing = displayMoving()
+      const position = easing ? Math.round(displayPos) : regPos
+      const moving = easing || !stst
       const vmax = readRaw(REG_VMAX)
-      const stepsPerSec = moving ? vmaxToUstepsPerSec(vmax, clockHz) : 0
+      const stepsPerSec = easing
+        ? Math.abs(displayTo - displayFrom) / (DISPLAY_MOVE_MS / 1000)
+        : moving
+          ? vmaxToUstepsPerSec(vmax, clockHz)
+          : 0
       return {
         position,
         target,
@@ -419,7 +485,9 @@ export function createTmc50xx({
             ? false
             : rampMode === RAMPMODE_POS_VELOCITY
               ? true
-              : target >= position,
+              : displayTo !== displayFrom
+                ? displayTo > displayFrom
+                : target >= regPos,
       }
     },
     version: () => generation,

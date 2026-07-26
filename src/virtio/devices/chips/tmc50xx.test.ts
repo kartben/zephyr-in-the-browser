@@ -64,8 +64,8 @@ describe('tmc50xx', () => {
   })
 
   it('completes positioning on XTARGET write and sets POS_REACHED', () => {
-    // Instant complete: qemu-wasm starves rAF, so the sample must see
-    // RAMPSTAT on its first poll without waiting on animation frames.
+    // Instant register arrive: qemu-wasm starves rAF, so the sample must see
+    // RAMPSTAT on its first poll. The dock still eases (moving=true briefly).
     const chip = createTmc50xx()
     spiWrite(chip, tmc50xxMeta.REG_VMAX, 900_000)
     spiWrite(chip, tmc50xxMeta.REG_RAMPMODE, tmc50xxMeta.RAMPMODE_POSITIONING)
@@ -81,7 +81,9 @@ describe('tmc50xx', () => {
     expect(chip.peek(tmc50xxMeta.REG_DRVSTATUS) & tmc50xxMeta.DRVSTATUS_STST).toBe(
       tmc50xxMeta.DRVSTATUS_STST,
     )
-    expect(chip.getMotor().moving).toBe(false)
+    // Emerald dial while the display ease runs; guest already sees STST.
+    expect(chip.getMotor().moving).toBe(true)
+    expect(chip.getMotor().directionPositive).toBe(true)
 
     const viaSpi = spiRead(chip, tmc50xxMeta.REG_RAMPSTAT)
     expect(viaSpi & tmc50xxMeta.RAMPSTAT_POS_REACHED_EVENT).toBe(
