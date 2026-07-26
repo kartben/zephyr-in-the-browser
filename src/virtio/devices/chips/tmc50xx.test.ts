@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createTmc50xx, isTmc50xx, tmc50xxMeta } from './tmc50xx'
 import type { SpiTransferOpts } from '../spi'
 
@@ -40,10 +40,6 @@ function spiRead(chip: ReturnType<typeof createTmc50xx>, addr: number): number {
 }
 
 describe('tmc50xx', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('detects the chip shape', () => {
     const chip = createTmc50xx()
     expect(isTmc50xx(chip)).toBe(true)
@@ -67,18 +63,14 @@ describe('tmc50xx', () => {
     expect(chip.getMotor().moving).toBe(false)
   })
 
-  it('moves to XTARGET in positioning mode and sets POS_REACHED', async () => {
-    vi.useFakeTimers()
+  it('completes positioning on XTARGET write and sets POS_REACHED', () => {
+    // Instant complete: qemu-wasm starves rAF, so the sample must see
+    // RAMPSTAT on its first poll without waiting on animation frames.
     const chip = createTmc50xx()
     spiWrite(chip, tmc50xxMeta.REG_VMAX, 900_000)
     spiWrite(chip, tmc50xxMeta.REG_RAMPMODE, tmc50xxMeta.RAMPMODE_POSITIONING)
     spiWrite(chip, tmc50xxMeta.REG_XACTUAL, 0)
     spiWrite(chip, tmc50xxMeta.REG_XTARGET, 51200)
-
-    // Advance wall-clock enough for the motion sim to finish (~51200 µsteps).
-    for (let i = 0; i < 40; i++) {
-      await vi.advanceTimersByTimeAsync(20)
-    }
 
     expect(asSigned(chip.peek(tmc50xxMeta.REG_XACTUAL))).toBe(51200)
     const ramp = chip.peek(tmc50xxMeta.REG_RAMPSTAT)
@@ -89,8 +81,8 @@ describe('tmc50xx', () => {
     expect(chip.peek(tmc50xxMeta.REG_DRVSTATUS) & tmc50xxMeta.DRVSTATUS_STST).toBe(
       tmc50xxMeta.DRVSTATUS_STST,
     )
+    expect(chip.getMotor().moving).toBe(false)
 
-    // Sticky event clears on read; POS_REACHED status remains.
     const viaSpi = spiRead(chip, tmc50xxMeta.REG_RAMPSTAT)
     expect(viaSpi & tmc50xxMeta.RAMPSTAT_POS_REACHED_EVENT).toBe(
       tmc50xxMeta.RAMPSTAT_POS_REACHED_EVENT,

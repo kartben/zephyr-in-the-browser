@@ -49,11 +49,10 @@ const DRVSTATUS_STST = 1 << 31
 const DEFAULT_CLOCK_HZ = 10_000_000
 
 /**
- * Floor for simulated positioning speed (µsteps/s). Keeps the dial moving and
- * still finishes a 1-rev ping-pong before the guest's 100 ms RAMPSTAT poll
- * times out forever.
+ * Floor for reported µsteps/s while a velocity-mode run is active. Positioning
+ * completes on the SPI write (QEMU starves rAF); dial just snaps to target.
  */
-const MIN_POSITIONING_USTEPS_PER_SEC = 80_000
+const MIN_VELOCITY_USTEPS_PER_SEC = 80_000
 
 const TMC50XX_REGISTERS = registersFromJson(tmc50xxMap as RegisterMapJson)
 
@@ -112,7 +111,7 @@ function vmaxToUstepsPerSec(vmax: number, clockHz: number): number {
   const v = Math.abs(vmax) >>> 0
   if (v === 0) return 0
   const hz = (v * (clockHz / 2)) / 2 ** 23
-  return Math.max(hz, MIN_POSITIONING_USTEPS_PER_SEC)
+  return Math.max(hz, MIN_VELOCITY_USTEPS_PER_SEC)
 }
 
 export function createTmc50xx({
@@ -169,7 +168,10 @@ export function createTmc50xx({
   }
 
   const clearPositionReached = () => {
-    writeRaw(REG_RAMPSTAT, readRaw(REG_RAMPSTAT) & ~RAMPSTAT_POS_REACHED & ~RAMPSTAT_POS_REACHED_EVENT)
+    writeRaw(
+      REG_RAMPSTAT,
+      readRaw(REG_RAMPSTAT) & ~RAMPSTAT_POS_REACHED & ~RAMPSTAT_POS_REACHED_EVENT,
+    )
   }
 
   const schedule = (fn: (t: number) => void): number => {
@@ -194,71 +196,56 @@ export function createTmc50xx({
     }
   }
 
-  const tickMotion = (now: number) => {
-    animFrame = undefined
+  /**
+   * Advance velocity-mode motion. Positioning snaps on write — rAF is starved
+   * under qemu-wasm, so guest SPI polls must be enough for correctness.
+   */
+  const advanceVelocity = (now = performance.now()) => {
     const mode = readRaw(REG_RAMPMODE) & 0x3
-    const dt = Math.min(0.05, Math.max(0, (now - lastTickMs) / 1000))
-    lastTickMs = now
-
-    if (mode === RAMPMODE_HOLD) {
+    if (mode !== RAMPMODE_POS_VELOCITY && mode !== RAMPMODE_NEG_VELOCITY) {
+      stopAnim()
+      return false
+    }
+    const vmax = readRaw(REG_VMAX)
+    const speed = vmaxToUstepsPerSec(vmax, clockHz)
+    if (speed === 0) {
       setMoving(false, 0)
+      stopAnim()
+      return false
+    }
+    const dt = Math.min(0.25, Math.max(0, (now - lastTickMs) / 1000))
+    lastTickMs = now
+    const dir = mode === RAMPMODE_POS_VELOCITY ? 1 : -1
+    const pos = asSigned32(readRaw(REG_XACTUAL)) + dir * Math.max(1, Math.round(speed * dt))
+    writeRaw(REG_XACTUAL, asU32(pos))
+    setMoving(true, dir * (vmax & 0x7fffff))
+    clearPositionReached()
+    return true
+  }
+
+  const tickVelocity = (now: number) => {
+    animFrame = undefined
+    if (!advanceVelocity(now)) {
       notify(true)
       return
     }
-
-    const vmax = readRaw(REG_VMAX)
-    const speed = vmaxToUstepsPerSec(vmax, clockHz)
-    let pos = asSigned32(readRaw(REG_XACTUAL))
-
-    if (mode === RAMPMODE_POSITIONING) {
-      const target = asSigned32(readRaw(REG_XTARGET))
-      const delta = target - pos
-      if (delta === 0 || speed === 0) {
-        writeRaw(REG_XACTUAL, asU32(target))
-        markPositionReached()
-        notify(true)
-        return
-      }
-      const step =
-        Math.sign(delta) * Math.min(Math.abs(delta), Math.max(1, Math.round(speed * dt)))
-      pos += step
-      writeRaw(REG_XACTUAL, asU32(pos))
-      setMoving(true, Math.sign(delta) * (vmax & 0x7fffff))
-      clearPositionReached()
-      if (pos === target) {
-        markPositionReached()
-        notify(true)
-        return
-      }
-      notify()
-      animFrame = schedule(tickMotion)
-      return
-    }
-
-    if (mode === RAMPMODE_POS_VELOCITY || mode === RAMPMODE_NEG_VELOCITY) {
-      if (speed === 0) {
-        setMoving(false, 0)
-        notify(true)
-        return
-      }
-      const dir = mode === RAMPMODE_POS_VELOCITY ? 1 : -1
-      pos += dir * Math.max(1, Math.round(speed * dt))
-      writeRaw(REG_XACTUAL, asU32(pos))
-      setMoving(true, dir * (vmax & 0x7fffff))
-      clearPositionReached()
-      notify()
-      animFrame = schedule(tickMotion)
-      return
-    }
-
-    setMoving(false, 0)
-    notify(true)
+    notify()
+    animFrame = schedule(tickVelocity)
   }
 
-  const startMotion = () => {
+  const startVelocity = () => {
     stopAnim()
     lastTickMs = performance.now()
-    animFrame = schedule(tickMotion)
+    advanceVelocity(lastTickMs)
+    animFrame = schedule(tickVelocity)
+  }
+
+  /** Positioning: arrive immediately so RAMPSTAT is set before the guest polls. */
+  const completePositioning = () => {
+    stopAnim()
+    const target = asSigned32(readRaw(REG_XTARGET))
+    writeRaw(REG_XACTUAL, asU32(target))
+    markPositionReached()
   }
 
   const onRegisterWrite = (addr: number, value: number) => {
@@ -266,7 +253,6 @@ export function createTmc50xx({
     const v = asU32(value)
 
     if (a === REG_GSTAT) {
-      // Writing 1s clears sticky status bits.
       writeRaw(a, readRaw(a) & ~v)
       notify(true)
       return
@@ -275,7 +261,7 @@ export function createTmc50xx({
     writeRaw(a, v)
 
     if (a === REG_XACTUAL) {
-      // Reference-position write: snap and idle.
+      stopAnim()
       writeRaw(REG_VACTUAL, 0)
       setMoving(false, 0)
       notify(true)
@@ -291,22 +277,22 @@ export function createTmc50xx({
         return
       }
       if (mode === RAMPMODE_POSITIONING) {
-        const pos = asSigned32(readRaw(REG_XACTUAL))
-        const target = asSigned32(readRaw(REG_XTARGET))
-        if (pos === target) {
-          stopAnim()
-          markPositionReached()
-          notify(true)
-          return
+        // Only arrive on XTARGET (Zephyr writes RAMPMODE then XTARGET). Completing
+        // on the mode write would fire POS_REACHED against a stale target.
+        if (a === REG_XTARGET) {
+          completePositioning()
+        } else {
+          const pos = asSigned32(readRaw(REG_XACTUAL))
+          const target = asSigned32(readRaw(REG_XTARGET))
+          if (pos === target) completePositioning()
+          else clearPositionReached()
         }
-        clearPositionReached()
-        startMotion()
         notify(true)
         return
       }
       if (mode === RAMPMODE_POS_VELOCITY || mode === RAMPMODE_NEG_VELOCITY) {
         clearPositionReached()
-        startMotion()
+        startVelocity()
         notify(true)
         return
       }
@@ -315,20 +301,21 @@ export function createTmc50xx({
     notify(true)
   }
 
-  const peekLive = (addr: number): number => {
-    const a = addr & ADDRESS_MASK
-    if (a === REG_RAMPSTAT) return readRaw(a)
-    if (a === REG_DRVSTATUS) return readRaw(a)
-    if (a === REG_VACTUAL) return readRaw(a)
-    if (a === REG_XACTUAL) return readRaw(a)
-    return readRaw(a)
-  }
+  const peekLive = (addr: number): number => readRaw(addr & ADDRESS_MASK)
 
   const readAndSideEffect = (addr: number): number => {
     const a = addr & ADDRESS_MASK
+    // Velocity runs must progress even when rAF is starved by the emulator.
+    if (
+      a === REG_RAMPSTAT ||
+      a === REG_XACTUAL ||
+      a === REG_VACTUAL ||
+      a === REG_DRVSTATUS
+    ) {
+      if (advanceVelocity()) notify()
+    }
     const value = peekLive(a)
     if (a === REG_RAMPSTAT) {
-      // Sticky event flags clear on read; POS_REACHED status stays while true.
       writeRaw(a, value & ~RAMPSTAT_EVENT_CLEAR)
     }
     if (a === REG_GSTAT) {
@@ -355,12 +342,9 @@ export function createTmc50xx({
     const data =
       ((tx[1]! << 24) | (tx[2]! << 16) | (tx[3]! << 8) | tx[4]!) >>> 0
 
-    // Status byte: SPI datagram status is unused by Zephyr but always present.
     const status = 0
 
     if (isWrite) {
-      // Response data is the previously latched read (if any); writes still
-      // update the register file.
       const reply = latchValid ? readAndSideEffect(latchAddr) : 0
       packRx(rx, status, reply)
       pointer = addr
@@ -370,8 +354,6 @@ export function createTmc50xx({
       return true
     }
 
-    // Read address phase: reply carries the previous latch; this transfer
-    // selects the next address for the follow-up read.
     const reply = latchValid ? readAndSideEffect(latchAddr) : 0
     packRx(rx, status, reply)
     pointer = addr
