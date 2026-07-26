@@ -580,9 +580,9 @@ export const BOARDS: Board[] = [
       // tools/qemu-jit-patches/0013-*. QEMU v10.1.0's virtio_device_names only
       // goes to GPIO (41); realizing device-id=45 aborts in virtio_id_to_name
       // and takes down every guest on this board. Re-add with:
-      // '-device',
-      // 'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
-      //   'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -653,9 +653,9 @@ export const BOARDS: Board[] = [
       // SPI (slot 5, device-id 45) omitted until the published emulator includes
       // tools/qemu-riscv-patches/0011-* (VIRTIO_ID_SPI backport). Same abort as
       // on A53 — see the qemu_cortex_a53 comment above. Re-add with:
-      // '-device',
-      // 'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
-      //   'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],
