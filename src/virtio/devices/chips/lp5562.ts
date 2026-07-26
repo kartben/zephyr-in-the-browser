@@ -69,6 +69,8 @@ export function isLp5562(chip: I2cChip | null | undefined): chip is Lp5562Chip {
     typeof (chip as Lp5562Chip).getChannelPwm === 'function' &&
     typeof (chip as Lp5562Chip).getRgb === 'function' &&
     (chip as Lp5562Chip).channelCount === 4 &&
+    // LP50xx also exposes getRgb + a count; it uses moduleCount instead.
+    !('moduleCount' in chip) &&
     Array.isArray((chip as Lp5562Chip).registers)
   )
 }
