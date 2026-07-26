@@ -296,10 +296,10 @@ cpSync(WIDGET_SRC, path.join(OUT, '_sim'), { recursive: true })
 // Machine-readable manifest for the app's sample gallery (src/sampleDocs.ts).
 //
 // Keyed by samplePath because that string is exactly GuestSample.zephyrSample
-// in src/boards.ts — no extra join key needed. The gallery leads with the
-// hand-tuned boards.ts label/description either way; this contributes the
-// upstream title/description and the link targets. `local` is relative to
-// /docs/ so the app can serve the mirrored page itself.
+// in src/boards.ts — no extra join key needed. The gallery prefers these
+// upstream titles and descriptions when the mirror is present, and falls back
+// to the hand-tuned boards.ts label/description otherwise. `local` is relative
+// to /docs/ so the app can serve the mirrored page itself.
 
 const manifest = {
   generated: MIRROR_DATE,

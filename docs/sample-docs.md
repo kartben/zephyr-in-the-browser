@@ -32,6 +32,7 @@ file list at startup.
 The script also writes `public/docs/manifest.json` — per-sample title,
 description and links (mirrored page, canonical docs, GitHub source), keyed by
 sample path. The app's sample gallery ([src/sampleDocs.ts](../src/sampleDocs.ts))
-fetches it lazily to enrich its cards; when the mirror has not run (any dev
-checkout), the gallery still works from the curated metadata in
-`src/boards.ts` and the links it can compute from the sample path alone.
+fetches it lazily and prefers those upstream titles and descriptions for its
+list; when the mirror has not run (any dev checkout), the gallery falls back to
+the curated metadata in `src/boards.ts` and the links it can compute from the
+sample path alone.

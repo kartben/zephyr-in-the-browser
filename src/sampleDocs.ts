@@ -5,8 +5,9 @@
  * public/docs/ at deploy time and writes manifest.json beside them, keyed by
  * sample path — exactly `GuestSample.zephyrSample`. public/docs is gitignored,
  * so a dev checkout usually has no manifest: everything here degrades to the
- * links that can be computed from the sample path alone, and the gallery
- * always leads with the hand-tuned label/description from src/boards.ts.
+ * hand-tuned label/description from src/boards.ts and the links that can be
+ * computed from the sample path alone. When the mirror is present, the gallery
+ * prefers the upstream title and description.
  */
 
 import type { GuestSample } from '@/boards'
@@ -56,8 +57,16 @@ export interface SampleDocs {
   canonicalHref?: string
   /** The sample's source tree on GitHub. */
   sourceHref?: string
-  /** Upstream description paragraph — longer than the boards.ts one-liner. */
-  upstreamDescription?: string
+  /**
+   * Display title — Zephyr docs `<h1>` when the mirror has it, otherwise the
+   * curated `GuestSample.label`.
+   */
+  title: string
+  /**
+   * Display description — Zephyr docs page description when the mirror has it,
+   * otherwise the curated `GuestSample.description`.
+   */
+  description: string
 }
 
 /**
@@ -69,12 +78,14 @@ export interface SampleDocs {
 export function sampleDocs(sample: GuestSample, manifest: DocsManifest | null): SampleDocs {
   const path = sample.zephyrSample
   const entry = manifest?.samples[path]
-  const docs: SampleDocs = {}
+  const docs: SampleDocs = {
+    title: entry?.title?.trim() || sample.label,
+    description: entry?.description?.trim() || sample.description,
+  }
   if (!path.startsWith('zephyr-module/')) {
     docs.canonicalHref = `https://docs.zephyrproject.org/latest/${path}/README.html`
     docs.sourceHref = `https://github.com/zephyrproject-rtos/zephyr/tree/main/${path}`
   }
   if (entry?.local) docs.localHref = `${import.meta.env.BASE_URL}docs/${entry.local}`
-  if (entry?.description) docs.upstreamDescription = entry.description
   return docs
 }

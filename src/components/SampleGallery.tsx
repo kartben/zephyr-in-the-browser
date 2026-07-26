@@ -16,6 +16,7 @@ import {
   Monitor,
   Network,
   Satellite,
+  Search,
   Terminal,
   Thermometer,
   Tv,
@@ -41,19 +42,19 @@ import { getBoard, getSample, sampleDtsAsset } from '@/boards'
 import type { GuestSample, PanelKind } from '@/boards'
 import { peekSampleDts } from '@/devicetree'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
-import type { DocsManifest } from '@/sampleDocs'
+import type { DocsManifest, SampleDocs } from '@/sampleDocs'
 
 /**
- * The app picker as a catalog: one card per sample with what it is, what
- * hardware it exercises, and where to read more — the mirrored docs when this
- * deployment carries them, the official page and the source either way — plus
- * the devicetree of the exact build that will boot, in the viewer.
+ * The app picker as a compact, searchable catalog: one row per sample with
+ * title and description (from the mirrored Zephyr docs when available), what
+ * hardware it exercises, and where to read more — plus the devicetree of the
+ * exact build that will boot.
  *
  * Replaces a plain dropdown. Choosing an app is the biggest decision on the
  * page, and a dropdown gave it one truncated line.
  */
 
-/** The panel a sample is primarily about picks its card icon. */
+/** The panel a sample is primarily about picks its row icon. */
 const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   display: Monitor,
   gnss: Satellite,
@@ -106,6 +107,37 @@ interface Props {
   onClearImage: () => void
 }
 
+interface CatalogEntry {
+  sample: GuestSample
+  docs: SampleDocs
+}
+
+function buildCatalog(samples: GuestSample[], manifest: DocsManifest | null): CatalogEntry[] {
+  return samples
+    .map((sample) => ({ sample, docs: sampleDocs(sample, manifest) }))
+    .sort((a, b) => a.docs.title.localeCompare(b.docs.title, undefined, { sensitivity: 'base' }))
+}
+
+function matchesQuery(entry: CatalogEntry, query: string): boolean {
+  if (!query) return true
+  const haystack = [
+    entry.docs.title,
+    entry.docs.description,
+    entry.sample.label,
+    entry.sample.description,
+    entry.sample.id,
+    entry.sample.zephyrSample,
+    ...(entry.sample.primaryPanels ?? []).map((kind) => PANEL_BADGES[kind]),
+  ]
+    .join(' ')
+    .toLowerCase()
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((token) => haystack.includes(token))
+}
+
 export function SampleGallery({
   boardId,
   sampleId,
@@ -115,7 +147,9 @@ export function SampleGallery({
   onClearImage,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [manifest, setManifest] = useState<DocsManifest | null>(null)
   const [dtsSample, setDtsSample] = useState<GuestSample | null>(null)
   const board = getBoard(boardId)
@@ -132,6 +166,20 @@ export function SampleGallery({
       stale = true
     }
   }, [open])
+
+  // Focus the search field when the dialog opens; clear it when it closes.
+  useEffect(() => {
+    if (!open) {
+      setQuery('')
+      return
+    }
+    const id = requestAnimationFrame(() => searchRef.current?.focus())
+    return () => cancelAnimationFrame(id)
+  }, [open])
+
+  const catalog = buildCatalog(board.samples, manifest).filter((entry) => matchesQuery(entry, query))
+
+  const dtsDocs = dtsSample ? sampleDocs(dtsSample, manifest) : null
 
   const loadDts = useCallback(() => {
     if (!dtsSample) return Promise.resolve(null)
@@ -159,29 +207,61 @@ export function SampleGallery({
           </button>
         </DialogTrigger>
 
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Zephyr app to boot</DialogTitle>
             <DialogDescription>
-              Prebuilt samples for {board.label}. Each card links to its documentation, source
-              and the devicetree of the exact image that boots.
+              Prebuilt samples for {board.label}, sorted A–Z. Titles and descriptions come from
+              the Zephyr docs when this deployment carries them.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-2.5 overflow-y-auto px-5 pb-4 sm:grid-cols-2">
-            {board.samples.map((sample) => (
-              <SampleCard
-                key={sample.id}
-                sample={sample}
-                manifest={manifest}
-                active={customImage === null && sample.id === sampleId}
-                onSelect={() => {
-                  setOpen(false)
-                  if (customImage !== null || sample.id !== sampleId) onSampleChange(sample.id)
-                }}
-                onShowDts={() => setDtsSample(sample)}
+          <div className="shrink-0 px-5 pb-3">
+            <label className="relative block">
+              <span className="sr-only">Search samples</span>
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
               />
-            ))}
+              <input
+                ref={searchRef}
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search samples…"
+                autoComplete="off"
+                className={cn(
+                  'h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm',
+                  'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring',
+                )}
+              />
+            </label>
+          </div>
+
+          <div
+            role="listbox"
+            aria-label="Sample list"
+            className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-1"
+          >
+            {catalog.length === 0 ? (
+              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                No samples match “{query.trim()}”.
+              </p>
+            ) : (
+              catalog.map(({ sample, docs }) => (
+                <SampleRow
+                  key={sample.id}
+                  sample={sample}
+                  docs={docs}
+                  active={customImage === null && sample.id === sampleId}
+                  onSelect={() => {
+                    setOpen(false)
+                    if (customImage !== null || sample.id !== sampleId) onSampleChange(sample.id)
+                  }}
+                  onShowDts={() => setDtsSample(sample)}
+                />
+              ))
+            )}
           </div>
 
           <DialogFooter className="justify-between">
@@ -230,44 +310,36 @@ export function SampleGallery({
         onOpenChange={(o) => {
           if (!o) setDtsSample(null)
         }}
-        title={`${dtsSample?.label ?? ''} — devicetree (${board.zephyrTarget})`}
+        title={`${dtsDocs?.title ?? dtsSample?.label ?? ''} — devicetree (${board.zephyrTarget})`}
         load={loadDts}
       />
     </div>
   )
 }
 
-function SampleCard({
+function SampleRow({
   sample,
-  manifest,
+  docs,
   active,
   onSelect,
   onShowDts,
 }: {
   sample: GuestSample
-  manifest: DocsManifest | null
+  docs: SampleDocs
   active: boolean
   onSelect: () => void
   onShowDts: () => void
 }) {
   const Icon = sample.primaryPanels?.[0] ? PANEL_ICONS[sample.primaryPanels[0]] : Terminal
-  const docs = sampleDocs(sample, manifest)
-  // The curated one-liner leads; the mirrored page's paragraph adds depth when
-  // this deployment has it and it is not just a rehash of the same sentence.
-  const longDescription =
-    docs.upstreamDescription && docs.upstreamDescription !== sample.description
-      ? docs.upstreamDescription
-      : undefined
-
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
   return (
-    // A card is a big select-me button with real links inside it, so it is a
-    // div with role=button rather than a <button> (nested buttons are invalid).
+    // A row is a select-me control with real links inside it, so it is a div
+    // with role=option rather than a <button> (nested buttons are invalid).
     <div
-      role="button"
+      role="option"
+      aria-selected={active}
       tabIndex={0}
-      aria-pressed={active}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -276,84 +348,72 @@ function SampleCard({
         }
       }}
       className={cn(
-        'group flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-left',
+        'group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2.5 text-left',
         'transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring',
-        active && 'border-primary ring-1 ring-primary',
+        active && 'bg-primary/10 ring-1 ring-primary',
       )}
     >
-      <div className="flex items-start gap-2.5">
-        <div className="rounded-md border border-border bg-background p-2 text-primary">
-          <Icon className="size-4" aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{sample.label}</span>
-            {active && (
-              <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                current
-              </span>
-            )}
-          </div>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-            {sample.description}
-          </p>
-        </div>
+      <div className="mt-0.5 rounded border border-border bg-secondary/60 p-1.5 text-primary">
+        <Icon className="size-3.5" aria-hidden />
       </div>
 
-      {longDescription && (
-        <p className="line-clamp-2 text-[11px] leading-snug text-muted-foreground/80">
-          {longDescription}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium leading-5">{docs.title}</span>
+          {active && (
+            <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              current
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+          {docs.description}
         </p>
-      )}
-
-      <div className="mt-auto flex flex-wrap items-center gap-1.5">
-        {(sample.primaryPanels ?? []).map((kind) => (
-          <span
-            key={kind}
-            className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground"
-          >
-            {PANEL_BADGES[kind]}
-          </span>
-        ))}
-        <span className="ml-auto flex items-center gap-0.5">
-          {docs.localHref && (
-            <CardLink href={docs.localHref} title="Documentation (mirrored here)" onClick={stop}>
-              <BookOpen className="size-3.5" aria-hidden />
-            </CardLink>
-          )}
-          {docs.canonicalHref && (
-            <CardLink
-              href={docs.canonicalHref}
-              title="Official docs — docs.zephyrproject.org"
-              onClick={stop}
-            >
-              <ExternalLink className="size-3.5" aria-hidden />
-            </CardLink>
-          )}
-          {docs.sourceHref && (
-            <CardLink href={docs.sourceHref} title="Source on GitHub" onClick={stop}>
-              <GitBranch className="size-3.5" aria-hidden />
-            </CardLink>
-          )}
-          <button
-            type="button"
-            title="View the build's devicetree"
-            aria-label={`View the ${sample.label} devicetree`}
-            onClick={(e) => {
-              e.stopPropagation()
-              onShowDts()
-            }}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-          >
-            <FileCode2 className="size-3.5" aria-hidden />
-          </button>
-        </span>
+        {(sample.primaryPanels?.length ?? 0) > 0 && (
+          <p className="mt-1 truncate text-[10px] leading-none text-muted-foreground/80">
+            {sample.primaryPanels!.map((kind) => PANEL_BADGES[kind]).join(' · ')}
+          </p>
+        )}
       </div>
+
+      <span className="flex shrink-0 items-center gap-0.5 pt-0.5">
+        {docs.localHref && (
+          <RowLink href={docs.localHref} title="Documentation (mirrored here)" onClick={stop}>
+            <BookOpen className="size-3.5" aria-hidden />
+          </RowLink>
+        )}
+        {docs.canonicalHref && (
+          <RowLink
+            href={docs.canonicalHref}
+            title="Official docs — docs.zephyrproject.org"
+            onClick={stop}
+          >
+            <ExternalLink className="size-3.5" aria-hidden />
+          </RowLink>
+        )}
+        {docs.sourceHref && (
+          <RowLink href={docs.sourceHref} title="Source on GitHub" onClick={stop}>
+            <GitBranch className="size-3.5" aria-hidden />
+          </RowLink>
+        )}
+        <button
+          type="button"
+          title="View the build's devicetree"
+          aria-label={`View the ${docs.title} devicetree`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onShowDts()
+          }}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+        >
+          <FileCode2 className="size-3.5" aria-hidden />
+        </button>
+      </span>
     </div>
   )
 }
 
-function CardLink({
+function RowLink({
   children,
   ...props
 }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
