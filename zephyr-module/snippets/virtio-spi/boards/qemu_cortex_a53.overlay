@@ -3,7 +3,9 @@
  * answers as a W25Q-class part (src/virtio/devices/chips/w25q.ts); jedec-id
  * and size must match that model. Size is in *bits* (JESD216 / Zephyr binding).
  *
- * 64 KiB is enough for samples/drivers/spi_flash and keeps the hex card light.
+ * 1 MiB (density 0x14) covers samples/drivers/spi_flash's default test region
+ * at offset 0xff000 plus a 4 KiB sector. A smaller stub fails flash_erase with
+ * -EINVAL before any bytes move.
  */
 
 &virtio_mmio5 {
@@ -13,22 +15,22 @@
 &virtio_spi0 {
 	status = "okay";
 
-	w25q16jv: w25q16jv@0 {
+	w25q80jv: w25q80jv@0 {
 		compatible = "jedec,spi-nor";
 		reg = <0>;
 		spi-max-frequency = <40000000>;
-		size = <0x80000>; /* 64 KiB */
-		jedec-id = [ef 40 15];
+		size = <0x800000>; /* 1 MiB */
+		jedec-id = [ef 40 14];
 		status = "okay";
 	};
 };
 
 / {
 	chosen {
-		zephyr,flash = &w25q16jv;
+		zephyr,flash = &w25q80jv;
 	};
 
 	aliases {
-		spi-flash0 = &w25q16jv;
+		spi-flash0 = &w25q80jv;
 	};
 };

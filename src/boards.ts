@@ -290,8 +290,8 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['i2c'],
   },
   {
-    // JEDEC SPI NOR on the virtio-spi bridge (CS0). The page models a W25Q-class
-    // part; erase/write/read go through the stock flash API.
+    // JEDEC SPI NOR on the virtio-spi bridge (CS0). The page models a W25Q80-
+    // class 1 MiB part so stock samples/drivers/spi_flash (offset 0xff000) fits.
     id: 'spi_flash',
     label: 'SPI flash',
     description: 'Erase, write and read a JEDEC SPI NOR on the browser SPI bus',

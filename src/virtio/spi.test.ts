@@ -122,6 +122,24 @@ describe('virtio-spi model', () => {
     expect(flash.memory.subarray(0x10, 0x14)).toEqual(Uint8Array.of(0xde, 0xad, 0xbe, 0xef))
   })
 
+  it('covers the stock spi_flash sample offset 0xff000', () => {
+    const flash = createW25q({ cs: 0 })
+    spi.attachChip(flash)
+    expect(flash.decl.size).toBeGreaterThanOrEqual(0xff000 + 4096)
+
+    expect(xfer(0, Uint8Array.of(0x06), 0).status).toBe(TRANS_OK)
+    expect(xfer(0, Uint8Array.of(0x20, 0x0f, 0xf0, 0x00), 0).status).toBe(TRANS_OK)
+    expect(xfer(0, Uint8Array.of(0x06), 0).status).toBe(TRANS_OK)
+    expect(
+      xfer(0, Uint8Array.of(0x02, 0x0f, 0xf0, 0x00, 0x55, 0xaa, 0x66, 0x99), 0).status,
+    ).toBe(TRANS_OK)
+
+    const readCmd = Uint8Array.of(0x03, 0x0f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00)
+    const { status, data } = xfer(0, readCmd, 8)
+    expect(status).toBe(TRANS_OK)
+    expect(data.slice(4)).toEqual(Uint8Array.of(0x55, 0xaa, 0x66, 0x99))
+  })
+
   it('logs traffic and clears it', () => {
     spi.attachChip(createSpiLoopback(0))
     xfer(0, Uint8Array.of(0xaa), 1)
