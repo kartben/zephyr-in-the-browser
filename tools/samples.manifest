@@ -75,7 +75,7 @@ qemu_cortex_a53:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht1
 qemu_cortex_a53:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:virtio-i2c,lp5562-only
 qemu_cortex_a53:lp50xx:samples/drivers/led/lp50xx:conf/lp50xx.conf:virtio-i2c,lp5012-only
 qemu_cortex_a53:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
-qemu_cortex_a53:led_strip:samples/drivers/led/led_strip:conf/ws2812.conf:ws2812-only
+qemu_cortex_a53:led_strip:zephyr-module/apps/led_strip:conf/ws2812.conf:ws2812-only
 qemu_cortex_a53:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
 qemu_cortex_a53:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca9685-only
 qemu_cortex_a53:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c,mcp4725-only
@@ -119,7 +119,7 @@ qemu_riscv32:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k3
 qemu_riscv32:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:virtio-i2c,lp5562-only
 qemu_riscv32:lp50xx:samples/drivers/led/lp50xx:conf/lp50xx.conf:virtio-i2c,lp5012-only
 qemu_riscv32:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
-qemu_riscv32:led_strip:samples/drivers/led/led_strip:conf/ws2812.conf:ws2812-only
+qemu_riscv32:led_strip:zephyr-module/apps/led_strip:conf/ws2812.conf:ws2812-only
 qemu_riscv32:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
 qemu_riscv32:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca9685-only
 qemu_riscv32:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c,mcp4725-only

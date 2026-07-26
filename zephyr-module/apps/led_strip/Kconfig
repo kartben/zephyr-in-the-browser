@@ -1,0 +1,25 @@
+# Copyright (c) 2019 Nordic Semiconductor ASA
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+menu "WS2812 Sample Configuration"
+
+config SAMPLE_LED_UPDATE_DELAY
+	int "Target delay between LED updates in ms"
+	default 50
+	help
+	  Wall-clock period for each chase step. The app sleeps only the
+	  remainder after led_strip_update_rgb returns, so virtio SPI RTT
+	  is inside this budget rather than additive.
+
+config SAMPLE_LED_BRIGHTNESS
+	int "LED brightness"
+	default 96
+	range 1 255
+	help
+	  Brightness of the chasing pixel. Stock upstream defaults to 16
+	  (easy on silicon eyes); the browser dock needs more.
+
+endmenu
+
+source "Kconfig.zephyr"

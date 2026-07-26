@@ -2,13 +2,14 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/led/led_strip: WS2812 on virtio-spi CS0. Self-contained —
+ * zephyr-module/apps/led_strip: WS2812 on virtio-spi CS0. Self-contained —
  * does not compose with the virtio-spi snippet (that one puts a JEDEC NOR on
  * CS0). The guest encodes each WS2812 bit as an 8-bit SPI symbol; the page
  * decodes the bitstream and paints the strip.
  *
- * spi-max-frequency is required by the binding but does not pace aemu — each
- * led_strip_update_rgb is one virtqueue round trip. Pulse timing is ignored.
+ * spi-max-frequency is binding-required but does not pace aemu. reset-delay
+ * is zeroed: there is no silicon latch here, and a non-zero value used to
+ * cost a full QEMU tick (~10 ms) on top of the chase period.
  */
 
 #include <zephyr/dt-bindings/led/led.h>
@@ -29,6 +30,8 @@
 		/* Common 8-bit symbol pair used by many Zephyr board overlays. */
 		spi-one-frame = <0x70>;
 		spi-zero-frame = <0x40>;
+		/* No latch wait in aemu — avoids a tick-ceiled k_usleep tax. */
+		reset-delay = <0>;
 		color-mapping = <LED_COLOR_ID_GREEN
 				 LED_COLOR_ID_RED
 				 LED_COLOR_ID_BLUE>;
