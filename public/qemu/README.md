@@ -425,6 +425,8 @@ the guest is asleep and climbs when the JIT is busy. The QEMU-side read is a
 lock-free seqlock read (`icount_get_raw()`), returned as a `double` so it
 crosses into JavaScript as a plain Number, and it never blocks the emulator.
 
-The counter only advances on a machine started with `-icount`, which here is the
-Cortex-A53 board alone; the Cortex-M3 (TCI, no `-icount`) reads back negative and
-the panel stays hidden.
+The counter only advances on a machine started with `-icount`. The production
+boards leave it disabled because its per-instruction accounting has a material
+throughput cost for the browser's synchronous virtio workloads, so the panel
+stays hidden. It remains available for explicitly instrumented development
+builds.

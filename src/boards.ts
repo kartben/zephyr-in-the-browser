@@ -572,8 +572,9 @@ export const BOARDS: Board[] = [
       'none',
       '-L',
       '/pack/pc-bios',
-      '-icount',
-      'shift=4,align=off,sleep=on',
+      // Do not enable -icount here. Its per-instruction accounting roughly
+      // halves sustained Wasm TCG throughput for synchronous virtio workloads
+      // such as the DAC sample; see docs/performance.md.
       '-rtc',
       'clock=vm',
       // ARM semihosting: Zephyr's CTF tracing backend appends to ./tracing.bin
@@ -643,9 +644,6 @@ export const BOARDS: Board[] = [
       hostMic: true,
       ramfb: true,
       hostInput: true,
-      // The only board started with -icount, so the only one whose guest
-      // instruction counter advances.
-      perfStats: true,
       hostNet: true,
       virtio: true,
       // Semihosting CTF follow — pairs with -semihosting above.

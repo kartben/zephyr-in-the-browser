@@ -141,17 +141,15 @@ virtqueue off the QEMU thread, so its wake schedules a QEMU bottom half rather
 than draining inline.
 
 - **Page → QEMU.** A virtual-clock timer would be wrong here. This is the first
-  bridge where the guest *blocks* on a browser answer, and under
-  `-icount shift=4,sleep=on` the virtual clock warps forward to the next
-  deadline whenever the vCPUs idle — so a virtual-clock drain would race ahead
-  of the browser, fire on an empty ring, warp again, and inflate guest time
-  while making no progress. The drain therefore runs on `QEMU_CLOCK_REALTIME`:
+  bridge where the guest *blocks* on a browser answer, so the browser's
+  asynchronous response must not advance a guest-clock polling loop. The drain
+  therefore runs on `QEMU_CLOCK_REALTIME`:
   1 ms while tokens are parked, **1 ms idle** (was 10 ms — see below).
 
   The idle value matters more than it looks. A synchronous guest
   (`dac_write` → `k_sem_take(K_FOREVER)` → answer → `k_sleep`) drops
-  `outstanding` to zero between every transfer; with `-icount sleep=on` the
-  host then sleeps until the idle drain fires. Measured on Cortex-A53 `dac`
+  `outstanding` to zero between every transfer, so without a completion wake it
+  waits for the idle drain. Measured on Cortex-A53 `dac`
   with `tools/profile-dac.mjs`: **10 ms idle → ~45 I²C Hz** (one ~4 s
   sawtooth stretched across ~90 s of wall); **page-side poll was already
   ~1.2 ms**, so the drain was the ceiling. Idle matches busy at 1 ms.

@@ -26,7 +26,7 @@ the list matters for a given workload:
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
-| 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
+| 6 | `-icount` prevents the DAC reaching 1 kHz — **disabled after measurement** | `src/boards.ts` | High, synchronous virtio | Very low | Low (MIPS telemetry unavailable) |
 | 7 | QEMU idle drain 10→1 ms + **completion wake** — local measured, release pending | virtio patch | High, I²C-bound | Low | Medium |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
@@ -42,8 +42,9 @@ something new:
   texture uploads, digest and draw cost, **`i2cHz`**, and **`mips`**.
 - The Performance panel's MIPS readout
   ([`src/guestStats.ts`](../src/guestStats.ts)) reads QEMU's guest instruction
-  counter directly. It is the honest dial for anything in the build section
-  below, and it only advances on the A53 board, which is the `-icount` one.
+  counter directly when a board is run with `-icount`. It is deliberately
+  unavailable on the production A53 configuration because that mode has a
+  material throughput cost; use the DAC profile's I²C rate for this workload.
 - `node tools/profile-accel.mjs` drives the whole thing under Playwright and
   prints a ten-second sample.
 
@@ -302,27 +303,22 @@ here is `emscripten_fiber_*`, which is Asyncify by construction. Switching would
 mean a different coroutine backend upstream, not a link flag. Worth watching, not
 worth attempting.
 
-## 6. `-icount shift=4` has never been swept
+## 6. `-icount` prevents the DAC reaching 1 kHz
 
-[`src/boards.ts:436`](../src/boards.ts) starts the A53 with
-`-icount shift=4,align=off,sleep=on`: 16 ns of virtual time per guest
-instruction, i.e. a guest that believes it is running on a 62.5 MIPS CPU. The
-`sleep=on` half is doing real work and should stay — it is what warps the virtual
-clock forward when the vCPUs idle, and therefore what keeps `k_msleep` samples
-from running at wall-clock speed. But `shift=4` itself appears to be an
-inherited default rather than something measured.
+The A53 previously ran with `-icount shift=4,align=off,sleep=on` to expose the
+guest instruction counter and Performance-panel MIPS readout. Controlled DAC
+profiles showed that this is the wrong trade for the production board:
+`shift=4` reached **~349 I²C Hz** (about **11.7 s** per 4096-step sawtooth),
+and `shift=1` was statistically unchanged. Disabling only `sleep=on` improved
+the same workload to **~625 Hz**. With `-icount` removed entirely, the
+controlled profile sustained **1,000.2 I²C Hz** for 12 seconds and measured a
+**4.1 s** 4096-step sawtooth — the sample's intended rate.
 
-The shift decides how much *guest work* fits between two timer ticks. At
-shift=4, Zephyr's 100 Hz tick interrupts every 625k instructions; at shift=1 it
-would be every 5M. For a throughput-bound guest — LVGL compositing, the accel
-chart — that is a straight reduction in interrupt and scheduler overhead per unit
-of useful work. The cost is fidelity: the guest's clock diverges further from
-wall time, and `blinky` already blinks faster than 1 Hz, as
-[`src/boards.ts:110`](../src/boards.ts) notes.
-
-The experiment is a one-character edit and a rerun of `tools/profile-accel.mjs`
-at shift 1, 2, 3, 4, 5, reading `mips` and `guestFps`. Cheap enough that not
-having the curve is the only real problem here.
+`-icount` performs accounting on every translated instruction, so this is a
+QEMU/Wasm TCG cost rather than an Atomics or browser timer issue. The production
+A53 therefore uses QEMU's normal virtual clock and does not expose MIPS
+telemetry. The measured end-to-end improvement is about 2.9× and removes the
+DAC's timing deficit without needing a Chrome flag or a QEMU rebuild.
 
 ## 7. QEMU's idle drain sets the latency of every synchronous request
 
