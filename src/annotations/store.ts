@@ -177,6 +177,19 @@ export function handleRecord(record: AnnotationRecord): void {
   }
 }
 
+/**
+ * Re-open an annotation the reader has already passed.
+ *
+ * Never pauses, whatever the original record said: the machine has moved on,
+ * and stopping it now would freeze the guest somewhere unrelated to what is on
+ * screen. Reading back is a look at the notes, not a rewind.
+ */
+export function revisit(id: number) {
+  if (!state.seen.has(id)) return
+  const view = viewFor(id, false)
+  if (view) publish({ current: view })
+}
+
 /** Dismiss the current annotation and let the machine run on. */
 export function dismiss() {
   if (state.current?.paused) monitor.resume()

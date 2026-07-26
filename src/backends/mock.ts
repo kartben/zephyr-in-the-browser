@@ -1,10 +1,11 @@
 import type { PtyBackend, Slave, StartOptions } from './types'
-import { sampleDtsAsset } from '@/boards'
+import { sampleAnnotationsAsset, sampleDtsAsset } from '@/boards'
 import { loadSampleDts } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { createFakeNetModule } from '@/net/testing/fakeModule'
 import { FakeGuest } from '@/net/testing/fakeGuest'
+import { startMockWalkthrough } from './mockWalkthrough'
 
 /**
  * A tiny fake Zephyr shell.
@@ -145,6 +146,17 @@ export function createMockBackend(): PtyBackend {
       // the real path, so the panel shows an authentic DHCP handshake, pings
       // and HTTP flows.
       if (board.peripherals?.hostNet) startFakeNetwork(disposers)
+
+      // A guided sample replays its walkthrough here too. The records are the
+      // real ones, off the real catalog — only the guest producing them is
+      // fake, which is what makes the feature demoable on a bare checkout.
+      disposers.push(
+        startMockWalkthrough(
+          slave,
+          `${import.meta.env.BASE_URL}qemu/${sampleAnnotationsAsset(board, sampleId)}`,
+          signal,
+        ),
+      )
     },
 
     async reset() {

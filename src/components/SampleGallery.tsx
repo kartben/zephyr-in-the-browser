@@ -9,6 +9,7 @@ import {
   FileUp,
   Gauge,
   GitBranch,
+  GraduationCap,
   Activity,
   BatteryCharging,
   Grid3x3,
@@ -40,6 +41,7 @@ import { DtsViewer } from '@/components/DtsViewer'
 import { cn } from '@/lib/utils'
 import { getBoard, getSample, sampleDtsAsset } from '@/boards'
 import type { GuestSample, PanelKind } from '@/boards'
+import { isGuided } from '@/annotations/guided'
 import { peekSampleDts } from '@/devicetree'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
@@ -356,6 +358,15 @@ function SampleRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium leading-5">{docs.title}</span>
+          {isGuided(sample) && (
+            <span
+              className="flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+              title="Stops and explains itself as it runs"
+            >
+              <GraduationCap className="size-2.5" aria-hidden />
+              guided
+            </span>
+          )}
           {active && (
             <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
               current
