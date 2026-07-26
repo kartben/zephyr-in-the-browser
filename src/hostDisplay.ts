@@ -10,6 +10,8 @@ interface DisplayExports {
   _qemu_browser_ramfb_get_data?: () => number
   _qemu_browser_ramfb_get_fourcc?: () => number
   _qemu_browser_ramfb_get_frame_seq_ptr?: () => number
+  /** Newer artifacts wake Atomics.waitAsync readers after incrementing the sequence. */
+  _qemu_browser_ramfb_frame_wait_supported?: () => number
   /** Shared-memory view emitted by Emscripten's pthread runtime. */
   HEAPU8?: Uint8Array
 }
@@ -23,6 +25,8 @@ export interface DisplaySnapshot {
   pointer: number
   /** Atomic uint32 updated by QEMU after a guest framebuffer write. */
   frameSeqPointer: number
+  /** QEMU wakes waiters after incrementing frameSeqPointer. */
+  frameWaitSupported: boolean
 }
 
 const EMPTY: DisplaySnapshot = {
@@ -33,6 +37,7 @@ const EMPTY: DisplaySnapshot = {
   fourcc: 0,
   pointer: 0,
   frameSeqPointer: 0,
+  frameWaitSupported: false,
 }
 
 let exports: DisplayExports | null = null
@@ -63,6 +68,8 @@ function inspect(): DisplaySnapshot {
   // The counter was added after the original display bridge. Keep it optional
   // so an already-built emulator continues using the renderer's checksum path.
   const nextFrameSeqPointer = exports._qemu_browser_ramfb_get_frame_seq_ptr?.() ?? 0
+  const frameWaitSupported =
+    nextFrameSeqPointer > 0 && exports._qemu_browser_ramfb_frame_wait_supported?.() === 1
   const byteLength = stride * height
   const available =
     width > 0 &&
@@ -80,6 +87,7 @@ function inspect(): DisplaySnapshot {
     fourcc,
     pointer,
     frameSeqPointer: nextFrameSeqPointer,
+    frameWaitSupported,
   }
 }
 
@@ -92,7 +100,8 @@ function refresh() {
     next.stride === snapshot.stride &&
     next.fourcc === snapshot.fourcc &&
     next.pointer === snapshot.pointer &&
-    next.frameSeqPointer === snapshot.frameSeqPointer
+    next.frameSeqPointer === snapshot.frameSeqPointer &&
+    next.frameWaitSupported === snapshot.frameWaitSupported
   ) {
     return
   }

@@ -2,8 +2,10 @@
  * Lightweight display-path profiler for the accel-chart lag hunt.
  *
  * Enable with `?profile=1` (or `window.__zephyrProfile.enable()`). Exposes
- * `window.__zephyrProfile.snapshot()` with rates the Playwright harness reads.
- * Costs next to nothing when disabled; when on, samples on a 250 ms tick.
+ * `window.__zephyrProfile.snapshot()` and mirrors the snapshot into
+ * `<html data-zephyr-profile>` for browser harnesses that run in an isolated
+ * JavaScript world. Costs next to nothing when disabled; when on, samples on
+ * a 250 ms tick.
  */
 
 import {
@@ -28,6 +30,10 @@ export interface ProfileSnapshot {
   guestFps: number
   /** Texture uploads reported by the render worker / second. */
   uploadFps: number
+  /** Render-worker checks / second, including idle atomic reads. */
+  workerFps: number
+  /** Mean synchronous worker cost per check, ms. */
+  workerMs: number
   /** Mean digest cost in the worker, ms (0 when hot-path skips it). */
   digestMs: number
   /** Mean upload+draw cost in the worker, ms. */
@@ -74,6 +80,8 @@ export interface ProfileSnapshot {
 interface Counters {
   guestFrames: number
   uploads: number
+  workerChecks: number
+  workerMsSum: number
   digestMsSum: number
   digestCount: number
   drawMsSum: number
@@ -96,6 +104,8 @@ const ZERO_BRIDGE: BridgeStats = {
 const empty = (): Counters => ({
   guestFrames: 0,
   uploads: 0,
+  workerChecks: 0,
+  workerMsSum: 0,
   digestMsSum: 0,
   digestCount: 0,
   drawMsSum: 0,
@@ -119,6 +129,8 @@ let lastSnapshot: ProfileSnapshot = {
   wallMs: 0,
   guestFps: 0,
   uploadFps: 0,
+  workerFps: 0,
+  workerMs: 0,
   digestMs: 0,
   drawMs: 0,
   i2cHz: 0,
@@ -181,8 +193,11 @@ export function recordWorkerFrame(stats: {
   uploaded: boolean
   digestMs?: number
   drawMs?: number
+  checkMs?: number
 }) {
   if (!enabled) return
+  windowCounters.workerChecks += 1
+  if (stats.checkMs !== undefined) windowCounters.workerMsSum += stats.checkMs
   if (stats.digestMs !== undefined && stats.digestMs > 0) {
     windowCounters.digestMsSum += stats.digestMs
     windowCounters.digestCount += 1
@@ -232,6 +247,8 @@ function rollWindow() {
     wallMs: now,
     guestFps,
     uploadFps,
+    workerFps: c.workerChecks / elapsed,
+    workerMs: c.workerChecks ? c.workerMsSum / c.workerChecks : 0,
     digestMs: c.digestCount ? c.digestMsSum / c.digestCount : 0,
     drawMs: c.drawCount ? c.drawMsSum / c.drawCount : 0,
     i2cHz: i2cDelta / elapsed,
@@ -256,6 +273,9 @@ function rollWindow() {
       available: display.available,
     },
     notes,
+  }
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.zephyrProfile = JSON.stringify(lastSnapshot)
   }
   windowStart = now
   windowCounters = empty()
@@ -297,6 +317,7 @@ function disable() {
     const msg: MainToWorker = { type: 'profile', enabled: false }
     renderWorker.postMessage(msg)
   }
+  if (typeof document !== 'undefined') delete document.documentElement.dataset.zephyrProfile
 }
 
 function snapshot(): ProfileSnapshot {
