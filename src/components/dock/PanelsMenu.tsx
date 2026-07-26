@@ -26,9 +26,6 @@ import {
 export function PanelsMenu({ boardId }: { boardId: string }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement | null>(null)
-  const state = useSyncExternalStore(subscribe, getState, getState)
-  const inventory = useDeviceTree(boardId)
-  const stats = useSyncExternalStore(guestStats.subscribe, guestStats.getSnapshot, guestStats.getSnapshot)
 
   // Light-dismiss: outside pointerdown or Escape closes the popover.
   useEffect(() => {
@@ -47,10 +44,6 @@ export function PanelsMenu({ boardId }: { boardId: string }) {
     }
   }, [open])
 
-  const devices = inventory.nodes.filter((node) => node.presence === 'interactive')
-  const hasDisplay = inventory.nodes.some((node) => node.key === 'display')
-  const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
-
   return (
     <span ref={rootRef} className="relative">
       <Button
@@ -65,82 +58,96 @@ export function PanelsMenu({ boardId }: { boardId: string }) {
         <LayoutGrid className="size-4" />
       </Button>
 
-      {open && (
-        <div
-          role="menu"
-          aria-label="Panels"
-          className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-card p-2 shadow-xl"
-        >
-          {devices.length > 0 && (
-            <>
-              <MenuHeading>Dock</MenuHeading>
-              <div className="max-h-64 overflow-y-auto">
-                {devices.map((node) => (
-                  <PanelToggle
-                    key={node.key}
-                    label={node.label}
-                    detail={node.crumb ?? node.compatible}
-                    checked={state.devices[node.key]?.hidden !== true}
-                    onChange={(shown) => setHidden(node.key, !shown)}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-
-          {(hasDisplay || stats.available || trace.available || state.seed.primary.includes('trace')) && (
-            <>
-              <MenuHeading>Stage</MenuHeading>
-              {hasDisplay && (
-                <PanelToggle
-                  label="Display"
-                  detail="framebuffer + touch"
-                  checked={state.devices[STAGE_DISPLAY_KEY]?.hidden !== true}
-                  onChange={(shown) => setHidden(STAGE_DISPLAY_KEY, !shown)}
-                />
-              )}
-              {stats.available && (
-                <PanelToggle
-                  label="Simulation"
-                  detail="guest MIPS pill"
-                  checked={state.devices[STAGE_PERF_KEY]?.hidden !== true}
-                  onChange={(shown) => setHidden(STAGE_PERF_KEY, !shown)}
-                />
-              )}
-              {(trace.available || state.seed.primary.includes('trace')) && (
-                <PanelToggle
-                  label="Trace"
-                  detail="CTF schedule Gantt"
-                  checked={state.devices[STAGE_TRACE_KEY]?.hidden !== true}
-                  onChange={(shown) => setHidden(STAGE_TRACE_KEY, !shown)}
-                />
-              )}
-            </>
-          )}
-
-          {devices.length === 0 && !hasDisplay && !stats.available && !trace.available && (
-            <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
-              Nothing to manage yet — panels appear as the guest exposes devices.
-            </p>
-          )}
-
-          <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
-            <button
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              onClick={() => {
-                resetLayout()
-                setDockOpen(true)
-              }}
-            >
-              Reset layout
-            </button>
-            <span className="ml-auto text-[10px] text-muted-foreground/70">
-              hidden panels persist
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Inventory / stats / trace subscriptions only while open — the closed
+          button does not need them, and guestStats/hostTrace tick at 2–5 Hz. */}
+      {open && <PanelsMenuPopover boardId={boardId} />}
     </span>
+  )
+}
+
+function PanelsMenuPopover({ boardId }: { boardId: string }) {
+  const state = useSyncExternalStore(subscribe, getState, getState)
+  const inventory = useDeviceTree(boardId)
+  const stats = useSyncExternalStore(guestStats.subscribe, guestStats.getSnapshot, guestStats.getSnapshot)
+  const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
+
+  const devices = inventory.nodes.filter((node) => node.presence === 'interactive')
+  const hasDisplay = inventory.nodes.some((node) => node.key === 'display')
+
+  return (
+    <div
+      role="menu"
+      aria-label="Panels"
+      className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-card p-2 shadow-xl"
+    >
+      {devices.length > 0 && (
+        <>
+          <MenuHeading>Dock</MenuHeading>
+          <div className="max-h-64 overflow-y-auto">
+            {devices.map((node) => (
+              <PanelToggle
+                key={node.key}
+                label={node.label}
+                detail={node.crumb ?? node.compatible}
+                checked={state.devices[node.key]?.hidden !== true}
+                onChange={(shown) => setHidden(node.key, !shown)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {(hasDisplay || stats.available || trace.available || state.seed.primary.includes('trace')) && (
+        <>
+          <MenuHeading>Stage</MenuHeading>
+          {hasDisplay && (
+            <PanelToggle
+              label="Display"
+              detail="framebuffer + touch"
+              checked={state.devices[STAGE_DISPLAY_KEY]?.hidden !== true}
+              onChange={(shown) => setHidden(STAGE_DISPLAY_KEY, !shown)}
+            />
+          )}
+          {stats.available && (
+            <PanelToggle
+              label="Simulation"
+              detail="guest MIPS pill"
+              checked={state.devices[STAGE_PERF_KEY]?.hidden !== true}
+              onChange={(shown) => setHidden(STAGE_PERF_KEY, !shown)}
+            />
+          )}
+          {(trace.available || state.seed.primary.includes('trace')) && (
+            <PanelToggle
+              label="Trace"
+              detail="CTF schedule Gantt"
+              checked={state.devices[STAGE_TRACE_KEY]?.hidden !== true}
+              onChange={(shown) => setHidden(STAGE_TRACE_KEY, !shown)}
+            />
+          )}
+        </>
+      )}
+
+      {devices.length === 0 && !hasDisplay && !stats.available && !trace.available && (
+        <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
+          Nothing to manage yet — panels appear as the guest exposes devices.
+        </p>
+      )}
+
+      <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+        <button
+          className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          onClick={() => {
+            resetLayout()
+            setDockOpen(true)
+          }}
+        >
+          Reset layout
+        </button>
+        <span className="ml-auto text-[10px] text-muted-foreground/70">
+          hidden panels persist
+        </span>
+      </div>
+    </div>
   )
 }
 

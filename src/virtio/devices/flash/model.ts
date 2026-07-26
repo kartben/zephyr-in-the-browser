@@ -573,8 +573,10 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
           const pageBase = phase.addr & ~(decl.pageSize - 1)
           const next = pageBase + ((phase.addr + 1) & (decl.pageSize - 1))
           phase = { kind: 'program', addr: next, wrote }
+          // Bump version now; notify once at transfer end so a page program
+          // does not fan out one React wake per programmed byte.
+          version++
           markStats()
-          notify(true)
         }
         return 0xff
       }
@@ -687,10 +689,10 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
       if (phase.kind === 'program') status &= ~SR_WEL
       phase = { kind: 'idle' }
     }
-    // Reads move the pointer / bump counters without a content version bump —
-    // coalesce one UI tick per transfer so bulk reads do not fan out. Persist
-    // counters too (debounced) so rd/wr/er tallies survive reload.
-    if (statsTouched && version === versionBefore) notify(false, true)
+    // Coalesce one UI tick per transfer: page programs bump `version` per
+    // byte above, bulk reads only touch stats/pointer. Persist counters too
+    // (debounced) so rd/wr/er tallies survive reload.
+    if (version !== versionBefore || statsTouched) notify(false, true)
     return ok
   }
 

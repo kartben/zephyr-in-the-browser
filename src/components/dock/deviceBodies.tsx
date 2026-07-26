@@ -596,15 +596,18 @@ function GnssBadge() {
 }
 
 function NetBadge() {
-  const snapshot = useSyncExternalStore(hostNet.subscribe, hostNet.getSnapshot, hostNet.getSnapshot)
+  // Only link/IP — not the 2 Hz throughput / ≤10 Hz capture snapshot.
+  const token = useSyncExternalStore(hostNet.subscribe, hostNet.getLinkToken, () => '')
+  const linkUp = token.startsWith('1|')
+  const guestIp = token.length > 2 ? token.slice(2) : ''
   return (
     <span className="flex items-center gap-1.5">
       <span
-        className={cn('size-2 rounded-full', snapshot.linkUp ? 'bg-success' : 'bg-destructive')}
+        className={cn('size-2 rounded-full', linkUp ? 'bg-success' : 'bg-destructive')}
         role="status"
-        aria-label={snapshot.linkUp ? 'Link up' : 'Link down'}
+        aria-label={linkUp ? 'Link up' : 'Link down'}
       />
-      {snapshot.guestIp && <Mono>{snapshot.guestIp}</Mono>}
+      {guestIp && <Mono>{guestIp}</Mono>}
     </span>
   )
 }

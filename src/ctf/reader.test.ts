@@ -129,5 +129,8 @@ describe('time-axis helpers', () => {
     expect(per.get(a)?.run).toBe(4_000)
     expect(per.get(b)?.run).toBe(4_000)
     expect(contextSwitchesIn(reader.tr, 0, 10_000)).toBe(2)
+    // Window that starts mid-trace must still skip the early SWITCHED_IN at t=1k.
+    expect(contextSwitchesIn(reader.tr, 4_000, 10_000)).toBe(1)
+    expect(contextSwitchesIn(reader.tr, 6_000, 10_000)).toBe(0)
   })
 })
