@@ -207,7 +207,7 @@ export function SampleGallery({
           </button>
         </DialogTrigger>
 
-        <DialogContent className="max-w-xl">
+        <DialogContent className="h-[min(85vh,40rem)] max-w-xl">
           <DialogHeader>
             <DialogTitle>Zephyr app to boot</DialogTitle>
             <DialogDescription>
@@ -240,7 +240,7 @@ export function SampleGallery({
 
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-1">
             {catalog.length === 0 ? (
-              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+              <p className="flex h-full items-center justify-center px-3 text-center text-xs text-muted-foreground">
                 No samples match “{query.trim()}”.
               </p>
             ) : (
