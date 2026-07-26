@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { RegisterMapPreview } from './components/RegisterMapPreview'
+import { LittlefsPreview } from './components/LittlefsPreview'
 import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
 import { claimStashedDts } from './devicetree'
@@ -25,7 +26,13 @@ const preview = new URLSearchParams(location.search).get('preview')
 Promise.all([claimStashed(), claimStashedDts(), detectQemuAssets()]).finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      {preview === 'regmap' ? <RegisterMapPreview /> : <App />}
+      {preview === 'regmap' ? (
+        <RegisterMapPreview />
+      ) : preview === 'littlefs' ? (
+        <LittlefsPreview />
+      ) : (
+        <App />
+      )}
     </StrictMode>,
   )
 })
