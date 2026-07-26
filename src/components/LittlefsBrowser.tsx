@@ -61,28 +61,17 @@ function LittlefsBrowserDialog({
   useEffect(() => {
     if (!open) return
     let timer: ReturnType<typeof setTimeout> | undefined
-    let last = 0
-    const bump = () => {
-      last = performance.now()
-      setTick((n) => n + 1)
-    }
-    bump()
-    const unsub = chip.subscribe(() => {
-      const wait = REFRESH_MS - (performance.now() - last)
-      if (wait <= 0) {
-        if (timer !== undefined) {
-          clearTimeout(timer)
-          timer = undefined
-        }
-        bump()
-        return
-      }
-      if (timer !== undefined) return
+    // First open: browse immediately. Later flash traffic is coalesced so guest
+    // SPI bursts do not stack mounts on the shared Asyncify module.
+    setTick((n) => n + 1)
+    const schedule = () => {
+      if (timer !== undefined) clearTimeout(timer)
       timer = setTimeout(() => {
         timer = undefined
-        bump()
-      }, wait)
-    })
+        setTick((n) => n + 1)
+      }, REFRESH_MS)
+    }
+    const unsub = chip.subscribe(schedule)
     return () => {
       unsub()
       if (timer !== undefined) clearTimeout(timer)
@@ -90,7 +79,7 @@ function LittlefsBrowserDialog({
   }, [chip, open])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || tick === 0) return
     let cancelled = false
     setBusy(true)
     void browseLittlefs(chip.memory, { blockSize: chip.decl.sectorSize })

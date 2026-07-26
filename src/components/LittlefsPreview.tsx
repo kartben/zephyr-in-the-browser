@@ -15,41 +15,45 @@ import {
   MemoryBlockDevice,
 } from '@/vendor/littlefs-js/lfs_js.js'
 import { SpiFlashBody } from '@/components/MemoryCard'
+import { withLittlefsLock } from '@/lib/littlefsBrowse'
 import { createW25q, W25Q_DEFAULT_SIZE } from '@/virtio/devices/chips/w25q'
 
 async function seedFlashImage(): Promise<Uint8Array> {
-  const block = 4096
-  const count = W25Q_DEFAULT_SIZE / block
-  const bdev = new MemoryBlockDevice(block, count)
-  bdev.read_size = 16
-  bdev.prog_size = 16
-  const lfs = new LFS(bdev, 512)
-  await lfs.format()
-  await lfs.mount()
+  // Same Asyncify module as the dock browser — must not overlap mounts.
+  return withLittlefsLock(async () => {
+    const block = 4096
+    const count = W25Q_DEFAULT_SIZE / block
+    const bdev = new MemoryBlockDevice(block, count)
+    bdev.read_size = 16
+    bdev.prog_size = 16
+    const lfs = new LFS(bdev, 512)
+    await lfs.format()
+    await lfs.mount()
 
-  const write = async (path: string, data: Uint8Array) => {
-    const file = await lfs.open(path, LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC)
-    if (typeof file === 'number') throw new Error(`open ${path} → ${file}`)
-    await file.write(data)
-    await file.close()
-  }
+    const write = async (path: string, data: Uint8Array) => {
+      const file = await lfs.open(path, LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC)
+      if (typeof file === 'number') throw new Error(`open ${path} → ${file}`)
+      await file.write(data)
+      await file.close()
+    }
 
-  await write('/boot_count', new Uint8Array([7, 0, 0, 0]))
-  await lfs.mkdir('/cfg')
-  await write('/cfg/note.txt', new TextEncoder().encode('hello from /lfs\n'))
-  await write('/cfg/banner', new TextEncoder().encode('Zephyr LittleFS\n'))
-  await write(
-    '/README',
-    new TextEncoder().encode('Persists across reload via sparse W25Q sectors.\n'),
-  )
-  await lfs.unmount()
+    await write('/boot_count', new Uint8Array([7, 0, 0, 0]))
+    await lfs.mkdir('/cfg')
+    await write('/cfg/note.txt', new TextEncoder().encode('hello from /lfs\n'))
+    await write('/cfg/banner', new TextEncoder().encode('Zephyr LittleFS\n'))
+    await write(
+      '/README',
+      new TextEncoder().encode('Persists across reload via sparse W25Q sectors.\n'),
+    )
+    await lfs.unmount()
 
-  const image = new Uint8Array(W25Q_DEFAULT_SIZE).fill(0xff)
-  for (let i = 0; i < bdev._storage.length; i++) {
-    const sector = bdev._storage[i]
-    if (sector) image.set(sector, i * block)
-  }
-  return image
+    const image = new Uint8Array(W25Q_DEFAULT_SIZE).fill(0xff)
+    for (let i = 0; i < bdev._storage.length; i++) {
+      const sector = bdev._storage[i]
+      if (sector) image.set(sector, i * block)
+    }
+    return image
+  })
 }
 
 const flash = createW25q({ cs: 0, size: W25Q_DEFAULT_SIZE })
