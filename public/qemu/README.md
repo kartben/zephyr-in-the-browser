@@ -131,9 +131,10 @@ working, the AArch64 artifact supplies the 64-bit `virt` machine, and the
 optional RISC-V artifact supplies 32-bit `virt` (Zephyr `qemu_riscv32`). ARM
 and AArch64 include the browser terminal, the ramfb exports, the GNSS UART,
 and the host-sensor (inert, see below), host-audio, host-mic and browser-netdev
-bridges. Cortex-M3 alone
-gets the host-GPIO device — the LM3S6965 machine has no virtio-mmio bus to
-reach the generic bridge — while AArch64 and RISC-V get the input bridge and
+bridges. The ramfb bridge also exposes an atomic framebuffer-change sequence,
+so the browser renderer can remain idle without checksumming every pixel.
+Cortex-M3 alone gets the host-GPIO device — the LM3S6965 machine has no
+virtio-mmio bus to reach the generic bridge — while AArch64 and RISC-V get the input bridge and
 the generic virtio bridge. Guest-icount export remains AArch64-only for now.
 
 ### The link line, and why `-O3` is a patch
