@@ -141,6 +141,10 @@ function strokeWaveClipped(
   ctx.restore()
 }
 
+const WAVE_H = 196
+/** Minimum gap between t_high / t_low label boxes (css px). */
+const TIMING_LABEL_GAP = 14
+
 function WaveformCanvas({ ch }: { ch: PwmChannel }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -152,19 +156,19 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
 
     const dpr = Math.min(2, window.devicePixelRatio || 1)
     const cssW = canvas.clientWidth || 360
-    const cssH = 168
+    const cssH = WAVE_H
     canvas.width = Math.round(cssW * dpr)
     canvas.height = Math.round(cssH * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    const padL = 10
-    const padR = 10
-    const padT = 28
-    const padB = 28
+    const padL = 14
+    const padR = 14
+    const padT = 44
+    const padB = 38
     const plotW = cssW - padL - padR
     const plotH = cssH - padT - padB
-    const yHigh = padT + 8
-    const yLow = padT + plotH - 8
+    const yHigh = padT + 14
+    const yLow = padT + plotH - 14
     const span = T_MAX - T_MIN
     const xAt = (t: number) => padL + ((t - T_MIN) / span) * plotW
     const yAt = (level: number) => (level >= 0.5 ? yHigh : yLow)
@@ -228,17 +232,32 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textAlign = 'center'
     if (!flat && duty > 0.02 && duty < 0.98) {
-      ctx.fillText('HIGH', xAt(duty / 2), yHigh - 6)
-      ctx.fillText('LOW', xAt((duty + 1) / 2), yLow + 14)
-      ctx.fillText(`t_high = ${formatPwmDuration(ch.pulseNs)}`, xAt(duty / 2), padT - 8)
-      ctx.fillText(
-        `t_low = ${formatPwmDuration(ch.periodNs - ch.pulseNs)}`,
-        xAt((duty + 1) / 2),
-        padT - 8,
-      )
+      ctx.fillText('HIGH', xAt(duty / 2), yHigh - 8)
+      ctx.fillText('LOW', xAt((duty + 1) / 2), yLow + 16)
+
+      const highText = `t_high = ${formatPwmDuration(ch.pulseNs)}`
+      const lowText = `t_low = ${formatPwmDuration(ch.periodNs - ch.pulseNs)}`
+      let xHighLabel = xAt(duty / 2)
+      let xLowLabel = xAt((duty + 1) / 2)
+      const halfHigh = ctx.measureText(highText).width / 2
+      const halfLow = ctx.measureText(lowText).width / 2
+      const needed = halfHigh + halfLow + TIMING_LABEL_GAP
+      if (xLowLabel - xHighLabel < needed) {
+        const mid = (xHighLabel + xLowLabel) / 2
+        xHighLabel = mid - needed / 2
+        xLowLabel = mid + needed / 2
+      }
+      // Keep both labels inside the canvas; prefer shifting as a pair.
+      const minX = padL + halfHigh
+      const maxX = cssW - padR - halfLow
+      const shiftIn = Math.max(0, minX - xHighLabel) - Math.max(0, xLowLabel - maxX)
+      xHighLabel += shiftIn
+      xLowLabel += shiftIn
+      ctx.fillText(highText, xHighLabel, padT - 12)
+      ctx.fillText(lowText, xLowLabel, padT - 12)
     } else if (flat) {
       ctx.textAlign = 'left'
-      ctx.fillText(ch.fullOn ? 'full-on' : 'full-off', padL + 4, yHigh - 6)
+      ctx.fillText(ch.fullOn ? 'full-on' : 'full-off', padL + 4, yHigh - 8)
     }
 
     const chipLabel = flat
@@ -248,13 +267,13 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
       : `${formatPwmDuty(duty)} duty · ${formatPwmFrequency(ch.periodNs)}`
     ctx.textAlign = 'right'
     ctx.fillStyle = 'rgba(62,207,142,0.9)'
-    ctx.fillText(chipLabel, cssW - padR, 16)
+    ctx.fillText(chipLabel, cssW - padR, 14)
 
     // Period bracket under the solid center period
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'
     ctx.fillStyle = 'rgba(255,255,255,0.55)'
     ctx.textAlign = 'center'
-    const yBracket = cssH - 12
+    const yBracket = cssH - 16
     const x0 = xAt(0)
     const xT = xAt(1)
     ctx.beginPath()
@@ -274,7 +293,7 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
       ['T', 1],
       ['T+T/3', T_MAX],
     ] as const) {
-      ctx.fillText(label, xAt(t), cssH - 2)
+      ctx.fillText(label, xAt(t), cssH - 4)
     }
   }, [ch])
 
@@ -282,7 +301,7 @@ function WaveformCanvas({ ch }: { ch: PwmChannel }) {
     <canvas
       ref={canvasRef}
       aria-label={`PWM channel ${ch.index} waveform`}
-      className="block h-[168px] w-full shrink-0 rounded border border-border bg-black"
+      className="block h-[196px] w-full shrink-0 rounded border border-border bg-black"
     />
   )
 }
@@ -376,7 +395,7 @@ export function PwmBody({ chip }: { chip: PwmChip }) {
       : `duty ${formatPwmDuty(ch.duty)}`
 
   return (
-    <div className="space-y-2 px-3 py-3">
+    <div className="space-y-2.5 px-3 py-3.5">
       <WaveformCanvas ch={ch} />
       <ChannelStrip chip={chip} selected={sel} onSelect={setSelected} />
       <div className="flex min-h-[16px] flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
