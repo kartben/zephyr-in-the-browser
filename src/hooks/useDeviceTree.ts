@@ -16,6 +16,7 @@ import * as hostGpio from '@/hostGpio'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
+import { publishInventory } from '@/lib/dockReveal'
 import { pruneFollows } from '@/lib/followStore'
 import { i2cModel, isBound, spiModel, subscribeBinds } from '@/virtio'
 import type { I2cChip } from '@/virtio/devices/i2c'
@@ -78,8 +79,18 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     pruneFollows(chips)
   }, [chips])
 
-  return useMemo(() => {
+  const inventory = useMemo(() => {
     const avail: Availability = { gnss, gpio, audio, mic, net, i2c, spi, display, input }
     return deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
   }, [tree, chips, spiChips, gnss, gpio, audio, mic, net, i2c, spi, display, input, boardId])
+
+  // Hand the inventory to dockReveal so a caller outside React — an annotation
+  // naming a panel, say — can turn a PanelKind into the row that represents it.
+  // This is the one place the inventory is derived, so it is the only honest
+  // place to publish it from.
+  useEffect(() => {
+    publishInventory(inventory)
+  }, [inventory])
+
+  return inventory
 }
