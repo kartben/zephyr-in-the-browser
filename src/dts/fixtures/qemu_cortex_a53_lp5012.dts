@@ -1,0 +1,43 @@
+/*
+ * Minimal qemu_cortex_a53-shaped tree with virtio-i2c and an okay
+ * ti,lp5012 at 0x14. Used to catch duck-type collisions with LP5562 / JHD.
+ */
+/dts-v1/;
+
+/ {
+	compatible = "qemu,cortex-a53", "simple-bus";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		ranges;
+
+		virtio_mmio4: virtio@0a004000 {
+			compatible = "virtio,mmio";
+			reg = <0xa004000 0x200>;
+			status = "okay";
+
+			virtio_i2c0: i2c {
+				compatible = "virtio,i2c";
+				status = "okay";
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				lp5012_0: lp5012@14 {
+					compatible = "ti,lp5012";
+					reg = <0x14>;
+					status = "okay";
+
+					led_0 {
+						label = "LED LP5012 0";
+						index = <0>;
+						color-mapping = <1>, <2>, <3>;
+					};
+				};
+			};
+		};
+	};
+};

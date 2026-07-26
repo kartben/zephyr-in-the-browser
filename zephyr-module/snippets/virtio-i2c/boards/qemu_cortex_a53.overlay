@@ -17,6 +17,8 @@
  * exists by the time this runs.
  */
 
+#include <zephyr/dt-bindings/led/led.h>
+
 &virtio_mmio4 {
 	status = "okay";
 };
@@ -78,8 +80,8 @@
 	 * (accel_chart, oled, …) do not clutter the dock. Enable them with:
 	 *   -S i2c-sensors-extra   (shell: all optional parts)
 	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only /
-	 *     pcf8523-only / jhd1313-only / ht16k33-only / lp5562-only /
-	 *     pca9685-only / mcp4725-only / max17048-only
+ *     pcf8523-only / jhd1313-only / ht16k33-only / lp5562-only /
+ *     lp5012-only / pca9685-only / mcp4725-only / max17048-only
 	 *     (dedicated sample: that part alone, defaults off)
 	 *
 	 * The page attaches matching TypeScript models only while these nodes
@@ -229,6 +231,50 @@
 		compatible = "ti,lp5562";
 		reg = <0x30>;
 		status = "disabled";
+	};
+
+	/*
+	 * TI LP5012 4-module RGB LED. Matches createLp5012({ address: 0x14 }) in
+	 * src/virtio/index.ts. Address 0x14 is the LP5009/12 binding example and
+	 * avoids lp5562@30. Disabled by default; samples/drivers/led/lp50xx uses
+	 * -S lp5012-only. enable-gpios omitted.
+	 */
+	lp5012_0: lp5012@14 {
+		compatible = "ti,lp5012";
+		reg = <0x14>;
+		status = "disabled";
+
+		led_0 {
+			label = "LED LP5012 0";
+			index = <0>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+
+		led_1 {
+			label = "LED LP5012 1";
+			index = <1>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+
+		led_2 {
+			label = "LED LP5012 2";
+			index = <2>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+
+		led_3 {
+			label = "LED LP5012 3";
+			index = <3>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
 	};
 };
 

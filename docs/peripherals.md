@@ -62,7 +62,7 @@ tree marks those nodes okay.
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
 `atmel,at24`, `solomon,ssd1306`, `jhd,jhd1313`, `holtek,ht16k33`,
-`ti,lp5562`, `nxp,pca9685-pwm`, `microchip,mcp4725`, `maxim,max17048` — so `sensor get lps22hh@5c`
+`ti,lp5562`, `ti,lp5012`, `nxp,pca9685-pwm`, `microchip,mcp4725`, `maxim,max17048` — so `sensor get lps22hh@5c`
 reads a value the page made up through the same driver a real board would use. The LSM6DSO is the
 advanced motion case: Zephyr's `samples/sensor/lsm6dso` calls `sensor_attr_set`
 to put accel and gyro at 12.5 Hz, and the panel's ODR selects update when those
@@ -146,7 +146,8 @@ and DDRAM_AC shadows (`chips/maps/jhd1313-lcd.json`) — and its backlight at
 maps display RAM rows 0x00–0x0F plus System_Setup / Display_Setup / Row_Int /
 Dimming (`chips/maps/ht16k33.json`). The LP5562 maps ENABLE / OP_MODE /
 B·G·R·W PWM+current / CONFIG / engines / RESET / LED_MAP
-(`chips/maps/lp5562.json`). The SCT2024 on virtio-spi CS0 maps SHIFT /
+(`chips/maps/lp5562.json`). The LP5012 maps DEVICE_CONFIG* / bank /
+brightness / OUT colors / RESET (`chips/maps/lp5012.json`). The SCT2024 on virtio-spi CS0 maps SHIFT /
 LED_OUT / CTRL (`chips/maps/sct2024.json`) — a shift-register latch exposed
 through the same inspector, with LA/OE sideband on virtio-gpio. The PCA9685 maps MODE1/2, LEDn_ON/OFF,
 and PRE_SCALE (`chips/maps/pca9685.json`). The MCP4725 maps thin inspector

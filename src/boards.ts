@@ -374,6 +374,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'i2c'],
   },
   {
+    // Stock LP50xx sample against the browser LP5012 at 0x14. Same rgb-led dock
+    // body as LP5562, painting a strip of four module orbs.
+    id: 'lp50xx',
+    label: 'LP50xx LED',
+    description: 'Cycles colors on a TI LP5012 (4 RGB modules); strip in the page',
+    zephyrSample: 'samples/drivers/led/lp50xx',
+    primaryPanels: ['led', 'i2c'],
+  },
+  {
     // Stock SPI LED sample against the browser SCT2024 on CS0. LA/OE ride
     // virtio-gpio pins 6/7; the dock shows a 16-dot bar plus SHIFT/LED_OUT/CTRL.
     id: 'sct2024',

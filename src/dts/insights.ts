@@ -171,6 +171,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
   'jhd,jhd1313': 'jhd1313',
   'holtek,ht16k33': 'ht16k33',
   'ti,lp5562': 'lp5562',
+  'ti,lp5012': 'lp5012',
   'nxp,pca9685-pwm': 'pca9685',
   'microchip,mcp4725': 'mcp4725',
   'maxim,max17048': 'max17048',
@@ -523,6 +524,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (
     hasOkayCompat(doc, 'holtek,ht16k33') ||
     hasOkayCompat(doc, 'ti,lp5562') ||
+    hasOkayCompat(doc, 'ti,lp5012') ||
     hasOkayCompat(doc, 'sct,sct2024') ||
     pwmLeds.length > 0 ||
     gpioControllers.some((c) => c.bridged && c.leds.length > 0)

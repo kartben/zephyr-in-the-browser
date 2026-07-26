@@ -26,6 +26,7 @@ import { FALLBACK_DT_SLOTS, CHIP_TYPES, chipType } from '@/virtio/devices/regist
 import { partCompatible } from '@/virtio/devices/parts'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isLp5562 } from '@/virtio/devices/chips/lp5562'
+import { isLp50xx } from '@/virtio/devices/chips/lp50xx'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
 import { isPt6314 } from '@/virtio/devices/chips/pt6314'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
@@ -228,7 +229,7 @@ function chipClass(chip: I2cChip): DeviceClass {
   if (isRtcChip(chip)) return 'rtc'
   if (isJhd1313Lcd(chip) || isJhd1313Backlight(chip)) return 'auxdisplay'
   if (isHt16k33(chip)) return 'led'
-  if (isLp5562(chip)) return 'led'
+  if (isLp5562(chip) || isLp50xx(chip)) return 'led'
   if (isPwmChip(chip)) return 'pwm'
   if (isDacChip(chip)) return 'dac'
   if (isFuelGaugeChip(chip)) return 'fuel-gauge'
@@ -246,7 +247,7 @@ function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
     return 'auxdisplay'
   }
   if (cls === 'led') {
-    if (chip && isLp5562(chip)) return 'rgb-led'
+    if (chip && (isLp5562(chip) || isLp50xx(chip))) return 'rgb-led'
     return 'led'
   }
   if (cls === 'pwm') return 'pwm'
