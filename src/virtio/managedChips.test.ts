@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { clear, setUserDts } from '@/devicetree'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
+import a53Sct2024 from '@/dts/fixtures/qemu_cortex_a53_sct2024.dts?raw'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
+import { createW25q } from './devices/chips/w25q'
 import {
   adxl345,
   eeprom,
@@ -13,13 +15,20 @@ import {
   lps22hh,
   lsm6dso,
   pcf8523,
+  sct2024,
+  spiModel,
   ssd1306,
   syncManagedChips,
   tmp112,
+  w25q,
 } from './index'
 
 afterEach(() => {
   clear()
+  // Drop any user-attached SPI strangers left by a test.
+  for (const chip of [...spiModel.chips()]) {
+    if (chip !== w25q && chip !== sct2024) spiModel.detachChip(chip.cs)
+  }
   syncManagedChips()
 })
 
@@ -78,5 +87,44 @@ describe('syncManagedChips', () => {
     i2cModel.detachChip(0x6a)
     syncManagedChips()
     expect(i2cModel.chips()).toContain(lsm6dso)
+  })
+
+  it('keeps the fallback SPI NOR on CS0 when no tree is loaded', () => {
+    expect(spiModel.chips()).toEqual([w25q])
+  })
+
+  it('swaps CS0 from the NOR to SCT2024 when that sample tree loads', () => {
+    // Regression: attach-then-detach against a stale onBus map used to call
+    // detachChip(0) after attaching sct2024, leaving the bus empty and the
+    // guest with TRANS_ERR on every LED write.
+    expect(spiModel.chips()).toContain(w25q)
+
+    setUserDts('sct2024.dts', a53Sct2024)
+    expect(spiModel.chips()).toEqual([sct2024])
+    expect(spiModel.chips()).not.toContain(w25q)
+  })
+
+  it('restores the NOR after leaving the SCT2024 sample', () => {
+    setUserDts('sct2024.dts', a53Sct2024)
+    expect(spiModel.chips()).toEqual([sct2024])
+
+    clear()
+    syncManagedChips()
+    expect(spiModel.chips()).toEqual([w25q])
+  })
+
+  it('leaves a user-attached SPI stranger on CS0 alone', () => {
+    setUserDts('sct2024.dts', a53Sct2024)
+    spiModel.detachChip(0)
+    const other = createW25q({ cs: 0, name: 'user NOR' })
+    spiModel.attachChip(other)
+
+    syncManagedChips()
+    expect(spiModel.chips()).toEqual([other])
+    expect(spiModel.chips()).not.toContain(sct2024)
+
+    spiModel.detachChip(0)
+    syncManagedChips()
+    expect(spiModel.chips()).toEqual([sct2024])
   })
 })
