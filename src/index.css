@@ -143,9 +143,26 @@
   animation: buzzer-pulse 0.7s ease-out infinite;
 }
 
+/* gpio step/dir stepper: soft pulse while moving. */
+@keyframes stepper-pulse {
+  0% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+.stepper-pulse {
+  animation: stepper-pulse 0.9s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .buzzer-shake,
-  .buzzer-pulse {
+  .buzzer-pulse,
+  .stepper-pulse {
     animation: none;
   }
 }

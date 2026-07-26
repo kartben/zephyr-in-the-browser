@@ -7,6 +7,7 @@ export type {
   DtsInsights,
   DtsPin,
   BuzzerPin,
+  StepperAxis,
   GpioController,
   I2cBus,
   I2cSlot,

@@ -57,6 +57,7 @@ export type DeviceClass =
   | 'gpio'
   | 'keys'
   | 'buzzer'
+  | 'stepper'
   | 'gnss'
   | 'audio'
   | 'net'
@@ -84,6 +85,7 @@ export type BodyKind =
   | 'gpio'
   | 'gpio-keys'
   | 'buzzer'
+  | 'stepper'
   | 'gnss'
   | 'speaker'
   | 'mic'
@@ -178,6 +180,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   gpio: 'GPIO',
   keys: 'Keys',
   buzzer: 'Buzzer',
+  stepper: 'Stepper',
   gnss: 'GNSS',
   audio: 'Audio',
   net: 'Network',
@@ -200,6 +203,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'gpio',
   'keys',
   'buzzer',
+  'stepper',
   'gnss',
   'audio',
   'net',
@@ -633,6 +637,29 @@ function deriveFromTree(
       body: 'buzzer',
       crumb: `pin ${first?.id}`,
       panelKind: 'buzzer',
+    })
+  }
+
+  // gpio step/dir steppers: observe STEP/DIR edges like buzzer observes level.
+  const bridgedStep = insights.gpioControllers.find(
+    (ctl) => ctl.bridged && ctl.steppers.length > 0,
+  )
+  if (bridgedStep && avail.gpio) {
+    const stepperNode = nodesByCompatible(doc, 'zephyr,gpio-step-dir-stepper-ctrl').find(
+      isEffectivelyOkay,
+    )
+    const first = bridgedStep.steppers[0]
+    push({
+      key: uniqueKey(ids, 'stepper'),
+      nodeName: stepperNode?.name ?? 'stepper',
+      label: first?.label ?? 'Stepper',
+      compatible: 'zephyr,gpio-step-dir-stepper-ctrl',
+      deviceClass: 'stepper',
+      path: stepperNode ? pathOf(stepperNode) : first?.id ?? '/stepper',
+      presence: 'interactive',
+      body: 'stepper',
+      crumb: first ? `STEP ${first.stepPin} · DIR ${first.dirPin}` : undefined,
+      panelKind: 'stepper',
     })
   }
 

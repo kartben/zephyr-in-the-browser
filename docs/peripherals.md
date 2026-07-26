@@ -184,6 +184,9 @@ that the peripheral surfaces read:
 - a Buzzer dock row when the tree has an okay `gpio-buzzer` on the bridged
   controller (pin level observed the same way LEDs are; shake + Vibration API /
   Web Audio on the page — not through I2S),
+- a Stepper dock row when the tree has an okay
+  `zephyr,gpio-step-dir-stepper-ctrl` on the bridged controller (STEP/DIR edges
+  observed; shaft dial + position/velocity — no new QEMU device),
 - a GPIO Keys dock row when the tree has okay `gpio-keys` on the bridged
   controller (Keys class — buttons leave the controller card),
 - a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged

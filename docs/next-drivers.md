@@ -94,6 +94,15 @@ No new QEMU device — the page observes the same GPIO outputs LEDs use
 Frequency args remain on/off only for the GPIO backend; `pwm-buzzer` is the
 pitch follow-up.
 
+**gpio step/dir stepper (done).** Stock Zephyr
+`zephyr,gpio-step-dir-stepper-ctrl` on STEP pin 6 / DIR pin 7 (LED0 stays on 4,
+buzzer pin 5 free), packaged as `samples/drivers/stepper/generic` behind
+`-S gpio-step-dir` (plus `virtio-gpio` on A53/riscv). No separate stepper-driver
+IC and no new QEMU device — the page observes STEP/DIR edges (`hostStepper.ts`)
+and a dock dial tracks position/velocity. Press SW0 to advance the stock sample
+modes. MMIO host-gpio polls at 1 ms when steppers are present so edges are not
+lost; virtio notifies on every write.
+
 Original rationale, kept for the record —
 the highest demo-value-per-effort item, and it reuses shapes we already have in
 both directions:
@@ -590,6 +599,10 @@ shell is a UX problem before it is a driver problem.
    4), `samples/drivers/buzzer/tone`, dock Lucide shake + Vibration API / Web
    Audio. Observes existing GPIO outputs — no new QEMU device. `pwm-buzzer`
    (pitch) remains a follow-up.
+5¾. ~~**gpio step/dir stepper**~~ — ✅ done; stock
+   `zephyr,gpio-step-dir-stepper-ctrl` on pins 6/7, `samples/drivers/stepper/generic`,
+   dock shaft dial + position/velocity. Observes existing GPIO outputs — no new
+   QEMU device.
 6. ~~**PWM (I²C)**~~ — ✅ done; `PwmChip` framework + `nxp,pca9685-pwm` with
    `samples/drivers/led/pwm`, duty-cycle chart. More PWM providers are
    declaration + packaging only.

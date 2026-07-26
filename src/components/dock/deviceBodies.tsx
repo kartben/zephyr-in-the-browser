@@ -24,6 +24,7 @@ import {
   Lightbulb,
   Gamepad2,
   Vibrate,
+  RotateCw,
   Volume2,
   Waves,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody, type AuxdisplayChip } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
+import { StepperBody } from '@/components/StepperPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
@@ -53,6 +55,7 @@ import { cn } from '@/lib/utils'
 import type { DeviceClass, DeviceNode, BodyKind } from '@/deviceTopology'
 import * as hostAudio from '@/hostAudio'
 import * as hostBuzzer from '@/hostBuzzer'
+import * as hostStepper from '@/hostStepper'
 import * as hostGnss from '@/hostGnss'
 import * as hostGpio from '@/hostGpio'
 import * as hostMic from '@/hostMic'
@@ -175,6 +178,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <GpioLedsBody />
     case 'buzzer':
       return <BuzzerBody />
+    case 'stepper':
+      return <StepperBody />
     case 'gnss':
       return <GnssBody />
     case 'speaker':
@@ -230,6 +235,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Gamepad2
     case 'buzzer':
       return Vibrate
+    case 'stepper':
+      return RotateCw
     case 'gnss':
       return MapPin
     case 'speaker':
@@ -264,6 +271,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Gamepad2
     case 'buzzer':
       return Vibrate
+    case 'stepper':
+      return RotateCw
     case 'sensor':
       return Gauge
     case 'memory':
@@ -362,6 +371,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <GpioKeysBadge />
     case 'buzzer':
       return <BuzzerBadge />
+    case 'stepper':
+      return <StepperBadge />
     case 'speaker':
       return <SpeakerBadge />
     case 'mic':
@@ -465,6 +476,7 @@ export function GroupBadge({
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioControllerBadge />
   if (deviceClass === 'keys' && nodes.some((n) => n.body === 'gpio-keys')) return <GpioKeysBadge />
   if (deviceClass === 'buzzer' && nodes.some((n) => n.body === 'buzzer')) return <BuzzerBadge />
+  if (deviceClass === 'stepper' && nodes.some((n) => n.body === 'stepper')) return <StepperBadge />
   if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
   if (deviceClass === 'spi-bus' && nodes.some((n) => n.body === 'spi')) return <SpiBusBadge />
   if (deviceClass === 'uart-bus') {
@@ -684,6 +696,21 @@ function BuzzerBadge() {
   return (
     <Mono className={snap.sounding ? 'text-amber-400' : undefined}>
       {snap.sounding ? 'buzz' : 'idle'}
+    </Mono>
+  )
+}
+
+function StepperBadge() {
+  const snap = useSyncExternalStore(
+    hostStepper.subscribe,
+    hostStepper.getSnapshot,
+    hostStepper.getSnapshot,
+  )
+  const axis = snap.axes[0]
+  if (!axis) return null
+  return (
+    <Mono className={axis.moving ? 'text-emerald-400' : undefined}>
+      {axis.moving ? `${Math.round(axis.stepsPerSec)}/s` : `${axis.position}`}
     </Mono>
   )
 }

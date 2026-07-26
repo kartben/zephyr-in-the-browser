@@ -36,11 +36,12 @@ For bridged GPIO controllers the page understands (`qemu,host-gpio`,
 | `gpio-keys` | `gpio-keys` | `keys` (new) | `gpio-keys` | `keys` (new `PanelKind`) |
 | `gpio-leds` | `gpio-leds` | `led` | `gpio-leds` | `led` |
 | `buzzer` | `gpio-buzzer` | `buzzer` | `buzzer` | `buzzer` |
+| `stepper` | `zephyr,gpio-step-dir-stepper-ctrl` | `stepper` | `stepper` | `stepper` |
 | `gpio` | controller’s | `gpio` | `gpio` | `gpio` |
 
 `CLASS_LABELS.keys = 'Keys'`. Order in ▤ view: … → `led` → … → `gpio` →
-`keys` → `buzzer` → … (Keys next to GPIO/Buzzer; exact slot: after `gpio`,
-before `buzzer`).
+`keys` → `buzzer` → `stepper` → … (Keys next to GPIO/Buzzer; exact slot: after
+`gpio`, before `buzzer`).
 
 ### 2.2 `GpioKeysBody`
 
@@ -63,6 +64,7 @@ badge: `claimed / ngpios` (e.g. `2 / 8`).
 | Blinky | `['led', 'gpio']` |
 | Button | `['keys', 'led', 'gpio']` |
 | Buzzer | `['buzzer', 'gpio', 'led']` (keys only if DT has them) |
+| Stepper | `['stepper', 'keys', 'gpio']` |
 
 ---
 
@@ -77,6 +79,7 @@ For each okay consumer on a bridged controller:
 | `gpio-keys` child | existing `buttons` | pin, label, flags |
 | `gpio-leds` child | existing `leds` | pin, label, flags |
 | `gpio-buzzer` | existing `buzzers` | pin, label, activeHigh → flags |
+| `zephyr,gpio-step-dir-stepper-ctrl` | `steppers` | step/dir pins, active levels, invert-direction |
 
 Flags decode (Zephyr `gpio.h` DT cell, already what `gpioSpecs` returns):
 
@@ -96,7 +99,7 @@ Also keep `ngpios` from the controller node (already on `GpioController`).
 ### 3.2 From the live bridge
 
 Per pin, when the model exposes it (virtio-gpio direction array today;
-host-gpio: treat keys pins as IN, leds/buzzer as OUT when declared):
+host-gpio: treat keys pins as IN, leds/buzzer/stepper as OUT when declared):
 
 | Value | UI |
 | --- | --- |
@@ -151,7 +154,8 @@ shipped UI (mockup legend was explanatory only).
 
 ### 5.1 Cell content
 
-- With consumer: **`SW0` · keys** / **`LED0` · leds** / **`Buzzer` · buzzer**
+- With consumer: **`SW0` · keys** / **`LED0` · leds** / **`Buzzer` · buzzer** /
+  **`STEP` · stepper**
   — short label bold/foreground, kind muted. Prefer DT `label` stripped to a
   short form when obvious (`Browser SW0` → still show full label if short;
   truncate with ellipsis at ~14ch).
@@ -166,6 +170,7 @@ Map consumer → dock row `key`:
 | keys | `gpio-keys` |
 | leds | `gpio-leds` |
 | buzzer | `buzzer` |
+| stepper | `stepper` |
 
 (Stable keys already used by topology.)
 
@@ -207,9 +212,9 @@ CSS only, no new motion library:
 
 ```
 insights.gpioControllers[bridged]
-  .buttons / .leds / .buzzers / ngpios
+  .buttons / .leds / .buzzers / .steppers / ngpios
         ↓
-topology: gpio-keys, gpio-leds, buzzer, gpio rows
+topology: gpio-keys, gpio-leds, buzzer, stepper, gpio rows
         ↓
 GpioBody: build claimed pin list
   merge DT consumers + runtime direction
@@ -220,7 +225,7 @@ table row → used by → revealDockRow(consumerKey)
 Runtime direction: extend `hostGpio` (or a thin adapter over `gpioModel`) with
 `getPinDirection(pin): 'in' | 'out' | 'none'` so M3 MMIO and A53 virtio share
 one table path. M3 without a direction register: infer from consumer role
-(keys→in, leds/buzzer→out) when DT claims the pin; otherwise `none`.
+(keys→in, leds/buzzer/stepper→out) when DT claims the pin; otherwise `none`.
 
 ---
 

@@ -19,6 +19,7 @@ export type PanelKind =
   | 'gpio'
   | 'keys'
   | 'buzzer'
+  | 'stepper'
   | 'audio'
   | 'perf'
   | 'net'
@@ -218,6 +219,15 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
     primaryPanels: ['buzzer', 'gpio', 'led'],
+  },
+  {
+    // STEP/DIR on host_gpio pins 6/7. Stock generic sample — press SW0 to
+    // advance modes; the dock dial tracks observed STEP edges.
+    id: 'stepper',
+    label: 'Stepper',
+    description: 'GPIO step/dir stepper; press SW0 to cycle modes, dial in the dock',
+    zephyrSample: 'samples/drivers/stepper/generic',
+    primaryPanels: ['stepper', 'keys', 'gpio'],
   },
   {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
@@ -460,6 +470,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Drives a gpio-buzzer over VIRTIO GPIO; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
     primaryPanels: ['buzzer', 'gpio', 'led'],
+  },
+  {
+    // STEP/DIR on virtio_gpio0 pins 6/7. Same dock body as M3 — edge-accurate
+    // on virtio (each guest write notifies). Press SW0 to advance modes.
+    id: 'stepper',
+    label: 'Stepper',
+    description: 'GPIO step/dir over VIRTIO GPIO; press SW0 to cycle modes, dial in the dock',
+    zephyrSample: 'samples/drivers/stepper/generic',
+    primaryPanels: ['stepper', 'keys', 'gpio'],
   },
   {
     // Interrupt-driven, unlike the Cortex-M3 build: this device offers

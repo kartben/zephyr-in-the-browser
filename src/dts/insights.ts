@@ -100,6 +100,23 @@ export interface BuzzerPin {
   activeHigh: boolean
 }
 
+/**
+ * A `zephyr,gpio-step-dir-stepper-ctrl` whose STEP pin is on this controller.
+ * DIR may share the controller (typical) or ride another — both pin indices
+ * are recorded either way.
+ */
+export interface StepperAxis {
+  /** Stable id: node path. */
+  id: string
+  label: string
+  stepPin: number
+  stepActiveHigh: boolean
+  dirPin: number
+  dirActiveHigh: boolean
+  /** DT `invert-direction` boolean. */
+  invertDirection: boolean
+}
+
 /** One child of a `pwm-leds` group, wired to a PWM channel. */
 export interface PwmLed {
   /** Channel index on the PWM controller. */
@@ -132,6 +149,8 @@ export interface GpioController {
   leds: DtsPin[]
   /** gpio-buzzer nodes wired to this controller. */
   buzzers: BuzzerPin[]
+  /** gpio step/dir stepper controllers whose STEP pin is on this controller. */
+  steppers: StepperAxis[]
 }
 
 export interface DtsInsights {
@@ -379,6 +398,7 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
       buttons: [],
       leds: [],
       buzzers: [],
+      steppers: [],
     })
   })
 
@@ -418,10 +438,31 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
     }
   }
 
+  // zephyr,gpio-step-dir-stepper-ctrl: STEP + DIR named phandle-arrays.
+  // Attach to the controller that owns the STEP pin (DIR usually shares it).
+  for (const node of doc.compatIndex.get('zephyr,gpio-step-dir-stepper-ctrl') ?? []) {
+    if (!effectivelyOkay(node)) continue
+    const stepSpec = gpioSpecs(doc, node, 'step-gpios')[0]
+    const dirSpec = gpioSpecs(doc, node, 'dir-gpios')[0]
+    if (!stepSpec || !dirSpec) continue
+    const controller = controllers.find((c) => c.node === stepSpec.controller)
+    if (!controller) continue
+    controller.steppers.push({
+      id: pathOf(node),
+      label: stringProp(node, 'label') ?? labelOf(node),
+      stepPin: stepSpec.pin,
+      stepActiveHigh: (stepSpec.flags & 0x1) === 0,
+      dirPin: dirSpec.pin,
+      dirActiveHigh: (dirSpec.flags & 0x1) === 0,
+      invertDirection: boolProp(node, 'invert-direction'),
+    })
+  }
+
   for (const controller of controllers) {
     controller.buttons.sort((a, b) => a.id - b.id)
     controller.leds.sort((a, b) => a.id - b.id)
     controller.buzzers.sort((a, b) => a.id - b.id)
+    controller.steppers.sort((a, b) => a.stepPin - b.stepPin || a.dirPin - b.dirPin)
   }
   return controllers.map(({ node: _node, ...controller }) => controller)
 }
@@ -515,6 +556,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (gpioControllers.some((controller) => controller.bridged)) panels.add('gpio')
   if (gpioControllers.some((c) => c.bridged && c.buttons.length > 0)) panels.add('keys')
   if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
+  if (gpioControllers.some((c) => c.bridged && c.steppers.length > 0)) panels.add('stepper')
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313') || hasOkayCompat(doc, 'ptc,pt6314')) {
