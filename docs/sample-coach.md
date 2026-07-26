@@ -1,21 +1,28 @@
 # Sample coach macros — plan
 
-Teaching overlays driven from **macros in guest sample code**: explanations,
-dock highlights, and optional pauses that the browser UI turns into popups and
-guided attention. This is a design plan, not an implementation.
+Teaching overlays driven from **thin macros in guest sample code**: the guest
+emits stable event IDs (and optional source anchors); the **page** owns the
+prose, dock reveals, pause policy, and a packaged source view that can
+highlight the lines under discussion. This is a design plan, not an
+implementation.
 
 Today the lab already teaches by pairing a sample with `primaryPanels`,
 footer shell hints (“In the guest: …”), register maps, and mirrored docs.
 What it does **not** have is a way for the *running sample* to narrate itself
 at the right moment — “I just claimed this GPIO”, “watch the I²C write that
-sets ODR”, “click SW0 now”. That is the gap this plan closes.
+sets ODR”, “click SW0 now” — while showing the *code* that did it. That is
+the gap this plan closes.
 
 ## Goals
 
-- Let didactic samples (or thin wrappers around upstream samples) emit
-  structured **coach events** from C with a small macro API.
-- Have the page react: fancy but restrained popups, dock-row reveal, optional
-  auto-pause until the learner continues, and terminal/source callouts.
+- Let didactic samples (or thin wrappers) emit structured **coach events**
+  from C with a small macro API — **IDs, not essay text**.
+- Keep explanation bodies, titles, and richer markdown in **host-side
+  playbooks** next to the sample catalog (editable without rebuilding the
+  guest).
+- Package each app’s **source tree** (or a curated subset) beside the ELF/DTS
+  so learners can browse it, and so a “pause and look at the code” beat can
+  open a viewer scrolled to the highlighted line(s).
 - Prefer a path that works on **Cortex-M3 and Cortex-A53** without a new QEMU
   device for the first cut.
 - Keep stock Zephyr samples runnable without coach noise when the feature is
@@ -28,129 +35,233 @@ sets ODR”, “click SW0 now”. That is the gap this plan closes.
 - Patching every upstream Zephyr sample in-tree; coach annotations live in
   this repo (module headers + optional app wrappers / overlays).
 - Replacing `primaryPanels` or panel footer hints — coach *augments* them.
+- Shipping the entire Zephyr tree; only the app’s own sources (and maybe a
+  short allowlisted set of headers it includes).
 
 ## Design sketch
 
 ```
-  sample C  --COACH_* macros-->  coach transport  -->  page coach runtime
-                                                          |
-                    +------------ popup / toast ----------+
-                    +------------ revealDockRow ----------+
-                    +------------ pause / continue -------+
-                    +------------ optional source pin ----+
+  sample C  --COACH("id")-->  coach transport  -->  page coach runtime
+       |                                              |
+       |                         look up playbook[id] |
+       |                              (title, body,   |
+       |                               reveal, pause, |
+       |                               source range)  |
+       |                                              v
+       +-- packaged sources <----------- SourceViewer + CoachOverlay
+              (public/…/app.src/)              |
+                                    revealDockRow / soft|hard pause
 ```
 
-### Macro API (guest)
+**Split of responsibilities (intentional):**
 
-A tiny Zephyr module header, e.g. `zephyr-module/include/browser_coach.h`,
-gated by `CONFIG_BROWSER_COACH`. Macros compile to nothing when disabled.
+| Layer | Owns |
+| --- | --- |
+| Guest macros | *When* something pedagogically interesting happened (`id`); optionally *where* in source (`file` + `line` via `__FILE__`/`__LINE__`) |
+| Host playbook | *What to say* (title/body), *what to show* (panels/rows), *how to pause*, fallback source ranges if the guest did not pin lines |
+| Packaged sources | The text the SourceViewer renders and highlights |
+
+Explanation bodies should **not** live in the guest. Strings in firmware are
+painful to edit, bloat the ELF, tempt `printk`-visible leaks, and fight i18n
+or tone changes. The guest only needs to say `blinky.gpio_ready`; the page
+supplies the paragraph.
+
+---
+
+## Packaged app sources
+
+Today `tools/build-zephyr-image.sh` ships `public/qemu/zephyr/<board>/<app>.elf`
+and `<app>.dts`. Add a third artifact:
+
+```text
+public/qemu/zephyr/<board>/<app>.src.json   # or .src/ directory + manifest
+```
+
+### What to include
+
+- The sample’s own tree: `src/**/*.{c,h,cpp}`, `CMakeLists.txt`, `prj.conf`,
+  overlays/snippets that are *part of the app story* — not the whole SDK.
+- For `zephyr-module/apps/*`, copy from this repo.
+- For upstream `samples/...`, copy from the west Zephyr checkout at build time
+  (same revision the ELF was built from).
+- Optionally a small `files[]` manifest with path + sha so the UI can lazy-
+  fetch per file instead of one giant blob.
+
+Skip generated build dirs, binary blobs, and deep `zephyr/include` dumps.
+If a beat must cite a Zephyr API header, link out to docs.zephyrproject.org
+rather than vendoring it.
+
+### Runtime use
+
+1. **Consult** — TopBar / gallery / a “Source” control opens a read-only
+   viewer (same dialog family as DTS): file tree + code pane. Always
+   available when the `.src` artifact exists, even with coach muted.
+2. **Coach highlight** — On a `look` / pause beat, open (or focus) that
+   viewer, select the file, scroll to range, highlight lines. The coach card
+   stays on the stage; the source pane is the “textbook,” not a sticker on
+   the framebuffer.
+
+Line numbers in playbooks must match the **packaged** sources. Build script
+copies are the source of truth; do not highlight against a floating GitHub
+`main` that may have drifted.
+
+### Size
+
+App trees are small (blinky is a few KB of C). Even packaging every sample’s
+`src/` is cheap next to ELFs. Prefer one JSON per app for simple caching:
+
+```json
+{
+  "sample": "samples/basic/blinky",
+  "revision": "<zephyr sha or module git>",
+  "files": {
+    "src/main.c": "/* ... full text ... */",
+    "prj.conf": "..."
+  }
+}
+```
+
+---
+
+## Host playbooks (where the prose lives)
+
+Per-sample (or per board+sample) YAML/TS beside the catalog, e.g.
+`src/coach/playbooks/blinky.ts`:
+
+```ts
+export const blinky: Playbook = {
+  'blinky.gpio_ready': {
+    title: 'The LED pin',
+    body: 'After the GPIO is ready, blinky toggles LED0 in a loop. Watch the LED row in the dock.',
+    revealPanels: ['led', 'gpio'],
+    pause: 'soft',           // none | soft | hard | auto
+    // Fallback if the guest event omitted file/line:
+    source: { file: 'src/main.c', lines: [42, 48] },
+  },
+  'blinky.toggle': {
+    title: 'Each toggle',
+    body: 'gpio_pin_toggle_dt is what flips the dock LED.',
+    pause: 'look',           // pause + force source viewer
+    source: { file: 'src/main.c', lines: [55, 55] },
+  },
+}
+```
+
+Playbooks can also drive **boot-time** beats with no guest macro (useful for
+`shell`): a short queue that fires after `backend === 'running'`.
+
+---
+
+## Macro API (guest) — thin by design
+
+Header e.g. `zephyr-module/include/browser_coach.h`, gated by
+`CONFIG_BROWSER_COACH`. Compiles to nothing when disabled.
 
 ```c
-/* Fire-and-forget explanation near the UI focus. */
-COACH_EXPLAIN("gpio", "LED0 is GPIO pin 4 on virtio_gpio0 — watch the dock.");
+/* Emit event id only — copy lives on the page. */
+COACH("blinky.gpio_ready");
 
-/* Point at a dock row / panel (keys match DeviceNode / PanelKind ids). */
-COACH_REVEAL("led:led0");
-COACH_REVEAL_PANEL("gpio");
+/* Same, and pin the call site as the source anchor. */
+COACH_HERE("blinky.toggle");
 
-/* Soft or hard pause: show popup, wait for Continue (see Pause below). */
-COACH_PAUSE("Click SW0 in the Keys row, then Continue.");
+/* Explicit range when the interesting code is not the call site
+ * (e.g. macro sits just before a block you want highlighted). */
+COACH_AT("lsm6dso.odr", "src/main.c", 88, 95);
 
-/* Hint that belongs next to a shell command the learner should type. */
-COACH_SHELL("sensor get lsm6dso@6a");
-
-/* Optional: pin a source anchor for the docs/gallery side (file:line or tag). */
-COACH_PIN("main.c:42", "sensor_attr_set sets the ODR the dock will reflect.");
+/* Blocking variant when hard pause is available (Phase B). */
+COACH_WAIT("button.press_sw0");
 ```
 
-Implementation shape:
+Wire format (conceptual): `{ id, file?, line?, endLine? }`. No title/body
+strings in the guest.
 
 | Piece | Role |
 | --- | --- |
-| `COACH_*` macros | Encode a small tagged message (id, kind, payload string) |
-| `browser_coach_emit(...)` | Backend that actually sends bytes / waits for ACK |
-| Kconfig `BROWSER_COACH` | Default `n` for production images; `y` on “tour” builds |
+| `COACH` / `COACH_HERE` / `COACH_AT` / `COACH_WAIT` | Emit id (+ optional source span) |
+| `browser_coach_emit(...)` | Transport + optional wait-for-ACK |
+| `CONFIG_BROWSER_COACH` | Off by default; on for tour images |
 
-Payloads stay short (≈120–200 bytes). Rich markdown stays out of the guest;
-the page can map stable `id`s to longer copy if needed later.
+`COACH_HERE` uses `__FILE__` / `__LINE__`. The build packaging step should
+normalize paths to the keys inside `.src.json` (strip absolute west roots).
 
-### Transport — phased
+---
+
+## Transport — phased
 
 **Phase A — console OSC markers (recommended first cut).**  
 Emit an OSC-style sequence on the console (filtered out of the visible
 xterm stream), e.g.:
 
 ```text
-ESC ] 787 ; <json-or-tlv> BEL
+ESC ] 787 ; <compact id[+path+lines]> BEL
 ```
 
 The PTY backend already owns guest→host bytes (`src/backends/`). A thin
 parser strips coach frames before they reach xterm and dispatches to a
-`coachStore`. Works on every board that has a serial console — including
+`coachStore`. Works on every board with a serial console — including
 Cortex-M3 — with **no QEMU patch**.
 
-Risks: accidental binary in logs if filtering fails; need to escape/length-
-prefix payloads; pause-ACK needs a reverse path (host→guest). For pause ACK
-in Phase A, either:
+Pause ACK in Phase A:
 
-1. **Soft pause only** — UI blocks interaction overlay while the vCPU keeps
-   running (honest about not freezing time), or
-2. **Guest spin** — `COACH_PAUSE` polls a second console escape / shell
-   injection / semihosting peek until the page writes “continue” (clunky but
-   workable for demos).
+1. **Soft / look pause** — UI overlay (+ source viewer); vCPU keeps running.
+2. Optional guest spin until a host→guest continue token (clunky; defer if soft is enough).
 
 **Phase B — dedicated coach channel.**  
-Once Phase A proves the UX, promote to a proper bridge:
+virtio-browser `coach` (or a tiny MMIO mailbox on M3) for clean `COACH_WAIT`
+request/ACK without sharing the serial stream.
 
-- Prefer **virtio-browser** named `coach` (TypeScript model, no new QEMU C
-  beyond the existing generic device), or
-- A tiny **MMIO mailbox** on the host-gpio shape if M3 must hard-pause without
-  virtio.
+---
 
-Phase B gives clean request/ACK pause and does not share the serial stream.
-
-### Host runtime & UI
-
-New pieces (names indicative):
+## Host runtime & UI
 
 | Piece | Responsibility |
 | --- | --- |
 | `src/coach/parse.ts` | Extract coach frames from PTY bytes |
-| `src/coach/store.ts` | Queue of active hints; dismiss / continue |
-| `src/components/CoachOverlay.tsx` | Stage-level popup (one composition: title + short body + CTA) |
-| Hooks into `revealDockRow` / `primaryPanels` | Attention blink already exists |
+| `src/coach/playbooks/*` | id → title/body/reveal/pause/source |
+| `src/coach/store.ts` | Queue; dismiss / continue |
+| `src/components/CoachOverlay.tsx` | Stage popup: title + short body + CTA |
+| `src/components/SourceViewer.tsx` | Browse packaged sources; highlight ranges |
+| `tools/build-zephyr-image.sh` | Also emit `<app>.src.json` |
+| Hooks into `revealDockRow` | Attention blink already exists |
 
-UI rules that fit this repo’s taste:
+UI rules:
 
-- **One coach card at a time** (queue the rest); never a dashboard of tips.
-- Popups live on the **stage** (near the terminal), not as floating stickers
-  on peripheral media.
-- Prefer **reveal + short sentence** over long essays; deep content stays in
-  mirrored sample docs.
-- Motion: reuse dock reveal blink; one enter/exit on the coach card.
+- **One coach card at a time**; queue the rest.
+- Popups on the **stage** (near the terminal), not stickers on peripheral media.
+- **Look pauses** split attention: coach card states the point; SourceViewer
+  shows the lines — do not paste long code into the popup.
+- Prefer short bodies; deep reading stays in mirrored sample docs + full source.
+- Motion: dock reveal blink + one enter/exit on the coach card; smooth scroll
+  in the source pane.
 
 ### Pause semantics
 
 | Mode | Behavior | When to use |
 | --- | --- | --- |
-| `soft` | Overlay + Continue; guest keeps running | Blinky, network, anything time-sensitive where freeze lies |
-| `hard` | Guest blocks in `COACH_PAUSE` until ACK | Button / shell “do this now” beats where causality matters |
-| `auto` | Timed toast, no Continue | Low-stakes explain near a printk |
+| `none` | Toast / card, no Continue | Rare; prefer `auto` |
+| `auto` | Timed card, no Continue | Low-stakes narrate |
+| `soft` | Card + Continue; guest runs | Blinky, network |
+| `look` | soft + open/focus SourceViewer on range | “Pause and look at the code” |
+| `hard` | Guest blocks in `COACH_WAIT` until ACK | Button “do this now” beats |
 
-v1 can ship `explain` + `reveal` + `soft` pause only; add `hard` with Phase B.
+v1: `auto` / `soft` / `look` + packaged sources. Add `hard` with Phase B.
 
-### How annotations land on samples
+---
+
+## How annotations land on samples
 
 Upstream paths in `tools/samples.manifest` stay stock. Coach belongs in
 **this** tree:
 
-1. **Header-only annotations** in `zephyr-module/apps/*` (we already own
-   `accelerometer_chart`).
-2. **Thin wrapper apps** under `zephyr-module/apps/` that `#include` or
-   duplicate a short `main` around the same APIs the upstream sample uses —
-   only for the few “tour” demos worth scripting.
-3. **Optional conf fragment** `zephyr-module/conf/coach.conf` turned on by a
-   manifest snippet (`coach`) so tour images are explicit, not accidental.
+1. Macros in `zephyr-module/apps/*` (start with `accelerometer_chart`).
+2. Thin wrapper apps under `zephyr-module/apps/` for a few tour demos, *or*
+   a conf snippet that only enables the coach library while a tiny `.c` with
+   `COACH_*` call sites is linked via `EXTRA_SOURCES` — only if wrappers get
+   heavy.
+3. Playbooks + packaged sources for upstream samples even before any guest
+   macro exists (boot-time host playbook still works; line highlights use
+   playbook `source` ranges against the packaged tree).
+4. Optional `coach` snippet / `coach.conf` so tour images are explicit.
 
 Do **not** require editing Zephyr’s `samples/` tree inside the west workspace
 for day-to-day builds.
@@ -166,188 +277,132 @@ already have a clear dock story (`primaryPanels`) and a single “aha”.
 
 **Teaches:** a thread toggles a GPIO LED; the dock is the hardware.
 
-Suggested beats:
+| Guest event | Playbook UI |
+| --- | --- |
+| `blinky.gpio_ready` | Reveal LED/GPIO; soft explain |
+| `blinky.toggle` (once) | **`look`** pause on `gpio_pin_toggle_dt` in packaged `src/main.c` |
 
-| When (in guest) | Event | UI |
-| --- | --- | --- |
-| After `gpio_is_ready_dt` | `EXPLAIN` + `REVEAL_PANEL(led/gpio)` | “LED0 is the pin the sample toggles.” |
-| First toggle | `EXPLAIN` (auto) | “Each `gpio_pin_toggle` flips the dock LED.” |
-| Loop settled | `SHELL` optional | Only if shell is present; else skip |
-
-**Why first:** shortest path end-to-end; validates parse → overlay → reveal
-with almost no timing sensitivity. Soft pause only (blink must keep moving).
+Soft/look only (blink must keep moving under soft; a one-shot look on first
+toggle is enough).
 
 ### 2. `basic_button` — input → output
 
-**Teaches:** `gpio-keys` IRQ/path lights an LED when SW0 is pressed.
+| Guest event | Playbook UI |
+| --- | --- |
+| `button.ready` | Reveal Keys + LED |
+| `button.await_press` | Pause (hard if available): “Press SW0”; optional **look** at the callback / gpio-keys wait |
+| `button.handled` | Explain LED follow-up; highlight handler lines |
 
-Suggested beats:
-
-| When | Event | UI |
-| --- | --- | --- |
-| Init OK | `REVEAL` keys + led | Expand Keys and LED rows |
-| Before wait / poll loop | `PAUSE` (hard if available) | “Press SW0 in the Keys row.” |
-| On first edge handled | `EXPLAIN` | “The guest saw the interrupt / callback; LED follows.” |
-
-**Why high value:** this is the first sample that needs a *learner action*.
-It justifies pause-ACK more than blinky does.
+First sample that needs a *learner action* — justifies pause-ACK.
 
 ### 3. `shell` — interactive lab bench
 
-**Teaches:** the shell is the interface to bridges (`gpio`, `sensor`, `i2c`,
-`hostaudio`, …).
+Macros in upstream shell are awkward. Prefer **host playbook on boot** +
+packaged shell-module sources for “open the file that registers command X”.
+Optional guest `coach` shell command later (`coach demo sensors`) that only
+emits ids.
 
-Here macros in a stock shell module are awkward (upstream, long-lived). Prefer
-a **host-side playbook** keyed by sample id, plus a few guest emits from a
-small `coach` shell command registered only when `CONFIG_BROWSER_COACH=y`:
+### 4. `lsm6dso` (and kin)
 
-```text
-uart:~$ coach demo sensors
-```
+| Guest event | Playbook UI |
+| --- | --- |
+| `lsm6dso.before_fetch` | Reveal sensor + I²C |
+| `lsm6dso.odr_set` | **`look`** at `sensor_attr_set` + explain that the dock/I²C trace reflects ODR |
 
-Beats driven from the page when `app=shell` boots:
-
-1. Explain dock layout (I²C vs GPIO vs audio depending on board).
-2. `SHELL` chips: suggest `i2c scan`, `sensor get`, `gpio get`.
-3. Optional guest `COACH_EXPLAIN` inside a module init if we add a tiny
-   `browser_coach` shell subcommand that samples can call.
-
-**Why:** highest dwell time; coaching is “try this command” rather than
-narrating a fixed `main`.
-
-### 4. `lsm6dso` (and kin: `lps22hh`, `ina219`, `isl29035`)
-
-**Teaches:** stock sensor driver + `sensor_attr_set` / fetch over I²C; dock
-sliders are the physical world.
-
-Suggested beats (wrapper or patched tour app):
-
-| When | Event | UI |
-| --- | --- | --- |
-| Before first `sensor_sample_fetch` | `REVEAL` sensor + i2c | Show chip row + bus |
-| After `sensor_attr_set` (ODR) | `PIN` + `EXPLAIN` | “ODR write just crossed the bus — open the I²C trace / Registers.” |
-| Loop | rare `auto` explain | Don’t spam every sample; at most once |
-
-**Why:** best hardware-lab story in the catalog; ties guest API to the I²C
-trace and register map that already exist.
+Best hardware-lab story; ties API lines to bus traffic.
 
 ### 5. `accel_chart` — owned sample
 
-**Teaches:** browser tilt → simulated IMU → LVGL chart.
+Ideal first annotated codebase (`zephyr-module/apps/accelerometer_chart/`).
+Packaging sources is trivial (in-repo). Macros at sensor/display ready and
+first chart path; playbook bodies teach Follow-tilt without stuffing strings
+into the app.
 
-This is the **ideal first annotated codebase**: it already lives under
-`zephyr-module/apps/accelerometer_chart/`. Sprinkle `COACH_*` at:
+### 6. Networking suite
 
-- display/sensor ready,
-- first chart update,
-- when follow-tilt is meaningful (“enable Follow on the ADXL/LSM row”).
-
-No upstream conflict; proves the full guest macro path before wrappers.
-
-### 6. Networking suite (`dhcp`, `http_get`, `echo_server`, …)
-
-**Teaches:** the page *is* the LAN.
-
-Beats:
-
-| When | Event | UI |
-| --- | --- | --- |
-| iface up / DHCP bound | `REVEAL_PANEL(net)` + `EXPLAIN` | “Addresses appear in the Network panel.” |
-| first TCP connect | `EXPLAIN` | Point at capture / throughput |
-| server ready | `SHELL` or copy-paste host hint | e.g. what the in-page client will do |
-
-Soft pause only — freezing the guest mid-TCP is hostile. Prefer explain +
-reveal timed to printk milestones already in those samples.
+Host or guest ids around iface-up / DHCP bound / first connect; reveal Net
+panel; **look** at the bind/connect call in packaged sources. Soft/look only —
+do not hard-freeze mid-TCP.
 
 ### 7. `tracing`
 
-**Teaches:** CTF stream → Gantt on the stage.
+Boot explain + reveal Trace overlay; optional look at the sample’s tracing
+setup. Avoid pauses that stop event production.
 
-One or two explains at boot (“semihosting is writing `tracing.bin`; the Trace
-panel follows it”) plus reveal of the trace overlay. Avoid pauses that stop
-event production.
+### 8. Display / touch / LVGL
 
-### 8. Display / touch / LVGL (`display`, `touch`, `lvgl_music`)
+Coach off the framebuffer. Stage card + SourceViewer; focus the floating
+display window for “drag here,” not badges on pixels.
 
-**Teaches:** framebuffer + virtio-input tablet.
-
-Coach should stay off the framebuffer: stage popup near the terminal, and
-`REVEAL`/focus the floating display window rather than overlaying badges on
-pixels. Beats: “drag on the display — the guest sees a virtio tablet.”
-
-### Explicitly lower priority
+### Lower priority
 
 | Sample | Reason to wait |
 | --- | --- |
-| `hello_world` | Too little to narrate; gallery blurb is enough |
-| `philosophers` | Timing already fragile on M3 TCI; pauses make it worse |
-| `hsm` | Shell-driven; host playbook like `shell` is enough |
-| EEPROM / SPI flash / RTC | Great labs, but second wave after sensors + GPIO |
+| `hello_world` | Gallery + one look at `printk` is enough later |
+| `philosophers` | Timing fragile on M3 TCI |
+| `hsm` | Shell-driven; host playbook |
+| EEPROM / SPI / RTC | Second wave after GPIO + sensors |
 
 ---
 
 ## Rollout plan
 
-### Milestone 0 — contract only
+### Milestone 0 — contract
 
-- This document + a sketched `browser_coach.h` API and OSC frame format.
-- Vitest fixtures for the parser (`explain` / `reveal` / `pause` frames).
-- No guest image rebuild required.
+- This document; sketched header API (id-only); OSC frame; playbook type.
+- Vitest for parser + playbook lookup.
 
-### Milestone 1 — host UX + soft coach
+### Milestone 1 — sources + host UX (no guest macros required)
 
-- PTY filter + `CoachOverlay` + queue.
-- Host-side playbooks for `shell` and `blinky` (even with zero guest macros)
-  to validate UX against live images.
-- Wire `REVEAL` to existing `revealDockRow`.
+- Extend `build-zephyr-image.sh` to emit `<app>.src.json` for a few apps.
+- `SourceViewer` (browse + highlight).
+- Host playbooks for `blinky` / `shell` firing on boot; soft + **look** pauses.
+- Wire reveals to `revealDockRow`.
 
-### Milestone 2 — guest macros on owned code
+### Milestone 2 — guest ids on owned code
 
-- `CONFIG_BROWSER_COACH` + header in `zephyr-module`.
-- Annotate `accelerometer_chart`.
-- Optional `coach` snippet / conf for tour builds in `samples.manifest`.
+- `CONFIG_BROWSER_COACH` + thin header.
+- `COACH` / `COACH_HERE` in `accelerometer_chart`.
+- Playbooks supply all prose.
 
 ### Milestone 3 — tour wrappers for GPIO + IMU
 
-- Thin apps or overlay mains for `blinky`, `basic_button`, `lsm6dso`.
-- Soft pause everywhere; hard pause prototype on A53 virtio if needed.
+- Ids in blinky/button/lsm6dso wrappers (or minimal EXTRA_SOURCES).
+- Path normalization from `__FILE__` → `.src.json` keys.
 
 ### Milestone 4 — hard pause channel (optional)
 
-- virtio-browser `coach` device or MMIO mailbox + ACK.
-- Switch `COACH_PAUSE` to blocking where demos need it (`basic_button`).
+- virtio-browser `coach` or MMIO mailbox; `COACH_WAIT` for `basic_button`.
 
 ---
 
-## Concrete first annotations (cheat sheet)
+## Concrete first slice
 
-If implementing tomorrow, do these three only:
+1. Package sources for `blinky` + `accel_chart`.  
+2. SourceViewer + one host-driven **look** beat on blinky’s toggle lines.  
+3. Thin `COACH_HERE("accel.ready")` in `accel_chart` with playbook body on the page.
 
-1. **`accel_chart`** — 3× `COACH_EXPLAIN` / `COACH_REVEAL` in the owned app.  
-2. **`blinky`** — host playbook on boot + one guest explain after GPIO ready
-   (wrapper).  
-3. **`basic_button`** — soft (then hard) pause “Press SW0” + reveal Keys/LED.
-
-That set exercises reveal, explain, learner action, and owned vs wrapper
-packaging without touching the network or tracing stacks.
+That proves consultable sources, line highlight, id-only guest events, and
+host-owned copy — without a QEMU rebuild.
 
 ---
 
 ## Open questions
 
-1. **Upstream posture:** keep coach forever out-of-tree, or eventually propose
-   a Zephyr “sample annotation” convention? (Assume out-of-tree until proven.)
-2. **Copy length:** guest strings vs page-side dictionary keyed by `id`?
-   Start with guest strings; move long copy to the page if i18n/docs matter.
-3. **Hard pause on M3:** worth an MMIO mailbox, or accept soft-only on M3?
-4. **Docs widget:** should mirrored sample docs auto-start the coach playbook
-   when “Run in simulator” opens?
-5. **Noise control:** global mute, per-sample default, and “don’t show again”
-   for returning users?
+1. **Upstream posture:** keep coach out-of-tree until proven?
+2. **Artifact shape:** single `.src.json` vs `.src/` directory of files? (JSON
+   is simpler for Pages caching; directory scales if apps grow.)
+3. **Path stability:** normalize `__FILE__` at emit time in the guest library
+   vs rewrite in the page using a build-time path map?
+4. **Hard pause on M3:** MMIO mailbox, or soft/look-only on M3?
+5. **Docs widget:** auto-start playbook when “Run in simulator” opens?
+6. **Mute / don’t show again** for returning users?
+7. **Multi-file highlights:** one range per beat for v1, or allow a list?
 
 ## Related
 
 - Sample catalog: [`src/boards.ts`](../src/boards.ts), [`tools/samples.manifest`](../tools/samples.manifest)
+- Image build (ELF/DTS today): [`tools/build-zephyr-image.sh`](../tools/build-zephyr-image.sh)
 - Dock reveal: [`src/lib/dockReveal.ts`](../src/lib/dockReveal.ts)
-- Mirrored docs + Run in simulator: [`sample-docs.md`](sample-docs.md)
-- Bridge shapes / cost of new devices: [`next-drivers.md`](next-drivers.md), [`virtio-bridge.md`](virtio-bridge.md)
+- Gallery / upstream source links: [`src/sampleDocs.ts`](../src/sampleDocs.ts), [`sample-docs.md`](sample-docs.md)
+- Bridge shapes: [`next-drivers.md`](next-drivers.md), [`virtio-bridge.md`](virtio-bridge.md)
