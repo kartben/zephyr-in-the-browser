@@ -2,40 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { HexBacked } from '@/virtio/devices/memory/model'
 
-/** Classic hexdump width. 16 keeps a 256-byte part to a readable square. */
 const BYTES_PER_ROW = 16
 
-/** How long a freshly-changed byte stays lit. */
 const FLASH_MS = 1200
 
-/**
- * Above this, render a sliding window instead of every cell — SPI NOR stubs
- * are 1 MiB; a full dump freezes the tab.
- */
+// SPI NOR stubs are 1 MiB; a full dump freezes the tab.
 const WINDOW_BYTES = 256
 
-/** Skip O(n) change scans past this; highlight nothing rather than stall. */
+// Skip O(n) change scans past this; highlight nothing rather than stall.
 const DIFF_SCAN_LIMIT = 4096
 
 const hex2 = (n: number) => n.toString(16).padStart(2, '0')
 
-/**
- * A live hex dump of a memory chip's contents.
- *
- * The whole of what an EEPROM has to show, so it is worth showing well. Four
- * things do the work of making it scannable rather than a wall of digits:
- *
- * - Erased cells are dimmed, so on a mostly-blank part the bytes that exist
- *   are the only thing your eye lands on.
- * - Bytes the guest just changed light up for a moment, so a driver writing
- *   is something you watch happen rather than infer.
- * - The read pointer is outlined, showing where the guest is reading from.
- * - Clicking a byte edits it, which is how you plant something for the guest
- *   to find without writing an application to do it.
- *
- * Parts larger than {@link WINDOW_BYTES} page around the live pointer (with
- * prev/next controls) instead of mounting a million cells.
- */
 export function HexView({ chip }: { chip: HexBacked }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<number | null>(null)
@@ -50,7 +28,6 @@ export function HexView({ chip }: { chip: HexBacked }) {
 
   const erased = chip.decl.erased ?? 0xff
   const rows = Math.ceil(view.length / BYTES_PER_ROW) || 1
-  // Enough digits for the largest offset, so the gutter does not jitter.
   const offsetDigits = Math.max(4, Math.max(0, data.length - 1).toString(16).length)
 
   return (
@@ -126,7 +103,6 @@ export function HexView({ chip }: { chip: HexBacked }) {
                           setEditing(null)
                         }}
                         onCancel={() => setEditing(null)}
-                        // A gap after the eighth byte, the way hexdump splits it.
                         spacer={i === 7}
                       />
                     )
@@ -229,16 +205,7 @@ function ByteCell({
   )
 }
 
-/**
- * Track a chip's contents for rendering, coalescing a burst of writes into one
- * repaint the way OledPanel does: the guest fills an EEPROM page in several
- * transfers and each one notifies, so painting per notification would redraw
- * the dump many times for one logical change. Exported so HexPreview shares
- * the exact same pointer/flash semantics instead of approximating them.
- *
- * Large memories (SPI NOR) keep a shared backing reference and only scan a
- * bounded region for the "recently changed" highlight.
- */
+// Coalesce bursty bus writes into one repaint; large memories skip full diffs.
 export function useMemorySnapshot(chip: HexBacked) {
   const [snapshot, setSnapshot] = useState(() => ({
     data: chip.memory,

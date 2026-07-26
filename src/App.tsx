@@ -47,14 +47,6 @@ import {
   samplePrimaryPanels,
 } from '@/boards'
 
-/**
- * The floating widgets over the stage: the display (with its Panels-menu
- * visibility flag) bottom-right, the MIPS pill and CTF trace bottom-left. Both
- * keep out of the terminal's way and below the z-50 overlays.
- *
- * The Trace card goes nearly full-bleed on a phone (drag-pan needs width); on
- * wider viewports it caps so it does not cover the whole terminal.
- */
 function StageOverlays({
   displayExpanded,
   traceExpanded,
@@ -69,8 +61,7 @@ function StageOverlays({
   const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
   return (
     <>
-      {/* Above the stage panels, below the z-50 modals: an annotation may have
-          stopped the machine, so it must not end up behind a device card. */}
+      {/* A paused annotation must stay above device cards. */}
       <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
         <AnnotationCard board={getBoard(boardId)} sampleId={sampleId} />
       </div>
@@ -118,13 +109,6 @@ export default function App() {
   const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
 
-  /*
-   * What opens expanded: the sample's primaryPanels, a DTS-grounded custom
-   * ELF's emphasis set, or everything for an ELF whose peripherals are
-   * unknowable. These feed the dock's per-selection seed — user expansion
-   * choices override the seed and survive a same-selection reload, and a new
-   * selection reseeds (dockStore's contract).
-   */
   const primaryPanels =
     customImage !== null && deviceTree?.insights
       ? emphasisPanels(deviceTree.insights)
@@ -141,8 +125,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardId, sampleId, customImage, deviceTree])
 
-  // Current selection, readable from the mount-once terminal callbacks without
-  // making them change identity (which would remount the terminal).
+  // Read by mount-once terminal callbacks without changing their identity.
   const configRef = useRef({ backendId, boardId, sampleId })
   configRef.current = { backendId, boardId, sampleId }
 
@@ -157,15 +140,7 @@ export default function App() {
     setHardRestart(false)
     setStatus({ status: 'loading' })
 
-    /*
-     * Annotations ride the console as OSC 9700 sequences, so the walkthrough
-     * needs the terminal itself — this is the only place that has it. The
-     * handler consumes what it matches, so an annotated sample's output looks
-     * exactly like an unannotated one's.
-     *
-     * The catalog fetch is fire-and-forget: a sample with no annotations has
-     * no JSON to find, and that is the normal case.
-     */
+    // OSC annotations ride the terminal; no catalog is the normal case.
     resetAnnotations()
     detachAnnotationsRef.current = attachAnnotations(xterm)
     void loadAnnotations(
@@ -175,8 +150,7 @@ export default function App() {
       )}`,
     )
 
-    // Drop status updates from a session that has already been torn down —
-    // StrictMode's double mount in dev makes this a real ordering hazard.
+    // StrictMode can tear down a session before its async status returns.
     const onStatus = (event: StatusEvent) => {
       if (!ac.signal.aborted) setStatus(event)
     }
@@ -201,12 +175,7 @@ export default function App() {
         if (ac.signal.aborted) return
         const message = err instanceof Error ? err.message : String(err)
 
-        /*
-         * With no backend selector, an emulator that will not start must not
-         * leave a dead terminal. A pre-commit failure (missing assets, no
-         * cross-origin isolation) has touched nothing, so the mock can take
-         * over — but say why, or it looks like the real thing booted.
-         */
+        // Before QEMU commits the document, mock can take over without a reload.
         const canFallBack = preferred === 'qemu' && !backendRef.current?.resetRequiresReload
         if (!canFallBack) {
           setHardRestart(backendRef.current?.resetRequiresReload ?? false)
@@ -270,11 +239,6 @@ export default function App() {
     [applySelection],
   )
 
-  /**
-   * Choosing a built-in app also drops any user-supplied ELF — and with it any
-   * user devicetree, which must not leak onto a sample. The sample's own tree
-   * is re-fetched by the backend when the new session starts.
-   */
   const handleSampleChange = useCallback(
     (id: string) => {
       clearGuestImage()
@@ -283,10 +247,6 @@ export default function App() {
     },
     [applySelection],
   )
-  /**
-   * A user ELF awaiting its optional devicetree — the prompt dialog is open
-   * while this is set. Booting happens in commitElf, not before.
-   */
   const [pendingElf, setPendingElf] = useState<GuestImage | null>(null)
 
   const reportError = useCallback((err: unknown) => {
@@ -296,13 +256,7 @@ export default function App() {
     })
   }, [])
 
-  /**
-   * Boot a user-supplied ELF, with or without its devicetree. If QEMU has
-   * already committed this document the bytes have to survive a reload, so
-   * both files go through the IndexedDB handoff; otherwise the session can
-   * just be remounted around them. A stale stashed devicetree is cleared
-   * either way, so skipping the prompt cannot resurrect an old one.
-   */
+  // Committed QEMU sessions hand custom ELF/DTS bytes through IndexedDB reloads.
   const commitElf = useCallback(
     async (image: GuestImage, dts: { name: string; text: string } | null) => {
       setPendingElf(null)
@@ -325,7 +279,6 @@ export default function App() {
     [reportError],
   )
 
-  /** An ELF chosen via the picker: validate it, then ask about its devicetree. */
   const handleLoadElf = useCallback(
     async (file: File) => {
       try {
@@ -337,11 +290,6 @@ export default function App() {
     [reportError],
   )
 
-  /**
-   * Files dropped on the window: an ELF (prompt for its devicetree), an ELF
-   * plus a .dts (boot with both, no prompt), or a .dts alone for the custom
-   * image already running.
-   */
   const handleFilesDropped = useCallback(
     async (files: File[]) => {
       try {
@@ -362,8 +310,7 @@ export default function App() {
         if (elf && dts) return void commitElf(elf, dts)
         if (elf) return void setPendingElf(elf)
         if (dts) {
-          // A devicetree alone only makes sense against a user image — a
-          // bundled sample already carries its own truth.
+          // A devicetree alone only makes sense against a user image.
           if (getGuestImage() === null) {
             throw new Error(`${dts.name}: drop the ELF this devicetree belongs to as well.`)
           }
@@ -402,8 +349,7 @@ export default function App() {
     }
     void backend?.reset()
     setStatus({ status: 'idle' })
-    // Bumping the key remounts XTerminal, which tears the old session down and
-    // brings up a fresh xterm + pty pair for the new run.
+    // Remount XTerminal to create a fresh xterm + pty pair.
     setNonce((n) => n + 1)
   }, [])
 
@@ -424,25 +370,12 @@ export default function App() {
       />
 
       <main className="flex min-h-0 flex-1 bg-terminal">
-        {/*
-          The stage: terminal underneath, screens floating over it. This
-          wrapper is static and always present, so the dock opening or closing
-          never reparents (and so never remounts) the terminal — only its box
-          changes, which the FitAddon's ResizeObserver absorbs.
-        */}
         <div className="relative min-w-0 flex-1 p-4">
-          {/* Changing board or backend remounts the session, same as Restart. */}
           <XTerminal
             key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
             onSession={handleSession}
             onTeardown={handleTeardown}
           />
-          {/*
-            The display is output, not controls — it stays a floating stage
-            panel (its render worker dislikes remounts; the dock is for
-            everything else). Keyed by sample, image and tree so the non-reload
-            paths (mock, pre-commit) re-derive its default expansion too.
-          */}
           <StageOverlays
             key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
             displayExpanded={expandAllPanels || primaryPanels.has('display')}
@@ -452,20 +385,12 @@ export default function App() {
           />
         </div>
 
-        {/*
-          The dock: every control surface, one scrollbar, two projections of
-          the same rows (devicetree ⌗ / peripheral classes ▤). Rows appear as
-          the emulator exposes bridges and as the loaded devicetree vouches for
-          them — the derivation in useDeviceTree owns that gating now.
-        */}
         <Dock boardId={boardId} />
         <FloatingWindows boardId={boardId} />
       </main>
 
-      {/* Whole-window target, so the drop works wherever the pointer is. */}
       <DropOverlay onFiles={handleFilesDropped} />
 
-      {/* Follow-up to a user ELF: optionally take its zephyr.dts before boot. */}
       <DtsPromptDialog
         elfName={pendingElf?.name ?? ''}
         open={pendingElf !== null}

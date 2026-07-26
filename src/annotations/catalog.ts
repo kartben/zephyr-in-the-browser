@@ -1,45 +1,20 @@
-/**
- * The prose half of an annotated sample.
- *
- * The build ships `<app>.annotations.json` next to `<app>.elf`, holding
- * everything the guest deliberately does not carry: titles, Markdown bodies,
- * which panel each annotation is about, and where in the source it points.
- * The firmware only ever sends ids, and this is what turns one back into a
- * popup.
- *
- * Absence is a supported state throughout. A sample with no annotations has no
- * JSON, an older image tarball has none either, and a user-dropped ELF has
- * nothing to look up — in all three the walkthrough simply never starts.
- */
-
-/** One annotation as authored. */
 export interface CatalogEntry {
   id: number
   key: string
   title: string
-  /** Markdown; see markdown.ts for the subset. */
   body: string
-  /** A PanelKind the device dock should reveal, when the author named one. */
   panel?: string
-  /** Index into `files`. */
   file: number
-  /** Line in the *stripped* source — the copy shipped for display. */
   line: number
-  /**
-   * Where the SAMPLE_SHOW*() calls sit, so the viewer can dim them. `pause`
-   * marks a SAMPLE_SHOW_PAUSE, which is how the mock backend replays a
-   * walkthrough with the pauses the firmware would really produce.
-   */
+  // SAMPLE_SHOW*() lines, dimmed in snippets; pause mirrors firmware pauses.
   fireSites: Array<{ file: number; line: number; pause?: boolean }>
 }
 
 export interface AnnotationCatalog {
   version: number
   app: string
-  /** Source paths, relative to the shipped `src/<app>/` directory. */
   files: string[]
   byId: Map<number, CatalogEntry>
-  /** Authored order, which is also source order. */
   entries: CatalogEntry[]
 }
 
@@ -79,18 +54,9 @@ function build(raw: unknown): AnnotationCatalog | null {
   }
 }
 
-/*
- * Cached by URL, misses included: a sample with no annotations is as cacheable
- * as one with them, and StrictMode's double mount reuses the first answer
- * either way. Same shape as the .dts cache in src/devicetree.ts.
- */
+// Cache misses too; most samples have no annotations.
 const cache = new Map<string, AnnotationCatalog | null>()
 
-/**
- * Fetch a sample's annotation catalog. Never throws — a missing file, a dev
- * server answering with index.html, or a malformed document all read as "this
- * sample is not annotated".
- */
 export async function loadCatalog(assetUrl: string): Promise<AnnotationCatalog | null> {
   const cached = cache.get(assetUrl)
   if (cached !== undefined) return cached
@@ -104,7 +70,7 @@ export async function loadCatalog(assetUrl: string): Promise<AnnotationCatalog |
       catalog = build(await res.json())
     }
   } catch {
-    // Absence and network failure are the same thing here.
+    // Missing catalog means this sample is unannotated.
   }
   cache.set(assetUrl, catalog)
   return catalog

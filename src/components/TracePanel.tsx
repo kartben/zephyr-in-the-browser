@@ -1,22 +1,3 @@
-/**
- * Live Zephyr CTF schedule view — the browser cousin of
- * scripts/tracing/trace_viewer.py.
- *
- * Same core concepts as the terminal viewer:
- * - Gantt lanes coloured by run / ready / blocked / sleep / suspended
- * - A time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
- * - Live follow pinned to the newest events until the user pans
- * - Zoom (± / wheel / pinch) changes the live window size without leaving
- *   follow — still anchored on the newest edge
- * - A compact info strip (legend + running thread + selected lane) and a
- *   CPU / context-switch metrics line for the visible window
- *
- * Deliberately no playhead: the Python viewer's cursor is useful with a
- * keyboard; here the window *is* the selection, and the info strip reports
- * state at the live edge of that window. Interaction is touch-first — drag
- * to pan, pinch or ± to zoom.
- */
-
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
@@ -49,9 +30,7 @@ import {
 const LANE_H = 22
 const LABEL_W = 72
 const PAD = 8
-/** Space reserved above the lanes for the time-axis ruler + labels. */
 const AXIS_H = 28
-/** Default live-follow window — matches a comfortable glance at the tracing sample. */
 const DEFAULT_LIVE_WINDOW_NS = 4_000_000_000 // 4 s
 const MIN_WINDOW_NS = 1_000_000 // 1 ms
 const ZOOM_IN = 0.7
@@ -80,7 +59,6 @@ function clampWindowNs(tr: Trace, ns: number): number {
   return Math.max(MIN_WINDOW_NS, Math.min(total, ns))
 }
 
-/** Follow view: window of `windowNs` ending at the newest timestamp. */
 function livePinnedView(tr: Trace, windowNs: number): { t0: number; t1: number } {
   const win = clampWindowNs(tr, windowNs)
   const t1 = tr.t1
@@ -132,7 +110,6 @@ function paint(
   const colW = plotW / cols
   const lanesTop = AXIS_H
 
-  // --- Time-axis ruler (trace_viewer.py lines 1192–1198) -----------------
   ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'alphabetic'
@@ -143,7 +120,6 @@ function paint(
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
   ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
   ctx.lineWidth = 1
-  // Baseline.
   ctx.beginPath()
   ctx.moveTo(LABEL_W, 18)
   ctx.lineTo(LABEL_W + plotW, 18)
@@ -163,7 +139,6 @@ function paint(
     ctx.fillText(label, lx, 12)
   }
 
-  // End labels always visible (absolute from t0), like the Python viewer.
   ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
   const leftLbl = fmtTime(view0 - tr.t0)
   const rightLbl = fmtTime(view1 - tr.t0)
@@ -174,7 +149,6 @@ function paint(
     ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
   }
 
-  // --- Lanes -------------------------------------------------------------
   ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
   ctx.fillRect(LABEL_W, lanesTop, plotW, lanes.length * LANE_H)
 
@@ -244,7 +218,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   const [follow, setFollow] = useState(true)
-  /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
@@ -325,8 +298,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const expanded = defaultExpanded || effectiveExpandedIn(dock, STAGE_TRACE_KEY, 'trace')
   const lanes = tr ? laneOrder(tr) : []
   const lane = selectedLane ?? lanes[0] ?? null
-  // Info strip reports state at the right edge of the window (live edge when
-  // following) — same role as the Python viewer's cursor, without a movable one.
+  // The info strip probes the right edge, matching LIVE without a playhead.
   const probeTs = view?.t1 ?? tr?.t1 ?? 0
   const runningTid = tr ? threadRunningAt(tr, probeTs) : null
   const [st, reason] =
@@ -507,7 +479,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   /* ignore */
                 }
                 if (g.moved || !view || !tr) return
-                // Tap on a lane label selects it (Python: up/down).
                 const rect = e.currentTarget.getBoundingClientRect()
                 const x = e.clientX - rect.left
                 const y = e.clientY - rect.top
@@ -536,7 +507,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   pivot: view.t0 + frac * (view.t1 - view.t0),
                   origin: view,
                 }
-                // Pinch zoom stays in LIVE when already following.
               }}
               onTouchMove={(e) => {
                 const g = gestureRef.current
@@ -570,7 +540,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
               Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select
             </p>
 
-            {/* Colour legend — same states as the terminal viewer. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
               <span className="text-foreground/80">states:</span>
               {(Object.keys(STATE_LABEL) as ThreadState[])
@@ -586,7 +555,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
                 ))}
             </div>
 
-            {/* Metrics line — CPU busy + ctxsw over the visible window. */}
             {stats && (
               <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
                 <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
@@ -603,7 +571,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
               </div>
             )}
 
-            {/* Info strip — running thread + selected lane at the window's right edge. */}
             <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
               <div>
                 <span className="text-muted-foreground">running: </span>

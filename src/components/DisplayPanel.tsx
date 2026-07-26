@@ -20,30 +20,17 @@ import type { MainToWorker, WorkerToMain } from '@/display/renderWorker'
 import { profile, recordWorkerFrame, setRenderWorker } from '@/display/profile'
 
 /**
- * How the framebuffer reaches the canvas, in order of preference:
- *  - `worker-webgl`: an OffscreenCanvas painted by a dedicated worker, so the
- *    texture upload never touches the UI/terminal thread.
- *  - `main-webgl`: the same WebGL path on the main thread (no OffscreenCanvas,
- *    or the worker failed to get a context).
- *  - `main-canvas2d`: per-pixel Canvas 2D, the last resort.
  * Each strategy keys a fresh <canvas>: transferControlToOffscreen and
- * getContext are both one-shot per element, so a fallback needs a new one.
+ * getContext are one-shot per element.
  */
 type RenderStrategy = 'worker-webgl' | 'main-webgl' | 'main-canvas2d'
 
-/**
- * Frame cap for the *main-thread* renderers only. There it buys back time for
- * xterm and React, which share the thread with the upload; the worker path has
- * the thread to itself and paints every frame instead (see renderWorker).
- */
+// Main-thread renderers share time with xterm and React; the worker path does not.
 const FRAME_INTERVAL_MS = 1000 / 30
 
 /**
- * Where a client point falls on the framebuffer, as fractions of its width and
- * height. The canvas is `object-contain`, so when `max-h` clamps the box the
- * image is letterboxed inside it and the element rect is *not* the image rect.
- * Values outside 0..1 are left to hostInput to clamp — a drag that strays off
- * the image should still track along the edge.
+ * object-contain letterboxes the image; pointer events need framebuffer coords,
+ * not element coords. Values outside 0..1 are left for hostInput to clamp.
  */
 function framebufferPoint(
   canvas: HTMLCanvasElement,
@@ -73,12 +60,9 @@ function workerRenderingSupported(buffer: ArrayBufferLike | null): buffer is Sha
   )
 }
 
-/** Paints Zephyr's qemu,ramfb framebuffer into a browser canvas. */
 export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
   const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  // Whether this emulator carries the virtio-input bridge. Shown in the header,
-  // so it lives out here rather than in the body that comes and goes with
-  // collapse. Checked once the framebuffer is live, long after the module attached.
+  // Header state lives outside the collapsible body.
   const [pointer, setPointer] = useState(false)
 
   useEffect(() => {
@@ -116,12 +100,6 @@ export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boo
   )
 }
 
-/**
- * The framebuffer canvas and its render session. Split out of DisplayPanel so
- * it mounts only while the panel is expanded: PanelFrame renders the body only
- * then, so setup runs on mount and teardown on unmount — no collapse flag to
- * thread through the render effects.
- */
 function DisplayBody({
   display,
   pointer,
@@ -131,10 +109,8 @@ function DisplayBody({
 }) {
   const [strategy, setStrategy] = useState<RenderStrategy>('worker-webgl')
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  // The live worker render session, kept in a ref so it survives StrictMode's
-  // setup→cleanup→setup double-invoke. transferControlToOffscreen() is one-shot
-  // per <canvas>, so the session is built once per element and its teardown is
-  // deferred, letting the immediate re-setup reclaim it instead of re-transferring.
+  // StrictMode replays setup on the same one-shot transferred canvas; defer
+  // teardown so the second setup can reclaim the worker session.
   const sessionRef = useRef<{
     el: HTMLCanvasElement
     worker: Worker
@@ -142,10 +118,6 @@ function DisplayBody({
   } | null>(null)
   const teardownRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // Preferred path: hand a transferred OffscreenCanvas and the shared heap to a
-  // worker, which reads the framebuffer and uploads it on its own thread. Only
-  // display.available gates setup — resolution or pointer changes are pushed as
-  // `update` messages so the one-shot canvas transfer is never repeated.
   useEffect(() => {
     if (strategy !== 'worker-webgl') return
 
@@ -158,8 +130,7 @@ function DisplayBody({
       session.worker.terminate()
       sessionRef.current = null
     }
-    // Deferred so StrictMode's synchronous re-setup can cancel it; the identity
-    // check stops it felling a session a later setup already replaced.
+    // Identity check prevents a deferred cleanup from killing a newer session.
     const scheduleDestroy = () => {
       const session = sessionRef.current
       teardownRef.current = setTimeout(() => {
@@ -176,8 +147,7 @@ function DisplayBody({
     const canvas = canvasRef.current
     const shouldRender = display.available && !!canvas
 
-    // StrictMode re-running setup on the still-lit element: keep the worker and
-    // cancel the teardown the paired cleanup just scheduled.
+    // StrictMode re-running setup on the same element: keep the transferred canvas.
     if (shouldRender && sessionRef.current?.el === canvas) {
       cancelPendingDestroy()
       setRenderWorker(sessionRef.current.worker)
@@ -187,8 +157,6 @@ function DisplayBody({
       }
     }
 
-    // Any real transition (first mount, a fresh element) drops the previous
-    // session up front, then decides whether to build a new one.
     cancelPendingDestroy()
     destroy()
     if (!shouldRender) return
@@ -203,8 +171,7 @@ function DisplayBody({
     let worker: Worker
     let offscreen: OffscreenCanvas
     try {
-      // Size the host element before transfer so the OffscreenCanvas inherits
-      // the guest resolution instead of the 300x150 default.
+      // Size before transfer so OffscreenCanvas avoids the 300x150 default.
       canvas.width = snap.width
       canvas.height = snap.height
       offscreen = canvas.transferControlToOffscreen()
@@ -242,8 +209,7 @@ function DisplayBody({
     }
     setRenderWorker(worker)
 
-    // The guest reconfigures ramfb rarely; forward each change without tearing
-    // the worker down. getFrame() is unused here — the worker owns the read.
+    // Forward ramfb metadata changes without repeating the one-shot transfer.
     const unsubscribe = subscribe(() => {
       const next = getSnapshot()
       const nextBuffer = getSharedBuffer()
@@ -259,8 +225,7 @@ function DisplayBody({
     }
   }, [strategy, display.available])
 
-  // Fallback path: render on the main thread. Reached only when the worker or
-  // OffscreenCanvas is unavailable. Keeps the WebGL-then-Canvas2D degradation.
+  // Fallback path: main-thread WebGL, then Canvas 2D.
   useEffect(() => {
     if (strategy === 'worker-webgl') return
     const canvas = canvasRef.current
@@ -279,8 +244,7 @@ function DisplayBody({
         })
         canvas.dataset.renderer = 'webgl2'
       } catch {
-        // A canvas cannot switch context type after getContext('webgl2'); the
-        // strategy key below mounts a fresh element for Canvas 2D.
+        // A canvas cannot switch context type after getContext('webgl2').
         setStrategy('main-canvas2d')
         return
       }
@@ -316,9 +280,7 @@ function DisplayBody({
     }
   }, [strategy, display])
 
-  // An idle worker normally checks at 30 Hz. A press or wheel event is a
-  // direct cause of guest repainting, so start its 60 Hz grace window now
-  // instead of making touch feedback wait for that idle tick.
+  // Input is likely to repaint the guest; wake before the idle worker tick.
   const wakeRenderWorker = () => {
     const worker = sessionRef.current?.worker
     if (!worker) return
@@ -326,13 +288,11 @@ function DisplayBody({
     worker.postMessage(wake)
   }
 
-  // Pointer capture keeps a drag alive past the canvas edge, so `leave` only
-  // fires for a genuine departure and no button can be left stuck down.
+  // Pointer capture keeps drags alive past the canvas edge.
   const pointerHandlers = pointer
     ? {
         onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => {
-          // hostInput drops hover on its own — this only spares the layout read
-          // in framebufferPoint on every mouse move across the panel.
+          // hostInput drops hover on its own; skip the layout read.
           if (!event.buttons) return
           const point = framebufferPoint(event.currentTarget, event, display.width, display.height)
           if (point) movePointer(point.nx, point.ny)
@@ -353,8 +313,7 @@ function DisplayBody({
           scroll(event.deltaY)
           wakeRenderWorker()
         },
-        // Without this the secondary button opens the browser's menu instead
-        // of reaching the guest.
+        // Let secondary clicks reach the guest.
         onContextMenu: (event: React.MouseEvent<HTMLCanvasElement>) => event.preventDefault(),
       }
     : {}
@@ -366,8 +325,7 @@ function DisplayBody({
         ref={canvasRef}
         className={cn(
           'mx-auto block max-h-[min(70vh,48rem)] w-full object-contain [image-rendering:auto]',
-          // touch-none so a finger drag reaches the guest instead of
-          // scrolling the page out from under it.
+          // Keep touch drags routed to the guest, not page scroll.
           pointer && 'cursor-crosshair touch-none',
         )}
         style={{ aspectRatio: `${display.width} / ${display.height}` }}

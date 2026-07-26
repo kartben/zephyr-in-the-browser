@@ -14,14 +14,8 @@ installProfile()
 const preview = new URLSearchParams(location.search).get('preview')
 
 /*
- * A guest image dropped while QEMU was already running is handed across the
- * reload through IndexedDB. Claim it before the first render, since the backend
- * starts as soon as the terminal mounts and would otherwise fetch the board's
- * stock image instead. `finally` because a failed claim must not stop the app
- * from starting — the stock image is a perfectly good fallback.
- *
- * The emulator probe rides along for the same reason: the default backend has
- * to be settled before the terminal mounts and starts one.
+ * Claim IndexedDB handoffs before the terminal mounts; QEMU reloads need the
+ * custom ELF/DTS and backend choice ready before the first session starts.
  */
 Promise.all([claimStashed(), claimStashedDts(), detectQemuAssets()]).finally(() => {
   createRoot(document.getElementById('root')!).render(

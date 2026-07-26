@@ -16,28 +16,9 @@ import {
 } from '@/virtio/devices/sensors/liveSource'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 
-/**
- * The generic control surface for a simulated I2C sensor.
- *
- * Everything it renders comes from the chip's declaration
- * (src/virtio/devices/sensors/model.ts): one slider line per channel, a chip
- * per config attribute, and — where channels name browser sources — one
- * "follow" toggle per source *group*, because the ADXL's three axes are one
- * physical tilt, not three decisions. A collapsed **Registers** control opens
- * the fine-grained map (names + bitfields from the JSON/TS register file).
- * Adding a sensor is therefore a declaration, not another panel: this body
- * draws whatever the declaration lists.
- */
-
-/** ~20 Hz is plenty for a slider readout; the guest still reads live values. */
+// ~20 Hz is plenty for UI readout; the guest still reads live values.
 const SENSOR_UI_MS = 50
 
-/**
- * Subscribe a component to a chip's changes, re-rendering on each notify —
- * but capped. Follow-tilt and fast slider drags can outrun what a dock row
- * needs to show, and every React commit on this thread is time stolen from
- * qemu-wasm's main loop (which paints the accelerometer chart).
- */
 function useChip(chip: SensorChip) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
@@ -76,7 +57,6 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
   const hex = chip.address.toString(16).padStart(2, '0')
   const [motionError, setMotionError] = useState<string | null>(null)
 
-  // The source groups this chip can follow, in channel order, deduplicated.
   const groups: LiveSourceGroup[] = []
   for (const channel of chip.decl.channels) {
     if (!channel.source) continue
@@ -84,7 +64,6 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
     if (!groups.includes(group)) groups.push(group)
   }
 
-  // Re-render when any follow toggles; the snapshot is a cheap value token.
   useSyncExternalStore(
     subscribeFollows,
     useCallback(
@@ -95,10 +74,7 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
     () => '',
   )
 
-  // On iOS Safari the permission prompt must be requested synchronously from
-  // this same click, so it happens here rather than after setFollowGroup —
-  // by the time a deferred start ran, the gesture that would authorize it is
-  // gone.
+  // iOS Safari requires the motion permission prompt inside the click gesture.
   const onToggleFollow = (group: LiveSourceGroup, on: boolean) => {
     if (!on || group !== 'orientation' || !orientationNeedsPermission()) {
       setMotionError(null)

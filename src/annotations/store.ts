@@ -1,15 +1,3 @@
-/**
- * Walkthrough state for the running sample.
- *
- * Records arrive from the guest (attach.ts), prose from the catalog, and this
- * joins them: which annotations this build linked in, which one the reader is
- * looking at, which are already behind them. The dock reveal and the machine
- * pause are both driven from here, so the card stays a view.
- *
- * Module-level store plus subscribe/getSnapshot, read through
- * useSyncExternalStore — the same shape as dockStore, devicetree and hostNet.
- */
-
 import { loadCatalog, type AnnotationCatalog, type CatalogEntry } from '@/annotations/catalog'
 import type { AnnotationRecord } from '@/annotations/protocol'
 import * as monitor from '@/hostMonitor'
@@ -19,28 +7,19 @@ const ENABLED_KEY = 'zephyr-annotations-enabled'
 
 export interface AnnotationView {
   entry: CatalogEntry
-  /** 1-based position in the outline. */
   step: number
   total: number
-  /** The machine was stopped for this one. */
   paused: boolean
-  /** Latest SAMPLE_VALUE() text, when the sample has sent one. */
   value?: string
 }
 
 export interface AnnotationState {
-  /** The running build announced a table, so this sample is annotated. */
   active: boolean
-  /** The reader has not turned walkthroughs off. */
   enabled: boolean
   catalog: AnnotationCatalog | null
-  /** Ids the running build linked in, in source order. */
   outline: number[]
-  /** Ids already shown. */
   seen: Set<number>
-  /** What the card is showing, or null. */
   current: AnnotationView | null
-  /** SAMPLE_END() has been reached. */
   finished: boolean
   /**
    * The boot table disagreed with annotations.json about where an annotation
@@ -70,7 +49,6 @@ const EMPTY: AnnotationState = {
 }
 
 let state: AnnotationState = { ...EMPTY, enabled: readEnabled() }
-/** Ids announced since the last table record, before the count closes it. */
 let pending: Array<{ id: number; line: number }> = []
 const values = new Map<number, string>()
 const listeners = new Set<() => void>()
@@ -93,7 +71,6 @@ export function getSnapshot(): AnnotationState {
   return state
 }
 
-/** Point the store at the running sample's catalog. Safe to call when absent. */
 export async function loadFor(assetUrl: string): Promise<void> {
   const catalog = await loadCatalog(assetUrl)
   publish({ catalog })
@@ -112,7 +89,6 @@ function viewFor(id: number, paused: boolean): AnnotationView | null {
   }
 }
 
-/** Close the boot announcement: the outline is everything the build linked. */
 function commitTable(count: number) {
   const outline = pending.map((p) => p.id)
   const catalog = state.catalog
@@ -130,14 +106,11 @@ function commitTable(count: number) {
 
 function show(id: number, pause: boolean) {
   if (!state.enabled) return
-  // Only claim a pause the emulator can actually deliver: on a build without
-  // the monitor bridge the machine keeps running, and saying otherwise on the
-  // card would be a straight lie about what the reader is looking at.
+  // Only claim a pause the emulator can actually deliver.
   const view = viewFor(id, pause && monitor.available())
   if (!view) return
 
-  // Reveal before pausing, so the row is already in view when the machine
-  // stops and the reader's eye has somewhere to go.
+  // Reveal before pausing, so the stopped machine already has context.
   if (view.entry.panel) revealPanelKind(view.entry.panel)
   if (pause) monitor.pause()
 
@@ -146,13 +119,6 @@ function show(id: number, pause: boolean) {
   publish({ current: view, seen })
 }
 
-/**
- * Fold one guest record into the store.
- *
- * Records for ids the catalog has never heard of are dropped: that is what an
- * annotated ELF with a missing or stale annotations.json looks like, and it
- * must not produce an empty popup.
- */
 export function handleRecord(record: AnnotationRecord): void {
   switch (record.kind) {
     case 'ann':
@@ -180,31 +146,17 @@ export function handleRecord(record: AnnotationRecord): void {
   }
 }
 
-/**
- * Re-open an annotation the reader has already passed.
- *
- * Never pauses, whatever the original record said: the machine has moved on,
- * and stopping it now would freeze the guest somewhere unrelated to what is on
- * screen. Reading back is a look at the notes, not a rewind.
- */
 export function revisit(id: number) {
   if (!state.seen.has(id)) return
   const view = viewFor(id, false)
   if (view) publish({ current: view })
 }
 
-/** Dismiss the current annotation and let the machine run on. */
 export function dismiss() {
   if (state.current?.paused) monitor.resume()
   publish({ current: null })
 }
 
-/**
- * Turn walkthroughs off for good (or back on).
- *
- * Turning them off has to resume a machine stopped by an annotation, or the
- * reader is left with a frozen guest and nothing on screen explaining why.
- */
 export function setEnabled(enabled: boolean) {
   try {
     localStorage.setItem(ENABLED_KEY, enabled ? 'on' : 'off')
@@ -215,7 +167,6 @@ export function setEnabled(enabled: boolean) {
   publish({ enabled, current: enabled ? state.current : null })
 }
 
-/** Drop everything — a new guest is starting. */
 export function reset() {
   pending = []
   values.clear()

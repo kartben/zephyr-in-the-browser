@@ -17,22 +17,13 @@ interface Props {
   onSampleChange: (id: string) => void
   status: BackendStatus
   detail?: string
-  /** True once the backend can only be restarted by reloading the document. */
   hardRestart: boolean
   onRestart: () => void
   onLoadElf: (file: File) => void
-  /** Filename of the user-supplied guest image in use, if any. */
   customImage: string | null
   onClearImage: () => void
 }
 
-/*
- * There is deliberately no backend selector. The mock exists so a checkout with
- * no emulator still runs, not as something worth choosing: whenever QEMU is
- * available it is simply used, and when it is not the app falls back on its own
- * and says so in the terminal. Offering the two side by side implied the fake
- * one was a legitimate alternative to the real one.
- */
 export function TopBar({
   boardId,
   onBoardChange,
@@ -50,7 +41,6 @@ export function TopBar({
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-5">
       <div className="flex shrink-0 items-center gap-2.5">
         <Cpu className="size-4 text-primary" aria-hidden />
-        {/* The wordmark is the first thing to go when the bar gets tight. */}
         <h1 className="hidden whitespace-nowrap text-sm font-semibold tracking-tight md:block">
           Zephyr in the Browser
         </h1>
@@ -85,14 +75,6 @@ export function TopBar({
   )
 }
 
-/**
- * Stop and restart the emulated machine.
- *
- * Goes through QEMU's own monitor, so this is a real `stop`, not the page
- * looking away: timers stop, the display stops repainting, and the MIPS readout
- * falls to zero. Self-subscribed, and simply absent on an emulator built
- * without the monitor bridge — every published build before it stays usable.
- */
 function PauseButton() {
   const monitor = useSyncExternalStore(subscribeMonitor, getMonitor, getMonitor)
 
@@ -117,11 +99,6 @@ function PauseButton() {
   )
 }
 
-/**
- * Opens the devicetree of the *running* build in the viewer. Self-subscribed
- * rather than threaded through TopBar's props: whether a tree is known is the
- * devicetree store's business, and the button simply is not there when none is.
- */
 function RunningDtsButton() {
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
   const [open, setOpen] = useState(false)

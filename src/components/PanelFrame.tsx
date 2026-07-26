@@ -5,60 +5,22 @@ import { cn } from '@/lib/utils'
 import { useDragResize, clampBox } from '@/hooks/useDragResize'
 import { loadPanelLayout, savePanelLayout, type PanelBox } from '@/lib/panelLayout'
 
-/** 1rem in CSS px, matching the Tailwind default so rem widths convert cleanly. */
 const REM = 16
 
 interface PanelFrameProps {
-  /**
-   * Stable key for persisting this panel's floating layout. A PanelKind for the
-   * fixed bridges; a per-instance key (e.g. `sensor:48`) for panels that can
-   * appear more than once, so their layouts do not collide.
-   */
   id: string
-  /** Header title. */
   title: string
-  /** Header icon (a lucide component). */
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
-  /** Expanded on mount unless the user has collapsed it this session. */
   defaultExpanded?: boolean
-  /** Docked card width, in rem. The floating card seeds its size from this. */
   dockedWidth?: number
-  /**
-   * Which edge this panel docks to. Buses live on the left, devices on the
-   * right; the value only biases where an undocked card first pops out, since
-   * docked alignment is handled by the column it sits in.
-   */
   side?: 'left' | 'right'
-  /** Inline header status (a link dot, a resolution, …). */
   status?: ReactNode
-  /** Extra header buttons, placed before the built-in undock/collapse/close. */
   actions?: ReactNode
-  /**
-   * Fill the parent up to `dockedWidth` — the stage Trace panel uses this so a
-   * phone gets a nearly full-bleed timeline without every dock card stretching.
-   */
   fill?: boolean
-  /**
-   * Controlled window mode, for bodies whose home is the dock: the frame is
-   * always floating, and both the dock button and the X hand control back to
-   * the caller (returning the body to its dock row) instead of self-managing.
-   */
   windowed?: { onClose: () => void }
-  /** Panel body — rendered only while expanded. */
   children: ReactNode
 }
 
-/**
- * The shared shell for every peripheral panel: the card, the header (icon,
- * title, status, controls), and the collapse / undock / dismiss behaviour that
- * used to be copy-pasted into all seven of them.
- *
- * A panel is either *docked* — in the bottom-right stack, sized by dockedWidth
- * — or *floating*: the same card lifted out with `position: fixed`, dragged by
- * its header and resized from the corner. Floating position and size persist
- * across reloads (src/lib/panelLayout.ts); collapse and dismissal are
- * session-only so the running sample keeps driving which panels open expanded.
- */
 export function PanelFrame({
   id,
   title,
@@ -79,22 +41,18 @@ export function PanelFrame({
   const [rect, setRect] = useState<PanelBox | null>(() => {
     if (saved?.rect) return saved.rect
     if (!windowed) return null
-    // A window opens floating with nothing saved yet: seed its box now, the
-    // same math undock() uses on first pop-out.
+    // A controlled window opens floating before it has saved geometry.
     return clampBox(seedBox(dockedWidth, side))
   })
 
   const { dragHandlers, resizeHandlers } = useDragResize(rect, setRect)
 
-  // Persist only the floating layout; collapse/dismiss stay session-only.
   useEffect(() => {
     savePanelLayout(id, { floating, rect })
   }, [id, floating, rect])
 
   const undock = () => {
-    // Seed a box from the docked width, popping out near this panel's own edge
-    // on first undock, then reuse whatever the user last left. clampBox keeps it
-    // on-screen.
+    // First undock seeds near this panel's edge; clampBox keeps it on-screen.
     setRect(clampBox(rect ?? seedBox(dockedWidth, side)))
     setFloating(true)
   }
@@ -104,8 +62,7 @@ export function PanelFrame({
 
   if (dismissed) return null
 
-  // A collapsed floating card sizes to its header — keeping height would leave a
-  // tall empty box. The stored rect.h is untouched, so expanding restores it.
+  // Collapsed floating cards keep rect.h saved but size to the header.
   const floatingStyle =
     floating && rect
       ? { left: rect.x, top: rect.y, width: rect.w, ...(collapsed ? {} : { height: rect.h }) }
@@ -183,7 +140,6 @@ export function PanelFrame({
         <div className={cn(floating && 'min-h-0 flex-1 overflow-auto')}>{children}</div>
       )}
 
-      {/* Corner resize grip — floating only. */}
       {floating && !collapsed && (
         <div
           {...resizeHandlers}
@@ -199,7 +155,6 @@ export function PanelFrame({
   )
 }
 
-/** First-pop-out box: docked width, a third down, hugging the panel's edge. */
 function seedBox(dockedWidth: number, side: 'left' | 'right'): PanelBox {
   const width = dockedWidth * REM
   const margin = REM

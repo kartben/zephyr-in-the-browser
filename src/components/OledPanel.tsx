@@ -3,26 +3,8 @@ import { OledControllerButton } from '@/components/OledController'
 import { ssd1306 } from '@/virtio'
 
 /**
- * The browser's SSD1306 OLED, painted from the chip's GDDRAM.
- *
- * There is no framebuffer to map here and nothing exported from QEMU: the
- * pixels are an array in src/virtio/devices/chips/ssd1306.ts that Zephyr's
- * stock driver filled in over I2C, so this panel reads the device's own memory
- * directly. That is the difference between this and the ramfb display panel,
- * which renders a buffer the guest owns.
- */
-/**
- * Split out so the canvas and its subscription mount and unmount with the
- * panel body — PanelFrame renders children only while expanded, so a collapsed
- * panel costs nothing rather than repainting into a hidden canvas. Same reason
- * DisplayPanel has a DisplayBody. Exported for the dock, whose SSD1306 row
- * mounts the same canvas; a remount repaints in full from GDDRAM.
- *
- * Repainting is driven by the chip's version counter through a
- * requestAnimationFrame, not by the notification itself: the guest writes a
- * frame in nine I2C transfers and each one bumps the counter, so painting per
- * notification would draw eight partial frames for every whole one. Coalescing
- * also caps the work at the display refresh rate however fast the guest draws.
+ * SSD1306 has no QEMU ramfb; paint directly from the browser-side GDDRAM that
+ * Zephyr's stock driver filled over I2C.
  */
 export function OledBody() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -66,7 +48,7 @@ export function OledBody() {
     }
 
     const schedule = () => {
-      // Coalesce a frame's worth of chunked writes into one repaint.
+      // Coalesce chunked I2C writes into one repaint.
       if (!frame) frame = requestAnimationFrame(paint)
     }
 
@@ -87,8 +69,7 @@ export function OledBody() {
         aria-label="SSD1306 OLED contents"
         className="w-full rounded border border-border bg-black"
         style={{
-          // Nearest-neighbour: this is a 128x64 panel blown up, and smoothing
-          // it would only make the pixels look like a mistake.
+          // This is a 128x64 panel blown up; smoothing looks wrong.
           imageRendering: 'pixelated',
           aspectRatio: `${ssd1306.width} / ${ssd1306.height}`,
         }}

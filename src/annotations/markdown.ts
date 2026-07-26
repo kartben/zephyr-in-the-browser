@@ -1,20 +1,3 @@
-/**
- * The Markdown subset annotation bodies are written in.
- *
- * Annotations are prose about code, so they want inline `code`, emphasis,
- * links to the Zephyr docs, lists and the occasional fenced block — and
- * nothing else. That is a small enough grammar to parse here rather than take
- * a dependency, which is also how DtsViewer handles its value tinting.
- *
- * The output is a tree the card renders as React elements. Nothing here ever
- * produces an HTML string, so there is no `dangerouslySetInnerHTML` on the
- * other end and no sanitiser to get wrong: markup in a body is text, because
- * text is the only thing this can emit. Link hrefs are the one exception —
- * they do reach the DOM — so the scheme is checked.
- *
- * Pure and DOM-free, so vitest covers it under `environment: 'node'`.
- */
-
 export interface TextSpan {
   kind: 'text'
   text: string
@@ -55,27 +38,16 @@ export interface ListBlock {
 
 export interface CodeBlock {
   kind: 'codeblock'
-  /** Info string from the fence, e.g. `c`. Empty when the fence had none. */
   language: string
   text: string
 }
 
 export type MarkdownBlock = ParagraphBlock | ListBlock | CodeBlock
 
-/**
- * Schemes a link may use.
- *
- * Bodies come from the repo, not from users, so this is defence in depth
- * rather than the thing standing between us and a hostile input — but an href
- * is the only value here that the browser will act on, so it gets checked.
- */
+// Link hrefs are the only parsed values the browser acts on.
 const SAFE_SCHEME = /^(?:https?:\/\/|mailto:|#|\/)/i
 
-/*
- * One pass, longest-marker-first so `**` is not mistaken for two `*`. Inline
- * code wins over everything: backticks are how an annotation quotes an API,
- * and `*` inside `k_msleep(*)` must stay literal.
- */
+// Inline code wins over emphasis so `*` inside APIs stays literal.
 const INLINE_RE =
   /(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*)|(\*[^*]+\*)/
 
@@ -104,8 +76,6 @@ function parseInline(text: string): InlineSpan[] {
       const split = token.indexOf('](')
       const label = token.slice(1, split)
       const href = token.slice(split + 2, -1)
-      // An unusable scheme degrades to the label plus the raw target, so the
-      // reader still sees where it was meant to point.
       if (SAFE_SCHEME.test(href)) spans.push({ kind: 'link', text: label, href })
       else pushText(`${label} (${href})`)
     } else if (token.startsWith('**')) {
@@ -119,13 +89,6 @@ function parseInline(text: string): InlineSpan[] {
   return spans
 }
 
-/**
- * Parse an annotation body into blocks.
- *
- * Deliberately line-oriented: blank lines separate paragraphs, ``` fences a
- * code block, and a run of `- ` lines is a list. Anything a sample author
- * reaches for beyond that is a sign the annotation is too long for a popup.
- */
 export function parseMarkdown(body: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = []
   const lines = body.split('\n')
@@ -162,8 +125,6 @@ export function parseMarkdown(body: string): MarkdownBlock[] {
       continue
     }
 
-    // A paragraph runs to the next blank line; newlines inside it are soft, so
-    // an author can wrap a comment at 80 columns without forcing line breaks.
     const collected: string[] = []
     while (i < lines.length && lines[i].trim() && !lines[i].trimStart().startsWith('```') &&
            !/^\s*[-*]\s+/.test(lines[i])) {

@@ -17,29 +17,6 @@ import { isRtcChip } from '@/virtio/devices/rtc/model'
 import { isSensorChip } from '@/virtio/devices/sensors/model'
 import type { DeviceClass } from '@/deviceTopology'
 
-/**
- * The browser's I2C bus, as a debug + wiring surface.
- *
- * The bus and every chip on it are page-side models (src/virtio/devices/), so
- * unlike the other panels this one is not a control surface onto a QEMU device
- * — it is a window onto the bus itself, and a workbench for it. Two jobs:
- *
- * - **Debug.** Every message that crossed the bus, in a trace. An I2C bug is
- *   almost always "the driver sent something other than what you assumed", and
- *   without a trace the only evidence is a return code. Scan NAKs are filtered
- *   by the model, so a 116-address `i2c scan` does not bury the traffic.
- * - **Wiring.** Attach and detach chips at runtime. Detaching a chip the guest
- *   has a driver for makes that driver NAK exactly as if the part fell off the
- *   board — a bus error this simulator can actually demonstrate. The controls
- *   for a chip (a sensor's slider, the OLED's screen) live on the devices edge;
- *   this side is the bus, not the things on it.
- */
-/**
- * The bus workbench without the frame — roster, attach row, traffic trace —
- * shared by the dock's controller row and the floating window. `busLabel`
- * names the controller in the shell hint; the roster and trace themselves are
- * the page's one bridged bus.
- */
 export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}) {
   const chips = useSyncExternalStore(
     i2cModel.subscribe,
@@ -51,12 +28,9 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
     i2cModel.transactions,
     useCallback(() => [], []),
   )
-  // hasDriver() answers from the loaded devicetree; subscribing here is what
-  // re-renders the driver/bus-only tags when a tree arrives or goes away.
+  // Re-render driver/bus-only tags when the devicetree changes.
   useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
 
-  // Newest first, and only as many as fit without turning the panel into a
-  // wall — the whole log is still there for anyone who wants it.
   const recent = log.slice(-8).reverse()
 
   return (
@@ -152,7 +126,6 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
   )
 }
 
-/** The attach control: pick a chip type and an address, put it on the bus. */
 function AttachRow({ chips }: { chips: number[] }) {
   const [typeId, setTypeId] = useState(CHIP_TYPES[0].id)
   const [addr, setAddr] = useState(() => CHIP_TYPES[0].defaultAddress.toString(16))
@@ -311,7 +284,6 @@ function AddrField({
   )
 }
 
-/** Dock class for roster → revealDockRow, matching deviceTopology.chipClass. */
 function i2cChipClass(chip: I2cChip): DeviceClass {
   if (isSensorChip(chip)) return 'sensor'
   if (isMemoryChip(chip)) return 'memory'
@@ -326,11 +298,7 @@ function i2cChipClass(chip: I2cChip): DeviceClass {
   return 'other'
 }
 
-/**
- * Addresses to take off together. A JHD1313 module is two bus endpoints; pulling
- * either end should lift the whole module so the canvas does not keep a stale
- * backlight link.
- */
+// A JHD1313 module is two bus endpoints; detach both to avoid stale backlight links.
 function detachAddresses(chip: I2cChip, onBus: readonly I2cChip[]): number[] {
   if (isJhd1313Lcd(chip) && chip.backlight) {
     return [chip.address, chip.backlight.address]
@@ -345,9 +313,7 @@ function detachAddresses(chip: I2cChip, onBus: readonly I2cChip[]): number[] {
 const HEX = (n: number) => n.toString(16).padStart(2, '0')
 
 function TransactionRow({ entry }: { entry: I2cTransaction }) {
-  // Long payloads are truncated rather than wrapped: the interesting bytes of
-  // an I2C message are almost always the first few. The model may already have
-  // capped `bytes`; `byteLength` is the on-the-wire size.
+  // Keep long payloads to one line; byteLength is the on-the-wire size.
   const shown = Array.from(entry.bytes.subarray(0, 6)).map(HEX).join(' ')
   const total = entry.byteLength
   const elided = total > 6 ? ` +${total - 6}` : ''

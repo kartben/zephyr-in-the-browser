@@ -1,10 +1,3 @@
-/**
- * The way back. Hiding a panel used to be a one-way door (the old layout
- * persisted nothing about visibility because nothing could undo it); this
- * menu lists every device row and stage widget with a checkbox, so hidden is
- * a state, not a goodbye — which is exactly what lets dockStore persist it.
- */
-
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LayoutGrid, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,7 +23,6 @@ export function PanelsMenu({ boardId }: { boardId: string }) {
   const inventory = useDeviceTree(boardId)
   const stats = useSyncExternalStore(guestStats.subscribe, guestStats.getSnapshot, guestStats.getSnapshot)
 
-  // Light-dismiss: outside pointerdown or Escape closes the popover.
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
@@ -181,7 +173,6 @@ function PanelToggle({
   )
 }
 
-/** TopBar toggle for the dock itself — the way back from a collapsed dock. */
 export function DockToggle() {
   const state = useSyncExternalStore(subscribe, getState, getState)
   return (

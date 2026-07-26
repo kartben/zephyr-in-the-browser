@@ -1,38 +1,16 @@
-/**
- * The few lines of C an annotation is pointing at.
- *
- * The build ships each annotated sample's sources beside its ELF — the
- * *stripped* copies, with the `@annotate` blocks removed, so what the reader
- * sees is the code rather than the prose they are already reading above it.
- * Line numbers in the catalog are in those same stripped coordinates.
- *
- * The SAMPLE_SHOW*() calls stay, dimmed: they are real executable code, and
- * seeing how an annotation is wired is part of the lesson.
- *
- * Tokens are coloured with highlight.js (C only); the HTML is escaped by the
- * highlighter before it lands in the DOM.
- */
-
 import { useEffect, useMemo, useState } from 'react'
 import { highlightC, splitHighlightedLines } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 
-/** Lines of context either side of the anchor. */
 const CONTEXT = 5
 
 interface Props {
-  /** Full URL of the shipped source file. */
   src: string
-  /** 1-based line the annotation points at. */
   line: number
-  /** 1-based lines holding the macro calls that fire it. */
   fireLines?: number[]
 }
 
-/*
- * Cached by URL, misses included — the same shape as the .dts and catalog
- * caches. A sample's source does not change under a running guest.
- */
+// Cache misses too; missing stripped source just hides the snippet.
 const cache = new Map<string, string[] | null>()
 
 async function fetchSource(url: string): Promise<string[] | null> {
@@ -67,14 +45,12 @@ export function SourceSnippet({ src, line, fireLines = [] }: Props) {
     }
   }, [src])
 
-  // Highlight the whole file once so multi-line comments / strings keep their
-  // colours across the excerpt window, then index into the per-line HTML.
+  // Highlight the whole file so multi-line comments/strings keep their colours.
   const highlighted = useMemo(
     () => (lines ? splitHighlightedLines(highlightC(lines.join('\n'))) : null),
     [lines],
   )
 
-  // No snippet is a supported state — the popup's prose stands on its own.
   if (!lines || !highlighted) return null
 
   const start = Math.max(1, line - CONTEXT)
