@@ -31,7 +31,7 @@ new file mode 100644
 index 0000000..7c06366
 --- /dev/null
 +++ b/hw/virtio/virtio-browser.c
-@@ -0,0 +1,713 @@
+@@ -0,0 +1,781 @@
 +/*
 + * Generic browser-backed VIRTIO device.
 + *
@@ -223,14 +223,16 @@ index 0000000..7c06366
 +
 +/*
 + * Futex word the page Atomics.notify-s after publishing cmp_wr. kick() also
-+ * futex-wakes it and runs drain immediately on the QEMU thread (PROXY_TO_PTHREAD
-+ * proxies the export, which itself breaks an idle Atomics.wait in the
-+ * emulator's sleep path).
++ * futex-wakes it and schedules a BH to drain on the QEMU main loop (BQL held).
++ * EMSCRIPTEN_KEEPALIVE exports invoked from the page run on the browser
++ * thread under PROXY_TO_PTHREAD — they must not call virtio_notify.
 + */
 +static uint32_t virtio_browser_wake;
 +static bool virtio_browser_draining;
++static QEMUBH *virtio_browser_kick_bh;
 +
 +static void virtio_browser_drain(void *opaque);
++static void virtio_browser_kick_bh_cb(void *opaque);
 +
 +EMSCRIPTEN_KEEPALIVE
 +uint32_t qemu_virtio_browser_count(void)
@@ -254,23 +256,15 @@ index 0000000..7c06366
 +}
 +
 +/*
-+ * Page-side completion landed in the cmp ring. Drain every instance now and
-+ * poke the main loop so a halted vCPU under -icount sleep=on resumes without
-+ * waiting out the realtime drain timer (~1–10 ms, measured as the ~50 Hz
-+ * sawtooth ceiling). Safe to call re-entrantly: overlapping kicks coalesce.
++ * Drain every browser virtio instance. Invoked only from the QEMU main loop
++ * (drain timer or kick BH), where the BQL is held — virtio_notify requires it.
 + */
-+EMSCRIPTEN_KEEPALIVE
-+void qemu_virtio_browser_kick(void)
++static void virtio_browser_kick_bh_cb(void *opaque)
 +{
 +    uint32_t n = qatomic_read(&browser_device_count);
 +
-+    qatomic_set(&virtio_browser_wake, qatomic_read(&virtio_browser_wake) + 1);
-+#ifdef __EMSCRIPTEN__
-+    emscripten_futex_wake(&virtio_browser_wake, INT32_MAX);
-+#endif
-+
++    (void)opaque;
 +    if (virtio_browser_draining) {
-+        qemu_notify_event();
 +        return;
 +    }
 +    virtio_browser_draining = true;
@@ -281,6 +275,24 @@ index 0000000..7c06366
 +        }
 +    }
 +    virtio_browser_draining = false;
++}
++
++/*
++ * Page-side completion landed in the cmp ring. Wake any futex waiter and
++ * schedule a BH to drain under the BQL so a halted vCPU under -icount
++ * sleep=on resumes without waiting out the realtime drain timer. Do not
++ * drain here: the page calls this from the browser thread.
++ */
++EMSCRIPTEN_KEEPALIVE
++void qemu_virtio_browser_kick(void)
++{
++    qatomic_set(&virtio_browser_wake, qatomic_read(&virtio_browser_wake) + 1);
++#ifdef __EMSCRIPTEN__
++    emscripten_futex_wake(&virtio_browser_wake, INT32_MAX);
++#endif
++    if (virtio_browser_kick_bh) {
++        qemu_bh_schedule(virtio_browser_kick_bh);
++    }
 +    qemu_notify_event();
 +}
 +
@@ -718,6 +730,10 @@ index 0000000..7c06366
 +
 +    browser_devices[browser_device_count] = b;
 +    qatomic_set(&browser_device_count, browser_device_count + 1);
++
++    if (!virtio_browser_kick_bh) {
++        virtio_browser_kick_bh = qemu_bh_new(virtio_browser_kick_bh_cb, NULL);
++    }
 +
 +    b->drain = timer_new_ms(QEMU_CLOCK_REALTIME, virtio_browser_drain, b);
 +    timer_mod(b->drain, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +

@@ -16,10 +16,12 @@
  *
  * Completions are kicked back into QEMU rather than waiting on its drain
  * timer: after publishing `cmp_wr` the page `Atomics.notify`s a shared wake
- * word and calls `_qemu_virtio_browser_kick()`, which drains on the QEMU
- * thread and `qemu_notify_event()`s a halted vCPU. Without that, every
- * blocking transfer sat until the next realtime drain tick (~50 Hz on dac).
- * Old emulators without the export keep working — they just stay on the timer.
+ * word and calls `_qemu_virtio_browser_kick()`, which futex-wakes and
+ * `qemu_bh_schedule`s a drain on the QEMU main loop (BQL held — the export
+ * itself may run on the browser thread under PROXY_TO_PTHREAD). Without that,
+ * every blocking transfer sat until the next realtime drain tick (~50 Hz on
+ * dac). Old emulators without the export keep working — they just stay on the
+ * timer.
  *
  * Polling is adaptive. Idle costs one `Atomics.load` per device per 50 ms; for
  * a short window after any request it switches to a loop paced at ~1 ms.
@@ -74,7 +76,7 @@ interface BridgeExports {
   _qemu_virtio_browser_area?: (index: number) => number
   /** Byte offset of the futex word the page Atomics.notify-s on completion. */
   _qemu_virtio_browser_wake_addr?: () => number
-  /** Drain cmp rings now and wake a halted vCPU (PROXY_TO_PTHREAD). */
+  /** Drain-cmp BH schedule + main-loop wake (safe from the browser thread). */
   _qemu_virtio_browser_kick?: () => void
   HEAPU8?: Uint8Array
 }
@@ -451,20 +453,21 @@ function flush(b: Bridge) {
   if (published) wakeQemu()
 }
 
-/**
- * Tell QEMU a completion is waiting. Two channels on purpose:
- *
- * 1. `Atomics.notify` on the shared wake word — lock-free from the page, wakes
- *    any futex wait the emulator (or a future drain path) parks on.
- * 2. `_qemu_virtio_browser_kick()` — proxied onto the QEMU pthread, drains the
- *    cmp rings immediately and `qemu_notify_event()`s so `-icount sleep=on`
- *    does not sit on the realtime drain timer.
- *
- * Either alone is enough on a rebuilt emulator; doing both covers the case
- * where the worker is in a generic sleep futex rather than our wake word.
- * Absent exports (old wasm) this is a no-op and the timer remains the path.
- */
-function wakeQemu() {
+  /**
+   * Tell QEMU a completion is waiting. Two channels on purpose:
+   *
+   * 1. `Atomics.notify` on the shared wake word — lock-free from the page, wakes
+   *    any futex wait the emulator (or a future drain path) parks on.
+   * 2. `_qemu_virtio_browser_kick()` — futex-wakes the same word, schedules a
+   *    BH to drain under the BQL on the QEMU thread, and `qemu_notify_event()`s
+   *    so `-icount sleep=on` does not sit on the realtime drain timer. Must not
+   *    drain inline: the export runs on the browser thread.
+   *
+   * Either alone is enough on a rebuilt emulator; doing both covers the case
+   * where the worker is in a generic sleep futex rather than our wake word.
+   * Absent exports (old wasm) this is a no-op and the timer remains the path.
+   */
+  function wakeQemu() {
   kicksSeen += 1
   if (words && wakeWordIndex >= 0) {
     Atomics.add(words, wakeWordIndex, 1)

@@ -338,18 +338,19 @@ per loop (sleep wake + completion), which matches the ~22 ms/transfer.
 
 **Patched to idle = 1 ms** in the virtio-browser series. **Also:** the page now
 actively wakes QEMU on every completion (`Atomics.notify` on
-`qemu_virtio_browser_wake_addr` + `_qemu_virtio_browser_kick()` → immediate
-drain + `qemu_notify_event`). That is the fix for the ~50 Hz ceiling that
-matched on both A53 JIT and riscv32 TCI — a fixed halt/wake quantum, not CPU
-speed. Both need an emulator rebuild to land in `public/qemu/`. Expected after
-rebuild: I²C Hz into the hundreds–~1 kHz (page poll ~1 ms), check with
-`tools/profile-dac.mjs` (`kicks` in bridge stats should track `requests`).
+`qemu_virtio_browser_wake_addr` + `_qemu_virtio_browser_kick()` → futex wake,
+`qemu_bh_schedule` of the drain under the BQL, `qemu_notify_event`). Draining
+inline from the keepalive export crashes A53 (`gicv3` asserts `bql_locked()`):
+under `PROXY_TO_PTHREAD` that export runs on the *browser* thread, not the
+QEMU pthread. Both the idle-ms change and the kick need an emulator rebuild to
+land in `public/qemu/`. Expected after rebuild: I²C Hz into the
+hundreds–~1 kHz (page poll ~1 ms), check with `tools/profile-dac.mjs`
+(`kicks` in bridge stats should track `requests`).
 
 The clean long-term shape is still item 1(b)+(c): bridge in a worker with
 `Atomics.wait`, QEMU `memory.atomic.notify` on `req_wr`, and the reverse kick
-we now have for completions. `qemu_bh_schedule` from the page was considered;
-kick + `qemu_notify_event` on the proxied QEMU thread is the path that matches
-how `gnss_feed_byte` already crosses the boundary.
+we now have for completions. The kick BH is the same cross-thread pattern
+`qemu_bh_schedule` was always meant for.
 
 ## 8. Seven pollers share the thread that runs xterm and React
 

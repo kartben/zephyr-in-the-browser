@@ -200,10 +200,11 @@ blocking transfer used to cost QEMU's drain timer plus however fast the page's
 event loop turns — measured at ~50 I²C Hz on the stock DAC sawtooth. The page
 now **wakes QEMU on every completion**: `Atomics.notify` on
 `qemu_virtio_browser_wake_addr()` plus `_qemu_virtio_browser_kick()`, which
-drains the cmp rings on the QEMU thread and `qemu_notify_event()`s a halted
-vCPU. The realtime drain timer stays as a safety net for old emulators and
-missed wakes. Expected after a rebuild: I²C into the hundreds–~1 kHz, bounded
-by the page's ~1 ms poll rather than by a 16–20 ms halt quantum.
+schedules a BH to drain the cmp rings on the QEMU main loop (BQL held — the
+keepalive export may run on the browser thread) and `qemu_notify_event()`s a
+halted vCPU. The realtime drain timer stays as a safety net for old emulators
+and missed wakes. Expected after a rebuild: I²C into the hundreds–~1 kHz,
+bounded by the page's ~1 ms poll rather than by a 16–20 ms halt quantum.
 
 The remaining levers, in order, are the ones
 [performance.md](performance.md) tracks: moving the poll into a worker, where
