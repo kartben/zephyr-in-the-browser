@@ -1,23 +1,7 @@
 /**
- * An LM75-style I2C temperature sensor, as a {@link SensorDecl}.
- *
- * The simplest sensor worth modelling, and the clearest proof that the register
- * framework generalizes past the TMP112 it was extracted from: an LM75 is a
- * TMP112 with less to it. Same pointer machine, same left-justified temperature
- * register — just a fixed 9-bit resolution and no extended mode.
- *
- * Register model, matching the classic National/TI LM75 and Zephyr's stock
- * `lm75` driver:
- *
- * - Register pointer selects one of four registers (temp, config, Thyst, Tos).
- * - Temperature is a 16-bit big-endian word, 9-bit two's-complement in the top
- *   bits (D15..D7), the low 7 bits zero. One LSB is 0.5 °C. The driver reads it
- *   as int16 and arithmetic-shifts right by 7, so sign extension has to survive.
- * - Config is a single byte; Thyst/Tos are left-justified like the temperature.
- *
- * Note: exact resolution/shift is a driver detail. This models the canonical
- * 9-bit part; a rebuilt guest image is what confirms the `lm75` driver decodes
- * it as expected (see the LM75 unit test for the page-side round trip).
+ * LM75-style temperature sensor. Temperature registers are 16-bit big-endian,
+ * 9-bit two's-complement left-justified by 7, matching Zephyr's arithmetic
+ * right-shift decode.
  */
 
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
@@ -27,7 +11,6 @@ const REG_CONFIG = 0x01
 const REG_THYST = 0x02
 const REG_TOS = 0x03
 
-/** 9-bit two's-complement, left-justified by 7. One LSB is 0.5 °C. */
 const SCALE_C = 0.5
 const SHIFT = 7
 

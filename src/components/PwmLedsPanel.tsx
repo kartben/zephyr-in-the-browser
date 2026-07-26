@@ -1,16 +1,6 @@
 /**
- * Dock body for a `pwm-leds` group.
- *
- * Same cell chrome as {@link GpioLedsBody} (dot + label in a bordered
- * secondary tile). Brightness is the *perceived* lamp under PWM: a short
- * exponential persistence of the channel's square wave (see
- * {@link integrateLedPersistence}), so a ~50 Hz period breathes while
- * kilohertz PWM looks like a steady glow. Labels come from the running
- * build's flattened tree.
- *
- * The strip paints from a continuous requestAnimationFrame loop (DOM styles,
- * not React per frame) so PWM phase is integrated across display frames
- * instead of collapsing to average duty.
+ * `pwm-leds` dock body. Brightness uses LED persistence, and the strip updates
+ * in requestAnimationFrame so PWM phase integrates across display frames.
  */
 
 import { useEffect, useReducer, useRef } from 'react'

@@ -1,21 +1,11 @@
 import { useEffect, useState } from 'react'
 import { FileUp } from 'lucide-react'
 
-/**
- * Whole-window drop target for guest images and their devicetrees.
- *
- * Drag events fire per-element and bubble, so a naive dragleave handler
- * flickers as the pointer crosses child boundaries. Counting enter/leave pairs
- * is the standard fix — the overlay hides only when the count returns to zero.
- *
- * Every dropped file is forwarded: classification (ELF vs .dts vs junk) needs
- * the bytes, which is the caller's business, and dropping `zephyr.elf` +
- * `zephyr.dts` together is the expected power move.
- */
 export function DropOverlay({ onFiles }: { onFiles: (files: File[]) => void }) {
   const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
+    // dragleave fires when crossing child boundaries; depth prevents flicker.
     let depth = 0
 
     const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes('Files') ?? false

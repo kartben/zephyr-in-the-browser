@@ -1,13 +1,7 @@
 /**
- * The record format shared with net/browser.c in the patched QEMU
- * (tools/qemu-patches/0008-*): SPSC byte rings of
- *
- *     u16le len | u16le flags | payload[len] | pad to 4
- *
- * A record never wraps; a skip marker (len == 0xffff) sends the consumer to
- * the next lap. Indices are free-running u32s. Used against the real wasm
- * heap by hostNet.ts and against a plain Uint8Array by the mock's fake
- * module, so both sides exercise the same codec.
+ * QEMU browser-net SPSC ring records:
+ *   u16le len | u16le flags | payload[len] | pad to 4
+ * Records never wrap; len 0xffff skips the consumer to the next lap.
  */
 
 export const RING_HDR = 4
@@ -17,7 +11,6 @@ export const RING_MAX_FRAME = 1522
 
 const align4 = (n: number) => (n + 3) & ~3
 
-/** Drain every complete record; returns the advanced read index. */
 export function ringDrain(
   heap: Uint8Array,
   base: number,
@@ -43,7 +36,6 @@ export function ringDrain(
   return rd
 }
 
-/** Append one frame; returns the advanced write index, or null when full. */
 export function ringWrite(
   heap: Uint8Array,
   base: number,

@@ -1,15 +1,7 @@
 /**
- * Minimal JEDEC SPI NOR flash stub (W25Q-class command set).
- *
- * Enough for Zephyr's `jedec,spi-nor` driver under
- * `CONFIG_SPI_NOR_SFDP_MINIMAL`: RDID, RDSR/WRSR, WREN/WRDI, READ, PP, and
- * sector/chip erase. SFDP is not modelled — the guest trusts the DT `size` /
- * `jedec-id`. Deep power-down (0xB9 / 0xAB) is accepted as a no-op so drivers
- * that enter DPD on idle do not TRANS_ERR.
- *
- * Capacity is 1 MiB so stock `samples/drivers/spi_flash` (test offset
- * `0xff000`) fits. Optional `persistKey` stores only non-erased sectors
- * (sparse JSON in localStorage) so LittleFS boot-counts survive reload.
+ * Minimal W25Q-class SPI NOR: RDID/RDSR/WREN/READ/PP/erase, no SFDP. DPD
+ * commands are no-ops, capacity covers Zephyr's 0xff000 test offset, and
+ * persistence stores sparse non-erased sectors.
  */
 
 import type { SpiChip, SpiTransferOpts } from '../spi'

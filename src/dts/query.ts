@@ -1,15 +1,10 @@
 /**
- * Read-side helpers over a parsed devicetree.
- *
- * All total: a lookup that cannot be answered returns undefined (or an empty
- * collection) instead of throwing, so callers can chain them over trees of
- * unknown shape — a user-dropped file is under no obligation to look like the
- * bundled ones.
+ * Read-side helpers over a parsed devicetree. Lookups are total: unknown
+ * shapes return undefined or empty collections instead of throwing.
  */
 
 import type { DtsCell, DtsDocument, DtsNode, DtsProperty } from './model'
 
-/** Absolute path of a node, `/soc/uart@9040000` style. */
 export function pathOf(node: DtsNode): string {
   const parts: string[] = []
   for (let n: DtsNode | null = node; n && n.name !== '/'; n = n.parent) parts.unshift(n.name)
@@ -38,18 +33,15 @@ export function prop(node: DtsNode, name: string): DtsProperty | undefined {
   return node.properties.find((p) => p.name === name)
 }
 
-/** First string value of a property. */
 export function stringProp(node: DtsNode, name: string): string | undefined {
   const value = prop(node, name)?.values.find((v) => v.kind === 'string')
   return value?.kind === 'string' ? value.value : undefined
 }
 
-/** Every string value of a property — `compatible` lists several. */
 export function stringsProp(node: DtsNode, name: string): string[] {
   return (prop(node, name)?.values ?? []).flatMap((v) => (v.kind === 'string' ? [v.value] : []))
 }
 
-/** First numeric cell of a property, across its cell arrays. */
 export function numberProp(node: DtsNode, name: string): number | undefined {
   for (const value of prop(node, name)?.values ?? []) {
     if (value.kind !== 'cells') continue
@@ -58,7 +50,6 @@ export function numberProp(node: DtsNode, name: string): number | undefined {
   return undefined
 }
 
-/** Whether a boolean property is present (`gpio-controller;`). */
 export function boolProp(node: DtsNode, name: string): boolean {
   return prop(node, name) !== undefined
 }
@@ -71,7 +62,6 @@ export function statusOf(node: DtsNode): string {
   return stringProp(node, 'status') ?? 'okay'
 }
 
-/** Enabled in devicetree terms: no `status`, or `status = "okay"`. */
 export function isOkay(node: DtsNode): boolean {
   const status = statusOf(node)
   return status === 'okay' || status === 'ok'
@@ -85,7 +75,6 @@ export function isEffectivelyOkay(node: DtsNode): boolean {
   return true
 }
 
-/** Hex unit address (`tmp112@48` → 0x48), when it is a plain number. */
 export function unitAddressNumber(node: DtsNode): number | undefined {
   if (node.unitAddress === undefined) return undefined
   return /^[0-9a-fA-F]+$/.test(node.unitAddress) ? parseInt(node.unitAddress, 16) : undefined
@@ -126,12 +115,10 @@ function refTable(doc: DtsDocument, nodeName: string): Record<string, DtsNode> {
   return table
 }
 
-/** The `/aliases` table, resolved to nodes. */
 export function aliases(doc: DtsDocument): Record<string, DtsNode> {
   return refTable(doc, 'aliases')
 }
 
-/** The `/chosen` table, resolved to nodes. */
 export function chosen(doc: DtsDocument): Record<string, DtsNode> {
   return refTable(doc, 'chosen')
 }

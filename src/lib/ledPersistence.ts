@@ -1,20 +1,10 @@
 /**
- * Perceived LED brightness under PWM — first-order persistence.
- *
- * Real LED dies switch in nanoseconds; what the eye (and this UI) sees is a
- * short integration of that square wave. Model it as a single exponential
- * low-pass so a ~50 Hz period still ripples ("breathes") while kHz PWM
- * averages to a steady glow at roughly the programmed duty.
- *
- * τ is eye-scale (~10 ms), not die-scale. At T = 20 ms and mid duty the
- * envelope swings ~0.27…0.73 — clearly visible without looking like a hard
- * strobe — and at high frequency the mean tracks duty.
+ * Perceived LED brightness under PWM, modelled as first-order eye/display
+ * persistence so low-frequency PWM ripples and kHz PWM averages to duty.
  */
 
-/** Eye / display persistence time constant (seconds), rise and fall. */
 export const LED_PERSISTENCE_TAU_S = 0.01
 
-/** Instantaneous electrical drive: true = LED current on. */
 export function pwmElectricalOn(
   timeNs: number,
   periodNs: number,
@@ -29,10 +19,7 @@ export function pwmElectricalOn(
   return phase < periodNs * duty
 }
 
-/**
- * One exponential step toward on (1) or off (0).
- * Exact solution of dv/dt = (target − v) / τ over dtSec.
- */
+/** Exact exponential step toward on (1) or off (0). */
 export function stepLedPersistence(
   value: number,
   on: boolean,
@@ -52,10 +39,7 @@ export function stepLedPersistence(
   return next
 }
 
-/**
- * Advance perceived brightness over [t0Ns, t1Ns) by integrating exact PWM
- * segments (no per-frame aliasing of a 50 Hz wave against a 60 Hz display).
- */
+/** Integrate exact PWM segments over [t0Ns, t1Ns), avoiding display-frame aliasing. */
 export function integrateLedPersistence(
   value: number,
   t0Ns: number,
@@ -94,7 +78,6 @@ export function integrateLedPersistence(
   return v
 }
 
-/** Map perceived 0…1 to the same opacity floor the static duty map used. */
 export function ledGlowOpacity(perceived: number): number {
   const v = Math.max(0, Math.min(1, perceived))
   if (v <= 0.02) return 0

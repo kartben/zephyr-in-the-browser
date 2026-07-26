@@ -1,26 +1,11 @@
 /**
- * VIRTIO GPIO device model (virtio spec 1.3, section 5.16), in the page.
- *
- * This is a port of `hw/virtio/virtio-gpio.c` — the 576-line C device model
- * that patch 0010 added — onto the generic bridge. The guest side is
- * unchanged: the vendored upstream `virtio,gpio` driver talks to what it
- * believes is an ordinary VIRTIO GPIO controller, because it is one. Only the
- * far end of the virtqueues moved, from QEMU to here.
- *
- * Two things got better in the move, both because the model now lives where
- * the events originate:
- *
- * - **Edges are exact.** The C model sampled the input word on a 10 ms timer,
- *   so a press and release inside one tick was invisible. Here `setInputs` is
- *   called by the panel, so the edge is detected at the instant it happens.
- * - **Outputs are push, not pull.** hostGpio.ts used to poll the output word
- *   every 100 ms to light its LEDs. A guest SET_VALUE now notifies listeners
- *   synchronously.
+ * Page-side VIRTIO GPIO device model (virtio spec 1.3, section 5.16).
+ * Input edges are raised synchronously from browser state; guest SET_VALUE
+ * pushes output changes to listeners.
  */
 
 import type { VirtioDeviceModel, VirtioRequest } from '../transport'
 
-/** Queue indices, per the spec. */
 const VQ_REQUEST = 0
 const VQ_EVENT = 1
 
@@ -52,13 +37,11 @@ const IRQ_STATUS_VALID = 0x1
 const MAX_LINES = 32
 
 export interface GpioModel extends VirtioDeviceModel {
-  /** Lines the device advertises, read from config space at attach. */
   readonly ngpio: number
   /** Drive the whole input word; edges fire interrupts synchronously. */
   setInputs(mask: number): void
   getInputs(): number
   getOutputs(): number
-  /** Runtime direction the guest last programmed (`in` / `out` / `none`). */
   getDirection(line: number): 'in' | 'out' | 'none'
   subscribe(fn: () => void): () => void
 }
@@ -82,7 +65,6 @@ export function createGpioModel(name = 'gpio'): GpioModel {
     for (const fn of listeners) fn()
   }
 
-  /** Hand a parked event chain back to the driver. */
   function completeIrq(line: number, status: number) {
     const req = irqReq[line]
     if (!req) return

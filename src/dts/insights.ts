@@ -1,17 +1,8 @@
 /**
- * From a parsed devicetree to the concepts this app actually models.
- *
- * This is where "de facto binding adherence" lives: instead of shipping
- * Zephyr's bindings, a small compatible→model table maps the chips and
- * controllers the page simulates. Everything else in the tree is still
- * enumerated — a real board's file dropped by a user lists its buses too —
- * but only the nodes the browser bridges (`bridged`) drive device models.
- *
- * `panels` means *availability*, not emphasis: the shield builds the GNSS,
- * audio and network bridges into nearly every image, so their presence says
- * little. The value is in the negative signal — a build whose tree has no
- * enabled I2C bus should not offer an I2C panel — and in grounding a custom
- * ELF's panel set, which is otherwise unknowable.
+ * Parsed devicetree facts this app models. A small compatible-to-model table
+ * stands in for Zephyr bindings; only bridged nodes drive device models.
+ * `panels` means availability, especially the negative signal that a custom
+ * tree has no enabled bus for a panel.
  */
 
 import type { PanelKind } from '@/boards'

@@ -1,14 +1,6 @@
 /**
- * A zperf/iperf2 peer: UDP + TCP sinks on port 5001 of any non-guest IP.
- *
- * Wire format per zephyr/subsys/net/lib/zperf/zperf_internal.h (modern,
- * non-legacy header): every UDP payload starts with
- *     struct zperf_udp_datagram { u32 id; u32 tv_sec; u32 tv_usec; u32 id2; }
- * big-endian, id negative (as int32) on the FIN datagram. The client then
- * blocks for a stats reply laid out as that 16-byte header echoed back,
- * followed by struct zperf_server_hdr (10 × u32 big-endian):
- *     flags(0x80000000=VERSION1) total_len1 total_len2 stop_sec stop_usec
- *     error_cnt outorder_cnt datagrams jitter1 jitter2
+ * zperf/iperf2 peer on port 5001. UDP FIN is a negative big-endian id; the
+ * reply echoes the 16-byte datagram header plus 10 big-endian stats words.
  */
 
 import { viewOf } from '../bytes'

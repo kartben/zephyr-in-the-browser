@@ -1,29 +1,11 @@
 /**
- * A Solomon SSD1306 monochrome OLED controller, in the page.
- *
- * The most interesting chip on the bus, because it is the one with something
- * to show: Zephyr's stock `solomon,ssd1306-i2c` driver renders into this over
- * the browser's I2C bus, and the panel paints its GDDRAM onto a canvas. Which
- * means the display sample, LVGL, or anything else that draws through the
- * display API ends up on a screen that exists only as an array here.
- *
- * Cost, since it is the first workload on this bridge big enough to have one:
- * the driver chunks I2C writes at 132 bytes, so a full 128x64 frame is 1024
- * bytes of data in 8 chunks plus one command chunk — 9 transfers. Measured at
- * ~100 blocking transfers per second, that is about 11 full-screen updates per
- * second, and partial updates cost proportionally less.
- *
- * GDDRAM is column-major in 8-pixel-tall pages: byte (page, column) holds
- * eight vertically stacked pixels, LSB at the top. A set bit is a lit pixel.
- *
- * Only the commands Zephyr's driver actually sends are modelled; the rest are
- * accepted and ignored, since a command this chip does not implement is
- * indistinguishable from one it does when nothing reads it back.
+ * SSD1306 OLED controller model. GDDRAM is (page, column), eight vertical
+ * pixels per byte with LSB at the top. Commands outside Zephyr's path are
+ * accepted and ignored because the driver never reads command state back.
  */
 
 import type { I2cChip } from '../i2c'
 
-/* Control byte: the first byte of every write says what the rest is. */
 const CONTROL_CMD = 0x00
 const CONTROL_DATA = 0x40
 
@@ -49,7 +31,6 @@ const MODE_HORIZONTAL = 0x00
 const MODE_VERTICAL = 0x01
 const MODE_PAGE = 0x02
 
-/** Commands that swallow one argument byte before the next command. */
 const ONE_ARG = new Set([
   CMD_SET_CONTRAST,
   CMD_SET_MEM_ADDRESSING_MODE,
@@ -62,7 +43,6 @@ const ONE_ARG = new Set([
   CMD_CHARGE_PUMP,
 ])
 
-/** Commands that swallow two. */
 const TWO_ARGS = new Set([CMD_SET_COLUMN_ADDRESS, CMD_SET_PAGE_ADDRESS])
 
 export interface Ssd1306Options {
@@ -77,9 +57,7 @@ export interface Ssd1306Chip extends I2cChip {
   readonly height: number
   /** GDDRAM: one byte per (page, column), eight vertical pixels, LSB on top. */
   readonly memory: Uint8Array
-  /** Whether the panel is powered on; a display-off should render dark. */
   isOn(): boolean
-  /** Whether the driver asked for inverted output. */
   isInverted(): boolean
   /**
    * Live controller state derived from the last commands the guest sent —
@@ -87,12 +65,10 @@ export interface Ssd1306Chip extends I2cChip {
    * Controller inspector reads this.
    */
   getControllerState(): Ssd1306ControllerState
-  /** Bumped on every change, so a renderer can skip identical frames. */
   version(): number
   subscribe(fn: () => void): () => void
 }
 
-/** Command-derived SSD1306 state the inspector shows. */
 export interface Ssd1306ControllerState {
   on: boolean
   inverted: boolean
@@ -122,7 +98,6 @@ export function createSsd1306({
   let mode = MODE_PAGE // the chip's own reset default
   let generation = 0
 
-  /* Addressing window and cursor, in GDDRAM terms. */
   let colStart = 0
   let colEnd = width - 1
   let pageStart = 0

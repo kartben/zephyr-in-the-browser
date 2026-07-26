@@ -1,15 +1,7 @@
 /**
- * Recursive-descent parser for devicetree source.
- *
- * The target input is Zephyr's `build/zephyr/zephyr.dts` — the fully flattened
- * tree the build actually used, written back out by dtlib in a normalized form
- * (no includes, no macros, integers as hex). The parser is deliberately more
- * tolerant than that: comments, decimal/octal integers, `/bits/`, parenthesized
- * integer expressions, and overlay-style `&label { ... }` fragments all parse,
- * so a hand-written overlay dropped by a user still yields a useful tree.
- *
- * What it does not do is binding-aware interpretation: `reg` is cells like any
- * other property. Meaning is layered on in query.ts and insights.ts.
+ * Recursive-descent parser for Zephyr devicetree source. It tolerates comments,
+ * decimal/octal integers, /bits/, parenthesized expressions, and overlay-style
+ * `&label {}` fragments; binding-aware meaning is layered on elsewhere.
  */
 
 import { DtsParseError } from './model'

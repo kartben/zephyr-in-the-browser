@@ -1,14 +1,7 @@
 /**
- * An NXP PCF8523 RTC, as an {@link RtcChip}.
- *
- * Register map and semantics match Zephyr's stock `nxp,pcf8523` driver
- * (`drivers/rtc/rtc_pcf8523.c`): BCD time at 0x03–0x09, alarm compares at
- * 0x0a–0x0d with AEN=1 meaning *disabled*, AF sticky in Control_2, and
- * get_time refusing to return while the OS (oscillator stop) bit is set.
- *
- * Timekeeping advances against the browser wall clock while STOP is clear.
- * Alarm matches set AF; the dock shows that as "fired" without needing INT1
- * GPIO (callback support still wants int1-gpios on the guest side).
+ * PCF8523 RTC. BCD time lives at 0x03-0x09; alarm AEN=1 means disabled, AF is
+ * sticky, and OS blocks get_time. Time advances on browser wall clock while
+ * STOP is clear; alarm matches set AF without needing INT1 GPIO.
  */
 
 import {

@@ -1,17 +1,7 @@
 /**
- * A small, symmetric TCP engine for the browser-side network.
- *
- * The wire is lossless, in-order and has ~zero RTT (both ends live in the
- * same page), so this deliberately implements the RFC 9293 state machine
- * minus everything that exists to survive a real internet: no SACK, no
- * congestion control, no Nagle, no delayed ACKs, no reassembly queue
- * (out-of-order segments are dropped and retransmitted — reachable only
- * under user-configured impairments or guest packet-pool exhaustion).
- *
- * "Symmetric" because the same engine terminates connections on both ends:
- * the page's network stack uses it to be every remote host at once (and to
- * dial INTO guest servers), and the mock backend's fake guest reuses it as
- * its own TCP so the demo path exercises the real implementation.
+ * Symmetric TCP engine for the browser-side LAN. Assumes near-zero RTT and
+ * in-order delivery, so it omits SACK/congestion/Nagle/reassembly; out-of-order
+ * segments are dropped and retransmitted.
  */
 
 import { type TcpSegment, TCP_ACK, TCP_FIN, TCP_RST, TCP_SYN, TCP_PSH } from './tcpWire'

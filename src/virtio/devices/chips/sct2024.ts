@@ -1,14 +1,6 @@
 /**
- * Starchips SCT2024 16-channel LED driver — page-side SPI model.
- *
- * Matches Zephyr's `drivers/led/sct2024.c`: a 16-bit MSB-first SPI word into
- * the shift register, then a GPIO LA pulse latches it onto the LED outputs.
- * Optional OE blanks the outputs. Stock `samples/drivers/led/sct2024` walks
- * the 16 channels on/off through the LED API.
- *
- * The part is a shift-register latch, not a pointered I²C map — we still
- * expose SHIFT / LED_OUT / CTRL through the shared SVD-inspired register
- * inspector so the dock Matches every other register-file chip.
+ * SCT2024 SPI LED driver. A 16-bit MSB-first word shifts in, GPIO LA latches
+ * outputs, and OE blanks them. The inspector mirrors SHIFT / LED_OUT / CTRL.
  */
 
 import type { SpiChip, SpiTransferOpts } from '../spi'

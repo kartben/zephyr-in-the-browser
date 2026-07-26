@@ -1,17 +1,10 @@
-/**
- * Syntax highlighting for C (and close cousins) shown in the UI.
- *
- * highlight.js is registered with only the C grammar so the bundle stays small.
- * Callers get escaped HTML — safe to inject via dangerouslySetInnerHTML when
- * the source is our own shipped samples / annotation bodies.
- */
+/** C-only syntax highlighting; non-highlighted output is still escaped HTML. */
 
 import hljs from 'highlight.js/lib/core'
 import c from 'highlight.js/lib/languages/c'
 
 hljs.registerLanguage('c', c)
 
-/** Fence / file languages we treat as C. */
 const C_ALIASES = new Set(['c', 'h', 'cpp', 'cc', 'cxx', 'c++', 'hpp'])
 
 export function isCLanguage(language: string | undefined | null): boolean {
@@ -19,10 +12,6 @@ export function isCLanguage(language: string | undefined | null): boolean {
   return C_ALIASES.has(language.trim().toLowerCase())
 }
 
-/**
- * Highlight `code` as C. Returns escaped HTML with `<span class="hljs-…">`
- * wrappers. On failure (corrupt grammar input), returns escaped plain text.
- */
 export function highlightC(code: string): string {
   try {
     return hljs.highlight(code, { language: 'c', ignoreIllegals: true }).value
@@ -31,10 +20,6 @@ export function highlightC(code: string): string {
   }
 }
 
-/**
- * Highlight when the fence language is a C alias; otherwise return escaped
- * plain text so non-C fences stay readable and safe.
- */
 export function highlightCode(code: string, language: string): string {
   if (isCLanguage(language)) return highlightC(code)
   return escapeHtml(code)

@@ -1,24 +1,7 @@
 /**
- * The LAN, as a TypeScript object.
- *
- * Every frame the guest transmits terminates here, and every frame it
- * receives originates here — there is no routing, only dispatch. The stack
- * plays gateway, DHCP/DNS/SNTP server, every "internet" host at once (via
- * synthetic addresses and the fetch()-backed HTTP proxy), and a TCP/UDP
- * client dialing into servers the guest runs.
- *
- * Addressing (defaults):
- *   192.0.2.0/24   the LAN (matches Zephyr's net_config sample defaults)
- *   192.0.2.1      the one DHCP lease — static samples use the same value
- *   192.0.2.2      gateway / DHCP / SNTP / "host.internal"
- *   192.0.2.3      DNS
- *   192.0.2.4      echo host ("echo.internal")
- *   203.0.113.0/24 synthetic pool for resolved names
- *
- * Proxy-ARP: the stack answers ARP for *any* address except the guest's own
- * (and its DHCP-probe target), so off-subnet or slirp-style guest configs
- * resolve and just work. The exception is load-bearing: answering the
- * guest's address-conflict probe would make every DHCP lease look taken.
+ * Browser LAN stack: gateway/DHCP/DNS/SNTP, synthetic internet hosts, and
+ * clients dialing guest servers. Defaults use 192.0.2.0/24 plus 203.0.113.0/24
+ * for DNS answers. Proxy-ARP excludes the guest's DHCP conflict probe target.
  */
 
 import { ipFromString, macFromString, MAC_BROADCAST } from './bytes'

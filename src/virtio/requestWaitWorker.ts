@@ -1,22 +1,13 @@
 /**
- * Blocking guest→page wake for the generic virtio bridge.
- *
- * QEMU publishes a request into a SharedArrayBuffer ring, increments one
- * process-wide futex word, and notifies it. A dedicated worker may block in
- * Atomics.wait() on that word; the browser's main thread may not. Each wake is
- * forwarded as a regular worker message so the existing device models can
- * stay on the main thread, where their UI subscriptions and browser-backed
- * persistence already live.
- *
- * There is deliberately no stop message. A worker blocked in Atomics.wait()
- * cannot receive one; transport.detach() terminates the worker instead.
+ * Dedicated Atomics.wait worker for virtio request wakes. Device models stay on
+ * the main thread; detach terminates this worker because a blocked wait cannot
+ * receive a stop message.
  */
 
 export interface RequestWaiterStart {
   type: 'start'
   buffer: SharedArrayBuffer
   wordIndex: number
-  /** Value read by the main thread before the worker was created. */
   expected: number
 }
 

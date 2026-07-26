@@ -1,15 +1,6 @@
 /**
- * Jinghua JHD1313 Grove RGB LCD — two I²C endpoints on one module.
- *
- * LCD at 0x3e exposes an HD44780-style Instruction/Data register file
- * (`maps/jhd1313-lcd.json`): control byte `0x00`/`0x80` selects IR, `0x40`
- * selects DR. Decoded Entry_Mode / Display_Control / Function_Set / DDRAM_AC
- * shadows track what those commands programmed. The page also keeps a
- * character-cell buffer the dock paints.
- *
- * Backlight at 0x62 is a PCA9633-style register file
- * (`maps/jhd1313-backlight.json`). The LCD chip holds a link so the canvas
- * can wash with the current RGB PWM.
+ * JHD1313 RGB LCD module: HD44780-style LCD at 0x3e plus PCA9633-style
+ * backlight at 0x62. The LCD keeps a link to wash the canvas with RGB PWM.
  */
 
 import type { I2cChip } from '../i2c'

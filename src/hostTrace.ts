@@ -1,14 +1,6 @@
 /**
- * Browser end of Zephyr's semihosting CTF backend.
- *
- * The guest opens `./tracing.bin` via ARM semihosting and appends CTF records
- * as events fire (see subsys/tracing/tracing_backend_semihosting.c). Under
- * qemu-wasm those writes land in Emscripten's MEMFS; this module polls the
- * file, feeds new bytes into a TraceReader, and notifies subscribers — the
- * same follow mode trace_viewer.py gets from watching a growing file.
- *
- * Hidden until the file appears (or we have events), so a shell session never
- * shows an empty Trace panel.
+ * Browser end of Zephyr's semihosting CTF backend. Polls MEMFS `tracing.bin`
+ * into TraceReader and stays hidden until the file or events appear.
  */
 
 import { fallbackDefs, loadEventDefs, TraceReader, type Trace } from '@/ctf'

@@ -10,17 +10,6 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
-/**
- * The follow-up to loading a custom ELF: optionally take its zephyr.dts too.
- *
- * With the devicetree the peripheral panels are grounded — only the buses the
- * build enables appear, with its own pin names and I2C slots. Without it the
- * peripherals stay unknowable and everything the machine exposes is shown
- * expanded, exactly the pre-devicetree behavior.
- *
- * Three exits: a .dts (boot with it), Skip (boot without), or dismissing the
- * dialog (don't boot — the drop is forgotten).
- */
 export function DtsPromptDialog({
   elfName,
   open,
@@ -30,11 +19,8 @@ export function DtsPromptDialog({
 }: {
   elfName: string
   open: boolean
-  /** Boot the pending ELF, grounding the panels in this devicetree. */
   onDts: (file: File) => void
-  /** Boot the pending ELF without a devicetree. */
   onSkip: () => void
-  /** Forget the pending ELF entirely. */
   onDismiss: () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)

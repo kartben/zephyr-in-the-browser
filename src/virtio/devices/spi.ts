@@ -1,20 +1,7 @@
 /**
- * VIRTIO SPI controller device model (virtio SPI controller, device id 45).
- *
- * Same shape as the I²C adapter: one request queue on the generic browser
- * bridge, chips modelled in TypeScript and selected by chip-select id (`reg`
- * in the guest DT), no QEMU device of their own.
- *
- * Wire format per transfer (guest driver → device):
- *
- *     out: struct virtio_spi_transfer_head (32 bytes)
- *          followed by TX bytes, when this half has a TX buffer
- *     in:  RX bytes, when this half has an RX buffer,
- *          followed by a 1-byte result (TRANS_OK / PARAM_ERR / TRANS_ERR)
- *
- * Full-duplex transfers carry both; lengths must match. Half-duplex write or
- * read omit the unused side. A chip that is not attached fails the transfer —
- * SPI has no NAK, so the guest sees TRANS_ERR rather than a quiet bus.
+ * Page-side VIRTIO SPI controller. Each transfer carries a 32-byte head plus
+ * optional TX/RX buffers and a 1-byte result. Full-duplex lengths must match;
+ * unattached chip-selects fail with TRANS_ERR because SPI has no NAK.
  */
 
 import type { VirtioDeviceModel, VirtioRequest } from '../transport'

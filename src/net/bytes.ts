@@ -1,10 +1,4 @@
-/**
- * Byte-level primitives shared by every codec in src/net/.
- *
- * IPv4 addresses travel as unsigned 32-bit numbers (cheap Map keys, cheap
- * compares); MACs as 6-byte Uint8Arrays. Strings appear only at the UI
- * boundary.
- */
+/** Net codecs use u32 IPv4 addresses and 6-byte MACs; strings stay at the UI edge. */
 
 /** Ones'-complement 16-bit checksum over `data`, seeded with `initial`. */
 export function checksum16(data: Uint8Array, initial = 0): number {
@@ -35,7 +29,6 @@ export function ipToString(ip: number): string {
   return `${(ip >>> 24) & 0xff}.${(ip >>> 16) & 0xff}.${(ip >>> 8) & 0xff}.${ip & 0xff}`
 }
 
-/** "a.b.c.d" -> u32, or null when malformed. */
 export function ipFromString(s: string): number | null {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s.trim())
   if (!m) return null
@@ -52,7 +45,6 @@ export function macToString(mac: Uint8Array): string {
   return Array.from(mac, (b) => b.toString(16).padStart(2, '0')).join(':')
 }
 
-/** "aa:bb:cc:dd:ee:ff" -> bytes, or null when malformed. */
 export function macFromString(s: string): Uint8Array | null {
   const parts = s.trim().split(':')
   if (parts.length !== 6) return null

@@ -1,18 +1,8 @@
-/**
- * Where the reader is in the lesson.
- *
- * One dot per annotation the running build linked in — which is why the guest
- * announces its table at boot rather than letting the page infer the shape from
- * the catalog: the outline shows what this build will actually do. Steps
- * already seen are clickable, to read a note again without rewinding anything.
- */
-
 import { revisit } from '@/annotations/store'
 import type { AnnotationCatalog } from '@/annotations/catalog'
 import { cn } from '@/lib/utils'
 
 interface Props {
-  /** Annotation ids in source order. */
   outline: number[]
   seen: Set<number>
   currentId: number | null

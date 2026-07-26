@@ -1,14 +1,7 @@
 /**
- * Outbound HTTP: the guest dials any host on :80/:8080, the stack terminates
- * TCP and re-issues the request with fetch().
- *
- * Reality checks baked in:
- * - The page is https, so upstream requests are always upgraded to https
- *   (mixed content would be blocked). The guest still speaks plain HTTP.
- * - Reading a cross-origin body requires CORS on the upstream; hosts without
- *   it get a synthesized 502 explaining why. `host.internal` maps to a
- *   same-origin fetch and always works, including offline.
- * - Guest-side TLS (:443) cannot be proxied at all: no raw sockets.
+ * Outbound HTTP proxy: guest TCP :80/:8080 becomes fetch(). Upstream URLs are
+ * upgraded to https, CORS failures synthesize 502, host.internal is same-origin,
+ * and guest-side TLS cannot be proxied without raw sockets.
  */
 
 import { ipToString } from '../bytes'

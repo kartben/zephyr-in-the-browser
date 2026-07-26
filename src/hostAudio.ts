@@ -1,22 +1,7 @@
 /**
- * Browser end of the `qemu,host-audio` bridge.
- *
- * The QEMU device owns a ring of 16-bit interleaved PCM samples the guest's
- * I2S driver fills over MMIO, at the rate and channel count the guest
- * configured (read back fresh on every poll). Its exports hand us the ring's
- * location and geometry plus two free-running sample counters:
- * `get_write_index()` advances as the guest produces, and `set_read_index()`
- * reports what we consumed, which is how the guest sees free space. Every
- * access is a plain shared-memory operation — no call ever enters the guest.
- *
- * Consumption runs on a 100 ms poll whether or not sound is enabled: a muted
- * page still drains (and drops) samples so the guest's flow control behaves
- * identically either way. Playback goes through the Web Audio API, which the
- * browser's autoplay policy gates behind a user gesture — hence enable() being
- * called from a click in AudioPanel rather than from attach().
- *
- * Like hostGpio, deliberately not part of the PtyBackend seam: the bridge is
- * optional, and a backend with no audio device need not know it exists.
+ * Browser end of the `qemu,host-audio` ring. Muted playback still drains and
+ * drops samples so guest flow control is unchanged; audible playback must start
+ * from a user gesture because of browser autoplay policy.
  */
 
 interface AudioExports {
@@ -26,19 +11,14 @@ interface AudioExports {
   _qemu_host_audio_get_data?: () => number
   _qemu_host_audio_get_write_index?: () => number
   _qemu_host_audio_set_read_index?: (index: number) => void
-  /** Shared-memory view emitted by Emscripten's pthread runtime. */
   HEAPU8?: Uint8Array
 }
 
 export interface AudioSnapshot {
   available: boolean
-  /** Sound reaches the speakers; false while draining silently. */
   enabled: boolean
-  /** Device sample rate in Hz, 0 until attached. */
   rate: number
-  /** Interleaved channels per frame the guest configured, 1 until attached. */
   channels: number
-  /** Peak of the most recent chunk, 0..1, for a level meter. */
   level: number
 }
 
@@ -54,9 +34,7 @@ const listeners = new Set<() => void>()
 let snapshot = EMPTY
 let ctx: AudioContext | null = null
 let enabled = false
-/** Next free slot on the AudioContext timeline. */
 let playhead = 0
-/** Frames consumed so far, mirroring the device's free-running counter. */
 let readIndex = 0
 
 export function attach(mod: unknown) {

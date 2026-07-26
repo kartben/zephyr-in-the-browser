@@ -1,16 +1,7 @@
 /**
- * VIRTIO I2C adapter device model (virtio spec 1.3, section 5.15), in the page.
- *
- * The wire shape is one descriptor chain per `struct i2c_msg`, so a Zephyr
- * transfer of N messages arrives here as N requests. Each carries:
- *
- *     out: struct virtio_i2c_out_hdr { le16 addr; le16 padding; le32 flags; }
- *          followed by the bytes to write, when this is a write
- *     in:  the bytes read, when this is a read,
- *          followed by struct virtio_i2c_in_hdr { u8 status; }
- *
- * `addr` is the 7-bit address shifted left by one, leaving room for R/W.
- * Unattached chips NAK so `i2c scan` sees only addresses the page answers.
+ * Page-side VIRTIO I2C adapter. Each Zephyr `i2c_msg` arrives as one request
+ * with a virtio_i2c_out_hdr, optional write/read bytes, and an in_hdr status.
+ * `addr` is the 7-bit address shifted left; unattached chips NAK.
  */
 
 import type { VirtioDeviceModel, VirtioRequest } from '../transport'

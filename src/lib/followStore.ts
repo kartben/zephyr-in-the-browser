@@ -1,13 +1,6 @@
 /**
- * Which sensor chips are following a browser source group ("device tilt",
- * "battery level"), held at module level rather than in the checkbox that
- * toggled it. The subscription must outlive the widget: a collapsed or
- * popped-out card unmounts its rows, and component-local state would silently
- * stop the source mid-follow — a chip should keep tilting with the device
- * whether or not its controls happen to be on screen.
- *
- * Keyed per (chip, source group), not per channel: the ADXL's three axes are
- * one physical tilt, so they follow — and stop following — together.
+ * Module-level sensor follow state survives unmounted controls. Keys are
+ * (chip, source group), so one physical tilt source drives all axes together.
  */
 
 import {
@@ -21,7 +14,6 @@ import type { SensorChip } from '@/virtio/devices/sensors/model'
 type Starter = typeof startLiveSource
 let starter: Starter = startLiveSource
 
-/** Test seam: the real starter touches window/navigator. */
 export function setLiveSourceStarter(fn: Starter): void {
   starter = fn
 }
@@ -29,7 +21,6 @@ export function setLiveSourceStarter(fn: Starter): void {
 type OrientationStarter = typeof startOrientationGroup
 let orientationStarter: OrientationStarter = startOrientationGroup
 
-/** Test seam for the grouped orientation path. */
 export function setOrientationGroupStarter(fn: OrientationStarter): void {
   orientationStarter = fn
 }
@@ -57,7 +48,6 @@ export function isFollowingGroup(chip: SensorChip, group: LiveSourceGroup): bool
   return follows.has(keyOf(chip, group))
 }
 
-/** Whether any channel of this chip is being driven by `group`'s source. */
 export function groupDrivesChannel(
   chip: SensorChip,
   group: LiveSourceGroup,
@@ -101,11 +91,7 @@ export function setFollowGroup(chip: SensorChip, group: LiveSourceGroup, follow:
   notify()
 }
 
-/**
- * Stop follows whose chip is no longer on the bus. Called when the attached
- * chip set changes; a re-attached chip is a new handle and starts unfollowed,
- * exactly like a part freshly soldered on.
- */
+/** Stop follows whose chip handle is no longer attached. */
 export function pruneFollows(attached: readonly { address: number }[]): void {
   const alive = new Set(attached)
   let changed = false

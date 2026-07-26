@@ -1,24 +1,7 @@
 /**
- * The chips the bus panel can attach, and where the guest devicetree expects
- * them.
- *
- * Two facts have to stay in step, and this file is where they meet:
- *
- * - The page can attach any chip at any address at runtime; the bus just starts
- *   ACKing there and `i2c scan` finds it.
- * - The guest's driver list is static. Only the addresses the devicetree
- *   declares get a bound driver. A chip attached anywhere else answers on the
- *   bus but no driver ever talks to it — useful for `i2c scan`/`i2c read`, not
- *   `sensor get`.
- *
- * So detaching a declared chip is a genuine bus-error demo (the driver NAKs like
- * the part fell off the board), and attaching one restores it.
- *
- * Where the declared addresses come from: the *parsed devicetree of the running
- * build* when one is loaded (src/devicetree.ts) — the bridged virtio,i2c bus's
- * enabled children are the truth, including "none, this build has no bus". Only
- * when no devicetree is known (older image tarballs, a custom ELF without one)
- * does the hardcoded mirror of the virtio-i2c snippet overlay take over.
+ * I2C chips the page can attach, plus the addresses the guest devicetree binds.
+ * Runtime attachments ACK anywhere; only declared addresses have guest drivers.
+ * A parsed zephyr.dts is authoritative, with the hardcoded slots as fallback.
  */
 
 import { get as getDeviceTree } from '@/devicetree'
@@ -53,12 +36,9 @@ export type ChipKind =
   | 'rtc'
 
 export interface ChipType {
-  /** Stable id, also the select value. */
   id: string
-  /** Shown in the attach picker and roster. */
   label: string
   kind: ChipKind
-  /** Address the part ships at; seeds the picker. */
   defaultAddress: number
   /**
    * Optional second endpoint for multi-address modules (JHD1313 backlight).
@@ -66,7 +46,6 @@ export interface ChipType {
    * both.
    */
   secondaryAddress?: number
-  /** Short label for the secondary address field (e.g. `backlight`). */
   secondaryLabel?: string
   /**
    * Build the chip(s) to put on the bus. Most types return one chip; a module
@@ -75,7 +54,6 @@ export interface ChipType {
   create(address: number, secondary?: number): I2cChip | readonly I2cChip[]
 }
 
-/** Every chip type the panel offers to attach. */
 export const CHIP_TYPES: ChipType[] = [
   {
     id: 'tmp112',
@@ -199,13 +177,8 @@ export const CHIP_TYPES: ChipType[] = [
   },
 ]
 
-/**
- * Fallback for builds whose devicetree is unknown: the addresses the
- * qemu_cortex_a53 virtio-i2c snippet overlay declares *enabled by default*
- * (TMP112, LM75, ADXL345, AT24, SSD1306). Optional sensors stay off until a
- * sample's tree enables them. Kept in sync with the overlay by hand — but only
- * consulted when no zephyr.dts is loaded.
- */
+// Fallback for unknown devicetrees: the virtio-i2c overlay's default enabled
+// children. Optional sensors stay off until a sample's zephyr.dts enables them.
 export const FALLBACK_DT_SLOTS: Record<number, string> = {
   0x48: 'tmp112',
   0x49: 'lm75',
@@ -230,14 +203,12 @@ function dtsSlots(): Map<number, I2cSlot> | null {
   return slots
 }
 
-/** Whether the guest devicetree binds a driver at this address. */
 export function hasDriver(address: number): boolean {
   const slots = dtsSlots()
   if (slots) return slots.has(address)
   return address in FALLBACK_DT_SLOTS
 }
 
-/** What the devicetree says lives at an address — for hint text. */
 export function declaredChip(address: number): { compatible?: string; chipId?: string } | undefined {
   const slots = dtsSlots()
   if (slots) {

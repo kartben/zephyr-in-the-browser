@@ -1,12 +1,6 @@
 /**
- * An Intersil/Renesas ISL29035 ambient light sensor, as a {@link SensorDecl}.
- *
- * Bundles `samples/sensor/isl29035`. The driver reads DATA_MSB (0x03) and
- * DATA_LSB (0x02) as separate point-then-read bytes — so the MSB register is a
- * `highByteOf` mirror of the LSB channel word, not a second channel.
- *
- * Encoding matches the sample's `CONFIG_ISL29035_LUX_RANGE_4K` with the
- * default 16-bit ADC: lux = sample * 4000 / 65536.
+ * ISL29035 light sensor. DATA_MSB is a high-byte mirror of DATA_LSB's 16-bit
+ * little-endian channel word; lux encoding follows COMMAND_II's range bits.
  */
 
 import { clampUint } from './helpers'
@@ -20,12 +14,10 @@ const REG_INT_LT_LSB = 0x04
 const REG_INT_HT_LSB = 0x06
 const REG_ID = 0x0f
 
-/** Lux ranges indexed by COMMAND_II[1:0], matching the Kconfig choices. */
 const LUX_RANGES = [1000, 4000, 16000, 64000] as const
 const ADC_BITS = 16
 const ADC_MAX = 1 << ADC_BITS
 
-/** Lux → 16-bit ADC sample at the range currently in COMMAND_II. */
 function encodeLux(lux: number, ctx: CodecCtx): number {
   const range = LUX_RANGES[ctx.reg(REG_COMMAND_II) & 0x03] ?? 4000
   return clampUint((lux * ADC_MAX) / range)

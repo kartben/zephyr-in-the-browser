@@ -1,19 +1,6 @@
 /**
- * Browser end of the `qemu,host-mic` bridge — the input twin of hostAudio.
- *
- * The QEMU device owns a ring of 16-bit mono PCM at a fixed rate (16 kHz)
- * that the *browser* fills and the guest's DMIC driver drains. Captured
- * microphone audio is resampled to the device rate, written straight into the
- * shared Emscripten heap at the exported ring address, and published by
- * advancing the write index; the guest pops samples over MMIO on its side.
- *
- * Capture requires a getUserMedia grant, so enable() must run from a user
- * gesture (the panel's mic button). While disabled nothing is written and the
- * guest driver reads silence — its choice, not ours, which is what keeps the
- * stock dmic sample running with or without a microphone.
- *
- * Like hostGpio, deliberately not part of the PtyBackend seam: the bridge is
- * optional, and a backend with no mic device need not know it exists.
+ * Browser end of the `qemu,host-mic` ring. Capture resamples microphone input
+ * into the guest's fixed-rate PCM buffer and must start from a user gesture.
  */
 
 interface MicExports {
@@ -22,19 +9,14 @@ interface MicExports {
   _qemu_host_mic_get_data?: () => number
   _qemu_host_mic_get_read_index?: () => number
   _qemu_host_mic_set_write_index?: (index: number) => void
-  /** Shared-memory view emitted by Emscripten's pthread runtime. */
   HEAPU8?: Uint8Array
 }
 
 export interface MicSnapshot {
   available: boolean
-  /** Microphone is granted and streaming into the ring. */
   enabled: boolean
-  /** Device sample rate in Hz, 0 until attached. */
   rate: number
-  /** Peak of the most recent capture chunk, 0..1, for a level meter. */
   level: number
-  /** Set when the user denied the permission (or capture failed). */
   error: string | null
 }
 
@@ -57,9 +39,7 @@ let source: MediaStreamAudioSourceNode | null = null
 let sink: GainNode | null = null
 let enabled = false
 let error: string | null = null
-/** Samples produced so far, mirroring the device's free-running counter. */
 let writeIndex = 0
-/** Fractional read position into the capture stream, for resampling. */
 let resamplePos = 0
 
 export function attach(mod: unknown) {

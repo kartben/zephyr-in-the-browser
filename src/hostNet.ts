@@ -1,19 +1,7 @@
 /**
- * Browser end of the Ethernet bridge added by
- * tools/qemu-patches/0008-net-add-browser-netdev-backend.patch (and its JIT
- * twin): a QEMU `browser` netdev exposes two SPSC frame rings in the shared
- * wasm heap, and this module is the other side of the wire.
- *
- * Every frame the guest transmits is drained here and fed to the TypeScript
- * network stack (src/net/), which implements the entire LAN — DHCP, DNS,
- * SNTP, ICMP, TCP peers, an HTTP proxy riding fetch(). Replies are written
- * back into the RX ring. Because all traffic passes through this file, the
- * counters, throughput history, packet capture and .pcap export come free.
- *
- * Polling is adaptive: 100 ms at idle (one shared-memory index read), 10 ms
- * while frames flowed within the last 3 s, plus one opportunistic drain just
- * after each injected frame so request/response handshakes complete in a
- * couple of ticks rather than a couple of poll periods.
+ * Browser end of QEMU's `browser` netdev SPSC rings. Guest TX frames feed the
+ * TypeScript LAN stack; replies go back through RX. Polling is slow at idle and
+ * fast after recent traffic, with an opportunistic drain after injected frames.
  */
 
 import { ipToString, macToString } from '@/net/bytes'

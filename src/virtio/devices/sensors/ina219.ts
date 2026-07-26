@@ -1,13 +1,7 @@
 /**
- * A Texas Instruments INA219 current/power monitor, as a {@link SensorDecl}.
- *
- * Bundles `samples/sensor/ina219`. Pointer-then-read 16-bit big-endian
- * registers — the same machine as TMP112. The sample's overlay sets
- * `lsb-microamp = <10>`; encoding matches that so `sensor_channel_get` of
- * voltage / current / power round-trips the sliders.
- *
- * V_BUS bit 1 (CNVR) is always set so the driver's conversion-ready poll
- * returns immediately after it triggers a measurement.
+ * INA219 current/power monitor. Registers are 16-bit big-endian; current and
+ * power encode with the sample overlay's `lsb-microamp = <10>`. V_BUS always
+ * sets CNVR so Zephyr's conversion-ready poll returns immediately.
  */
 
 import { clampToUint, clampUint } from './helpers'
@@ -20,27 +14,22 @@ const REG_POWER = 0x03
 const REG_CURRENT = 0x04
 const REG_CALIB = 0x05
 
-/** Matches the sample overlay's lsb-microamp = 10. */
 const CURRENT_LSB_UA = 10
 const V_BUS_MUL = 0.004
 const SI_MUL = 0.00001
 const POWER_MUL = 20
-/** CNVR ready flag in the bus-voltage register. */
 const CNVR = 1 << 1
 
-/** Volts → V_BUS field (bits 15:3) with CNVR set. */
 function encodeBusVoltage(volts: number): number {
   const counts = clampUint(volts / V_BUS_MUL, 16) & 0x3fff
   return ((counts << 3) | CNVR) & 0xffff
 }
 
-/** Amperes → signed current register. */
 function encodeCurrent(amps: number): number {
   // channel_get: amps = counts * current_lsb * SI_MUL
   return clampToUint(amps / (CURRENT_LSB_UA * SI_MUL))
 }
 
-/** Watts → power register. */
 function encodePower(watts: number): number {
   // channel_get: watts = counts * current_lsb * POWER_MUL * SI_MUL
   return clampUint(watts / (CURRENT_LSB_UA * POWER_MUL * SI_MUL))

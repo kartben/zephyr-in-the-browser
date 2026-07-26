@@ -1,15 +1,6 @@
 /**
- * Dock body for any {@link PwmChip}.
- *
- * Paints an annotated square wave for the selected channel (full period
- * centered, ~⅓ period of context on each side), a fixed-height channel strip,
- * optional detail metrics, and the shared Registers dialog.
- * Provider-agnostic — do not import PCA9685 here.
- *
- * Visual updates coalesce on requestAnimationFrame (same pattern as the OLED
- * panel). The stock LED PWM sample fades one brightness step every ~10 ms;
- * a 50 ms timer throttle made that look choppy, and rebuilding the canvas from
- * a React `useEffect([ch])` paid the full paint cost on every throttle tick.
+ * Provider-agnostic PWM dock body. Chip updates coalesce on requestAnimationFrame
+ * so fast fade steps repaint without a React timer throttle.
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
@@ -21,7 +12,6 @@ import {
   type PwmChip,
 } from '@/virtio/devices/pwm/model'
 
-/** Side context as a fraction of one period (⅓ on each side of the center T). */
 const SIDE = 1 / 3
 const T_MIN = -SIDE
 const T_MAX = 1 + SIDE

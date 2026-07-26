@@ -1,17 +1,6 @@
 /**
- * An STMicroelectronics LPS22HH pressure + temperature sensor, as a
- * {@link SensorDecl}.
- *
- * Bundles `samples/sensor/lps22hh`. Without an INT line the driver runs in
- * one-shot mode: each `sensor_sample_fetch` triggers a measurement and polls
- * STATUS until P_DA|T_DA. STATUS always reports ready here so that loop exits.
- *
- * Register model (datasheet + Zephyr/STMems):
- *
- * - WHO_AM_I (0x0F) = 0xB3.
- * - PRESS_OUT_XL (0x28) is a 24-bit little-endian left-aligned sample;
- *   sensitivity 4096 LSB/hPa, reported as kPa.
- * - TEMP_OUT_L (0x2B) is 16-bit LE at 100 LSB/°C.
+ * LPS22HH pressure/temperature sensor. STATUS is always P_DA|T_DA for Zephyr's
+ * one-shot poll; pressure is 24-bit little-endian at 4096 LSB/hPa.
  */
 
 import { clampToUint, clampUint } from './helpers'
@@ -26,15 +15,12 @@ const REG_PRESS = 0x28
 const REG_TEMP = 0x2b
 
 const WHO_AM_I = 0xb3
-/** STATUS: P_DA | T_DA — one-shot polling never waits on us. */
 const STATUS_READY = 0x03
 
-/** kPa → 24-bit PRESS_OUT count (4096 LSB/hPa ⇒ 40960 LSB/kPa). */
 function encodePressure(kPa: number): number {
   return clampUint(kPa * 40960, 24)
 }
 
-/** °C → signed 16-bit at 100 LSB/°C. */
 function encodeTemp(celsius: number): number {
   return clampToUint(celsius * 100)
 }

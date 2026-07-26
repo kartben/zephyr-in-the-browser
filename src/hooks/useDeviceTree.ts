@@ -1,10 +1,4 @@
-/**
- * The one place runtime availability meets the devicetree: subscribes to every
- * bridge store plus the devicetree store, and memoizes the derived device
- * inventory both dock views render. Rows never self-gate — presence is decided
- * here, exactly once, so the ⌗ and ▤ projections can never disagree about what
- * exists.
- */
+/** Derive the shared device inventory from bridge availability and the devicetree. */
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { deriveDeviceInventory, type Availability, type DeviceInventory } from '@/deviceTopology'
@@ -74,7 +68,6 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   // beat late is fine.
   const input = hostInput.available()
 
-  // A chip leaving the bus takes its live-follow subscription with it.
   useEffect(() => {
     pruneFollows(chips)
   }, [chips])
@@ -84,10 +77,8 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     return deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
   }, [tree, chips, spiChips, gnss, gpio, audio, mic, net, i2c, spi, display, input, boardId])
 
-  // Hand the inventory to dockReveal so a caller outside React — an annotation
-  // naming a panel, say — can turn a PanelKind into the row that represents it.
-  // This is the one place the inventory is derived, so it is the only honest
-  // place to publish it from.
+  // Publish from the single derivation point so outside-React callers use the
+  // same inventory as both dock projections.
   useEffect(() => {
     publishInventory(inventory)
   }, [inventory])

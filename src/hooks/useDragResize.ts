@@ -1,19 +1,9 @@
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import type { PanelBox } from '@/lib/panelLayout'
 
-/**
- * Move + resize for a floating panel, built on the same setPointerCapture idiom
- * the display canvas uses (src/components/DisplayPanel.tsx): capture keeps the
- * gesture alive past the element's edge, so no pointer can be left stuck down.
- *
- * PanelFrame owns the rect (so it can persist); this hook just turns pointer
- * drags into clamped rect updates and hands back header + grip handlers.
- */
-
 const MIN_W = 192 // 12rem
 const MIN_H = 96 // 6rem
 
-/** Keep a box at least MIN sized and fully inside the viewport. */
 export function clampBox(box: PanelBox): PanelBox {
   const w = Math.max(MIN_W, Math.round(box.w))
   const h = Math.max(MIN_H, Math.round(box.h))
@@ -31,8 +21,7 @@ type Gesture = { pointerX: number; pointerY: number; box: PanelBox; mode: 'move'
 
 export function useDragResize(rect: PanelBox | null, onChange: (box: PanelBox) => void) {
   const gesture = useRef<Gesture | null>(null)
-  // The window-resize listener is registered once; this ref keeps the freshest
-  // rect/onChange reachable from it without re-subscribing on every change.
+  // The resize listener is registered once; keep fresh rect/onChange in a ref.
   const latest = useRef({ rect, onChange })
   latest.current = { rect, onChange }
 
@@ -48,14 +37,14 @@ export function useDragResize(rect: PanelBox | null, onChange: (box: PanelBox) =
 
   const begin = useCallback(
     (mode: 'move' | 'resize') => (event: ReactPointerEvent) => {
-      // Let clicks on the header controls (undock/collapse/close) through — a
-      // drag must never swallow a button press.
+      // Header buttons must remain clickable, not start a drag.
       if (event.target instanceof Element && event.target.closest('button')) return
       const box = latest.current.rect
       if (!box) return
       event.preventDefault()
       gesture.current = { pointerX: event.clientX, pointerY: event.clientY, box, mode }
       try {
+        // Capture keeps the drag alive past the panel edge.
         event.currentTarget.setPointerCapture(event.pointerId)
       } catch {
         /* nothing to capture — moves still fire while the pointer is over us */

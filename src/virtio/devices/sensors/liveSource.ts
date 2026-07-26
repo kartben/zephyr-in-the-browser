@@ -1,15 +1,7 @@
 /**
- * Browser sensors a simulated channel can follow instead of its slider.
- *
- * Each source starts a best-effort subscription and pushes engineering-unit
- * values through a callback until stopped. Availability varies by browser,
- * platform and permission, so a source that cannot start simply never pushes —
- * that is not an error.
- *
- * Device tilt prefers `devicemotion` (`accelerationIncludingGravity`): that is
- * the real accelerometer vector. Reconstructing gravity from
- * `deviceorientation` Euler angles (β/γ) looks fine on a flat desk, but on a
- * phone held upright β≈±90° and γ gimbal-locks — X then jumps between ±g.
+ * Browser sources a simulated sensor channel can follow. Tilt prefers
+ * devicemotion; deviceorientation is only a fallback because β≈±90° gimbal
+ * locks on upright phones.
  */
 
 import type { LiveSourceKind } from './model'

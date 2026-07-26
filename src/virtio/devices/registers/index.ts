@@ -1,19 +1,7 @@
-/**
- * JSON register maps — SVD-inspired, not SVD.
- *
- * A full CMSIS-SVD file describes an entire MCU. What we need for a page-side
- * I²C part is much smaller: named registers, widths, access, reset values, and
- * the bitfields a human wants to see. Kind-specific behaviour (sensor channel
- * codecs, RTC BCD timekeeping, …) stays in TypeScript; the register file
- * itself can live as JSON next to the chip.
- *
- * Used by sensors (`sensors/maps/`) and RTCs (`rtc/maps/`), and anything else
- * that grows a pointered register file.
- */
+/** JSON register maps: names, widths, access, reset values, and bitfields. */
 
 import type { Endian, FieldDecl, RegisterDecl } from './types'
 
-/** One bitfield in a JSON register map. */
 export interface FieldMapJson {
   name: string
   lsb: number
@@ -22,7 +10,6 @@ export interface FieldMapJson {
   values?: Array<{ name: string; value: number | string; description?: string }>
 }
 
-/** One register in a JSON register map. */
 export interface RegisterMapEntryJson {
   name: string
   addr: number | string
@@ -35,14 +22,12 @@ export interface RegisterMapEntryJson {
   fields?: FieldMapJson[]
 }
 
-/** A chip's register file as JSON. */
 export interface RegisterMapJson {
   name?: string
   description?: string
   registers: RegisterMapEntryJson[]
 }
 
-/** Parse `0x10`, `"16"`, or `16` into a number. */
 export function parseHexish(value: number | string): number {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) throw new Error(`invalid numeric value: ${value}`)
@@ -93,15 +78,10 @@ function registerFromJson(raw: RegisterMapEntryJson): RegisterDecl {
   }
 }
 
-/** Turn a JSON register map into {@link RegisterDecl}s. */
 export function registersFromJson(map: RegisterMapJson): RegisterDecl[] {
   return map.registers.map(registerFromJson)
 }
 
-/**
- * Overlay names / descriptions / fields from a JSON map onto an existing
- * register list, matched by address.
- */
 export function mergeRegisterMap(
   registers: RegisterDecl[],
   map: RegisterMapJson,
