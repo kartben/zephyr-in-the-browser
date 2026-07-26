@@ -130,7 +130,10 @@ function commitTable(count: number) {
 
 function show(id: number, pause: boolean) {
   if (!state.enabled) return
-  const view = viewFor(id, pause)
+  // Only claim a pause the emulator can actually deliver: on a build without
+  // the monitor bridge the machine keeps running, and saying otherwise on the
+  // card would be a straight lie about what the reader is looking at.
+  const view = viewFor(id, pause && monitor.available())
   if (!view) return
 
   // Reveal before pausing, so the row is already in view when the machine

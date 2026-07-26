@@ -89,7 +89,7 @@ function guidedAnnotations(): Plugin {
         ...sources,
         '--out-header', path.join(dest, 'generated.h'),
         '--out-json', path.join(dest, 'annotations.json'),
-        '--out-src-dir', path.join(dest, 'src'),
+        '--out-src-dir', path.join(dest, 'display'),
       ],
       { encoding: 'utf8' },
     )
@@ -123,7 +123,7 @@ function guidedAnnotations(): Plugin {
 
         const file = json
           ? path.join(out, app.id, 'annotations.json')
-          : path.join(out, app.id, 'src', source![2])
+          : path.join(out, app.id, 'display', source![2])
         // A real build's artifacts win: only answer for what it has not shipped.
         if (existsSync(path.join(QEMU_ASSET_DIR, url.split('/qemu/')[1] ?? '')) || !existsSync(file)) {
           return next()

@@ -22,7 +22,7 @@ FILE(GLOB app_sources src/*.c)
 set(annotations_dir ${CMAKE_CURRENT_BINARY_DIR}/annotations)
 set(annotations_header ${annotations_dir}/include/sample_annotations_generated.h)
 set(annotations_json ${annotations_dir}/annotations.json)
-set(annotations_src ${annotations_dir}/src)
+set(annotations_src ${annotations_dir}/display)
 
 set(extract ${CMAKE_CURRENT_LIST_DIR}/../../../tools/extract-annotations.py)
 
