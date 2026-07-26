@@ -131,6 +131,35 @@ class TestLineNumbers(unittest.TestCase):
         self.assertNotIn("@annotate", stripped["src/main.c"])
         self.assertNotIn("resolves at compile time", stripped["src/main.c"])
 
+    def test_records_which_sites_stop_the_machine(self):
+        # The mock backend replays a walkthrough from the catalog alone, so it
+        # needs to know a SHOW_PAUSE from a SHOW rather than inferring one.
+        annotations, _, _ = parse(
+            """
+            /* @annotate a
+             * A
+             *
+             * Body.
+             */
+            int alpha;
+            /* @annotate b
+             * B
+             *
+             * Body.
+             */
+            int beta;
+            void f(void)
+            {
+                    SAMPLE_SHOW_PAUSE(a);
+                    SAMPLE_SHOW(b);
+                    SAMPLE_VALUE(b, "%d", 1);
+            }
+            """
+        )
+        by_key = {a.key: a for a in annotations}
+        self.assertEqual([s.pause for s in by_key["a"].fire_sites], [True])
+        self.assertEqual([s.pause for s in by_key["b"].fire_sites], [False, False])
+
     def test_fire_sites_are_in_stripped_coordinates(self):
         annotations, _, stripped = parse(SIMPLE)
         text = stripped["src/main.c"].splitlines()
@@ -346,6 +375,8 @@ class TestRendering(unittest.TestCase):
         self.assertEqual(entry["title"], "The pin comes from devicetree")
         self.assertEqual(entry["panel"], "led")
         self.assertEqual(len(entry["fireSites"]), 1)
+        # SIMPLE fires with SAMPLE_SHOW_PAUSE, so the site is flagged.
+        self.assertTrue(entry["fireSites"][0]["pause"])
 
     def test_json_omits_panel_when_absent(self):
         import json
@@ -363,6 +394,9 @@ class TestRendering(unittest.TestCase):
         )
         payload = json.loads(ea.render_json("app", annotations, files))
         self.assertNotIn("panel", payload["annotations"][0])
+        # A plain SAMPLE_SHOW site carries no pause flag at all, rather than
+        # an explicit false on every entry.
+        self.assertNotIn("pause", payload["annotations"][0]["fireSites"][0])
 
 
 if __name__ == "__main__":

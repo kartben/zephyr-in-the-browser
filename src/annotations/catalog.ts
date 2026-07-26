@@ -25,8 +25,12 @@ export interface CatalogEntry {
   file: number
   /** Line in the *stripped* source — the copy shipped for display. */
   line: number
-  /** Where the SAMPLE_SHOW*() calls sit, so the viewer can dim them. */
-  fireSites: Array<{ file: number; line: number }>
+  /**
+   * Where the SAMPLE_SHOW*() calls sit, so the viewer can dim them. `pause`
+   * marks a SAMPLE_SHOW_PAUSE, which is how the mock backend replays a
+   * walkthrough with the pauses the firmware would really produce.
+   */
+  fireSites: Array<{ file: number; line: number; pause?: boolean }>
 }
 
 export interface AnnotationCatalog {
