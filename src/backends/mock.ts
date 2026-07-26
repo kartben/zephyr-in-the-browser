@@ -11,18 +11,10 @@ import { startMockWalkthrough } from './mockWalkthrough'
 /**
  * A tiny fake Zephyr shell.
  *
- * Exists so the terminal wiring, the status seam and the UI can be built and
- * demoed before any qemu-wasm artifact is available. It deliberately announces
- * itself in the banner — a fake boot log that is indistinguishable from a real
- * one would be a trap for whoever picks this up next.
- *
- * It leans on xterm-pty's default line discipline (ICANON | ECHO | ONLCR), so
- * echo, backspace and line assembly come for free and `slave.read()` yields one
- * complete line per Enter. The real Zephyr shell instead puts the tty in raw
- * mode and echoes itself, which is why qemuBackend does none of this.
+ * Uses xterm-pty's default line discipline; the real Zephyr shell runs raw and
+ * echoes itself, so qemuBackend does not do this.
  */
 
-/** Bold green, matching what the real Zephyr shell emits. */
 const PROMPT = '\x1b[1;32muart:~$ \x1b[m'
 
 const BANNER = ['', '*** Booting Zephyr OS build v0.0.0-mock ***', '']
@@ -66,8 +58,7 @@ export function createMockBackend(): PtyBackend {
       teardown()
       onStatus({ status: 'loading', detail: 'starting mock' })
 
-      // Same devicetree side-channel as the real backend, so the panels story
-      // can be exercised without QEMU whenever the .dts assets are served.
+      // Same devicetree side-channel as the real backend.
       if (!getGuestImage()) {
         void loadSampleDts(
           `${import.meta.env.BASE_URL}qemu/${sampleDtsAsset(board, sampleId)}`,
@@ -75,8 +66,7 @@ export function createMockBackend(): PtyBackend {
         )
       }
 
-      // A short pause so the loading state is actually observable, and so the
-      // banner reads like a boot rather than appearing all at once.
+      // Briefly show loading before the fake boot log appears.
       await sleep(180, signal)
       if (signal.aborted) return
 
@@ -102,7 +92,6 @@ export function createMockBackend(): PtyBackend {
             slave.write('Zephyr version 0.0.0-mock\n')
             break
           case 'clear':
-            // Clear screen + home cursor, same as the real shell's `clear`.
             slave.write('\x1b[2J\x1b[H')
             break
           case 'kernel':
@@ -123,8 +112,7 @@ export function createMockBackend(): PtyBackend {
 
       const onReadable = slave.onReadable(() => {
         pending += decoder.decode(Uint8Array.from(slave.read()), { stream: true })
-        // Canonical mode hands us whole lines, but a paste can deliver several
-        // at once, so drain every terminated line and keep any remainder.
+        // A paste can deliver several canonical lines at once.
         let nl: number
         while ((nl = pending.indexOf('\n')) !== -1) {
           const line = pending.slice(0, nl)
@@ -142,21 +130,14 @@ export function createMockBackend(): PtyBackend {
 
       disposers.push(() => onReadable.dispose(), () => onSignal.dispose())
 
-      // The Network panel is the one peripheral that can demo without QEMU:
-      // a fake guest speaks through the same rings, stack and TCP engine as
-      // the real path, so the panel shows an authentic DHCP handshake, pings
-      // and HTTP flows.
+      // Fake guest uses the same rings/stack/TCP engine as the real network panel path.
       if (board.peripherals?.hostNet) startFakeNetwork(disposers)
 
-      // Stub GNSS so UART-bus nesting (GNSS under uart1) is visible on mock.
       if (board.peripherals?.gnss) {
         attachHostGnss({ _qemu_browser_gnss_feed_byte: () => 0 })
         disposers.push(() => detachHostGnss())
       }
 
-      // A guided sample replays its walkthrough here too. The records are the
-      // real ones, off the real catalog — only the guest producing them is
-      // fake, which is what makes the feature demoable on a bare checkout.
       disposers.push(
         startMockWalkthrough(
           slave,
@@ -172,11 +153,7 @@ export function createMockBackend(): PtyBackend {
   }
 }
 
-/**
- * A scripted guest behind the fake ring module: DHCPs, pings the gateway,
- * serves HTTP on :8080 and echoes on :4242 (so the panel tools work), and
- * fetches host.internal periodically for some outbound traffic.
- */
+/** Scripted fake guest for the Network panel tools. */
 function startFakeNetwork(disposers: Array<() => void>) {
   const fake = createFakeNetModule()
   attachHostNet(fake.module)
@@ -191,7 +168,6 @@ function startFakeNetwork(disposers: Array<() => void>) {
   guest.serveHttp(8080, MOCK_GUEST_PAGE)
   guest.echoServer(4242)
 
-  // Pump frames the page wrote for the guest.
   const rxPoll = setInterval(() => {
     for (const frame of fake.guestSide.drainRx()) guest.onFrame(frame)
     guest.tick()

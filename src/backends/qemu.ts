@@ -15,17 +15,10 @@ import { MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
- * Loads a prebuilt qemu-wasm Emscripten artifact set out of public/qemu/ and
- * hands its stdio to the xterm-pty slave.
+ * Loads a prebuilt qemu-wasm artifact set from public/qemu/.
  *
- * The loading sequence mirrors ktock/qemu-wasm's own example page
- * (examples/riscv64/src/htdocs/index.html on the `master` branch): a global
- * `Module` is populated first, the file_packager stub `load.js` is pulled in as
- * a *classic* script so it can register its preRun hooks onto that global, and
- * only then is the board's generated ES-module imported and invoked.
- *
- * Nothing here is built in this repo — see public/qemu/README.md for the drop-in
- * contract and how to produce the artifacts.
+ * Load order matters: create global `Module`, run file_packager `load.js` as a
+ * classic script so it appends preRun hooks, then import the generated ES module.
  */
 
 const ASSET_BASE = `${import.meta.env.BASE_URL}qemu/`
@@ -33,17 +26,7 @@ const ASSET_BASE = `${import.meta.env.BASE_URL}qemu/`
 /** file_packager.py stub that fetches and mounts the .data blob at /pack/. */
 const PACKAGE_SCRIPT = 'load.js'
 
-/**
- * Flipped the moment we touch document-global state — assigning `globalThis.
- * Module` or injecting `load.js`. Those are not undoable: `load.js` appends its
- * .data-fetching hooks to Module.preRun, and PROXY_TO_PTHREAD spawns workers
- * bound to that one instance. A second boot in the same document wedges rather
- * than restarts, so once this is set the only way back is a reload.
- *
- * Everything that can fail is checked *before* this flips, so a missing-asset
- * or missing-isolation error leaves the page clean and the user can switch back
- * to the mock backend without reloading.
- */
+// Irreversible once Module/load.js/pthread workers touch document-global state.
 let documentTainted = false
 
 interface QemuModule {
@@ -57,11 +40,7 @@ interface QemuModule {
   onAbort?: (what: unknown) => void
   /** Exported via -sEXPORTED_RUNTIME_METHODS=...,TTY */
   TTY?: { stream_ops: { poll: (stream: unknown, timeout: unknown) => number } }
-  /**
-   * Emscripten exports these thin aliases for FS.createPath / FS.createDataFile
-   * rather than the whole FS object — they are what file_packager itself uses,
-   * so they are present in any build that supports a .data bundle.
-   */
+  /** file_packager uses these aliases, so .data-capable builds export them. */
   FS_createPath?: (parent: string, path: string, canRead: boolean, canWrite: boolean) => void
   FS_createDataFile?: (
     parent: string,
@@ -91,25 +70,14 @@ function loadClassicScript(src: string): Promise<void> {
   })
 }
 
-/* Two different failures need two different fixes, so keep them distinct. */
-
-/** Nothing there: the artifacts have not been built (or were never dropped in). */
 const NOT_BUILT_HINT = 'Run tools/build-qemu-wasm.sh — see public/qemu/README.md.'
 
-/**
- * An HTML answer is genuinely ambiguous and must not claim to know which cause
- * it is: Vite serves its SPA index.html at HTTP 200 both for a file that was
- * never built and for one added under an already-running server, since public/
- * is only indexed at startup.
- */
+// HTML at 200 is ambiguous: Vite serves the SPA for missing and newly-added public/ files.
 const NOT_SERVED_HINT =
   'Either it has not been built (run tools/build-qemu-wasm.sh) or the dev server ' +
   'needs restarting — public/ is only indexed at startup.'
 
-/**
- * Writes one guest file into the Emscripten filesystem. Must be called from
- * preRun, once the FS exists but before main() looks for the image.
- */
+// Guest files must be written from preRun, after FS exists and before main().
 function writeGuestFile(mod: QemuModule, fsPath: string, bytes: Uint8Array) {
   const { FS_createPath, FS_createDataFile } = mod
   if (!FS_createPath || !FS_createDataFile) {
@@ -121,13 +89,10 @@ function writeGuestFile(mod: QemuModule, fsPath: string, bytes: Uint8Array) {
   const parts = fsPath.split('/').filter(Boolean)
   const name = parts.pop()
   if (!name) throw new Error(`invalid guest path: ${fsPath}`)
-  // FS.createPath splits and creates each component itself, and is a no-op for
-  // directories that already exist.
   if (parts.length) FS_createPath('/', parts.join('/'), true, true)
   FS_createDataFile(`/${parts.join('/')}`, name, bytes, true, true, true)
 }
 
-/** Fetches a guest file as bytes so preRun, which cannot await, can write it. */
 async function fetchAsset(file: string): Promise<Uint8Array> {
   const res = await fetch(url(file))
   if (!res.ok) {
@@ -146,8 +111,7 @@ async function assertAsset(file: string) {
   if (!res.ok) {
     throw new Error(`${file} is missing from public/qemu/. ${NOT_BUILT_HINT}`)
   }
-  // A 200 alone proves nothing: Vite's dev server answers unknown paths with the
-  // SPA index.html shell, and most static hosts do the same for a 404 fallback.
+  // A 200 can still be the SPA index.html 404 fallback.
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('text/html')) {
     throw new Error(`${file} is not being served. ${NOT_SERVED_HINT}`)
@@ -157,13 +121,8 @@ async function assertAsset(file: string) {
 /**
  * Which optional bridges this emulator build has.
  *
- * tools/package-emulator.sh writes features.json beside the artifacts. A build
- * from before it exists answers 404, which reads as "none" — exactly right,
- * because that build predates the bridges the file would have listed.
- *
- * This matters for argv specifically: QEMU exits on an unknown `-chardev`
- * backend, so guessing wrong here would make every older image tarball fail to
- * boot rather than merely lose a feature.
+ * Missing features.json means an old artifact with no optional bridges; do not
+ * guess, because QEMU exits on unknown argv such as the monitor chardev.
  */
 async function emulatorFeatures(): Promise<Set<string>> {
   try {
@@ -184,9 +143,6 @@ export function createQemuBackend(): PtyBackend {
     id: 'qemu',
     label: 'QEMU',
 
-    // Only true once the document has been committed to one QEMU instance.
-    // Before that the session can be remounted normally, and forcing a page
-    // reload would just discard the user's selection for no reason.
     get resetRequiresReload() {
       return documentTainted
     },
@@ -196,11 +152,7 @@ export function createQemuBackend(): PtyBackend {
         throw new Error('QEMU is already instantiated in this tab. Reload to start a new session.')
       }
 
-      // ---- validation: everything below must be side-effect free ----
-
-      // Without cross-origin isolation SharedArrayBuffer is unavailable, and
-      // both xterm-pty's blocking reads and qemu-wasm's PROXY_TO_PTHREAD build
-      // depend on it. Failing loudly here beats hanging on the first keystroke.
+      // SharedArrayBuffer is required by xterm-pty and qemu-wasm PROXY_TO_PTHREAD.
       if (!globalThis.crossOriginIsolated) {
         throw new Error(
           'Page is not cross-origin isolated. Serve it with ' +
@@ -209,10 +161,6 @@ export function createQemuBackend(): PtyBackend {
         )
       }
 
-      // Deliberately not gated on __QEMU_ASSETS_PRESENT__: that flag is
-      // computed when Vite starts, so it goes stale the moment artifacts are
-      // built under a running server. It decides the *default* backend; whether
-      // a start can actually succeed is settled here, against the server.
       const mainScript = `${board.qemuBinary}.js`
       onStatus({ status: 'loading', detail: 'checking assets' })
       await assertAsset(mainScript)
@@ -220,18 +168,13 @@ export function createQemuBackend(): PtyBackend {
       if (board.usesDataBundle) await assertAsset(PACKAGE_SCRIPT)
       if (signal.aborted) return
 
-      // preRun cannot await, so the guest files are fetched here and written
-      // synchronously once the filesystem exists. A user-supplied ELF replaces
-      // the kernel; anything else the board needs still comes from public/qemu/.
+      // preRun cannot await, so fetch guest files before committing the document.
       const custom = getGuestImage()
       onStatus({
         status: 'loading',
         detail: custom ? `loading ${custom.name}` : `loading ${sampleId}`,
       })
-      // The sample's devicetree rides along, ungated: it must never delay or
-      // fail a boot, and its absence (an older image tarball) is a supported
-      // state that just means the panels fall back to their static tables. A
-      // custom ELF's tree, if any, was installed by the drop flow instead.
+      // DTS is optional for old image tarballs; absence just leaves panels on static tables.
       if (!custom) {
         void loadSampleDts(url(sampleDtsAsset(board, sampleId)), `${sampleId}.dts`)
       }
@@ -249,29 +192,19 @@ export function createQemuBackend(): PtyBackend {
       ]
       if (signal.aborted) return
 
-      // ---- commit: from here the document belongs to this instance ----
-
       onStatus({ status: 'loading', detail: 'starting emulator' })
 
-      // The monitor is a property of the build, not of the machine, so it is
-      // appended here rather than baked into each board's argv.
+      // The monitor is build-gated, not board-gated.
       const features = await emulatorFeatures()
       const args = features.has('monitor') ? [...board.args, ...MONITOR_ARGS] : board.args
 
       const mod: QemuModule = {
         arguments: args,
-        // The hook emscripten-pty.js reads: `$PTY: Module['pty']`.
         pty: slave,
-        // pthread workers re-import the main script by absolute URL.
         mainScriptUrlOrBlob: url(mainScript),
-        // Resolves the .wasm, .data and .worker.js siblings under /qemu/.
-        // file_packager's load.js honours this too.
         locateFile: (path) => ASSET_BASE + path,
-        // Guest stdout/stderr go through the TTY hooks, not here; this only
-        // surfaces Emscripten's own runtime diagnostics.
         printErr: (text) => console.error('[qemu]', text),
-        // Runs after the filesystem is up but before main(). load.js, when a
-        // board uses one, appends its own .data hooks to this same array.
+        // Runs after FS setup and before main(); load.js appends .data hooks here too.
         preRun: [
           () => {
             for (const { fsPath, bytes } of preloaded) writeGuestFile(mod, fsPath, bytes)
@@ -288,16 +221,13 @@ export function createQemuBackend(): PtyBackend {
       documentTainted = true
       globalThis.Module = mod
 
-      // Classic script: it declares `var Module` and picks up the global we just
-      // set, then appends its .data-fetching hooks to Module.preRun. Only needed
-      // for guests whose image ships as a file_packager bundle.
+      // Classic script sees global Module and appends file_packager preRun hooks.
       if (board.usesDataBundle) {
         await loadClassicScript(url(PACKAGE_SCRIPT))
         if (signal.aborted) return
       }
 
-      // @vite-ignore keeps Vite from trying to resolve and bundle this at build
-      // time — it is a static asset in public/, fetched at runtime.
+      // @vite-ignore: static asset in public/, fetched at runtime.
       const factory = (await import(/* @vite-ignore */ url(mainScript))) as {
         default: (m: QemuModule) => Promise<QemuModule>
       }
@@ -306,11 +236,7 @@ export function createQemuBackend(): PtyBackend {
       onStatus({ status: 'loading', detail: 'booting' })
       const instance = await factory.default(mod)
 
-      // Mirrors the poll workaround in qemu-wasm's example page: report
-      // readiness straight from the pty when it has nothing buffered, so a
-      // blocked guest poll() does not stall waiting on the Emscripten TTY.
-      // (Upstream's snippet writes `oldPoll.call(stream, timeout)`, dropping the
-      // receiver; the receiver-preserving form below is what it means to do.)
+      // Preserve receiver while applying qemu-wasm's TTY poll workaround.
       const tty = instance.TTY
       if (tty) {
         const oldPoll = tty.stream_ops.poll
@@ -328,13 +254,9 @@ export function createQemuBackend(): PtyBackend {
         )
       }
 
-      // Each emulator can contain optional browser bridge exports; board
-      // metadata decides which bridges belong to the selected machine.
-      // The generic virtio bridge goes first: hostGpio binds to a device model
-      // running on it, and the models must be registered before it polls.
+      // Virtio goes first: hostGpio binds to models that must exist before polling.
       if (board.peripherals?.virtio) attachVirtio(instance)
       else detachVirtio()
-      // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
       if (board.peripherals?.ramfb) attachHostDisplay(instance)
       else detachHostDisplay()
       if (board.peripherals?.gnss) attachHostGnss(instance)
@@ -353,9 +275,7 @@ export function createQemuBackend(): PtyBackend {
       else detachHostInput()
       if (board.peripherals?.hostTrace) attachHostTrace(instance)
       else detachHostTrace()
-      // Not gated on board metadata: the monitor is a property of the emulator
-      // build, not of the machine it is emulating. attach() no-ops when the
-      // exports are missing.
+      // Monitor is build-gated; attach() no-ops when exports are missing.
       attachHostMonitor(instance)
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
@@ -373,10 +293,8 @@ export function createQemuBackend(): PtyBackend {
       detachHostInput()
       detachHostTrace()
       detachHostMonitor()
-      // Nothing global was touched, so there is nothing to tear down.
       if (!documentTainted) return
-      // Emscripten modules cannot be torn down cleanly; a reload is the only
-      // reliable restart. This never resolves — the document goes away.
+      // Emscripten modules cannot be torn down cleanly; reset reloads the document.
       location.reload()
       await new Promise<never>(() => {})
     },

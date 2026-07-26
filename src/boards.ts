@@ -1,17 +1,12 @@
 /**
  * Guest registry: the machines QEMU can emulate, and the images each can boot.
  *
- * A board is *hardware* — machine model, CPU, argv. An image is a *program* that
- * runs on it. They are deliberately separate: several images run on one board,
- * and a user-supplied ELF replaces the image without touching the machine.
+ * Boards are hardware; images are guest programs. Keep them separate so several
+ * images can share a board and a user ELF can replace an image without changing argv.
  *
- * `qemuBinary` selects the matching Emscripten JS/Wasm artifact pair. The
- * Cortex-M3 uses arm-softmmu; the 64-bit `virt` machine needed by qemu,ramfb
- * uses aarch64-softmmu; `qemu_riscv32` uses riscv32-softmmu on the RISC-V
- * `virt` machine (also with virtio-mmio and ramfb).
+ * `qemuBinary` must match the Emscripten JS/Wasm artifact: arm, aarch64 or riscv32.
  */
 
-/** A peripheral bridge with a floating panel in the UI. */
 export type PanelKind =
   | 'display'
   | 'gnss'
@@ -32,52 +27,27 @@ export type PanelKind =
   | 'fuel-gauge'
   | 'trace'
 
-/**
- * Wires QEMU's QMP monitor to a chardev the page can read and write
- * (tools/qemu-*-patches/*-chardev-add-browser-backed-monitor-channel.patch).
- * That is what lets the page genuinely stop the machine — see src/hostMonitor.ts.
- *
- * Appended only when public/qemu/features.json says the emulator has the
- * bridge: an older build exits on an unknown -chardev backend, and every
- * published image tarball has to stay bootable.
- */
+// QMP monitor bridge; append only when features.json says the emulator has it.
 export const MONITOR_ARGS = ['-chardev', 'browser,id=mon0', '-mon', 'chardev=mon0,mode=control']
 
-/** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
   /** Also the artifact basename, so it must stay in step with the build script. */
   id: string
   label: string
-  /** One line, shown under the label in the picker. */
   description: string
-  /**
-   * Zephyr sample path, relative to the zephyr/ tree — or one of this repo's
-   * own apps when it starts with "zephyr-module/".
-   */
   zephyrSample: string
-  /**
-   * Panels this sample is *about* — expanded on boot so the relevant bridge is
-   * in view immediately. Every other available panel starts collapsed, since it
-   * is incidental to what the sample demonstrates. Omit for samples that only
-   * speak over the terminal.
-   */
+  /** Panels expanded on boot; omit for terminal-only samples. */
   primaryPanels?: PanelKind[]
 }
 
 export interface Board {
   id: string
   label: string
-  /** Zephyr board target, i.e. `west build -b <zephyrTarget>`. */
   zephyrTarget: string
-  /** Guest architecture, for display. */
   arch: string
-  /** Emscripten artifact basename, e.g. `qemu-system-arm`. */
   qemuBinary: string
-  /** QEMU argv, passed as Module.arguments (argv[0] is implicit). */
   args: string[]
-  /** Where the kernel lands in the Emscripten filesystem; matches `-kernel`. */
   kernelFsPath: string
-  /** Optional browser bridges physically present on this machine. */
   peripherals?: {
     gnss?: boolean
     hostGpio?: boolean
@@ -88,56 +58,21 @@ export interface Board {
     perfStats?: boolean
     /** Ethernet through the `browser` netdev; the page implements the LAN. */
     hostNet?: boolean
-    /**
-     * Pointer events into a stock `virtio-tablet-device`, making the display
-     * panel a touch surface. Needs both the emulator's input bridge and a
-     * `ramfb` (or virtio-gpu) panel to aim at.
-     */
+    /** Pointer events into a stock `virtio-tablet-device`; needs a display target. */
     hostInput?: boolean
-    /**
-     * The generic virtio bridge — `-device virtio-browser-device`, whose device
-     * models are TypeScript under src/virtio/. Needs a virtio-mmio bus (ARM
-     * and RISC-V `virt`). See docs/virtio-bridge.md.
-     */
+    /** Generic virtio bridge for TypeScript device models under src/virtio/. */
     virtio?: boolean
-    /**
-     * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
-     * Needs `-semihosting` on the argv; the Trace stage panel follows it.
-     */
+    /** Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`). */
     hostTrace?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
-  /**
-   * Anything else the guest needs in its filesystem — firmware blobs and the
-   * like. None of the current boards need any.
-   */
   extraFiles?: Array<{ fsPath: string; asset: string }>
-  /**
-   * Whether this board needs a file_packager bundle (`load.js` + `.data`).
-   * Unnecessary for a bare ELF, which is fetched and injected directly.
-   */
+  /** True for file_packager bundles (`load.js` + `.data`); false for injected ELFs. */
   usesDataBundle: boolean
 }
 
-/*
- * Sleeping is mostly fine, but a couple of multi-threaded samples hang:
- * Philosophers and Synchronization were both shipped here and both stall under
- * qemu-wasm, though they run correctly on native QEMU (including 10.0.50, the
- * version ktock's fork is based on). Single-threaded sleepers are unaffected:
- * blinky (a k_msleep loop) and basic_button (a polled gpio-keys work item) run
- * steadily — only the wall clock is off, the interpreter runs the 1 Hz blink
- * several times faster than real time.
- *
- * The cause is ktock's TCG→Wasm JIT miscompiling something, not the guest and
- * not the SysTick device: forcing everything to stay interpreted takes
- * Synchronization from 1 line to 14, deterministically. It still stalls, so
- * there is a further defect too.
- *
- * Note the "Timer with period zero, disabling" line on every boot is *not* the
- * cause, however much it looks like it — native QEMU prints it too on runs that
- * work. See public/qemu/README.md for the full trace.
- */
+// Keep Cortex-M3 samples to guests that do not depend on stalled qemu-wasm sleep paths.
 const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
     id: 'gnss',
@@ -151,21 +86,16 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `gpio` and `hostaudio`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-    // The shell is the interface to the host bridges it advertises. This board
-    // has no I2C bus, so no simulated sensors — the sensor cards are A53-only.
+    // No I2C bus here; sensor cards are A53-only.
     primaryPanels: ['gpio', 'audio'],
   },
   {
-    // Event-driven end to end (shell in, logs out), so it dodges the TCI
-    // k_sleep stall that keeps most samples off this board.
     id: 'hsm',
     label: 'State Machine',
     description: 'Hierarchical state machine driven from the shell',
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
   },
   {
-    // main() returns after kicking DHCP off; progress rides the RX interrupt
-    // chain, so it dodges the TCI k_sleep stall.
     id: 'dhcp',
     label: 'DHCP Client',
     description: 'Acquires an IPv4 lease from the browser network',
@@ -173,7 +103,6 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['net'],
   },
   {
-    // Steady state blocks in accept()/recv(), woken by injected frames.
     id: 'http_server',
     label: 'HTTP Server',
     description: 'Serves a page at 192.0.2.1:8080 — fetch it from the Network panel',
@@ -181,7 +110,6 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['net'],
   },
   {
-    // Run-to-completion: one DNS lookup, one GET, prints, exits.
     id: 'http_get',
     label: 'HTTP GET',
     description: 'DNS + TCP fetch of http://google.com through the page proxy',
@@ -195,8 +123,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/hello_world',
   },
   {
-    // led0 is the host-gpio bridge's pin 4 (LED0 in the panel), so the blink
-    // shows up as the panel's LED0 flashing once a second.
+    // led0 maps to host-gpio pin 4 (LED0 in the panel).
     id: 'blinky',
     label: 'Blinky',
     description: 'Blinks LED0 on the host GPIO bridge',
@@ -211,8 +138,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'gpio'],
   },
   {
-    // gpio-buzzer on host_gpio pin 5; LED0 stays on pin 4. Frequency args are
-    // on/off only for the GPIO backend — the dock shakes + vibrates/buzzes.
+    // gpio-buzzer is host_gpio pin 5; frequency args are on/off for this backend.
     id: 'buzzer',
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
@@ -220,8 +146,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['buzzer', 'gpio', 'led'],
   },
   {
-    // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
-    // lights led0 (pin 4) — click SW0 in the Keys panel to press it.
+    // SW0 is host_gpio pin 0; led0 stays on pin 4.
     id: 'basic_button',
     label: 'Button',
     description: 'A host GPIO button lights an LED via the input subsystem',
@@ -263,10 +188,8 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     id: 'accel_chart',
     label: 'Accelerometer Chart',
     description: 'Browser accelerometer traced live on an LVGL chart',
-    // Fork under zephyr-module/apps: circular update + smaller ramfb so the
-    // emulated A53 can keep the trace moving in wall-clock time.
+    // Forked for circular updates and a smaller ramfb the emulated A53 can keep up with.
     zephyrSample: 'zephyr-module/apps/accelerometer_chart',
-    // The accelerometer feeds the chart, so surface both input and output.
     primaryPanels: ['sensor', 'display'],
   },
   {
@@ -298,9 +221,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['sensor', 'i2c'],
   },
   {
-    // Boot counter through Zephyr's EEPROM API against the AT24 at 0x50. The
-    // page keeps the chip's bytes in localStorage, so a reload ("MCU reset")
-    // increments the count; the Memory card's erase button clears it.
     id: 'eeprom',
     label: 'EEPROM',
     description: 'Boot counter that survives reloads in the simulated AT24',
@@ -308,9 +228,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['i2c'],
   },
   {
-    // JEDEC SPI NOR on the virtio-spi bridge (CS0). The page models a W25Q80-
-    // class 1 MiB part so stock samples/drivers/spi_flash (offset 0xff000) fits.
-    // Sparse localStorage persist keeps written sectors across reloads.
+    // W25Q80-class 1 MiB part so the stock spi_flash sample's 0xff000 offset fits.
     id: 'spi_flash',
     label: 'SPI flash',
     description: 'Erase, write and read a JEDEC SPI NOR on the browser SPI bus',
@@ -318,9 +236,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['spi'],
   },
   {
-    // Stock LittleFS sample on the same W25Q (storage partition + fstab lfs1).
-    // Boot count survives page reload via sparse flash persist; dock Filesystem
-    // dialog browses /lfs with real littlefs (Dreagonmon littlefs-js).
     id: 'littlefs',
     label: 'LittleFS',
     description: 'Boot counter on LittleFS over the browser SPI NOR; survives reload',
@@ -328,8 +243,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['spi'],
   },
   {
-    // Stock RTC sample against the browser PCF8523 at 0x68. The dock RTC card
-    // shows the same clock; the shell sample adds set_alarm under CONFIG_RTC_ALARM.
     id: 'rtc',
     label: 'RTC',
     description: 'Set and read date/time on a PCF8523, over I²C',
@@ -337,8 +250,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['i2c'],
   },
   {
-    // Character LCD via Zephyr's auxdisplay API against the Grove JHD1313
-    // (LCD @0x3e + RGB backlight @0x62) modelled in the page.
     id: 'auxdisplay',
     label: 'Aux display',
     description: '“Hello World” on a 16×2 I²C character LCD (JHD1313) in the page',
@@ -346,8 +257,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['auxdisplay', 'i2c'],
   },
   {
-    // Stock LED sample against the browser HT16K33 at 0x70. The dock paints
-    // the 16×8 display RAM; keyscan is off in this packaging.
+    // Keyscan is off in this HT16K33 packaging.
     id: 'ht16k33',
     label: 'HT16K33 LED',
     description: 'Walks, blinks and dims a 16×8 I²C LED matrix (HT16K33) in the page',
@@ -355,8 +265,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'i2c'],
   },
   {
-    // Stock RGBW LED sample against the browser LP5562 at 0x30. The dock paints
-    // a mixed RGB orb plus channel meters (engines approximate led_blink).
+    // Browser LP5562 engines approximate led_blink.
     id: 'lp5562',
     label: 'RGB LED',
     description: 'Cycles colors and blinks on a TI LP5562 RGBW LED; orb in the page',
@@ -364,8 +273,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'i2c'],
   },
   {
-    // Stock SPI LED sample against the browser SCT2024 on CS0. LA/OE ride
-    // virtio-gpio pins 6/7; the dock shows a 16-dot bar plus SHIFT/LED_OUT/CTRL.
+    // LA/OE ride virtio-gpio pins 6/7.
     id: 'sct2024',
     label: 'SCT2024 LED',
     description: 'Walks 16 LEDs on an SCT2024 SPI LED driver; bar + registers in the page',
@@ -373,8 +281,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'spi', 'gpio'],
   },
   {
-    // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
-    // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',
     label: 'PWM LED',
     description: 'Fades and blinks PWM LEDs on a PCA9685; LEDs + duty chart in the page',
@@ -382,11 +288,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'pwm', 'i2c'],
   },
   {
-    // Adapted from stock samples/drivers/dac against the browser MCP4725 at
-    // 0x61 -- vendored so the sawtooth loop can account for the real
-    // virtio-i2c round trip instead of assuming a free write (docs/
-    // performance.md item 7). The dock paints a Vout history chart
-    // (DacChip framework).
+    // Vendored so the sawtooth loop accounts for virtio-i2c round-trip cost.
     id: 'dac',
     label: 'DAC',
     description: 'Sawtooth on a 12-bit MCP4725; Vout chart in the page',
@@ -394,8 +296,6 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['dac', 'i2c'],
   },
   {
-    // Stock fuel-gauge sample against the browser MAX17048 at 0x36. The dock
-    // paints SoC % / voltage (FuelGaugeChip framework).
     id: 'fuel_gauge',
     label: 'Fuel gauge',
     description: 'Polls SoC % and voltage on a MAX17048; battery card in the page',
@@ -409,8 +309,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/philosophers',
   },
   {
-    // Stock CTF + semihosting sample: writes tracing.bin into the emulator FS;
-    // the Trace stage panel follows it live (docs/tracing-feasibility.md).
+    // Writes tracing.bin through semihosting; the Trace panel follows it live.
     id: 'tracing',
     label: 'Tracing',
     description: 'Live CTF schedule view — thread lanes like Zephyr’s trace_viewer',
@@ -418,8 +317,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['trace'],
   },
   {
-    // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
-    // a standard VIRTIO GPIO device rather than a bespoke register block.
+    // led0 is pin 4 of the VIRTIO GPIO device.
     id: 'blinky',
     label: 'Blinky',
     description: 'Blinks LED0 over a VIRTIO GPIO device',
@@ -434,8 +332,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'gpio'],
   },
   {
-    // gpio-buzzer on virtio_gpio0 pin 5 (LED0 stays on 4). Same dock body as
-    // the M3 build — observe the GPIO output; no new QEMU device.
+    // gpio-buzzer is virtio_gpio0 pin 5; LED0 stays on 4.
     id: 'buzzer',
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer over VIRTIO GPIO; the dock shakes and vibrates',
@@ -443,9 +340,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['buzzer', 'gpio', 'led'],
   },
   {
-    // Interrupt-driven, unlike the Cortex-M3 build: this device offers
-    // VIRTIO_GPIO_F_IRQ, so gpio-keys arms an event virtqueue buffer instead
-    // of polling the pin.
+    // VIRTIO_GPIO_F_IRQ makes this interrupt-driven, unlike the M3 build.
     id: 'basic_button',
     label: 'Button',
     description: 'A browser button lights an LED, over an interrupt-driven VIRTIO GPIO',
@@ -461,9 +356,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['i2c', 'spi', 'audio'],
   },
   {
-    // The display sample against the browser's SSD1306 instead of ramfb: the
-    // stock solomon,ssd1306 driver pushing pixels over I2C into GDDRAM that
-    // lives in the page. No framebuffer anywhere in the path.
+    // Browser SSD1306 over I2C; no framebuffer in this path.
     id: 'oled',
     label: 'OLED',
     description: 'Zephyr’s display test pattern on a 128x64 I2C OLED simulated in the page',
@@ -532,9 +425,7 @@ export const BOARDS: Board[] = [
       'lm3s6965evb',
       '-cpu',
       'cortex-m3',
-      // Pair the machine's stellaris_enet with the browser netdev; the page
-      // implements the network (src/net/). Only `-nic` can attach a backend
-      // to a sysbus NIC.
+      // Only `-nic` can attach the browser backend to this sysbus NIC.
       '-nic',
       'browser,model=stellaris',
       '-kernel',
@@ -549,8 +440,6 @@ export const BOARDS: Board[] = [
       hostNet: true,
     },
     samples: CORTEX_M3_SAMPLES,
-    // The shell is the one worth landing on: it is interactive, and it is where
-    // the host-sensor bridge is visible.
     defaultSampleId: 'shell',
     usesDataBundle: false,
   },
@@ -572,64 +461,31 @@ export const BOARDS: Board[] = [
       'none',
       '-L',
       '/pack/pc-bios',
-      // Do not enable -icount here. Its per-instruction accounting roughly
-      // halves sustained Wasm TCG throughput for synchronous virtio workloads
-      // such as the DAC sample; see docs/performance.md.
+      // Do not enable -icount here; it roughly halves synchronous virtio throughput.
       '-rtc',
       'clock=vm',
-      // ARM semihosting: Zephyr's CTF tracing backend appends to ./tracing.bin
-      // in the Emscripten FS; hostTrace.ts polls it for the Trace panel. Harmless
-      // when the guest never opens a semihost file.
+      // ARM semihosting lets hostTrace poll ./tracing.bin from the Emscripten FS.
       '-semihosting',
-      // Zephyr's virtio-mmio driver only speaks modern (v2) transports.
+      // Zephyr's virtio-mmio driver only speaks modern transports.
       '-global',
       'virtio-mmio.force-legacy=false',
-      // Ethernet: virtio-net on the first virtio-mmio slot, backed by the
-      // browser netdev (the page implements the LAN — src/net/). The MAC
-      // must match the shield overlay's local-mac-address: QEMU filters
-      // inbound unicast against it and the guest driver never programs it.
+      // MAC must match the shield overlay; QEMU filters inbound unicast against it.
       '-netdev',
       'browser,id=n0',
       '-device',
       'virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0,mac=02:00:00:00:00:01',
-      // Pointer input: a stock virtio tablet on the slot the board devicetree
-      // reserves for it (0x0a000600, SPI 19), driven by Zephyr's upstream
-      // virtio,input driver. Unlike every other bridge here there is no QEMU
-      // device of ours — only a frontend feeding QEMU's input core, since the
-      // wasm build has no SDL/GTK/VNC to do it. Slot 3 and not 2 because
-      // Zephyr's own board.cmake picks 3, so a native `west build -t run`
-      // reproduces the browser's wiring exactly.
+      // Slot 3 matches Zephyr board.cmake, so native `west build -t run` has the same tablet wiring.
       '-device',
       'virtio-tablet-device,bus=virtio-mmio-bus.3',
-      // GPIO: a standard VIRTIO GPIO device on the slot the shield overlay
-      // reserves for it (0x0a000400, SPI 18), driven by the vendored
-      // virtio,gpio driver. QEMU has no virtio-gpio device model of its own,
-      // and now neither do we: this is the *generic* bridge, and the device
-      // model is src/virtio/devices/gpio.ts. `name=gpio` is what binds the two.
-      //
-      // device-id 41 is VIRTIO_ID_GPIO; two queues are the request and event
-      // queues; feature bit 0 is VIRTIO_GPIO_F_IRQ, without which the guest
-      // driver polls instead of taking interrupts. `config` is the device's
-      // config space as hex — struct virtio_gpio_config { le16 ngpio; u8
-      // padding[2]; le32 gpio_names_size; } — so 8 lines and no names. It is a
-      // property rather than something the page supplies because the guest can
-      // read config space before the page has attached. ngpio must match the
-      // overlay's ngpios.
+      // Generic bridge binds `name=gpio` to src/virtio/devices/gpio.ts.
+      // Config is read before the page attaches, so ngpio=8 must live in argv and match the overlay.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
         'queues=2,features=0x1,config=0800000000000000',
-      // I2C: a VIRTIO I2C adapter (device id 34) on slot 4, the first free one
-      // after net, gpu, gpio and the tablet. One request queue, no feature bits
-      // and no config space — the adapter has none. The chips on the bus are
-      // page-side models (src/virtio/devices/chips/), so adding one is a
-      // TypeScript file rather than an emulator rebuild.
+      // I2C chips are page-side TypeScript models; the adapter has no config space.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
-      // SPI (virtio-mmio slot 5, device-id 45) is intentionally omitted until
-      // the published emulator ships the VIRTIO_ID_SPI backport in
-      // tools/qemu-jit-patches/0013-*. QEMU v10.1.0's virtio_device_names only
-      // goes to GPIO (41); realizing device-id=45 aborts in virtio_id_to_name
-      // and takes down every guest on this board. Re-add with:
+      // Requires the VIRTIO_ID_SPI backport; older emulator artifacts abort in virtio_id_to_name.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
         'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
@@ -646,12 +502,9 @@ export const BOARDS: Board[] = [
       hostInput: true,
       hostNet: true,
       virtio: true,
-      // Semihosting CTF follow — pairs with -semihosting above.
       hostTrace: true,
     },
     samples: CORTEX_A53_SAMPLES,
-    // Interactive shell is the landing sample: it surfaces the I²C/SPI/audio
-    // bridges that make A53 the showcase board.
     defaultSampleId: 'shell',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
@@ -673,11 +526,7 @@ export const BOARDS: Board[] = [
       'none',
       '-m',
       '256',
-      // Matches Zephyr boards/qemu/riscv32/board.cmake + qemu_riscv32_defconfig
-      // (CONFIG_RISCV_PMP=y → pmp=on,u=on). QEMU v10.1 bare CPUs (rv32i)
-      // warn and default to satp=bare when no mode is set; Zephyr's stock
-      // qemu_riscv32 is PMP/M-mode only (no CONFIG_RISCV_MMU), so pin
-      // sv32=off explicitly to select bare without the warning.
+      // Pin PMP/M-mode CPU flags to match Zephyr qemu_riscv32 and avoid QEMU's satp warning.
       '-cpu',
       'rv32i,i=on,m=on,a=on,f=on,d=on,c=on,zicsr=on,zifencei=on,pmp=on,u=on,sv32=off',
       '-device',
@@ -699,9 +548,7 @@ export const BOARDS: Board[] = [
         'queues=2,features=0x1,config=0800000000000000',
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
-      // SPI (slot 5, device-id 45) omitted until the published emulator includes
-      // tools/qemu-riscv-patches/0011-* (VIRTIO_ID_SPI backport). Same abort as
-      // on A53 — see the qemu_cortex_a53 comment above. Re-add with:
+      // Requires the VIRTIO_ID_SPI backport; older emulator artifacts abort in virtio_id_to_name.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
         'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
@@ -718,7 +565,6 @@ export const BOARDS: Board[] = [
       hostInput: true,
       hostNet: true,
       virtio: true,
-      // No -icount / guest-icount export on the TCI riscv32 build yet.
     },
     // Same guest apps as A53, minus tracing (ARM semihosting CTF path).
     samples: CORTEX_A53_SAMPLES.filter((s) => s.id !== 'tracing'),
@@ -731,7 +577,6 @@ export const BOARDS: Board[] = [
   },
 ]
 
-/** Landing board: A53 (wasm JIT) with the shell sample — see defaultSampleId. */
 export const DEFAULT_BOARD_ID = 'qemu_cortex_a53'
 
 export function getBoard(id: string): Board {
@@ -742,38 +587,25 @@ export function getSample(board: Board, sampleId: string): GuestSample {
   return board.samples.find((s) => s.id === sampleId) ?? board.samples[0]
 }
 
-/** Panels a sample wants expanded on boot; empty when it is terminal-only. */
 export function samplePrimaryPanels(board: Board, sampleId: string): Set<PanelKind> {
   return new Set(getSample(board, sampleId).primaryPanels)
 }
 
-/** Where a board's prebuilt image lives under public/qemu/. */
 export function sampleAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.elf`
 }
 
-/**
- * The flattened devicetree shipped next to the image, when the build put one
- * there (tools/build-zephyr-image.sh does; older tarballs may not have it).
- */
+/** Flattened devicetree next to the image; older tarballs may not have it. */
 export function sampleDtsAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.dts`
 }
 
-/**
- * The annotation catalog shipped next to the image, for a sample that carries
- * a walkthrough. Absent for every other sample, which is a supported state —
- * see src/annotations/catalog.ts.
- */
+/** Optional walkthrough catalog next to annotated samples. */
 export function sampleAnnotationsAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.annotations.json`
 }
 
-/**
- * One of a sample's shipped source files. These are the *stripped* copies the
- * extractor emits — the `@annotate` blocks removed, because their text is
- * already in the popup — so line numbers match what the catalog records.
- */
+/** Shipped source with `@annotate` blocks stripped so catalog line numbers match. */
 export function sampleSourceAsset(board: Board, sampleId: string, file: string): string {
   return `zephyr/${board.zephyrTarget}/src/${sampleId}/${file}`
 }

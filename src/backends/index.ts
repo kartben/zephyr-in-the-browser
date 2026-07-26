@@ -10,14 +10,7 @@ declare const __QEMU_ASSETS_PRESENT__: boolean
 
 export const QEMU_ASSETS_PRESENT = __QEMU_ASSETS_PRESENT__
 
-/**
- * Result of the startup probe, which supersedes QEMU_ASSETS_PRESENT.
- *
- * The build-time flag is computed when Vite starts, so it goes stale the moment
- * the artifacts are built under a server that was already running — leaving you
- * defaulted to the mock with the emulator sitting right there. Asking the server
- * cannot go stale.
- */
+// Runtime probe result; the Vite-time flag goes stale when artifacts appear after server start.
 let detected: boolean | null = null
 
 export async function detectQemuAssets(): Promise<void> {
@@ -28,7 +21,7 @@ export async function detectQemuAssets(): Promise<void> {
         fetch(`${import.meta.env.BASE_URL}qemu/${binary}.js`, { method: 'HEAD' }),
       ),
     )
-    // A 200 proves nothing on its own: unknown paths get the SPA index.html.
+    // A 200 can still be the SPA index.html for an unknown path.
     detected = responses.some(
       (res) => res.ok && !(res.headers.get('content-type') ?? '').includes('text/html'),
     )
@@ -37,15 +30,6 @@ export async function detectQemuAssets(): Promise<void> {
   }
 }
 
-/**
- * Backend selection, in precedence order:
- *   1. VITE_PTY_BACKEND=mock|qemu
- *   2. qemu when the emulator is actually being served, else mock
- *
- * The real emulator is the point of this project, so it wins whenever it is
- * available; the mock is the fallback, not the preference. The UI toggle
- * overrides either at runtime.
- */
 export function defaultBackendId(): BackendId {
   const env = import.meta.env.VITE_PTY_BACKEND
   if (env === 'mock' || env === 'qemu') return env
