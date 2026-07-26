@@ -16,7 +16,7 @@ other end of the wire.
 | [../public/qemu/README.md](../public/qemu/README.md) | The emulator itself: how it is built, what is patched into it, and its known limits |
 | [deploying.md](deploying.md) | Cutting a release and deploying to GitHub Pages |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
-| [sample-coach.md](sample-coach.md) | Plan: guest coach macros → popups, dock reveals, and pauses on didactic samples |
+| [sample-cues.md](sample-cues.md) | Plan: guest `CUE_*` macros → popups, source highlight, pauses (`button_lab` first) |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 
 ## Investigations
