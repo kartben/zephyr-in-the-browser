@@ -1,9 +1,9 @@
 /**
  * Unit tests for the shared JEDEC SPI NOR machine — geometry constraints,
- * session counters, and occupancy/wear tracking that the flash card consumes.
+ * counters, occupancy/wear tracking, and localStorage persist of stats.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createSpiFlashChip,
   flashTotalErases,
@@ -142,6 +142,81 @@ describe('createSpiFlashChip stats + constraints', () => {
     xfer(noBlock, [0x52, 0x00, 0x00, 0x00]) // BE 32K
     expect(noBlock.memory[0]).toBe(0x12)
     expect(noBlock.stats().blockErases32k).toBe(0)
+  })
+
+  it('moves the pointer on reads without bumping version', () => {
+    const chip = createSpiFlashChip(tinyDecl)
+    xfer(chip, [0x06])
+    xfer(chip, [0x02, 0x00, 0x00, 0x20, 0xaa, 0xbb])
+    const versionAfterProg = chip.version()
+    xfer(chip, [0x03, 0x00, 0x00, 0x20, 0x00, 0x00])
+    expect(chip.pointer()).toBe(0x21)
+    expect(chip.version()).toBe(versionAfterProg)
+  })
+})
+
+describe('flash stats persist', () => {
+  class MemoryStorage {
+    private store = new Map<string, string>()
+    getItem(k: string) {
+      return this.store.has(k) ? this.store.get(k)! : null
+    }
+    setItem(k: string, v: string) {
+      this.store.set(k, String(v))
+    }
+    removeItem(k: string) {
+      this.store.delete(k)
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('localStorage', new MemoryStorage())
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('reloads op counters and sector wear with the image', () => {
+    const key = 'test.flash.stats'
+    const first = createSpiFlashChip(tinyDecl, { persistKey: key })
+    xfer(first, [0x06])
+    xfer(first, [0x02, 0x00, 0x00, 0x00, 0xde, 0xad])
+    xfer(first, [0x03, 0x00, 0x00, 0x00, 0x00, 0x00])
+    xfer(first, [0x06])
+    xfer(first, [0x20, 0x00, 0x00, 0x00])
+    vi.advanceTimersByTime(300)
+
+    const raw = localStorage.getItem(key)
+    expect(raw).toBeTruthy()
+    expect(raw!).toContain('"stats"')
+
+    const second = createSpiFlashChip(tinyDecl, { persistKey: key })
+    const s = second.stats()
+    expect(s.programOps).toBe(1)
+    expect(s.programBytes).toBe(2)
+    expect(s.readOps).toBe(1)
+    expect(s.readBytes).toBe(2)
+    expect(s.sectorErases).toBe(1)
+    expect(s.sectorEraseCounts[0]).toBe(1)
+    // Image was erased by SE — occupancy is blank, wear remains.
+    expect(s.usedBytes).toBe(0)
+    expect(second.memory[0]).toBe(0xff)
+  })
+
+  it('resetStats clears persisted counters but keeps programmed bytes', () => {
+    const key = 'test.flash.reset'
+    const first = createSpiFlashChip(tinyDecl, { persistKey: key })
+    xfer(first, [0x06])
+    xfer(first, [0x02, 0x00, 0x00, 0x00, 0x55])
+    first.resetStats()
+    vi.advanceTimersByTime(300)
+
+    const second = createSpiFlashChip(tinyDecl, { persistKey: key })
+    expect(second.memory[0]).toBe(0x55)
+    expect(second.stats().programOps).toBe(0)
+    expect(second.stats().usedBytes).toBe(1)
   })
 })
 

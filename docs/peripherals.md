@@ -98,12 +98,14 @@ the card that drives it — so adding a part is a declaration, not another panel
   reuses the same hex surface plus a **Filesystem** dialog that mounts the
   image as LittleFS via real littlefs ([Dreagonmon littlefs-js](https://github.com/Dreagonmon/littlefs-js));
   sparse sector persist (`zephyr.w25q.0`) keeps `samples/subsys/fs/littlefs`
-  boot-counts across reload. NOR constraints (page wrap, bit-clear-only
-  program, WEL, sector/block erase sizes, datasheet endurance) and session
+  boot-counts across reload.   NOR constraints (page wrap, bit-clear-only
+  program, WEL, sector/block erase sizes, datasheet endurance) and live
   counters (reads / programs / erases + per-sector wear) live on the shared
   flash machine in [`flash/model.ts`](../src/virtio/devices/flash/model.ts) —
   the card's stats strip and sector map are pure consumers, so a denser part
-  is another declaration rather than another panel.
+  is another declaration rather than another panel. Counters and wear persist
+  with the sparse image under the same `persistKey`. Click a sector cell to
+  jump the hex dump; click a hex byte to plant a value for the guest.
 - **RTC** ([`rtc/model.ts`](../src/virtio/devices/rtc/model.ts)) — a
   bus-agnostic datetime + alarms surface (`getTime` / `setTime` /
   `syncFromBrowser` / `getAlarms`). The first provider is the I²C PCF8523 at

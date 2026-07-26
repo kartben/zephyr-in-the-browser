@@ -9,7 +9,8 @@
  * Session counters ({@link FlashStats}) track what the guest actually did on
  * the bus — reads, programs, erases — plus occupancy and per-sector erase
  * wear so the card can show utilisation and a sector map without knowing
- * which silicon is behind the handle.
+ * which silicon is behind the handle. When a `persistKey` is set, counters
+ * and wear ride along with the sparse image in localStorage.
  */
 
 import type { SpiChip, SpiTransferOpts } from '../spi'
@@ -63,8 +64,9 @@ export interface SpiFlashDecl {
 }
 
 /**
- * Guest-facing SPI activity plus derived occupancy. Op counters are session
- * state (not persisted); occupancy always reflects the live image.
+ * Guest-facing SPI activity plus derived occupancy. Op counters and wear are
+ * persisted with the image when {@link SpiFlashOptions.persistKey} is set;
+ * occupancy always reflects the live image.
  */
 export interface FlashStats {
   readOps: number
@@ -91,6 +93,20 @@ export interface FlashStats {
   maxSectorErases: number
 }
 
+/** Counters + wear written beside sparse sectors in localStorage. */
+interface PersistedFlashStats {
+  readOps: number
+  readBytes: number
+  programOps: number
+  programBytes: number
+  sectorErases: number
+  blockErases32k: number
+  blockErases64k: number
+  chipErases: number
+  /** Per-sector erase counts; length must match sectorCount. */
+  sectorEraseCounts: number[]
+}
+
 export interface SpiFlashChip extends SpiChip {
   readonly decl: SpiFlashDecl
   readonly memory: Uint8Array
@@ -98,9 +114,9 @@ export interface SpiFlashChip extends SpiChip {
   pointer(): number
   poke(offset: number, value: number): void
   erase(): void
-  /** Live session + occupancy snapshot for the flash card. */
+  /** Live op counters + occupancy + wear for the flash card. */
   stats(): FlashStats
-  /** Clear session op counters and wear; does not touch the image. */
+  /** Clear op counters and wear (and their persisted copy); keeps the image. */
   resetStats(): void
   subscribe(fn: () => void): () => void
 }
@@ -144,15 +160,65 @@ function sectorAllErased(bytes: Uint8Array, erased: number): boolean {
   return true
 }
 
-function loadPersisted(key: string, size: number, sectorSize: number, erased: number): Uint8Array | null {
+function parsePersistedStats(
+  raw: unknown,
+  sectorCount: number,
+): PersistedFlashStats | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v >>> 0 : 0)
+  const counts = Array.isArray(s.sectorEraseCounts)
+    ? s.sectorEraseCounts.map((n) => num(n))
+    : []
+  while (counts.length < sectorCount) counts.push(0)
+  if (counts.length > sectorCount) counts.length = sectorCount
+  return {
+    readOps: num(s.readOps),
+    readBytes: num(s.readBytes),
+    programOps: num(s.programOps),
+    programBytes: num(s.programBytes),
+    sectorErases: num(s.sectorErases),
+    blockErases32k: num(s.blockErases32k),
+    blockErases64k: num(s.blockErases64k),
+    chipErases: num(s.chipErases),
+    sectorEraseCounts: counts,
+  }
+}
+
+function statsAreZero(stats: PersistedFlashStats): boolean {
+  if (
+    stats.readOps ||
+    stats.readBytes ||
+    stats.programOps ||
+    stats.programBytes ||
+    stats.sectorErases ||
+    stats.blockErases32k ||
+    stats.blockErases64k ||
+    stats.chipErases
+  ) {
+    return false
+  }
+  for (let i = 0; i < stats.sectorEraseCounts.length; i++) {
+    if (stats.sectorEraseCounts[i]) return false
+  }
+  return true
+}
+
+function loadPersisted(
+  key: string,
+  size: number,
+  sectorSize: number,
+  erased: number,
+): { memory: Uint8Array; stats: PersistedFlashStats | null } | null {
   try {
     const raw = localStorage.getItem(key)
     if (!raw) return null
+    const sectorCount = Math.ceil(size / sectorSize)
 
     // Legacy full-image hex (only practical for tiny stubs).
     if (/^[0-9a-fA-F]+$/.test(raw) && raw.length === size * 2) {
       const out = new Uint8Array(size)
-      return fromHex(raw, out) ? out : null
+      return fromHex(raw, out) ? { memory: out, stats: null } : null
     }
 
     const parsed = JSON.parse(raw) as {
@@ -160,6 +226,7 @@ function loadPersisted(key: string, size: number, sectorSize: number, erased: nu
       size?: number
       sectorSize?: number
       sectors?: Record<string, string>
+      stats?: unknown
     }
     if (
       parsed.v !== PERSIST_VERSION ||
@@ -178,7 +245,7 @@ function loadPersisted(key: string, size: number, sectorSize: number, erased: nu
       if (!fromHex(hex, sector)) continue
       out.set(sector, si * sectorSize)
     }
-    return out
+    return { memory: out, stats: parsePersistedStats(parsed.stats, sectorCount) }
   } catch {
     return null
   }
@@ -189,6 +256,7 @@ function savePersistedSparse(
   bytes: Uint8Array,
   sectorSize: number,
   erased: number,
+  stats: PersistedFlashStats,
 ) {
   try {
     const sectors: Record<string, string> = {}
@@ -197,7 +265,7 @@ function savePersistedSparse(
       if (sectorAllErased(slice, erased)) continue
       sectors[String(si)] = toHex(slice)
     }
-    if (Object.keys(sectors).length === 0) {
+    if (Object.keys(sectors).length === 0 && statsAreZero(stats)) {
       localStorage.removeItem(key)
       return
     }
@@ -208,6 +276,7 @@ function savePersistedSparse(
         size: bytes.length,
         sectorSize,
         sectors,
+        stats,
       }),
     )
   } catch {
@@ -234,10 +303,10 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
   const blockEraseSizes = decl.blockEraseSizes ?? [32 * 1024, 64 * 1024]
   const block32k = blockEraseSizes.find((n) => n === 32 * 1024)
   const block64k = blockEraseSizes.find((n) => n === 64 * 1024)
-  const memory =
-    (options.persistKey
-      ? loadPersisted(options.persistKey, decl.size, decl.sectorSize, erased)
-      : null) ?? new Uint8Array(decl.size).fill(erased)
+  const loaded = options.persistKey
+    ? loadPersisted(options.persistKey, decl.size, decl.sectorSize, erased)
+    : null
+  const memory = loaded?.memory ?? new Uint8Array(decl.size).fill(erased)
 
   const sectorCount = Math.ceil(decl.size / decl.sectorSize)
   const sectorUsedBytes = new Uint32Array(sectorCount)
@@ -251,15 +320,23 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
     usedBytes += n
   }
 
-  let readOps = 0
-  let readBytes = 0
-  let programOps = 0
-  let programBytes = 0
-  let sectorErases = 0
-  let blockErases32k = 0
-  let blockErases64k = 0
-  let chipErases = 0
+  const savedStats = loaded?.stats
+  let readOps = savedStats?.readOps ?? 0
+  let readBytes = savedStats?.readBytes ?? 0
+  let programOps = savedStats?.programOps ?? 0
+  let programBytes = savedStats?.programBytes ?? 0
+  let sectorErases = savedStats?.sectorErases ?? 0
+  let blockErases32k = savedStats?.blockErases32k ?? 0
+  let blockErases64k = savedStats?.blockErases64k ?? 0
+  let chipErases = savedStats?.chipErases ?? 0
   let maxSectorErases = 0
+  if (savedStats) {
+    for (let si = 0; si < sectorCount; si++) {
+      const n = savedStats.sectorEraseCounts[si] ?? 0
+      sectorEraseCounts[si] = n
+      if (n > maxSectorErases) maxSectorErases = n
+    }
+  }
   let statsTouched = false
 
   const listeners = new Set<() => void>()
@@ -269,9 +346,29 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
   let phase: Phase = { kind: 'idle' }
   let persistTimer: ReturnType<typeof setTimeout> | undefined
 
+  const snapshotPersistedStats = (): PersistedFlashStats => ({
+    readOps,
+    readBytes,
+    programOps,
+    programBytes,
+    sectorErases,
+    blockErases32k,
+    blockErases64k,
+    chipErases,
+    sectorEraseCounts: Array.from(sectorEraseCounts),
+  })
+
   const flushPersist = () => {
     persistTimer = undefined
-    if (options.persistKey) savePersistedSparse(options.persistKey, memory, decl.sectorSize, erased)
+    if (options.persistKey) {
+      savePersistedSparse(
+        options.persistKey,
+        memory,
+        decl.sectorSize,
+        erased,
+        snapshotPersistedStats(),
+      )
+    }
   }
 
   const schedulePersist = () => {
@@ -280,11 +377,9 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
     persistTimer = setTimeout(flushPersist, PERSIST_DEBOUNCE_MS)
   }
 
-  const notify = (bump: boolean) => {
-    if (bump) {
-      version++
-      schedulePersist()
-    }
+  const notify = (bump: boolean, persist = bump) => {
+    if (bump) version++
+    if (persist) schedulePersist()
     for (const fn of listeners) fn()
   }
 
@@ -541,7 +636,8 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
           /* ignore */
         }
       }
-      notify(true)
+      // Bump for UI; do not schedulePersist — the key was just wiped.
+      notify(true, false)
     },
     stats(): FlashStats {
       return {
@@ -573,7 +669,7 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
       sectorEraseCounts.fill(0)
       maxSectorErases = 0
       markStats()
-      notify(false)
+      notify(false, true)
     },
     subscribe(fn) {
       listeners.add(fn)
@@ -592,8 +688,9 @@ export function createSpiFlashChip(baseDecl: SpiFlashDecl, options: SpiFlashOpti
       phase = { kind: 'idle' }
     }
     // Reads move the pointer / bump counters without a content version bump —
-    // coalesce one UI tick per transfer so bulk reads do not fan out.
-    if (statsTouched && version === versionBefore) notify(false)
+    // coalesce one UI tick per transfer so bulk reads do not fan out. Persist
+    // counters too (debounced) so rd/wr/er tallies survive reload.
+    if (statsTouched && version === versionBefore) notify(false, true)
     return ok
   }
 

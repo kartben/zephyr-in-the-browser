@@ -75,9 +75,12 @@ function cellTone(erases: number, dirty: boolean, frac: number): string {
 export function FlashStatsView({
   chip,
   compact = false,
+  onSectorClick,
 }: {
   chip: SpiFlashChip
   compact?: boolean
+  /** Jump the hex window to this sector (full editor only). */
+  onSectorClick?: (address: number) => void
 }) {
   const stats = useFlashStats(chip)
   const { size, sectorSize, enduranceCycles } = chip.decl
@@ -131,7 +134,7 @@ export function FlashStatsView({
           <button
             type="button"
             onClick={() => chip.resetStats()}
-            title="Clear session counters and wear map (keeps image)"
+            title="Clear counters and wear map (keeps image)"
             className="ml-auto text-muted-foreground underline-offset-2 hover:underline"
           >
             reset stats
@@ -144,6 +147,7 @@ export function FlashStatsView({
           stats={stats}
           sectorSize={sectorSize}
           enduranceCycles={enduranceCycles}
+          onSectorClick={onSectorClick}
         />
       )}
     </div>
@@ -154,20 +158,25 @@ function SectorWearMap({
   stats,
   sectorSize,
   enduranceCycles,
+  onSectorClick,
 }: {
   stats: FlashStats
   sectorSize: number
   enduranceCycles?: number
+  onSectorClick?: (address: number) => void
 }) {
   const cols = Math.max(8, Math.min(32, Math.round(Math.sqrt(stats.sectorCount))))
   const scaleLabel = enduranceCycles
     ? `wear / ${formatFlashCount(enduranceCycles)} cycle rating`
-    : 'wear relative to busiest sector this session'
+    : 'wear relative to busiest sector'
 
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2 text-[10px] text-muted-foreground">
-        <span>Sectors · {formatFlashSize(sectorSize)} each</span>
+        <span>
+          Sectors · {formatFlashSize(sectorSize)} each
+          {onSectorClick ? ' · click to show in hex' : ''}
+        </span>
         <span className="font-mono tabular-nums">{scaleLabel}</span>
       </div>
       <div
@@ -182,13 +191,21 @@ function SectorWearMap({
           const frac = wearFraction(erases, stats, enduranceCycles)
           const addr = si * sectorSize
           const used = stats.sectorUsedBytes[si] ?? 0
-          return (
-            <div
-              key={si}
-              title={`sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}`}
-              className={cn('aspect-square min-h-[5px] rounded-[1px]', cellTone(erases, dirty, frac))}
-            />
-          )
+          const label = `sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}${onSectorClick ? ' — click to show in hex' : ''}`
+          const tone = cn('aspect-square min-h-[5px] rounded-[1px]', cellTone(erases, dirty, frac))
+          if (onSectorClick) {
+            return (
+              <button
+                key={si}
+                type="button"
+                title={label}
+                aria-label={label}
+                onClick={() => onSectorClick(addr)}
+                className={cn(tone, 'cursor-pointer hover:ring-1 hover:ring-primary/60')}
+              />
+            )
+          }
+          return <div key={si} title={label} className={tone} />
         })}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[9px] tabular-nums text-muted-foreground">
