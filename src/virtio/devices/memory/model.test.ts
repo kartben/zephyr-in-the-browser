@@ -41,7 +41,53 @@ describe('createMemoryChip', () => {
     const chip = createAt24({ size: 4 })
     chip.write(Uint8Array.of(0x03, 0xaa, 0xbb))
     expect(chip.memory[3]).toBe(0xaa)
-    expect(chip.memory[0]).toBe(0xbb) // wrapped
+    expect(chip.memory[0]).toBe(0xbb) // wrapped within the (clipped) page
+  })
+
+  it('wraps page writes within pageSize', () => {
+    const chip = createAt24()
+    // Start at 0x06 in an 8-byte page — two bytes wrap to 0x00/0x01, not 0x08.
+    chip.write(Uint8Array.of(0x06, 0x11, 0x22, 0x33, 0x44))
+    expect(chip.memory[0x06]).toBe(0x11)
+    expect(chip.memory[0x07]).toBe(0x22)
+    expect(chip.memory[0x00]).toBe(0x33)
+    expect(chip.memory[0x01]).toBe(0x44)
+    expect(chip.memory[0x08]).toBe(0xff)
+  })
+
+  it('tracks read/write stats and page wear', () => {
+    const chip = createAt24()
+    chip.write(Uint8Array.of(0x00, 0xde, 0xad))
+    chip.write(Uint8Array.of(0x00))
+    expect(Array.from(chip.read(2))).toEqual([0xde, 0xad])
+
+    const s = chip.stats()
+    expect(s.writeOps).toBe(1)
+    expect(s.writeBytes).toBe(2)
+    expect(s.readOps).toBe(1)
+    expect(s.readBytes).toBe(2)
+    expect(s.usedBytes).toBe(2)
+    expect(s.dirtyPages).toBe(1)
+    expect(s.pageWriteCounts[0]).toBe(1)
+
+    chip.resetStats()
+    expect(chip.stats().writeOps).toBe(0)
+    expect(chip.stats().maxPageWrites).toBe(0)
+    expect(chip.memory[0]).toBe(0xde)
+  })
+
+  it('continues across pages when pageSize is unset', () => {
+    const chip = createMemoryChip({
+      name: 'flat',
+      defaultAddress: 0x50,
+      size: 16,
+      addressWidth: 1,
+    })
+    chip.write(Uint8Array.of(0x0e, 0xaa, 0xbb, 0xcc))
+    expect(chip.memory[0x0e]).toBe(0xaa)
+    expect(chip.memory[0x0f]).toBe(0xbb)
+    expect(chip.memory[0x00]).toBe(0xcc)
+    expect(chip.stats().pageCount).toBe(0)
   })
 
   it('starts erased, and erase() puts it back', () => {

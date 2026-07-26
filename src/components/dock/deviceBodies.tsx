@@ -37,7 +37,9 @@ import { I2cBody } from '@/components/I2cPanel'
 import { SpiBody } from '@/components/SpiPanel'
 import { UartBody } from '@/components/UartPanel'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
+import { FlashBadge } from '@/components/FlashStats'
 import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
+import { MemoryBadge } from '@/components/MemoryStats'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { DacBody } from '@/components/DacPanel'
@@ -160,7 +162,7 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
     case 'spi-flash':
       return (
         <SpiFlashBody
-          chip={node.chip as import('@/virtio/devices/chips/w25q').SpiFlashChip}
+          chip={node.chip as import('@/virtio/devices/flash/model').SpiFlashChip}
           compact={variant === 'dock'}
           onOpenWindow={variant === 'dock' ? () => setWindowed(node.key, true) : undefined}
         />
@@ -281,10 +283,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
   switch (node.body) {
     case 'sensor':
       return <SensorBadge chip={node.chip as SensorChip} />
-    case 'memory': {
-      const chip = node.chip as MemoryChip
-      return <Mono>{chip.decl.size} B</Mono>
-    }
+    case 'memory':
+      return <MemoryBadge chip={node.chip as MemoryChip} />
     case 'oled': {
       const chip = node.chip as Ssd1306Chip
       return (
@@ -350,10 +350,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <SpiBusBadge />
     case 'uart':
       return <UartBusBadge busKey={node.key} />
-    case 'spi-flash': {
-      const chip = node.chip as import('@/virtio/devices/chips/w25q').SpiFlashChip
-      return <Mono>{chip.decl.size} B</Mono>
-    }
+    case 'spi-flash':
+      return <FlashBadge chip={node.chip as import('@/virtio/devices/flash/model').SpiFlashChip} />
     case 'gnss':
       return <GnssBadge />
     case 'net':

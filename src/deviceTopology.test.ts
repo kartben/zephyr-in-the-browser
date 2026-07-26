@@ -29,7 +29,27 @@ const ALL: Availability = {
 const fakeSensor = (address: number, name: string): I2cChip =>
   ({ address, name, decl: {}, setChannel() {} }) as unknown as I2cChip
 const fakeMemory = (address: number, name: string): I2cChip =>
-  ({ address, name, decl: {}, poke() {}, erase() {}, version: () => 0 }) as unknown as I2cChip
+  ({
+    address,
+    name,
+    decl: {},
+    poke() {},
+    erase() {},
+    version: () => 0,
+    stats: () => ({
+      readOps: 0,
+      readBytes: 0,
+      writeOps: 0,
+      writeBytes: 0,
+      usedBytes: 0,
+      dirtyPages: 0,
+      pageCount: 0,
+      pageWriteCounts: new Uint32Array(0),
+      pageUsedBytes: new Uint32Array(0),
+      maxPageWrites: 0,
+    }),
+    resetStats() {},
+  }) as unknown as I2cChip
 const fakeRtc = (address: number, name: string): I2cChip =>
   ({
     address,

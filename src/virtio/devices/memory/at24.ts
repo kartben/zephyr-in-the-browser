@@ -25,6 +25,8 @@ export const at24Decl: MemoryDecl = {
   size: 256,
   addressWidth: 1,
   pageSize: 8,
+  // Typical AT24C02 endurance (write cycles per byte/page).
+  enduranceCycles: 1_000_000,
 }
 
 export interface At24Options {
