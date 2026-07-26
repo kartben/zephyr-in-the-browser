@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createFakeBridge } from './testing/fakeBridge'
 import { createGpioModel } from './devices/gpio'
@@ -412,6 +412,70 @@ describe('virtio transport', () => {
       (after.hotGapMsSum - before.hotGapMsSum) / Math.max(1, after.hotPolls - before.hotPolls)
     expect(gap).toBeGreaterThan(0)
     expect(gap).toBeLessThan(20)
+  })
+
+  it('drains from the atomic request waiter without waiting for a timer', () => {
+    class FakeRequestWaiter {
+      static instance: FakeRequestWaiter | null = null
+
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: ErrorEvent) => void) | null = null
+      posted: unknown = null
+      terminated = false
+
+      constructor(..._args: unknown[]) {
+        FakeRequestWaiter.instance = this
+      }
+
+      postMessage(message: unknown) {
+        this.posted = message
+      }
+
+      terminate() {
+        this.terminated = true
+      }
+
+      emit(data: unknown) {
+        this.onmessage?.({ data } as MessageEvent)
+      }
+    }
+
+    vi.stubGlobal('Worker', FakeRequestWaiter)
+    try {
+      const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }], {
+        shared: true,
+      })
+      register({
+        name: 'echo',
+        handle: (req) => req.reply(req.out.slice()),
+      })
+      const before = stats()
+
+      attach(bridge.module)
+      const worker = FakeRequestWaiter.instance
+      expect(worker).not.toBeNull()
+      expect(worker!.posted).toMatchObject({
+        type: 'start',
+        wordIndex: 3,
+      })
+      worker!.emit({ type: 'ready' })
+      expect(stats().waiterActive).toBe(true)
+
+      const dev = bridge.device('echo')
+      dev.kick(0, Uint8Array.of(1, 2, 3), 3)
+      expect(dev.completions()).toEqual([])
+
+      worker!.emit({ type: 'wake', count: 1 })
+      expect(dev.completions()).toHaveLength(1)
+      expect(stats().waiterWakeups).toBe(before.waiterWakeups + 1)
+
+      detach()
+      expect(worker!.terminated).toBe(true)
+      expect(stats().waiterActive).toBe(false)
+    } finally {
+      detach()
+      vi.unstubAllGlobals()
+    }
   })
 
   it('Atomics.notify-s the wake word and kicks QEMU after each completion', () => {

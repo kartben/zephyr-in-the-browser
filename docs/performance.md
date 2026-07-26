@@ -1,10 +1,8 @@
 # Where the performance is
 
 A survey of the levers worth pulling, ordered by expected payoff per hour spent.
-Nothing here is a measured result of a change — it is a reading of the code and
-of the deployed artifacts, with the experiment that would settle each item
-written next to it. Where a number is quoted from an existing measurement in
-this repository it says so; where it is an expectation it says that too.
+Each result says whether it came from the deployed artifact or a local rebuilt
+one; unmeasured expectations are labelled as such.
 
 Two things are worth stating before the list, because they decide which half of
 the list matters for a given workload:
@@ -23,13 +21,13 @@ the list matters for a given workload:
 
 | # | Opportunity | Where | Impact | Effort | Risk |
 | --- | --- | --- | --- | --- | --- |
-| 1 | ~~The bridge's "1 ms" hot poll is really ~4 ms~~ **(a) done**, (b)/(c) open | `src/virtio/transport.ts` | High, I²C-bound | Low → Medium | Low |
+| 1 | **Atomic QEMU→page request wake** — productionized; no DAC throughput win in A/B test | `src/virtio/transport.ts`, virtio QEMU patch | Medium, latency/idle CPU | Medium | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
-| 7 | QEMU idle drain 10→1 ms + **completion wake (Atomics/kick)** — needs rebuild | virtio patch | High, I²C-bound | Low | Medium |
+| 7 | QEMU idle drain 10→1 ms + **completion wake** — local measured, release pending | virtio patch | High, I²C-bound | Low | Medium |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
@@ -49,11 +47,11 @@ something new:
 - `node tools/profile-accel.mjs` drives the whole thing under Playwright and
   prints a ten-second sample.
 
-Item 1 added two of them: `bridgePollMs` (the pace the bridge's hot loop
-actually achieves, against the 1 ms it asks for) and `bridgeHz` (requests
-drained per second), both in the same snapshot, plus a `bridge_poll_clamped`
-note when the pace slips. `tools/probe-timer-clamp.mjs` measures the browser
-behaviour underneath them in isolation.
+Item 1 added `bridgePollMs` (the compatibility hot-loop pace), `bridgeHz`
+(requests drained per second), `bridgeWakeHz` (atomic worker notifications per
+second), and `bridgeWaiterActive`. A hot workload on an old emulator gets a
+`bridge_waiter_inactive` note; `tools/probe-timer-clamp.mjs` measures the timer
+fallback in isolation.
 
 What is still missing is the other half of the round trip: the page cannot see
 how long QEMU took to notice a completion. Item 7 is now measured from the
@@ -106,39 +104,33 @@ the next person does not have to take the arithmetic on trust. `transport.ts`
 counts the gaps between consecutive hot polls for exactly that reason: the pace
 was wrong for a long time precisely because nothing looked at it.
 
-**(b)+(c), spiked and measured: real, and not the payoff expected.** Built
-both — a worker running the `Atomics.wait` loop this section describes
-(`src/virtio/spike/virtioAtomicsWorker.ts`, gated behind `?virtioWorker=1`,
-scoped to the "i2c" device and the MCP4725 chip only, not a full port — see
-that file's header for exactly what is not covered), and the QEMU-side
-`__builtin_wasm_memory_atomic_notify` on `req_wr`
-(`tools/qemu-jit-patches/0018-notify-req-wr-atomic.patch`). Both mechanisms
-work exactly as designed: `waitTimeouts` stayed at 0 across 11k+ requests
-(every single wake is a real notify, none is the fallback timeout), and the
-completion-side relay back to `_qemu_virtio_browser_kick()` — necessarily
-still a `postMessage` to the main thread, since that export's
-`qemu_bh_schedule` has nowhere to land from a worker that never instantiated
-the module — measured at ~0 ms average, sub-millisecond max, once a clock-
-origin calibration bug in the first measurement (a constant ~530-900 ms
-offset on every sample, not real latency) was found and fixed.
+**(b)+(c) Use an atomic request wake — productionized, with an important
+limit.** The earlier gated I²C-only spike established that a worker blocking in
+`Atomics.wait` can detect every QEMU request without a polling timeout. In its
+A/B test, however, the DAC stayed at ~800 Hz both with and without the worker.
+Request detection was therefore not the DAC's throughput bottleneck once the
+tick-rate and vendored-sample fixes were present. The remaining ~1.2 ms/request
+is more likely real guest-side cost, such as the I²C driver stack at the
+guest's measured ~1.1 MIPS.
 
-**And the DAC round trip did not move**: ~800 Hz with the worker, ~800 Hz
-without it, on the same rebuilt tick-rate-fixed guest image. Every hop this
-lever targets — request detection, completion relay, vCPU wake (already
-separately measured at ~0.05-0.07 ms) — is now sub-millisecond, and the
-throughput ceiling did not change, which means `bridgePollMs`'s ~1 ms was
-never the binding constraint once the tick-rate and vendored-sample fixes
-were in (see the DAC entries in `tools/samples.manifest` and
-`zephyr-module/apps/dac_sawtooth`). The remaining ~1.2 ms/request is more
-likely real guest-side cost — the i2c driver stack's own instruction count at
-the guest's measured ~1.1 MIPS — than anything browser-side. **Not
-recommended as a general fix** on this evidence; the engineering cost (moving
-every other device model, including the ones with real DOM dependencies —
-`localStorage`-backed EEPROM/flash persistence, live device-motion sensors —
-that cannot simply move into a worker unchanged) does not currently have a
-measured payoff to justify it. Worth revisiting only if a *different* device
-or workload shows the request-detection or completion-relay hop actually
-dominating its round trip; this one didn't.
+The production implementation deliberately keeps the useful, low-cost part of
+that experiment without moving device models out of the browser thread. A
+dedicated detection-only worker blocks on one process-wide request futex and
+posts to the existing dispatcher. QEMU increments that monotonic counter after
+the release-store that publishes any bridge's `req_wr`, then calls
+`emscripten_futex_wake()`. One word and one waiter cover every bridge instance;
+the counter also closes the worker-start race because a request published
+before the first wait changes the expected value instead of becoming a lost
+edge. Device models that own browser state (`localStorage`, motion events, and
+UI subscriptions) remain unchanged on the main thread.
+
+This removes the timer-clamping and hidden-tab latency of request detection and
+eliminates the bridge's idle polling floor; it is not expected to make the DAC
+faster. A local rebuilt A53 artifact measured ~748 request wakes/s, exactly
+tracking bridge requests, with `bridgePollMs = 0` and a ~5.5 s DAC period. That
+validates wake coverage, not a throughput gain: the earlier same-build A/B test
+is the causal measurement. Older emulator artifacts do not expose the request
+word, so the page retains its capability-based 1/50 ms timer fallback.
 
 ## 2. Asyncify very likely instruments the TCG execution path
 
@@ -350,17 +342,24 @@ actively wakes QEMU on every completion (`Atomics.notify` on
 `qemu_bh_schedule` of the drain under the BQL, `qemu_notify_event`). Draining
 inline from the keepalive export crashes A53 (`gicv3` asserts `bql_locked()`):
 under `PROXY_TO_PTHREAD` that export runs on the *browser* thread, not the
-QEMU pthread. Both the idle-ms change and the kick need an emulator rebuild to
-land in `public/qemu/`. Expected after rebuild: I²C Hz into the
-hundreds–~1 kHz (page poll ~1 ms), check with `tools/profile-dac.mjs`
-(`kicks` in bridge stats should track `requests`).
+QEMU pthread. A local rebuilt artifact measured **~748 I²C Hz**, with about
+5.5 s per 4096-code DAC period, versus ~236 Hz / 17.3 s on the deployed page
+observed before these changes. `bridgeWakeHz` tracked `bridgeHz`, and
+`notifyViaKick` handled essentially every completion. The release artifact
+still needs rebuilding and publishing.
 
 Superseded: the ~45 Hz measured here turned out to be dominated by the
 guest's own tick-rate rounding, not this drain mechanism — see
 `zephyr-module/apps/dac_sawtooth` and the DAC entries in
-`tools/samples.manifest`. Item 1(b)+(c) below was built and measured on top of
-that fix; the verdict there is the current word on this path, not "the clean
-long-term shape" this paragraph used to claim.
+`tools/samples.manifest`. The ~748 Hz local result versus ~236 Hz on the
+deployed page also spans a rebuilt emulator and guest, so it must not be
+attributed to the atomic request waiter. The same-build A/B experiment in item
+1 is the current word: request atomics changed no DAC throughput.
+
+The reverse path from item 1 is nevertheless event-driven now: QEMU notifies
+the request waiter, while completions use the existing kick BH. The remaining
+gap above the sample's 4.096 s target is most likely guest-side I²C work, not
+the request-detection or completion-wake hop.
 
 ## 8. Seven pollers share the thread that runs xterm and React
 
@@ -368,7 +367,7 @@ Attached at once on the A53 board, all on the main thread:
 
 | Poller | Period | File |
 | --- | --- | --- |
-| virtio bridge | 1 ms hot (really 4), 50 ms idle | `src/virtio/transport.ts:483` |
+| virtio bridge | atomic request wake; 50 ms maintenance/fallback | `src/virtio/transport.ts` |
 | net | 10 ms hot, 100 ms idle | `src/hostNet.ts:398` |
 | GPIO (MMIO boards) | 100 ms | `src/hostGpio.ts:135` |
 | audio | 100 ms | `src/hostAudio.ts:67` |
@@ -377,17 +376,16 @@ Attached at once on the A53 board, all on the main thread:
 | guest stats | 500 ms | `src/guestStats.ts:99` |
 | GNSS transmit | 1000 ms | `src/hostGnss.ts:35` |
 
-Each is individually cheap — most are a single shared-memory load — but they
+Each remaining poller is individually cheap — most are a single shared-memory load — but they
 share the thread with xterm.js, React, and Emscripten's proxied main-thread work,
 and `transport.ts` already documents catching the display falling behind because
 of main-thread contention. The framebuffer upload was moved off this thread for
-exactly that reason; the bridges were not.
+exactly that reason. Virtio request detection now blocks in a worker, although
+its browser-facing device models still dispatch on this thread.
 
-Two directions, either of which is worth doing: fold the slow pollers into one
-timer that runs all of them (one wakeup at 100 ms instead of five staggered
-ones), and move the fast ones into the worker from item 1(b), which is where
-they want to live anyway — they are all shared-heap readers with no DOM
-dependency.
+Two remaining directions are worth doing: fold the slow pollers into one timer
+that runs all of them (one wakeup at 100 ms instead of five staggered ones), and
+move other shared-heap readers with no DOM dependency into dedicated workers.
 
 ## 9. Audio is pulled on a 100 ms timer
 
@@ -423,15 +421,13 @@ to the one bridge where the failure mode is something the user can hear.
 ## Suggested order
 
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
-2. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
+2. ~~Item 1(b)+(c) (atomic request waiter)~~ — done and locally profiled;
+   **needs release artifact publication**.
+3. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
    is a precondition for trusting item 2. Compare MIPS before and after.
-3. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
+4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
-4. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
+5. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
-5. ~~Item 1(b)+(c)~~ — spiked (`src/virtio/spike/`, `?virtioWorker=1`) and
-   measured: mechanism works, DAC throughput did not move. Not worth the
-   full-catalogue port on this evidence; see item 1's writeup. Items 8/9's
-   contention and hidden-tab arguments for a worker are separate from the
-   throughput one and untested by this spike — still open if either becomes
-   the actual complaint.
+6. Items 8/9 — consolidate the remaining main-thread pollers and move audio to
+   an `AudioWorklet`.

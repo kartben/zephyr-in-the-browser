@@ -31,7 +31,7 @@ new file mode 100644
 index 0000000..7c06366
 --- /dev/null
 +++ b/hw/virtio/virtio-browser.c
-@@ -0,0 +1,781 @@
+@@ -0,0 +1,793 @@
 +/*
 + * Generic browser-backed VIRTIO device.
 + *
@@ -210,15 +210,15 @@ index 0000000..7c06366
 +
 +/*
 + * Entry points for the embedding host. count/area discover instances; the
-+ * rest of the wire protocol lives in the shared area. kick/wake_addr are the
-+ * page→QEMU completion wake — without them the guest stays halted until the
-+ * drain timer (measured ~50 I²C Hz on dac). Declared here rather than in a
-+ * header because nothing inside QEMU calls them; they exist to keep
-+ * -Wmissing-prototypes quiet.
++ * rest of the wire protocol lives in the shared area. The request futex wakes
++ * the page after req_wr is published; kick/wake_addr carry a completion back
++ * to QEMU. Declared here rather than in a header because nothing inside QEMU
++ * calls them; they exist to keep -Wmissing-prototypes quiet.
 + */
 +uint32_t qemu_virtio_browser_count(void);
 +uintptr_t qemu_virtio_browser_area(uint32_t index);
 +uintptr_t qemu_virtio_browser_wake_addr(void);
++uintptr_t qemu_virtio_browser_request_wake_addr(void);
 +void qemu_virtio_browser_kick(void);
 +
 +/*
@@ -228,6 +228,7 @@ index 0000000..7c06366
 + * thread under PROXY_TO_PTHREAD — they must not call virtio_notify.
 + */
 +static uint32_t virtio_browser_wake;
++static uint32_t virtio_browser_request_wake;
 +static bool virtio_browser_draining;
 +static QEMUBH *virtio_browser_kick_bh;
 +
@@ -253,6 +254,12 @@ index 0000000..7c06366
 +uintptr_t qemu_virtio_browser_wake_addr(void)
 +{
 +    return (uintptr_t)&virtio_browser_wake;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uintptr_t qemu_virtio_browser_request_wake_addr(void)
++{
++    return (uintptr_t)&virtio_browser_request_wake;
 +}
 +
 +/*
@@ -396,6 +403,11 @@ index 0000000..7c06366
 +
 +    /* Publish only once the record is whole. */
 +    qatomic_store_release(&area->req_wr, wr + rec);
++    qatomic_set(&virtio_browser_request_wake,
++                qatomic_read(&virtio_browser_request_wake) + 1);
++#ifdef __EMSCRIPTEN__
++    emscripten_futex_wake(&virtio_browser_request_wake, INT32_MAX);
++#endif
 +    return true;
 +}
 +

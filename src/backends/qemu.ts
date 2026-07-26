@@ -9,10 +9,6 @@ import { attach as attachHostInput, detach as detachHostInput } from '@/hostInpu
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
 import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
-import {
-  attachAtomicsSpike,
-  detachAtomicsSpike,
-} from '@/virtio/spike/attachAtomicsSpike'
 import { get as getGuestImage } from '@/guestImage'
 import { loadSampleDts } from '@/devicetree'
 import { MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
@@ -336,22 +332,8 @@ export function createQemuBackend(): PtyBackend {
       // metadata decides which bridges belong to the selected machine.
       // The generic virtio bridge goes first: hostGpio binds to a device model
       // running on it, and the models must be registered before it polls.
-      // SPIKE gate (docs/performance.md item 1(b)/(c)): ?virtioWorker=1 routes
-      // the "i2c" device to a worker blocking on Atomics.wait instead of the
-      // production bridge, to measure the round trip that mechanism achieves.
-      // Not a real alternative boot path — see src/virtio/spike/ for scope.
-      if (board.peripherals?.virtio) {
-        if (new URLSearchParams(location.search).get('virtioWorker') === '1') {
-          detachVirtio()
-          attachAtomicsSpike(instance)
-        } else {
-          detachAtomicsSpike()
-          attachVirtio(instance)
-        }
-      } else {
-        detachVirtio()
-        detachAtomicsSpike()
-      }
+      if (board.peripherals?.virtio) attachVirtio(instance)
+      else detachVirtio()
       // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
       if (board.peripherals?.ramfb) attachHostDisplay(instance)
       else detachHostDisplay()

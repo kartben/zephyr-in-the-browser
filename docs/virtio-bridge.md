@@ -58,12 +58,14 @@ finds them by name:
 | `_qemu_virtio_browser_count()` | number of instances |
 | `_qemu_virtio_browser_area(i)` | pointer to instance *i*'s `VirtioBrowserArea` |
 | `_qemu_virtio_browser_wake_addr()` | futex word the page `Atomics.notify`s after `cmp_wr` |
+| `_qemu_virtio_browser_request_wake_addr()` | futex word QEMU increments and notifies after `req_wr` |
 | `_qemu_virtio_browser_kick()` | drain every cmp ring now + `qemu_notify_event()` |
 
 `name` is matched rather than `device_id`, because two instances can share a
 device id (two I2C buses) and index order is a command-line accident. The wake
-exports are optional for older wasm builds — without them the page falls back
-to the realtime drain timer alone.
+exports are optional for older wasm builds. Without the completion exports,
+QEMU's realtime drain timer remains the safety net; without the request export,
+the page retains its adaptive timer poll.
 
 ## The shared area
 
@@ -133,9 +135,10 @@ The drain timer retries stalled queues.
 
 ## Timing
 
-Both directions poll. Neither side can cheaply wake the other:
-`MAIN_THREAD_ASYNC_EM_ASM` is unused anywhere in qemu-wasm, and the page cannot
-touch a virtqueue off the QEMU thread.
+Both directions are event-driven in a current emulator, with the old timers
+retained as compatibility and recovery paths. The page still cannot touch a
+virtqueue off the QEMU thread, so its wake schedules a QEMU bottom half rather
+than draining inline.
 
 - **Page → QEMU.** A virtual-clock timer would be wrong here. This is the first
   bridge where the guest *blocks* on a browser answer, and under
@@ -152,66 +155,44 @@ touch a virtqueue off the QEMU thread.
   with `tools/profile-dac.mjs`: **10 ms idle → ~45 I²C Hz** (one ~4 s
   sawtooth stretched across ~90 s of wall); **page-side poll was already
   ~1.2 ms**, so the drain was the ceiling. Idle matches busy at 1 ms.
-- **QEMU → page.** A paced `MessagePort`/timer loop for 100 ms after any
-  request (1 ms between polls), falling back to a 50 ms timer when idle.
+- **QEMU → page.** After publishing a complete request record and `req_wr`,
+  QEMU increments one process-wide futex and calls
+  `emscripten_futex_wake()`. A dedicated page worker blocks on that word with
+  `Atomics.wait()` and forwards each wake to the main-thread dispatcher. The
+  device models remain on the main thread because several use browser-owned
+  state (`localStorage`, motion events, and UI subscriptions); only request
+  detection has to leave it to remove the polling floor globally.
 
-  The port rather than an unpaced `setTimeout(…, 0)`, because of what a
-  *background* tab does. Nested `setTimeout(0)` is clamped to ~4 ms while
-  visible but to about a second while hidden — measured at 681 ms per tick in
-  the tab this was developed against. Since a guest thread sits in
-  `k_sem_take(…, K_FOREVER)` until the page answers, that clamp is not a slow
-  page, it is a frozen guest: an `i2c scan` crawling at one address per second.
-  `postMessage` delivery is not throttled, so a burst can run whether or not
-  anyone is watching.
+  The waiter takes its initial expected value before worker creation. A request
+  arriving during startup therefore changes the word and makes the worker's
+  first wait return immediately, avoiding the usual check-then-sleep race.
+  One global word also means one worker covers every virtio-browser instance.
 
-  An *unpaced* port loop (delay 0 for the whole hot window) has the opposite
-  problem in a *foreground* tab: with a continuously busy device such as the
-  accelerometer chart over virtio-i2c it was measured at ~700k
-  `Atomics.load`s/s on the main thread, starving the qemu-wasm proxy that
-  shares it. The 1 ms pace keeps ring drain in a single tick and answers well
-  inside a guest sample period, while dropping that load rate by ~650×.
+  Older emulator artifacts, non-shared test modules, and a waiter that reports
+  an error use the previous adaptive timer: a paced 1 ms hot loop for 100 ms,
+  then a 50 ms idle poll. Its `MessagePort` nesting reset is retained because
+  nested timers otherwise settle at ~4 ms in a visible tab, while an unpaced
+  message loop was measured at ~700k shared-memory loads/s. The waiter path
+  keeps only a 50 ms maintenance tick for discovery, resets, watchdogs, and
+  completion-ring backpressure; ordinary request arrival never waits for it.
 
-  So a hot wakeup is both: a `postMessage`, and a 1 ms timer armed *from that
-  message's handler*. The ordering is the part that is easy to get wrong and
-  was wrong here for a long time. A browser takes a timer's **nesting level**
-  from the task that scheduled it and clamps the delay to 4 ms once that level
-  passes 5 — so a hot loop that rearms itself with `setTimeout(poll, 1)` from
-  inside `poll` asks for 1 ms and is given 4, for the whole window. A task
-  started by `postMessage` sits at nesting level 0, so the same timer armed from
-  there is honoured. Measured in Chromium by
-  [`tools/probe-timer-clamp.mjs`](../tools/probe-timer-clamp.mjs):
+  `stats()` in `src/virtio/transport.ts` exposes `waiterActive` and
+  `waiterWakeups`, surfaced by the profiler as `bridgeWaiterActive` and
+  `bridgeWakeHz`. `bridge_waiter_inactive` flags a hot I²C window that is still
+  on the compatibility poll.
 
-  | Rearmed from | Steady-state period |
-  | --- | --- |
-  | the previous timer's callback | 4.14 ms |
-  | a `MessagePort` message handler | 1.13 ms |
-
-  Since the guest blocks on the page, that difference is added to the latency of
-  every transfer it makes. The idle path stays on the plain 50 ms timer, where
-  one message hop per tick would cost more than it saves.
-
-  `stats()` in `src/virtio/transport.ts` counts the gaps between consecutive hot
-  polls so this can be checked rather than assumed; `src/display/profile.ts`
-  surfaces it as `bridgePollMs`, and flags a window whose mean exceeds 2 ms with
-  a `bridge_poll_clamped` note.
-
-At rest this is one shared-memory read per device per 50 ms. Under load a
-blocking transfer used to cost QEMU's drain timer plus however fast the page's
-event loop turns — measured at ~50 I²C Hz on the stock DAC sawtooth. The page
-now **wakes QEMU on every completion**: `Atomics.notify` on
+Under load a blocking transfer used to cost two polling intervals — measured
+at ~50 I²C Hz on the stock DAC sawtooth. The page now **wakes QEMU on every
+completion**: `Atomics.notify` on
 `qemu_virtio_browser_wake_addr()` plus `_qemu_virtio_browser_kick()`, which
 schedules a BH to drain the cmp rings on the QEMU main loop (BQL held — the
 keepalive export may run on the browser thread) and `qemu_notify_event()`s a
 halted vCPU. The realtime drain timer stays as a safety net for old emulators
-and missed wakes. Expected after a rebuild: I²C into the hundreds–~1 kHz,
-bounded by the page's ~1 ms poll rather than by a 16–20 ms halt quantum.
-
-The remaining levers, in order, are the ones
-[performance.md](performance.md) tracks: moving the poll into a worker, where
-`Atomics.wait` replaces the whole hot-window apparatus with a sub-millisecond
-blocking wait that no clamp applies to; and a `memory.atomic.notify` on the
-QEMU side after it publishes `req_wr`, turning that wait into a real wakeup
-in the other direction.
+and missed wakes. The reverse direction now has the symmetric
+`request_wake_addr` futex described above. A local rebuilt A53 artifact measured
+~748 atomic request wakes/s, exactly matching requests, with no hot polls; the
+DAC period was ~5.5 s. Both QEMU changes require publishing that rebuilt wasm
+artifact before the deployed page can use them.
 
 ## What a backgrounded tab costs
 
@@ -220,20 +201,19 @@ GPIO read was answered inside QEMU and never touched the page's event loop. Now
 the guest blocks until the page answers, so the page's scheduling is the
 guest's scheduling.
 
-The `MessagePort` hot path above is what makes that survivable — a burst in a
-hidden tab runs at full speed. What remains is the *first* request after an
-idle period, which the 50 ms timer notices, and that timer is throttled to
-roughly a second while hidden. So a background tab adds about a second of
-latency to the start of a burst and nothing after it.
+With the atomic waiter, request detection is not timer-throttled when the tab
+is hidden. QEMU wakes the worker directly and its `postMessage` schedules the
+main-thread dispatcher. The browser may still deprioritize the main thread
+itself, so this is not a real-time guarantee, but it removes the deterministic
+one-second first-request penalty of the compatibility timer.
 
 Nothing is ever lost: no timeout, no dropped chain, and the watchdog below does
 not fire, because the request is answered as soon as the page runs. A guest
 driver polling a sensor on a Zephyr timer sees time jump rather than samples go
 missing.
 
-This was found the hard way — `blinky` freezing mid-toggle with `req_wr` pinned
-and one chain outstanding, resuming the instant the tab became visible — which
-is worth knowing before diagnosing a hang that is really just a hidden tab.
+Older emulator artifacts still use the timer path and can show the original
+symptom: `req_wr` pinned with one chain outstanding until the tab runs again.
 
 ## Watchdog
 

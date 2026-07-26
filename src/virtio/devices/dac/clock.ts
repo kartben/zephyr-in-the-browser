@@ -8,11 +8,11 @@
  * is blocked on virtio-i2c: ~2 ms of that counter per wall second, so the
  * scope's "now" froze while codes still updated and the trace looked stuck.
  *
- * Throughput itself is a separate lever (~45 I²C Hz today): QEMU's completion
- * drain idles at 10 ms and, with `-icount sleep=on`, that tax lands on every
- * synchronous transfer. `VIRTIO_BROWSER_DRAIN_IDLE_MS 1` in the virtio-browser
- * patch is the fix for the next emulator rebuild; until then the scope at least
- * tracks wall time honestly.
+ * Throughput itself is a separate lever. The original 10 ms completion drain
+ * managed ~45 I²C Hz; the deployed timer-driven bridge later reached ~236 Hz.
+ * A local rebuild with atomic request wakes and completion kicks measured
+ * ~748 Hz. The scope uses wall time so each of those regimes is rendered
+ * honestly rather than making a slow transfer stream look like a 4 s period.
  */
 
 export function dacNowMs(): number {

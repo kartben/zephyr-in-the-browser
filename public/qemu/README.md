@@ -210,9 +210,10 @@ directories under `tools/`:
   into a ring the guest drains through Zephyr's DMIC API, through
   `qemu_host_mic_get_rate` / `_get_buffer_samples` / `_get_data` /
   `_get_read_index` and `qemu_host_mic_set_write_index`.
-* A **generic virtio bridge** (`hw/virtio/virtio-browser.c`), AArch64 only,
-  exposed through just two entry points — `qemu_virtio_browser_count` and
-  `qemu_virtio_browser_area` — no matter how many devices it carries. It keeps
+* A **generic virtio bridge** (`hw/virtio/virtio-browser.c`), AArch64 only.
+  `qemu_virtio_browser_count` and `qemu_virtio_browser_area` discover any
+  number of devices; process-wide completion/request futex exports wake QEMU
+  and the page in each direction without polling. It keeps
   only what must run on the QEMU thread under the BQL (popping chains,
   gathering their iovecs, pushing to the used ring, raising the interrupt) and
   forwards each chain to the page over a pair of SPSC rings; the *device model*
@@ -225,7 +226,9 @@ directories under `tools/`:
   second process. Its completion drain runs on `QEMU_CLOCK_REALTIME` rather
   than the virtual clock — this is the first bridge where the guest *blocks* on
   a browser answer, and under `-icount … sleep=on` a virtual-clock timer would
-  warp past the browser and inflate guest time. See `docs/virtio-bridge.md`.
+  warp past the browser and inflate guest time. The realtime timer and the
+  page's adaptive timer remain fallbacks for old artifacts and missed wakes.
+  See `docs/virtio-bridge.md`.
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
 * A **frontend for QEMU's input core** (`hw/misc/qemu-browser-input.c`),

@@ -23,40 +23,20 @@
  * dac). Old emulators without the export keep working — they just stay on the
  * timer.
  *
- * Polling is adaptive. Idle costs one `Atomics.load` per device per 50 ms; for
- * a short window after any request it switches to a loop paced at ~1 ms.
+ * New emulators wake a dedicated request waiter whenever they publish to a
+ * request ring. The waiter blocks in Atomics.wait() on the shared wasm heap,
+ * where browser timer clamping does not apply, then posts one task to this
+ * thread to run the device models. The models stay here intentionally: several
+ * own browser-only state such as localStorage, motion events, and UI
+ * subscriptions. Moving request detection is enough to remove the polling
+ * floor from every virtio-backed device without duplicating that state.
  *
- * Both halves of that hot loop — a `MessagePort` hop *and* a timer — are load
- * bearing, and each is there for a different failure:
- *
- * The port, because of what a background tab does to `setTimeout`. Nested
- * `setTimeout(0)` is clamped to ~4 ms in a visible tab, which would be fine —
- * but in a hidden one it is clamped to about a second, and measurably so:
- * 681 ms per tick in the tab this was developed against. Since a guest thread
- * sits in `k_sem_take(…, K_FOREVER)` until we answer, that clamp is not a slow
- * page, it is a frozen guest — an `i2c scan` crawling at one address per
- * second. `postMessage` delivery is not throttled, so the burst runs at full
- * speed whether or not anyone is looking.
- *
- * The 1 ms pace, because an unpaced port loop (delay 0 forever while hot) spins
- * the main thread at hundreds of thousands of Atomics loads per second for as
- * long as the guest keeps the bridge busy — which the accelerometer chart does
- * continuously over virtio-i2c. That busy-loop steals the qemu-wasm main loop's
- * time and the display falls behind. Draining the rings still happens in a
- * single poll tick; the pace only bounds how often we *look* for the next
- * request.
- *
- * Which leaves the ordering, and it is the whole trick: the timer is armed
- * *from inside the port's message handler*, never from the previous timer's
- * callback. A browser derives a timer's nesting level from the task that
- * scheduled it, and clamps to 4 ms past level 5 — so a hot loop that reschedules
- * itself with `setTimeout(poll, 1)` from within `poll` asks for 1 ms and gets 4,
- * for the whole window. A task started by `postMessage` sits at nesting level 0,
- * so the same `setTimeout(poll, 1)` issued from there is honoured. Measured at
- * 4.14 ms against 1.13 ms by tools/probe-timer-clamp.mjs, which is ~3 ms off
- * every blocking transfer the guest makes. `stats()` below is how to tell
- * whether the pace is real rather than assumed — it was assumed, and wrong, for
- * as long as nothing looked.
+ * Compatibility remains deliberate. An older emulator has no request-wake
+ * export, and a non-pthread fake may have no SharedArrayBuffer, so the previous
+ * adaptive timer stays as a fallback: 50 ms while idle, then a MessagePort-
+ * reset 1 ms timer while hot. The waiter path still runs that 50 ms maintenance
+ * tick for discovery, reset detection, watchdogs, and a completion ring that
+ * was temporarily full; it never uses the timer to discover ordinary requests.
  */
 
 import {
@@ -70,12 +50,18 @@ import {
   readName,
   writeCompletion,
 } from './protocol'
+import type {
+  MainToRequestWaiter,
+  RequestWaiterToMain,
+} from './requestWaitWorker'
 
 interface BridgeExports {
   _qemu_virtio_browser_count?: () => number
   _qemu_virtio_browser_area?: (index: number) => number
   /** Byte offset of the futex word the page Atomics.notify-s on completion. */
   _qemu_virtio_browser_wake_addr?: () => number
+  /** Byte offset of the futex QEMU notifies after publishing a request. */
+  _qemu_virtio_browser_request_wake_addr?: () => number
   /** Drain-cmp BH schedule + main-loop wake (safe from the browser thread). */
   _qemu_virtio_browser_kick?: () => void
   /** Diagnostic: mean ns from virtio_notify() to the RR vCPU thread resuming. */
@@ -231,6 +217,9 @@ let scheduled = false
 let hotUntil = 0
 /** Earliest wall time a hot poll may run; paces the MessagePort loop. */
 let nextHotAt = 0
+/** Blocks on QEMU's request futex; null means the timer fallback is active. */
+let requestWaiter: Worker | null = null
+let requestWaiterReady = false
 
 /* --- instrumentation ------------------------------------------------------
  * Free-running counters, never reset — a reader diffs two samples. Kept always
@@ -255,6 +244,10 @@ export interface BridgeStats {
    * requests once the rebuilt emulator is in place.
    */
   kicks: number
+  /** Worker futex notifications forwarded to the main-thread dispatcher. */
+  waiterWakeups: number
+  /** Whether the atomic request waiter is live; false means timer fallback. */
+  waiterActive: boolean
 }
 
 /**
@@ -269,13 +262,22 @@ let hotGapMsSum = 0
 let hotPollsSlow = 0
 let requestsSeen = 0
 let kicksSeen = 0
+let waiterWakeupsSeen = 0
 /** When the previous hot poll ran, or 0 when the last one was an idle tick. */
 let lastHotPollAt = 0
 /** Int32 index of the emulator's wake futex, or -1 when the export is absent. */
 let wakeWordIndex = -1
 
 export function stats(): BridgeStats {
-  return { hotPolls, hotGapMsSum, hotPollsSlow, requests: requestsSeen, kicks: kicksSeen }
+  return {
+    hotPolls,
+    hotGapMsSum,
+    hotPollsSlow,
+    requests: requestsSeen,
+    kicks: kicksSeen,
+    waiterWakeups: waiterWakeupsSeen,
+    waiterActive: requestWaiterReady,
+  }
 }
 
 /**
@@ -303,6 +305,95 @@ function hotWakeup(delay: unknown) {
   timer = setTimeout(poll, delay)
 }
 
+function stopRequestWaiter() {
+  requestWaiter?.terminate()
+  requestWaiter = null
+  requestWaiterReady = false
+}
+
+/**
+ * Interrupt the maintenance/fallback timer and drain now. Worker messages are
+ * already main-thread tasks, so there is no reason to add another timer hop.
+ */
+function pollFromRequestWake() {
+  if (!exports) return
+  if (timer) clearTimeout(timer)
+  timer = 0
+  scheduled = false
+  nextHotAt = 0
+  poll()
+}
+
+function fallBackFromRequestWaiter(message: string) {
+  if (!requestWaiter) return
+  console.warn(`[virtio] atomic request waiter stopped (${message}); using timer polling`)
+  stopRequestWaiter()
+  hotUntil = performance.now() + HOT_WINDOW_MS
+  pollFromRequestWake()
+}
+
+function dispatchRequestWake(count: number) {
+  waiterWakeupsSeen += count
+  pollFromRequestWake()
+}
+
+/**
+ * Start the atomic request detector when this emulator exposes its futex and
+ * the heap is actually shared. Every check is capability-based so old release
+ * artifacts and unit-test fakes keep using the timer path.
+ */
+function startRequestWaiter() {
+  const h = exports?.HEAPU8
+  const requestWakeAddr = exports?._qemu_virtio_browser_request_wake_addr?.()
+  if (
+    !h ||
+    typeof SharedArrayBuffer === 'undefined' ||
+    !(h.buffer instanceof SharedArrayBuffer) ||
+    typeof Worker !== 'function' ||
+    typeof requestWakeAddr !== 'number' ||
+    requestWakeAddr <= 0 ||
+    (requestWakeAddr & 3) !== 0 ||
+    requestWakeAddr >= h.buffer.byteLength
+  ) {
+    return
+  }
+
+  try {
+    const wordIndex = requestWakeAddr >> 2
+    const expected = Atomics.load(new Int32Array(h.buffer), wordIndex)
+    const worker = new Worker(new URL('./requestWaitWorker.ts', import.meta.url), {
+      type: 'module',
+    })
+    requestWaiter = worker
+    worker.onmessage = (event: MessageEvent<RequestWaiterToMain>) => {
+      const message = event.data
+      if (message.type === 'ready') {
+        requestWaiterReady = true
+      } else if (message.type === 'wake') {
+        dispatchRequestWake(message.count)
+      } else {
+        fallBackFromRequestWaiter(message.message)
+      }
+    }
+    worker.onerror = (event) => {
+      fallBackFromRequestWaiter(event.message || 'worker error')
+    }
+    const message: MainToRequestWaiter = {
+      type: 'start',
+      buffer: h.buffer,
+      wordIndex,
+      expected,
+    }
+    worker.postMessage(message)
+  } catch (error) {
+    stopRequestWaiter()
+    console.warn(
+      '[virtio] could not start atomic request waiter; using timer polling',
+      error,
+    )
+  }
+}
+
 /**
  * Register a device model. Call before `attach`; a model whose name no device
  * on the command line carries is simply never bound.
@@ -320,6 +411,7 @@ export function attach(mod: unknown) {
   const wakeAddr = exports._qemu_virtio_browser_wake_addr?.()
   wakeWordIndex =
     typeof wakeAddr === 'number' && wakeAddr > 0 && (wakeAddr & 3) === 0 ? wakeAddr >> 2 : -1
+  startRequestWaiter()
   // Deliberately not resolving devices here: attach runs as soon as the module
   // exists, which can be before QEMU's machine init has realized them. The poll
   // loop rescans while it finds none, so an early attach does not latch off.
@@ -327,6 +419,7 @@ export function attach(mod: unknown) {
 }
 
 export function detach() {
+  stopRequestWaiter()
   if (timer) clearTimeout(timer)
   timer = 0
   scheduled = false
@@ -497,21 +590,21 @@ function flush(b: Bridge) {
   if (published) wakeQemu()
 }
 
-  /**
-   * Tell QEMU a completion is waiting. Two channels on purpose:
-   *
-   * 1. `Atomics.notify` on the shared wake word — lock-free from the page, wakes
-   *    any futex wait the emulator (or a future drain path) parks on.
-   * 2. `_qemu_virtio_browser_kick()` — futex-wakes the same word, schedules a
-   *    BH to drain under the BQL on the QEMU thread, and `qemu_notify_event()`s
-   *    so `-icount sleep=on` does not sit on the realtime drain timer. Must not
-   *    drain inline: the export runs on the browser thread.
-   *
-   * Either alone is enough on a rebuilt emulator; doing both covers the case
-   * where the worker is in a generic sleep futex rather than our wake word.
-   * Absent exports (old wasm) this is a no-op and the timer remains the path.
-   */
-  function wakeQemu() {
+/**
+ * Tell QEMU a completion is waiting. Two channels on purpose:
+ *
+ * 1. `Atomics.notify` on the shared wake word — lock-free from the page, wakes
+ *    any futex wait the emulator (or a future drain path) parks on.
+ * 2. `_qemu_virtio_browser_kick()` — futex-wakes the same word, schedules a
+ *    BH to drain under the BQL on the QEMU thread, and `qemu_notify_event()`s
+ *    so `-icount sleep=on` does not sit on the realtime drain timer. Must not
+ *    drain inline: the export runs on the browser thread.
+ *
+ * Either alone is enough on a rebuilt emulator; doing both covers the case
+ * where the worker is in a generic sleep futex rather than our wake word.
+ * Absent exports (old wasm) this is a no-op and the timer remains the path.
+ */
+function wakeQemu() {
   kicksSeen += 1
   if (words && wakeWordIndex >= 0) {
     Atomics.add(words, wakeWordIndex, 1)
@@ -649,7 +742,13 @@ function poll() {
     console.error('[virtio] poll failed; the bridge keeps running', err)
   } finally {
     const after = performance.now()
-    if (after < hotUntil) {
+    if (requestWaiterReady) {
+      // Request arrival is event-driven. Keep only the maintenance tick for
+      // discovery, resets, watchdogs, and a temporarily full completion ring.
+      lastHotPollAt = 0
+      nextHotAt = 0
+      schedule(IDLE_MS)
+    } else if (after < hotUntil) {
       // Paced, not unpaced: an unpaced port loop was measured at ~700k
       // Atomics.loads/s while accel_chart kept the bridge hot, starving
       // qemu-wasm on the same thread. 1 ms still answers well inside a guest
@@ -679,7 +778,7 @@ function schedule(delay: number) {
   // background-tab clamp and resets the timer nesting level (see hotWakeup).
   // The idle timer is left alone: it is one load per device per 50 ms, and a
   // message hop per tick would cost more than it saves.
-  if (hotChannel && delay <= HOT_PERIOD_MS) {
+  if (!requestWaiterReady && hotChannel && delay <= HOT_PERIOD_MS) {
     hotChannel.port2.postMessage(delay)
   } else {
     timer = setTimeout(poll, delay)

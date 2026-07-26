@@ -40,6 +40,10 @@ export interface ProfileSnapshot {
   bridgePollSlowPct: number
   /** Virtio requests drained / second, across every bound device. */
   bridgeHz: number
+  /** Atomic request notifications delivered by the waiter worker / second. */
+  bridgeWakeHz: number
+  /** True when request arrival is futex-driven rather than timer-polled. */
+  bridgeWaiterActive: boolean
   /** Guest MIPS (ema). */
   mips: number
   /**
@@ -74,7 +78,15 @@ interface Counters {
   bridgeStart: BridgeStats
 }
 
-const ZERO_BRIDGE: BridgeStats = { hotPolls: 0, hotGapMsSum: 0, hotPollsSlow: 0, requests: 0, kicks: 0 }
+const ZERO_BRIDGE: BridgeStats = {
+  hotPolls: 0,
+  hotGapMsSum: 0,
+  hotPollsSlow: 0,
+  requests: 0,
+  kicks: 0,
+  waiterWakeups: 0,
+  waiterActive: false,
+}
 
 const empty = (): Counters => ({
   guestFrames: 0,
@@ -106,6 +118,8 @@ let lastSnapshot: ProfileSnapshot = {
   bridgePollMs: 0,
   bridgePollSlowPct: 0,
   bridgeHz: 0,
+  bridgeWakeHz: 0,
+  bridgeWaiterActive: false,
   mips: 0,
   wakeAvgNs: -1,
   wakeMaxNs: -1,
@@ -192,6 +206,9 @@ function rollWindow() {
   // The hot loop asks for 1 ms. Anything near 4 is the timer nesting clamp,
   // and every blocking guest transfer pays it — see transport.ts.
   if (hotPolls > 20 && bridgePollMs > 2) notes.push('bridge_poll_clamped')
+  if (i2cDelta / elapsed > 40 && !bridgeNow.waiterActive) {
+    notes.push('bridge_waiter_inactive')
+  }
   const wake = wakeLatencyStats()
   const warp = warpOvershootStats()
   const notifySource = notifySourceStats()
@@ -206,6 +223,9 @@ function rollWindow() {
     bridgePollMs,
     bridgePollSlowPct,
     bridgeHz: Math.max(0, bridgeNow.requests - c.bridgeStart.requests) / elapsed,
+    bridgeWakeHz:
+      Math.max(0, bridgeNow.waiterWakeups - c.bridgeStart.waiterWakeups) / elapsed,
+    bridgeWaiterActive: bridgeNow.waiterActive,
     mips: stats.mips,
     wakeAvgNs: wake?.avgNs ?? -1,
     wakeMaxNs: wake?.maxNs ?? -1,
