@@ -5,7 +5,10 @@
  * samples/drivers/led/led_strip: WS2812 on virtio-spi CS0. Self-contained —
  * does not compose with the virtio-spi snippet (that one puts a JEDEC NOR on
  * CS0). The guest encodes each WS2812 bit as an 8-bit SPI symbol; the page
- * decodes the bitstream and paints the strip (timing is not wall-clock).
+ * decodes the bitstream and paints the strip.
+ *
+ * spi-max-frequency is required by the binding but does not pace aemu — each
+ * led_strip_update_rgb is one virtqueue round trip. Pulse timing is ignored.
  */
 
 #include <zephyr/dt-bindings/led/led.h>
@@ -20,6 +23,7 @@
 	led_strip: ws2812@0 {
 		compatible = "worldsemi,ws2812-spi";
 		reg = <0>;
+		/* Binding-required; ignored for wall-clock pacing in the browser. */
 		spi-max-frequency = <4000000>;
 		chain-length = <16>;
 		/* Common 8-bit symbol pair used by many Zephyr board overlays. */
