@@ -6,8 +6,10 @@ would that mean for Zephyr running in qemu-wasm?
 
 **Verdict: not as a USB bus into the guest — yes as another live source for the
 chips we already simulate.** Three independent blockers sink a WebUSB → Zephyr
-USB-host passthrough; none of them apply to the cheaper shape that already
-powers device tilt and the mic.
+USB-host passthrough; **virtio-usb (device ID 49) does not unblock them** — the
+ID is reserved with no protocol chapter, no QEMU model, and no Zephyr driver.
+None of those blockers apply to the cheaper shape that already powers device
+tilt and the mic.
 
 ## What "USB peripheral support" could mean here
 
