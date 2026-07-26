@@ -1,104 +1,67 @@
 /**
  * VIRTIO I2C adapter device model (virtio spec 1.3, section 5.15), in the page.
  *
- * This is the first device that exists *only* here — there is no C device model
- * for it in QEMU and there never will be, because the generic bridge carries
- * it. Adding an I2C chip is a TypeScript file and a `attachChip` call; no
- * emulator rebuild is involved.
- *
  * The wire shape is one descriptor chain per `struct i2c_msg`, so a Zephyr
- * `i2c_transfer` of N messages arrives here as N requests. Each carries:
+ * transfer of N messages arrives here as N requests. Each carries:
  *
  *     out: struct virtio_i2c_out_hdr { le16 addr; le16 padding; le32 flags; }
  *          followed by the bytes to write, when this is a write
  *     in:  the bytes read, when this is a read,
  *          followed by struct virtio_i2c_in_hdr { u8 status; }
  *
- * `addr` is the 7-bit address shifted left by one — the byte as it goes out on
- * the wire, with room for the R/W bit — which is what Linux's driver sends and
- * what the spec's examples show.
- *
- * A chip that is not attached NAKs, which is what makes `i2c scan` a real scan
- * rather than a list of everything: the guest sees exactly the addresses the
- * page is answering for.
+ * `addr` is the 7-bit address shifted left by one, leaving room for R/W.
+ * Unattached chips NAK so `i2c scan` sees only addresses the page answers.
  */
 
 import type { VirtioDeviceModel, VirtioRequest } from '../transport'
 
-/** Only one queue: requests. */
 const VQ_REQUEST = 0
 
 const OUT_HDR_BYTES = 8
 
-/** Fail the following request too, if this one fails. */
 const FLAGS_FAIL_NEXT = 1 << 0
-/** This message is a read; otherwise it is a write. */
 const FLAGS_M_RD = 1 << 1
 
 const MSG_OK = 0
 const MSG_ERR = 1
 
-/** How many transactions the log keeps, newest last. */
 const LOG_CAP = 500
 
 /**
- * Cap how often transaction-log subscribers (the I²C traffic pane) re-render.
- * Accel chart samples the ADXL over virtio-i2c many times a second; rebuilding
- * a log array and waking React on every message steals the main thread from
- * qemu-wasm. Attach/detach still notify immediately.
+ * Throttle traffic-pane renders; high-rate I2C sampling can otherwise starve
+ * qemu-wasm on the main thread.
  */
 const LOG_NOTIFY_MS = 50
 
-/**
- * Bytes kept per log entry. The traffic pane shows six; a little headroom is
- * enough for debug without copying full OLED frame chunks into the ring.
- */
+/** Avoid copying full OLED frame chunks into the transaction log. */
 const LOG_BYTE_CAP = 8
 
 export interface I2cChip {
-  /** 7-bit address. */
   readonly address: number
-  /** Shown in the panel and the transaction log. */
   readonly name: string
-  /**
-   * The guest wrote these bytes. Return false to NAK — a real chip NAKs a
-   * write it cannot accept, and drivers do notice.
-   */
+  /** Return false to NAK a write. */
   write?(bytes: Uint8Array): boolean | void
-  /**
-   * The guest wants `length` bytes. Return null to NAK. Returning fewer bytes
-   * than asked pads with 0xff, which is what an open bus reads as.
-   */
+  /** Return null to NAK; short reads pad with 0xff open-bus bytes. */
   read?(length: number): Uint8Array | null | undefined
 }
 
 export interface I2cTransaction {
   id: number
-  /** 7-bit address. */
   address: number
   dir: 'read' | 'write'
-  /**
-   * Payload bytes for the trace (may be truncated — see {@link byteLength}).
-   * DAC fast-writes are 2 bytes; OLED chunks are capped at {@link LOG_BYTE_CAP}.
-   */
   bytes: Uint8Array
-  /** Full payload length on the wire, before truncation for the log. */
   byteLength: number
   ok: boolean
-  /** Name of the chip that answered, or null when nothing did. */
   chip: string | null
 }
 
 export interface I2cModel extends VirtioDeviceModel {
-  /** Put a chip on the bus. Returns a function that removes it again. */
   attachChip(chip: I2cChip): () => void
-  /** Take whatever chip is at `address` off the bus. A no-op if none is. */
   detachChip(address: number): void
   chips(): I2cChip[]
   transactions(): readonly I2cTransaction[]
   clearTransactions(): void
   subscribe(fn: () => void): () => void
-  /** Monotonic count of logged transactions — for the display profiler. */
   transactionCount(): number
 }
 
@@ -113,11 +76,7 @@ function copyLogBytes(src: Uint8Array): { bytes: Uint8Array; byteLength: number 
 export function createI2cModel(name = 'i2c'): I2cModel {
   const bus = new Map<number, I2cChip>()
   const listeners = new Set<() => void>()
-  /**
-   * Fixed ring — push is O(1). The previous `array + splice(0, …)` form shifted
-   * every retained entry on each write once the cap filled; at 1 kHz (stock DAC
-   * sawtooth) that alone burned the main thread and the chart lagged the guest.
-   */
+  /** Fixed ring: log writes stay O(1) under high-rate traffic. */
   const log: (I2cTransaction | undefined)[] = new Array(LOG_CAP)
   let logHead = 0
   let logLen = 0
@@ -126,23 +85,14 @@ export function createI2cModel(name = 'i2c'): I2cModel {
   let logNotifyTimer: ReturnType<typeof setTimeout> | undefined
   let logDirty = false
 
-  /*
-   * Snapshots for useSyncExternalStore, which compares with Object.is. Both
-   * halves of that contract bite: a getter that builds a fresh array every
-   * call spins React forever, and one that mutates in place never re-renders.
-   * So these are rebuilt exactly when their contents change, and returned
-   * as-is otherwise.
-   */
+  /** useSyncExternalStore needs stable snapshots until contents change. */
   let chipsSnapshot: I2cChip[] = []
   const refreshChips = () => {
     chipsSnapshot = [...bus.values()].sort((a, b) => a.address - b.address)
   }
 
   /**
-   * Set while a transfer is being failed off. The driver sets FAIL_NEXT on
-   * every message but the last, so a failure partway through must take the
-   * rest of that transfer with it rather than letting later messages land on
-   * a chip that never saw the earlier ones.
+   * FAIL_NEXT means a mid-transfer failure must fail the remaining messages too.
    */
   let failing = false
 
@@ -197,13 +147,11 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     }
 
     const dv = new DataView(req.out.buffer, req.out.byteOffset, req.out.byteLength)
-    // The address goes out shifted, leaving room for the R/W bit.
     const address = dv.getUint16(0, true) >> 1
     const flags = dv.getUint32(4, true)
     const isRead = (flags & FLAGS_M_RD) !== 0
     const failNext = (flags & FLAGS_FAIL_NEXT) !== 0
 
-    /** Answer the chain: read payload (if any) then the status byte. */
     const answer = (ok: boolean, payload?: Uint8Array) => {
       const readLen = isRead ? req.inCap - 1 : 0
       const out = new Uint8Array(readLen + 1)
@@ -212,8 +160,7 @@ export function createI2cModel(name = 'i2c'): I2cModel {
       out[readLen] = ok ? MSG_OK : MSG_ERR
       req.reply(out)
 
-      // FAIL_NEXT is only meaningful while more messages of this transfer are
-      // still coming; the last message clears it either way.
+      // The last message clears FAIL_NEXT state either way.
       failing = ok ? false : failNext
     }
 
@@ -224,8 +171,7 @@ export function createI2cModel(name = 'i2c'): I2cModel {
 
     const chip = bus.get(address)
     if (!chip) {
-      // Nothing at this address. Deliberately not logged: `i2c scan` probes
-      // 116 addresses and would bury every real transaction under NAKs.
+      // Do not log scan NAKs; they bury real transactions.
       answer(false)
       return
     }
@@ -296,9 +242,7 @@ export function createI2cModel(name = 'i2c'): I2cModel {
 
     chips: () => chipsSnapshot,
     transactions() {
-      // Direct readers (tests) flush so they see the latest entry without
-      // waiting out the UI throttle. React only reaches this after publishLog
-      // has notified, when the snapshot is already fresh and stable.
+      // Tests bypass the UI throttle; React sees already-published snapshots.
       if (logDirty) {
         if (logNotifyTimer !== undefined) {
           clearTimeout(logNotifyTimer)

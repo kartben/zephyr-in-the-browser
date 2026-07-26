@@ -1,22 +1,14 @@
 /**
  * The wire format shared with `hw/virtio/virtio-browser.c` in the patched QEMU
- * (tools/qemu-jit-patches/0010-*). See docs/virtio-bridge.md for the contract
- * this implements; if you change one, change all three.
- *
- * Used against the real wasm heap by transport.ts and against a plain
- * Uint8Array by the test fake, so both sides exercise the same codec — the
- * arrangement src/net/ringCodec.ts already uses for the netdev rings.
+ * (tools/qemu-jit-patches/0010-*). Keep this in sync with docs/virtio-bridge.md.
  */
 
-/** "VBRG", little-endian. */
 export const AREA_MAGIC = 0x47524256
 export const AREA_VERSION = 1
 
 /**
- * Byte offsets into `VirtioBrowserArea`. Every field is naturally aligned and
- * the C struct has no padding, so these are just the running sum — but they
- * are spelled out rather than computed, because a mismatch here is a silent
- * misread of shared memory rather than a compile error.
+ * Byte offsets into `VirtioBrowserArea`; mismatches silently corrupt shared
+ * memory reads, so these stay spelled out beside the C struct.
  */
 export const AREA = {
   magic: 0,
@@ -41,17 +33,14 @@ export const AREA = {
 
 export const NAME_MAX = 16
 export const CONFIG_MAX = 64
-/** sizeof(VirtioBrowserArea). */
 export const AREA_BYTES = 144
 
 export const REQ_HDR = 16
 export const CMP_HDR = 12
 
-/** A token of all-ones is not a record but "skip to the next lap". */
 export const TOKEN_SKIP = 0xffffffff
 
 export const CMP_OK = 0x0
-/** Complete the chain having written nothing. */
 export const CMP_FAIL = 0x1
 
 /** Matches VIRTIO_BROWSER_MAX_PAYLOAD; larger records mean a corrupt ring. */
@@ -62,15 +51,14 @@ export const align4 = (n: number) => (n + 3) & ~3
 export interface RawRequest {
   token: number
   queue: number
-  /** A view into the ring — the caller must copy before yielding. */
+  /** Ring view; copy before yielding or advancing req_rd. */
   out: Uint8Array
   inCap: number
 }
 
 /**
- * Read every complete request between `rd` and `wr`, returning the advanced
- * read index. `onRequest` receives a view into the ring, valid only for the
- * duration of the call.
+ * Read complete requests between `rd` and `wr`; `onRequest` receives temporary
+ * ring views.
  */
 export function drainRequests(
   heap: Uint8Array,
@@ -94,9 +82,7 @@ export function drainRequests(
     const inCap = view.getUint32(base + off + 12, true)
     const rec = REQ_HDR + align4(outLen)
 
-    // QEMU publishes req_wr only once a record is whole, so a record running
-    // past it means the ring is corrupt. Resync rather than read on into
-    // whatever happens to follow.
+    // req_wr is published after the record is whole; overrun means ring corrupt.
     if (outLen > MAX_PAYLOAD || rec > ((wr - rd) >>> 0)) return wr
 
     const start = base + off + REQ_HDR
@@ -107,9 +93,7 @@ export function drainRequests(
 }
 
 /**
- * Append one completion. Returns the advanced write index, or null when the
- * ring is too full to take it — in which case nothing was written and the
- * caller must retry rather than half-publish a record.
+ * Append one completion, or return null without half-publishing when full.
  */
 export function writeCompletion(
   heap: Uint8Array,
@@ -146,11 +130,7 @@ export function writeCompletion(
 /**
  * Read the NUL-padded device name out of an area.
  *
- * The `slice` is load-bearing, not defensive copying: under `-pthread` the wasm
- * heap is a SharedArrayBuffer, and `TextDecoder.decode` refuses a view onto
- * shared memory outright ("The provided ArrayBufferView value must not be
- * shared"). `slice` yields a view over an ordinary ArrayBuffer, which it will
- * take.
+ * `slice` is required: TextDecoder refuses SharedArrayBuffer-backed views.
  */
 export function readName(heap: Uint8Array, areaBase: number): string {
   const bytes = heap.slice(areaBase + AREA.name, areaBase + AREA.name + NAME_MAX)

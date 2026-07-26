@@ -1,62 +1,34 @@
-/**
- * Bus-agnostic fuel-gauge surface the dock renders.
- *
- * A fuel gauge is state-of-charge + voltage (+ charge rate) — not a sensor
- * slider row and not a DAC scope. The first provider is an I²C MAX17048, but
- * {@link FuelGaugeChip} deliberately does not mention it: a later SBS gauge or
- * charger sibling can implement the same handle and reuse {@link FuelGaugeBody}
- * unchanged. When a provider has a register file it also implements
- * {@link RegisterMapSource}.
- */
+/** Bus-agnostic fuel-gauge surface the dock renders. */
 
 import type { I2cChip } from '../i2c'
 import type { FieldDecl, RegisterDecl } from '../registers/types'
 
 export interface FuelGaugeDecl {
   name: string
-  /** Empty-cell voltage for the gauge bar (mV). MAX17048 Li-ion: ~3000. */
   vEmptyMv: number
-  /** Full-cell voltage for the gauge bar (mV). MAX17048 Li-ion: ~4200. */
   vFullMv: number
-  /** Optional design capacity shown in the metrics strip. */
   designCapacityMah?: number
-  /** Optional metrics strip keys (MAX17048: crate, tte, ttf). */
   detailKeys?: readonly string[]
 }
 
 export interface FuelGaugeReading {
-  /** Relative state of charge, 0…100. */
   socPct: number
-  /** Cell voltage in microvolts. */
   voltageUv: number
-  /**
-   * Charge rate in percent of capacity per hour. Positive = charging,
-   * negative = discharging — matches Zephyr's CRATE interpretation.
-   */
+  /** Positive = charging, negative = discharging; matches Zephyr CRATE. */
   cratePctPerHour: number
   charging: boolean
 }
 
-/**
- * What every fuel-gauge provider must expose to the dock. Extends
- * {@link I2cChip} only because today's providers ride virtio-i2c — the
- * fuel-gauge-shaped methods are what {@link isFuelGaugeChip} and the card care
- * about.
- */
 export interface FuelGaugeChip extends I2cChip {
   readonly decl: FuelGaugeDecl
-  /** Named register file for the inspector; empty when the provider has none. */
   readonly registers: readonly RegisterDecl[]
   peek(addr: number): number
   getPointer(): number
   poke(addr: number, value: number): void
   setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   getReading(): FuelGaugeReading
-  /** Drive SoC from the page (writes SOC register). */
   setSocPct(pct: number): void
-  /** Drive cell voltage from the page (writes VCELL register), millivolts. */
   setVoltageMv(mv: number): void
-  /** Drive charge rate from the page (writes CRATE register), %/hour. */
   setCratePctPerHour(rate: number): void
   getDetail?(key: string): string
   version(): number
@@ -107,7 +79,6 @@ export function formatRuntimeMins(mins: number): string {
   return m === 0 ? `${h} h` : `${h} h ${m} m`
 }
 
-/** Fraction 0…1 of the voltage bar between empty and full. */
 export function voltageFraction(
   voltageUv: number,
   decl: Pick<FuelGaugeDecl, 'vEmptyMv' | 'vFullMv'>,
@@ -118,10 +89,7 @@ export function voltageFraction(
   return Math.max(0, Math.min(1, (mv - decl.vEmptyMv) / span))
 }
 
-/**
- * Estimate time-to-empty / time-to-full the way Zephyr's MAX17048 driver does
- * from SoC and CRATE — exposed for the dock metrics strip.
- */
+/** Estimate time-to-empty/full from SoC and CRATE, matching Zephyr MAX17048. */
 export function estimateRuntimeMins(reading: FuelGaugeReading): {
   toEmpty: number
   toFull: number

@@ -1,67 +1,41 @@
-/**
- * Bus-agnostic RTC surface the dock renders.
- *
- * An RTC is datetime + alarms, not sensor channels and not a hex dump. The
- * first provider is an I²C PCF8523, but {@link RtcChip} deliberately does not
- * mention I²C: a SPI part, an SoC RTC, or `zephyr,rtc-emul` could implement the
- * same handle and reuse {@link RtcBody} unchanged. When a provider *does* have
- * a pointered register file, it also implements {@link RegisterMapSource} so
- * the shared Registers inspector can open on the card.
- */
+/** Bus-agnostic RTC surface the dock renders. */
 
 import type { I2cChip } from '../i2c'
 import type { FieldDecl, RegisterDecl } from '../registers/types'
 
-/** Broken-down wall time the card and guest drivers share. */
 export interface RtcDateTime {
-  year: number // full year, e.g. 2026
-  month: number // 1–12
-  day: number // 1–31
-  weekday: number // 0=Sunday … 6=Saturday
-  hour: number // 0–23
-  minute: number // 0–59
-  second: number // 0–59
+  year: number
+  month: number
+  day: number
+  weekday: number
+  hour: number
+  minute: number
+  second: number
 }
 
-/** Compare fields Zephyr's RTC alarm mask can enable. */
 export type RtcAlarmField = 'minute' | 'hour' | 'day' | 'weekday'
 
-/** One hardware alarm, as the dock wants to show it. */
 export interface RtcAlarm {
-  /** Alarm index (PCF8523 has one). */
   id: number
-  /** True when at least one compare field is armed. */
   armed: boolean
-  /** Fields that participate in the match (AEN clear on PCF8523). */
   minute?: number
   hour?: number
-  /** Day of month 1–31. */
   day?: number
-  /** Day of week 0=Sunday … 6=Saturday. */
   weekday?: number
-  /** Sticky alarm-fired flag (AF), until cleared. */
   pending: boolean
 }
 
 export interface RtcDecl {
   name: string
-  /** Device name for shell hints (`pcf8523@68`). */
   shellLabel?: string
   defaultAddress: number
-  /** How many hardware alarms the part exposes. */
   alarmsCount: number
-  /**
-   * Compare fields this part can arm. The dock renders only these — so a
-   * simpler RTC that only does hour+minute does not grow empty day/weekday
-   * rows. PCF8523: minute, hour, day, weekday (Zephyr mask 0x4e).
-   */
+  /** Compare fields this part can arm; PCF8523 maps to Zephyr mask 0x4e. */
   alarmFields: readonly RtcAlarmField[]
 }
 
-/** Sunday-first labels matching `RtcDateTime.weekday` / Zephyr `tm_wday`. */
 export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 
-/** Zephyr RTC_ALARM_TIME_MASK bits for the fields PCF8523 supports. */
 export const RTC_ALARM_MASK = {
   minute: 0x02,
   hour: 0x04,
@@ -69,44 +43,22 @@ export const RTC_ALARM_MASK = {
   weekday: 0x40,
 } as const satisfies Record<RtcAlarmField, number>
 
-/**
- * What every RTC provider must expose to the dock. Extends {@link I2cChip} only
- * because today's providers ride the virtio-i2c bus — the RTC-shaped methods
- * are what {@link isRtcChip} and the card care about. I²C parts with a named
- * register file also carry the {@link RegisterMapSource} methods so the shared
- * Registers dialog can open; a future non-register RTC can leave
- * `registers` empty and omit peek/poke.
- */
 export interface RtcChip extends I2cChip {
   write(bytes: Uint8Array): boolean
   read(length: number): Uint8Array
   readonly decl: RtcDecl
-  /** Named register file for the inspector; empty when the provider has none. */
   readonly registers: readonly RegisterDecl[]
-  /** Live wall time, advancing while the oscillator runs. */
   getTime(): RtcDateTime
-  /** Program the clock (also clears the oscillator-stop flag). */
   setTime(time: RtcDateTime): void
-  /** Copy the browser's local wall clock into the chip. */
   syncFromBrowser(): void
-  /** Hardware alarms, for the card's armed / fired readout. */
   getAlarms(): RtcAlarm[]
-  /**
-   * Arm alarm `id` from the page. `fields` lists which compares to enable;
-   * omit a field (or pass an empty object with armed=false via clearAlarm)
-   * to leave it disabled. Matching the Zephyr mask: enabled fields compare.
-   */
   setAlarm(
     id: number,
     fields: { minute?: number; hour?: number; day?: number; weekday?: number },
   ): void
-  /** Disarm every compare field on alarm `id` and clear pending. */
   clearAlarm(id: number): void
-  /** Clear the sticky fired flag without touching the compare registers. */
   clearPending(id: number): void
-  /** True while the oscillator-stop / integrity flag would make get_time fail. */
   oscillatorStopped(): boolean
-  /** Live register word (time regs reflect the advancing oscillator). */
   peek(addr: number): number
   getPointer(): number
   poke(addr: number, value: number): void
@@ -140,7 +92,6 @@ export function formatAlarm(alarm: RtcAlarm): string {
   return parts.join(' · ')
 }
 
-/** Zephyr alarm mask for the enabled fields on an {@link RtcAlarm}. */
 export function alarmMask(alarm: Pick<RtcAlarm, RtcAlarmField>): number {
   let mask = 0
   if (alarm.minute !== undefined) mask |= RTC_ALARM_MASK.minute
@@ -150,7 +101,6 @@ export function alarmMask(alarm: Pick<RtcAlarm, RtcAlarmField>): number {
   return mask
 }
 
-/** Browser local time as an {@link RtcDateTime}. */
 export function browserNow(): RtcDateTime {
   const d = new Date()
   return {
