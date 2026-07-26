@@ -1,16 +1,7 @@
 /**
- * Browser-side gpio-buzzer feedback: Vibration API + Web Audio buzz.
- *
- * The guest drives a stock Zephyr `gpio-buzzer` over the existing GPIO bridge.
- * Short tones (the packaged `samples/drivers/buzzer/tone` beeps are 150–400 ms)
- * can come and go before React commits an effect, and collapsing the dock body
- * unmounts the old panel controller — so feedback lives here, outside the
- * mount lifecycle, with a minimum pulse latch so a single active sample is
- * still felt and heard.
- *
- * `enable()` must run from a user gesture (sticky activation for vibrate,
- * autoplay policy for AudioContext). A localStorage pref remembers the choice
- * across reloads, but each session still needs one tap to unlock.
+ * Map Zephyr `gpio-buzzer` GPIO activity to Vibration API + Web Audio.
+ * Lives outside the dock panel so short tones and collapsed rows still work.
+ * `enable()` arms browser audio/vibrate (autoplay / sticky activation).
  */
 
 import {
@@ -21,29 +12,37 @@ import {
 
 const VIBRATE_PREF_KEY = 'zephyr.buzzer.vibrateEnabled'
 
-/** Hold "sounding" at least this long after a rising edge so short tones register. */
+/** Minimum latch so brief GPIO pulses still register. */
 export const MIN_PULSE_MS = 200
 
-/** Repeating buzz while the latched line stays active past the first pulse. */
-const VIBRATE_PATTERN: number[] = [100, 50]
-const VIBRATE_INTERVAL_MS = 150
+/** Vibrate pulse used while arming host feedback. */
+const UNLOCK_VIBRATE_MS = 400
 
-const BUZZ_FREQ_HZ = 800
-const BUZZ_GAIN = 0.08
+/** Long pattern while sounding — avoids cancelling short pulses via setInterval. */
+const VIBRATE_ON_MS = 120
+const VIBRATE_OFF_MS = 40
+const VIBRATE_CYCLES = 50 // ~8 s; stopFeedback cancels early
+
+const BUZZ_FREQ_HZ = 2400
+const BUZZ_GAIN = 0.12
+/** Confirmation tone length when arming audio. */
+const UNLOCK_CHIRP_MS = 120
 
 export interface BuzzerSnapshot {
-  /** Latched activity — true for at least MIN_PULSE_MS after pin goes active. */
+  /** Latched active (at least MIN_PULSE_MS). */
   sounding: boolean
-  /** Raw: any gpio-buzzer pin currently at its active level. */
+  /** Raw pin at active level. */
   pinActive: boolean
-  /** User prefers feedback on (localStorage). */
+  /** localStorage preference. */
   preferred: boolean
-  /** This page load has had a gesture unlock. */
+  /** Audio/vibrate armed this page load. */
   unlocked: boolean
-  /** Feedback is armed: preferred && unlocked. */
+  /** preferred && unlocked. */
   enabled: boolean
-  /** `navigator.vibrate` exists (often a no-op on desktop). */
+  /** navigator.vibrate exists. */
   vibrationSupported: boolean
+  /** Last arming vibrate() returned true. */
+  vibrationArmed: boolean
 }
 
 const listeners = new Set<() => void>()
@@ -52,14 +51,12 @@ let pinActive = false
 let sounding = false
 let preferred = readPref()
 let unlocked = false
+let vibrationArmed = false
 let holdTimer: ReturnType<typeof setTimeout> | undefined
-let vibrateTimer: ReturnType<typeof setInterval> | undefined
+let chirpTimer: ReturnType<typeof setTimeout> | undefined
 let audio: BuzzAudio | null = null
 let gpioUnsub: (() => void) | undefined
-/**
- * Cached for useSyncExternalStore: getSnapshot must return the same reference
- * until something actually changes, or React re-renders forever and the tab dies.
- */
+/** Stable snapshot ref for useSyncExternalStore. */
 let snapshotCache: BuzzerSnapshot = buildSnapshot()
 
 function readPref(): boolean {
@@ -82,7 +79,17 @@ function vibrationSupported(): boolean {
   return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
 }
 
+function buildVibratePattern(): number[] {
+  const pattern: number[] = []
+  for (let i = 0; i < VIBRATE_CYCLES; i++) {
+    pattern.push(VIBRATE_ON_MS, VIBRATE_OFF_MS)
+  }
+  return pattern
+}
+
 interface BuzzAudio {
+  /** Arm AudioContext from a UI event. */
+  unlock: () => void
   start: () => void
   stop: () => void
   dispose: () => void
@@ -105,19 +112,43 @@ function createBuzzAudio(): BuzzAudio {
     return ctx
   }
 
+  const kickOsc = (ac: AudioContext) => {
+    if (osc) return
+    gain = ac.createGain()
+    gain.gain.value = BUZZ_GAIN
+    gain.connect(ac.destination)
+    osc = ac.createOscillator()
+    osc.type = 'square'
+    osc.frequency.value = BUZZ_FREQ_HZ
+    osc.connect(gain)
+    osc.start()
+  }
+
   return {
+    unlock() {
+      const ac = ensure()
+      // Chrome Android needs real output scheduled while arming, not just resume().
+      try {
+        const buf = ac.createBuffer(1, 1, ac.sampleRate)
+        const src = ac.createBufferSource()
+        src.buffer = buf
+        src.connect(ac.destination)
+        src.start(0)
+      } catch {
+        /* ignore */
+      }
+      void ac.resume()
+    },
     start() {
       const ac = ensure()
-      void ac.resume()
-      if (osc) return
-      gain = ac.createGain()
-      gain.gain.value = BUZZ_GAIN
-      gain.connect(ac.destination)
-      osc = ac.createOscillator()
-      osc.type = 'square'
-      osc.frequency.value = BUZZ_FREQ_HZ
-      osc.connect(gain)
-      osc.start()
+      if (ac.state === 'running') {
+        kickOsc(ac)
+        return
+      }
+      void ac.resume().then(() => {
+        if (ctx !== ac) return
+        kickOsc(ac)
+      })
     },
     stop() {
       try {
@@ -146,10 +177,11 @@ function buildSnapshot(): BuzzerSnapshot {
     unlocked,
     enabled: preferred && unlocked,
     vibrationSupported: vibrationSupported(),
+    vibrationArmed,
   }
 }
 
-/** Rebuild only when a field changes so Object.is stays stable across polls. */
+/** Only allocate a new snapshot object when fields change. */
 function refreshSnapshot(): boolean {
   const next = buildSnapshot()
   const prev = snapshotCache
@@ -159,7 +191,8 @@ function refreshSnapshot(): boolean {
     prev.preferred === next.preferred &&
     prev.unlocked === next.unlocked &&
     prev.enabled === next.enabled &&
-    prev.vibrationSupported === next.vibrationSupported
+    prev.vibrationSupported === next.vibrationSupported &&
+    prev.vibrationArmed === next.vibrationArmed
   ) {
     return false
   }
@@ -177,11 +210,11 @@ function anyPinActive(): boolean {
 }
 
 function stopFeedback() {
-  if (vibrateTimer !== undefined) {
-    clearInterval(vibrateTimer)
-    vibrateTimer = undefined
+  try {
+    navigator.vibrate?.(0)
+  } catch {
+    /* ignore */
   }
-  navigator.vibrate?.(0)
   audio?.stop()
 }
 
@@ -190,13 +223,9 @@ function startFeedback() {
   audio ??= createBuzzAudio()
   audio.start()
   if (!vibrationSupported()) return
-  // One solid pulse covers the latch window; refresh if the line stays active.
-  navigator.vibrate?.(MIN_PULSE_MS)
-  if (vibrateTimer === undefined) {
-    vibrateTimer = setInterval(() => {
-      navigator.vibrate?.(VIBRATE_PATTERN)
-    }, VIBRATE_INTERVAL_MS)
-  }
+  // One long pattern; stopFeedback cancels with vibrate(0).
+  const ok = navigator.vibrate?.(buildVibratePattern())
+  if (ok === false) vibrationArmed = false
 }
 
 function setSounding(next: boolean) {
@@ -205,7 +234,6 @@ function setSounding(next: boolean) {
     if (next) startFeedback()
     else stopFeedback()
   }
-  // Always refresh — callers may have flipped pinActive under a latched tone.
   notify()
 }
 
@@ -215,7 +243,6 @@ function syncFromGpio() {
   pinActive = next
 
   if (next) {
-    // Rising edge: latch on and (re)arm the minimum hold.
     if (holdTimer !== undefined) clearTimeout(holdTimer)
     holdTimer = setTimeout(() => {
       holdTimer = undefined
@@ -223,11 +250,8 @@ function syncFromGpio() {
     }, MIN_PULSE_MS)
     setSounding(true)
   } else if (holdTimer === undefined) {
-    // Falling edge after the hold already expired.
     setSounding(false)
   } else {
-    // Still inside the hold window — pinActive flipped; keep sounding until
-    // the timer fires. Refresh the cached snapshot so UI can show raw pin state.
     notify()
   }
 }
@@ -249,27 +273,38 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-/** Latched sounding — prefer this over raw pin level for UI shake. */
+/** Latched sounding for UI shake. */
 export function isSounding(): boolean {
   ensureWatching()
   return sounding
 }
 
-/**
- * Unlock vibrate + AudioContext. Must run synchronously from a click/tap.
- * Turns preference on and, if the buzzer is already sounding, starts feedback
- * under the same user activation.
- */
+/** Arm host sound/haptics; must run from a UI event (browser activation). */
 export function enable() {
+  ensureWatching()
   preferred = true
   unlocked = true
   writePref(true)
+
   audio ??= createBuzzAudio()
-  // Prime the context even when idle so the next tone is not swallowed by
-  // a suspended AudioContext.
+  audio.unlock()
+  if (chirpTimer !== undefined) clearTimeout(chirpTimer)
   audio.start()
-  audio.stop()
-  if (vibrationSupported()) navigator.vibrate?.(VIBRATE_PATTERN)
+  chirpTimer = setTimeout(() => {
+    chirpTimer = undefined
+    if (!sounding) audio?.stop()
+  }, UNLOCK_CHIRP_MS)
+
+  if (vibrationSupported()) {
+    try {
+      vibrationArmed = navigator.vibrate?.(UNLOCK_VIBRATE_MS) === true
+    } catch {
+      vibrationArmed = false
+    }
+  } else {
+    vibrationArmed = false
+  }
+
   if (sounding) startFeedback()
   notify()
 }
@@ -277,6 +312,10 @@ export function enable() {
 export function disable() {
   preferred = false
   writePref(false)
+  if (chirpTimer !== undefined) {
+    clearTimeout(chirpTimer)
+    chirpTimer = undefined
+  }
   stopFeedback()
   notify()
 }
@@ -290,6 +329,8 @@ export function toggle() {
 export function resetForTests() {
   if (holdTimer !== undefined) clearTimeout(holdTimer)
   holdTimer = undefined
+  if (chirpTimer !== undefined) clearTimeout(chirpTimer)
+  chirpTimer = undefined
   stopFeedback()
   audio?.dispose()
   audio = null
@@ -299,6 +340,7 @@ export function resetForTests() {
   sounding = false
   preferred = false
   unlocked = false
+  vibrationArmed = false
   listeners.clear()
   refreshSnapshot()
 }
