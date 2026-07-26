@@ -1,0 +1,27 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/auxdisplay: PT6314 VFD on virtio-spi CS0. Self-contained —
+ * does not compose with the virtio-spi snippet (that one puts a JEDEC NOR on
+ * CS0). Nodename auxdisplay_0 is required: the stock sample binds
+ * DT_NODELABEL(auxdisplay_0). Geometry matches Zephyr's stock
+ * esp32c3_devkitm overlay (Futaba M202MD15FA 20×2).
+ */
+
+&virtio_mmio5 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	status = "okay";
+
+	auxdisplay_0: pt6314@0 {
+		compatible = "ptc,pt6314";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		columns = <20>;
+		rows = <2>;
+		status = "okay";
+	};
+};

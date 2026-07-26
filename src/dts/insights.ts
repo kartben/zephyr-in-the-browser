@@ -180,6 +180,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
 const COMPAT_TO_SPI_CHIP: Record<string, string> = {
   'jedec,spi-nor': 'w25q',
   'sct,sct2024': 'sct2024',
+  'ptc,pt6314': 'pt6314',
 }
 
 const SENSOR_CHIP_IDS = new Set([
@@ -515,7 +516,9 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
-  if (hasOkayCompat(doc, 'jhd,jhd1313')) panels.add('auxdisplay')
+  if (hasOkayCompat(doc, 'jhd,jhd1313') || hasOkayCompat(doc, 'ptc,pt6314')) {
+    panels.add('auxdisplay')
+  }
   // HT16K33 matrix, pwm-leds, and bridged gpio-leds all earn the LED panel slot.
   if (
     hasOkayCompat(doc, 'holtek,ht16k33') ||

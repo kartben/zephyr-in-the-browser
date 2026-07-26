@@ -1,0 +1,38 @@
+/*
+ * Flattened DTS fixture for the PT6314 packaging: virtio-spi with
+ * ptc,pt6314 okay at CS0 as auxdisplay_0. Used to catch dock routing
+ * (auxdisplay body/panel) and SPI chip-id mapping.
+ */
+
+/dts-v1/;
+
+/ {
+	compatible = "qemu,cortex-a53";
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		virtio_mmio5: virtio_mmio@a000a00 {
+			compatible = "virtio,mmio";
+			reg = <0xa000a00 0x200>;
+			status = "okay";
+
+			virtio_spi0: virtio-spi {
+				compatible = "virtio,spi";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "okay";
+
+				auxdisplay_0: pt6314@0 {
+					compatible = "ptc,pt6314";
+					reg = <0>;
+					spi-max-frequency = <1000000>;
+					columns = <20>;
+					rows = <2>;
+					status = "okay";
+				};
+			};
+		};
+	};
+};

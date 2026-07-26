@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
-import { AuxdisplayBody } from '@/components/AuxdisplayPanel'
+import { AuxdisplayBody, type AuxdisplayChip } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
@@ -61,7 +61,6 @@ import { i2cModel, spiModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
 import type { Sct2024Chip } from '@/virtio/devices/chips/sct2024'
-import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import {
   formatDacVolts,
@@ -128,7 +127,7 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
     case 'oled':
       return <OledBody />
     case 'auxdisplay':
-      return <AuxdisplayBody chip={node.chip as Jhd1313LcdChip} />
+      return <AuxdisplayBody chip={node.chip as AuxdisplayChip} />
     case 'led':
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
     case 'rgb-led':
@@ -293,7 +292,7 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       )
     }
     case 'auxdisplay': {
-      const chip = node.chip as Jhd1313LcdChip
+      const chip = node.chip as AuxdisplayChip
       return (
         <Mono>
           {chip.columns}×{chip.rows}
@@ -400,7 +399,7 @@ export function GroupBadge({
   }
   if (deviceClass === 'auxdisplay') {
     const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'auxdisplay')
-      ?.chip as Jhd1313LcdChip | undefined
+      ?.chip as AuxdisplayChip | undefined
     if (chip) {
       return (
         <Mono>

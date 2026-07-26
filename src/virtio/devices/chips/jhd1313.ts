@@ -131,7 +131,10 @@ export function isJhd1313Lcd(chip: I2cChip | null | undefined): chip is Jhd1313L
     typeof (chip as Jhd1313LcdChip).rows === 'number' &&
     (chip as Jhd1313LcdChip).cells instanceof Uint8Array &&
     typeof (chip as Jhd1313LcdChip).getControllerState === 'function' &&
-    Array.isArray((chip as Jhd1313LcdChip).registers)
+    typeof (chip as Jhd1313LcdChip).getBacklightRgb === 'function' &&
+    Array.isArray((chip as Jhd1313LcdChip).registers) &&
+    // PT6314 also has columns/rows/cells — it exposes getBrightness instead.
+    typeof (chip as { getBrightness?: unknown }).getBrightness !== 'function'
   )
 }
 

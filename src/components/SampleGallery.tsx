@@ -91,7 +91,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   i2c: 'I2C',
   spi: 'SPI',
   oled: 'OLED',
-  auxdisplay: 'LCD',
+  auxdisplay: 'text',
   led: 'LED',
   pwm: 'PWM',
   dac: 'DAC',

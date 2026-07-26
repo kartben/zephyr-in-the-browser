@@ -346,6 +346,16 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['auxdisplay', 'i2c'],
   },
   {
+    // Same stock auxdisplay sample against the browser PT6314 VFD on SPI CS0
+    // (Futaba-style 20×2). Overlay is pt6314-only — shares the sample binary
+    // path with the JHD1313 packaging, different conf + snippet.
+    id: 'auxdisplay_pt6314',
+    label: 'PT6314 VFD',
+    description: '“Hello World” on a 20×2 SPI character VFD (PT6314) in the page',
+    zephyrSample: 'samples/drivers/auxdisplay',
+    primaryPanels: ['auxdisplay', 'spi'],
+  },
+  {
     // Stock LED sample against the browser HT16K33 at 0x70. The dock paints
     // the 16×8 display RAM; keyscan is off in this packaging.
     id: 'ht16k33',

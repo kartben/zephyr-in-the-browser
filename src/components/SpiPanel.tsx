@@ -7,6 +7,7 @@ import { spiModel } from '@/virtio'
 import type { SpiChip, SpiTransaction } from '@/virtio/devices/spi'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
+import { isPt6314 } from '@/virtio/devices/chips/pt6314'
 import { SPI_CHIP_TYPES, spiChipType } from '@/virtio/devices/spiRegistry'
 import type { DeviceClass } from '@/deviceTopology'
 
@@ -122,6 +123,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
 function spiChipClass(chip: SpiChip): DeviceClass {
   if (isSpiFlashChip(chip)) return 'memory'
   if (isSct2024(chip)) return 'led'
+  if (isPt6314(chip)) return 'auxdisplay'
   return 'other'
 }
 

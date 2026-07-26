@@ -17,6 +17,7 @@ import type { SpiChip } from './devices/spi'
 import { createAt24 } from './devices/chips/at24'
 import { createW25q } from './devices/chips/w25q'
 import { createSct2024 } from './devices/chips/sct2024'
+import { createPt6314 } from './devices/chips/pt6314'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
 import { createAdxl345 } from './devices/sensors/adxl345'
@@ -113,11 +114,17 @@ export const pcf8523 = createPcf8523({ address: 0x68 })
 export const w25q = createW25q({ cs: 0, persistKey: 'zephyr.w25q.0' })
 
 /**
- * SCT2024 16-ch LED on SPI CS0 + virtio-gpio LA/OE. Shares CS0 with the NOR in
- * the managed table — syncManagedSpiChips picks by DT compatible, so only one
- * is attached for a given sample.
+ * SCT2024 16-ch LED on SPI CS0 + virtio-gpio LA/OE. Shares CS0 with the NOR /
+ * PT6314 in the managed table — syncManagedSpiChips picks by DT compatible, so
+ * only one is attached for a given sample.
  */
 export const sct2024 = createSct2024({ cs: 0 })
+
+/**
+ * PT6314 character VFD on SPI CS0 — stock samples/drivers/auxdisplay with
+ * `-S pt6314-only` (Futaba-style 20×2). Shares CS0 with NOR / SCT2024.
+ */
+export const pt6314 = createPt6314({ cs: 0, columns: 20, rows: 2 })
 
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
@@ -142,11 +149,12 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
 
 /**
  * Managed SPI parts by Zephyr compatible chip id. CS can be shared across
- * samples (NOR vs SCT2024 both use CS0); selection is by DT `chipId`.
+ * samples (NOR vs SCT2024 vs PT6314 all use CS0); selection is by DT `chipId`.
  */
 const MANAGED_SPI_BY_ID: ReadonlyMap<string, SpiChip> = new Map<string, SpiChip>([
   ['w25q', w25q],
   ['sct2024', sct2024],
+  ['pt6314', pt6314],
 ])
 
 /** LA on virtio_gpio0 pin 6, OE on pin 7 — matches sct2024-only overlay. */

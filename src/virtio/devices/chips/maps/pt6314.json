@@ -1,0 +1,240 @@
+{
+  "name": "PT6314",
+  "description": "Princeton PT6314 Dot Character VFD Controller/Driver (SPI serial). Zephyr's auxdisplay_pt6314.c writes 2-byte frames: a start byte (sync 0xF8 | R/W | RS) then an Instruction or Data byte. Commands match the datasheet HD44780-like set; Function Set bits BR1:BR0 set VFD brightness (100%/75%/50%/25%). Entry_Mode / Display_Control / Function_Set / DDRAM_AC are decoded shadows.",
+  "registers": [
+    {
+      "name": "Start",
+      "addr": "0xF8",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 248,
+      "description": "Last SPI start byte. Bits 7:3 must be 11111 (sync); bit2=R/W (0=write); bit1=RS (0=Instruction, 1=Data). Zephyr write-instruction uses 0xF8, write-data uses 0xFA.",
+      "fields": [
+        {
+          "name": "SYNC",
+          "lsb": 3,
+          "msb": 7,
+          "description": "Must be 0b11111 for a valid serial start byte."
+        },
+        {
+          "name": "RW",
+          "lsb": 2,
+          "msb": 2,
+          "description": "Read/Write select.",
+          "values": [
+            { "name": "Write", "value": 0 },
+            { "name": "Read", "value": 1 }
+          ]
+        },
+        {
+          "name": "RS",
+          "lsb": 1,
+          "msb": 1,
+          "description": "Register select.",
+          "values": [
+            { "name": "Instruction", "value": 0 },
+            { "name": "Data", "value": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Instruction",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Instruction register (IR), written when RS=0. Command classes by high bits: 0x01 clear, 0x02 home, 0x04 entry mode, 0x08 display on/off, 0x10 cursor/display shift, 0x20 function set (includes brightness), 0x40 set CGRAM addr, 0x80 set DDRAM addr.",
+      "fields": [
+        {
+          "name": "SET_DDRAM",
+          "lsb": 7,
+          "msb": 7,
+          "description": "1 = Set DDRAM address; bits 6:0 are the address (line 0 base 0x00, line 1 base 0x40)."
+        },
+        {
+          "name": "SET_CGRAM",
+          "lsb": 6,
+          "msb": 6,
+          "description": "When bit7=0: 1 = Set CGRAM address."
+        },
+        {
+          "name": "FUNCTION",
+          "lsb": 5,
+          "msb": 5,
+          "description": "When bits7:6=00: 1 = Function Set (DL / N / brightness)."
+        },
+        {
+          "name": "D",
+          "lsb": 2,
+          "msb": 2,
+          "description": "Display on — meaningful when the write is Display Control (0x08|flags).",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        },
+        {
+          "name": "C",
+          "lsb": 1,
+          "msb": 1,
+          "description": "Cursor visible (Display Control form).",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        },
+        {
+          "name": "B",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Cursor blink (Display Control form).",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Data",
+      "addr": "0x40",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 32,
+      "description": "Data register (DR), written when RS=1. Bytes go to DDRAM (character code) or CGRAM at the current address; the address then steps per Entry Mode.",
+      "fields": [
+        {
+          "name": "CHAR",
+          "lsb": 0,
+          "msb": 7,
+          "description": "Character code (0x20–0x7E printable ASCII) or one CGRAM pattern row."
+        }
+      ]
+    },
+    {
+      "name": "Entry_Mode",
+      "addr": "0x04",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 6,
+      "description": "Decoded Entry Mode Set (0x04|I/D|S). Datasheet reset is I/D=1, S=0.",
+      "fields": [
+        {
+          "name": "I_D",
+          "lsb": 1,
+          "msb": 1,
+          "description": "Increment (1) or decrement (0) DDRAM after each Data write.",
+          "values": [
+            { "name": "Decrement", "value": 0 },
+            { "name": "Increment", "value": 1 }
+          ]
+        },
+        {
+          "name": "S",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Shift the entire display when the address moves."
+        }
+      ]
+    },
+    {
+      "name": "Display_Control",
+      "addr": "0x08",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 8,
+      "description": "Decoded Display On/Off Control (0x08|D|C|B). Datasheet power-on leaves D=C=B=0 (display off).",
+      "fields": [
+        {
+          "name": "D",
+          "lsb": 2,
+          "msb": 2,
+          "description": "Entire display on/off.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        },
+        {
+          "name": "C",
+          "lsb": 1,
+          "msb": 1,
+          "description": "Underline cursor on/off.",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        },
+        {
+          "name": "B",
+          "lsb": 0,
+          "msb": 0,
+          "description": "Cursor blink (~1 Hz, all-on character).",
+          "values": [
+            { "name": "Off", "value": 0 },
+            { "name": "On", "value": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Function_Set",
+      "addr": "0x20",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 56,
+      "description": "Decoded Function Set (0x20|DL|N|X|BR1|BR0). Datasheet reset is 0x38 (8-bit, 2-line, 100% brightness). Zephyr maps brightness 1–4 onto BR1:BR0 as 25%/50%/75%/100%.",
+      "fields": [
+        {
+          "name": "DL",
+          "lsb": 4,
+          "msb": 4,
+          "description": "Interface data length (parallel modes; serial always 8-bit).",
+          "values": [
+            { "name": "4-bit", "value": 0 },
+            { "name": "8-bit", "value": 1 }
+          ]
+        },
+        {
+          "name": "N",
+          "lsb": 3,
+          "msb": 3,
+          "description": "Number of display lines.",
+          "values": [
+            { "name": "1 line", "value": 0 },
+            { "name": "2 lines", "value": 1 }
+          ]
+        },
+        {
+          "name": "BR",
+          "lsb": 0,
+          "msb": 1,
+          "description": "VFD segment pulse-width brightness.",
+          "values": [
+            { "name": "100%", "value": 0 },
+            { "name": "75%", "value": 1 },
+            { "name": "50%", "value": 2 },
+            { "name": "25%", "value": 3 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DDRAM_AC",
+      "addr": "0x81",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 128,
+      "description": "Decoded DDRAM address counter. Peek is 0x80|AC; poke issues Set DDRAM Address. Line 0 is 0x00–0x27, line 1 is 0x40–0x67 (40×2 internal); the visible viewport is columns × rows from DT.",
+      "fields": [
+        {
+          "name": "AC",
+          "lsb": 0,
+          "msb": 6,
+          "description": "DDRAM address counter (cursor)."
+        }
+      ]
+    }
+  ]
+}
