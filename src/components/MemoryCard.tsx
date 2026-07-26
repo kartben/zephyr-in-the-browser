@@ -1,7 +1,7 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
 import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
-import { HexView, type HexJump } from '@/components/HexView'
+import { HexView, type HexJump, type HexViewRange } from '@/components/HexView'
 import { LittlefsBrowserButton } from '@/components/LittlefsBrowser'
 import { MemoryStatsView } from '@/components/MemoryStats'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
@@ -88,6 +88,12 @@ export function SpiFlashBody({
 }) {
   const { size, pageSize, sectorSize } = chip.decl
   const [hexJump, setHexJump] = useState<HexJump | null>(null)
+  const [hexRange, setHexRange] = useState<HexViewRange | null>(null)
+  const onHexViewChange = useCallback((range: HexViewRange) => {
+    setHexRange((prev) =>
+      prev && prev.start === range.start && prev.end === range.end ? prev : range,
+    )
+  }, [])
 
   return (
     <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
@@ -122,6 +128,7 @@ export function SpiFlashBody({
       <FlashStatsView
         chip={chip}
         compact={compact}
+        viewRange={compact ? null : hexRange}
         onSectorClick={
           compact
             ? undefined
@@ -129,7 +136,11 @@ export function SpiFlashBody({
         }
       />
 
-      {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} jump={hexJump} />}
+      {compact ? (
+        <HexPreview chip={chip} />
+      ) : (
+        <HexView chip={chip} jump={hexJump} onViewChange={onHexViewChange} />
+      )}
 
       {!compact && (
         <p className="text-[11px] leading-relaxed text-muted-foreground">
