@@ -1,36 +1,12 @@
 /**
- * Browser end of QEMU's QMP monitor.
- *
- * The emulator is built with `-chardev browser,id=mon0 -mon
- * chardev=mon0,mode=control`: a character device whose two ends sit either side
- * of the wasm boundary, wired to QEMU's control monitor. Sending `stop` halts
- * the machine and `cont` restarts it, and because that goes through QEMU's own
- * monitor, the big lock and the vCPU quiescing stay QEMU's problem. Exporting
- * `vm_stop()` directly would have meant hand-rolling both, with
- * `pause_all_vcpus()` blocking on the vCPU worker under wasm pthreads.
- *
- * QMP rather than the human monitor because this is a program talking: HMP
- * echoes every keystroke back with cursor-movement escapes, which is noise to
- * parse and worse to display. QMP answers in JSON and — the part that matters —
- * emits STOP and RESUME *events*, so the paused flag here is what QEMU actually
- * did rather than what we asked for. A pause from anywhere else stays in sync.
- *
- * Pausing is what makes an annotation readable: the popup can stop the guest on
- * the line it is talking about instead of narrating something that already
- * scrolled past. It is useful on its own too, which is why the top bar gets a
- * Pause button whether or not the running sample is annotated.
- *
- * Everything degrades to a no-op on an emulator built before the bridge —
- * `available()` is false, the button hides, annotations still show but stop
- * nothing. Old image tarballs stay bootable.
+ * Browser end of QEMU's QMP monitor. QMP is used over HMP because it is JSON and
+ * emits STOP/RESUME events, so `paused` reflects what QEMU did, not our request.
  */
 
 const POLL_MS = 120
 
 interface MonitorExports {
-  /** Queue one byte of command text towards the monitor. */
   _qemu_browser_monitor_feed?: (value: number) => number
-  /** The output ring: base pointer, size, and free-running indices. */
   _qemu_browser_monitor_ring?: () => number
   _qemu_browser_monitor_ring_size?: () => number
   _qemu_browser_monitor_read_index?: () => number
@@ -40,9 +16,7 @@ interface MonitorExports {
 }
 
 export interface MonitorState {
-  /** The emulator exposes the bridge at all. */
   available: boolean
-  /** The machine is stopped, as QEMU last reported it. */
   paused: boolean
 }
 
@@ -53,7 +27,6 @@ let state: MonitorState = EMPTY
 let poll: ReturnType<typeof setInterval> | undefined
 let pending = ''
 let negotiated = false
-/** The mock stand-in, which has no machine and so never sends events. */
 let stub = false
 const listeners = new Set<() => void>()
 
@@ -81,7 +54,6 @@ export function available(): boolean {
   return typeof exports?._qemu_browser_monitor_feed === 'function'
 }
 
-/** Send one QMP command object. */
 function send(command: Record<string, unknown>) {
   const feed = exports?._qemu_browser_monitor_feed
   if (!feed) return
@@ -153,12 +125,6 @@ function drain() {
   }
 }
 
-/**
- * Stop the machine.
- *
- * The paused flag is not set here — it moves when QEMU's STOP event arrives,
- * so the button always reflects the machine rather than the request.
- */
 export function pause() {
   if (!available() || state.paused) return
   send({ execute: 'stop' })
@@ -200,11 +166,6 @@ export function detach() {
   }
 }
 
-/**
- * Dev/mock hook: pretend the bridge is there so a walkthrough can be driven
- * without a QEMU build. The mock has no machine to stop, so this only tracks
- * the flag — enough for the UI to show a paused state.
- */
 export function attachStub() {
   detach()
   exports = { _qemu_browser_monitor_feed: () => 0 }

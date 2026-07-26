@@ -1,12 +1,4 @@
-/**
- * A user-supplied guest image, replacing the board's stock one.
- *
- * The awkward part is the reload. An Emscripten module is single-shot per
- * document, so booting a different image after QEMU is already running means
- * navigating — and the dropped bytes have to survive that. They are handed off
- * through IndexedDB and deleted on the way out, so this is a one-shot buffer
- * rather than persistence: nothing outlives the boot it was dropped for.
- */
+/** User image handoff is one-shot: IndexedDB survives reload, then gets cleared. */
 
 const DB_NAME = 'zephyr-in-the-browser'
 const STORE = 'handoff'
@@ -29,7 +21,6 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-/** The image this session booted with, or null for the board's stock one. */
 export function get(): GuestImage | null {
   return current
 }
@@ -47,11 +38,7 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-/**
- * One transaction against the shared handoff store. Exported for the other
- * reload survivor (src/devicetree.ts), which keeps its own key in the same
- * store — same database version, so no upgrade dance.
- */
+/** Shared handoff store for reload survivors. */
 export function handoffTx<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
@@ -66,7 +53,6 @@ export function handoffTx<T>(
   )
 }
 
-/** Stash bytes for the next document to pick up, then reload into them. */
 export async function stash(image: GuestImage): Promise<void> {
   // Store a plain ArrayBuffer: structured clone handles it everywhere, and a
   // detached view would not survive.
@@ -75,10 +61,7 @@ export async function stash(image: GuestImage): Promise<void> {
   )
 }
 
-/**
- * Reads and clears the stashed image. Called once at startup, before any
- * backend runs, so a failed boot does not trap the page in a reload loop.
- */
+/** Claim once at startup so a failed boot cannot loop forever. */
 export async function claimStashed(): Promise<GuestImage | null> {
   let record: { name: string; buffer: ArrayBuffer } | undefined
   try {
@@ -93,25 +76,17 @@ export async function claimStashed(): Promise<GuestImage | null> {
   return current
 }
 
-/**
- * Use this image for the next boot in *this* document. Only valid before QEMU
- * has committed; afterwards the caller must stash() and reload instead.
- */
 export function set(image: GuestImage) {
   current = image
   notify()
 }
 
-/** Forget the custom image; the next boot uses the board's stock one. */
 export function clear() {
   current = null
   notify()
 }
 
-/**
- * ELF magic check. Cheap, and it turns "dropped the wrong file" into a clear
- * message instead of a guest that silently never boots.
- */
+/** Turn "dropped the wrong file" into a clear error before boot. */
 export function looksLikeElf(bytes: Uint8Array): boolean {
   return bytes.length > 4 && bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46
 }

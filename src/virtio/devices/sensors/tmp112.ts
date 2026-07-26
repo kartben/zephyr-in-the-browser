@@ -1,30 +1,3 @@
-/**
- * A TI TMP112 temperature sensor, expressed as a {@link SensorDecl}.
- *
- * This is the same part that used to be hand-written in
- * src/virtio/devices/chips/tmp112.ts; it now rides the generic register machine
- * in ./model.ts, and the TMP112 suite in src/virtio/i2c.test.ts is what proves
- * the two are byte-for-byte identical. The interesting behaviour — the whole
- * reason to model a real part rather than invent an MMIO device — is that
- * Zephyr's stock `ti,tmp112` binds to it unmodified.
- *
- * The register file (names, bitfields, reset values) lives in
- * {@link ./maps/tmp112.json} — an SVD-inspired JSON map. Channel codecs stay
- * here because they are functions.
- *
- * Register model, from the datasheet and matching what the driver expects:
- *
- * - Every write starts with a pointer byte (masked to the low two bits). A
- *   write of only that byte moves the pointer, which is how `i2c_burst_read`
- *   addresses a register; a three-byte write also stores a big-endian word.
- * - Reads return the 16-bit register at the pointer, big-endian.
- * - Temperature is left-justified: 12 bits normally, 13 in extended mode, with
- *   bit 0 of the low byte flagging which. The driver arithmetic-shifts by 4 or
- *   3 accordingly, so sign extension has to survive the round trip.
- *
- * One LSB is 0.0625 °C.
- */
-
 import tmp112Map from './maps/tmp112.json'
 import { registersFromJson, type RegisterMapJson } from './registerMap'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
@@ -32,13 +5,10 @@ import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 const REG_TEMPERATURE = 0x00
 const REG_CONFIG = 0x01
 
-/** Extended mode: 13-bit temperature, up to 150 °C. */
 const CONFIG_EM = 1 << 4
 
-/** °C per LSB. */
 const SCALE_C = 0.0625
 
-/** Encode °C into the register's left-justified, sign-extended form. */
 function encodeTemperature(celsius: number, config: number): number {
   const extended = (config & CONFIG_EM) !== 0
   const shift = extended ? 3 : 4
@@ -56,12 +26,10 @@ function encodeTemperature(celsius: number, config: number): number {
   return ((counts << shift) & 0xffff) | (extended ? 1 : 0)
 }
 
-/** The declarative TMP112, reusable by the bus roster's attach picker. */
 export const tmp112Decl: SensorDecl = {
   name: 'TMP112 temperature',
   shellLabel: 'tmp112',
   defaultAddress: 0x48,
-  // The pointer register is two bits wide on this part.
   pointerMask: 0x03,
   registers: registersFromJson(tmp112Map as RegisterMapJson),
   channels: [
@@ -87,15 +55,9 @@ export const tmp112Decl: SensorDecl = {
 export interface Tmp112Options {
   address?: number
   name?: string
-  /** Initial reading, before anything sets one. */
   celsius?: number
 }
 
-/**
- * The TMP112 as an I2cChip, with the same `setCelsius`/`getCelsius` surface the
- * hand-written part had so existing callers (and the temperature-slider wiring
- * in src/virtio/index.ts) keep working unchanged.
- */
 export interface Tmp112Chip extends SensorChip {
   setCelsius(celsius: number): void
   getCelsius(): number

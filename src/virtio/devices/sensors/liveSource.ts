@@ -15,7 +15,6 @@
 import type { LiveSourceKind } from './model'
 
 export interface LiveSourceInfo {
-  /** Shown next to the "follow" checkbox. */
   label: string
 }
 
@@ -26,11 +25,6 @@ export const LIVE_SOURCES: Record<LiveSourceKind, LiveSourceInfo> = {
   battery: { label: 'battery level' },
 }
 
-/**
- * One browser sensor feeds several channels — the three orientation axes are
- * one physical tilt. Grouping is what lets a chip offer a single "follow
- * device tilt" toggle instead of three identical checkboxes.
- */
 export type LiveSourceGroup = 'orientation' | 'battery'
 
 export function sourceGroupOf(kind: LiveSourceKind): LiveSourceGroup {
@@ -95,13 +89,7 @@ type OrientationAxis = 'orientation-x' | 'orientation-y' | 'orientation-z'
 
 export type GravitySample = Record<OrientationAxis, number>
 
-/**
- * Map browser accelerometer samples onto the device frame used by the
- * simulated chips (face-up rest ≈ +g on Z, matching ADXL/LSM defaults).
- *
- * Exported for tests. `invert` flips Safari's opposite-of-W3C signs.
- * Magnitudes near 1 are treated as g-units (legacy iOS) and scaled to m/s².
- */
+/** Map browser samples to chip axes; handle Safari signs and legacy iOS g-units. */
 export function gravityFromMotion(
   x: number | null | undefined,
   y: number | null | undefined,
@@ -151,11 +139,6 @@ export function gravityFromOrientation(
   }
 }
 
-/**
- * Start pushing values from `kind` into `push`. Returns a teardown function.
- * The orientation axes follow the device accelerometer (or Euler projection
- * as a fallback); battery reports state-of-charge as a percentage.
- */
 export function startLiveSource(kind: LiveSourceKind, push: (value: number) => void): () => void {
   if (kind === 'battery') return startBattery(push)
   return startOrientation(kind, push)
@@ -185,15 +168,7 @@ function startOrientation(kind: OrientationAxis, push: (value: number) => void):
   })
 }
 
-/**
- * One browser sample feeds every axis. Prefer this over three
- * startLiveSource('orientation-*') calls: a single listener, and — when the
- * chip coalesces setChannel notifies — one React update per tilt sample
- * instead of three stacked ones competing with the qemu-wasm main loop.
- *
- * Prefers `devicemotion` so a phone held upright does not gimbal-lock X to
- * ±g; falls back to `deviceorientation` when motion samples never arrive.
- */
+/** One sample feeds every axis; prefer motion to avoid Euler gimbal lock. */
 export function startOrientationGroup(
   push: (axis: OrientationAxis, value: number) => void,
 ): () => void {

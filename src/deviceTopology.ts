@@ -1,19 +1,4 @@
-/**
- * One device inventory, two projections. The dock renders the same rows either
- * nested the way the devicetree nests them (the ⌗ view) or grouped by
- * peripheral class (the ▤ view); this module derives that inventory as pure
- * data — no React, no stores, no subscriptions.
- *
- * The parsed devicetree of the running build is the preferred source, the same
- * doctrine registry.ts and hostGpio.ts follow: when a zephyr.dts is loaded, its
- * nodes decide what exists and what everything is called — including buses this
- * page does not bridge, which are listed inert rather than hidden. Only when no
- * tree is known does a per-board static table reproduce the historical picture.
- *
- * Availability still gates what is *interactive*: a devicetree can promise a
- * bridge the runtime has not exposed (mock backend, early boot), and those rows
- * simply do not appear yet — the same progressive fill the panels always had.
- */
+/** Pure device inventory, projected as devicetree nesting or class groups. */
 
 import type { PanelKind } from '@/boards'
 import type { DeviceTreeState } from '@/devicetree'
@@ -37,7 +22,6 @@ import { isSensorChip } from '@/virtio/devices/sensors/model'
 
 export type DockView = 'devicetree' | 'classes'
 
-/** Grouping key of the ▤ view. Friendly labels only (CLASS_LABELS). */
 export type DeviceClass =
   | 'sensor'
   | 'display'
@@ -59,7 +43,6 @@ export type DeviceClass =
   | 'net'
   | 'other'
 
-/** Which extracted panel body a row hosts (see components/dock/deviceBodies). */
 export type BodyKind =
   | 'sensor'
   | 'memory'
@@ -86,7 +69,6 @@ export type BodyKind =
   | 'mic'
   | 'net'
 
-/** Which runtime bridges are actually live right now. */
 export interface Availability {
   gnss: boolean
   gpio: boolean
@@ -100,17 +82,12 @@ export interface Availability {
 }
 
 export interface DeviceNode {
-  /** Stable identity: expansion, visibility and float geometry key off this. */
   key: string
-  /** Devicetree-flavoured primary name for the ⌗ view (`tmp112@48`). */
   nodeName: string
-  /** Friendly primary name for the ▤ view ('TMP112 temperature'). */
   label: string
   compatible?: string
   deviceClass: DeviceClass
-  /** Devicetree path, used for ⌗ ordering and nesting. */
   path: string
-  /** Key of the row this one nests under in the ⌗ view (bus, UART, …). */
   parentKey?: string
   /**
    * interactive: has live controls. inert: listed for topology completeness
@@ -118,40 +95,26 @@ export interface DeviceNode {
    * nothing answers on the bus — the NAK/bus-error demo, visible.
    */
   presence: 'interactive' | 'inert' | 'ghost'
-  /** Short annotation ('→ terminal', 'on stage', 'NAK — detached'). */
   note?: string
-  /** Small qualifier chip ('bus only' for an attached-but-undeclared part). */
   tag?: string
   body?: BodyKind
-  /** ▤-view breadcrumb locating the row on the hardware ('virtio_i2c0 · 0x48'). */
   crumb?: string
-  /** Live chip handle, for sensor/memory/oled/spi-flash bodies. */
   chip?: I2cChip | SpiChip
-  /**
-   * Children of a `pwm-leds` group when `body` is `pwm-leds` — channel index
-   * and DT label, brightness read from {@link chip}'s PwmChip channels.
-   */
   pwmLeds?: Array<{ channel: number; label: string }>
-  /** Controller label scoping an 'i2c'/'spi'/'uart' body's roster/traffic. */
   busLabel?: string
-  /** The legacy panel kind whose expand-on-boot rule this row inherits. */
   panelKind?: PanelKind
 }
 
 export interface DeviceInventory {
   nodes: DeviceNode[]
   source: 'devicetree' | 'fallback'
-  /** Root `model` string, shown on the ⌗ view's root row. */
   rootName?: string
-  /** The .dts file name, when a tree is loaded. */
   treeName?: string
 }
 
 export type Row =
   | { kind: 'device'; node: DeviceNode; depth: number }
-  /** ⌗-view structural scaffolding: the root and shared ancestors like `soc`. */
   | { kind: 'struct'; key: string; name: string; depth: number; note?: string }
-  /** ▤-view group header. */
   | { kind: 'group'; key: string; deviceClass: DeviceClass; label: string; count: number }
 
 export const CLASS_LABELS: Record<DeviceClass, string> = {
@@ -210,7 +173,6 @@ const KIND_TO_CLASS: Record<ChipKind, DeviceClass> = {
   rtc: 'rtc',
 }
 
-/** Fallback compatibles for the page's chip models, when no tree names them. */
 const CHIP_COMPAT: Record<string, string> = {
   tmp112: 'ti,tmp112',
   lm75: 'lm75',
@@ -234,7 +196,6 @@ function hex(address: number): string {
   return address.toString(16).padStart(2, '0')
 }
 
-/** Duck-typed, like PeripheralPanels always did; the SSD1306 has no decl. */
 function chipClass(chip: I2cChip): DeviceClass {
   if (isSensorChip(chip)) return 'sensor'
   if (isMemoryChip(chip)) return 'memory'
@@ -254,7 +215,6 @@ function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
   if (cls === 'memory') return 'memory'
   if (cls === 'display') return 'oled'
   if (cls === 'auxdisplay') {
-    // Backlight is edited from the LCD card's Registers affordance; no own body.
     if (chip && isJhd1313Backlight(chip)) return undefined
     return 'auxdisplay'
   }
@@ -269,7 +229,6 @@ function chipBody(cls: DeviceClass, chip?: I2cChip): BodyKind | undefined {
   return undefined
 }
 
-/** Which legacy PanelKind's expand-on-boot rule a chip row inherits. */
 function chipPanelKind(cls: DeviceClass): PanelKind | undefined {
   if (cls === 'sensor') return 'sensor'
   if (cls === 'memory') return 'i2c'
@@ -283,7 +242,6 @@ function chipPanelKind(cls: DeviceClass): PanelKind | undefined {
   return undefined
 }
 
-/** A DT-ish node name for a chip the tree does not declare (`tmp112@60`). */
 function synthChipNodeName(chip: I2cChip): string {
   const stem = (chip.name.split(/[\s(]/)[0] || 'i2c-dev').toLowerCase()
   return `${stem}@${hex(chip.address)}`
@@ -300,10 +258,7 @@ function uniqueKey(ids: Ids, base: string): string {
   return key
 }
 
-/**
- * The chip rows under one live (bridged, bound) bus: every attached chip in
- * address order, interleaved with ghost rows for declared-but-unanswered slots.
- */
+/** Live bus rows merge attached chips with declared-but-unanswered ghost slots. */
 function liveBusChildren(
   ids: Ids,
   busKey: string,
@@ -346,8 +301,7 @@ function liveBusChildren(
       continue
     }
 
-    // Declared in the tree, answered by nothing: the driver NAKs exactly like
-    // the part fell off the board. Worth a row, not an omission.
+    // Declared in the tree, answered by nothing: show the NAK as a ghost row.
     const declared = slot!
     const type = declared.chipId ? chipType(declared.chipId) : undefined
     rows.push({
@@ -543,8 +497,7 @@ function deriveFromTree(
     }
   }
 
-  // GPIO controllers: the bridged one drives the panel; the rest of the tree's
-  // controllers are still listed, inert — a user-dropped board file has them.
+  // One bridged GPIO gets controls; other declared controllers stay inert.
   let gpioBodyUsed = false
   for (const ctl of insights.gpioControllers) {
     const live = ctl.bridged && avail.gpio && !gpioBodyUsed
@@ -567,7 +520,6 @@ function deriveFromTree(
     })
   }
 
-  // gpio-keys: Keys-class row — buttons leave the GPIO controller card.
   const bridgedKeys = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.buttons.length > 0,
   )
@@ -587,8 +539,6 @@ function deriveFromTree(
     })
   }
 
-  // gpio-leds groups: LED-class row, like pwm-leds / gpio-buzzer — not folded
-  // into the GPIO button grid.
   const bridgedLeds = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.leds.length > 0,
   )
@@ -608,8 +558,6 @@ function deriveFromTree(
     })
   }
 
-  // gpio-buzzer leaves: one dock body for every buzzers on the bridged controller.
-  // Not folded into the GPIO grid — shake / vibrate deserves its own row.
   const bridgedBuzz = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.buzzers.length > 0,
   )
@@ -630,8 +578,6 @@ function deriveFromTree(
     })
   }
 
-  // pwm-leds groups: brightness strip driven by an attached PwmChip. Sibling of
-  // the PWM controller row — see docs/pwm-leds.md.
   if (avail.i2c && insights.pwmLeds.length > 0) {
     const groups = new Map<string, typeof insights.pwmLeds>()
     for (const led of insights.pwmLeds) {
@@ -666,8 +612,7 @@ function deriveFromTree(
     }
   }
 
-  // I2C buses: every enumerated bus gets a row; only the bridged, bound one is
-  // live, with the page's chips (and the tree's unanswered slots) as children.
+  // Enumerate every bus; only the bridged one gets live chip children.
   let busBodyUsed = false
   for (const bus of insights.i2cBuses) {
     if (bus.bridged && !avail.i2c) continue
@@ -761,9 +706,7 @@ function deriveFromTree(
     }
   }
 
-  // UART buses: every enumerated controller gets a row; children (GNSS, …)
-  // nest under it the same way chips nest under I²C/SPI. The GNSS UART is
-  // interactive with an "On the bus" roster — same paradigm, usually one seat.
+  // UART children nest like I²C/SPI children.
   for (const bus of insights.uartBuses) {
     const busNode = byPath(doc, bus.path)
     const busKey = uniqueKey(ids, bus.controllerLabel)
@@ -847,10 +790,6 @@ function sortByDocumentOrder(nodes: DeviceNode[], doc: DtsDocument): DeviceNode[
   })
 }
 
-/**
- * Names for the no-devicetree fallback, mirroring the bundled overlays the
- * same way FALLBACK_DT_SLOTS does. Availability decides which entries appear.
- */
 interface FallbackNames {
   console: { nodeName: string; compatible: string; label?: string }
   gnssUart: { nodeName: string; compatible: string; label?: string }
@@ -923,7 +862,6 @@ const M3_FALLBACK: FallbackNames = {
     label: 'virtio_i2c0',
     parentPath: '/soc',
   },
-  // M3 has no virtio-mmio SPI bridge; kept for type completeness, never shown.
   spi: {
     nodeName: 'virtio-spi',
     compatible: 'virtio,spi',
@@ -1054,8 +992,6 @@ function deriveFallback(
       crumb: names.gpio.label,
       panelKind: 'keys',
     })
-    // Fallback fan-out always includes LEDs (hostGpio FALLBACK_LEDS) — same
-    // LED-class split as the devicetree path.
     nodes.push({
       key: uniqueKey(ids, 'gpio-leds'),
       nodeName: 'leds',
@@ -1151,10 +1087,6 @@ function deriveFallback(
   return nodes
 }
 
-/**
- * The inventory: what the dock shows, before any view is chosen. Pure — the
- * caller (hooks/useDeviceTree) supplies the tree, the chips and availability.
- */
 export function deriveDeviceInventory(
   tree: Pick<DeviceTreeState, 'name' | 'doc' | 'insights'> | null,
   chips: readonly I2cChip[],
@@ -1176,11 +1108,6 @@ export function deriveDeviceInventory(
   }
 }
 
-/**
- * Flatten the inventory into what one view renders, top to bottom. Both views
- * emit the same `device` rows (same keys, same nodes) — only the scaffolding
- * around them differs, which is what keeps a view flip a pure re-arrangement.
- */
 export function buildRowList(inventory: DeviceInventory, view: DockView): Row[] {
   return view === 'devicetree' ? devicetreeRows(inventory) : classRows(inventory.nodes)
 }
@@ -1212,8 +1139,7 @@ function devicetreeRows(inventory: DeviceInventory): Row[] {
     }
   }
 
-  // Shared first path segments (in practice: `soc`) become structural rows
-  // when more than one top-level row lives under them.
+  // Shared first path segments become structural rows only when they group.
   const segmentOf = (node: DeviceNode) => node.path.split('/').filter(Boolean)[0] ?? ''
   const segmentCounts = new Map<string, number>()
   for (const node of topLevel) {
@@ -1255,9 +1181,7 @@ function classRows(nodes: DeviceNode[]): Row[] {
       count: members.length,
     })
     for (const node of members) {
-      // A row whose ⌗ parent landed in the same group (an unbridged bus's
-      // slots under their bus) keeps one level of nesting; everything else is
-      // flat — chips already carry their bus in the breadcrumb.
+      // Keep one nesting level when a row's ⌗ parent lands in the same group.
       const parent = node.parentKey ? byKey.get(node.parentKey) : undefined
       rows.push({ kind: 'device', node, depth: parent?.deviceClass === cls ? 1 : 0 })
     }
