@@ -153,6 +153,30 @@
 };
 
 /*
+ * Browser SPI bridge: a VIRTIO SPI controller (device id 45) on slot 5 of
+ * virt's virtio-mmio array (0x0a000a00, SPI 21), which QEMU populates with
+ * `-device virtio-browser-device,...,name=spi,device-id=45`. Slots 0-4 are
+ * virtio-net, virtio-gpu, GPIO, tablet and I2C.
+ *
+ * Same generic bridge as GPIO and I2C. The guest driver is vendored from
+ * kartben/zephyr#469 (zephyr-module/drivers/vendor/spi_virtio.c) until it
+ * lands upstream. Chips on the bus are page-side models under
+ * src/virtio/devices/; chip select is the child's `reg`.
+ *
+ * Declared disabled: `-S virtio-spi` turns it on and adds the flash node.
+ */
+&virtio_mmio5 {
+	status = "disabled";
+
+	virtio_spi0: virtio-spi {
+		compatible = "virtio,spi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+};
+
+/*
  * Browser network bridge: virtio-net on the first virtio-mmio slot, which
  * QEMU populates with `-device virtio-net-device,bus=virtio-mmio-bus.0`
  * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property

@@ -87,6 +87,18 @@ config I2C_VIRTIO_MAX_MSGS
 	  Each slot costs a handful of bytes of RAM, and sizes the request
 	  virtqueue at three descriptors per message.
 
+config SPI_VIRTIO
+	bool "VIRTIO SPI controller driver"
+	default y
+	depends on DT_HAS_VIRTIO_SPI_ENABLED
+	select VIRTIO
+	help
+	  Enable driver for the VIRTIO SPI controller device, giving access to
+	  a SPI controller exposed by the host.
+
+	  Every transfer is a round trip to the virtio device, so the SPI API
+	  can only be used from a thread.
+
 config VIRTIO_GPU_DISPLAY
 	bool "VIRTIO GPU display"
 	default y

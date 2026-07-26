@@ -89,3 +89,39 @@ diff <(gh api "repos/kartben/zephyr/contents/drivers/gpio/gpio_virtio.c?ref=clau
 name upstream uses, for the same reason as `CONFIG_VIRTIO_GPU_DISPLAY` above,
 and with the same CMake guard — here on
 `${ZEPHYR_BASE}/drivers/gpio/gpio_virtio.c`.
+
+## `spi_virtio.c`
+
+VIRTIO SPI controller driver (virtio SPI controller device, ID 45).
+
+| | |
+| --- | --- |
+| Upstream | <https://github.com/kartben/zephyr/pull/469> |
+| Commit | `b41b55d7a6e50bf272eb249cb95c8ce17e9574d6` — *drivers: spi: add virtio SPI controller driver* |
+| Path | `drivers/spi/spi_virtio.c` |
+| SHA-256 | `906d17b2d90d3f815aa6d2c2491884276078a6afd8f6925b043e63355b638e88` |
+
+Shipped alongside it, also unmodified from the same commit:
+
+- `zephyr-module/dts/bindings/spi/virtio,spi.yaml` — the `virtio,spi`
+  binding (`dts/bindings/spi/virtio,spi.yaml` upstream),
+  SHA-256 `7e0ae0c6f848d3166b89ecceb5ccc04ac44258b8016d01574c1725f6757618b0`.
+
+The upstream branch also carries board enablement for `qemu_x86`; this repo
+needs the driver on `qemu_cortex_a53` / `qemu_riscv32` (virtio-mmio), so it
+ships its own snippet at `zephyr-module/snippets/virtio-spi/` and its own
+devicetree node in the `browser_bridge` shield. The driver source itself is
+architecture-neutral.
+
+### Checking for drift
+
+```console
+diff <(gh api "repos/kartben/zephyr/contents/drivers/spi/spi_virtio.c?ref=claude/virtio-spi-driver-l5hpsb" --jq .content | base64 -d) \
+     zephyr-module/drivers/vendor/spi_virtio.c
+```
+
+### Kconfig symbol collision
+
+`CONFIG_SPI_VIRTIO` is declared in `zephyr-module/Kconfig` under the *same*
+name upstream uses, with the same CMake guard on
+`${ZEPHYR_BASE}/drivers/spi/spi_virtio.c`.

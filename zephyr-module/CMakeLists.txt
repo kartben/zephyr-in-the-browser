@@ -16,6 +16,11 @@ if(EXISTS ${ZEPHYR_BASE}/drivers/gpio/gpio_virtio.c)
   set(VENDORED_VIRTIO_GPIO "")
 endif()
 
+set(VENDORED_VIRTIO_SPI drivers/vendor/spi_virtio.c)
+if(EXISTS ${ZEPHYR_BASE}/drivers/spi/spi_virtio.c)
+  set(VENDORED_VIRTIO_SPI "")
+endif()
+
 # Not vendored — this one is written here, since Zephyr has no virtio I2C
 # driver at all — but it takes the same guard, because it uses the Kconfig and
 # file name upstream would and is meant to go there.
@@ -28,6 +33,7 @@ endif()
 if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR CONFIG_QEMU_HOST_MIC OR (CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
    OR (CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
+   OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
    OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C))
   zephyr_library()
 endif()
@@ -44,6 +50,9 @@ if(CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
   zephyr_library_sources(${VENDORED_VIRTIO_GPIO})
 endif()
 
+if(CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
+  zephyr_library_sources(${VENDORED_VIRTIO_SPI})
+endif()
 if(CONFIG_QEMU_HOST_GPIO)
   zephyr_library_sources(drivers/qemu_host_gpio.c)
 endif()

@@ -35,8 +35,9 @@ import { BuzzerBody } from '@/components/BuzzerPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
+import { SpiBody } from '@/components/SpiPanel'
 import { LedMatrixBody, RgbLedBody } from '@/components/LedPanel'
-import { MemoryBody } from '@/components/MemoryCard'
+import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { DacBody } from '@/components/DacPanel'
@@ -53,7 +54,7 @@ import * as hostGpio from '@/hostGpio'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
 import { setWindowed } from '@/lib/dockStore'
-import { i2cModel } from '@/virtio'
+import { i2cModel, spiModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
 import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
@@ -118,6 +119,16 @@ export function DeviceBody({
       return <RtcBody chip={node.chip as RtcChip} />
     case 'i2c':
       return <I2cBody busLabel={node.busLabel} />
+    case 'spi':
+      return <SpiBody busLabel={node.busLabel} />
+    case 'spi-flash':
+      return (
+        <SpiFlashBody
+          chip={node.chip as import('@/virtio/devices/chips/w25q').SpiFlashChip}
+          compact={variant === 'dock'}
+          onOpenWindow={variant === 'dock' ? () => setWindowed(node.key, true) : undefined}
+        />
+      )
     case 'gpio':
       return <GpioBody />
     case 'gpio-keys':
@@ -167,6 +178,10 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Clock
     case 'i2c':
       return Cable
+    case 'spi':
+      return Cable
+    case 'spi-flash':
+      return MemoryStick
     case 'gpio':
       return CircuitBoard
     case 'gpio-keys':
@@ -196,6 +211,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
     case 'fuel-gauge':
       return BatteryCharging
     case 'i2c-bus':
+      return Cable
+    case 'spi-bus':
       return Cable
     case 'serial':
       return SquareChevronRight
@@ -292,6 +309,12 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <RtcBadge chip={node.chip as RtcChip} />
     case 'i2c':
       return <BusBadge />
+    case 'spi':
+      return <SpiBusBadge />
+    case 'spi-flash': {
+      const chip = node.chip as import('@/virtio/devices/chips/w25q').SpiFlashChip
+      return <Mono>{chip.decl.size} B</Mono>
+    }
     case 'gnss':
       return <GnssBadge />
     case 'net':
@@ -413,6 +436,7 @@ export function GroupBadge({
   if (deviceClass === 'keys' && nodes.some((n) => n.body === 'gpio-keys')) return <GpioKeysBadge />
   if (deviceClass === 'buzzer' && nodes.some((n) => n.body === 'buzzer')) return <BuzzerBadge />
   if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
+  if (deviceClass === 'spi-bus' && nodes.some((n) => n.body === 'spi')) return <SpiBusBadge />
   if (deviceClass === 'gnss' && nodes.some((n) => n.body === 'gnss')) return <GnssBadge />
   return null
 }
@@ -490,6 +514,19 @@ function BusBadge() {
   const chips = useSyncExternalStore(
     i2cModel.subscribe,
     i2cModel.chips,
+    useCallback(() => [], []),
+  )
+  return (
+    <Mono>
+      {chips.length} {chips.length === 1 ? 'chip' : 'chips'}
+    </Mono>
+  )
+}
+
+function SpiBusBadge() {
+  const chips = useSyncExternalStore(
+    spiModel.subscribe,
+    spiModel.chips,
     useCallback(() => [], []),
   )
   return (

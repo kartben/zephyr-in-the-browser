@@ -17,10 +17,12 @@ import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
 import { pruneFollows } from '@/lib/followStore'
-import { i2cModel, isBound, subscribeBinds } from '@/virtio'
+import { i2cModel, isBound, spiModel, subscribeBinds } from '@/virtio'
 import type { I2cChip } from '@/virtio/devices/i2c'
+import type { SpiChip } from '@/virtio/devices/spi'
 
 const NO_CHIPS: I2cChip[] = []
+const NO_SPI: SpiChip[] = []
 
 export function useDeviceTree(boardId: string): DeviceInventory {
   const tree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
@@ -29,9 +31,19 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     i2cModel.chips,
     useCallback(() => NO_CHIPS, []),
   )
+  const spiChips = useSyncExternalStore(
+    spiModel.subscribe,
+    spiModel.chips,
+    useCallback(() => NO_SPI, []),
+  )
   const i2c = useSyncExternalStore(
     subscribeBinds,
     useCallback(() => isBound('i2c'), []),
+    () => false,
+  )
+  const spi = useSyncExternalStore(
+    subscribeBinds,
+    useCallback(() => isBound('spi'), []),
     () => false,
   )
   const gnss = useSyncExternalStore(hostGnss.subscribe, hostGnss.available, () => false)
@@ -67,7 +79,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   }, [chips])
 
   return useMemo(() => {
-    const avail: Availability = { gnss, gpio, audio, mic, net, i2c, display, input }
-    return deriveDeviceInventory(tree, chips, avail, boardId)
-  }, [tree, chips, gnss, gpio, audio, mic, net, i2c, display, input, boardId])
+    const avail: Availability = { gnss, gpio, audio, mic, net, i2c, spi, display, input }
+    return deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
+  }, [tree, chips, spiChips, gnss, gpio, audio, mic, net, i2c, spi, display, input, boardId])
 }

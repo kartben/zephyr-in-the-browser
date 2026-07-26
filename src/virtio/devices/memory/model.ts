@@ -57,26 +57,23 @@ export interface MemoryDecl {
   pageSize?: number
 }
 
+/** A byte array the hex dump / preview can render and poke. */
+export interface HexBacked {
+  readonly memory: Uint8Array
+  readonly decl: { size: number; erased?: number; pageSize?: number }
+  version(): number
+  pointer(): number
+  poke(offset: number, value: number): void
+  erase(): void
+  subscribe(fn: () => void): () => void
+}
+
 /** A memory part on the bus, plus the handle its card drives. */
-export interface MemoryChip extends I2cChip {
+export interface MemoryChip extends I2cChip, HexBacked {
   /** Always present on a built memory part (the machine provides both). */
   write(bytes: Uint8Array): boolean
   read(length: number): Uint8Array
   readonly decl: MemoryDecl
-  /** The backing store, for the card or a test to inspect. */
-  readonly memory: Uint8Array
-  /**
-   * Bumped on every change. A view repaints against this rather than per
-   * notification, so a burst of writes costs one repaint (see HexView).
-   */
-  version(): number
-  /** Where the pointer sits — the offset the next read returns. */
-  pointer(): number
-  /** Set one byte from the page, so the guest can find it there. */
-  poke(offset: number, value: number): void
-  /** Return every cell to the erased value. */
-  erase(): void
-  subscribe(fn: () => void): () => void
 }
 
 export interface MemoryChipOptions {

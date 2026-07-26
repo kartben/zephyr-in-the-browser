@@ -2,10 +2,20 @@ import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import { revealDockRow } from '@/lib/dockReveal'
 import { i2cModel } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
 import type { I2cChip, I2cTransaction } from '@/virtio/devices/i2c'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
+import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
+import { isLp5562 } from '@/virtio/devices/chips/lp5562'
+import { isMemoryChip } from '@/virtio/devices/memory/model'
+import { isDacChip } from '@/virtio/devices/dac/model'
+import { isFuelGaugeChip } from '@/virtio/devices/fuel-gauge/model'
+import { isPwmChip } from '@/virtio/devices/pwm/model'
+import { isRtcChip } from '@/virtio/devices/rtc/model'
+import { isSensorChip } from '@/virtio/devices/sensors/model'
+import type { DeviceClass } from '@/deviceTopology'
 
 /**
  * The browser's I2C bus, as a debug + wiring surface.
@@ -62,21 +72,33 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
               key={chip.address}
               className="flex items-center gap-2 rounded-md border border-border bg-secondary px-2 py-1"
             >
-              <code className="font-mono text-[11px] text-primary">
-                0x{chip.address.toString(16).padStart(2, '0')}
-              </code>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-                {chip.name}
-              </span>
-              {hasDriver(chip.address) ? (
-                <span className="text-[10px] text-emerald-400" title="The guest devicetree binds a driver here">
-                  driver
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left hover:opacity-90"
+                title={`Reveal ${chip.name} in the dock`}
+                onClick={() =>
+                  revealDockRow(
+                    `${busLabel}:${chip.address.toString(16).padStart(2, '0')}`,
+                    i2cChipClass(chip),
+                  )
+                }
+              >
+                <code className="font-mono text-[11px] text-primary">
+                  0x{chip.address.toString(16).padStart(2, '0')}
+                </code>
+                <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                  {chip.name}
                 </span>
-              ) : (
-                <span className="text-[10px] text-muted-foreground" title="Answers on the bus, but no guest driver binds here">
-                  bus only
-                </span>
-              )}
+                {hasDriver(chip.address) ? (
+                  <span className="text-[10px] text-emerald-400" title="The guest devicetree binds a driver here">
+                    driver
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground" title="Answers on the bus, but no guest driver binds here">
+                    bus only
+                  </span>
+                )}
+              </button>
               <button
                 aria-label={`Detach ${chip.name}`}
                 title="Detach — the guest driver will start to NAK"
@@ -287,6 +309,21 @@ function AddrField({
       />
     </span>
   )
+}
+
+/** Dock class for roster → revealDockRow, matching deviceTopology.chipClass. */
+function i2cChipClass(chip: I2cChip): DeviceClass {
+  if (isSensorChip(chip)) return 'sensor'
+  if (isMemoryChip(chip)) return 'memory'
+  if (isRtcChip(chip)) return 'rtc'
+  if (isJhd1313Lcd(chip) || isJhd1313Backlight(chip)) return 'auxdisplay'
+  if (isHt16k33(chip)) return 'led'
+  if (isLp5562(chip)) return 'led'
+  if (isPwmChip(chip)) return 'pwm'
+  if (isDacChip(chip)) return 'dac'
+  if (isFuelGaugeChip(chip)) return 'fuel-gauge'
+  if ('isOn' in chip && 'memory' in chip) return 'display'
+  return 'other'
 }
 
 /**

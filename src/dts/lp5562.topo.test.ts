@@ -12,6 +12,7 @@ const ALL: Availability = {
   mic: true,
   net: true,
   i2c: true,
+  spi: false,
   display: true,
   input: true,
 }
@@ -31,6 +32,7 @@ describe('lp5562 dock topology', () => {
     const inv = deriveDeviceInventory(
       { name: 'lp5562.dts', doc, insights },
       [chip],
+      [],
       ALL,
       'qemu_cortex_a53',
     )

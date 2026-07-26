@@ -11,7 +11,7 @@
 #                    comma-separated
 # - snippet          optional snippets (west build -S ...), comma-separated.
 #                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
-#                    virtio-i2c, gpio-buzzer, i2c-sensors-extra, eeprom-only,
+#                    virtio-i2c, virtio-spi, gpio-buzzer, i2c-sensors-extra, eeprom-only,
 #                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
 #                    max17048-only, lp5562-only, and the *-only
 #                    sensor / RTC snippets; leave the conf field empty
@@ -57,6 +57,7 @@ qemu_cortex_a53:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps2
 qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
 qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
 qemu_cortex_a53:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
+qemu_cortex_a53:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
 qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_cortex_a53:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
@@ -92,6 +93,7 @@ qemu_riscv32:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps22hh
 qemu_riscv32:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
 qemu_riscv32:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl29035-only
 qemu_riscv32:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
+qemu_riscv32:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
 qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_riscv32:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only

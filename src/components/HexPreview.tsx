@@ -7,13 +7,13 @@
 
 import { cn } from '@/lib/utils'
 import { useMemorySnapshot } from '@/components/HexView'
-import type { MemoryChip } from '@/virtio/devices/memory/model'
+import type { HexBacked } from '@/virtio/devices/memory/model'
 
 const BYTES_PER_ROW = 16
 
 const hex2 = (n: number) => n.toString(16).padStart(2, '0')
 
-export function HexPreview({ chip }: { chip: MemoryChip }) {
+export function HexPreview({ chip }: { chip: HexBacked }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const erased = chip.decl.erased ?? 0xff
 

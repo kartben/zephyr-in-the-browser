@@ -23,6 +23,7 @@ export type PanelKind =
   | 'perf'
   | 'net'
   | 'i2c'
+  | 'spi'
   | 'oled'
   | 'auxdisplay'
   | 'led'
@@ -287,6 +288,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'Boot counter that survives reloads in the simulated AT24',
     zephyrSample: 'samples/drivers/eeprom',
     primaryPanels: ['i2c'],
+  },
+  {
+    // JEDEC SPI NOR on the virtio-spi bridge (CS0). The page models a W25Q-class
+    // part; erase/write/read go through the stock flash API.
+    id: 'spi_flash',
+    label: 'SPI flash',
+    description: 'Erase, write and read a JEDEC SPI NOR on the browser SPI bus',
+    zephyrSample: 'samples/drivers/spi_flash',
+    primaryPanels: ['spi'],
   },
   {
     // Stock RTC sample against the browser PCF8523 at 0x68. The dock RTC card
@@ -565,6 +575,14 @@ export const BOARDS: Board[] = [
       // TypeScript file rather than an emulator rebuild.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
+      // SPI: a VIRTIO SPI controller (device id 45) on slot 5. One request
+      // queue. `config` is struct virtio_spi_config — 4 chip-selects,
+      // cs_change supported, single-lane only, 8-bit words (mask bit 7),
+      // SPI modes 0–3, 50 MHz max, no timing limits. Seeded here so the
+      // guest can read it before the page attaches.
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -629,6 +647,14 @@ export const BOARDS: Board[] = [
         'queues=2,features=0x1,config=0800000000000000',
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
+      // SPI: a VIRTIO SPI controller (device id 45) on slot 5. One request
+      // queue. `config` is struct virtio_spi_config — 4 chip-selects,
+      // cs_change supported, single-lane only, 8-bit words (mask bit 7),
+      // SPI modes 0–3, 50 MHz max, no timing limits. Seeded here so the
+      // guest can read it before the page attaches.
+      '-device',
+      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],

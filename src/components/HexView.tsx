@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { MemoryChip } from '@/virtio/devices/memory/model'
+import type { HexBacked } from '@/virtio/devices/memory/model'
 
 /** Classic hexdump width. 16 keeps a 256-byte part to a readable square. */
 const BYTES_PER_ROW = 16
@@ -24,7 +24,7 @@ const hex2 = (n: number) => n.toString(16).padStart(2, '0')
  * - Clicking a byte edits it, which is how you plant something for the guest
  *   to find without writing an application to do it.
  */
-export function HexView({ chip }: { chip: MemoryChip }) {
+export function HexView({ chip }: { chip: HexBacked }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<number | null>(null)
 
@@ -174,7 +174,7 @@ function ByteCell({
  * the dump many times for one logical change. Exported so HexPreview shares
  * the exact same pointer/flash semantics instead of approximating them.
  */
-export function useMemorySnapshot(chip: MemoryChip) {
+export function useMemorySnapshot(chip: HexBacked) {
   const [snapshot, setSnapshot] = useState(() => ({
     data: chip.memory.slice(),
     pointer: chip.pointer(),
