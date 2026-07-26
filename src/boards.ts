@@ -412,6 +412,17 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'spi'],
   },
   {
+    // Stock TMC50xx sample against the browser SPI motion controller on CS0.
+    // Ping-pong positioning; the dock dial tracks XACTUAL and Registers show
+    // the ramp map.
+    id: 'tmc50xx',
+    label: 'TMC50xx stepper',
+    description:
+      'Spins a TMC50xx axis over SPI (ping-pong); dial + registers in the page',
+    zephyrSample: 'samples/drivers/stepper/tmc50xx',
+    primaryPanels: ['stepper', 'spi'],
+  },
+  {
     // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
     // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',

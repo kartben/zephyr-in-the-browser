@@ -19,6 +19,7 @@ import {
   Grid3x3,
   MemoryStick,
   Monitor,
+  RotateCw,
   Search,
   Thermometer,
   Tv,
@@ -53,6 +54,7 @@ const KIND_ICONS: Record<PartIdentity['kind'], LucideIcon> = {
   'fuel-gauge': BatteryCharging,
   rtc: Clock,
   flash: MemoryStick,
+  stepper: RotateCw,
 }
 
 function formatAddress(part: PartIdentity): string {

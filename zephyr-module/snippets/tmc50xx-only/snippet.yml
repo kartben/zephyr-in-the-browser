@@ -1,0 +1,16 @@
+name: tmc50xx-only
+description: >
+  Analog Devices TMC50xx stepper motion controller alone on the browser SPI
+  bus: enable virtio-spi with adi,tmc50xx on CS0 (no JEDEC NOR) for
+  samples/drivers/stepper/tmc50xx. Provides stepper-ctrl / stepper-driver aliases.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

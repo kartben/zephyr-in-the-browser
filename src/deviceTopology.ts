@@ -30,6 +30,7 @@ import { isLp50xx } from '@/virtio/devices/chips/lp50xx'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
 import { isWs2812 } from '@/virtio/devices/chips/ws2812'
 import { isPt6314 } from '@/virtio/devices/chips/pt6314'
+import { isTmc50xx } from '@/virtio/devices/chips/tmc50xx'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
@@ -87,6 +88,7 @@ export type BodyKind =
   | 'gpio-keys'
   | 'buzzer'
   | 'stepper'
+  | 'stepper-tmc'
   | 'gnss'
   | 'speaker'
   | 'mic'
@@ -394,6 +396,7 @@ function liveSpiBusChildren(
       const ledBar = isSct2024(chip)
       const ledStrip = isWs2812(chip)
       const vfd = isPt6314(chip)
+      const stepper = isTmc50xx(chip)
       const partId =
         slot?.chipId ??
         (flash
@@ -404,7 +407,9 @@ function liveSpiBusChildren(
               ? 'ws2812'
               : vfd
                 ? 'pt6314'
-                : undefined)
+                : stepper
+                  ? 'tmc50xx'
+                  : undefined)
       rows.push({
         key: uniqueKey(ids, `${busLabel}:${keyCs}`),
         nodeName: slot?.nodeName ?? `spi-dev@${cs}`,
@@ -416,7 +421,9 @@ function liveSpiBusChildren(
             ? 'led'
             : vfd
               ? 'auxdisplay'
-              : 'other',
+              : stepper
+                ? 'stepper'
+                : 'other',
         path: `${busPath}/${slot?.nodeName ?? `spi-dev@${cs}`}`,
         parentKey: busKey,
         presence: 'interactive',
@@ -429,7 +436,9 @@ function liveSpiBusChildren(
               ? 'rgb-led'
               : vfd
                 ? 'auxdisplay'
-                : undefined,
+                : stepper
+                  ? 'stepper-tmc'
+                  : undefined,
         crumb,
         chip,
         partId,
@@ -440,7 +449,9 @@ function liveSpiBusChildren(
             ? 'led'
             : vfd
               ? 'auxdisplay'
-              : undefined,
+              : stepper
+                ? 'stepper'
+                : undefined,
       })
       continue
     }
@@ -458,7 +469,9 @@ function liveSpiBusChildren(
             ? 'led'
             : declared.chipId === 'pt6314'
               ? 'auxdisplay'
-              : 'spi-bus',
+              : declared.chipId === 'tmc50xx'
+                ? 'stepper'
+                : 'spi-bus',
       path: `${busPath}/${declared.nodeName}`,
       parentKey: busKey,
       presence: 'ghost',

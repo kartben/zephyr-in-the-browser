@@ -153,7 +153,10 @@ brightness / OUT colors / RESET (`chips/maps/lp5012.json`). The SCT2024 on virti
 LED_OUT / CTRL (`chips/maps/sct2024.json`) — a shift-register latch exposed
 through the same inspector, with LA/OE sideband on virtio-gpio. The WS2812 on
 the same CS stays a *command stream* (MOSI bitstream of one/zero SPI symbols;
-no fake SVD rows) — decode into RGB orbs only. The PCA9685 maps MODE1/2, LEDn_ON/OFF,
+no fake SVD rows) — decode into RGB orbs only. The TMC50xx on CS0 maps GCONF /
+ramp (XACTUAL, XTARGET, VMAX, RAMPSTAT, …) / CHOPCONF / DRVSTATUS
+(`chips/maps/tmc50xx.json`) — 32-bit SPI datagrams with a motion sim for the
+dock dial. The PCA9685 maps MODE1/2, LEDn_ON/OFF,
 and PRE_SCALE (`chips/maps/pca9685.json`). The MCP4725 maps thin inspector
 shadows for DAC_CODE / STATUS / EEPROM_CODE (`chips/maps/mcp4725.json`).
 The MAX17048 maps VCELL / SOC / MODE / VERSION / CONFIG / CRATE / COMMAND
@@ -188,7 +191,8 @@ that the peripheral surfaces read:
   Web Audio on the page — not through I2S),
 - a Stepper dock row when the tree has an okay
   `zephyr,gpio-step-dir-stepper-ctrl` on the bridged controller (STEP/DIR edges
-  observed; shaft dial + position/velocity — no new QEMU device),
+  observed; shaft dial + position/velocity — no new QEMU device), or an okay
+  `adi,tmc50xx` on virtio-spi (SPI datagram motion sim; dial + Registers),
 - a GPIO Keys dock row when the tree has okay `gpio-keys` on the bridged
   controller (Keys class — buttons leave the controller card),
 - a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged

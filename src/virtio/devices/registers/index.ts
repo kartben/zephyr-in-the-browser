@@ -26,7 +26,7 @@ export interface FieldMapJson {
 export interface RegisterMapEntryJson {
   name: string
   addr: number | string
-  bytes: 1 | 2 | 3
+  bytes: 1 | 2 | 3 | 4
   access: 'rw' | 'ro'
   reset?: number | string
   endian?: Endian
@@ -77,8 +77,8 @@ function fieldFromJson(raw: FieldMapJson): FieldDecl {
 }
 
 function registerFromJson(raw: RegisterMapEntryJson): RegisterDecl {
-  if (raw.bytes !== 1 && raw.bytes !== 2 && raw.bytes !== 3) {
-    throw new Error(`register ${raw.name}: bytes must be 1, 2, or 3`)
+  if (raw.bytes !== 1 && raw.bytes !== 2 && raw.bytes !== 3 && raw.bytes !== 4) {
+    throw new Error(`register ${raw.name}: bytes must be 1, 2, 3, or 4`)
   }
   return {
     name: raw.name,

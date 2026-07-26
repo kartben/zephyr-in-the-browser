@@ -1,0 +1,240 @@
+{
+  "name": "TMC50xx",
+  "description": "Analog Devices / Trinamic TMC50xx dual motion controller + driver (SPI). 32-bit register datagrams match Zephyr drivers/stepper/adi_tmc/tmc50xx. Motor index 0 addresses shown; the browser model drives one axis.",
+  "registers": [
+    {
+      "name": "GCONF",
+      "addr": "0x00",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Global configuration.",
+      "fields": [
+        { "name": "POSCMP_ENABLE", "lsb": 3, "msb": 3 },
+        { "name": "TEST_MODE", "lsb": 7, "msb": 7 },
+        { "name": "SHAFT1", "lsb": 8, "msb": 8 },
+        { "name": "SHAFT2", "lsb": 9, "msb": 9 },
+        { "name": "LOCK_GCONF", "lsb": 10, "msb": 10 }
+      ]
+    },
+    {
+      "name": "GSTAT",
+      "addr": "0x01",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Global status; reading clears sticky SPI / reset flags."
+    },
+    {
+      "name": "RAMPMODE",
+      "addr": "0x20",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Motor 0 ramp mode (0=positioning, 1=+velocity, 2=−velocity, 3=hold).",
+      "fields": [
+        {
+          "name": "MODE",
+          "lsb": 0,
+          "msb": 1,
+          "values": [
+            { "name": "POSITIONING", "value": 0 },
+            { "name": "POS_VELOCITY", "value": 1 },
+            { "name": "NEG_VELOCITY", "value": 2 },
+            { "name": "HOLD", "value": 3 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "XACTUAL",
+      "addr": "0x21",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Motor 0 actual position (signed microsteps)."
+    },
+    {
+      "name": "VACTUAL",
+      "addr": "0x22",
+      "bytes": 4,
+      "access": "ro",
+      "reset": 0,
+      "endian": "be",
+      "description": "Motor 0 actual velocity (signed TMC units)."
+    },
+    {
+      "name": "VSTART",
+      "addr": "0x23",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "A1",
+      "addr": "0x24",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "V1",
+      "addr": "0x25",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "AMAX",
+      "addr": "0x26",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "VMAX",
+      "addr": "0x27",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Motor 0 max velocity (TMC units)."
+    },
+    {
+      "name": "DMAX",
+      "addr": "0x28",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "D1",
+      "addr": "0x2A",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "VSTOP",
+      "addr": "0x2B",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "TZEROWAIT",
+      "addr": "0x2C",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "XTARGET",
+      "addr": "0x2D",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Motor 0 target position (positioning mode)."
+    },
+    {
+      "name": "IHOLD_IRUN",
+      "addr": "0x30",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "VCOOLTHRS",
+      "addr": "0x31",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "VHIGH",
+      "addr": "0x32",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "SWMODE",
+      "addr": "0x34",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Switch mode / stallguard stop enable.",
+      "fields": [
+        { "name": "SG_STOP", "lsb": 10, "msb": 10 }
+      ]
+    },
+    {
+      "name": "RAMPSTAT",
+      "addr": "0x35",
+      "bytes": 4,
+      "access": "ro",
+      "reset": 0,
+      "endian": "be",
+      "description": "Ramp status; sticky event bits clear on read.",
+      "fields": [
+        { "name": "STOP_L", "lsb": 4, "msb": 4 },
+        { "name": "STOP_R", "lsb": 5, "msb": 5 },
+        { "name": "STOP_SG", "lsb": 6, "msb": 6 },
+        { "name": "POS_REACHED_EVENT", "lsb": 7, "msb": 7 },
+        { "name": "POS_REACHED", "lsb": 9, "msb": 9 }
+      ]
+    },
+    {
+      "name": "CHOPCONF",
+      "addr": "0x6C",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be",
+      "description": "Chopper config; TOFF≠0 enables the driver, MRES sets microsteps.",
+      "fields": [
+        { "name": "TOFF", "lsb": 0, "msb": 3 },
+        { "name": "MRES", "lsb": 24, "msb": 27 }
+      ]
+    },
+    {
+      "name": "COOLCONF",
+      "addr": "0x6D",
+      "bytes": 4,
+      "access": "rw",
+      "reset": 0,
+      "endian": "be"
+    },
+    {
+      "name": "DRVSTATUS",
+      "addr": "0x6F",
+      "bytes": 4,
+      "access": "ro",
+      "reset": "0x80000000",
+      "endian": "be",
+      "description": "Driver status; STST is set when standing still.",
+      "fields": [
+        { "name": "SG_RESULT", "lsb": 0, "msb": 9 },
+        { "name": "SG_STATUS", "lsb": 24, "msb": 24 },
+        { "name": "STST", "lsb": 31, "msb": 31 }
+      ]
+    }
+  ]
+}

@@ -35,9 +35,9 @@ export interface RegisterDecl {
   addr: number
   /**
    * Width in bytes. 1–2 cover most parts; 3 is for left-aligned 24-bit samples
-   * (e.g. LPS22HH pressure).
+   * (e.g. LPS22HH pressure); 4 is for SPI register words (TMC50xx).
    */
-  bytes: 1 | 2 | 3
+  bytes: 1 | 2 | 3 | 4
   /**
    * `ro` registers ignore writes. `rw` registers store what the driver (or the
    * register-map editor) writes and read it back.

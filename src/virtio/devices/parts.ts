@@ -45,6 +45,7 @@ export interface PartIdentity {
     | 'fuel-gauge'
     | 'rtc'
     | 'flash'
+    | 'stepper'
   /** Official datasheet URL when one is publicly linkable. */
   datasheetUrl?: string
   /** Zephyr DT binding documentation URL. */
@@ -368,6 +369,22 @@ export const PARTS: readonly PartIdentity[] = [
     bindingUrl: binding('auxdisplay/ptc%2Cpt6314.html'),
     summary: 'Dot-character VFD controller; Futaba-style 20×2 viewport over SPI.',
   },
+  {
+    id: 'tmc50xx',
+    label: 'TMC50xx stepper',
+    manufacturer: 'Analog Devices',
+    part: 'TMC5072',
+    bus: 'spi',
+    compatible: 'adi,tmc50xx',
+    defaultAddress: 0,
+    addressKind: 'spi-cs',
+    kind: 'stepper',
+    datasheetUrl:
+      'https://www.analog.com/media/en/technical-documentation/data-sheets/TMC5072_datasheet_rev1.26.pdf',
+    bindingUrl: binding('stepper/adi/adi%2Ctmc50xx.html'),
+    summary:
+      'Dual motion controller + driver over SPI; stock Zephyr tmc50xx sample spins motor 0.',
+  },
 ]
 
 const BY_ID = new Map(PARTS.map((p) => [p.id, p]))
@@ -399,4 +416,5 @@ export const PART_KIND_LABELS: Record<PartIdentity['kind'], string> = {
   'fuel-gauge': 'Fuel gauge',
   rtc: 'RTC',
   flash: 'Flash',
+  stepper: 'Stepper',
 }

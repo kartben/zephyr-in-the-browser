@@ -9,6 +9,7 @@ import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
 import { isWs2812 } from '@/virtio/devices/chips/ws2812'
 import { isPt6314 } from '@/virtio/devices/chips/pt6314'
+import { isTmc50xx } from '@/virtio/devices/chips/tmc50xx'
 import { SPI_CHIP_TYPES, spiChipType } from '@/virtio/devices/spiRegistry'
 import type { DeviceClass } from '@/deviceTopology'
 
@@ -125,6 +126,7 @@ function spiChipClass(chip: SpiChip): DeviceClass {
   if (isSpiFlashChip(chip)) return 'memory'
   if (isSct2024(chip) || isWs2812(chip)) return 'led'
   if (isPt6314(chip)) return 'auxdisplay'
+  if (isTmc50xx(chip)) return 'stepper'
   return 'other'
 }
 

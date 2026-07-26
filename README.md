@@ -22,11 +22,12 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **Fuel gauge** | A Maxim MAX17048 at 0x36 — stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card with Registers (framework-ready for more gauges) |
 | **GPIO** | Clickable buttons (`gpio-keys`) and a separate LED-class row for `gpio-leds`, wired per the running build’s tree |
 | **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |
+| **Stepper** | GPIO step/dir on pins 6/7 (`samples/drivers/stepper/generic`) or an Analog Devices TMC50xx on SPI CS0 (`samples/drivers/stepper/tmc50xx`) — the dock dial tracks position/velocity; the TMC also exposes its ramp registers |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
 | **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump (persisted across reloads; erase clears it) or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
-| **SPI** | A virtio-spi bus with a 1 MiB W25Q-class JEDEC NOR on CS0 — hex dump, LittleFS browser (`Filesystem` dialog via real littlefs / Dreagonmon littlefs-js), and sparse persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same CS0 can host an SCT2024 LED bar or a WS2812 strip when those samples are selected |
+| **SPI** | A virtio-spi bus with a 1 MiB W25Q-class JEDEC NOR on CS0 — hex dump, LittleFS browser (`Filesystem` dialog via real littlefs / Dreagonmon littlefs-js), and sparse persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same CS0 can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
 | **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
 | **Guided samples** | A sample that explains itself: teaching notes written as ordinary comments pop up as it runs, point the dock at the peripheral involved, and **stop the emulated machine** so you can read them. Try **Guided Blinky**; see [docs/sample-annotations.md](docs/sample-annotations.md) |
 

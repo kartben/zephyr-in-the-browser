@@ -1,0 +1,68 @@
+/*
+ * Flattened DTS fixture for the TMC50xx packaging: virtio-spi with
+ * adi,tmc50xx okay at CS0 (motor 0 driver + motion controller). Used to
+ * catch dock routing (stepper-tmc body, stepper panel) and SPI chip-id mapping.
+ */
+
+/dts-v1/;
+
+/ {
+	compatible = "qemu,cortex-a53";
+
+	aliases {
+		stepper-driver = &tmc_stepper_driver;
+		stepper-ctrl = &tmc_motion_controller;
+	};
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		virtio_mmio5: virtio_mmio@a000a00 {
+			compatible = "virtio,mmio";
+			reg = <0xa000a00 0x200>;
+			status = "okay";
+
+			virtio_spi0: virtio-spi {
+				compatible = "virtio,spi";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "okay";
+
+				tmc50xx: tmc50xx@0 {
+					compatible = "adi,tmc50xx";
+					reg = <0>;
+					spi-max-frequency = <1000000>;
+					clock-frequency = <10000000>;
+					status = "okay";
+
+					tmc_stepper_driver: stepper-driver {
+						compatible = "adi,tmc50xx-stepper-driver";
+						idx = <0>;
+						micro-step-res = <256>;
+						stallguard2-threshold = <30>;
+					};
+
+					tmc_motion_controller: motion-controller {
+						compatible = "adi,tmc50xx-stepper-ctrl";
+						idx = <0>;
+						vstart = <1000>;
+						vstop = <10>;
+						a1 = <10000>;
+						v1 = <50000>;
+						d1 = <14000>;
+						vmax = <900000>;
+						amax = <50000>;
+						dmax = <7000>;
+						tzerowait = <100>;
+						vhigh = <900000>;
+						vcoolthrs = <900000>;
+						ihold = <1>;
+						irun = <10>;
+						iholddelay = <1>;
+					};
+				};
+			};
+		};
+	};
+};
