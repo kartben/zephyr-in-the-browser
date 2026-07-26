@@ -56,6 +56,11 @@ let holdTimer: ReturnType<typeof setTimeout> | undefined
 let vibrateTimer: ReturnType<typeof setInterval> | undefined
 let audio: BuzzAudio | null = null
 let gpioUnsub: (() => void) | undefined
+/**
+ * Cached for useSyncExternalStore: getSnapshot must return the same reference
+ * until something actually changes, or React re-renders forever and the tab dies.
+ */
+let snapshotCache: BuzzerSnapshot = buildSnapshot()
 
 function readPref(): boolean {
   try {
@@ -133,7 +138,37 @@ function createBuzzAudio(): BuzzAudio {
   }
 }
 
+function buildSnapshot(): BuzzerSnapshot {
+  return {
+    sounding,
+    pinActive,
+    preferred,
+    unlocked,
+    enabled: preferred && unlocked,
+    vibrationSupported: vibrationSupported(),
+  }
+}
+
+/** Rebuild only when a field changes so Object.is stays stable across polls. */
+function refreshSnapshot(): boolean {
+  const next = buildSnapshot()
+  const prev = snapshotCache
+  if (
+    prev.sounding === next.sounding &&
+    prev.pinActive === next.pinActive &&
+    prev.preferred === next.preferred &&
+    prev.unlocked === next.unlocked &&
+    prev.enabled === next.enabled &&
+    prev.vibrationSupported === next.vibrationSupported
+  ) {
+    return false
+  }
+  snapshotCache = next
+  return true
+}
+
 function notify() {
+  if (!refreshSnapshot()) return
   for (const fn of listeners) fn()
 }
 
@@ -165,10 +200,12 @@ function startFeedback() {
 }
 
 function setSounding(next: boolean) {
-  if (sounding === next) return
-  sounding = next
-  if (next) startFeedback()
-  else stopFeedback()
+  if (sounding !== next) {
+    sounding = next
+    if (next) startFeedback()
+    else stopFeedback()
+  }
+  // Always refresh — callers may have flipped pinActive under a latched tone.
   notify()
 }
 
@@ -189,7 +226,8 @@ function syncFromGpio() {
     // Falling edge after the hold already expired.
     setSounding(false)
   } else {
-    // Still inside the hold window — keep sounding until the timer fires.
+    // Still inside the hold window — pinActive flipped; keep sounding until
+    // the timer fires. Refresh the cached snapshot so UI can show raw pin state.
     notify()
   }
 }
@@ -200,20 +238,9 @@ function ensureWatching() {
   syncFromGpio()
 }
 
-function snapshot(): BuzzerSnapshot {
-  return {
-    sounding,
-    pinActive,
-    preferred,
-    unlocked,
-    enabled: preferred && unlocked,
-    vibrationSupported: vibrationSupported(),
-  }
-}
-
 export function getSnapshot(): BuzzerSnapshot {
   ensureWatching()
-  return snapshot()
+  return snapshotCache
 }
 
 export function subscribe(fn: () => void): () => void {
@@ -273,4 +300,5 @@ export function resetForTests() {
   preferred = false
   unlocked = false
   listeners.clear()
+  refreshSnapshot()
 }

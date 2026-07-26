@@ -147,4 +147,19 @@ describe('hostBuzzer', () => {
     expect(fn).toHaveBeenCalled()
     unsub()
   })
+
+  it('returns a stable snapshot reference while idle (useSyncExternalStore)', () => {
+    const a = getSnapshot()
+    const b = getSnapshot()
+    expect(a).toBe(b)
+  })
+
+  it('returns a new snapshot object only when state changes', () => {
+    const idle = getSnapshot()
+    gpio.setHigh(true)
+    const active = getSnapshot()
+    expect(active).not.toBe(idle)
+    expect(active.sounding).toBe(true)
+    expect(getSnapshot()).toBe(active)
+  })
 })
