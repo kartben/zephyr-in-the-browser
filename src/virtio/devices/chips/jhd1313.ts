@@ -147,10 +147,13 @@ export function isJhd1313Backlight(
     Array.isArray((chip as Jhd1313BacklightChip).registers) &&
     typeof (chip as Jhd1313BacklightChip).peek === 'function' &&
     !('cells' in chip) &&
-    // RGB LED drivers (LP5562) also expose getRgb + a register map; they carry
-    // channelCount / getChannelPwm. The PCA9633-style backlight does not.
+    // RGB LED drivers (LP5562 / LP50xx) also expose getRgb + a register map;
+    // they carry channelCount / getChannelPwm or moduleCount / getModuleRgb.
+    // The PCA9633-style backlight does not.
     !('channelCount' in chip) &&
-    typeof (chip as { getChannelPwm?: unknown }).getChannelPwm !== 'function'
+    !('moduleCount' in chip) &&
+    typeof (chip as { getChannelPwm?: unknown }).getChannelPwm !== 'function' &&
+    typeof (chip as { getModuleRgb?: unknown }).getModuleRgb !== 'function'
   )
 }
 

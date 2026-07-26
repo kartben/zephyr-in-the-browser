@@ -50,3 +50,7 @@
 &lp5562_0 {
 	status = "disabled";
 };
+
+&lp5012_0 {
+	status = "disabled";
+};

@@ -27,6 +27,7 @@ import type { I2cChip } from './i2c'
 import { createAt24 } from './chips/at24'
 import { createHt16k33 } from './chips/ht16k33'
 import { createLp5562 } from './chips/lp5562'
+import { createLp5012 } from './chips/lp50xx'
 import { createJhd1313Pair } from './chips/jhd1313'
 import { createMax17048 } from './chips/max17048'
 import { createMcp4725 } from './chips/mcp4725'
@@ -174,6 +175,13 @@ export const CHIP_TYPES: ChipType[] = [
     kind: 'led',
     defaultAddress: 0x30,
     create: (address) => createLp5562({ address }),
+  },
+  {
+    id: 'lp5012',
+    label: 'LP5012 RGB LED',
+    kind: 'led',
+    defaultAddress: 0x14,
+    create: (address) => createLp5012({ address }),
   },
   {
     id: 'pca9685',

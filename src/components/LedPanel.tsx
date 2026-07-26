@@ -1,13 +1,29 @@
 /**
- * Dock bodies for LED-class parts: HT16K33 matrix, LP5562 RGBW, SCT2024 bar.
+ * Dock bodies for LED-class parts: HT16K33 matrix, RGB (LP5562 / LP50xx), SCT2024 bar.
  */
 
 import { useEffect, useReducer, useRef } from 'react'
 import { RegisterMapButton } from '@/components/RegisterMap'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
-import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
+import type { Rgbw } from '@/virtio/devices/chips/lp50xx'
 import type { Sct2024Chip } from '@/virtio/devices/chips/sct2024'
+import { hasRegisterMap } from '@/virtio/devices/registers/types'
 import { cn } from '@/lib/utils'
+
+/** Minimal surface RgbLedBody needs — LP5562 (channels) or LP50xx (modules). */
+export type RgbLedView = {
+  name?: string
+  isChipEnabled(): boolean
+  getRgb(): Rgbw
+  subscribe: (fn: () => void) => () => void
+  version: () => number
+  /** LP5562: four PWM channels. Absent on LP50xx. */
+  channelCount?: number
+  getChannelPwm?(index: number): number
+  /** LP50xx: RGB modules painted as a strip. */
+  moduleCount?: number
+  getModuleRgb?(index: number): Rgbw
+}
 
 const UI_MS = 50
 
@@ -162,10 +178,10 @@ export function LedMatrixBody({ chip }: { chip: Ht16k33Chip }) {
 }
 
 /**
- * LP5562 RGBW body — one big mixed orb plus four channel meters.
- * Polls while engines may be blinking so the orb keeps flashing.
+ * RGB LED body — shared by LP5562 (one orb + B/G/R/W meters) and LP50xx
+ * (a strip of module orbs). Polls so LP5562 engine blinks keep flashing.
  */
-export function RgbLedBody({ chip }: { chip: Lp5562Chip }) {
+export function RgbLedBody({ chip }: { chip: RgbLedView }) {
   useChip(chip)
   const [, force] = useReducer((n: number) => n + 1, 0)
 
@@ -175,8 +191,53 @@ export function RgbLedBody({ chip }: { chip: Lp5562Chip }) {
     return () => clearInterval(id)
   }, [chip])
 
-  const rgb = chip.getRgb()
   const enabled = chip.isChipEnabled()
+  const multi =
+    typeof chip.moduleCount === 'number' &&
+    chip.moduleCount > 1 &&
+    typeof chip.getModuleRgb === 'function'
+  const label = chip.name?.split(' ')[0] ?? (multi ? 'LP50xx' : 'LP5562')
+
+  if (multi) {
+    const moduleCount = chip.moduleCount!
+    const getModuleRgb = chip.getModuleRgb!
+    const modules = Array.from({ length: moduleCount }, (_, i) => getModuleRgb(i))
+    const lit = modules.filter((m) => m.r + m.g + m.b > 0).length
+    return (
+      <div className="flex flex-col gap-3 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] text-muted-foreground">
+            {label} · {lit}/{moduleCount} on
+            {enabled ? '' : ' · chip off'}
+          </div>
+          {hasRegisterMap(chip) ? <RegisterMapButton chip={chip} /> : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {modules.map((rgb, i) => {
+            const mix = mixRgbw(rgb)
+            const on = enabled && rgb.r + rgb.g + rgb.b > 0
+            return (
+              <div
+                key={i}
+                title={`LED ${i} R${rgb.r} G${rgb.g} B${rgb.b}`}
+                className={cn(
+                  'size-8 rounded-full border border-border transition-colors duration-75',
+                  on ? 'shadow-[0_0_10px_rgba(255,255,255,0.16)]' : 'opacity-40',
+                )}
+                style={{
+                  background: on
+                    ? `radial-gradient(circle at 35% 30%, ${mix.glow}, ${mix.fill} 55%, #0c0e12 100%)`
+                    : '#1a1d24',
+                }}
+              />
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const rgb = chip.getRgb()
   const mix = mixRgbw(rgb)
   const labels = ['B', 'G', 'R', 'W'] as const
   const values = [rgb.b, rgb.g, rgb.r, rgb.w]
@@ -203,16 +264,16 @@ export function RgbLedBody({ chip }: { chip: Lp5562Chip }) {
               {rgb.w > 0 ? ` W${rgb.w}` : ''}
             </div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">
-              LP5562{enabled ? '' : ' · chip off'}
+              {label}{enabled ? '' : ' · chip off'}
             </div>
           </div>
         </div>
-        <RegisterMapButton chip={chip} />
+        {hasRegisterMap(chip) ? <RegisterMapButton chip={chip} /> : null}
       </div>
 
       <div className="grid grid-cols-4 gap-2">
-        {labels.map((label, i) => (
-          <ChannelMeter key={label} label={label} value={values[i]!} accent={channelColor(label)} />
+        {labels.map((ch, i) => (
+          <ChannelMeter key={ch} label={ch} value={values[i]!} accent={channelColor(ch)} />
         ))}
       </div>
     </div>
