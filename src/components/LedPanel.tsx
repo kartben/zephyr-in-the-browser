@@ -179,31 +179,35 @@ export function LedMatrixBody({ chip }: { chip: Ht16k33Chip }) {
 }
 
 /**
- * RGB LED body — shared by LP5562 (one orb + B/G/R/W meters) and LP50xx
- * (a strip of module orbs). Polls so LP5562 engine blinks keep flashing.
+ * RGB LED body — shared by LP5562 (one orb + B/G/R/W meters), LP50xx, and
+ * WS2812 (a strip of module orbs). Polls so LP5562 engine blinks keep flashing.
  */
 export function RgbLedBody({ chip }: { chip: RgbLedView }) {
   useChip(chip)
   const [, force] = useReducer((n: number) => n + 1, 0)
 
-  // Engines blink without further I²C traffic — keep the orb alive at ~20 Hz.
-  useEffect(() => {
-    const id = setInterval(() => force(), 50)
-    return () => clearInterval(id)
-  }, [chip])
-
-  const enabled = chip.isChipEnabled()
   const multi =
     typeof chip.moduleCount === 'number' &&
     chip.moduleCount > 1 &&
     typeof chip.getModuleRgb === 'function'
+
+  // Engines blink without further I²C traffic — keep a single orb alive at
+  // ~20 Hz. Strip parts (LP50xx / WS2812) update through subscribe only; a
+  // timer here would just burn React work on every chase step.
+  useEffect(() => {
+    if (multi) return
+    const id = setInterval(() => force(), 50)
+    return () => clearInterval(id)
+  }, [chip, multi])
+
+  const enabled = chip.isChipEnabled()
   const label = chip.name?.split(' ')[0] ?? (multi ? 'LP50xx' : 'LP5562')
 
   if (multi) {
     const moduleCount = chip.moduleCount!
     const getModuleRgb = chip.getModuleRgb!
     const modules = Array.from({ length: moduleCount }, (_, i) => getModuleRgb(i))
-    const lit = modules.filter((m) => m.r + m.g + m.b > 0).length
+    const lit = modules.filter((m) => m.r + m.g + m.b + m.w > 0).length
     return (
       <div className="flex flex-col gap-3 p-3">
         <div className="flex items-center justify-between gap-2">
@@ -215,8 +219,12 @@ export function RgbLedBody({ chip }: { chip: RgbLedView }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {modules.map((rgb, i) => {
-            const mix = mixRgbw(rgb)
-            const on = enabled && rgb.r + rgb.g + rgb.b > 0
+            // Stock led_strip uses SAMPLE_LED_BRIGHTNESS default 16 — linear
+            // alpha makes that nearly black. Boost for the dock; tooltip keeps
+            // the guest's raw values.
+            const shown = boostStripRgb(rgb)
+            const mix = mixRgbw(shown)
+            const on = enabled && rgb.r + rgb.g + rgb.b + rgb.w > 0
             return (
               <div
                 key={i}
@@ -286,6 +294,23 @@ function channelColor(ch: 'B' | 'G' | 'R' | 'W'): string {
   if (ch === 'G') return '#4ade80'
   if (ch === 'B') return '#60a5fa'
   return '#e7e5e4'
+}
+
+/**
+ * Lift dim strip pixels so SAMPLE_LED_BRIGHTNESS=16 still reads as a color.
+ * Preserves hue; only used for painting, not for badges / tooltips.
+ */
+function boostStripRgb(rgb: { r: number; g: number; b: number; w: number }): {
+  r: number
+  g: number
+  b: number
+  w: number
+} {
+  const peak = Math.max(rgb.r, rgb.g, rgb.b, rgb.w)
+  if (peak === 0) return rgb
+  const gain = Math.max(1, 180 / peak)
+  const lift = (v: number) => (v === 0 ? 0 : Math.min(255, Math.round(v * gain)))
+  return { r: lift(rgb.r), g: lift(rgb.g), b: lift(rgb.b), w: lift(rgb.w) }
 }
 
 function mixRgbw(rgb: { r: number; g: number; b: number; w: number }): {

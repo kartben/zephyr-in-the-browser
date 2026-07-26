@@ -404,12 +404,14 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     // Stock LED-strip sample against the browser WS2812 on CS0. The guest
     // encodes GRB bits as SPI symbols; the dock paints a strip of RGB orbs.
+    // LED panel only — leave the SPI spy closed; each chase step is already a
+    // ~384 B virtqueue write and the bus log re-render is optional noise.
     id: 'led_strip',
     label: 'WS2812 LED strip',
     description:
       'Chases colors along a 16-pixel WS2812 strip over SPI; RGB orbs in the page',
     zephyrSample: 'samples/drivers/led/led_strip',
-    primaryPanels: ['led', 'spi'],
+    primaryPanels: ['led'],
   },
   {
     // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
