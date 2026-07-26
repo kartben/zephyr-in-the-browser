@@ -184,3 +184,79 @@
   }
 }
 
+/*
+ * C syntax highlighting (highlight.js). Colours ride the app theme tokens so
+ * dark/light follow prefers-color-scheme without a second theme file.
+ */
+.hljs-comment,
+.hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: var(--primary);
+}
+
+.hljs-type,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: color-mix(in oklch, var(--primary) 70%, var(--foreground));
+}
+
+.hljs-string,
+.hljs-meta .hljs-string,
+.hljs-regexp,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-addition {
+  color: var(--success);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-attr {
+  color: var(--warning);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: color-mix(in oklch, var(--warning) 55%, var(--foreground));
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-name {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.hljs-params,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-deletion {
+  color: var(--foreground);
+}
+
+.hljs-subst,
+.hljs-property {
+  color: var(--foreground);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+

@@ -2,11 +2,14 @@
  * Renders the Markdown subset annotation bodies are written in.
  *
  * Every node here is a React element built from a parsed tree — no HTML string
- * is ever produced, so there is nothing to sanitise and markup inside a body is
- * text by construction. See src/annotations/markdown.ts for the grammar.
+ * is ever produced from author markup, so there is nothing to sanitise and
+ * markup inside a body is text by construction. Fenced C blocks are the one
+ * exception: highlight.js emits escaped HTML spans for tokens. See
+ * src/annotations/markdown.ts for the grammar.
  */
 
 import { parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/annotations/markdown'
+import { highlightCode, isCLanguage } from '@/lib/highlight'
 
 function Spans({ spans }: { spans: InlineSpan[] }) {
   return (
@@ -54,6 +57,21 @@ function Spans({ spans }: { spans: InlineSpan[] }) {
   )
 }
 
+function CodeBlockView({ language, text }: { language: string; text: string }) {
+  const html = highlightCode(text, language)
+  return (
+    <pre
+      className="overflow-x-auto rounded border border-border bg-muted/60 p-2 font-mono text-[11px] leading-relaxed text-foreground"
+      data-language={language || undefined}
+    >
+      <code
+        className={isCLanguage(language) ? 'language-c hljs' : undefined}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </pre>
+  )
+}
+
 function Block({ block }: { block: MarkdownBlock }) {
   switch (block.kind) {
     case 'list':
@@ -67,11 +85,7 @@ function Block({ block }: { block: MarkdownBlock }) {
         </ul>
       )
     case 'codeblock':
-      return (
-        <pre className="overflow-x-auto rounded border border-border bg-muted/60 p-2 font-mono text-[11px] leading-relaxed text-foreground">
-          {block.text}
-        </pre>
-      )
+      return <CodeBlockView language={block.language} text={block.text} />
     default:
       return (
         <p>

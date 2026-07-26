@@ -8,9 +8,13 @@
  *
  * The SAMPLE_SHOW*() calls stay, dimmed: they are real executable code, and
  * seeing how an annotation is wired is part of the lesson.
+ *
+ * Tokens are coloured with highlight.js (C only); the HTML is escaped by the
+ * highlighter before it lands in the DOM.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { highlightC, splitHighlightedLines } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 
 /** Lines of context either side of the anchor. */
@@ -63,8 +67,15 @@ export function SourceSnippet({ src, line, fireLines = [] }: Props) {
     }
   }, [src])
 
+  // Highlight the whole file once so multi-line comments / strings keep their
+  // colours across the excerpt window, then index into the per-line HTML.
+  const highlighted = useMemo(
+    () => (lines ? splitHighlightedLines(highlightC(lines.join('\n'))) : null),
+    [lines],
+  )
+
   // No snippet is a supported state — the popup's prose stands on its own.
-  if (!lines) return null
+  if (!lines || !highlighted) return null
 
   const start = Math.max(1, line - CONTEXT)
   const end = Math.min(lines.length, line + CONTEXT)
@@ -72,7 +83,7 @@ export function SourceSnippet({ src, line, fireLines = [] }: Props) {
 
   return (
     <div className="overflow-x-auto rounded border border-border bg-muted/40">
-      <pre className="w-max min-w-full py-1 font-mono text-[11px] leading-relaxed">
+      <pre className="hljs w-max min-w-full py-1 font-mono text-[11px] leading-relaxed">
         {Array.from({ length: end - start + 1 }, (_, i) => {
           const n = start + i
           const isAnchor = n === line
@@ -93,9 +104,9 @@ export function SourceSnippet({ src, line, fireLines = [] }: Props) {
               >
                 {n}
               </span>
-              <span className={isAnchor ? 'text-foreground' : 'text-muted-foreground'}>
-                {lines[n - 1]}
-              </span>
+              <code
+                dangerouslySetInnerHTML={{ __html: highlighted[n - 1] ?? '' }}
+              />
             </div>
           )
         })}
