@@ -560,7 +560,10 @@ function SpiBusBadge() {
 function UartBusBadge({ busKey }: { busKey: string }) {
   const count = useSyncExternalStore(
     subscribeInventory,
-    () => getInventory()?.nodes.filter((n) => n.parentKey === busKey).length ?? 0,
+    useCallback(() => {
+      const inv = getInventory()
+      return inv?.nodes.reduce((n, node) => n + (node.parentKey === busKey ? 1 : 0), 0) ?? 0
+    }, [busKey]),
     () => 0,
   )
   return (
