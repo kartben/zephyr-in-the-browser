@@ -118,9 +118,11 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const gnss = nodeByKey(inv, 'gnss')
     const uart = inv.nodes.find((n) => n.key === gnss.parentKey)
     expect(uart?.nodeName).toBe('uart@9040000')
-    expect(uart?.deviceClass).toBe('serial')
+    expect(uart?.deviceClass).toBe('uart-bus')
+    expect(uart?.key).toBe('uart1')
 
-    expect(nodeByKey(inv, 'serial:console').note).toBe('→ terminal')
+    expect(nodeByKey(inv, 'uart0').note).toBe('→ terminal')
+    expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
     expect(nodeByKey(inv, 'display').note).toBe('on stage')
     expect(nodeByKey(inv, 'display').nodeName).toBe('ramfb')
     expect(nodeByKey(inv, 'net').nodeName).toBe('virtio-net')
@@ -349,7 +351,8 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     expect(tmp.nodeName).toBe('tmp112@48')
     expect(tmp.compatible).toBe('ti,tmp112')
     expect(nodeByKey(inv, 'net').crumb).toBe('virtio_net0')
-    expect(nodeByKey(inv, 'serial:console').nodeName).toBe('uart@9000000')
+    expect(nodeByKey(inv, 'uart0').nodeName).toBe('uart@9000000')
+    expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
     expect(nodeByKey(inv, 'display').note).toBe('on stage')
   })
 
@@ -435,6 +438,11 @@ describe('buildRowList', () => {
     for (const row of rows) {
       if (row.kind === 'group') expect(row.label).not.toMatch(/^[a-z0-9-]+$/)
     }
+
+    const uarts = rows.find((row) => row.kind === 'group' && row.deviceClass === 'uart-bus')
+    expect(uarts).toMatchObject({ label: 'UART buses', count: 2 })
+    // GNSS stays its own class; it only nests under the UART in ⌗ view.
+    expect(rows.some((row) => row.kind === 'group' && row.deviceClass === 'gnss')).toBe(true)
   })
 
   it('nests an unbridged bus’s slots under it inside the bus group', () => {

@@ -56,6 +56,8 @@ const LEGACY_KEY_MIGRATIONS: Record<string, string> = {
   'memory:50': 'virtio_i2c0:50',
   oled: 'virtio_i2c0:3c',
   i2c: 'virtio_i2c0',
+  'serial:console': 'uart0',
+  'serial:uart1': 'uart1',
 }
 const LEGACY_REMOVALS = ['perf']
 

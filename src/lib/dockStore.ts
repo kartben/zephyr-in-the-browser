@@ -83,6 +83,31 @@ function load(): DockState {
     const parsed = JSON.parse(raw) as { v?: number } & Partial<DockState>
     if (!parsed || typeof parsed !== 'object' || parsed.v !== VERSION) return defaults()
     const base = defaults()
+    const devices =
+      parsed.devices && typeof parsed.devices === 'object' ? { ...parsed.devices } : {}
+    // UART rows used to be keyed serial:console / serial:uart1; rename to the
+    // controller labels I²C/SPI buses already use.
+    for (const [from, to] of [
+      ['serial:console', 'uart0'],
+      ['serial:uart1', 'uart1'],
+    ] as const) {
+      if (devices[from] !== undefined && devices[to] === undefined) {
+        devices[to] = devices[from]
+        delete devices[from]
+      } else {
+        delete devices[from]
+      }
+    }
+    const groups =
+      parsed.groups && typeof parsed.groups === 'object'
+        ? ({ ...parsed.groups } as DockState['groups'])
+        : {}
+    if ((groups as Record<string, unknown>).serial !== undefined) {
+      if (groups['uart-bus'] === undefined) {
+        groups['uart-bus'] = (groups as Record<string, { collapsed: boolean }>).serial
+      }
+      delete (groups as Record<string, unknown>).serial
+    }
     return {
       view: parsed.view === 'classes' ? 'classes' : 'devicetree',
       open: typeof parsed.open === 'boolean' ? parsed.open : base.open,
@@ -92,8 +117,8 @@ function load(): DockState {
         parsed.seed && Array.isArray(parsed.seed.primary)
           ? { primary: parsed.seed.primary, expandAll: parsed.seed.expandAll === true }
           : base.seed,
-      devices: parsed.devices && typeof parsed.devices === 'object' ? parsed.devices : {},
-      groups: parsed.groups && typeof parsed.groups === 'object' ? parsed.groups : {},
+      devices,
+      groups,
     }
   } catch {
     return defaults()

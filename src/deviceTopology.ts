@@ -18,7 +18,7 @@
 import type { PanelKind } from '@/boards'
 import type { DeviceTreeState } from '@/devicetree'
 import type { DtsDocument, DtsInsights, DtsNode, I2cSlot, SpiSlot } from '@/dts'
-import { byPath, chosen, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regAddress } from '@/dts'
+import { byPath, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regAddress } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
 import type { SpiChip } from '@/virtio/devices/spi'
 import type { ChipKind } from '@/virtio/devices/registry'
@@ -50,13 +50,13 @@ export type DeviceClass =
   | 'rtc'
   | 'i2c-bus'
   | 'spi-bus'
+  | 'uart-bus'
   | 'gpio'
   | 'keys'
   | 'buzzer'
   | 'gnss'
   | 'audio'
   | 'net'
-  | 'serial'
   | 'other'
 
 /** Which extracted panel body a row hosts (see components/dock/deviceBodies). */
@@ -109,11 +109,11 @@ export interface DeviceNode {
   deviceClass: DeviceClass
   /** Devicetree path, used for ⌗ ordering and nesting. */
   path: string
-  /** Key of the row this one nests under in the ⌗ view (bus, GNSS's UART). */
+  /** Key of the row this one nests under in the ⌗ view (bus, UART, …). */
   parentKey?: string
   /**
    * interactive: has live controls. inert: listed for topology completeness
-   * (console UART, an unbridged bus). ghost: the devicetree declares it but
+   * (console UART bus, an unbridged bus). ghost: the devicetree declares it but
    * nothing answers on the bus — the NAK/bus-error demo, visible.
    */
   presence: 'interactive' | 'inert' | 'ghost'
@@ -165,13 +165,13 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
   'spi-bus': 'SPI buses',
+  'uart-bus': 'UART buses',
   gpio: 'GPIO',
   keys: 'Keys',
   buzzer: 'Buzzer',
   gnss: 'GNSS',
   audio: 'Audio',
   net: 'Network',
-  serial: 'Serial',
   other: 'Other devices',
 }
 
@@ -187,13 +187,13 @@ const CLASS_ORDER: DeviceClass[] = [
   'rtc',
   'i2c-bus',
   'spi-bus',
+  'uart-bus',
   'gpio',
   'keys',
   'buzzer',
   'gnss',
   'audio',
   'net',
-  'serial',
   'other',
 ]
 
@@ -453,60 +453,6 @@ function deriveFromTree(
       if (node) return node
     }
     return undefined
-  }
-
-  const consoleNode = chosen(doc)['zephyr,console']
-  if (consoleNode) {
-    push({
-      key: uniqueKey(ids, 'serial:console'),
-      nodeName: consoleNode.name,
-      label: 'Console UART',
-      compatible: compatibles(consoleNode)[0],
-      deviceClass: 'serial',
-      path: pathOf(consoleNode),
-      presence: 'inert',
-      note: '→ terminal',
-      crumb: consoleNode.labels[0],
-    })
-  }
-
-  if (avail.gnss) {
-    const gnss = firstOkay('gnss-nmea-generic')
-    if (gnss) {
-      // The point of the ⌗ view: the receiver really hangs off a UART. Give
-      // that UART a row of its own (unless it happens to be the console).
-      let parentKey: string | undefined
-      const uart = gnss.parent
-      if (uart && uart.name !== '/') {
-        const uartPath = pathOf(uart)
-        const existing = byDtPath.get(uartPath)
-        parentKey =
-          existing?.key ??
-          push({
-            key: uniqueKey(ids, `serial:${uart.labels[0] ?? uart.name}`),
-            nodeName: uart.name,
-            label: 'GNSS UART',
-            compatible: compatibles(uart)[0],
-            deviceClass: 'serial',
-            path: uartPath,
-            presence: 'inert',
-            crumb: uart.labels[0],
-          }).key
-      }
-      push({
-        key: uniqueKey(ids, 'gnss'),
-        nodeName: gnss.name,
-        label: 'GNSS',
-        compatible: compatibles(gnss)[0],
-        deviceClass: 'gnss',
-        path: pathOf(gnss),
-        parentKey,
-        presence: 'interactive',
-        body: 'gnss',
-        crumb: uart?.labels[0] ?? uart?.name,
-        panelKind: 'gnss',
-      })
-    }
   }
 
   if (avail.audio) {
@@ -814,6 +760,56 @@ function deriveFromTree(
     }
   }
 
+  // UART buses: every enumerated controller gets a row; children (GNSS, …)
+  // nest under it the same way chips nest under I²C/SPI.
+  for (const bus of insights.uartBuses) {
+    const busNode = byPath(doc, bus.path)
+    const busKey = uniqueKey(ids, bus.controllerLabel)
+    push({
+      key: busKey,
+      nodeName: busNode?.name ?? bus.controllerLabel,
+      label: bus.controllerLabel,
+      compatible: bus.compatible || undefined,
+      deviceClass: 'uart-bus',
+      path: bus.path,
+      presence: 'inert',
+      note: bus.role === 'console' ? '→ terminal' : undefined,
+      crumb: bus.controllerLabel,
+    })
+
+    for (const slot of bus.slots) {
+      if (slot.chipId === 'gnss') {
+        if (!avail.gnss) continue
+        push({
+          key: uniqueKey(ids, 'gnss'),
+          nodeName: slot.nodeName,
+          label: 'GNSS',
+          compatible: slot.compatible || undefined,
+          deviceClass: 'gnss',
+          path: `${bus.path}/${slot.nodeName}`,
+          parentKey: busKey,
+          presence: 'interactive',
+          body: 'gnss',
+          crumb: bus.controllerLabel,
+          panelKind: 'gnss',
+        })
+        continue
+      }
+      // Unknown UART child — keep it under the bus group for topology.
+      push({
+        key: uniqueKey(ids, `${bus.controllerLabel}:${slot.nodeName}`),
+        nodeName: slot.nodeName,
+        label: slot.nodeName,
+        compatible: slot.compatible || undefined,
+        deviceClass: 'uart-bus',
+        path: `${bus.path}/${slot.nodeName}`,
+        parentKey: busKey,
+        presence: 'inert',
+        crumb: bus.controllerLabel,
+      })
+    }
+  }
+
   return sortByDocumentOrder(nodes, doc)
 }
 
@@ -949,11 +945,11 @@ function deriveFallback(
   const nodes: DeviceNode[] = []
 
   nodes.push({
-    key: uniqueKey(ids, 'serial:console'),
+    key: uniqueKey(ids, names.console.label ?? names.console.nodeName),
     nodeName: names.console.nodeName,
-    label: 'Console UART',
+    label: names.console.label ?? names.console.nodeName,
     compatible: names.console.compatible,
-    deviceClass: 'serial',
+    deviceClass: 'uart-bus',
     path: `/soc/${names.console.nodeName}`,
     presence: 'inert',
     note: '→ terminal',
@@ -961,13 +957,13 @@ function deriveFallback(
   })
 
   if (avail.gnss) {
-    const uartKey = uniqueKey(ids, `serial:${names.gnssUart.label ?? names.gnssUart.nodeName}`)
+    const uartKey = uniqueKey(ids, names.gnssUart.label ?? names.gnssUart.nodeName)
     nodes.push({
       key: uartKey,
       nodeName: names.gnssUart.nodeName,
-      label: 'GNSS UART',
+      label: names.gnssUart.label ?? names.gnssUart.nodeName,
       compatible: names.gnssUart.compatible,
-      deviceClass: 'serial',
+      deviceClass: 'uart-bus',
       path: `/soc/${names.gnssUart.nodeName}`,
       presence: 'inert',
       crumb: names.gnssUart.label,
