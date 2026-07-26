@@ -238,11 +238,7 @@ export function SampleGallery({
             </label>
           </div>
 
-          <div
-            role="listbox"
-            aria-label="Sample list"
-            className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-1"
-          >
+          <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-1">
             {catalog.length === 0 ? (
               <p className="px-3 py-8 text-center text-xs text-muted-foreground">
                 No samples match “{query.trim()}”.
@@ -335,10 +331,10 @@ function SampleRow({
 
   return (
     // A row is a select-me control with real links inside it, so it is a div
-    // with role=option rather than a <button> (nested buttons are invalid).
+    // with role=button rather than a <button> (nested buttons are invalid).
     <div
-      role="option"
-      aria-selected={active}
+      role="button"
+      aria-pressed={active}
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => {
