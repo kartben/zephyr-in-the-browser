@@ -23,7 +23,7 @@ import {
   type LittlefsTreeFile,
   type LittlefsTreeNode,
 } from '@/lib/littlefsBrowse'
-import type { SpiFlashChip } from '@/virtio/devices/chips/w25q'
+import type { SpiFlashChip } from '@/virtio/devices/flash/model'
 
 const REFRESH_MS = 500
 

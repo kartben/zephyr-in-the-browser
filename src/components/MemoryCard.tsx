@@ -1,9 +1,10 @@
 import { useCallback, useSyncExternalStore } from 'react'
+import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView } from '@/components/HexView'
 import { LittlefsBrowserButton } from '@/components/LittlefsBrowser'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
-import type { SpiFlashChip } from '@/virtio/devices/chips/w25q'
+import { formatFlashSize, type SpiFlashChip } from '@/virtio/devices/flash/model'
 
 /**
  * The control surface for a simulated I2C memory part.
@@ -67,7 +68,11 @@ export function MemoryBody({
   )
 }
 
-/** Same hex surface for a JEDEC SPI NOR on the virtio-spi bus. */
+/**
+ * Hex surface + live flash stats for any {@link SpiFlashChip}. Geometry and
+ * counters come from the chip declaration/machine — a second NOR density is
+ * another decl, not another body.
+ */
 export function SpiFlashBody({
   chip,
   compact = false,
@@ -77,13 +82,17 @@ export function SpiFlashBody({
   compact?: boolean
   onOpenWindow?: () => void
 }) {
-  const { size, pageSize } = chip.decl
+  const { size, pageSize, sectorSize } = chip.decl
 
   return (
     <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-mono text-[10px] text-muted-foreground">
-          {size} B{pageSize ? ` · ${pageSize} B pages` : ''} · CS{chip.cs}
+          {formatFlashSize(size)}
+          {pageSize ? ` · ${pageSize} B pages` : ''}
+          {sectorSize ? ` · ${formatFlashSize(sectorSize)} sectors` : ''}
+          {' · '}
+          CS{chip.cs}
         </span>
         <span className="ml-auto flex items-baseline gap-3">
           <LittlefsBrowserButton chip={chip} />
@@ -104,6 +113,8 @@ export function SpiFlashBody({
           </button>
         </span>
       </div>
+
+      <FlashStatsView chip={chip} compact={compact} />
 
       {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
 
