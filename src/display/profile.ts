@@ -6,7 +6,12 @@
  * Costs next to nothing when disabled; when on, samples on a 250 ms tick.
  */
 
-import { getFrame, getSnapshot, subscribe as subscribeDisplay } from '@/hostDisplay'
+import {
+  getFrame,
+  getFrameSequence,
+  getSnapshot,
+  subscribe as subscribeDisplay,
+} from '@/hostDisplay'
 import { getSnapshot as getStats, warpOvershootStats } from '@/guestStats'
 import {
   bridgeStats,
@@ -102,6 +107,8 @@ const empty = (): Counters => ({
 let enabled = false
 let lastDigest = 0
 let hasDigest = false
+let lastFrameSequence = 0
+let hasFrameSequence = false
 let poll: ReturnType<typeof setInterval> | undefined
 let unsubDisplay: (() => void) | undefined
 let raf = 0
@@ -145,6 +152,14 @@ export function setRenderWorker(worker: Worker | null) {
 function sampleGuestFrame() {
   const snap = getSnapshot()
   if (!snap.available) return
+  const sequence = getFrameSequence()
+  if (sequence !== null) {
+    if (hasFrameSequence && sequence === lastFrameSequence) return
+    lastFrameSequence = sequence
+    hasFrameSequence = true
+    windowCounters.guestFrames += 1
+    return
+  }
   const frame = getFrame()
   if (!frame || frame.byteLength < 4) return
   if (snap.pointer % 4 !== 0 || frame.byteLength % 4 !== 0) return
@@ -256,6 +271,7 @@ function enable() {
   windowCounters.i2cStart = i2cModel.transactionCount()
   windowCounters.bridgeStart = bridgeStats()
   hasDigest = false
+  hasFrameSequence = false
   const tick = () => {
     if (!enabled) return
     sampleGuestFrame()

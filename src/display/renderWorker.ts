@@ -13,11 +13,11 @@
  * Frames go out at the display's own rate rather than a fixed 30 fps. The cap
  * was there because the upload used to compete with xterm and React on the main
  * thread — which is why the main-thread renderers still keep one — but this
- * thread has nothing to compete with. What replaces it is a checksum: a frame is
- * uploaded only when it differs from the last, so an idle panel costs one read
- * of the framebuffer and no upload at all. While the guest is animating (chart
- * samples, music demo), the checksum is skipped after a short dirty streak so
- * the hashing itself does not tax every present.
+ * thread has nothing to compete with. New emulator artifacts expose an atomic
+ * dirty sequence, so an idle panel costs one atomic load and no upload at all.
+ * Older artifacts keep a checksum fallback; while the guest is animating
+ * (chart samples, music demo), that checksum is skipped after a short dirty
+ * streak so hashing itself does not tax every present.
  */
 import { createWebGLRenderer, type FrameRenderer, type UploadMode } from './renderers'
 
@@ -29,6 +29,7 @@ export interface WorkerSnapshot {
   stride: number
   fourcc: number
   pointer: number
+  frameSeqPointer: number
 }
 
 export type MainToWorker =
@@ -69,6 +70,11 @@ let frameHandle = 0
 /** Checksum of the last uploaded frame, and whether one has been uploaded. */
 let lastDigest = 0
 let hasDrawn = false
+let frameSeqView: Int32Array | null = null
+let frameSeqBuffer: SharedArrayBuffer | null = null
+let frameSeqPointer = 0
+let lastFrameSequence = 0
+let hasFrameSequence = false
 /**
  * Consecutive frames that differed from their predecessor. Once the guest is
  * clearly animating, hashing every pixel before each upload is pure overhead —
@@ -107,11 +113,40 @@ function digest(buffer: ArrayBufferLike, pointer: number, length: number): numbe
   return hash
 }
 
+function resetFrameTracking() {
+  lastDigest = 0
+  hasDrawn = false
+  dirtyStreak = 0
+  frameSeqView = null
+  frameSeqBuffer = null
+  frameSeqPointer = 0
+  lastFrameSequence = 0
+  hasFrameSequence = false
+}
+
+/** Read QEMU's atomic dirty sequence, or null when the artifact predates it. */
+function getFrameSequence(source: ArrayBufferLike, pointer: number): number | null {
+  if (
+    typeof SharedArrayBuffer === 'undefined' ||
+    !(source instanceof SharedArrayBuffer) ||
+    pointer <= 0 ||
+    pointer % Int32Array.BYTES_PER_ELEMENT !== 0 ||
+    pointer + Int32Array.BYTES_PER_ELEMENT > source.byteLength
+  ) {
+    return null
+  }
+  if (frameSeqBuffer !== source || frameSeqPointer !== pointer) {
+    frameSeqView = new Int32Array(source, pointer, 1)
+    frameSeqBuffer = source
+    frameSeqPointer = pointer
+  }
+  return frameSeqView ? Atomics.load(frameSeqView, 0) >>> 0 : null
+}
+
 function buildRenderer(view: OffscreenCanvas, snap: WorkerSnapshot): boolean {
   renderer?.dispose()
   renderer = null
-  hasDrawn = false
-  dirtyStreak = 0
+  resetFrameTracking()
   try {
     view.width = snap.width
     view.height = snap.height
@@ -145,25 +180,35 @@ function frame() {
   const length = snapshot.stride * snapshot.height
   if (snapshot.pointer <= 0 || snapshot.pointer + length > buffer.byteLength) return
 
-  // Skip frames the guest has not touched. The guest writes the framebuffer
-  // directly and ramfb has no dirty bit to read, so the content is the signal.
-  const hot = dirtyStreak >= HOT_AFTER
-  const recheck = hot && dirtyStreak % HOT_RECHECK_EVERY === 0
   let digestMs = 0
   let uploaded = true
-  if (!hot || recheck) {
-    const t0 = profiling ? performance.now() : 0
-    const hash = digest(buffer, snapshot.pointer, length)
-    if (profiling) digestMs = performance.now() - t0
-    if (hasDrawn && hash !== null && hash === lastDigest) {
-      dirtyStreak = 0
+  const sequence = getFrameSequence(buffer, snapshot.frameSeqPointer)
+  if (sequence !== null) {
+    if (hasFrameSequence && sequence === lastFrameSequence) {
       uploaded = false
-      if (profiling) post({ type: 'frameStats', uploaded: false, digestMs, drawMs: 0 })
+      if (profiling) post({ type: 'frameStats', uploaded, digestMs, drawMs: 0 })
       return
     }
-    lastDigest = hash ?? 0
+    hasFrameSequence = true
+    lastFrameSequence = sequence
+  } else {
+    // Old QEMU artifacts do not publish a dirty bit, so content is the signal.
+    const hot = dirtyStreak >= HOT_AFTER
+    const recheck = hot && dirtyStreak % HOT_RECHECK_EVERY === 0
+    if (!hot || recheck) {
+      const t0 = profiling ? performance.now() : 0
+      const hash = digest(buffer, snapshot.pointer, length)
+      if (profiling) digestMs = performance.now() - t0
+      if (hasDrawn && hash !== null && hash === lastDigest) {
+        dirtyStreak = 0
+        uploaded = false
+        if (profiling) post({ type: 'frameStats', uploaded, digestMs, drawMs: 0 })
+        return
+      }
+      lastDigest = hash ?? 0
+    }
+    dirtyStreak += 1
   }
-  dirtyStreak += 1
   hasDrawn = true
 
   // Re-view every frame: an in-place heap growth keeps the SharedArrayBuffer's
@@ -186,8 +231,7 @@ self.addEventListener('message', (event: MessageEvent) => {
     canvas = message.canvas
     buffer = message.buffer
     snapshot = message.snapshot
-    hasDrawn = false
-    dirtyStreak = 0
+    resetFrameTracking()
     if (!running) {
       running = true
       frameHandle = schedule(frame)
@@ -197,8 +241,7 @@ self.addEventListener('message', (event: MessageEvent) => {
     // at a new address must still reach the canvas.
     buffer = message.buffer
     snapshot = message.snapshot
-    hasDrawn = false
-    dirtyStreak = 0
+    resetFrameTracking()
   } else if (message.type === 'profile') {
     profiling = message.enabled
   } else if (message.type === 'stop') {
@@ -209,7 +252,6 @@ self.addEventListener('message', (event: MessageEvent) => {
     canvas = null
     buffer = null
     snapshot = null
-    hasDrawn = false
-    dirtyStreak = 0
+    resetFrameTracking()
   }
 })

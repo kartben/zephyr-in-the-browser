@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Monitor, Pointer } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { cn } from '@/lib/utils'
-import { getFrame, getSharedBuffer, getSnapshot, subscribe } from '@/hostDisplay'
+import { getFrame, getFrameSequence, getSharedBuffer, getSnapshot, subscribe } from '@/hostDisplay'
 import {
   available as pointerAvailable,
   movePointer,
@@ -293,12 +293,17 @@ function DisplayBody({
 
     let stopped = false
     let previous = 0
+    let lastFrameSequence: number | null = null
     let animationFrame = 0
     const draw = (now: number) => {
       if (stopped) return
       if (now - previous >= FRAME_INTERVAL_MS) {
-        const source = getFrame()
-        if (source) renderer.draw(source)
+        const sequence = getFrameSequence()
+        if (sequence === null || sequence !== lastFrameSequence) {
+          const source = getFrame()
+          if (source) renderer.draw(source)
+          lastFrameSequence = sequence
+        }
         previous = now
       }
       animationFrame = requestAnimationFrame(draw)
