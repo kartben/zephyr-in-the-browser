@@ -42,7 +42,7 @@ import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { DacBody } from '@/components/DacPanel'
 import { FuelGaugeBody } from '@/components/FuelGaugePanel'
-import { PwmBody } from '@/components/PwmPanel'
+import { PwmBadge, PwmBody } from '@/components/PwmPanel'
 import { PwmLedsBadge, PwmLedsBody } from '@/components/PwmLedsPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
@@ -70,10 +70,7 @@ import {
   formatSocPct,
   type FuelGaugeChip,
 } from '@/virtio/devices/fuel-gauge/model'
-import {
-  formatPwmDuty,
-  type PwmChip,
-} from '@/virtio/devices/pwm/model'
+import type { PwmChip } from '@/virtio/devices/pwm/model'
 import type { RtcChip } from '@/virtio/devices/rtc/model'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
 import type { Ssd1306Chip } from '@/virtio/devices/chips/ssd1306'
@@ -302,15 +299,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       )
     case 'gpio-leds':
       return <GpioLedsBadge />
-    case 'pwm': {
-      const chip = node.chip as PwmChip
-      const ch = chip.getChannel(0)
-      return (
-        <Mono>
-          CH0 · {formatPwmDuty(ch.duty)}
-        </Mono>
-      )
-    }
+    case 'pwm':
+      return <PwmBadge chip={node.chip as PwmChip} />
     case 'dac': {
       const chip = node.chip as DacChip
       const ch = chip.getChannel(0)
@@ -425,14 +415,7 @@ export function GroupBadge({
     const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'pwm')?.chip as
       | PwmChip
       | undefined
-    if (chip) {
-      const ch = chip.getChannel(0)
-      return (
-        <Mono>
-          {chip.decl.channelCount} ch · {formatPwmDuty(ch.duty)}
-        </Mono>
-      )
-    }
+    if (chip) return <PwmBadge chip={chip} variant="count" />
   }
   if (deviceClass === 'dac') {
     const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'dac')?.chip as

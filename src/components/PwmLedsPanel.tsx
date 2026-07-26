@@ -5,6 +5,9 @@
  * secondary tile). Brightness is channel duty from the attached {@link PwmChip}
  * — opacity on the same primary fill/glow the GPIO LEDs use when high.
  * Labels come from the running build's flattened tree.
+ *
+ * Updates coalesce on requestAnimationFrame so the stock LED PWM fade
+ * (~10 ms/step) tracks smoothly instead of waiting out a 50 ms UI timer.
  */
 
 import { useEffect, useReducer } from 'react'
@@ -14,8 +17,6 @@ import {
   type PwmChip,
 } from '@/virtio/devices/pwm/model'
 
-const UI_MS = 50
-
 export interface PwmLedView {
   channel: number
   label: string
@@ -24,33 +25,18 @@ export interface PwmLedView {
 function useChip(chip: PwmChip) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let last = 0
+    let frame = 0
     const refresh = () => {
-      last = performance.now()
+      frame = 0
       force()
     }
     const unsubscribe = chip.subscribe(() => {
-      const now = performance.now()
-      const wait = UI_MS - (now - last)
-      if (wait <= 0) {
-        if (timer !== undefined) {
-          clearTimeout(timer)
-          timer = undefined
-        }
-        refresh()
-        return
-      }
-      if (timer !== undefined) return
-      timer = setTimeout(() => {
-        timer = undefined
-        refresh()
-      }, wait)
+      if (!frame) frame = requestAnimationFrame(refresh)
     })
     refresh()
     return () => {
       unsubscribe()
-      if (timer !== undefined) clearTimeout(timer)
+      if (frame) cancelAnimationFrame(frame)
     }
   }, [chip])
 }
@@ -102,7 +88,7 @@ function PwmLedCell({ chip, led }: { chip: PwmChip; led: PwmLedView }) {
       <span
         aria-hidden
         className={cn(
-          'size-3 rounded-full border transition-colors',
+          'size-3 rounded-full border',
           lit
             ? 'border-primary bg-primary shadow-[0_0_6px_1px_var(--color-primary)]'
             : 'border-border bg-transparent',
