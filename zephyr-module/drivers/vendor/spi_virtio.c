@@ -16,10 +16,14 @@
 #include <zephyr/sys/util.h>
 #include <string.h>
 
+LOG_MODULE_REGISTER(spi_virtio, CONFIG_SPI_LOG_LEVEL);
+
+/*
+ * Included after LOG_MODULE_REGISTER: their static-inline helpers log against
+ * this module, so the log symbols have to be declared before they are pulled in.
+ */
 #include "spi_context.h"
 #include "spi_rtio.h"
-
-LOG_MODULE_REGISTER(spi_virtio, CONFIG_SPI_LOG_LEVEL);
 
 /*
  * Driver for the virtio SPI controller device, as defined in the "SPI Controller

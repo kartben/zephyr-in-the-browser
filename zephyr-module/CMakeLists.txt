@@ -52,6 +52,10 @@ endif()
 
 if(CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
   zephyr_library_sources(${VENDORED_VIRTIO_SPI})
+  # spi_virtio.c uses the shared spi_context.h/spi_rtio.h helpers, which live in
+  # the tree's drivers/spi and are not on the default include path for an
+  # out-of-tree module source.
+  zephyr_library_include_directories(${ZEPHYR_BASE}/drivers/spi)
 endif()
 if(CONFIG_QEMU_HOST_GPIO)
   zephyr_library_sources(drivers/qemu_host_gpio.c)
