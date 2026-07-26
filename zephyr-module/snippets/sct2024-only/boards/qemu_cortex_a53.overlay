@@ -1,0 +1,102 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/led/sct2024: SCT2024 on virtio-spi CS0 with LA/OE on
+ * virtio-gpio. Self-contained — does not compose with the virtio-spi snippet
+ * (that one puts a JEDEC NOR on CS0). Pin 6 = LA, pin 7 = OE; pins 0/4 stay
+ * free for the usual button/LED0 demo nodes when virtio-gpio is also applied.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&virtio_mmio2 {
+	status = "okay";
+};
+
+&virtio_gpio0 {
+	status = "okay";
+};
+
+&virtio_mmio5 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	status = "okay";
+
+	sct2024_0: sct2024@0 {
+		compatible = "sct,sct2024";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		/* Match the stock nRF sample: ACTIVE_LOW LA/OE. */
+		la-gpios = <&virtio_gpio0 6 GPIO_ACTIVE_LOW>;
+		oe-gpios = <&virtio_gpio0 7 GPIO_ACTIVE_LOW>;
+		status = "okay";
+
+		led_0 {
+			label = "LED 0";
+			index = <0>;
+		};
+		led_1 {
+			label = "LED 1";
+			index = <1>;
+		};
+		led_2 {
+			label = "LED 2";
+			index = <2>;
+		};
+		led_3 {
+			label = "LED 3";
+			index = <3>;
+		};
+		led_4 {
+			label = "LED 4";
+			index = <4>;
+		};
+		led_5 {
+			label = "LED 5";
+			index = <5>;
+		};
+		led_6 {
+			label = "LED 6";
+			index = <6>;
+		};
+		led_7 {
+			label = "LED 7";
+			index = <7>;
+		};
+		led_8 {
+			label = "LED 8";
+			index = <8>;
+		};
+		led_9 {
+			label = "LED 9";
+			index = <9>;
+		};
+		led_10 {
+			label = "LED 10";
+			index = <10>;
+		};
+		led_11 {
+			label = "LED 11";
+			index = <11>;
+		};
+		led_12 {
+			label = "LED 12";
+			index = <12>;
+		};
+		led_13 {
+			label = "LED 13";
+			index = <13>;
+		};
+		led_14 {
+			label = "LED 14";
+			index = <14>;
+		};
+		led_15 {
+			label = "LED 15";
+			index = <15>;
+		};
+	};
+};

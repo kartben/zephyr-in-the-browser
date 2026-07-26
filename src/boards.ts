@@ -364,6 +364,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'i2c'],
   },
   {
+    // Stock SPI LED sample against the browser SCT2024 on CS0. LA/OE ride
+    // virtio-gpio pins 6/7; the dock shows a 16-dot bar plus SHIFT/LED_OUT/CTRL.
+    id: 'sct2024',
+    label: 'SCT2024 LED',
+    description: 'Walks 16 LEDs on an SCT2024 SPI LED driver; bar + registers in the page',
+    zephyrSample: 'samples/drivers/led/sct2024',
+    primaryPanels: ['led', 'spi', 'gpio'],
+  },
+  {
     // PWM LEDs via Zephyr's led_pwm against the browser PCA9685 at 0x60.
     // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',

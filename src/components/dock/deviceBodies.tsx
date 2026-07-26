@@ -36,7 +36,7 @@ import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
 import { SpiBody } from '@/components/SpiPanel'
-import { LedMatrixBody, RgbLedBody } from '@/components/LedPanel'
+import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
@@ -58,6 +58,7 @@ import { setWindowed } from '@/lib/dockStore'
 import { i2cModel, spiModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
+import type { Sct2024Chip } from '@/virtio/devices/chips/sct2024'
 import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import {
@@ -103,6 +104,8 @@ export function DeviceBody({
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
     case 'rgb-led':
       return <RgbLedBody chip={node.chip as Lp5562Chip} />
+    case 'led-bar':
+      return <LedBarBody chip={node.chip as Sct2024Chip} />
     case 'pwm-leds':
       return (
         <PwmLedsBody
@@ -164,6 +167,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
     case 'led':
       return Grid3x3
     case 'rgb-led':
+      return Lightbulb
+    case 'led-bar':
       return Lightbulb
     case 'pwm-leds':
       return Lightbulb
@@ -278,6 +283,10 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
           R{rgb.r} G{rgb.g} B{rgb.b}
         </Mono>
       )
+    }
+    case 'led-bar': {
+      const chip = node.chip as Sct2024Chip
+      return <Mono>{chip.getBitmap().toString(16).padStart(4, '0')}</Mono>
     }
     case 'pwm-leds':
       return (

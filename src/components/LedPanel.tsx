@@ -1,11 +1,12 @@
 /**
- * Dock bodies for LED-class I²C parts: HT16K33 matrix and LP5562 RGBW.
+ * Dock bodies for LED-class parts: HT16K33 matrix, LP5562 RGBW, SCT2024 bar.
  */
 
 import { useEffect, useReducer, useRef } from 'react'
 import { RegisterMapButton } from '@/components/RegisterMap'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
+import type { Sct2024Chip } from '@/virtio/devices/chips/sct2024'
 import { cn } from '@/lib/utils'
 
 const UI_MS = 50
@@ -261,6 +262,45 @@ function ChannelMeter({
           className="h-full rounded-sm transition-[width] duration-75"
           style={{ width: `${pct}%`, background: accent }}
         />
+      </div>
+    </div>
+  )
+}
+
+/** SCT2024 16-channel SPI LED bar — one lit cell per latched output bit. */
+export function LedBarBody({ chip }: { chip: Sct2024Chip }) {
+  useChip(chip)
+  const bitmap = chip.getBitmap()
+  const onCount = Array.from({ length: chip.ledCount }, (_, i) => (bitmap >> i) & 1).reduce(
+    (a, b) => a + b,
+    0,
+  )
+
+  return (
+    <div className="flex flex-col gap-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] text-muted-foreground">
+          SCT2024 · {onCount}/{chip.ledCount} on
+          {(chip.peek(0x02) & 0x01) === 0 ? ' · OE blanked' : ''}
+        </div>
+        <RegisterMapButton chip={chip} />
+      </div>
+      <div className="grid grid-cols-8 gap-1.5">
+        {Array.from({ length: chip.ledCount }, (_, i) => {
+          const on = chip.isLedOn(i)
+          return (
+            <div
+              key={i}
+              title={`LED ${i}${on ? ' on' : ' off'}`}
+              className={cn(
+                'aspect-square rounded-sm border border-border transition-colors duration-75',
+                on
+                  ? 'bg-amber-300 shadow-[0_0_8px_rgba(252,211,77,0.45)]'
+                  : 'bg-[#1a1d24]',
+              )}
+            />
+          )
+        })}
       </div>
     </div>
   )

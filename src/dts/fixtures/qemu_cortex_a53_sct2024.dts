@@ -1,0 +1,57 @@
+/*
+ * Flattened DTS fixture for the SCT2024 packaging: virtio-spi with
+ * sct,sct2024 okay at CS0, plus virtio-gpio for LA/OE. Used to catch dock
+ * routing (led-bar body, led panel) and SPI chip-id mapping.
+ */
+
+/dts-v1/;
+
+/ {
+	compatible = "qemu,cortex-a53";
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		virtio_mmio2: virtio_mmio@a000400 {
+			compatible = "virtio,mmio";
+			reg = <0xa000400 0x200>;
+			status = "okay";
+
+			virtio_gpio0: virtio-gpio {
+				compatible = "virtio,gpio";
+				ngpios = <32>;
+				gpio-controller;
+				#gpio-cells = <2>;
+				status = "okay";
+			};
+		};
+
+		virtio_mmio5: virtio_mmio@a000a00 {
+			compatible = "virtio,mmio";
+			reg = <0xa000a00 0x200>;
+			status = "okay";
+
+			virtio_spi0: virtio-spi {
+				compatible = "virtio,spi";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "okay";
+
+				sct2024_0: sct2024@0 {
+					compatible = "sct,sct2024";
+					reg = <0>;
+					spi-max-frequency = <1000000>;
+					la-gpios = <&virtio_gpio0 6 1>;
+					oe-gpios = <&virtio_gpio0 7 1>;
+					status = "okay";
+
+					led_0 {
+						label = "LED 0";
+						index = <0>;
+					};
+				};
+			};
+		};
+	};
+};

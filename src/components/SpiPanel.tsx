@@ -10,6 +10,7 @@ import {
   createW25q,
   isSpiFlashChip,
 } from '@/virtio/devices/chips/w25q'
+import { createSct2024, isSct2024 } from '@/virtio/devices/chips/sct2024'
 import type { DeviceClass } from '@/deviceTopology'
 
 /**
@@ -123,6 +124,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
 
 function spiChipClass(chip: SpiChip): DeviceClass {
   if (isSpiFlashChip(chip)) return 'memory'
+  if (isSct2024(chip)) return 'led'
   return 'other'
 }
 
@@ -142,6 +144,12 @@ const SPI_TYPES = [
     label: 'W25Q SPI NOR',
     defaultCs: 0,
     create: (cs: number) => createW25q({ cs }),
+  },
+  {
+    id: 'sct2024',
+    label: 'SCT2024 LED',
+    defaultCs: 0,
+    create: (cs: number) => createSct2024({ cs }),
   },
   {
     id: 'loopback',

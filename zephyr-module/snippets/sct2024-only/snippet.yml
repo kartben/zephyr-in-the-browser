@@ -1,0 +1,17 @@
+name: sct2024-only
+description: >
+  SCT2024 16-channel SPI LED driver alone on the browser SPI bus: enable
+  virtio-spi with the part on CS0 (no JEDEC NOR), enable virtio-gpio for the
+  LA/OE sideband pins, and focus the dock on the LED bar for
+  samples/drivers/led/sct2024.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
