@@ -88,6 +88,7 @@ function emptyTrace(): Trace {
   }
 }
 
+/** Incrementally decodes CTF bytes into renderable thread-state traces. */
 export class TraceReader {
   readonly defs: Map<number, EventDef>
   readonly hasTs: boolean

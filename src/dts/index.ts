@@ -1,3 +1,5 @@
+/** Public devicetree parsing, query, and insight surface. */
+
 export { parseDts } from './parser'
 export { DtsParseError } from './model'
 export type { DtsCell, DtsDocument, DtsNode, DtsProperty, DtsValue } from './model'

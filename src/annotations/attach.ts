@@ -1,3 +1,5 @@
+/** Wire xterm OSC output into the annotation walkthrough store. */
+
 import type { Terminal } from '@xterm/xterm'
 import { decodeRecord, OSC_IDENT } from '@/annotations/protocol'
 import { handleRecord } from '@/annotations/store'

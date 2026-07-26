@@ -1,3 +1,5 @@
+/** Shared PtyBackend types and lifecycle status. */
+
 import type { openpty } from 'xterm-pty'
 import type { Board } from '@/boards'
 

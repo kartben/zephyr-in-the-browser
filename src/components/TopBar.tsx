@@ -1,3 +1,5 @@
+/** App toolbar for board/sample controls, run state, and dock toggles. */
+
 import { useCallback, useState, useSyncExternalStore } from 'react'
 import { Cpu, FileCode2, Pause, Play, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'

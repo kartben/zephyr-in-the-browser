@@ -1,3 +1,5 @@
+/** Dock body for the SSD1306 OLED framebuffer. */
+
 import { useEffect, useRef } from 'react'
 import { OledControllerButton } from '@/components/OledController'
 import { ssd1306 } from '@/virtio'

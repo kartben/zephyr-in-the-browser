@@ -62,6 +62,7 @@ const TIME_WAIT_MS = 500
 const seqAdd = (a: number, n: number) => (a + n) >>> 0
 const seqDiff = (a: number, b: number) => (a - b) | 0 // signed distance a-b
 
+/** One TCP endpoint with send/receive state and callbacks. */
 export class TcpSocket {
   readonly local: TcpEndpoint
   readonly remote: TcpEndpoint
@@ -431,6 +432,7 @@ export function rstReplyFor(seg: TcpSegment): TcpSegment {
   }
 }
 
+/** Owns TCP sockets and listener dispatch for the browser LAN. */
 export class TcpEngine {
   private hooks: TcpHooks
   private sockets = new Map<string, TcpSocket>()

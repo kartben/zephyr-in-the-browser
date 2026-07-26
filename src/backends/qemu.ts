@@ -1,3 +1,5 @@
+/** QEMU-wasm PtyBackend: load public/qemu artifacts and wire stdio to xterm-pty. */
+
 import { attach as attachHostDisplay, detach as detachHostDisplay } from '@/hostDisplay'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { attach as attachHostGpio, detach as detachHostGpio } from '@/hostGpio'

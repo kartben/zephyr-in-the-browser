@@ -1,3 +1,5 @@
+/** Live Zephyr CTF schedule view. */
+
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'

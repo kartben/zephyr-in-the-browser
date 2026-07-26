@@ -1,3 +1,5 @@
+/** Dock body for virtual network status, capture, and tools. */
+
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Download, Info, Pause, Play, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'

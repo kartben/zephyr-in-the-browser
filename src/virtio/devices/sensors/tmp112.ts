@@ -1,3 +1,5 @@
+/** TI TMP112 temperature sensor as a SensorDecl. */
+
 import tmp112Map from './maps/tmp112.json'
 import { registersFromJson, type RegisterMapJson } from './registerMap'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'

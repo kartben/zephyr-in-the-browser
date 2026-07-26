@@ -1,3 +1,5 @@
+/** Dialog that asks how dropped DTS files should be used. */
+
 import { useRef } from 'react'
 import { FileCode2 } from 'lucide-react'
 import {

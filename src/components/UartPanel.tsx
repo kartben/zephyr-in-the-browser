@@ -1,3 +1,5 @@
+/** Dock body for UART bus children and shortcuts. */
+
 import { useCallback, useSyncExternalStore } from 'react'
 import { getInventory, revealDockRow, subscribeInventory } from '@/lib/dockReveal'
 import type { DeviceNode } from '@/deviceTopology'

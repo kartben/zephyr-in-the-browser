@@ -1,3 +1,5 @@
+/** Dock UI state: view, width, expanded/hidden/floated rows, collapsed groups. */
+
 import type { PanelKind } from '@/boards'
 import type { DeviceClass, DockView } from '@/deviceTopology'
 import { clearAllPanelLayouts, migratePanelLayoutKeys } from '@/lib/panelLayout'

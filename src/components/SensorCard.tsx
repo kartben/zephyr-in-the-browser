@@ -1,3 +1,5 @@
+/** Dock/window body for declarative I2C sensors. */
+
 import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from 'react'
 import { CheckControl, SelectControl, SliderControl } from '@/components/controls/ControlRow'
 import { RegisterMapButton } from '@/components/RegisterMap'

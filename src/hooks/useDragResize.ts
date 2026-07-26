@@ -1,3 +1,5 @@
+/** Drag/resize pointer handlers for floating panel frames. */
+
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import type { PanelBox } from '@/lib/panelLayout'
 

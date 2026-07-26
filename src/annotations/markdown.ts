@@ -1,3 +1,5 @@
+/** Markdown subset used by annotation bodies. */
+
 export interface TextSpan {
   kind: 'text'
   text: string

@@ -1,3 +1,5 @@
+/** Mock PtyBackend for UI development without QEMU. */
+
 import type { PtyBackend, Slave, StartOptions } from './types'
 import { sampleAnnotationsAsset, sampleDtsAsset } from '@/boards'
 import { loadSampleDts } from '@/devicetree'

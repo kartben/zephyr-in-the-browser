@@ -1,3 +1,5 @@
+/** Public CTF trace parsing and rendering surface. */
+
 export {
   fallbackDefs,
   loadEventDefs,

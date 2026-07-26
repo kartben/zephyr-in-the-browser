@@ -1,3 +1,5 @@
+/** Dock bodies for GPIO controller, keys, and LED rows. */
+
 import { useCallback, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
 import { formatGpioFlags } from '@/lib/gpioFlags'

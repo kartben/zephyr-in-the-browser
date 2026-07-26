@@ -1,3 +1,5 @@
+/** Outline of the reader's place in the guided lesson. */
+
 import { revisit } from '@/annotations/store'
 import type { AnnotationCatalog } from '@/annotations/catalog'
 import { cn } from '@/lib/utils'

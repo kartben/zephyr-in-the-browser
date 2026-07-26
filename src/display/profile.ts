@@ -1,3 +1,5 @@
+/** Optional display-path profiler (?profile=1 / Playwright hook). */
+
 import {
   getFrame,
   getFrameSequence,

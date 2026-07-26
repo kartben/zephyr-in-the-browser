@@ -1,3 +1,5 @@
+/** ADXL345 3-axis accelerometer as a SensorDecl. */
+
 import adxl345Map from './maps/adxl345.json'
 import { registersFromJson, type RegisterMapJson } from './registerMap'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'

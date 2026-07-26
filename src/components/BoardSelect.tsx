@@ -1,3 +1,5 @@
+/** Board selector for choosing the emulated machine. */
+
 import {
   Select,
   SelectContent,

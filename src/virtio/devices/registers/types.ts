@@ -1,3 +1,5 @@
+/** Shared SVD-inspired register-map types for chips with named registers. */
+
 export type Endian = 'be' | 'le'
 
 /** Inclusive `[lsb, msb]` matches CMSIS-SVD bitRange. */

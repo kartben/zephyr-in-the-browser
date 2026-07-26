@@ -1,3 +1,5 @@
+/** Which samples ship with a guided walkthrough. */
+
 import type { GuestSample } from '@/boards'
 
 // Keyed by source path; qemu_riscv32 shares sample objects with Cortex-A53.

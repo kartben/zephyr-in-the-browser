@@ -1,3 +1,5 @@
+/** Dock bodies for guest speaker and microphone controls. */
+
 import { useSyncExternalStore } from 'react'
 import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { Button } from '@/components/ui/button'

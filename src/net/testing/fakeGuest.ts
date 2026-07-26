@@ -25,6 +25,7 @@ export interface FakeGuestHooks {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+/** Scripted guest peer for network tests and the mock backend. */
 export class FakeGuest {
   readonly mac: Uint8Array
   ip = 0

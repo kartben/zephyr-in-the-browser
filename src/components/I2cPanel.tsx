@@ -1,3 +1,5 @@
+/** Dock body for attached I2C chips and live transactions. */
+
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'

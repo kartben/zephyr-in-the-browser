@@ -1,3 +1,5 @@
+/** Backend lifecycle status pill. */
+
 import { cn } from '@/lib/utils'
 import type { BackendStatus } from '@/backends'
 

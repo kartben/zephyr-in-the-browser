@@ -1,3 +1,5 @@
+/** Searchable sample picker with docs and devicetree previews. */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BookOpen,

@@ -1,3 +1,5 @@
+/** Prose/catalog half of an annotated sample. */
+
 export interface CatalogEntry {
   id: number
   key: string

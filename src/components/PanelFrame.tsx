@@ -1,3 +1,5 @@
+/** Floating/dock frame chrome for panel bodies. */
+
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { ChevronDown, Dock, PictureInPicture2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'

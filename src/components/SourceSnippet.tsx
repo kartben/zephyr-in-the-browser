@@ -1,3 +1,5 @@
+/** Source excerpt an annotation is pointing at. */
+
 import { useEffect, useMemo, useState } from 'react'
 import { highlightC, splitHighlightedLines } from '@/lib/highlight'
 import { cn } from '@/lib/utils'

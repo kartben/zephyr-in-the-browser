@@ -1,3 +1,5 @@
+/** Backend registry and default selection. */
+
 import { createMockBackend } from './mock'
 import { createQemuBackend } from './qemu'
 import type { BackendId, PtyBackend } from './types'

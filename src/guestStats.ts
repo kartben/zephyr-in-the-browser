@@ -1,3 +1,5 @@
+/** Browser side of the guest instruction-counter / warp stats export. */
+
 interface StatsExports {
   _qemu_browser_guest_icount?: () => number
   /**

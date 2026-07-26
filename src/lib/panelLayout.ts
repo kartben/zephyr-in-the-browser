@@ -1,3 +1,5 @@
+/** Persist floating-panel position/size across reloads. */
+
 export interface PanelBox {
   x: number
   y: number

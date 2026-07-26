@@ -1,3 +1,5 @@
+/** Dialog for browsing parsed and raw devicetree source. */
+
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import {

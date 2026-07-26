@@ -62,6 +62,7 @@ const DOH_TIMEOUT_MS = 1500
 const LEASE_SECS = 86400
 const SUBNET_MASK = 0xffffff00
 
+/** Browser-side LAN stack for the emulated guest. */
 export class NetStack {
   readonly hooks: StackHooks
   readonly gwMac = macFromString('52:55:0a:00:02:02')!

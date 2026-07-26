@@ -1,3 +1,5 @@
+/** Compact inline SVG sparkline for recent numeric samples. */
+
 import { cn } from '@/lib/utils'
 
 /**

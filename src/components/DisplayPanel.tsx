@@ -1,3 +1,5 @@
+/** Floating/dock panel for the guest framebuffer display. */
+
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Monitor, Pointer } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'

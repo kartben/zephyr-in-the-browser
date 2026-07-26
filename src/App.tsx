@@ -1,3 +1,5 @@
+/** Root app shell: board/sample selection, QEMU session, stage, and dock. */
+
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'

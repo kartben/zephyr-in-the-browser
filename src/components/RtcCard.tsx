@@ -1,3 +1,5 @@
+/** Dock/window body for simulated RTC chips. */
+
 import { useEffect, useReducer, useState } from 'react'
 import { CheckControl, ControlRow, SelectControl } from '@/components/controls/ControlRow'
 import { RegisterMapButton } from '@/components/RegisterMap'

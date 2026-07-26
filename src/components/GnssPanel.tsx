@@ -1,3 +1,5 @@
+/** Dock body for editing the simulated GNSS fix. */
+
 import { useSyncExternalStore } from 'react'
 import { CheckControl, NumberControl } from '@/components/controls/ControlRow'
 import {

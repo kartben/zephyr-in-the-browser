@@ -1,3 +1,5 @@
+/** Menu to re-show hidden dock panels. */
+
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LayoutGrid, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'

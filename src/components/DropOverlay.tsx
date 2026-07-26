@@ -1,3 +1,5 @@
+/** Full-window drop target for loading guest images and devicetrees. */
+
 import { useEffect, useState } from 'react'
 import { FileUp } from 'lucide-react'
 

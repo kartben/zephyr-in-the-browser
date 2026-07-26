@@ -1,3 +1,5 @@
+/** Shared encoding helpers for declarative I2C sensors. */
+
 export function clampToUint(counts: number, bits: 8 | 16 | 24 = 16): number {
   const max = (1 << (bits - 1)) - 1
   const min = -(1 << (bits - 1))

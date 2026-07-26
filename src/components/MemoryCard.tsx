@@ -1,3 +1,5 @@
+/** Dock/window bodies for memory and SPI flash hex views. */
+
 import { useCallback, useSyncExternalStore } from 'react'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView } from '@/components/HexView'

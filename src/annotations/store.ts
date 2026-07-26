@@ -1,3 +1,5 @@
+/** Walkthrough UI state for the running sample. */
+
 import { loadCatalog, type AnnotationCatalog, type CatalogEntry } from '@/annotations/catalog'
 import type { AnnotationRecord } from '@/annotations/protocol'
 import * as monitor from '@/hostMonitor'

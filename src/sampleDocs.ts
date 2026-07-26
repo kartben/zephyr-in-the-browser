@@ -1,3 +1,5 @@
+/** Sample gallery metadata from the mirrored Zephyr docs. */
+
 import type { GuestSample } from '@/boards'
 
 export interface DocsManifestEntry {
