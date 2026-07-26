@@ -27,12 +27,12 @@ index 6eec5c9..903b2ac 100644
      }
  
 diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
-index 69ac710..7231fe6 100644
+index 7c06366..7231fe6 100644
 --- a/hw/virtio/virtio-browser.c
 +++ b/hw/virtio/virtio-browser.c
-@@ -200,6 +200,63 @@ static QEMUBH *virtio_browser_kick_bh;
- static void virtio_browser_drain(void *opaque);
+@@ -204,6 +204,63 @@ static void virtio_browser_drain(void *opaque);
  static void virtio_browser_kick_bh_cb(void *opaque);
+ static void virtio_browser_arm_drain(VirtIOBrowser *b);
  
 +/*
 + * Diagnostic only: how long between virtio_notify() raising the guest's IRQ
@@ -94,11 +94,11 @@ index 69ac710..7231fe6 100644
  EMSCRIPTEN_KEEPALIVE
  uint32_t qemu_virtio_browser_count(void)
  {
-@@ -503,6 +560,7 @@ static void virtio_browser_drain(void *opaque)
- 
-     for (uint16_t q = 0; q < b->num_queues; q++) {
-         if (notified & (1u << q)) {
-+            virtio_browser_note_notify();
-             virtio_notify(vdev, b->vq[q]);
+@@ -575,6 +632,7 @@ static void virtio_browser_drain(void *opaque)
+     if (notified) {
+         for (uint16_t q = 0; q < b->num_queues; q++) {
+             if (notified & (1u << q)) {
++                virtio_browser_note_notify();
+                 virtio_notify(vdev, b->vq[q]);
+             }
          }
-     }

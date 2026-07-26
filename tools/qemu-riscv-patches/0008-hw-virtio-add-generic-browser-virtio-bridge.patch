@@ -31,7 +31,7 @@ new file mode 100644
 index 0000000..7c06366
 --- /dev/null
 +++ b/hw/virtio/virtio-browser.c
-@@ -0,0 +1,793 @@
+@@ -0,0 +1,856 @@
 +/*
 + * Generic browser-backed VIRTIO device.
 + *
@@ -56,13 +56,12 @@ index 0000000..7c06366
 + * from JavaScript hand out a pointer and a count, the page touches nothing but
 + * ring memory, and a timer on the QEMU thread does every virtqueue operation.
 + *
-+ * The drain timer runs on QEMU_CLOCK_REALTIME, and that is deliberate -- every
-+ * other bridge here uses the virtual clock. This is the first one where the
-+ * guest *blocks* on an answer from the browser, and under -icount with
-+ * sleep=on the virtual clock warps forward to the next deadline whenever the
-+ * vCPUs idle. A virtual-clock drain would therefore race ahead of the browser,
-+ * fire on an empty ring, warp again, and inflate guest time while making no
-+ * progress. Completions arrive on real time, so they are polled on real time.
++ * Completions are primarily event-driven: the page kicks a BH after publishing
++ * cmp_wr. The drain timer is the safety net (missed wakes, config_gen bumps
++ * that do not kick). It runs on QEMU_CLOCK_REALTIME -- deliberate, because
++ * under -icount with sleep=on a virtual-clock drain would race ahead of the
++ * browser, fire on an empty ring, and inflate guest time while making no
++ * progress.
 + *
 + * Nothing here is browser-specific: the entry points are ordinary C, so the
 + * rings can be driven from a native test harness with no browser in the loop.
@@ -115,13 +114,14 @@ index 0000000..7c06366
 +#define VIRTIO_BROWSER_MAX_PAYLOAD 4096
 +
 +/*
-+ * Idle must stay close to busy. A synchronous guest (dac_write → k_sem_take
-+ * forever → answer → k_sleep) drops `outstanding` to zero between every
-+ * transfer; with sleep=on the host then sleeps until this idle timer, so a
-+ * 10 ms idle was measured at ~45 I²C Hz on the stock DAC sawtooth (want
-+ * ~1 kHz). 1 ms keeps the tax inside a single guest tick without spinning.
++ * Busy stays at 1 ms while tokens are parked: a missed kick must not wait
++ * long. Idle is a longer safety net (config_gen, recovery) because the page
++ * wakes QEMU on every completion via kick BH -- matching the page's 50 ms
++ * maintenance tick. A 10 ms idle once capped synchronous I²C at ~45 Hz when
++ * kick was absent; with kick, raising idle avoids waking the main loop once
++ * per ms per device when nothing is in flight.
 + */
-+#define VIRTIO_BROWSER_DRAIN_IDLE_MS 1
++#define VIRTIO_BROWSER_DRAIN_IDLE_MS 50
 +#define VIRTIO_BROWSER_DRAIN_BUSY_MS 1
 +
 +/* Record headers, in bytes. Both are multiples of 4, so a payload padded to 4
@@ -170,6 +170,7 @@ index 0000000..7c06366
 +    VirtQueueElement *elem;
 +    VirtQueue *vq;
 +    uint16_t generation;
++    uint16_t qidx;
 +    bool in_use;
 +} VirtioBrowserToken;
 +
@@ -186,6 +187,9 @@ index 0000000..7c06366
 +
 +    VirtQueue *vq[VIRTIO_BROWSER_MAX_QUEUES];
 +    VirtioBrowserToken tokens[VIRTIO_BROWSER_MAX_TOKENS];
++    /* O(1) alloc/free instead of scanning the table on every chain. */
++    uint8_t free_stack[VIRTIO_BROWSER_MAX_TOKENS];
++    uint8_t free_top;
 +    uint32_t outstanding;
 +
 +    /* One allocation: the area followed by both rings. */
@@ -234,6 +238,7 @@ index 0000000..7c06366
 +
 +static void virtio_browser_drain(void *opaque);
 +static void virtio_browser_kick_bh_cb(void *opaque);
++static void virtio_browser_arm_drain(VirtIOBrowser *b);
 +
 +EMSCRIPTEN_KEEPALIVE
 +uint32_t qemu_virtio_browser_count(void)
@@ -262,9 +267,26 @@ index 0000000..7c06366
 +    return (uintptr_t)&virtio_browser_request_wake;
 +}
 +
++static bool virtio_browser_needs_drain(VirtIOBrowser *b)
++{
++    VirtioBrowserArea *area = b->area;
++
++    if (b->stalled) {
++        return true;
++    }
++    if (area->cmp_rd != qatomic_load_acquire(&area->cmp_wr)) {
++        return true;
++    }
++    if (qatomic_read(&area->config_gen) != b->config_gen_seen) {
++        return true;
++    }
++    return false;
++}
++
 +/*
-+ * Drain every browser virtio instance. Invoked only from the QEMU main loop
-+ * (drain timer or kick BH), where the BQL is held — virtio_notify requires it.
++ * Drain every browser virtio instance that has work. Invoked only from the
++ * QEMU main loop (drain timer or kick BH), where the BQL is held —
++ * virtio_notify requires it.
 + */
 +static void virtio_browser_kick_bh_cb(void *opaque)
 +{
@@ -277,7 +299,7 @@ index 0000000..7c06366
 +    virtio_browser_draining = true;
 +    for (uint32_t i = 0; i < n; i++) {
 +        VirtIOBrowser *b = browser_devices[i];
-+        if (b && b->drain) {
++        if (b && b->drain && virtio_browser_needs_drain(b)) {
 +            virtio_browser_drain(b);
 +        }
 +    }
@@ -293,7 +315,7 @@ index 0000000..7c06366
 +EMSCRIPTEN_KEEPALIVE
 +void qemu_virtio_browser_kick(void)
 +{
-+    qatomic_set(&virtio_browser_wake, qatomic_read(&virtio_browser_wake) + 1);
++    qatomic_inc(&virtio_browser_wake);
 +#ifdef __EMSCRIPTEN__
 +    emscripten_futex_wake(&virtio_browser_wake, INT32_MAX);
 +#endif
@@ -310,24 +332,34 @@ index 0000000..7c06366
 +
 +/* --- token table ---------------------------------------------------------- */
 +
-+static uint32_t token_alloc(VirtIOBrowser *b, VirtQueueElement *elem,
-+                            VirtQueue *vq)
++static void token_free_init(VirtIOBrowser *b)
 +{
-+    for (uint32_t slot = 0; slot < VIRTIO_BROWSER_MAX_TOKENS; slot++) {
-+        VirtioBrowserToken *t = &b->tokens[slot];
-+
-+        if (t->in_use) {
-+            continue;
-+        }
-+        t->elem = elem;
-+        t->vq = vq;
-+        t->in_use = true;
-+        b->outstanding++;
-+        qatomic_set(&b->area->outstanding, b->outstanding);
-+        return slot | ((uint32_t)t->generation << 16);
++    for (uint32_t i = 0; i < VIRTIO_BROWSER_MAX_TOKENS; i++) {
++        b->free_stack[i] = i;
++        b->tokens[i].elem = NULL;
++        b->tokens[i].vq = NULL;
++        b->tokens[i].in_use = false;
 +    }
-+    /* Callers check b->outstanding first, so this is unreachable. */
-+    g_assert_not_reached();
++    b->free_top = VIRTIO_BROWSER_MAX_TOKENS;
++}
++
++static uint32_t token_alloc(VirtIOBrowser *b, VirtQueueElement *elem,
++                            VirtQueue *vq, uint16_t qidx)
++{
++    uint32_t slot;
++    VirtioBrowserToken *t;
++
++    /* Callers check b->outstanding first, so the stack is never empty. */
++    g_assert(b->free_top > 0);
++    slot = b->free_stack[--b->free_top];
++    t = &b->tokens[slot];
++    t->elem = elem;
++    t->vq = vq;
++    t->qidx = qidx;
++    t->in_use = true;
++    b->outstanding++;
++    qatomic_set(&b->area->outstanding, b->outstanding);
++    return slot | ((uint32_t)t->generation << 16);
 +}
 +
 +/*
@@ -336,7 +368,7 @@ index 0000000..7c06366
 + * The generation makes those detectable rather than a use-after-free.
 + */
 +static VirtQueueElement *token_claim(VirtIOBrowser *b, uint32_t token,
-+                                     VirtQueue **vq)
++                                     VirtQueue **vq, uint16_t *qidx)
 +{
 +    uint32_t slot = token & 0xffff;
 +    uint16_t generation = token >> 16;
@@ -353,12 +385,14 @@ index 0000000..7c06366
 +
 +    elem = t->elem;
 +    *vq = t->vq;
++    *qidx = t->qidx;
 +    t->elem = NULL;
 +    t->vq = NULL;
 +    t->in_use = false;
 +    t->generation++;
 +    b->outstanding--;
 +    qatomic_set(&b->area->outstanding, b->outstanding);
++    b->free_stack[b->free_top++] = slot;
 +    return elem;
 +}
 +
@@ -403,8 +437,7 @@ index 0000000..7c06366
 +
 +    /* Publish only once the record is whole. */
 +    qatomic_store_release(&area->req_wr, wr + rec);
-+    qatomic_set(&virtio_browser_request_wake,
-+                qatomic_read(&virtio_browser_request_wake) + 1);
++    qatomic_inc(&virtio_browser_request_wake);
 +#ifdef __EMSCRIPTEN__
 +    emscripten_futex_wake(&virtio_browser_request_wake, INT32_MAX);
 +#endif
@@ -453,12 +486,13 @@ index 0000000..7c06366
 +            continue;
 +        }
 +
-+        token = token_alloc(b, elem, vq);
++        token = token_alloc(b, elem, vq, qidx);
 +        if (!req_write(b, token, qidx, elem->out_sg, elem->out_num, out_len,
 +                       in_cap)) {
 +            VirtQueue *unused;
++            uint16_t unused_q;
 +
-+            token_claim(b, token, &unused);
++            token_claim(b, token, &unused, &unused_q);
 +            virtqueue_unpop(vq, elem, 0);
 +            g_free(elem);
 +            b->stalled |= 1u << qidx;
@@ -478,6 +512,26 @@ index 0000000..7c06366
 +
 +/* --- completion ring (the page writes, QEMU reads) ------------------------ */
 +
++/*
++ * Rearm the realtime safety-net timer. Kick BH may run many times per ms;
++ * skip sliding the deadline forward when an earlier-or-equal expiry is
++ * already pending.
++ */
++static void virtio_browser_arm_drain(VirtIOBrowser *b)
++{
++    int64_t now = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
++    int64_t delay = (b->outstanding || b->stalled)
++                    ? VIRTIO_BROWSER_DRAIN_BUSY_MS
++                    : VIRTIO_BROWSER_DRAIN_IDLE_MS;
++    int64_t next = now + delay;
++
++    if (timer_pending(b->drain) &&
++        timer_expire_time_ns(b->drain) <= next * SCALE_MS) {
++        return;
++    }
++    timer_mod(b->drain, next);
++}
++
 +static void virtio_browser_drain(void *opaque)
 +{
 +    VirtIOBrowser *b = opaque;
@@ -488,12 +542,14 @@ index 0000000..7c06366
 +    uint32_t rd = area->cmp_rd;
 +    uint32_t notified = 0;
 +    uint32_t stalled;
++    uint32_t config_gen;
 +
 +    while (rd != wr) {
 +        uint32_t off = rd % size;
 +        const uint8_t *p = b->cmp_ring + off;
 +        uint32_t token = ldl_le_p(p);
 +        uint16_t flags;
++        uint16_t qidx;
 +        uint32_t in_len, rec;
 +        VirtQueueElement *elem;
 +        VirtQueue *vq;
@@ -513,7 +569,8 @@ index 0000000..7c06366
 +         * that runs past it means the ring is corrupt. Resync rather than
 +         * read on into whatever follows.
 +         */
-+        if (in_len > VIRTIO_BROWSER_MAX_PAYLOAD || rec > ((wr - rd) & 0xffffffffu)) {
++        if (in_len > VIRTIO_BROWSER_MAX_PAYLOAD ||
++            rec > ((wr - rd) & 0xffffffffu)) {
 +            qemu_log_mask(LOG_GUEST_ERROR,
 +                          "virtio-browser(%s): corrupt completion, resyncing\n",
 +                          b->name);
@@ -521,7 +578,7 @@ index 0000000..7c06366
 +            break;
 +        }
 +
-+        elem = token_claim(b, token, &vq);
++        elem = token_claim(b, token, &vq, &qidx);
 +        if (!elem) {
 +            /* Stale: a completion that outlived its reset. Not fatal. */
 +            rd += rec;
@@ -541,37 +598,41 @@ index 0000000..7c06366
 +
 +        virtqueue_push(vq, elem, written);
 +        g_free(elem);
-+        notified |= 1u << virtio_get_queue_index(vq);
++        notified |= 1u << qidx;
 +        rd += rec;
 +    }
 +
-+    qatomic_set(&area->cmp_rd, rd);
++    if (rd != area->cmp_rd) {
++        qatomic_set(&area->cmp_rd, rd);
++    }
 +
-+    for (uint16_t q = 0; q < b->num_queues; q++) {
-+        if (notified & (1u << q)) {
-+            virtio_notify(vdev, b->vq[q]);
++    if (notified) {
++        for (uint16_t q = 0; q < b->num_queues; q++) {
++            if (notified & (1u << q)) {
++                virtio_notify(vdev, b->vq[q]);
++            }
 +        }
 +    }
 +
 +    /* Ring space or tokens may have freed up; retry whatever could not run. */
 +    stalled = b->stalled;
-+    b->stalled = 0;
-+    for (uint16_t q = 0; q < b->num_queues; q++) {
-+        if (stalled & (1u << q)) {
-+            virtio_browser_pump(b, b->vq[q]);
++    if (stalled) {
++        b->stalled = 0;
++        for (uint16_t q = 0; q < b->num_queues; q++) {
++            if (stalled & (1u << q)) {
++                virtio_browser_pump(b, b->vq[q]);
++            }
 +        }
 +    }
 +
 +    /* The page changed config space and wants the guest told. */
-+    if (qatomic_read(&area->config_gen) != b->config_gen_seen) {
-+        b->config_gen_seen = qatomic_read(&area->config_gen);
++    config_gen = qatomic_read(&area->config_gen);
++    if (config_gen != b->config_gen_seen) {
++        b->config_gen_seen = config_gen;
 +        virtio_notify_config(vdev);
 +    }
 +
-+    timer_mod(b->drain, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +
-+                            (b->outstanding || b->stalled
-+                                 ? VIRTIO_BROWSER_DRAIN_BUSY_MS
-+                                 : VIRTIO_BROWSER_DRAIN_IDLE_MS));
++    virtio_browser_arm_drain(b);
 +}
 +
 +/* --- VirtIODevice ---------------------------------------------------------- */
@@ -622,6 +683,7 @@ index 0000000..7c06366
 +        t->in_use = false;
 +        t->generation++;
 +    }
++    token_free_init(b);
 +    b->outstanding = 0;
 +    b->stalled = 0;
 +    qatomic_set(&area->outstanding, 0);
@@ -632,7 +694,7 @@ index 0000000..7c06366
 +     * new baseline. Zeroing both would be a race for no gain.
 +     */
 +    qatomic_set(&area->cmp_rd, qatomic_read(&area->cmp_wr));
-+    qatomic_set(&area->reset_gen, qatomic_read(&area->reset_gen) + 1);
++    qatomic_inc(&area->reset_gen);
 +}
 +
 +static int hex_digit(char c)
@@ -716,6 +778,7 @@ index 0000000..7c06366
 +    b->area = area = (VirtioBrowserArea *)b->block;
 +    b->req_ring = b->block + area_bytes;
 +    b->cmp_ring = b->req_ring + VIRTIO_BROWSER_RING_SIZE;
++    token_free_init(b);
 +
 +    area->magic = VIRTIO_BROWSER_MAGIC;
 +    area->version = VIRTIO_BROWSER_VERSION;
@@ -741,7 +804,7 @@ index 0000000..7c06366
 +    }
 +
 +    browser_devices[browser_device_count] = b;
-+    qatomic_set(&browser_device_count, browser_device_count + 1);
++    qatomic_inc(&browser_device_count);
 +
 +    if (!virtio_browser_kick_bh) {
 +        virtio_browser_kick_bh = qemu_bh_new(virtio_browser_kick_bh_cb, NULL);

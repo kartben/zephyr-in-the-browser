@@ -144,15 +144,15 @@ than draining inline.
   bridge where the guest *blocks* on a browser answer, so the browser's
   asynchronous response must not advance a guest-clock polling loop. The drain
   therefore runs on `QEMU_CLOCK_REALTIME`:
-  1 ms while tokens are parked, **1 ms idle** (was 10 ms — see below).
+  **1 ms while tokens are parked**, **50 ms idle** (safety net + `config_gen`).
 
-  The idle value matters more than it looks. A synchronous guest
-  (`dac_write` → `k_sem_take(K_FOREVER)` → answer → `k_sleep`) drops
-  `outstanding` to zero between every transfer, so without a completion wake it
-  waits for the idle drain. Measured on Cortex-A53 `dac`
-  with `tools/profile-dac.mjs`: **10 ms idle → ~45 I²C Hz** (one ~4 s
-  sawtooth stretched across ~90 s of wall); **page-side poll was already
-  ~1.2 ms**, so the drain was the ceiling. Idle matches busy at 1 ms.
+  Completions are kicked into a BH; the idle timer is only recovery and
+  config-change notification. Without kick, a synchronous guest
+  (`dac_write` → `k_sem_take(K_FOREVER)` → answer → `k_sleep`) used to wait out
+  idle between transfers — **10 ms idle → ~45 I²C Hz** on Cortex-A53 `dac`.
+  Kick removed that ceiling; raising idle to 50 ms (matching the page's
+  maintenance tick) avoids waking the QEMU main loop once per ms per device
+  when nothing is in flight.
 - **QEMU → page.** After publishing a complete request record and `req_wr`,
   QEMU increments one process-wide futex and calls
   `emscripten_futex_wake()`. A dedicated page worker blocks on that word with
