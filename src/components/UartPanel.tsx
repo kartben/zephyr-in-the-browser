@@ -17,7 +17,7 @@ export function UartBody({
 }) {
   const devices = useSyncExternalStore(
     subscribeInventory,
-    () => getInventory()?.nodes.filter((n) => n.parentKey === busKey) ?? EMPTY,
+    useCallback(() => devicesOnBus(busKey), [busKey]),
     useCallback(() => EMPTY, []),
   )
 
@@ -75,6 +75,19 @@ export function UartBody({
 }
 
 const EMPTY: DeviceNode[] = []
+
+/** Cache filtered children so useSyncExternalStore sees a stable snapshot. */
+const cache = new Map<string, { inv: unknown; nodes: DeviceNode[] }>()
+
+function devicesOnBus(busKey: string): DeviceNode[] {
+  const inv = getInventory()
+  const hit = cache.get(busKey)
+  if (hit && hit.inv === inv) return hit.nodes
+  const nodes = inv?.nodes.filter((n) => n.parentKey === busKey) ?? EMPTY
+  const stable = nodes.length === 0 ? EMPTY : nodes
+  cache.set(busKey, { inv, nodes: stable })
+  return stable
+}
 
 /** Short roster tag — GNSS has no address/CS, so use a stable role label. */
 function slotTag(device: DeviceNode): string {
