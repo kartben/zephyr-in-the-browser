@@ -382,12 +382,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'pwm', 'i2c'],
   },
   {
-    // Stock DAC sample against the browser MCP4725 at 0x61. The dock paints
-    // a Vout history chart (DacChip framework).
+    // Adapted from stock samples/drivers/dac against the browser MCP4725 at
+    // 0x61 -- vendored so the sawtooth loop can account for the real
+    // virtio-i2c round trip instead of assuming a free write (docs/
+    // performance.md item 7). The dock paints a Vout history chart
+    // (DacChip framework).
     id: 'dac',
     label: 'DAC',
     description: 'Sawtooth on a 12-bit MCP4725; Vout chart in the page',
-    zephyrSample: 'samples/drivers/dac',
+    zephyrSample: 'zephyr-module/apps/dac_sawtooth',
     primaryPanels: ['dac', 'i2c'],
   },
   {
