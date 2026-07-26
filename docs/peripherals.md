@@ -92,7 +92,7 @@ the card that drives it — so adding a part is a declaration, not another panel
   stored one. The hex dump *is* the fine-grained view — EEPROMs are a flat
   address space, not named SVD registers. The SPI NOR (W25Q on virtio-spi CS0)
   reuses the same hex surface plus a **Filesystem** dialog that mounts the
-  image as LittleFS via [`partitions-tool-esp/littlefs`](https://www.npmjs.com/package/partitions-tool-esp);
+  image as LittleFS via real littlefs ([Dreagonmon littlefs-js](https://github.com/Dreagonmon/littlefs-js));
   sparse sector persist (`zephyr.w25q.0`) keeps `samples/subsys/fs/littlefs`
   boot-counts across reload.
 - **RTC** ([`rtc/model.ts`](../src/virtio/devices/rtc/model.ts)) — a

@@ -1,7 +1,44 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { generate } from 'partitions-tool-esp/littlefs'
-import { createDir, createFile } from 'partitions-tool-esp'
+import {
+  LFS,
+  LFS_O_CREAT,
+  LFS_O_TRUNC,
+  LFS_O_WRONLY,
+  MemoryBlockDevice,
+} from '@/vendor/littlefs-js/lfs_js.js'
 import { browseLittlefs, isBlankFlash, previewFileContent } from './littlefsBrowse'
+
+async function makeImage(opts: {
+  blockSize: number
+  blockCount: number
+  files: Array<{ path: string; data: Uint8Array }>
+  dirs?: string[]
+}): Promise<Uint8Array> {
+  const bdev = new MemoryBlockDevice(opts.blockSize, opts.blockCount)
+  bdev.read_size = 16
+  bdev.prog_size = 16
+  const lfs = new LFS(bdev, 512)
+  expect(await lfs.format()).toBe(0)
+  expect(await lfs.mount()).toBe(0)
+  for (const dir of opts.dirs ?? []) {
+    expect(await lfs.mkdir(dir)).toBe(0)
+  }
+  for (const file of opts.files) {
+    const fh = await lfs.open(file.path, LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC)
+    expect(typeof fh === 'number' ? fh : 0).toBe(0)
+    if (typeof fh === 'number') throw new Error('open failed')
+    await fh.write(file.data)
+    await fh.close()
+  }
+  await lfs.unmount()
+
+  const image = new Uint8Array(opts.blockSize * opts.blockCount).fill(0xff)
+  for (let i = 0; i < bdev._storage.length; i++) {
+    const block = bdev._storage[i]
+    if (block) image.set(block, i * opts.blockSize)
+  }
+  return image
+}
 
 describe('littlefsBrowse', () => {
   it('treats all-0xff images as blank', () => {
@@ -11,26 +48,44 @@ describe('littlefsBrowse', () => {
     expect(isBlankFlash(dirty)).toBe(false)
   })
 
-  it('lists files from a partitions-tool-esp generated image', () => {
-    const image = generate({
-      imageSize: 64 * 1024,
+  it('lists files from a real littlefs 4 KiB-block image', async () => {
+    const image = await makeImage({
       blockSize: 4096,
-      readSize: 16,
-      progSize: 16,
-      source: createDir('root', [
-        createFile('boot_count', new Uint8Array([3, 0, 0, 0])),
-        createDir('cfg', [createFile('note.txt', new TextEncoder().encode('hi'))]),
-      ]),
+      blockCount: 64,
+      dirs: ['/cfg'],
+      files: [
+        { path: '/boot_count', data: new Uint8Array([3, 0, 0, 0]) },
+        { path: '/cfg/note.txt', data: new TextEncoder().encode('hi') },
+      ],
     })
-    const result = browseLittlefs(image, { blockSize: 4096 })
+    const result = await browseLittlefs(image, { blockSize: 4096 })
     expect(result).not.toBeNull()
+    expect(result!.error).toBeUndefined()
     expect(result!.files.map((f) => f.path).sort()).toEqual(['/boot_count', '/cfg/note.txt'])
     expect([...result!.files.find((f) => f.path === '/boot_count')!.content]).toEqual([3, 0, 0, 0])
     expect(result!.root.children.some((c) => c.kind === 'dir' && c.name === 'cfg')).toBe(true)
   })
 
-  it('returns null for blank flash', () => {
-    expect(browseLittlefs(new Uint8Array(8192).fill(0xff))).toBeNull()
+  it('also mounts Zephyr-default 64 KiB layout-page images', async () => {
+    const image = await makeImage({
+      blockSize: 65536,
+      blockCount: 16,
+      files: [
+        { path: '/boot_count', data: new Uint8Array([7]) },
+        { path: '/pattern.bin', data: Uint8Array.from({ length: 547 }, (_, i) => i & 0xff) },
+      ],
+    })
+    // Prefer 4 KiB first (as the dock does); browser must still find 64 KiB.
+    const result = await browseLittlefs(image, { blockSize: 4096 })
+    expect(result).not.toBeNull()
+    expect(result!.error).toBeUndefined()
+    expect(result!.superblock.blockSize).toBe(65536)
+    expect(result!.files.map((f) => f.path).sort()).toEqual(['/boot_count', '/pattern.bin'])
+    expect(result!.files.find((f) => f.path === '/pattern.bin')!.size).toBe(547)
+  })
+
+  it('returns null for blank flash', async () => {
+    expect(await browseLittlefs(new Uint8Array(8192).fill(0xff))).toBeNull()
   })
 
   it('previews text vs hex', () => {
@@ -74,7 +129,6 @@ describe('W25Q sparse persist', () => {
     const raw = localStorage.getItem(key)
     expect(raw).toBeTruthy()
     expect(raw!).toContain('"v":1')
-    // Two dirty 4 KiB sectors as hex ≪ full 1 MiB hex dump.
     expect(raw!.length).toBeLessThan(size)
 
     const second = createW25q({ cs: 0, size, persistKey: key })

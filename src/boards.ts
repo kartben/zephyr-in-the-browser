@@ -320,7 +320,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     // Stock LittleFS sample on the same W25Q (storage partition + fstab lfs1).
     // Boot count survives page reload via sparse flash persist; dock Filesystem
-    // dialog browses /lfs with partitions-tool-esp.
+    // dialog browses /lfs with real littlefs (Dreagonmon littlefs-js).
     id: 'littlefs',
     label: 'LittleFS',
     description: 'Boot counter on LittleFS over the browser SPI NOR; survives reload',
