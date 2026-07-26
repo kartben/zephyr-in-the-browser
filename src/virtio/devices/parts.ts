@@ -7,7 +7,7 @@
  * the same card without each panel inventing its own links.
  */
 
-export type PartBus = 'i2c' | 'spi'
+export type PartBus = 'i2c' | 'spi' | 'uart'
 
 /**
  * Static identity for one supported part. Keys match {@link CHIP_TYPES} /
@@ -26,10 +26,10 @@ export interface PartIdentity {
   compatible: string
   /**
    * Default I²C address (7-bit) or SPI chip-select. Interpreted with
-   * {@link addressKind}.
+   * {@link addressKind}. For UART parts this is the RS485 module address.
    */
   defaultAddress: number
-  addressKind: 'i2c' | 'spi-cs'
+  addressKind: 'i2c' | 'spi-cs' | 'uart-addr'
   /** Optional second I²C endpoint (JHD1313 backlight). */
   secondaryAddress?: number
   secondaryLabel?: string
@@ -45,6 +45,7 @@ export interface PartIdentity {
     | 'fuel-gauge'
     | 'rtc'
     | 'flash'
+    | 'stepper'
   /** Official datasheet URL when one is publicly linkable. */
   datasheetUrl?: string
   /** Zephyr DT binding documentation URL. */
@@ -368,6 +369,20 @@ export const PARTS: readonly PartIdentity[] = [
     bindingUrl: binding('auxdisplay/ptc%2Cpt6314.html'),
     summary: 'Dot-character VFD controller; Futaba-style 20×2 viewport over SPI.',
   },
+  {
+    id: 'tmcm3216',
+    label: 'TMCM-3216 stepper',
+    manufacturer: 'Analog Devices / Trinamic',
+    part: 'TMCM-3216',
+    bus: 'uart',
+    compatible: 'adi,tmcm3216',
+    defaultAddress: 1,
+    addressKind: 'uart-addr',
+    kind: 'stepper',
+    datasheetUrl: 'https://www.analog.com/media/en/technical-documentation/data-sheets/TMCM-3216_datasheet_rev1.22.pdf',
+    bindingUrl: binding('stepper/adi%2Ctmcm3216.html'),
+    summary: '3-axis stepper controller/driver over RS485 TMCL on uart1.',
+  },
 ]
 
 const BY_ID = new Map(PARTS.map((p) => [p.id, p]))
@@ -399,4 +414,5 @@ export const PART_KIND_LABELS: Record<PartIdentity['kind'], string> = {
   'fuel-gauge': 'Fuel gauge',
   rtc: 'RTC',
   flash: 'Flash',
+  stepper: 'Stepper',
 }

@@ -188,7 +188,9 @@ that the peripheral surfaces read:
   Web Audio on the page — not through I2S),
 - a Stepper dock row when the tree has an okay
   `zephyr,gpio-step-dir-stepper-ctrl` on the bridged controller (STEP/DIR edges
-  observed; shaft dial + position/velocity — no new QEMU device),
+  observed; shaft dial + position/velocity — no new QEMU device), or an okay
+  `adi,tmcm3216` on uart1 (RS485/TMCL; page simulates the module after a QEMU
+  rebuild with uart1 TX capture),
 - a GPIO Keys dock row when the tree has okay `gpio-keys` on the bridged
   controller (Keys class — buttons leave the controller card),
 - a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged

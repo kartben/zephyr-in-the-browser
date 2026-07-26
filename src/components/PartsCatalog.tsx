@@ -19,6 +19,7 @@ import {
   Grid3x3,
   MemoryStick,
   Monitor,
+  RotateCw,
   Search,
   Thermometer,
   Tv,
@@ -53,10 +54,12 @@ const KIND_ICONS: Record<PartIdentity['kind'], LucideIcon> = {
   'fuel-gauge': BatteryCharging,
   rtc: Clock,
   flash: MemoryStick,
+  stepper: RotateCw,
 }
 
 function formatAddress(part: PartIdentity): string {
   if (part.addressKind === 'spi-cs') return `CS${part.defaultAddress}`
+  if (part.addressKind === 'uart-addr') return `@${part.defaultAddress}`
   const primary = `0x${part.defaultAddress.toString(16)}`
   if (part.secondaryAddress === undefined) return primary
   const secondary = `0x${part.secondaryAddress.toString(16)}`

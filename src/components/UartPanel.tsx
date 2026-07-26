@@ -67,7 +67,7 @@ export function UartBody({
 
       <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
         In the guest: children of <code className="font-mono text-foreground">{busLabel}</code>{' '}
-        are UART peripherals (today: NMEA GNSS). One at a time is normal —
+        are UART peripherals (NMEA GNSS, TMCM-3216, …). One at a time is normal —
         the roster stays so the bus looks like I²C and SPI.
       </p>
     </div>
@@ -92,5 +92,6 @@ function devicesOnBus(busKey: string): DeviceNode[] {
 /** Short roster tag — GNSS has no address/CS, so use a stable role label. */
 function slotTag(device: DeviceNode): string {
   if (device.body === 'gnss' || device.deviceClass === 'gnss') return 'NMEA'
+  if (device.compatible === 'adi,tmcm3216' || device.key === 'tmcm3216') return 'TMCL'
   return device.nodeName.split('@')[0] || device.nodeName
 }

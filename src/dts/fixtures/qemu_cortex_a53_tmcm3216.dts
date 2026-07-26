@@ -1,0 +1,69 @@
+/dts-v1/;
+
+/ {
+	model = "QEMU Cortex-A53 TMCM-3216";
+	compatible = "linux,dummy-virt";
+
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+	};
+
+	soc {
+		#address-cells = <0x2>;
+		#size-cells = <0x2>;
+		compatible = "simple-bus";
+		ranges;
+
+		uart0: uart@9000000 {
+			compatible = "arm,pl011";
+			reg = < 0x0 0x9000000 0x0 0x1000 >;
+			status = "okay";
+		};
+
+		uart1: uart@9040000 {
+			compatible = "arm,pl011";
+			reg = < 0x0 0x9040000 0x0 0x1000 >;
+			current-speed = <9600>;
+			status = "okay";
+
+			adi_tmcm3216 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				tmcm3216: tmcm3216@1 {
+					compatible = "adi,tmcm3216";
+					reg = <0x1>;
+					status = "okay";
+
+					stepper_driver_0: stepper-driver {
+						compatible = "adi,tmcm3216-stepper-driver";
+						idx = <0>;
+						micro-step-res = <16>;
+						status = "okay";
+					};
+
+					stepper_ctrl_0: stepper-ctrl {
+						compatible = "adi,tmcm3216-stepper-ctrl";
+						idx = <0>;
+						status = "okay";
+					};
+				};
+			};
+		};
+
+		virtio_mmio2: virtio_mmio@a000400 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000400 0x0 0x200 >;
+			status = "okay";
+
+			virtio_gpio0: virtio-gpio {
+				compatible = "virtio,gpio";
+				ngpios = <32>;
+				gpio-controller;
+				#gpio-cells = <2>;
+				status = "okay";
+			};
+		};
+	};
+};

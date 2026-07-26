@@ -65,6 +65,7 @@ badge: `claimed / ngpios` (e.g. `2 / 8`).
 | Button | `['keys', 'led', 'gpio']` |
 | Buzzer | `['buzzer', 'gpio', 'led']` (keys only if DT has them) |
 | Stepper | `['stepper', 'keys', 'gpio']` |
+| TMCM-3216 | `['stepper', 'gpio']` |
 
 ---
 

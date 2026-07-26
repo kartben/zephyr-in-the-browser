@@ -81,7 +81,7 @@ export interface UartBus {
   controllerLabel: string
   path: string
   compatible: string
-  role?: 'console' | 'gnss'
+  role?: 'console' | 'gnss' | 'tmcm3216'
   slots: UartSlot[]
 }
 
@@ -339,23 +339,31 @@ const UART_COMPATS = new Set([
 
 const UART_SLOT_CHIP: Record<string, string> = {
   'gnss-nmea-generic': 'gnss',
+  'adi,tmcm3216': 'tmcm3216',
 }
 
 function uartSlots(bus: DtsNode): UartSlot[] {
   const slots: UartSlot[] = []
-  for (const child of bus.children) {
-    if (!effectivelyOkay(child)) continue
-    const compatible = compatibles(child)[0] ?? ''
-    // Skip pure property-holder scaffolding; real children carry a compatible.
-    if (!compatible) continue
-    slots.push({
-      compatible,
-      chipId: compatibles(child)
-        .map((c) => UART_SLOT_CHIP[c])
-        .find((id) => id !== undefined),
-      nodeName: child.name,
-    })
+  const visit = (node: DtsNode) => {
+    for (const child of node.children) {
+      if (!effectivelyOkay(child)) continue
+      const compatible = compatibles(child)[0] ?? ''
+      // Container nodes (e.g. adi_tmcm3216 grouping) have no compatible —
+      // walk through to the uart-device child.
+      if (!compatible) {
+        visit(child)
+        continue
+      }
+      slots.push({
+        compatible,
+        chipId: compatibles(child)
+          .map((c) => UART_SLOT_CHIP[c])
+          .find((id) => id !== undefined),
+        nodeName: child.name,
+      })
+    }
   }
+  visit(bus)
   return slots
 }
 
@@ -373,6 +381,7 @@ function collectUartBuses(doc: DtsDocument): UartBus[] {
     const slots = uartSlots(node)
     let role: UartBus['role']
     if (consoleNode === node) role = 'console'
+    else if (slots.some((s) => s.chipId === 'tmcm3216')) role = 'tmcm3216'
     else if (slots.some((s) => s.chipId === 'gnss')) role = 'gnss'
     buses.push({
       controllerLabel: labelOf(node),
@@ -557,7 +566,13 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (gpioControllers.some((controller) => controller.bridged)) panels.add('gpio')
   if (gpioControllers.some((c) => c.bridged && c.buttons.length > 0)) panels.add('keys')
   if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
-  if (gpioControllers.some((c) => c.bridged && c.steppers.length > 0)) panels.add('stepper')
+  if (
+    gpioControllers.some((c) => c.bridged && c.steppers.length > 0) ||
+    hasOkayCompat(doc, 'adi,tmcm3216-stepper-ctrl') ||
+    hasOkayCompat(doc, 'adi,tmcm3216')
+  ) {
+    panels.add('stepper')
+  }
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313') || hasOkayCompat(doc, 'ptc,pt6314')) {

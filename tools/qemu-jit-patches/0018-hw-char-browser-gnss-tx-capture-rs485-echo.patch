@@ -1,0 +1,320 @@
+From: Zephyr in the Browser <noreply@example.com>
+Subject: [0018] hw/char: browser GNSS UART TX capture for TMCL/RS485
+
+Extend uart1's browser-gnss chardev so guest TX is visible to the page.
+The page feeds RS485 local-echo and TMCL replies back through feed_byte,
+keeping echo and reply ordered on one RX stream. NMEA feed_byte is unchanged.
+
+diff -u -N -r a/hw/misc/qemu-browser-gnss.c b/hw/misc/qemu-browser-gnss.c
+--- a/hw/misc/qemu-browser-gnss.c	2026-07-26 22:07:21.529690292 +0000
++++ b/hw/misc/qemu-browser-gnss.c	2026-07-26 22:07:21.529690292 +0000
+@@ -1,18 +1,24 @@
+ /*
+- * Browser-fed NMEA character backend.
++ * Browser-backed peripheral UART (uart1).
+  *
+- * Page JavaScript writes NMEA bytes into a single-producer/single-consumer
+- * ring. A virtual-clock timer drains them into an ordinary QEMU character
+- * frontend, keeping PL011 state confined to QEMU's runtime thread.
++ * Host → guest: page JavaScript writes bytes into a lock-free RX ring; a
++ * virtual-clock timer drains them into the UART frontend (NMEA sentences,
++ * TMCL echo + replies, …).
++ *
++ * Guest → host: UART TX lands in chr_write() and is copied into a TX ring the
++ * page polls. RS485 local-echo is the page's job (feed the same bytes back)
++ * so echo and TMCL replies stay ordered on one RX stream.
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/atomic.h"
++#include "qemu/module.h"
+ #include "qemu/timer.h"
+ #include "chardev/char.h"
+ #include "hw/misc/qemu-browser-gnss.h"
++#include "qom/object.h"
+ 
+ #ifdef __EMSCRIPTEN__
+ #include <emscripten.h>
+@@ -20,84 +26,198 @@
+ #define EMSCRIPTEN_KEEPALIVE
+ #endif
+ 
+-#define GNSS_BUFFER_SIZE 2048
+-#define GNSS_BUFFER_MASK (GNSS_BUFFER_SIZE - 1)
+-#define GNSS_POLL_MS 20
++/* Powers of two: free-running indices are masked on use. */
++#define GNSS_RX_SIZE   2048
++#define GNSS_TX_SIZE   2048
++#define GNSS_POLL_MS   5
+ 
+-typedef struct BrowserGnssState {
+-    Chardev *chr;
++struct BrowserGnssChardev {
++    Chardev parent;
+     QEMUTimer *timer;
+-    uint8_t buffer[GNSS_BUFFER_SIZE];
+-    uint32_t head;
+-    uint32_t tail;
+-} BrowserGnssState;
+ 
+-static BrowserGnssState browser_gnss;
++    /* Page → UART RX. Written by feed_byte; read by drain. */
++    uint8_t rx_buf[GNSS_RX_SIZE];
++    uint32_t rx_head;
++    uint32_t rx_tail;
++
++    /* UART TX → page. Written by chr_write; read by JavaScript. */
++    uint8_t tx_buf[GNSS_TX_SIZE];
++    uint32_t tx_head;
++    uint32_t tx_tail;
++};
++typedef struct BrowserGnssChardev BrowserGnssChardev;
++
++#define TYPE_CHARDEV_BROWSER_GNSS "chardev-browser-gnss"
++DECLARE_INSTANCE_CHECKER(BrowserGnssChardev, BROWSER_GNSS_CHARDEV,
++                         TYPE_CHARDEV_BROWSER_GNSS)
+ 
+-/*
+- * Called from the browser thread. Only the ring is shared with QEMU; the
+- * character frontend itself is touched exclusively by browser_gnss_drain().
+- */
+-EMSCRIPTEN_KEEPALIVE
+-int qemu_browser_gnss_feed_byte(int value)
++static BrowserGnssChardev *browser_gnss_channel;
++
++static void browser_gnss_rx_push(BrowserGnssChardev *s, uint8_t byte)
+ {
+-    uint32_t head, next;
++    uint32_t head = s->rx_head;
++    uint32_t tail = qatomic_read(&s->rx_tail);
+ 
+-    if (!browser_gnss.chr || value < 0 || value > UINT8_MAX) {
+-        return 0;
++    if (head - tail >= GNSS_RX_SIZE) {
++        return;
+     }
++    s->rx_buf[head % GNSS_RX_SIZE] = byte;
++    smp_wmb();
++    qatomic_set(&s->rx_head, head + 1);
++}
+ 
+-    head = qatomic_read(&browser_gnss.head);
+-    next = (head + 1) & GNSS_BUFFER_MASK;
+-    if (next == qatomic_read(&browser_gnss.tail)) {
+-        return 0;
++static void browser_gnss_tx_push(BrowserGnssChardev *s, uint8_t byte)
++{
++    uint32_t head = s->tx_head;
++    uint32_t tail = qatomic_read(&s->tx_tail);
++
++    if (head - tail >= GNSS_TX_SIZE) {
++        return;
+     }
++    s->tx_buf[head % GNSS_TX_SIZE] = byte;
++    smp_wmb();
++    qatomic_set(&s->tx_head, head + 1);
++}
+ 
+-    browser_gnss.buffer[head] = value;
+-    qatomic_set(&browser_gnss.head, next);
+-    return 1;
++/* Frontend → page. */
++static int browser_gnss_chr_write(Chardev *chr, const uint8_t *buf, int len)
++{
++    BrowserGnssChardev *s = BROWSER_GNSS_CHARDEV(chr);
++    int i;
++
++    for (i = 0; i < len; i++) {
++        browser_gnss_tx_push(s, buf[i]);
++    }
++    return len;
+ }
+ 
+ static void browser_gnss_drain(void *opaque)
+ {
+-    BrowserGnssState *s = opaque;
+-    uint32_t head, tail;
+-    int writable, count;
+-
+-    for (;;) {
+-        head = qatomic_read(&s->head);
+-        tail = qatomic_read(&s->tail);
+-        if (tail == head) {
+-            break;
+-        }
++    BrowserGnssChardev *s = opaque;
++    Chardev *chr = CHARDEV(s);
++    uint32_t head = qatomic_read(&s->rx_head);
++    uint32_t tail = s->rx_tail;
++
++    smp_rmb();
++
++    while (tail != head) {
++        uint8_t byte;
++        int can = qemu_chr_be_can_write(chr);
+ 
+-        writable = qemu_chr_be_can_write(s->chr);
+-        if (writable <= 0) {
++        if (can <= 0) {
+             break;
+         }
+-
+-        count = MIN((uint32_t)writable,
+-                    MIN(head > tail ? head - tail : GNSS_BUFFER_SIZE - tail,
+-                        (uint32_t)INT_MAX));
+-        qemu_chr_be_write(s->chr, &s->buffer[tail], count);
+-        qatomic_set(&s->tail, (tail + count) & GNSS_BUFFER_MASK);
++        byte = s->rx_buf[tail % GNSS_RX_SIZE];
++        qemu_chr_be_write(chr, &byte, 1);
++        tail++;
+     }
+ 
++    qatomic_set(&s->rx_tail, tail);
+     timer_mod(s->timer,
+               qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + GNSS_POLL_MS);
+ }
+ 
+-Chardev *qemu_browser_gnss_chardev(void)
++static void browser_gnss_chr_open(Chardev *chr, ChardevBackend *backend,
++                                  bool *be_opened, Error **errp)
+ {
+-    BrowserGnssState *s = &browser_gnss;
++    BrowserGnssChardev *s = BROWSER_GNSS_CHARDEV(chr);
+ 
+-    if (s->chr) {
+-        return s->chr;
++    *be_opened = true;
++    if (browser_gnss_channel == NULL) {
++        browser_gnss_channel = s;
+     }
+-
+-    s->chr = qemu_chr_new("browser-gnss", "null", NULL);
+     s->timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, browser_gnss_drain, s);
+     timer_mod(s->timer,
+               qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + GNSS_POLL_MS);
+-    return s->chr;
+ }
++
++static void browser_gnss_chr_finalize(Object *obj)
++{
++    BrowserGnssChardev *s = BROWSER_GNSS_CHARDEV(obj);
++
++    if (s->timer) {
++        timer_free(s->timer);
++        s->timer = NULL;
++    }
++    if (browser_gnss_channel == s) {
++        browser_gnss_channel = NULL;
++    }
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_gnss_feed_byte(int value)
++{
++    BrowserGnssChardev *s = browser_gnss_channel;
++
++    if (s == NULL || value < 0 || value > UINT8_MAX) {
++        return 0;
++    }
++    browser_gnss_rx_push(s, (uint8_t)value);
++    return 1;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void *qemu_browser_gnss_tx_ring(void)
++{
++    return browser_gnss_channel ? browser_gnss_channel->tx_buf : NULL;
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_gnss_tx_ring_size(void)
++{
++    return browser_gnss_channel ? GNSS_TX_SIZE : 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_gnss_tx_write_index(void)
++{
++    if (browser_gnss_channel == NULL) {
++        return 0;
++    }
++    return qatomic_read(&browser_gnss_channel->tx_head);
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_gnss_tx_read_index(void)
++{
++    return browser_gnss_channel ? browser_gnss_channel->tx_tail : 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_gnss_tx_set_read_index(unsigned int value)
++{
++    if (browser_gnss_channel != NULL) {
++        qatomic_set(&browser_gnss_channel->tx_tail, value);
++    }
++}
++
++Chardev *qemu_browser_gnss_chardev(void)
++{
++    if (browser_gnss_channel != NULL) {
++        return CHARDEV(browser_gnss_channel);
++    }
++    return qemu_chr_new("browser-gnss", "browser-gnss", NULL);
++}
++
++static void char_browser_gnss_class_init(ObjectClass *oc, const void *data)
++{
++    ChardevClass *cc = CHARDEV_CLASS(oc);
++
++    cc->open = browser_gnss_chr_open;
++    cc->chr_write = browser_gnss_chr_write;
++}
++
++static const TypeInfo char_browser_gnss_type_info = {
++    .name = TYPE_CHARDEV_BROWSER_GNSS,
++    .parent = TYPE_CHARDEV,
++    .instance_size = sizeof(BrowserGnssChardev),
++    .instance_finalize = browser_gnss_chr_finalize,
++    .class_init = char_browser_gnss_class_init,
++};
++
++static void register_types(void)
++{
++    type_register_static(&char_browser_gnss_type_info);
++}
++
++type_init(register_types);
+diff -u -N -r a/include/hw/misc/qemu-browser-gnss.h b/include/hw/misc/qemu-browser-gnss.h
+--- a/include/hw/misc/qemu-browser-gnss.h	2026-07-26 22:07:21.529690292 +0000
++++ b/include/hw/misc/qemu-browser-gnss.h	2026-07-26 22:07:21.529690292 +0000
+@@ -1,5 +1,5 @@
+ /*
+- * Browser-fed NMEA character backend.
++ * Browser-backed peripheral UART on uart1 (NMEA / TMCL).
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later
+  */
+@@ -10,10 +10,18 @@
+ #include "chardev/char.h"
+ 
+ /*
+- * Returns a singleton backend. The browser fills its lock-free byte ring and
+- * a QEMU timer drains those bytes into the UART frontend on the QEMU thread.
++ * Singleton backend. The browser fills the RX ring (feed_byte) and reads the
++ * TX ring; a QEMU timer drains RX into the UART frontend. Guest TX is copied
++ * to the TX ring for the page — RS485 echo is fed back by JavaScript so it
++ * stays ordered with TMCL replies.
+  */
+ int qemu_browser_gnss_feed_byte(int value);
+ Chardev *qemu_browser_gnss_chardev(void);
+ 
++void *qemu_browser_gnss_tx_ring(void);
++int qemu_browser_gnss_tx_ring_size(void);
++unsigned int qemu_browser_gnss_tx_write_index(void);
++unsigned int qemu_browser_gnss_tx_read_index(void);
++void qemu_browser_gnss_tx_set_read_index(unsigned int value);
++
+ #endif

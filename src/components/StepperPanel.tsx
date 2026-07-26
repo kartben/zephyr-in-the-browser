@@ -1,5 +1,5 @@
 /**
- * Dock body for zephyr,gpio-step-dir-stepper-ctrl: shaft dial + position/velocity.
+ * Dock body for steppers: GPIO step/dir observation or TMCM-3216 over UART.
  */
 
 import { useSyncExternalStore } from 'react'
@@ -7,45 +7,80 @@ import { RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getSteppers, subscribe as subscribeGpio } from '@/hostGpio'
 import {
-  getSnapshot,
-  subscribe,
+  getSnapshot as getGpioStepperSnapshot,
+  subscribe as subscribeGpioStepper,
   type StepperAxisSnapshot,
 } from '@/hostStepper'
+import * as hostTmcm3216 from '@/hostTmcm3216'
 
 /** Visual steps per revolution for the dial (matches stock sample default). */
 const DIAL_STEPS_PER_REV = 200
 
+function subscribeSteppers(fn: () => void): () => void {
+  const a = subscribeGpioStepper(fn)
+  const b = hostTmcm3216.subscribe(fn)
+  return () => {
+    a()
+    b()
+  }
+}
+
+function getCombinedSnapshot(): { axes: StepperAxisSnapshot[]; source: 'tmcm' | 'gpio' | 'none' } {
+  if (hostTmcm3216.isActive()) {
+    return { axes: hostTmcm3216.getSnapshot().axes, source: 'tmcm' }
+  }
+  const gpio = getGpioStepperSnapshot()
+  if (gpio.axes.length > 0) return { axes: gpio.axes, source: 'gpio' }
+  return { axes: [], source: 'none' }
+}
+
 export function StepperBody() {
   const wiring = useSyncExternalStore(subscribeGpio, getSteppers, () => [])
-  const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const snap = useSyncExternalStore(subscribeSteppers, getCombinedSnapshot, getCombinedSnapshot)
 
-  if (wiring.length === 0) {
+  if (snap.axes.length === 0 && wiring.length === 0 && !hostTmcm3216.isActive()) {
     return (
       <div className="px-3 py-3 text-[11px] text-muted-foreground">
-        No{' '}
-        <code className="font-mono text-foreground">zephyr,gpio-step-dir-stepper-ctrl</code>{' '}
-        in this build&apos;s devicetree.
+        No stepper in this build&apos;s devicetree (
+        <code className="font-mono text-foreground">zephyr,gpio-step-dir-stepper-ctrl</code> or{' '}
+        <code className="font-mono text-foreground">adi,tmcm3216</code>).
       </div>
     )
   }
 
+  const footnote =
+    snap.source === 'tmcm' ? (
+      <>
+        ADI <code className="font-mono text-foreground">TMCM-3216</code> over uart1 RS485/TMCL —
+        stock <code className="font-mono text-foreground">samples/drivers/stepper/tmcm3216</code>{' '}
+        ping-pongs; the dial tracks simulated axis motion.
+      </>
+    ) : (
+      <>
+        Stock Zephyr{' '}
+        <code className="font-mono text-foreground">zephyr,gpio-step-dir-stepper-ctrl</code> —
+        STEP/DIR on GPIO. Press SW0 in Keys to advance the generic sample modes. Try{' '}
+        <code className="font-mono text-foreground">samples/drivers/stepper/generic</code>.
+      </>
+    )
+
   return (
     <div className="space-y-3 px-3 py-3">
       {snap.axes.map((axis) => (
-        <StepperCard key={axis.id} axis={axis} />
+        <StepperCard key={axis.id} axis={axis} showPins={snap.source === 'gpio'} />
       ))}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Stock Zephyr{' '}
-        <code className="font-mono text-foreground">zephyr,gpio-step-dir-stepper-ctrl</code>{' '}
-        — STEP/DIR on GPIO. Press SW0 in Keys to advance the generic sample
-        modes. Try{' '}
-        <code className="font-mono text-foreground">samples/drivers/stepper/generic</code>.
-      </p>
+      <p className="text-[11px] leading-relaxed text-muted-foreground">{footnote}</p>
     </div>
   )
 }
 
-function StepperCard({ axis }: { axis: StepperAxisSnapshot }) {
+function StepperCard({
+  axis,
+  showPins,
+}: {
+  axis: StepperAxisSnapshot
+  showPins: boolean
+}) {
   const angle = ((axis.position % DIAL_STEPS_PER_REV) / DIAL_STEPS_PER_REV) * 360
   const rate = axis.stepsPerSec
 
@@ -108,17 +143,21 @@ function StepperCard({ axis }: { axis: StepperAxisSnapshot }) {
             />
             <div className="truncate text-xs font-medium text-foreground">{axis.label}</div>
           </div>
-          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            STEP {axis.stepPin}
-            <span className={axis.stepActive ? ' text-emerald-400' : ''}>
-              {axis.stepActive ? ' ●' : ' ○'}
-            </span>
-            {' · '}
-            DIR {axis.dirPin}
-            <span className={axis.dirActive ? ' text-sky-400' : ''}>
-              {axis.dirActive ? ' ●' : ' ○'}
-            </span>
-          </div>
+          {showPins ? (
+            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+              STEP {axis.stepPin}
+              <span className={axis.stepActive ? ' text-emerald-400' : ''}>
+                {axis.stepActive ? ' ●' : ' ○'}
+              </span>
+              {' · '}
+              DIR {axis.dirPin}
+              <span className={axis.dirActive ? ' text-sky-400' : ''}>
+                {axis.dirActive ? ' ●' : ' ○'}
+              </span>
+            </div>
+          ) : (
+            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">TMCL axis</div>
+          )}
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-[11px]">
             <span>
               <span className="text-muted-foreground">pos </span>
@@ -131,11 +170,7 @@ function StepperCard({ axis }: { axis: StepperAxisSnapshot }) {
               </span>
             </span>
             <span className="text-muted-foreground">
-              {axis.moving
-                ? axis.directionPositive
-                  ? 'CW'
-                  : 'CCW'
-                : 'idle'}
+              {axis.moving ? (axis.directionPositive ? 'CW' : 'CCW') : 'idle'}
             </span>
           </div>
         </div>

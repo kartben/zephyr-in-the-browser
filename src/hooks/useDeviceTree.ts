@@ -12,7 +12,9 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import * as hostAudio from '@/hostAudio'
 import * as hostDisplay from '@/hostDisplay'
 import * as hostGnss from '@/hostGnss'
+import * as hostTmcm3216 from '@/hostTmcm3216'
 import * as hostGpio from '@/hostGpio'
+import { isEffectivelyOkay, nodesByCompatible } from '@/dts'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
@@ -78,6 +80,15 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   useEffect(() => {
     pruneFollows(chips)
   }, [chips])
+
+  // TMCM-3216 owns uart1 TMCL while its nodes are okay in the running tree.
+  useEffect(() => {
+    const doc = tree?.doc
+    const present =
+      !!doc && nodesByCompatible(doc, 'adi,tmcm3216').some(isEffectivelyOkay)
+    if (present) hostTmcm3216.attach()
+    else hostTmcm3216.detach()
+  }, [tree])
 
   const inventory = useMemo(() => {
     const avail: Availability = { gnss, gpio, audio, mic, net, i2c, spi, display, input }

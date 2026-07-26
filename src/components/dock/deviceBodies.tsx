@@ -56,6 +56,7 @@ import type { DeviceClass, DeviceNode, BodyKind } from '@/deviceTopology'
 import * as hostAudio from '@/hostAudio'
 import * as hostBuzzer from '@/hostBuzzer'
 import * as hostStepper from '@/hostStepper'
+import * as hostTmcm3216 from '@/hostTmcm3216'
 import * as hostGnss from '@/hostGnss'
 import * as hostGpio from '@/hostGpio'
 import * as hostMic from '@/hostMic'
@@ -699,12 +700,17 @@ function BuzzerBadge() {
 }
 
 function StepperBadge() {
-  const snap = useSyncExternalStore(
+  const gpioSnap = useSyncExternalStore(
     hostStepper.subscribe,
     hostStepper.getSnapshot,
     hostStepper.getSnapshot,
   )
-  const axis = snap.axes[0]
+  const tmcmSnap = useSyncExternalStore(
+    hostTmcm3216.subscribe,
+    hostTmcm3216.getSnapshot,
+    hostTmcm3216.getSnapshot,
+  )
+  const axis = hostTmcm3216.isActive() ? tmcmSnap.axes[0] : gpioSnap.axes[0]
   if (!axis) return null
   return (
     <Mono className={axis.moving ? 'text-emerald-400' : undefined}>

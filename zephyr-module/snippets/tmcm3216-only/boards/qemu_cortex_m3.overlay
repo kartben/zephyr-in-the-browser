@@ -1,0 +1,43 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/stepper/tmcm3216 on Cortex-M3: TMCM-3216 on uart1,
+ * DE on host_gpio pin 3. Disables the shield GNSS child.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&gnss {
+	status = "disabled";
+};
+
+&uart1 {
+	current-speed = <9600>;
+	status = "okay";
+
+	adi_tmcm3216 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		tmcm3216: tmcm3216@1 {
+			compatible = "adi,tmcm3216";
+			reg = <0x1>;
+			de-gpios = <&host_gpio 3 GPIO_ACTIVE_HIGH>;
+			status = "okay";
+
+			stepper_driver_0: stepper-driver {
+				compatible = "adi,tmcm3216-stepper-driver";
+				idx = <0>;
+				micro-step-res = <16>;
+				status = "okay";
+			};
+
+			stepper_ctrl_0: stepper-ctrl {
+				compatible = "adi,tmcm3216-stepper-ctrl";
+				idx = <0>;
+				status = "okay";
+			};
+		};
+	};
+};

@@ -230,6 +230,15 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['stepper', 'keys', 'gpio'],
   },
   {
+    // ADI TMCM-3216 on uart1 via RS485/TMCL. Page simulates the module;
+    // needs a QEMU rebuild with the uart1 TX-capture patch.
+    id: 'tmcm3216',
+    label: 'TMCM-3216',
+    description: '3-axis TMCM-3216 over uart1 RS485/TMCL; ping-pong dial in the dock',
+    zephyrSample: 'samples/drivers/stepper/tmcm3216',
+    primaryPanels: ['stepper', 'gpio'],
+  },
+  {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
     // lights led0 (pin 4) — click SW0 in the Keys panel to press it.
     id: 'basic_button',
@@ -489,6 +498,13 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     description: 'GPIO step/dir over VIRTIO GPIO; press SW0 to cycle modes, dial in the dock',
     zephyrSample: 'samples/drivers/stepper/generic',
     primaryPanels: ['stepper', 'keys', 'gpio'],
+  },
+  {
+    id: 'tmcm3216',
+    label: 'TMCM-3216',
+    description: '3-axis TMCM-3216 over uart1 RS485/TMCL; ping-pong dial in the dock',
+    zephyrSample: 'samples/drivers/stepper/tmcm3216',
+    primaryPanels: ['stepper', 'gpio'],
   },
   {
     // Interrupt-driven, unlike the Cortex-M3 build: this device offers

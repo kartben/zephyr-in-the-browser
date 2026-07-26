@@ -1,0 +1,19 @@
+name: tmcm3216-only
+description: >
+  ADI TMCM-3216 on uart1 (RS485/TMCL): disable the shield's GNSS child and
+  attach adi,tmcm3216 with motor 0 driver+ctrl. DE on GPIO pin 3. For
+  samples/drivers/stepper/tmcm3216. Pair with virtio-gpio on A53/riscv.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay

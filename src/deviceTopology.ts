@@ -824,13 +824,15 @@ function deriveFromTree(
     }
   }
 
-  // UART buses: every enumerated controller gets a row; children (GNSS, …)
-  // nest under it the same way chips nest under I²C/SPI. The GNSS UART is
-  // interactive with an "On the bus" roster — same paradigm, usually one seat.
+  // UART buses: every enumerated controller gets a row; children (GNSS,
+  // TMCM-3216, …) nest under it the same way chips nest under I²C/SPI.
+  let tmcmStepperPushed = false
   for (const bus of insights.uartBuses) {
     const busNode = byPath(doc, bus.path)
     const busKey = uniqueKey(ids, bus.controllerLabel)
     const liveGnss = bus.role === 'gnss' && avail.gnss && bus.slots.some((s) => s.chipId === 'gnss')
+    const liveTmcm =
+      bus.role === 'tmcm3216' && avail.gnss && bus.slots.some((s) => s.chipId === 'tmcm3216')
     push({
       key: busKey,
       nodeName: busNode?.name ?? bus.controllerLabel,
@@ -838,9 +840,9 @@ function deriveFromTree(
       compatible: bus.compatible || undefined,
       deviceClass: 'uart-bus',
       path: bus.path,
-      presence: liveGnss ? 'interactive' : 'inert',
+      presence: liveGnss || liveTmcm ? 'interactive' : 'inert',
       note: bus.role === 'console' ? '→ terminal' : undefined,
-      body: liveGnss ? 'uart' : undefined,
+      body: liveGnss || liveTmcm ? 'uart' : undefined,
       busLabel: bus.controllerLabel,
     })
 
@@ -862,6 +864,24 @@ function deriveFromTree(
         })
         continue
       }
+      if (slot.chipId === 'tmcm3216') {
+        if (!avail.gnss) continue
+        push({
+          key: uniqueKey(ids, 'tmcm3216'),
+          nodeName: slot.nodeName,
+          label: 'TMCM-3216',
+          compatible: slot.compatible || undefined,
+          deviceClass: 'stepper',
+          path: `${bus.path}/${slot.nodeName}`,
+          parentKey: busKey,
+          presence: 'interactive',
+          body: 'stepper',
+          crumb: bus.controllerLabel,
+          panelKind: 'stepper',
+        })
+        tmcmStepperPushed = true
+        continue
+      }
       // Unknown UART child — keep it under the bus group for topology.
       push({
         key: uniqueKey(ids, `${bus.controllerLabel}:${slot.nodeName}`),
@@ -875,6 +895,30 @@ function deriveFromTree(
         crumb: bus.controllerLabel,
       })
     }
+  }
+
+  // TMCM without a prior gpio step/dir row: ensure a class-view stepper seat.
+  if (
+    !tmcmStepperPushed &&
+    avail.gnss &&
+    doc &&
+    (nodesByCompatible(doc, 'adi,tmcm3216').some(isEffectivelyOkay) ||
+      nodesByCompatible(doc, 'adi,tmcm3216-stepper-ctrl').some(isEffectivelyOkay))
+  ) {
+    const ctrl = nodesByCompatible(doc, 'adi,tmcm3216-stepper-ctrl').find(isEffectivelyOkay)
+    const parent = nodesByCompatible(doc, 'adi,tmcm3216').find(isEffectivelyOkay)
+    push({
+      key: uniqueKey(ids, 'tmcm3216'),
+      nodeName: parent?.name ?? 'tmcm3216',
+      label: 'TMCM-3216',
+      compatible: 'adi,tmcm3216',
+      deviceClass: 'stepper',
+      path: parent ? pathOf(parent) : '/tmcm3216',
+      presence: 'interactive',
+      body: 'stepper',
+      crumb: ctrl?.name ?? 'RS485 / TMCL',
+      panelKind: 'stepper',
+    })
   }
 
   return sortByDocumentOrder(nodes, doc)

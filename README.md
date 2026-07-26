@@ -22,6 +22,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **Fuel gauge** | A Maxim MAX17048 at 0x36 — stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card with Registers (framework-ready for more gauges) |
 | **GPIO** | Clickable buttons (`gpio-keys`) and a separate LED-class row for `gpio-leds`, wired per the running build’s tree |
 | **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |
+| **Stepper** | GPIO step/dir (`zephyr,gpio-step-dir-stepper-ctrl`) observed on STEP/DIR pins, and an ADI **TMCM-3216** on uart1 via RS485/TMCL — stock `samples/drivers/stepper/tmcm3216` ping-pongs; the dock dial tracks position/velocity |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |

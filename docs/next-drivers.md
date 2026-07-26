@@ -103,6 +103,13 @@ and a dock dial tracks position/velocity. Press SW0 to advance the stock sample
 modes. MMIO host-gpio polls at 1 ms when steppers are present so edges are not
 lost; virtio notifies on every write.
 
+**TMCM-3216 (done).** Stock Zephyr `adi,tmcm3216` on uart1 via RS485/TMCL,
+packaged as `samples/drivers/stepper/tmcm3216` behind `-S tmcm3216-only`
+(+ `virtio-gpio` for DE). Extends the browser-gnss UART with guest TX capture;
+the page echoes for RS485 loopback, answers TMCL, and drives the same stepper
+dial. Needs a QEMU rebuild that includes
+`*-hw-char-browser-gnss-tx-capture-rs485-echo.patch`.
+
 Original rationale, kept for the record —
 the highest demo-value-per-effort item, and it reuses shapes we already have in
 both directions:
@@ -617,6 +624,9 @@ shell is a UX problem before it is a driver problem.
    `zephyr,gpio-step-dir-stepper-ctrl` on pins 6/7, `samples/drivers/stepper/generic`,
    dock shaft dial + position/velocity. Observes existing GPIO outputs — no new
    QEMU device.
+5⅞. ~~**TMCM-3216**~~ — ✅ done; stock `adi,tmcm3216` on uart1 RS485/TMCL,
+   `samples/drivers/stepper/tmcm3216`, same stepper dial. QEMU uart1 TX capture
+   patch + page-side TMCL simulator (echo + replies).
 6. ~~**PWM (I²C)**~~ — ✅ done; `PwmChip` framework + `nxp,pca9685-pwm` with
    `samples/drivers/led/pwm`, duty-cycle chart. More PWM providers are
    declaration + packaging only.

@@ -1,4 +1,7 @@
-/** Browser end of the NMEA-over-UART GNSS bridge. */
+/** Browser end of the NMEA-over-UART GNSS bridge (uart1 RX). */
+
+import * as hostUart1 from '@/hostUart1'
+import * as hostTmcm3216 from '@/hostTmcm3216'
 
 export interface GnssFix {
   latitude: number
@@ -7,10 +10,6 @@ export interface GnssFix {
   speed: number
   bearing: number
   satellites: number
-}
-
-interface GnssExports {
-  _qemu_browser_gnss_feed_byte?: (value: number) => number
 }
 
 const DEFAULT_FIX: GnssFix = {
@@ -22,14 +21,13 @@ const DEFAULT_FIX: GnssFix = {
   satellites: 8,
 }
 
-let exports: GnssExports | null = null
 let fix = DEFAULT_FIX
 let transmitter: ReturnType<typeof setInterval> | undefined
 const listeners = new Set<() => void>()
 
 export function attach(mod: unknown) {
   detach()
-  exports = mod as GnssExports
+  hostUart1.attach(mod)
   if (available()) {
     transmit()
     transmitter = setInterval(transmit, 1000)
@@ -40,12 +38,13 @@ export function attach(mod: unknown) {
 export function detach() {
   if (transmitter !== undefined) clearInterval(transmitter)
   transmitter = undefined
-  exports = null
+  hostTmcm3216.detach()
+  hostUart1.detach()
   notify()
 }
 
 export function available(): boolean {
-  return typeof exports?._qemu_browser_gnss_feed_byte === 'function'
+  return hostUart1.feedAvailable()
 }
 
 export function getSnapshot(): GnssFix {
@@ -142,8 +141,9 @@ function sentence(body: string) {
 
 /** Emit one standards-compliant GGA/RMC fix over the emulated UART. */
 function transmit() {
-  const write = exports?._qemu_browser_gnss_feed_byte
-  if (!write) return
+  // TMCM-3216 owns uart1 while its sample is running — do not spam NMEA into TMCL.
+  if (hostTmcm3216.isActive()) return
+  if (!hostUart1.feedAvailable()) return
 
   const now = new Date()
   const time =
@@ -167,7 +167,9 @@ function transmit() {
       `GPRMC,${time},A,${latitude},${northSouth},${longitude},${eastWest},${knots.toFixed(1)},${fix.bearing.toFixed(1)},${date},,,A`,
     )
 
-  for (let index = 0; index < payload.length; index += 1) write(payload.charCodeAt(index))
+  const bytes = new Uint8Array(payload.length)
+  for (let index = 0; index < payload.length; index += 1) bytes[index] = payload.charCodeAt(index)
+  hostUart1.feed(bytes)
 }
 
 export function watchBrowserPosition(onError: (message: string) => void): () => void {

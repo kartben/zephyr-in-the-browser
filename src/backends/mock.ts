@@ -148,9 +148,17 @@ export function createMockBackend(): PtyBackend {
       // and HTTP flows.
       if (board.peripherals?.hostNet) startFakeNetwork(disposers)
 
-      // Stub GNSS so UART-bus nesting (GNSS under uart1) is visible on mock.
+      // Stub GNSS / uart1 so UART-bus nesting (GNSS or TMCM under uart1) works on mock.
       if (board.peripherals?.gnss) {
-        attachHostGnss({ _qemu_browser_gnss_feed_byte: () => 0 })
+        attachHostGnss({
+          _qemu_browser_gnss_feed_byte: () => 1,
+          _qemu_browser_gnss_tx_ring: () => 0,
+          _qemu_browser_gnss_tx_ring_size: () => 0,
+          _qemu_browser_gnss_tx_write_index: () => 0,
+          _qemu_browser_gnss_tx_read_index: () => 0,
+          _qemu_browser_gnss_tx_set_read_index: () => {},
+          HEAPU8: new Uint8Array(0),
+        })
         disposers.push(() => detachHostGnss())
       }
 
