@@ -51,9 +51,9 @@ export function startMockWalkthrough(
     }
     emit(slave, { kind: 'table', count: catalog.entries.length })
 
-    // Then walk the steps. Anything the author marked with a panel gets a
-    // pause, which is close enough to how the real sample is written to make
-    // the interaction worth showing.
+    // Then walk the steps, pausing exactly where the sample's own
+    // SAMPLE_SHOW_PAUSE calls would. The extractor records which sites those
+    // are, so this is the real rhythm rather than an approximation of it.
     let index = 0
     const step = () => {
       if (signal.aborted) return
@@ -62,7 +62,11 @@ export function startMockWalkthrough(
         emit(slave, { kind: 'end' })
         return
       }
-      emit(slave, { kind: 'show', id: entry.id, pause: entry.panel !== undefined })
+      emit(slave, {
+        kind: 'show',
+        id: entry.id,
+        pause: entry.fireSites.some((site) => site.pause === true),
+      })
       if (index === 0) {
         emit(slave, { kind: 'value', id: entry.id, text: 'mock gpio pin 4' })
       }

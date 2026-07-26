@@ -5,8 +5,8 @@
  * Blinky, with the lesson attached.
  *
  * The code is stock samples/basic/blinky. What is added is the `@annotate`
- * comments — which read as ordinary comments, and are stripped out of the copy
- * the browser displays — and the SAMPLE_SHOW*() calls that decide when each one
+ * comments, which read as ordinary comments and are stripped out of the copy
+ * the browser displays, plus the SAMPLE_SHOW*() calls that decide when each one
  * appears. With CONFIG_SAMPLE_ANNOTATIONS off, all of it compiles away and this
  * is just blinky again.
  */
@@ -24,30 +24,30 @@
 
 #define SLEEP_TIME_MS 1000
 
-/* @annotate led_alias [led]
+/* @annotate led_alias [gpio]
  * The pin is named by devicetree, not by this file
  *
- * Nothing here says which pin the LED is on, or even which GPIO controller
- * drives it. `DT_ALIAS(led0)` resolves **at compile time** to whatever the
- * board's devicetree calls `led0` — a different node on every board this
- * builds for, with the same source.
+ * Nothing in this file says which pin the LED is on, or which GPIO controller
+ * drives it. `DT_ALIAS(led0)` resolves **at compile time** to whatever this
+ * board's devicetree calls `led0`.
  *
- * Open the devicetree viewer in the top bar to see the node this build
- * resolved to.
+ * That indirection is what lets one source file build for boards with
+ * completely different GPIO hardware. Adding a board is a devicetree change
+ * rather than a code change.
  */
 #define LED0_NODE DT_ALIAS(led0)
 
-/* @annotate led_spec [led]
- * `gpio_dt_spec` is a struct the compiler fills in
+/* @annotate led_spec [gpio]
+ * `gpio_dt_spec` is filled in by the compiler
  *
  * `GPIO_DT_SPEC_GET` expands to a static initialiser holding three things: a
  * pointer to the controller device, the pin number, and the flags devicetree
- * gave it. There is no lookup at runtime and no string to parse — by the time
- * `main()` starts, this struct is already in flash.
+ * gave that pin. Nothing is looked up at runtime and no string is parsed. By
+ * the time `main()` starts, this struct is already in flash.
  *
- * That is why the same binary cannot be pointed at a different pin without
- * rebuilding, and why a board port is a devicetree change rather than a code
- * change.
+ * Passing the whole spec to the `_dt` variants of the GPIO API keeps the pin
+ * and its flags travelling together, so active-low handling cannot be honoured
+ * at one call site and forgotten at another.
  */
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 
@@ -65,31 +65,33 @@ int main(void)
 	 */
 	SAMPLE_VALUE(led_spec, "%s pin %d", led.port->name, led.pin);
 
-	/* @annotate driver_ready
-	 * The driver is already running before `main()`
+	/* @annotate driver_ready [gpio]
+	 * Drivers are already running before `main()`
 	 *
 	 * Zephyr initialises devices during boot, in dependency order, well
-	 * before the application starts. So this is not "start the driver" —
-	 * it is a check that the controller devicetree *declared* actually has
-	 * a driver bound to it and that the driver's init succeeded.
+	 * before the application starts. So this is not "start the driver". It
+	 * asks whether the controller devicetree *declared* actually has a
+	 * driver bound to it, and whether that driver's init succeeded.
 	 *
-	 * A node with `status = "okay"` but no matching driver reaches exactly
-	 * here and fails.
+	 * A node left `status = "okay"` for hardware no enabled driver matches
+	 * reaches exactly this check and fails it.
 	 */
 	if (!gpio_is_ready_dt(&led)) {
 		return 0;
 	}
 	SAMPLE_SHOW(driver_ready);
 
-	/* @annotate configure_output [led]
-	 * Claiming the pin, before anything drives it
+	/* @annotate configure_output [gpio]
+	 * Claiming the pin, and what *active* means
 	 *
 	 * `gpio_pin_configure_dt()` sets the direction and the initial level in
-	 * one call. `GPIO_OUTPUT_ACTIVE` means "output, and start it active" —
-	 * *active*, not *high*: if devicetree marked the pin `GPIO_ACTIVE_LOW`,
-	 * the driver inverts it for you and this code does not change.
+	 * one call. `GPIO_OUTPUT_ACTIVE` means output, starting in its active
+	 * state. *Active*, not *high*: if devicetree marked the pin
+	 * `GPIO_ACTIVE_LOW`, the driver inverts the level for you and none of
+	 * this code changes.
 	 *
-	 * The LED row in the device dock is still dark. Continue, and watch it.
+	 * Until this call the pin belongs to nobody. Configuring it is what
+	 * claims it and fixes its direction.
 	 */
 	SAMPLE_SHOW_PAUSE(configure_output);
 	ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
@@ -101,13 +103,15 @@ int main(void)
 		/* @annotate the_toggle [led]
 		 * This is the line that does the work
 		 *
-		 * One call, no register write in sight. `gpio_pin_toggle_dt()`
-		 * goes through the GPIO API to whichever driver the devicetree
-		 * bound — memory-mapped registers on one board, a VIRTIO
-		 * request to the browser on another. The sample cannot tell,
-		 * and does not need to.
+		 * One call, and no register write in sight.
+		 * `gpio_pin_toggle_dt()` goes through the GPIO API to whichever
+		 * driver devicetree bound to the controller: memory-mapped
+		 * registers on one board, a VIRTIO request on another. The
+		 * sample cannot tell which, and does not need to.
 		 *
-		 * The machine is stopped. Continue, and the LED lights.
+		 * Toggling reads the current level and writes back the
+		 * opposite, so it too goes through the active-low flag in the
+		 * spec. It flips the logical level, not the electrical one.
 		 */
 		SAMPLE_ONCE(SAMPLE_SHOW_PAUSE(the_toggle));
 		ret = gpio_pin_toggle_dt(&led);
@@ -121,15 +125,18 @@ int main(void)
 		/* @annotate sleep_yields
 		 * `k_msleep()` gives the CPU up
 		 *
-		 * This is not a delay loop. The thread is taken off the run
-		 * queue and a timer is armed to put it back, so the scheduler
-		 * is free to run anything else — or to idle the core. In a
-		 * one-thread sample there is nothing else, which is why the
-		 * MIPS readout drops while this blinks.
+		 * This is not a delay loop. The calling thread comes off the
+		 * run queue and a kernel timer is armed to put it back, so the
+		 * scheduler is free to run other threads, or to idle the core
+		 * until the timeout expires.
 		 *
-		 * The blink is not wall-clock accurate here: the emulator runs
-		 * the guest clock faster than real time on the interpreted
-		 * boards.
+		 * It may only be called from a thread. Sleeping in an interrupt
+		 * handler is a kernel error, which is why blinking from an ISR
+		 * needs a `k_timer` or a work item instead.
+		 *
+		 * One caveat particular to running under emulation: the guest
+		 * clock is not tied to real time on the interpreted boards, so
+		 * this blinks faster than the one second it asks for.
 		 */
 		SAMPLE_ONCE(SAMPLE_SHOW(sleep_yields));
 		k_msleep(SLEEP_TIME_MS);

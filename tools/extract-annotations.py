@@ -58,8 +58,13 @@ HEADER_RE = re.compile(
     r"(?:[ \t]*\[(?P<panel>[a-z0-9-]+)\])?[ \t]*$"
 )
 
-# SAMPLE_VALUE takes further arguments; the key is always the first.
-FIRE_RE = re.compile(r"\bSAMPLE_(?:SHOW_PAUSE|SHOW|VALUE)[ \t]*\([ \t]*([A-Za-z_][A-Za-z0-9_]*)")
+# SAMPLE_VALUE takes further arguments; the key is always the first. Which
+# macro fires a site is recorded too, so the mock backend can replay a
+# walkthrough with the same pauses the firmware would produce rather than
+# guessing from whether the annotation names a panel.
+FIRE_RE = re.compile(
+    r"\bSAMPLE_(SHOW_PAUSE|SHOW|VALUE)[ \t]*\([ \t]*([A-Za-z_][A-Za-z0-9_]*)"
+)
 
 REVEAL_RE = re.compile(r"\bSAMPLE_REVEAL[ \t]*\([ \t]*([a-z0-9-]+)[ \t]*\)")
 
@@ -79,6 +84,8 @@ class ExtractError(Exception):
 class FireSite:
     file: int
     line: int
+    """This site stops the machine, i.e. it is a SAMPLE_SHOW_PAUSE."""
+    pause: bool = False
 
 
 @dataclass
@@ -97,7 +104,7 @@ class ParsedFile:
     name: str
     stripped: str
     annotations: list[Annotation]
-    fires: list[tuple[str, int]]
+    fires: list[tuple[str, int, bool]]
 
 
 def _strip_comment_prefix(line: str) -> str:
@@ -211,10 +218,10 @@ def parse_file(path: Path, name: str, file_index: int) -> ParsedFile:
 
     # Fire sites are scanned from the stripped text so their line numbers match
     # everything else the browser is given.
-    fires: list[tuple[str, int]] = []
+    fires: list[tuple[str, int, bool]] = []
     for lineno, line in enumerate(kept, start=1):
-        for fire_key in FIRE_RE.findall(line):
-            fires.append((fire_key, lineno))
+        for macro, fire_key in FIRE_RE.findall(line):
+            fires.append((fire_key, lineno, macro == "SHOW_PAUSE"))
         for panel in REVEAL_RE.findall(line):
             if panel not in PANELS:
                 raise ExtractError(
@@ -244,14 +251,14 @@ def extract(sources: list[tuple[Path, str]]) -> tuple[list[Annotation], list[str
 
     for pf in parsed:
         file_index = names.index(pf.name)
-        for key, lineno in pf.fires:
+        for key, lineno, pause in pf.fires:
             ann = by_key.get(key)
             if ann is None:
                 raise ExtractError(
                     f"{pf.name}:{lineno}: SAMPLE_SHOW references '{key}', "
                     f"which has no @annotate block"
                 )
-            ann.fire_sites.append(FireSite(file=file_index, line=lineno))
+            ann.fire_sites.append(FireSite(file=file_index, line=lineno, pause=pause))
 
     unfired = [a.key for a in annotations if not a.fire_sites]
     if unfired:
@@ -316,7 +323,10 @@ def render_json(app: str, annotations: list[Annotation], files: list[str]) -> st
                 **({"panel": ann.panel} if ann.panel else {}),
                 "file": ann.file,
                 "line": ann.line,
-                "fireSites": [{"file": f.file, "line": f.line} for f in ann.fire_sites],
+                "fireSites": [
+                    {"file": f.file, "line": f.line, **({"pause": True} if f.pause else {})}
+                    for f in ann.fire_sites
+                ],
             }
             for ident, ann in enumerate(annotations)
         ],
