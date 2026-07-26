@@ -223,9 +223,9 @@ function syncManagedSpiChips() {
   const managed = new Set(MANAGED_SPI_BY_ID.values())
   const onBus = new Map(spiModel.chips().map((chip) => [chip.cs, chip]))
 
-  // Drop managed parts the tree (or fallback) no longer wants, then attach
-  // whatever is still missing. Order matters when two managed chips share a
-  // CS: detach the old occupant before soldering the new one.
+  // A CS has at most one child in a real tree. The page may still have a
+  // leftover managed chip from the no-DTS fallback or the previous sample —
+  // drop those before attaching what this tree wants.
   for (const [cs, chip] of onBus) {
     if (!managed.has(chip)) continue
     if (wanted.get(cs) === chip) continue
