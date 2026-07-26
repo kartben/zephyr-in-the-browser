@@ -1,0 +1,58 @@
+diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
+index 7231fe6..1968c9c 100644
+--- a/hw/virtio/virtio-browser.c
++++ b/hw/virtio/virtio-browser.c
+@@ -216,10 +216,38 @@ static int64_t wake_latency_sum_ns;
+ static int64_t wake_latency_max_ns;
+ static uint32_t wake_latency_count;
+ 
++/*
++ * Diagnostic only: which path is actually delivering completions in
++ * practice -- the page's kick BH (fast: no timer to wait out) or the
++ * periodic drain timer (up to VIRTIO_BROWSER_DRAIN_IDLE_MS/BUSY_MS late).
++ * Set around the kick BH's own drain calls; virtio_browser_note_notify()
++ * reads it to attribute each notify to whichever path found it.
++ */
++static bool in_kick_path;
++static uint32_t notify_via_kick_count;
++static uint32_t notify_via_timer_count;
++
+ static void virtio_browser_note_notify(void)
+ {
+     wake_notify_ns = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+     wake_pending = true;
++    if (in_kick_path) {
++        notify_via_kick_count++;
++    } else {
++        notify_via_timer_count++;
++    }
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_notify_via_kick_count(void)
++{
++    return notify_via_kick_count;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_notify_via_timer_count(void)
++{
++    return notify_via_timer_count;
+ }
+ 
+ void virtio_browser_note_vcpu_wake(void);
+@@ -291,12 +319,14 @@ static void virtio_browser_kick_bh_cb(void *opaque)
+         return;
+     }
+     virtio_browser_draining = true;
++    in_kick_path = true;
+     for (uint32_t i = 0; i < n; i++) {
+         VirtIOBrowser *b = browser_devices[i];
+         if (b && b->drain) {
+             virtio_browser_drain(b);
+         }
+     }
++    in_kick_path = false;
+     virtio_browser_draining = false;
+ }
+ 

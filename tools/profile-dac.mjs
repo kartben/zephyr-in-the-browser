@@ -154,6 +154,14 @@ try {
       bridgeHz: snap?.bridgeHz ?? null,
       bridgePollMs: snap?.bridgePollMs ?? null,
       mips: snap?.mips ?? null,
+      wakeAvgNs: snap?.wakeAvgNs ?? null,
+      wakeMaxNs: snap?.wakeMaxNs ?? null,
+      wakeCount: snap?.wakeCount ?? null,
+      warpOvershootAvgNs: snap?.warpOvershootAvgNs ?? null,
+      warpOvershootMaxNs: snap?.warpOvershootMaxNs ?? null,
+      warpOvershootCount: snap?.warpOvershootCount ?? null,
+      notifyViaKick: snap?.notifyViaKick ?? null,
+      notifyViaTimer: snap?.notifyViaTimer ?? null,
       notes: snap?.notes ?? [],
     }
     rows.push(row)
@@ -161,7 +169,14 @@ try {
       `  t=${row.t.toFixed(1)}s codeHz=${row.codeHz.toFixed(0)} i2cHz=${row.i2cHzMeas.toFixed(0)} ` +
         `guestMs/s=${row.guestMsPerSec?.toFixed?.(0) ?? '-'} hist=${row.hist} ` +
         `bridgeHz=${row.bridgeHz?.toFixed?.(0) ?? '-'} pollMs=${row.bridgePollMs?.toFixed?.(2) ?? '-'} ` +
-        `mips=${row.mips?.toFixed?.(1) ?? '-'} code=${row.code}`,
+        `mips=${row.mips?.toFixed?.(1) ?? '-'} code=${row.code} ` +
+        `wakeAvgMs=${row.wakeAvgNs != null ? (row.wakeAvgNs / 1e6).toFixed(2) : '-'} ` +
+        `wakeMaxMs=${row.wakeMaxNs != null ? (row.wakeMaxNs / 1e6).toFixed(2) : '-'} ` +
+        `wakeN=${row.wakeCount ?? '-'} ` +
+        `warpAvgMs=${row.warpOvershootAvgNs != null ? (row.warpOvershootAvgNs / 1e6).toFixed(2) : '-'} ` +
+        `warpMaxMs=${row.warpOvershootMaxNs != null ? (row.warpOvershootMaxNs / 1e6).toFixed(2) : '-'} ` +
+        `warpN=${row.warpOvershootCount ?? '-'} ` +
+        `viaKick=${row.notifyViaKick ?? '-'} viaTimer=${row.notifyViaTimer ?? '-'}`,
     )
     prev = cur
   }
@@ -182,6 +197,12 @@ try {
         bridgeHz: +avg('bridgeHz').toFixed(1),
         bridgePollMs: +avg('bridgePollMs').toFixed(2),
         mips: +avg('mips').toFixed(1),
+        wakeAvgMs: +(avg('wakeAvgNs') / 1e6).toFixed(2),
+        wakeMaxMs: +(avg('wakeMaxNs') / 1e6).toFixed(2),
+        warpOvershootAvgMs: +(avg('warpOvershootAvgNs') / 1e6).toFixed(2),
+        warpOvershootMaxMs: +(avg('warpOvershootMaxNs') / 1e6).toFixed(2),
+        notifyViaKick: rows.at(-1)?.notifyViaKick ?? null,
+        notifyViaTimer: rows.at(-1)?.notifyViaTimer ?? null,
         expectedCodeHz: 1000,
         periodWallSecAtMeasured: +(4096 / Math.max(1, avg('codeHz'))).toFixed(1),
         notes: [...new Set(steady.flatMap((r) => r.notes))],

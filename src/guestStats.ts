@@ -15,6 +15,33 @@
 
 interface StatsExports {
   _qemu_browser_guest_icount?: () => number
+  /**
+   * Diagnostic (tools/qemu-jit-patches/0016-instrument-icount-warp-overshoot.patch):
+   * with `sleep=on`, a guest timer deadline is honoured by arming a real
+   * QEMU_CLOCK_VIRTUAL_RT timer for exactly that many real ns rather than
+   * warping instantly. These read how much *extra* real time that arm-to-fire
+   * gap costs beyond the requested deadline — independent of any virtio I/O.
+   */
+  _qemu_icount_warp_overshoot_avg_ns?: () => number
+  _qemu_icount_warp_overshoot_max_ns?: () => number
+  _qemu_icount_warp_overshoot_count?: () => number
+}
+
+/** Mean/max ns a guest timer deadline overshoots its requested delay by. */
+export interface WarpOvershootStats {
+  avgNs: number
+  maxNs: number
+  count: number
+}
+
+export function warpOvershootStats(): WarpOvershootStats | null {
+  const fn = exports?._qemu_icount_warp_overshoot_avg_ns
+  if (typeof fn !== 'function') return null
+  return {
+    avgNs: fn(),
+    maxNs: exports?._qemu_icount_warp_overshoot_max_ns?.() ?? -1,
+    count: exports?._qemu_icount_warp_overshoot_count?.() ?? 0,
+  }
 }
 
 export interface StatsSnapshot {

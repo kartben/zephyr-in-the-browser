@@ -57,9 +57,13 @@ finds them by name:
 | --- | --- |
 | `_qemu_virtio_browser_count()` | number of instances |
 | `_qemu_virtio_browser_area(i)` | pointer to instance *i*'s `VirtioBrowserArea` |
+| `_qemu_virtio_browser_wake_addr()` | futex word the page `Atomics.notify`s after `cmp_wr` |
+| `_qemu_virtio_browser_kick()` | drain every cmp ring now + `qemu_notify_event()` |
 
 `name` is matched rather than `device_id`, because two instances can share a
-device id (two I2C buses) and index order is a command-line accident.
+device id (two I2C buses) and index order is a command-line accident. The wake
+exports are optional for older wasm builds — without them the page falls back
+to the realtime drain timer alone.
 
 ## The shared area
 
@@ -192,19 +196,22 @@ touch a virtqueue off the QEMU thread.
   a `bridge_poll_clamped` note.
 
 At rest this is one shared-memory read per device per 50 ms. Under load a
-blocking transfer costs QEMU's 1 ms drain plus however fast the page's event
-loop turns. The end-to-end figure worth quoting is the one that was actually
-measured: a 116-address `i2c scan` — 116 blocking round trips back to back —
-completes in under ten seconds in a *hidden* tab, against roughly two minutes
-before the port replaced the timer.
+blocking transfer used to cost QEMU's drain timer plus however fast the page's
+event loop turns — measured at ~50 I²C Hz on the stock DAC sawtooth. The page
+now **wakes QEMU on every completion**: `Atomics.notify` on
+`qemu_virtio_browser_wake_addr()` plus `_qemu_virtio_browser_kick()`, which
+schedules a BH to drain the cmp rings on the QEMU main loop (BQL held — the
+keepalive export may run on the browser thread) and `qemu_notify_event()`s a
+halted vCPU. The realtime drain timer stays as a safety net for old emulators
+and missed wakes. Expected after a rebuild: I²C into the hundreds–~1 kHz,
+bounded by the page's ~1 ms poll rather than by a 16–20 ms halt quantum.
 
 The remaining levers, in order, are the ones
 [performance.md](performance.md) tracks: moving the poll into a worker, where
 `Atomics.wait` replaces the whole hot-window apparatus with a sub-millisecond
-blocking wait that no clamp applies to; a `memory.atomic.notify` on the QEMU
-side after it publishes `req_wr`, turning that wait into a real wakeup; and
-`qemu_bh_schedule()` from the page to wake the main loop on completion rather
-than have it poll.
+blocking wait that no clamp applies to; and a `memory.atomic.notify` on the
+QEMU side after it publishes `req_wr`, turning that wait into a real wakeup
+in the other direction.
 
 ## What a backgrounded tab costs
 

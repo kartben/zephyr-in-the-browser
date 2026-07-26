@@ -29,7 +29,7 @@ the list matters for a given workload:
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount shift=4` is a guess, never swept | `src/boards.ts` | Medium | Very low | Low (fidelity trade) |
-| 7 | QEMU idle drain was 10 ms — **patched to 1 ms, needs rebuild** | virtio patch | High, I²C-bound | Very low | Low |
+| 7 | QEMU idle drain 10→1 ms + **completion wake (Atomics/kick)** — needs rebuild | virtio patch | High, I²C-bound | Low | Medium |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
@@ -336,16 +336,21 @@ synchronous `dac_write` drops `outstanding` to zero between transfers, and
 `-icount sleep=on` then sleeps the host until the idle drain fires — twice
 per loop (sleep wake + completion), which matches the ~22 ms/transfer.
 
-**Patched to idle = 1 ms** in the virtio-browser series; needs an emulator
-rebuild to land in `public/qemu/`. Expected: I²C Hz into the hundreds, limited
-by the 1 ms busy poll rather than by a 10 ms sleep tax.
+**Patched to idle = 1 ms** in the virtio-browser series. **Also:** the page now
+actively wakes QEMU on every completion (`Atomics.notify` on
+`qemu_virtio_browser_wake_addr` + `_qemu_virtio_browser_kick()` → futex wake,
+`qemu_bh_schedule` of the drain under the BQL, `qemu_notify_event`). Draining
+inline from the keepalive export crashes A53 (`gicv3` asserts `bql_locked()`):
+under `PROXY_TO_PTHREAD` that export runs on the *browser* thread, not the
+QEMU pthread. Both the idle-ms change and the kick need an emulator rebuild to
+land in `public/qemu/`. Expected after rebuild: I²C Hz into the
+hundreds–~1 kHz (page poll ~1 ms), check with `tools/profile-dac.mjs`
+(`kicks` in bridge stats should track `requests`).
 
-The clean version of this is still item 1(c): have the page's completion write
-wake the QEMU main loop rather than have QEMU poll for it. `qemu_bh_schedule`
-is the documented lever and is designed to be called cross-thread, but its
-`aio_notify` path writes to an event notifier, and whether that is safe to
-trigger from the browser main thread in this build needs checking before
-anything is built on it.
+The clean long-term shape is still item 1(b)+(c): bridge in a worker with
+`Atomics.wait`, QEMU `memory.atomic.notify` on `req_wr`, and the reverse kick
+we now have for completions. The kick BH is the same cross-thread pattern
+`qemu_bh_schedule` was always meant for.
 
 ## 8. Seven pollers share the thread that runs xterm and React
 

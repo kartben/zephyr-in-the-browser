@@ -259,5 +259,19 @@ export function detach() {
   transportDetach()
 }
 
-export { available, boundNames, isBound, stats as bridgeStats, subscribeBinds } from './transport'
-export type { BridgeStats, VirtioDeviceModel, VirtioRequest } from './transport'
+export {
+  available,
+  boundNames,
+  isBound,
+  stats as bridgeStats,
+  subscribeBinds,
+  wakeLatencyStats,
+  notifySourceStats,
+} from './transport'
+export type {
+  BridgeStats,
+  VirtioDeviceModel,
+  VirtioRequest,
+  WakeLatencyStats,
+  NotifySourceStats,
+} from './transport'

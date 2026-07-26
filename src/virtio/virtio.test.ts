@@ -413,6 +413,32 @@ describe('virtio transport', () => {
     expect(gap).toBeGreaterThan(0)
     expect(gap).toBeLessThan(20)
   })
+
+  it('Atomics.notify-s the wake word and kicks QEMU after each completion', () => {
+    const bridge = createFakeBridge([
+      { name: 'echo', deviceId: 99 },
+    ])
+    register({
+      name: 'echo',
+      handle: (req) => req.reply(req.out.slice()),
+    })
+    const before = stats()
+    const wakeAddr = (bridge.module as { _qemu_virtio_browser_wake_addr: () => number })
+      ._qemu_virtio_browser_wake_addr()
+    const words = new Int32Array((bridge.module as { HEAPU8: Uint8Array }).HEAPU8.buffer)
+    const wakeBefore = Atomics.load(words, wakeAddr >> 2)
+
+    attach(bridge.module)
+    const dev = bridge.device('echo')
+    dev.kick(0, Uint8Array.of(1, 2, 3), 3)
+    pollOnce()
+
+    const after = stats()
+    expect(after.kicks).toBe(before.kicks + 1)
+    // kick export and the page both bump the word — at least one notify landed.
+    expect(Atomics.load(words, wakeAddr >> 2)).toBeGreaterThan(wakeBefore)
+    expect(dev.completions()).toHaveLength(1)
+  })
 })
 
 describe('virtio-gpio model', () => {
