@@ -32,6 +32,17 @@ export type PanelKind =
   | 'fuel-gauge'
   | 'trace'
 
+/**
+ * Wires QEMU's QMP monitor to a chardev the page can read and write
+ * (tools/qemu-*-patches/*-chardev-add-browser-backed-monitor-channel.patch).
+ * That is what lets the page genuinely stop the machine — see src/hostMonitor.ts.
+ *
+ * Appended only when public/qemu/features.json says the emulator has the
+ * bridge: an older build exits on an unknown -chardev backend, and every
+ * published image tarball has to stay bootable.
+ */
+export const MONITOR_ARGS = ['-chardev', 'browser,id=mon0', '-mon', 'chardev=mon0,mode=control']
+
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
   /** Also the artifact basename, so it must stay in step with the build script. */

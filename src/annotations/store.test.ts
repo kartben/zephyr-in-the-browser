@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { attachStub, detach as detachMonitor } from '@/hostMonitor'
 import { decodeRecord } from './protocol'
 import {
   dismiss,
@@ -71,6 +72,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  detachMonitor()
   reset()
 })
 
@@ -114,10 +116,21 @@ describe('showing an annotation', () => {
     expect(current?.paused).toBe(false)
   })
 
-  it('marks a pause record as paused', () => {
+  it('marks a pause record as paused when the machine can be stopped', () => {
+    attachStub()
     announce()
     feed('v=1;k=pause;a=0')
     expect(getSnapshot().current?.paused).toBe(true)
+  })
+
+  it('does not claim a pause an older emulator cannot deliver', () => {
+    // No monitor bridge: the machine keeps running, so a "paused" badge would
+    // be a straight lie about what the reader is looking at.
+    detachMonitor()
+    announce()
+    feed('v=1;k=pause;a=0')
+    expect(getSnapshot().current).not.toBeNull()
+    expect(getSnapshot().current?.paused).toBe(false)
   })
 
   it('records what the reader has already been shown', () => {

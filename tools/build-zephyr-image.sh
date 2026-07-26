@@ -161,6 +161,26 @@ build_one() {
   cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
   printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
 
+  # An annotated sample also emits its teaching prose and a display copy of its
+  # sources (tools/extract-annotations.py, run from the app's CMakeLists). None
+  # of it is in the ELF — the firmware carries ids, the page carries the words —
+  # so both ride along here beside the image, like the devicetree above.
+  #
+  # The sources are the *stripped* copies, with the @annotate blocks removed:
+  # their text is already in the popup, and leaving it in would bury the code it
+  # explains. Line numbers in annotations.json are in those coordinates.
+  local ann="$work/build/annotations"
+  if [ -f "$ann/annotations.json" ]; then
+    cp "$ann/annotations.json" "$dest/$id.annotations.json"
+    printf '    %-16s %8s bytes\n' "$id.annotations.json" \
+      "$(command wc -c < "$dest/$id.annotations.json" | xargs)"
+    rm -rf "$dest/src/$id"
+    mkdir -p "$dest/src/$id"
+    cp -R "$ann/display/." "$dest/src/$id/"
+    printf '    %-16s %8s file(s)\n' "src/$id/" \
+      "$(find "$dest/src/$id" -type f | command wc -l | xargs)"
+  fi
+
   # The picker in the UI only shows ids it knows about.
   grep -q "id: '$id'" "$ROOT/src/boards.ts" \
     || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2

@@ -213,6 +213,26 @@ build_qemu() {
   fi
 
   docker rm -f "$CONTAINER" >/dev/null
+
+  # Record which optional bridges this build actually carries.
+  #
+  # The page reads features.json before assembling argv, because QEMU exits on
+  # an unknown -chardev backend: guessing wrong would stop an older emulator
+  # booting at all rather than merely lose a feature. Detected from the emitted
+  # glue rather than hardcoded, so the file can never claim more than is there.
+  write_features "$DEST" "$binary"
+}
+
+# Probe the Emscripten glue for the exports each optional bridge is known by.
+write_features() {
+  local dest="$1" binary="$2" features=""
+
+  if grep -q "qemu_browser_monitor_feed" "$dest/$binary.js" 2>/dev/null; then
+    features="\"monitor\""
+  fi
+
+  printf '{\n  "features": [%s]\n}\n' "$features" > "$dest/features.json"
+  echo "  - features.json: [$features]"
 }
 
 # ---------------------------------------------------------------------------
