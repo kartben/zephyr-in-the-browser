@@ -6,7 +6,13 @@ import {
   LFS_O_WRONLY,
   MemoryBlockDevice,
 } from '@/vendor/littlefs-js/lfs_js.js'
-import { browseLittlefs, isBlankFlash, previewFileContent, withLittlefsLock } from './littlefsBrowse'
+import {
+  browseLittlefs,
+  detectLittlefsBlockSize,
+  isBlankFlash,
+  previewFileContent,
+  withLittlefsLock,
+} from './littlefsBrowse'
 
 async function makeImage(opts: {
   blockSize: number
@@ -50,6 +56,17 @@ describe('littlefsBrowse', () => {
     expect(isBlankFlash(dirty)).toBe(false)
   })
 
+  it('formats disk version 2.1 (Zephyr-compatible) and detects block size', async () => {
+    const image = await makeImage({
+      blockSize: 4096,
+      blockCount: 64,
+      files: [{ path: '/boot_count', data: new Uint8Array([1]) }],
+    })
+    // littlefs disk v2.1 LE = 01 00 02 00, immediately after the name tag.
+    expect([...image.subarray(20, 24)]).toEqual([0x01, 0x00, 0x02, 0x00])
+    expect(detectLittlefsBlockSize(image)).toBe(4096)
+  })
+
   it('lists files from a real littlefs 4 KiB-block image', async () => {
     const image = await makeImage({
       blockSize: 4096,
@@ -77,6 +94,7 @@ describe('littlefsBrowse', () => {
         { path: '/pattern.bin', data: Uint8Array.from({ length: 547 }, (_, i) => i & 0xff) },
       ],
     })
+    expect(detectLittlefsBlockSize(image)).toBe(65536)
     // Prefer 4 KiB first (as the dock does); browser must still find 64 KiB.
     const result = await browseLittlefs(image, { blockSize: 4096 })
     expect(result).not.toBeNull()
