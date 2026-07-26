@@ -66,6 +66,7 @@ qemu_cortex_a53:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-s
 qemu_cortex_a53:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
 qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
+qemu_cortex_a53:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt6314-only
 qemu_cortex_a53:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
 qemu_cortex_a53:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:virtio-i2c,lp5562-only
 qemu_cortex_a53:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
@@ -105,6 +106,7 @@ qemu_riscv32:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
 qemu_riscv32:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
 qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
+qemu_riscv32:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt6314-only
 qemu_riscv32:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:virtio-i2c,ht16k33-only
 qemu_riscv32:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:virtio-i2c,lp5562-only
 qemu_riscv32:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only

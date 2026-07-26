@@ -7,6 +7,7 @@
 
 import type { SpiChip } from './spi'
 import { createSct2024 } from './chips/sct2024'
+import { createPt6314 } from './chips/pt6314'
 import { createSpiLoopback, createW25q } from './chips/w25q'
 import { partById, type PartIdentity } from './parts'
 
@@ -36,6 +37,13 @@ export const SPI_CHIP_TYPES: SpiChipType[] = [
     defaultCs: 0,
     catalogued: true,
     create: (cs) => createSct2024({ cs }),
+  },
+  {
+    id: 'pt6314',
+    label: 'PT6314 VFD',
+    defaultCs: 0,
+    catalogued: true,
+    create: (cs) => createPt6314({ cs }),
   },
   {
     id: 'loopback',

@@ -1,9 +1,9 @@
 /**
- * Dock body for the JHD1313 character LCD.
+ * Dock body for character aux displays (JHD1313 LCD + PT6314 VFD).
  *
- * Paints the chip's cell buffer as a monospace grid with an RGB backlight wash.
- * Controller summarises live HD44780 flags; Registers opens the LCD Instruction/
- * Data map; Backlight registers opens the PCA9633-style map at 0x62.
+ * Shared Controller / Registers affordances; the canvas branches on part —
+ * Grove RGB LCD wash vs Futaba-style cyan VFD phosphor — without cloning the
+ * dock shell.
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
@@ -15,11 +15,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { Jhd1313LcdChip } from '@/virtio/devices/chips/jhd1313'
+import {
+  isJhd1313Lcd,
+  type Jhd1313LcdChip,
+} from '@/virtio/devices/chips/jhd1313'
+import {
+  isPt6314,
+  type Pt6314Chip,
+} from '@/virtio/devices/chips/pt6314'
 
 const UI_MS = 100
 
-function useLcd(chip: Jhd1313LcdChip) {
+/** Common surface both character panels paint and inspect. */
+export type AuxdisplayChip = Jhd1313LcdChip | Pt6314Chip
+
+function useAuxdisplay(chip: AuxdisplayChip) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -28,7 +38,7 @@ function useLcd(chip: Jhd1313LcdChip) {
       last = performance.now()
       force()
     }
-    const unsubLcd = chip.subscribe(() => {
+    const unsub = chip.subscribe(() => {
       const now = performance.now()
       const wait = UI_MS - (now - last)
       if (wait <= 0) {
@@ -45,23 +55,27 @@ function useLcd(chip: Jhd1313LcdChip) {
         refresh()
       }, wait)
     })
-    const unsubBl = chip.backlight?.subscribe(() => {
-      refresh()
-    })
+    const unsubBl =
+      isJhd1313Lcd(chip) && chip.backlight
+        ? chip.backlight.subscribe(() => {
+            refresh()
+          })
+        : undefined
     refresh()
     return () => {
-      unsubLcd()
+      unsub()
       unsubBl?.()
       if (timer !== undefined) clearTimeout(timer)
     }
   }, [chip])
 }
 
-function AuxdisplayControllerButton({ chip }: { chip: Jhd1313LcdChip }) {
+function AuxdisplayControllerButton({ chip }: { chip: AuxdisplayChip }) {
   const [open, setOpen] = useState(false)
-  useLcd(chip)
+  useAuxdisplay(chip)
   const state = chip.getControllerState()
   const hex = chip.address.toString(16).padStart(2, '0')
+  const vfd = isPt6314(chip)
   const rows = [
     { label: 'Display', value: state.on ? 'on' : 'off' },
     { label: 'Cursor', value: state.cursor ? 'on' : 'off' },
@@ -71,6 +85,9 @@ function AuxdisplayControllerButton({ chip }: { chip: Jhd1313LcdChip }) {
       label: 'Cursor pos',
       value: `col ${state.cursorColumn}, row ${state.cursorRow}`,
     },
+    ...(vfd
+      ? [{ label: 'Brightness', value: `${chip.getBrightness()} / 4` }]
+      : []),
   ]
 
   return (
@@ -86,14 +103,25 @@ function AuxdisplayControllerButton({ chip }: { chip: Jhd1313LcdChip }) {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {chip.name} · 0x{hex}
+              {chip.name} · {vfd ? `CS${chip.address}` : `0x${hex}`}
             </DialogTitle>
             <DialogDescription>
-            Live HD44780 flags derived from Instruction-register writes. Open
-            LCD registers for the full IR/DR map and decoded Entry_Mode /
-            Display_Control / Function_Set / DDRAM_AC shadows; backlight PWM
-            lives on the separate chip at 0x62.
-          </DialogDescription>
+              {vfd ? (
+                <>
+                  Live PT6314 flags derived from Instruction-register writes
+                  over SPI (start byte + IR/DR). Open registers for the Start /
+                  Instruction / Data map and decoded Entry_Mode /
+                  Display_Control / Function_Set / DDRAM_AC shadows.
+                </>
+              ) : (
+                <>
+                  Live HD44780 flags derived from Instruction-register writes.
+                  Open LCD registers for the full IR/DR map and decoded
+                  Entry_Mode / Display_Control / Function_Set / DDRAM_AC
+                  shadows; backlight PWM lives on the separate chip at 0x62.
+                </>
+              )}
+            </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto border-t border-border px-5 py-3">
             <dl className="space-y-1.5">
@@ -112,12 +140,13 @@ function AuxdisplayControllerButton({ chip }: { chip: Jhd1313LcdChip }) {
 }
 
 /**
- * Character-cell canvas: each cell is a fixed glyph slot. Backlight PWM tints
- * the glass; display-off renders nearly black.
+ * Character-cell canvas. LCD: RGB backlight wash. VFD: dark glass + cyan
+ * phosphor glow (Futaba M202MD15FA / PT6314 look).
  */
-function LcdCanvas({ chip }: { chip: Jhd1313LcdChip }) {
+function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  useLcd(chip)
+  useAuxdisplay(chip)
+  const vfd = isPt6314(chip)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -130,12 +159,12 @@ function LcdCanvas({ chip }: { chip: Jhd1313LcdChip }) {
     let blinkPhase = false
     let blinkTimer: ReturnType<typeof setInterval> | undefined
 
-    const cellW = 12
-    const cellH = 18
-    const padX = 10
-    const padY = 8
-    const gapX = 2
-    const gapY = 4
+    const cellW = vfd ? 10 : 12
+    const cellH = vfd ? 16 : 18
+    const padX = vfd ? 14 : 10
+    const padY = vfd ? 12 : 8
+    const gapX = vfd ? 3 : 2
+    const gapY = vfd ? 6 : 4
     const width = padX * 2 + chip.columns * cellW + (chip.columns - 1) * gapX
     const height = padY * 2 + chip.rows * cellH + (chip.rows - 1) * gapY
     canvas.width = width
@@ -144,14 +173,89 @@ function LcdCanvas({ chip }: { chip: Jhd1313LcdChip }) {
     const paint = () => {
       frame = 0
       const version = chip.version()
-      // Include blink phase so the cursor animates without bumping the chip.
-      const stamp = version * 2 + (blinkPhase ? 1 : 0)
+      const brightness = vfd ? chip.getBrightness() : 0
+      const stamp = version * 8 + (blinkPhase ? 4 : 0) + brightness
       if (stamp === painted) return
       painted = stamp
 
       const on = chip.isOn()
-      const rgb = chip.getBacklightRgb()
       const state = chip.getControllerState()
+
+      if (vfd) {
+        // Futaba-style blue-cyan VFD: near-black filter glass, phosphor glow.
+        const level = on ? chip.getBrightness() / 4 : 0
+        ctx.fillStyle = '#05070a'
+        ctx.fillRect(0, 0, width, height)
+
+        // Soft inner vignette.
+        const wash = ctx.createRadialGradient(
+          width / 2,
+          height / 2,
+          Math.min(width, height) * 0.15,
+          width / 2,
+          height / 2,
+          Math.max(width, height) * 0.7,
+        )
+        wash.addColorStop(0, `rgba(20, 40, 55, ${0.35 * level})`)
+        wash.addColorStop(1, 'rgba(0, 0, 0, 0)')
+        ctx.fillStyle = wash
+        ctx.fillRect(0, 0, width, height)
+
+        const glow = Math.round(140 + 100 * level)
+        const ink = on
+          ? `rgb(${Math.round(80 * level)}, ${Math.round(200 * level)}, ${glow})`
+          : 'rgb(18, 22, 26)'
+        const dimSlot = 'rgba(30, 50, 60, 0.35)'
+
+        ctx.font = `bold ${cellH - 3}px ui-monospace, SFMono-Regular, Menlo, monospace`
+        ctx.textBaseline = 'middle'
+        ctx.textAlign = 'center'
+
+        for (let row = 0; row < chip.rows; row++) {
+          for (let col = 0; col < chip.columns; col++) {
+            const x = padX + col * (cellW + gapX)
+            const y = padY + row * (cellH + gapY)
+            ctx.fillStyle = dimSlot
+            ctx.fillRect(x, y, cellW, cellH)
+
+            const ch = chip.cells[row * chip.columns + col] ?? 0x20
+            const glyph = ch >= 0x20 && ch < 0x7f ? String.fromCharCode(ch) : ' '
+            const atCursor = state.cursorColumn === col && state.cursorRow === row
+            const blinkOn = on && state.blinking && atCursor && blinkPhase
+
+            if (on && level > 0) {
+              // Soft bloom behind lit glyphs.
+              if (glyph !== ' ' || blinkOn) {
+                ctx.save()
+                ctx.shadowColor = `rgba(80, 220, 255, ${0.55 * level})`
+                ctx.shadowBlur = 6 + 4 * level
+                ctx.fillStyle = ink
+                ctx.fillText(glyph === ' ' && blinkOn ? '█' : glyph, x + cellW / 2, y + cellH / 2 + 1)
+                ctx.restore()
+              } else {
+                ctx.fillStyle = ink
+                ctx.fillText(glyph, x + cellW / 2, y + cellH / 2 + 1)
+              }
+            } else {
+              ctx.fillStyle = ink
+              ctx.fillText(glyph, x + cellW / 2, y + cellH / 2 + 1)
+            }
+
+            if (on && state.cursor && atCursor && (!state.blinking || blinkPhase)) {
+              ctx.fillStyle = ink
+              ctx.shadowColor = `rgba(80, 220, 255, ${0.45 * level})`
+              ctx.shadowBlur = 4
+              ctx.fillRect(x + 1, y + cellH - 3, cellW - 2, 2)
+              ctx.shadowBlur = 0
+            }
+          }
+        }
+        return
+      }
+
+      // Grove JHD1313 LCD path (unchanged wash + ink).
+      const lcd = chip as Jhd1313LcdChip
+      const rgb = lcd.getBacklightRgb()
       const glassR = on ? Math.max(18, Math.round(rgb.r * 0.35 + 12)) : 8
       const glassG = on ? Math.max(22, Math.round(rgb.g * 0.4 + 16)) : 10
       const glassB = on ? Math.max(18, Math.round(rgb.b * 0.35 + 12)) : 8
@@ -194,7 +298,8 @@ function LcdCanvas({ chip }: { chip: Jhd1313LcdChip }) {
 
     paint()
     const unsub = chip.subscribe(schedule)
-    const unsubBl = chip.backlight?.subscribe(schedule)
+    const unsubBl =
+      isJhd1313Lcd(chip) && chip.backlight ? chip.backlight.subscribe(schedule) : undefined
     blinkTimer = setInterval(() => {
       blinkPhase = !blinkPhase
       schedule()
@@ -206,51 +311,90 @@ function LcdCanvas({ chip }: { chip: Jhd1313LcdChip }) {
       if (frame) cancelAnimationFrame(frame)
       if (blinkTimer) clearInterval(blinkTimer)
     }
-  }, [chip])
+  }, [chip, vfd])
 
   return (
     <canvas
       ref={canvasRef}
-      aria-label="JHD1313 character LCD"
+      aria-label={vfd ? 'PT6314 character VFD' : 'JHD1313 character LCD'}
       className="w-full rounded border border-border"
-      style={{ imageRendering: 'auto', aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}` }}
+      style={{
+        imageRendering: 'auto',
+        aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}`,
+        ...(vfd ? { background: '#05070a' } : null),
+      }}
     />
   )
 }
 
-export function AuxdisplayBody({ chip }: { chip: Jhd1313LcdChip }) {
-  useLcd(chip)
-  const rgb = chip.getBacklightRgb()
-  const bl = chip.backlight
+export function AuxdisplayBody({ chip }: { chip: AuxdisplayChip }) {
+  useAuxdisplay(chip)
+  const vfd = isPt6314(chip)
+  const lcd = isJhd1313Lcd(chip) ? chip : null
+  const rgb = lcd?.getBacklightRgb()
+  const bl = lcd?.backlight
 
   return (
     <div className="space-y-2 px-3 py-3">
-      <LcdCanvas chip={chip} />
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span
-          className="inline-block size-3 rounded-sm border border-border"
-          style={{ backgroundColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` }}
-          title="Backlight RGB"
-        />
-        <span className="font-mono tabular-nums">
-          R{rgb.r} G{rgb.g} B{rgb.b}
-        </span>
-        {bl ? (
-          <span className="text-muted-foreground/80">
-            · backlight@
-            {bl.address.toString(16).padStart(2, '0')}
+      <AuxdisplayCanvas chip={chip} />
+      {lcd && rgb ? (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span
+            className="inline-block size-3 rounded-sm border border-border"
+            style={{ backgroundColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` }}
+            title="Backlight RGB"
+          />
+          <span className="font-mono tabular-nums">
+            R{rgb.r} G{rgb.g} B{rgb.b}
           </span>
-        ) : null}
-      </div>
+          {bl ? (
+            <span className="text-muted-foreground/80">
+              · backlight@
+              {bl.address.toString(16).padStart(2, '0')}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {vfd ? (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span
+            className="inline-block size-3 rounded-sm border border-border"
+            style={{
+              backgroundColor: chip.isOn()
+                ? `rgb(${Math.round(40 * (chip.getBrightness() / 4))}, ${Math.round(180 * (chip.getBrightness() / 4))}, ${Math.round(220 * (chip.getBrightness() / 4))})`
+                : '#111',
+            }}
+            title="VFD brightness"
+          />
+          <span className="font-mono tabular-nums">
+            brightness {chip.getBrightness()}/4
+          </span>
+          <span className="text-muted-foreground/80">· SPI CS{chip.address}</span>
+        </div>
+      ) : null}
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Zephyr&apos;s stock{' '}
-        <code className="font-mono text-foreground">jhd,jhd1313</code> auxdisplay
-        driver — LCD Instruction/Data at 0x{chip.address.toString(16)}, RGB
-        backlight register file at 0x62.
+        {vfd ? (
+          <>
+            Zephyr&apos;s stock{' '}
+            <code className="font-mono text-foreground">ptc,pt6314</code> auxdisplay
+            driver — SPI serial start byte + Instruction/Data,{' '}
+            {chip.columns}×{chip.rows} VFD viewport.
+          </>
+        ) : (
+          <>
+            Zephyr&apos;s stock{' '}
+            <code className="font-mono text-foreground">jhd,jhd1313</code> auxdisplay
+            driver — LCD Instruction/Data at 0x{chip.address.toString(16)}, RGB
+            backlight register file at 0x62.
+          </>
+        )}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <AuxdisplayControllerButton chip={chip} />
-        <RegisterMapButton chip={chip} label={`LCD registers (${chip.registers.length})`} />
+        <RegisterMapButton
+          chip={chip}
+          label={vfd ? `VFD registers (${chip.registers.length})` : `LCD registers (${chip.registers.length})`}
+        />
         {bl ? (
           <RegisterMapButton chip={bl} label={`Backlight registers (${bl.registers.length})`} />
         ) : null}

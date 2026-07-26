@@ -325,6 +325,20 @@ export const PARTS: readonly PartIdentity[] = [
     bindingUrl: binding('led/sct%2Csct2024.html'),
     summary: '16-channel constant-current LED sink over SPI.',
   },
+  {
+    id: 'pt6314',
+    label: 'PT6314 VFD',
+    manufacturer: 'Princeton Technology',
+    part: 'PT6314',
+    bus: 'spi',
+    compatible: 'ptc,pt6314',
+    defaultAddress: 0,
+    addressKind: 'spi-cs',
+    kind: 'auxdisplay',
+    datasheetUrl: 'https://newhavendisplay.com/content/app_notes/PT6314.pdf',
+    bindingUrl: binding('auxdisplay/ptc%2Cpt6314.html'),
+    summary: 'Dot-character VFD controller; Futaba-style 20×2 viewport over SPI.',
+  },
 ]
 
 const BY_ID = new Map(PARTS.map((p) => [p.id, p]))
