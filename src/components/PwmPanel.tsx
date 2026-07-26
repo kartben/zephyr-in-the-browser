@@ -329,8 +329,8 @@ function WaveformCanvas({ chip, index }: { chip: PwmChip; index: number }) {
   )
 }
 
-const TRACK_H = 24
-const MIN_FILL = 5
+const TRACK_H = 48
+const MIN_FILL = 8
 /** Label row is always this tall so "0" vs "CH0" never resizes the strip. */
 const LABEL_H = 12
 
@@ -346,7 +346,7 @@ function ChannelStrip({
   const n = chip.decl.channelCount
   return (
     <div
-      className="flex h-[44px] shrink-0 items-stretch gap-0.5"
+      className="flex h-[68px] shrink-0 items-stretch gap-0.5"
       role="listbox"
       aria-label="PWM channels"
     >
