@@ -20,7 +20,8 @@ When the running tree has an okay `compatible = "pwm-leds"` node whose
 children point at a PWM controller the page models:
 
 1. A dock row under the **LEDs** class paints those LEDs with
-   brightness taken from the provider’s channel duty.
+   perceived brightness from the provider’s PWM waveform (persistence
+   model — not flat duty→opacity).
 2. The PWM controller row (`PwmBody`) stays as it is — duty chart, channel
    strip, Registers.
 3. The packaged **PWM LED** sample expands both on boot
@@ -86,8 +87,15 @@ The PCA9685 chip row is unchanged (`deviceClass: 'pwm'`, `body: 'pwm'`,
 ## UI
 
 `PwmLedsBody` reuses **GpioLedsBody’s LED cell chrome** (bordered secondary tile,
-`size-3` primary dot with the same glow when lit, DT `label` underneath). Duty
-only scales the dot’s opacity; no footer copy, no extra metrics row.
+`size-3` primary dot with the same glow when lit, DT `label` underneath). No
+footer copy, no extra metrics row.
+
+Brightness is **not** raw duty. The strip integrates the channel’s PWM square
+wave through a short exponential persistence (`src/lib/ledPersistence.ts`) —
+~10 ms eye-scale τ — so `PWM_MSEC(20)` (~50 Hz) clearly breathes while
+kilohertz PWM averages to a steady glow near the programmed duty. The PWM
+controller chart stays a static duty schematic; only the LED face is
+time-domain. Titles still report programmed duty.
 
 Mockup: [`pwm-leds-mockup.html`](pwm-leds-mockup.html)
 
