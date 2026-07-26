@@ -42,6 +42,29 @@ describe('PCA9685', () => {
     expect(chip.peek?.(0x09)).toBe(0x05)
   })
 
+  it('notifies once per LEDn burst, not once per data byte', () => {
+    const chip = createPca9685()
+    let calls = 0
+    chip.subscribe(() => {
+      calls++
+    })
+    // MODE1 already has AI at reset — writing the same value is a no-op.
+    chip.write?.(new Uint8Array([0x00, 0x20]))
+    expect(calls).toBe(0)
+    expect(chip.version()).toBe(0)
+    // Four LEDn bytes change; subscribers must see a single notify.
+    chip.write?.(new Uint8Array([0x06, 0x00, 0x00, 0x9a, 0x05]))
+    expect(calls).toBe(1)
+    expect(chip.version()).toBe(1)
+    // Idempotent rewrite: no notify.
+    chip.write?.(new Uint8Array([0x06, 0x00, 0x00, 0x9a, 0x05]))
+    expect(calls).toBe(1)
+    expect(chip.version()).toBe(1)
+    // A real MODE1 change still notifies once.
+    chip.write?.(new Uint8Array([0x00, 0x30])) // AI|SLEEP
+    expect(calls).toBe(2)
+  })
+
   it('programs PRE_SCALE only while SLEEP is set', () => {
     const chip = createPca9685()
     chip.write?.(new Uint8Array([0x00, 0x20])) // AI, awake

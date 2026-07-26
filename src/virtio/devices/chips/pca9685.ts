@@ -88,26 +88,34 @@ export function createPca9685({
 
   const peek = (addr: number): number => mem[addr & 0xff]!
 
-  const writeByte = (addr: number, value: number) => {
+  /** Write one register byte. Returns true when mem changed. Caller notifies. */
+  const writeByte = (addr: number, value: number): boolean => {
     const a = addr & 0xff
     const reg = byAddr.get(a)
-    if (reg?.access === 'ro') return
+    if (reg?.access === 'ro') return false
     const v = value & 0xff
     // PRE_SCALE is only writable while SLEEP is set (datasheet / Zephyr).
-    if (a === ADDR_PRE_SCALE && (mem[ADDR_MODE1]! & MODE1_SLEEP) === 0) return
-    if (mem[a] === v) return
+    if (a === ADDR_PRE_SCALE && (mem[ADDR_MODE1]! & MODE1_SLEEP) === 0) return false
+    if (mem[a] === v) return false
     mem[a] = v
-    notify()
+    return true
   }
 
+  /**
+   * One I²C write can cover LEDn_ON/OFF (4 data bytes) under AUTO_INC.
+   * Notify once at the end — same coalescing as HT16K33 display bursts —
+   * so a fade step does not fire four React subscribers mid-register.
+   */
   const applyWrite = (bytes: Uint8Array) => {
     if (bytes.length === 0) return
     pointer = bytes[0]! & 0xff
     const ai = (mem[ADDR_MODE1]! & MODE1_AI) !== 0
+    let changed = false
     for (let i = 1; i < bytes.length; i++) {
-      writeByte(pointer, bytes[i]!)
+      if (writeByte(pointer, bytes[i]!)) changed = true
       if (ai) pointer = (pointer + 1) & 0xff
     }
+    if (changed) notify()
   }
 
   const getPreScale = () => mem[ADDR_PRE_SCALE]! & 0xff
@@ -180,7 +188,7 @@ export function createPca9685({
         }
         return
       }
-      writeByte(addr, value)
+      if (writeByte(addr, value)) notify()
     },
     setField(addr, field, value) {
       const reg = byAddr.get(addr & 0xff)
@@ -194,7 +202,7 @@ export function createPca9685({
         }
         return
       }
-      writeByte(addr, next)
+      if (writeByte(addr, next)) notify()
     },
     getPreScale,
     getFrequencyHz() {
