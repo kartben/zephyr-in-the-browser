@@ -1,0 +1,104 @@
+diff --git a/accel/tcg/tcg-accel-ops-rr.c b/accel/tcg/tcg-accel-ops-rr.c
+index 6eec5c9..903b2ac 100644
+--- a/accel/tcg/tcg-accel-ops-rr.c
++++ b/accel/tcg/tcg-accel-ops-rr.c
+@@ -37,6 +37,15 @@
+ #include "tcg-accel-ops-rr.h"
+ #include "tcg-accel-ops-icount.h"
+ 
++/*
++ * Diagnostic hook (hw/virtio/virtio-browser.c): closes the loop on how long
++ * a browser-triggered virtio_notify() takes to actually resume this thread,
++ * versus how long QEMU took to notice the completion in the first place.
++ * Declared here rather than in a header for the same reason
++ * virtio-browser.c's own exports are: nothing else in QEMU calls it.
++ */
++extern void virtio_browser_note_vcpu_wake(void);
++
+ /* Kick all RR vCPUs */
+ void rr_kick_vcpu_thread(CPUState *unused)
+ {
+@@ -299,6 +308,7 @@ static void *rr_cpu_thread_fn(void *arg)
+         }
+ 
+         rr_wait_io_event();
++        virtio_browser_note_vcpu_wake();
+         rr_deal_with_unplugged_cpus();
+     }
+ 
+diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
+index 69ac710..7231fe6 100644
+--- a/hw/virtio/virtio-browser.c
++++ b/hw/virtio/virtio-browser.c
+@@ -200,6 +200,63 @@ static QEMUBH *virtio_browser_kick_bh;
+ static void virtio_browser_drain(void *opaque);
+ static void virtio_browser_kick_bh_cb(void *opaque);
+ 
++/*
++ * Diagnostic only: how long between virtio_notify() raising the guest's IRQ
++ * (recorded here, under the BQL, every time a completion is delivered) and
++ * the RR vCPU thread actually resuming execution (recorded by
++ * virtio_browser_note_vcpu_wake(), called from accel/tcg/tcg-accel-ops-rr.c
++ * right after it wakes from halt_cond). Both sides run under the BQL, so
++ * plain statics are fine -- no atomics needed. wake_pending guards against
++ * counting a resume that was not preceded by a fresh notify (ordinary RR
++ * scheduling, multi-cpu kick-timer wakeups, etc).
++ */
++static int64_t wake_notify_ns;
++static bool wake_pending;
++static int64_t wake_latency_sum_ns;
++static int64_t wake_latency_max_ns;
++static uint32_t wake_latency_count;
++
++static void virtio_browser_note_notify(void)
++{
++    wake_notify_ns = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
++    wake_pending = true;
++}
++
++void virtio_browser_note_vcpu_wake(void);
++void virtio_browser_note_vcpu_wake(void)
++{
++    int64_t latency;
++
++    if (!wake_pending) {
++        return;
++    }
++    wake_pending = false;
++    latency = qemu_clock_get_ns(QEMU_CLOCK_REALTIME) - wake_notify_ns;
++    wake_latency_sum_ns += latency;
++    wake_latency_count++;
++    if (latency > wake_latency_max_ns) {
++        wake_latency_max_ns = latency;
++    }
++}
++
++EMSCRIPTEN_KEEPALIVE
++double qemu_virtio_wake_avg_ns(void)
++{
++    return wake_latency_count ? (double)wake_latency_sum_ns / wake_latency_count : -1;
++}
++
++EMSCRIPTEN_KEEPALIVE
++double qemu_virtio_wake_max_ns(void)
++{
++    return (double)wake_latency_max_ns;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_wake_count(void)
++{
++    return wake_latency_count;
++}
++
+ EMSCRIPTEN_KEEPALIVE
+ uint32_t qemu_virtio_browser_count(void)
+ {
+@@ -503,6 +560,7 @@ static void virtio_browser_drain(void *opaque)
+ 
+     for (uint16_t q = 0; q < b->num_queues; q++) {
+         if (notified & (1u << q)) {
++            virtio_browser_note_notify();
+             virtio_notify(vdev, b->vq[q]);
+         }
+     }

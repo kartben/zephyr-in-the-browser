@@ -1,0 +1,90 @@
+diff --git a/accel/tcg/icount-common.c b/accel/tcg/icount-common.c
+index e8b785f..e510042 100644
+--- a/accel/tcg/icount-common.c
++++ b/accel/tcg/icount-common.c
+@@ -54,6 +54,69 @@ static bool icount_sleep = true;
+ /* Arbitrarily pick 1MIPS as the minimum allowable speed.  */
+ #define MAX_ICOUNT_SHIFT 10
+ 
++/*
++ * Diagnostic only: with sleep=on, a guest timer deadline (e.g. Zephyr's
++ * k_sleep) is honoured by arming icount_warp_timer on QEMU_CLOCK_VIRTUAL_RT
++ * for exactly that many real ns (see icount_start_warp_timer below) rather
++ * than warping instantly -- deliberately, so guest timing tracks wall time.
++ * This tracks how much *extra* real time that arm-to-fire gap costs beyond
++ * the requested deadline: overshoot = (actual real ns elapsed) - (requested
++ * ns). A consistently large overshoot here, independent of any virtio
++ * traffic, would mean the real bottleneck is how promptly this host-side
++ * timer gets serviced in this build, not I/O latency.
++ */
++static int64_t warp_armed_rt_ns = -1;
++static int64_t warp_deadline_ns;
++static int64_t warp_overshoot_sum_ns;
++static int64_t warp_overshoot_max_ns;
++static uint32_t warp_overshoot_count;
++
++static void icount_note_warp_armed(int64_t armed_rt_ns, int64_t deadline_ns)
++{
++    warp_armed_rt_ns = armed_rt_ns;
++    warp_deadline_ns = deadline_ns;
++}
++
++static void icount_note_warp_fired(void)
++{
++    int64_t overshoot;
++
++    if (warp_armed_rt_ns < 0) {
++        return;
++    }
++    overshoot = (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL_RT) - warp_armed_rt_ns)
++                - warp_deadline_ns;
++    warp_armed_rt_ns = -1;
++    if (overshoot < 0) {
++        overshoot = 0;
++    }
++    warp_overshoot_sum_ns += overshoot;
++    warp_overshoot_count++;
++    if (overshoot > warp_overshoot_max_ns) {
++        warp_overshoot_max_ns = overshoot;
++    }
++}
++
++EMSCRIPTEN_KEEPALIVE
++double qemu_icount_warp_overshoot_avg_ns(void)
++{
++    return warp_overshoot_count
++               ? (double)warp_overshoot_sum_ns / warp_overshoot_count
++               : -1;
++}
++
++EMSCRIPTEN_KEEPALIVE
++double qemu_icount_warp_overshoot_max_ns(void)
++{
++    return (double)warp_overshoot_max_ns;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_icount_warp_overshoot_count(void)
++{
++    return warp_overshoot_count;
++}
++
+ bool icount_align_option;
+ 
+ /* Do not count executed instructions */
+@@ -304,6 +367,7 @@ static void icount_warp_rt(void)
+ 
+ static void icount_timer_cb(void *opaque)
+ {
++    icount_note_warp_fired();
+     /*
+      * No need for a checkpoint because the timer already synchronizes
+      * with CHECKPOINT_CLOCK_VIRTUAL_RT.
+@@ -404,6 +468,7 @@ void icount_start_warp_timer(void)
+             }
+             seqlock_write_unlock(&timers_state.vm_clock_seqlock,
+                                  &timers_state.vm_clock_lock);
++            icount_note_warp_armed(clock, deadline);
+             timer_mod_anticipate(timers_state.icount_warp_timer,
+                                  clock + deadline);
+         }

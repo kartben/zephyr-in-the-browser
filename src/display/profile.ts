@@ -7,8 +7,14 @@
  */
 
 import { getFrame, getSnapshot, subscribe as subscribeDisplay } from '@/hostDisplay'
-import { getSnapshot as getStats } from '@/guestStats'
-import { bridgeStats, i2cModel, type BridgeStats } from '@/virtio'
+import { getSnapshot as getStats, warpOvershootStats } from '@/guestStats'
+import {
+  bridgeStats,
+  i2cModel,
+  wakeLatencyStats,
+  notifySourceStats,
+  type BridgeStats,
+} from '@/virtio'
 import type { MainToWorker } from '@/display/renderWorker'
 
 export interface ProfileSnapshot {
@@ -36,6 +42,22 @@ export interface ProfileSnapshot {
   bridgeHz: number
   /** Guest MIPS (ema). */
   mips: number
+  /**
+   * Diagnostic: mean/max ns from virtio_notify() to the RR vCPU thread
+   * resuming, and how many samples that average is over. Cumulative since
+   * boot (QEMU-side counters, not windowed). -1/0 when the build predates
+   * the instrumentation. See docs/performance.md item 7.
+   */
+  wakeAvgNs: number
+  wakeMaxNs: number
+  wakeCount: number
+  /** Diagnostic: mean/max ns a guest timer deadline overshoots by (icount warp). */
+  warpOvershootAvgNs: number
+  warpOvershootMaxNs: number
+  warpOvershootCount: number
+  /** Diagnostic: completions delivered via the kick BH vs the periodic timer. */
+  notifyViaKick: number
+  notifyViaTimer: number
   display: { width: number; height: number; available: boolean }
   notes: string[]
 }
@@ -85,6 +107,14 @@ let lastSnapshot: ProfileSnapshot = {
   bridgePollSlowPct: 0,
   bridgeHz: 0,
   mips: 0,
+  wakeAvgNs: -1,
+  wakeMaxNs: -1,
+  wakeCount: 0,
+  warpOvershootAvgNs: -1,
+  warpOvershootMaxNs: -1,
+  warpOvershootCount: 0,
+  notifyViaKick: 0,
+  notifyViaTimer: 0,
   display: { width: 0, height: 0, available: false },
   notes: [],
 }
@@ -162,6 +192,9 @@ function rollWindow() {
   // The hot loop asks for 1 ms. Anything near 4 is the timer nesting clamp,
   // and every blocking guest transfer pays it — see transport.ts.
   if (hotPolls > 20 && bridgePollMs > 2) notes.push('bridge_poll_clamped')
+  const wake = wakeLatencyStats()
+  const warp = warpOvershootStats()
+  const notifySource = notifySourceStats()
 
   lastSnapshot = {
     wallMs: now,
@@ -174,6 +207,14 @@ function rollWindow() {
     bridgePollSlowPct,
     bridgeHz: Math.max(0, bridgeNow.requests - c.bridgeStart.requests) / elapsed,
     mips: stats.mips,
+    wakeAvgNs: wake?.avgNs ?? -1,
+    wakeMaxNs: wake?.maxNs ?? -1,
+    wakeCount: wake?.count ?? 0,
+    warpOvershootAvgNs: warp?.avgNs ?? -1,
+    warpOvershootMaxNs: warp?.maxNs ?? -1,
+    warpOvershootCount: warp?.count ?? 0,
+    notifyViaKick: notifySource?.viaKick ?? 0,
+    notifyViaTimer: notifySource?.viaTimer ?? 0,
     display: {
       width: display.width,
       height: display.height,

@@ -78,7 +78,51 @@ interface BridgeExports {
   _qemu_virtio_browser_wake_addr?: () => number
   /** Drain-cmp BH schedule + main-loop wake (safe from the browser thread). */
   _qemu_virtio_browser_kick?: () => void
+  /** Diagnostic: mean ns from virtio_notify() to the RR vCPU thread resuming. */
+  _qemu_virtio_wake_avg_ns?: () => number
+  _qemu_virtio_wake_max_ns?: () => number
+  _qemu_virtio_wake_count?: () => number
+  /** Diagnostic: which path actually delivered each completion. */
+  _qemu_virtio_notify_via_kick_count?: () => number
+  _qemu_virtio_notify_via_timer_count?: () => number
   HEAPU8?: Uint8Array
+}
+
+/** Diagnostic snapshot of the notify→vCPU-resume gap. See docs/performance.md item 7. */
+export interface WakeLatencyStats {
+  avgNs: number
+  maxNs: number
+  count: number
+}
+
+export function wakeLatencyStats(): WakeLatencyStats | null {
+  if (!exports?._qemu_virtio_wake_avg_ns) return null
+  return {
+    avgNs: exports._qemu_virtio_wake_avg_ns(),
+    maxNs: exports._qemu_virtio_wake_max_ns?.() ?? -1,
+    count: exports._qemu_virtio_wake_count?.() ?? 0,
+  }
+}
+
+/**
+ * Diagnostic: of the completions QEMU has noticed, how many came via the
+ * page's kick BH (should be near-instant) versus the periodic drain timer
+ * (up to VIRTIO_BROWSER_DRAIN_IDLE_MS/BUSY_MS late). If the kick path is
+ * mostly idle, the kick mechanism is not actually engaging and every
+ * completion is still timer-paced regardless of how fast that last hop
+ * measures.
+ */
+export interface NotifySourceStats {
+  viaKick: number
+  viaTimer: number
+}
+
+export function notifySourceStats(): NotifySourceStats | null {
+  if (!exports?._qemu_virtio_notify_via_kick_count) return null
+  return {
+    viaKick: exports._qemu_virtio_notify_via_kick_count(),
+    viaTimer: exports._qemu_virtio_notify_via_timer_count?.() ?? 0,
+  }
 }
 
 /** One descriptor chain, flattened. */
