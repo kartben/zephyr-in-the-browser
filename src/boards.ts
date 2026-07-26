@@ -625,9 +625,12 @@ export const BOARDS: Board[] = [
       '-m',
       '256',
       // Matches Zephyr boards/qemu/riscv32/board.cmake + qemu_riscv32_defconfig
-      // (CONFIG_RISCV_PMP=y → pmp=on,u=on).
+      // (CONFIG_RISCV_PMP=y → pmp=on,u=on). QEMU v10.1 bare CPUs (rv32i)
+      // warn and default to satp=bare when no mode is set; Zephyr's stock
+      // qemu_riscv32 is PMP/M-mode only (no CONFIG_RISCV_MMU), so pin
+      // sv32=off explicitly to select bare without the warning.
       '-cpu',
-      'rv32i,i=on,m=on,a=on,f=on,d=on,c=on,zicsr=on,zifencei=on,pmp=on,u=on',
+      'rv32i,i=on,m=on,a=on,f=on,d=on,c=on,zicsr=on,zifencei=on,pmp=on,u=on,sv32=off',
       '-device',
       'ramfb',
       '-vga',
