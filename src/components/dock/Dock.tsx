@@ -6,7 +6,14 @@
  * views rearranges DOM nodes without remounting a single body.
  */
 
-import { useCallback, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import { Boxes, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DtsViewer } from '@/components/DtsViewer'
@@ -42,58 +49,64 @@ export function Dock({ boardId }: { boardId: string }) {
   const latestDragWidth = useRef(0)
   const width = dragWidth ?? state.width
 
-  if (!state.open) return null
+  // Row list depends on inventory + dock layout, not on the transient drag
+  // width — keep it memoized so resizing the sidebar does not rebuild JSX.
+  const rendered = useMemo(() => {
+    if (!state.open) return null as ReactNode[] | null
+    const rows = buildRowList(inventory, state.view)
+    const hidden = new Set(
+      Object.entries(state.devices)
+        .filter(([, v]) => v.hidden)
+        .map(([key]) => key),
+    )
 
-  const rows = buildRowList(inventory, state.view)
-  const hidden = new Set(
-    Object.entries(state.devices)
-      .filter(([, v]) => v.hidden)
-      .map(([key]) => key),
-  )
-
-  const rendered: ReactNode[] = []
-  let collapsedClass: string | null = null
-  for (const row of rows) {
-    if (row.kind === 'group') {
-      const collapsed = state.groups[row.deviceClass]?.collapsed ?? false
-      collapsedClass = collapsed ? row.deviceClass : null
-      rendered.push(
-        <DockGroupRow
-          key={row.key}
-          label={row.label}
-          count={row.count}
-          collapsed={collapsed}
-          onToggle={() => toggleGroup(row.deviceClass)}
-          badge={
-            collapsed ? (
-              <GroupBadge
-                deviceClass={row.deviceClass}
-                nodes={inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)}
-              />
-            ) : undefined
-          }
+    const next: ReactNode[] = []
+    let collapsedClass: string | null = null
+    for (const row of rows) {
+      if (row.kind === 'group') {
+        const collapsed = state.groups[row.deviceClass]?.collapsed ?? false
+        collapsedClass = collapsed ? row.deviceClass : null
+        next.push(
+          <DockGroupRow
+            key={row.key}
+            label={row.label}
+            count={row.count}
+            collapsed={collapsed}
+            onToggle={() => toggleGroup(row.deviceClass)}
+            badge={
+              collapsed ? (
+                <GroupBadge
+                  deviceClass={row.deviceClass}
+                  nodes={inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)}
+                />
+              ) : undefined
+            }
+          />,
+        )
+        continue
+      }
+      if (row.kind === 'struct') {
+        next.push(<DockStructRow key={row.key} name={row.name} depth={row.depth} note={row.note} />)
+        continue
+      }
+      const node = row.node
+      if (state.view === 'classes' && collapsedClass === node.deviceClass) continue
+      if (hidden.has(node.key) || (node.parentKey && hidden.has(node.parentKey))) continue
+      next.push(
+        <DockDeviceRow
+          key={node.key}
+          node={node}
+          depth={row.depth}
+          view={state.view}
+          windowed={state.devices[node.key]?.windowed === true}
+          expanded={effectiveExpandedIn(state, node.key, node.panelKind)}
         />,
       )
-      continue
     }
-    if (row.kind === 'struct') {
-      rendered.push(<DockStructRow key={row.key} name={row.name} depth={row.depth} note={row.note} />)
-      continue
-    }
-    const node = row.node
-    if (state.view === 'classes' && collapsedClass === node.deviceClass) continue
-    if (hidden.has(node.key) || (node.parentKey && hidden.has(node.parentKey))) continue
-    rendered.push(
-      <DockDeviceRow
-        key={node.key}
-        node={node}
-        depth={row.depth}
-        view={state.view}
-        windowed={state.devices[node.key]?.windowed === true}
-        expanded={effectiveExpandedIn(state, node.key, node.panelKind)}
-      />,
-    )
-  }
+    return next
+  }, [inventory, state.open, state.view, state.devices, state.groups])
+
+  if (!state.open) return null
 
   return (
     <aside

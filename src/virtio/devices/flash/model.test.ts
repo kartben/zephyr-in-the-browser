@@ -64,6 +64,20 @@ describe('createSpiFlashChip stats + constraints', () => {
     expect(afterRead.readBytes).toBe(4)
   })
 
+  it('notifies subscribers once per page-program transfer', () => {
+    const chip = createSpiFlashChip(tinyDecl)
+    let wakes = 0
+    chip.subscribe(() => {
+      wakes++
+    })
+    xfer(chip, [0x06]) // WREN — no content change
+    const before = wakes
+    xfer(chip, [0x02, 0x00, 0x00, 0x10, 0xde, 0xad, 0xbe, 0xef])
+    expect(wakes - before).toBe(1)
+    expect(chip.version()).toBeGreaterThan(0)
+    expect(Array.from(chip.memory.slice(0x10, 0x14))).toEqual([0xde, 0xad, 0xbe, 0xef])
+  })
+
   it('only clears bits on program (NOR constraint)', () => {
     const chip = createSpiFlashChip(tinyDecl)
     xfer(chip, [0x06])

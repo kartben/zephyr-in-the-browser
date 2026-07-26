@@ -233,6 +233,17 @@ export function getSnapshot(): NetSnapshot {
   return snapshot
 }
 
+/**
+ * Stable token for badges that only care about link + guest IP. Throughput /
+ * capture rebuilds still notify subscribers, but `useSyncExternalStore` skips
+ * the React commit when this string is unchanged (same idea as
+ * `hostGpio.claimedPinsToken`).
+ */
+export function getLinkToken(): string {
+  if (!snapshot.available) return ''
+  return `${snapshot.linkUp ? 1 : 0}|${snapshot.guestIp ?? ''}`
+}
+
 export function getCaptures(): readonly CaptureEntry[] {
   return captures
 }

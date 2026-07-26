@@ -10,6 +10,7 @@
  * never wrapper elements.
  */
 
+import { memo } from 'react'
 import { ChevronRight, Dock as DockIcon, PictureInPicture2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DeviceBadge, DeviceBody, deviceIcon } from '@/components/dock/deviceBodies'
@@ -48,7 +49,7 @@ function Guides({ depth }: { depth: number }) {
   )
 }
 
-export function DockDeviceRow({
+export const DockDeviceRow = memo(function DockDeviceRow({
   node,
   depth,
   view,
@@ -165,7 +166,7 @@ export function DockDeviceRow({
       )}
     </div>
   )
-}
+})
 
 export function DockStructRow({
   name,

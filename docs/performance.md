@@ -33,7 +33,7 @@ the list matters for a given workload:
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
 | 11 | Trace Gantt + CTF poll did work while collapsed / copied whole MEMFS file | `TracePanel`, `hostTrace` | Medium, tracing | Low | Low |
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
-| 13 | Dock / hex / net panels re-render broad trees under load | React dock + panels | Medium | Medium | Low |
+| 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
 
 ## Instruments that already exist
@@ -447,21 +447,28 @@ hooks) now mounts only while open.
 
 ## 13. Remaining React re-render pressure under load
 
-Already mitigated in places (I²C/SPI log debounce, sensor UI ≤20 Hz, stable chip
-snapshots for `useSyncExternalStore`, hex windowing for large memories). What is
-still worth a profile when a dock session feels sticky:
+Already mitigated:
 
-- **Dock row list** — [`Dock.tsx`](../src/components/dock/Dock.tsx) rebuilds the
-  visible row set on every dock-store change; expanded `DeviceBody` trees are
-  not memoized, so resizing or toggling one row redraws siblings.
-- **`NetBadge` / capture UI** — subscribe to the whole `NetSnapshot`, so
-  throughput history and capture bursts wake badges that only need link/IP.
-- **Hex / flash** — pointer moves recreate cell trees; flash program notifies
-  per programmed byte before the transfer wrapper can coalesce (React throttles
-  paints, but subscribers still wake).
-- **`useDeviceTree` ×3** — Dock, FloatingWindows, and PanelsMenu each derive
-  inventory. Steady-state chip value updates do *not* recreate inventory (stable
-  `chips()` snapshots); attach/detach storms at sample start still do.
+- I²C/SPI log debounce, sensor UI ≤20 Hz, stable chip snapshots for
+  `useSyncExternalStore`, hex windowing for large memories.
+- **`NetBadge`** uses `hostNet.getLinkToken()` so throughput/capture rebuilds do
+  not re-render every collapsed net row.
+- **`DockDeviceRow`** is `memo`'d and the dock row list is `useMemo`'d off layout
+  state (not drag width), so resizing the sidebar or expanding one row does not
+  redraw sibling device bodies.
+- **SPI flash page program** bumps `version` per byte but notifies subscribers
+  once per `transfer()`, matching the existing bulk-read coalesce.
+
+What can still show up in a sticky dock profile:
+
+- **`NetworkBody`** still takes the full `NetSnapshot` while expanded — expected
+  for live throughput; capture children already unmount when that disclosure is
+  closed.
+- **Hex cell trees** — pointer moves still recreate visible cell React nodes;
+  paints are rAF-coalesced, so this is secondary to the flash notify fix above.
+- **`useDeviceTree` ×3** — Dock, FloatingWindows, and (when open) PanelsMenu each
+  derive inventory. Steady-state chip value updates do *not* recreate inventory;
+  attach/detach storms at sample start still do.
 
 ## 14. Microphone capture is still main-thread ScriptProcessor
 
@@ -485,5 +492,5 @@ robustness rather than end-to-end latency.
 6. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
 7. Items 8/9/14 — consolidate the remaining main-thread pollers and move audio
    (and mic) onto `AudioWorklet`.
-8. Item 13 — memoize dock rows / split net snapshots / batch flash notifies when
-   a heavy dock session shows up in a profile.
+8. Item 13 leftovers — hex cell memoization / shared `useDeviceTree` only if a
+   profile still shows them after the NetBadge / dock-memo / flash-coalesce pass.
