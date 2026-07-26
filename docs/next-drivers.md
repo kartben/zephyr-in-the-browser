@@ -387,7 +387,8 @@ The WS2812 strip (`chips/ws2812.ts`) is a MOSI bitstream decoder — not a
 register-file part and not wall-clock timing: Zephyr's `ws2812_spi` driver
 encodes each data bit as an 8-bit SPI symbol (`spi-one-frame` /
 `spi-zero-frame`), so one 16-pixel update is ~384 bytes in a single virtqueue
-transfer. Packaging `samples/drivers/led/led_strip` behind `-S ws2812-only`.
+transfer. Packaging `zephyr-module/apps/led_strip` (deadline-paced, same
+chase as upstream) behind `-S ws2812-only`.
 The TMC50xx (`chips/tmc50xx.ts` + `maps/tmc50xx.json`) is a 5-byte SPI
 datagram register file with a wall-clock motion sim for motor 0 — XTARGET /
 XACTUAL / RAMPSTAT so stock `samples/drivers/stepper/tmc50xx` can ping-pong;
@@ -480,7 +481,9 @@ paints a 16-pixel strip. This is the command-stream exception for SPI: Zephyr's
 single-wire protocol by stuffing one/zero duty symbols into MOSI. The page
 ignores pulse timing (aemu cannot hit µs deadlines) and decodes symbols into
 RGB; traffic is ~24 bytes per pixel per update, one virtqueue RTT. Guest side:
-`-S ws2812-only` / `conf/ws2812.conf`, packaging `samples/drivers/led/led_strip`.
+`-S ws2812-only` / `conf/ws2812.conf`, packaging `zephyr-module/apps/led_strip`
+(deadline sleep so virtio RTT is inside the 50 ms period; tick rate 10 kHz so
+`reset-delay` does not ceil to 10 ms).
 
 Original note, kept for the record —
 
