@@ -1,7 +1,5 @@
 /**
- * Dock body for a gpio-buzzer: Lucide Vibrate icon with CSS shake while the
- * guest drives the pin active (latched so short tones still show), plus
- * Vibration API / Web Audio feedback owned by hostBuzzer.
+ * Dock body for gpio-buzzer: latched pin shake + arm host sound/haptics.
  */
 
 import { useSyncExternalStore } from 'react'
@@ -46,7 +44,6 @@ export function BuzzerBody() {
 }
 
 function BuzzerCard({ buzzer }: { buzzer: BuzzerPin }) {
-  // Latched sounding from hostBuzzer — survives short tones and dock remounts.
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const on = snap.sounding
 
@@ -92,15 +89,17 @@ function BuzzerCard({ buzzer }: { buzzer: BuzzerPin }) {
           className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-[11px] text-foreground hover:bg-secondary"
         >
           {snap.preferred
-            ? 'Tap to unlock vibration / buzz sound'
-            : 'Enable vibration / buzz sound'}
+            ? 'Allow host sound / vibration'
+            : 'Enable host sound / vibration'}
         </button>
       ) : (
         <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
           <span>
-            {snap.vibrationSupported
-              ? 'Vibration + sound unlocked'
-              : 'Sound unlocked (Vibration API unavailable here)'}
+            {!snap.vibrationSupported
+              ? 'Host sound on (Vibration API not available here)'
+              : snap.vibrationArmed
+                ? 'Host sound + vibration on'
+                : 'Host sound on (browser blocked vibration)'}
           </span>
           <button
             type="button"

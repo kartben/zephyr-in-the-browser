@@ -39,6 +39,8 @@ import {
 
 function stubAudio() {
   class FakeAudioContext {
+    sampleRate = 48000
+    state: AudioContextState = 'running'
     createGain() {
       return { gain: { value: 0 }, connect: vi.fn(), disconnect: vi.fn() }
     }
@@ -52,7 +54,18 @@ function stubAudio() {
         stop: vi.fn(),
       }
     }
+    createBuffer(channels: number, length: number, sampleRate: number) {
+      return { channels, length, sampleRate }
+    }
+    createBufferSource() {
+      return {
+        buffer: null as unknown,
+        connect: vi.fn(),
+        start: vi.fn(),
+      }
+    }
     resume() {
+      this.state = 'running'
       return Promise.resolve()
     }
     close() {
@@ -115,7 +128,7 @@ describe('hostBuzzer', () => {
     expect(getSnapshot().sounding).toBe(false)
   })
 
-  it('keeps feedback disarmed until enable() unlocks the session', () => {
+  it('keeps feedback disarmed until enable() arms the session', () => {
     expect(getSnapshot().unlocked).toBe(false)
     expect(getSnapshot().enabled).toBe(false)
 
@@ -127,7 +140,7 @@ describe('hostBuzzer', () => {
     disable()
     expect(getSnapshot().preferred).toBe(false)
     expect(getSnapshot().enabled).toBe(false)
-    // Session stays unlocked so a later enable() is still one click.
+    // Session stays armed so a later enable() is still one UI event.
     expect(getSnapshot().unlocked).toBe(true)
   })
 
@@ -138,6 +151,32 @@ describe('hostBuzzer', () => {
 
     enable()
     expect(vibrate).toHaveBeenCalled()
+  })
+
+  it('marks vibrationArmed from the arming vibrate() result', () => {
+    const vibrate = navigator.vibrate as unknown as ReturnType<typeof vi.fn>
+    vibrate.mockReturnValueOnce(true)
+    enable()
+    expect(getSnapshot().vibrationArmed).toBe(true)
+    expect(getSnapshot().vibrationSupported).toBe(true)
+
+    disable()
+    vibrate.mockReturnValueOnce(false)
+    enable()
+    expect(getSnapshot().vibrationArmed).toBe(false)
+    expect(getSnapshot().enabled).toBe(true)
+  })
+
+  it('starts a long vibrate pattern once when sounding after enable', () => {
+    enable()
+    const vibrate = navigator.vibrate as unknown as ReturnType<typeof vi.fn>
+    vibrate.mockClear()
+
+    gpio.setHigh(true)
+    expect(vibrate).toHaveBeenCalledTimes(1)
+    const pattern = vibrate.mock.calls[0]?.[0]
+    expect(Array.isArray(pattern)).toBe(true)
+    expect((pattern as number[]).length).toBeGreaterThan(2)
   })
 
   it('notifies subscribers when sounding changes', () => {

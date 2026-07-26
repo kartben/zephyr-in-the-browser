@@ -626,8 +626,7 @@ function GpioLedsBadge() {
 }
 
 function BuzzerBadge() {
-  // Subscribe to hostBuzzer so the GPIO watch stays alive (and vibrate/audio
-  // keep running) even while the dock body is collapsed.
+  // Keep the GPIO watch alive while collapsed.
   const snap = useSyncExternalStore(
     hostBuzzer.subscribe,
     hostBuzzer.getSnapshot,
