@@ -221,7 +221,7 @@ function SectorWearMap({
             'aspect-square min-h-[5px] rounded-[1px]',
             cellTone(erases, dirty, frac),
             selected &&
-              'relative z-[1] shadow-[0_0_0_2px_hsl(var(--primary))]',
+              'relative z-[1] shadow-[0_0_0_2px_var(--primary)]',
           )
           if (onSectorClick) {
             return (
@@ -235,7 +235,7 @@ function SectorWearMap({
                 className={cn(
                   tone,
                   'cursor-pointer hover:brightness-110',
-                  !selected && 'hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.6)]',
+                  !selected && 'hover:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_60%,transparent)]',
                 )}
               />
             )
