@@ -1,10 +1,11 @@
 /**
  * Dialog that mounts the W25Q image as LittleFS and lists files.
  *
- * Parsing uses `partitions-tool-esp/littlefs` (see `src/lib/littlefsBrowse.ts`).
+ * Mounts with real littlefs via Dreagonmon littlefs-js
+ * (`src/lib/littlefsBrowse.ts`).
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import {
   Dialog,
@@ -24,7 +25,7 @@ import {
 } from '@/lib/littlefsBrowse'
 import type { SpiFlashChip } from '@/virtio/devices/chips/w25q'
 
-const REFRESH_MS = 400
+const REFRESH_MS = 500
 
 export function LittlefsBrowserButton({ chip }: { chip: SpiFlashChip }) {
   const [open, setOpen] = useState(false)
@@ -54,6 +55,8 @@ function LittlefsBrowserDialog({
 }) {
   const [tick, setTick] = useState(0)
   const [selected, setSelected] = useState<LittlefsTreeFile | null>(null)
+  const [result, setResult] = useState<LittlefsBrowseResult | null>(null)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -86,10 +89,31 @@ function LittlefsBrowserDialog({
     }
   }, [chip, open])
 
-  const result = useMemo(() => {
-    void tick
-    return browseLittlefs(chip.memory, { blockSize: chip.decl.sectorSize })
-  }, [chip, tick])
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setBusy(true)
+    void browseLittlefs(chip.memory, { blockSize: chip.decl.sectorSize })
+      .then((next) => {
+        if (!cancelled) setResult(next)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setResult({
+            superblock: { blockSize: chip.decl.sectorSize, blockCount: 0 },
+            files: [],
+            root: { kind: 'dir', name: '/', path: '/', children: [] },
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chip, open, tick])
 
   useEffect(() => {
     if (!result || !selected) {
@@ -98,6 +122,15 @@ function LittlefsBrowserDialog({
     }
     const still = result.files.find((f) => f.path === selected.path)
     if (!still) setSelected(null)
+    else if (still.content !== selected.content) {
+      setSelected({
+        kind: 'file',
+        name: selected.name,
+        path: still.path,
+        size: still.size,
+        content: still.content,
+      })
+    }
   }, [result, selected])
 
   return (
@@ -113,6 +146,7 @@ function LittlefsBrowserDialog({
         <div className="min-h-0 flex-1 overflow-hidden px-5 pb-5">
           <BrowserBody
             result={result}
+            busy={busy}
             selected={selected}
             onSelect={setSelected}
             sectorSize={chip.decl.sectorSize}
@@ -125,15 +159,25 @@ function LittlefsBrowserDialog({
 
 function BrowserBody({
   result,
+  busy,
   selected,
   onSelect,
   sectorSize,
 }: {
   result: LittlefsBrowseResult | null
+  busy: boolean
   selected: LittlefsTreeFile | null
   onSelect: (file: LittlefsTreeFile | null) => void
   sectorSize: number
 }) {
+  if (busy && !result) {
+    return (
+      <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+        Mounting LittleFS…
+      </p>
+    )
+  }
+
   if (!result) {
     return (
       <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
@@ -144,15 +188,29 @@ function BrowserBody({
     )
   }
 
+  if (result.error && result.files.length === 0) {
+    return (
+      <div className="space-y-2 rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+        <p>Could not mount LittleFS from this flash image.</p>
+        <p className="font-mono text-[10px] text-foreground/80">{result.error}</p>
+        <p>
+          Guest erase size should match the FS block size (packaged images use 4 KiB via{' '}
+          <code className="font-mono text-foreground">SPI_NOR_FLASH_LAYOUT_PAGE_SIZE</code>).
+        </p>
+      </div>
+    )
+  }
+
   const { superblock, root, files } = result
   const preview = selected ? previewFileContent(selected.content) : null
 
   return (
     <div className="flex h-[min(55vh,28rem)] flex-col gap-3">
       <p className="font-mono text-[10px] text-muted-foreground">
-        v{(superblock.version >>> 16) & 0xffff}.{superblock.version & 0xffff} ·{' '}
         {superblock.blockCount} × {superblock.blockSize} B blocks · {files.length} file
         {files.length === 1 ? '' : 's'} · erase {sectorSize} B
+        {busy ? ' · refreshing…' : ''}
+        {result.error ? ` · ${result.error}` : ''}
       </p>
       <div className="grid min-h-0 flex-1 gap-3 sm:grid-cols-2">
         <div className="min-h-0 overflow-auto rounded-md border border-border bg-background/40 p-2">
@@ -260,7 +318,12 @@ function TreeNodeRow({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-[11px] text-foreground/90 hover:bg-muted/60"
       >
-        <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+        <ChevronRight
+          className={cn(
+            'size-3 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90',
+          )}
+        />
         <Folder className="size-3 shrink-0 text-muted-foreground" />
         <span className="truncate font-mono">{node.name}</span>
       </button>
