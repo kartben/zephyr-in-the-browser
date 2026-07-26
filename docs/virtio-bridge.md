@@ -45,8 +45,10 @@ Requests flow out of the virtqueues into a request ring; the page answers into
 a completion ring; QEMU matches answers to parked chains by token and completes
 them. Payloads are bounce-buffered through the rings rather than mapped, which
 costs a copy and buys not having to walk guest scatter-gather lists in
-TypeScript. Payloads here are tens of bytes; when a device wants more, the
-escape hatch is to expose the iovec host pointers, not to change this protocol.
+TypeScript. Payloads are usually tens of bytes; SPI already carries bulk
+transfers (NOR page program, WS2812 strip frames of a few hundred bytes). When
+a device wants more still, the escape hatch is to expose the iovec host
+pointers, not to change this protocol.
 
 ## Discovery
 

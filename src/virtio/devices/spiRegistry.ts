@@ -8,6 +8,7 @@
 import type { SpiChip } from './spi'
 import { createSct2024 } from './chips/sct2024'
 import { createPt6314 } from './chips/pt6314'
+import { createWs2812 } from './chips/ws2812'
 import { createSpiLoopback, createW25q } from './chips/w25q'
 import { partById, type PartIdentity } from './parts'
 
@@ -37,6 +38,13 @@ export const SPI_CHIP_TYPES: SpiChipType[] = [
     defaultCs: 0,
     catalogued: true,
     create: (cs) => createSct2024({ cs }),
+  },
+  {
+    id: 'ws2812',
+    label: 'WS2812 LED strip',
+    defaultCs: 0,
+    catalogued: true,
+    create: (cs) => createWs2812({ cs }),
   },
   {
     id: 'pt6314',

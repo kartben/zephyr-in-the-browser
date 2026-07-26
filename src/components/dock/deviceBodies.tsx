@@ -64,8 +64,6 @@ import { setWindowed } from '@/lib/dockStore'
 import { getInventory, subscribeInventory } from '@/lib/dockReveal'
 import { i2cModel, spiModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
-import type { Lp5562Chip } from '@/virtio/devices/chips/lp5562'
-import type { Lp50xxChip } from '@/virtio/devices/chips/lp50xx'
 import type { RgbLedView } from '@/components/LedPanel'
 import type { Sct2024Chip } from '@/virtio/devices/chips/sct2024'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
@@ -319,7 +317,7 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       )
     }
     case 'rgb-led': {
-      const chip = node.chip as Lp5562Chip | Lp50xxChip
+      const chip = node.chip as unknown as RgbLedView
       const rgb = chip.getRgb()
       return (
         <Mono>
@@ -430,7 +428,7 @@ export function GroupBadge({
       )
     }
     const rgb = nodes.find((n) => n.presence === 'interactive' && n.body === 'rgb-led')
-      ?.chip as Lp5562Chip | Lp50xxChip | undefined
+      ?.chip as unknown as RgbLedView | undefined
     if (rgb) {
       const c = rgb.getRgb()
       return (

@@ -3,6 +3,7 @@ import { clear, setUserDts } from '@/devicetree'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import a53Sct2024 from '@/dts/fixtures/qemu_cortex_a53_sct2024.dts?raw'
+import a53Ws2812 from '@/dts/fixtures/qemu_cortex_a53_ws2812.dts?raw'
 import a53Pt6314 from '@/dts/fixtures/qemu_cortex_a53_pt6314.dts?raw'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
 import { createW25q } from './devices/chips/w25q'
@@ -23,13 +24,16 @@ import {
   syncManagedChips,
   tmp112,
   w25q,
+  ws2812,
 } from './index'
 
 afterEach(() => {
   clear()
   // Drop any user-attached SPI strangers left by a test.
   for (const chip of [...spiModel.chips()]) {
-    if (chip !== w25q && chip !== sct2024 && chip !== pt6314) spiModel.detachChip(chip.cs)
+    if (chip !== w25q && chip !== sct2024 && chip !== ws2812 && chip !== pt6314) {
+      spiModel.detachChip(chip.cs)
+    }
   }
   syncManagedChips()
 })
@@ -103,6 +107,14 @@ describe('syncManagedChips', () => {
     expect(spiModel.chips()).not.toContain(w25q)
   })
 
+  it('puts the WS2812 on CS0 once that sample tree is loaded', () => {
+    expect(spiModel.chips()).toContain(w25q)
+
+    setUserDts('ws2812.dts', a53Ws2812)
+    expect(spiModel.chips()).toEqual([ws2812])
+    expect(spiModel.chips()).not.toContain(w25q)
+  })
+
   it('puts the PT6314 on CS0 once that sample tree is loaded', () => {
     expect(spiModel.chips()).toContain(w25q)
 
@@ -114,6 +126,15 @@ describe('syncManagedChips', () => {
   it('restores the NOR after clearing the SCT2024 tree', () => {
     setUserDts('sct2024.dts', a53Sct2024)
     expect(spiModel.chips()).toEqual([sct2024])
+
+    clear()
+    syncManagedChips()
+    expect(spiModel.chips()).toEqual([w25q])
+  })
+
+  it('restores the NOR after clearing the WS2812 tree', () => {
+    setUserDts('ws2812.dts', a53Ws2812)
+    expect(spiModel.chips()).toEqual([ws2812])
 
     clear()
     syncManagedChips()

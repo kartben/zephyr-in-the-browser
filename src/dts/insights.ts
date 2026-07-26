@@ -200,6 +200,7 @@ const COMPAT_TO_CHIP: Record<string, string> = {
 const COMPAT_TO_SPI_CHIP: Record<string, string> = {
   'jedec,spi-nor': 'w25q',
   'sct,sct2024': 'sct2024',
+  'worldsemi,ws2812-spi': 'ws2812',
   'ptc,pt6314': 'pt6314',
 }
 
@@ -568,6 +569,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     hasOkayCompat(doc, 'ti,lp5562') ||
     hasOkayCompat(doc, 'ti,lp5012') ||
     hasOkayCompat(doc, 'sct,sct2024') ||
+    hasOkayCompat(doc, 'worldsemi,ws2812-spi') ||
     pwmLeds.length > 0 ||
     gpioControllers.some((c) => c.bridged && c.leds.length > 0)
   ) {

@@ -1,0 +1,45 @@
+/*
+ * Flattened DTS fixture for the WS2812 packaging: virtio-spi with
+ * worldsemi,ws2812-spi okay at CS0. Used to catch dock routing (rgb-led body,
+ * led panel) and SPI chip-id mapping.
+ */
+
+/dts-v1/;
+
+/ {
+	compatible = "qemu,cortex-a53";
+
+	aliases {
+		led-strip = &led_strip;
+	};
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		virtio_mmio5: virtio_mmio@a000a00 {
+			compatible = "virtio,mmio";
+			reg = <0xa000a00 0x200>;
+			status = "okay";
+
+			virtio_spi0: virtio-spi {
+				compatible = "virtio,spi";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "okay";
+
+				led_strip: ws2812@0 {
+					compatible = "worldsemi,ws2812-spi";
+					reg = <0>;
+					spi-max-frequency = <4000000>;
+					chain-length = <16>;
+					spi-one-frame = <0x70>;
+					spi-zero-frame = <0x40>;
+					/* Numeric color ids: G=2, R=1, B=3 (led.h). */
+					color-mapping = <2 1 3>;
+					status = "okay";
+				};
+			};
+		};
+	};
+};

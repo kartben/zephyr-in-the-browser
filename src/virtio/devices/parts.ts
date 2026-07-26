@@ -340,6 +340,21 @@ export const PARTS: readonly PartIdentity[] = [
     summary: '16-channel constant-current LED sink over SPI.',
   },
   {
+    id: 'ws2812',
+    label: 'WS2812 LED strip',
+    manufacturer: 'Worldsemi',
+    part: 'WS2812',
+    bus: 'spi',
+    compatible: 'worldsemi,ws2812-spi',
+    defaultAddress: 0,
+    addressKind: 'spi-cs',
+    kind: 'led',
+    datasheetUrl: 'https://cdn-shop.adafruit.com/datasheets/WS2812.pdf',
+    bindingUrl: binding('led_strip/worldsemi%2Cws2812-spi.html'),
+    summary:
+      'Addressable RGB strip; Zephyr encodes each bit as an SPI symbol on MOSI.',
+  },
+  {
     id: 'pt6314',
     label: 'PT6314 VFD',
     manufacturer: 'Princeton Technology',
