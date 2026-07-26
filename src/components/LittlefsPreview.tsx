@@ -47,8 +47,8 @@ export function LittlefsPreview() {
       )
       link?.click()
       window.setTimeout(() => {
-        const fileBtn = [...document.querySelectorAll('[role="dialog"] button')].find((b) =>
-          (b.textContent || '').includes('boot_count'),
+        const fileBtn = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+          (b) => (b.textContent || '').includes('boot_count'),
         )
         fileBtn?.click()
       }, 350)
