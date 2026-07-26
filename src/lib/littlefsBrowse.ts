@@ -17,6 +17,22 @@ import {
   type LFSInfo,
 } from '@/vendor/littlefs-js/lfs_js.js'
 
+/**
+ * Dreagonmon littlefs-js is one Emscripten/Asyncify module. Overlapping
+ * `lfs_*` calls abort with "We cannot start an async operation when one is
+ * already flight". Serialize every mount/format/browse through this queue.
+ */
+let littlefsTail: Promise<unknown> = Promise.resolve()
+
+export function withLittlefsLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = littlefsTail.then(fn, fn)
+  littlefsTail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 export interface LittlefsTreeFile {
   kind: 'file'
   name: string
@@ -105,7 +121,8 @@ class ImageBlockDevice extends BlockDevice {
     this.prog_size = progSize
   }
 
-  read(block: number, off: number, buffer: number, size: number): number {
+  // async like MemoryBlockDevice — Asyncify may resume through these.
+  async read(block: number, off: number, buffer: number, size: number): Promise<number> {
     const start = block * this.block_size + off
     for (let i = 0; i < size; i++) {
       const addr = start + i
@@ -114,11 +131,11 @@ class ImageBlockDevice extends BlockDevice {
     return 0
   }
 
-  prog(_block: number, _off: number, _buffer: number, _size: number): number {
+  async prog(_block: number, _off: number, _buffer: number, _size: number): Promise<number> {
     return 0 // read-only browser
   }
 
-  erase(_block: number): number {
+  async erase(_block: number): Promise<number> {
     return 0
   }
 }
@@ -132,6 +149,13 @@ export async function browseLittlefs(
   image: Uint8Array,
   opts: { blockSize?: number; readSize?: number; progSize?: number } = {},
 ): Promise<LittlefsBrowseResult | null> {
+  return withLittlefsLock(() => browseLittlefsUnlocked(image, opts))
+}
+
+async function browseLittlefsUnlocked(
+  image: Uint8Array,
+  opts: { blockSize?: number; readSize?: number; progSize?: number },
+): Promise<LittlefsBrowseResult | null> {
   if (image.length === 0 || isBlankFlash(image)) return null
 
   const magicAt = findLittlefsMagic(image)
@@ -141,7 +165,13 @@ export async function browseLittlefs(
     if (image.length < blockSize * 2 || image.length % blockSize !== 0) continue
     const bd = new ImageBlockDevice(image, blockSize, opts.readSize ?? 16, opts.progSize ?? 16)
     const lfs = new LFS(bd, 512)
-    const mountRc = await lfs.mount()
+    let mountRc: number
+    try {
+      mountRc = await lfs.mount()
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : String(err)
+      continue
+    }
     if (typeof mountRc === 'number' && mountRc < 0) {
       lastErr = `lfs_mount(${blockSize}) → ${mountRc}`
       continue

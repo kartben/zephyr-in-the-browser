@@ -6,7 +6,7 @@ import {
   LFS_O_WRONLY,
   MemoryBlockDevice,
 } from '@/vendor/littlefs-js/lfs_js.js'
-import { browseLittlefs, isBlankFlash, previewFileContent } from './littlefsBrowse'
+import { browseLittlefs, isBlankFlash, previewFileContent, withLittlefsLock } from './littlefsBrowse'
 
 async function makeImage(opts: {
   blockSize: number
@@ -14,30 +14,32 @@ async function makeImage(opts: {
   files: Array<{ path: string; data: Uint8Array }>
   dirs?: string[]
 }): Promise<Uint8Array> {
-  const bdev = new MemoryBlockDevice(opts.blockSize, opts.blockCount)
-  bdev.read_size = 16
-  bdev.prog_size = 16
-  const lfs = new LFS(bdev, 512)
-  expect(await lfs.format()).toBe(0)
-  expect(await lfs.mount()).toBe(0)
-  for (const dir of opts.dirs ?? []) {
-    expect(await lfs.mkdir(dir)).toBe(0)
-  }
-  for (const file of opts.files) {
-    const fh = await lfs.open(file.path, LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC)
-    expect(typeof fh === 'number' ? fh : 0).toBe(0)
-    if (typeof fh === 'number') throw new Error('open failed')
-    await fh.write(file.data)
-    await fh.close()
-  }
-  await lfs.unmount()
+  return withLittlefsLock(async () => {
+    const bdev = new MemoryBlockDevice(opts.blockSize, opts.blockCount)
+    bdev.read_size = 16
+    bdev.prog_size = 16
+    const lfs = new LFS(bdev, 512)
+    expect(await lfs.format()).toBe(0)
+    expect(await lfs.mount()).toBe(0)
+    for (const dir of opts.dirs ?? []) {
+      expect(await lfs.mkdir(dir)).toBe(0)
+    }
+    for (const file of opts.files) {
+      const fh = await lfs.open(file.path, LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC)
+      expect(typeof fh === 'number' ? fh : 0).toBe(0)
+      if (typeof fh === 'number') throw new Error('open failed')
+      await fh.write(file.data)
+      await fh.close()
+    }
+    await lfs.unmount()
 
-  const image = new Uint8Array(opts.blockSize * opts.blockCount).fill(0xff)
-  for (let i = 0; i < bdev._storage.length; i++) {
-    const block = bdev._storage[i]
-    if (block) image.set(block, i * opts.blockSize)
-  }
-  return image
+    const image = new Uint8Array(opts.blockSize * opts.blockCount).fill(0xff)
+    for (let i = 0; i < bdev._storage.length; i++) {
+      const block = bdev._storage[i]
+      if (block) image.set(block, i * opts.blockSize)
+    }
+    return image
+  })
 }
 
 describe('littlefsBrowse', () => {
@@ -82,6 +84,24 @@ describe('littlefsBrowse', () => {
     expect(result!.superblock.blockSize).toBe(65536)
     expect(result!.files.map((f) => f.path).sort()).toEqual(['/boot_count', '/pattern.bin'])
     expect(result!.files.find((f) => f.path === '/pattern.bin')!.size).toBe(547)
+  })
+
+  it('serializes concurrent browses so Asyncify does not abort', async () => {
+    const image = await makeImage({
+      blockSize: 4096,
+      blockCount: 32,
+      files: [{ path: '/boot_count', data: new Uint8Array([9, 0, 0, 0]) }],
+    })
+    const [a, b, c] = await Promise.all([
+      browseLittlefs(image, { blockSize: 4096 }),
+      browseLittlefs(image, { blockSize: 4096 }),
+      browseLittlefs(image, { blockSize: 4096 }),
+    ])
+    for (const result of [a, b, c]) {
+      expect(result).not.toBeNull()
+      expect(result!.error).toBeUndefined()
+      expect(result!.files.map((f) => f.path)).toEqual(['/boot_count'])
+    }
   })
 
   it('returns null for blank flash', async () => {
