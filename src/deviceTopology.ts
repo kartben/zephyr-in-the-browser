@@ -774,7 +774,6 @@ function deriveFromTree(
       path: bus.path,
       presence: 'inert',
       note: bus.role === 'console' ? '→ terminal' : undefined,
-      crumb: bus.controllerLabel,
     })
 
     for (const slot of bus.slots) {
@@ -953,7 +952,6 @@ function deriveFallback(
     path: `/soc/${names.console.nodeName}`,
     presence: 'inert',
     note: '→ terminal',
-    crumb: names.console.label,
   })
 
   if (avail.gnss) {
@@ -966,7 +964,6 @@ function deriveFallback(
       deviceClass: 'uart-bus',
       path: `/soc/${names.gnssUart.nodeName}`,
       presence: 'inert',
-      crumb: names.gnssUart.label,
     })
     nodes.push({
       key: uniqueKey(ids, 'gnss'),

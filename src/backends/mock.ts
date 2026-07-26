@@ -2,6 +2,7 @@ import type { PtyBackend, Slave, StartOptions } from './types'
 import { sampleAnnotationsAsset, sampleDtsAsset } from '@/boards'
 import { loadSampleDts } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
+import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { createFakeNetModule } from '@/net/testing/fakeModule'
 import { FakeGuest } from '@/net/testing/fakeGuest'
@@ -146,6 +147,12 @@ export function createMockBackend(): PtyBackend {
       // the real path, so the panel shows an authentic DHCP handshake, pings
       // and HTTP flows.
       if (board.peripherals?.hostNet) startFakeNetwork(disposers)
+
+      // Stub GNSS so UART-bus nesting (GNSS under uart1) is visible on mock.
+      if (board.peripherals?.gnss) {
+        attachHostGnss({ _qemu_browser_gnss_feed_byte: () => 0 })
+        disposers.push(() => detachHostGnss())
+      }
 
       // A guided sample replays its walkthrough here too. The records are the
       // real ones, off the real catalog — only the guest producing them is
