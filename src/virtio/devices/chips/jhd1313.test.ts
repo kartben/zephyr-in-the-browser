@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { hasRegisterMap } from '../registers/types'
+import { createLp5562 } from './lp5562'
 import {
   createJhd1313Backlight,
   createJhd1313Lcd,
@@ -20,6 +21,10 @@ describe('JHD1313 backlight register map', () => {
     expect(hasRegisterMap(bl)).toBe(true)
     expect(bl.address).toBe(0x62)
     expect(bl.registers.some((r) => r.addr === 0x04 && r.name === 'PWM2_R')).toBe(true)
+  })
+
+  it('does not treat LP5562 (getRgb + registers) as the Grove backlight', () => {
+    expect(isJhd1313Backlight(createLp5562())).toBe(false)
   })
 
   it('accepts Grove [reg, value] writes and reports RGB', () => {

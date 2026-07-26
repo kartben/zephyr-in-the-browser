@@ -1,0 +1,47 @@
+/*
+ * Minimal tree for the LP5562 RGB LED sample shape: bridged virtio-i2c with
+ * ti,lp5562 okay at 0x30. Used to catch duck-type collisions (e.g. treating
+ * LP5562 as the JHD1313 backlight because both expose getRgb).
+ */
+/dts-v1/;
+
+/ {
+	model = "QEMU Cortex-A53 LP5562 fixture";
+	compatible = "qemu,arm-cortex-a53";
+
+	chosen {
+		zephyr,console = &uart0;
+	};
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		ranges;
+
+		uart0: uart@9000000 {
+			compatible = "arm,pl011";
+			reg = <0x9000000 0x1000>;
+			status = "okay";
+		};
+
+		virtio_mmio4: virtio_mmio@a000800 {
+			compatible = "virtio,mmio";
+			reg = <0xa000800 0x200>;
+			status = "okay";
+
+			virtio_i2c0: virtio-i2c {
+				compatible = "virtio,i2c";
+				status = "okay";
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				lp5562_0: lp5562@30 {
+					compatible = "ti,lp5562";
+					reg = <0x30>;
+					status = "okay";
+				};
+			};
+		};
+	};
+};
