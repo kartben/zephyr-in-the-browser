@@ -49,6 +49,22 @@ export interface I2cBus {
   slots: I2cSlot[]
 }
 
+export interface SpiSlot {
+  /** Chip-select index (`reg`). */
+  cs: number
+  compatible: string
+  chipId?: string
+  nodeName: string
+}
+
+export interface SpiBus {
+  controllerLabel: string
+  path: string
+  compatible: string
+  bridged: boolean
+  slots: SpiSlot[]
+}
+
 export interface DtsPin {
   id: number
   label: string
@@ -107,6 +123,7 @@ export interface DtsInsights {
   /** Alias name → node path. */
   aliases: Record<string, string>
   i2cBuses: I2cBus[]
+  spiBuses: SpiBus[]
   gpioControllers: GpioController[]
   /** Children of okay `pwm-leds` groups that resolve a PWM controller. */
   pwmLeds: PwmLed[]
@@ -139,6 +156,10 @@ const COMPAT_TO_CHIP: Record<string, string> = {
   'nxp,pcf8523': 'pcf8523',
 }
 
+const COMPAT_TO_SPI_CHIP: Record<string, string> = {
+  'jedec,spi-nor': 'w25q',
+}
+
 const SENSOR_CHIP_IDS = new Set([
   'tmp112',
   'lm75',
@@ -151,6 +172,8 @@ const SENSOR_CHIP_IDS = new Set([
 
 /** The I2C adapter the page's chips answer on (QEMU's `name=i2c` device). */
 const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c'])
+/** The SPI controller the page's chips answer on (QEMU's `name=spi` device). */
+const BRIDGED_SPI_COMPATS = new Set(['virtio,spi'])
 /** The GPIO controllers the browser panel drives, one per board. */
 const BRIDGED_GPIO_COMPATS = new Set(['qemu,host-gpio', 'virtio,gpio'])
 
@@ -214,6 +237,50 @@ function collectI2cBuses(doc: DtsDocument): I2cBus[] {
       compatible: compatibles(node)[0] ?? '',
       bridged: compatibles(node).some((c) => BRIDGED_I2C_COMPATS.has(c)),
       slots: i2cSlots(node),
+    })
+  })
+  return buses
+}
+
+function spiSlots(bus: DtsNode): SpiSlot[] {
+  const slots: SpiSlot[] = []
+  for (const child of bus.children) {
+    if (!effectivelyOkay(child)) continue
+    const cs = regAddress(child)
+    if (cs === undefined || cs < 0 || cs > 255) continue
+    const compatible = compatibles(child)[0] ?? ''
+    slots.push({
+      cs,
+      compatible,
+      chipId: compatibles(child)
+        .map((c) => COMPAT_TO_SPI_CHIP[c])
+        .find((id) => id !== undefined),
+      nodeName: child.name,
+    })
+  }
+  return slots.sort((a, b) => a.cs - b.cs)
+}
+
+function isSpiBus(node: DtsNode): boolean {
+  const compats = compatibles(node)
+  if (compats.some((c) => BRIDGED_SPI_COMPATS.has(c))) return true
+  if (!/^spi[@-]?/.test(node.name) && !/^virtio-spi/.test(node.name)) return false
+  return node.children.some((child) => {
+    const cs = regAddress(child)
+    return cs !== undefined && cs >= 0 && cs <= 255
+  })
+}
+
+function collectSpiBuses(doc: DtsDocument): SpiBus[] {
+  const buses: SpiBus[] = []
+  walk(doc.root, (node) => {
+    if (node.name === '/' || !effectivelyOkay(node) || !isSpiBus(node)) return
+    buses.push({
+      controllerLabel: labelOf(node),
+      path: pathOf(node),
+      compatible: compatibles(node)[0] ?? '',
+      bridged: compatibles(node).some((c) => BRIDGED_SPI_COMPATS.has(c)),
+      slots: spiSlots(node),
     })
   })
   return buses
@@ -342,12 +409,14 @@ export function emphasisPanels(insights: DtsInsights): Set<PanelKind> {
 
 export function computeInsights(doc: DtsDocument): DtsInsights {
   const i2cBuses = collectI2cBuses(doc)
+  const spiBuses = collectSpiBuses(doc)
   const gpioControllers = collectGpioControllers(doc)
   const pwmLeds = collectPwmLeds(doc)
   const chosenTable = chosen(doc)
 
   const bridgedBuses = i2cBuses.filter((bus) => bus.bridged)
   const bridgedSlots = bridgedBuses.flatMap((bus) => bus.slots)
+  const bridgedSpi = spiBuses.filter((bus) => bus.bridged)
 
   const panels = new Set<PanelKind>()
   if (hasOkayCompat(doc, 'gnss-nmea-generic')) panels.add('gnss')
@@ -359,6 +428,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     panels.add('net')
   }
   if (bridgedBuses.length > 0) panels.add('i2c')
+  if (bridgedSpi.length > 0) panels.add('spi')
   if (bridgedSlots.some((slot) => slot.chipId !== undefined && SENSOR_CHIP_IDS.has(slot.chipId))) {
     panels.add('sensor')
   }
@@ -403,6 +473,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     memory: collectMemory(doc),
     aliases: aliasTable,
     i2cBuses,
+    spiBuses,
     gpioControllers,
     pwmLeds,
     panels,

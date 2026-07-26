@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView } from '@/components/HexView'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
+import type { SpiFlashChip } from '@/virtio/devices/chips/w25q'
 
 /**
  * The control surface for a simulated I2C memory part.
@@ -61,6 +62,59 @@ export function MemoryBody({
       {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
 
       {!compact && <Hints chip={chip} />}
+    </div>
+  )
+}
+
+/** Same hex surface for a JEDEC SPI NOR on the virtio-spi bus. */
+export function SpiFlashBody({
+  chip,
+  compact = false,
+  onOpenWindow,
+}: {
+  chip: SpiFlashChip
+  compact?: boolean
+  onOpenWindow?: () => void
+}) {
+  const { size, pageSize } = chip.decl
+
+  return (
+    <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
+      <div className="flex items-baseline gap-3">
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {size} B{pageSize ? ` · ${pageSize} B pages` : ''} · CS{chip.cs}
+        </span>
+        {compact && onOpenWindow && (
+          <button
+            onClick={onOpenWindow}
+            className="ml-auto text-[10px] text-primary underline-offset-2 hover:underline"
+          >
+            Hex editor ⧉
+          </button>
+        )}
+        <button
+          onClick={() => chip.erase()}
+          title="Clear every cell (and any saved contents)"
+          className={
+            compact && onOpenWindow
+              ? 'text-[10px] text-muted-foreground underline-offset-2 hover:underline'
+              : 'ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline'
+          }
+        >
+          erase
+        </button>
+      </div>
+
+      {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
+
+      {!compact && (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          In the guest:{' '}
+          <code className="font-mono text-foreground">
+            flash read {chip.decl.shellLabel ?? 'flash@0'} 0 16
+          </code>
+        </p>
+      )}
     </div>
   )
 }

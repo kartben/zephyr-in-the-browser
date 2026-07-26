@@ -20,6 +20,7 @@ const ALL: Availability = {
   mic: true,
   net: true,
   i2c: true,
+  spi: false,
   display: true,
   input: true,
 }
@@ -78,7 +79,7 @@ const deviceKeys = (rows: Row[]) =>
 
 describe('deriveDeviceInventory from a devicetree', () => {
   it('grounds the A53 shell tree: live bus, chips, gnss under its uart', () => {
-    const inv = deriveDeviceInventory(treeOf(a53Shell, 'shell.dts'), A53_SHELL_CHIPS, ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(treeOf(a53Shell, 'shell.dts'), A53_SHELL_CHIPS, [], ALL, 'qemu_cortex_a53')
 
     expect(inv.source).toBe('devicetree')
     expect(inv.rootName).toBe('QEMU Cortex-A53')
@@ -129,7 +130,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
   })
 
   it('shows declared-but-unanswered slots as ghosts', () => {
-    const inv = deriveDeviceInventory(treeOf(a53Shell), [], ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(treeOf(a53Shell), [], [], ALL, 'qemu_cortex_a53')
 
     const ghosts = inv.nodes.filter((n) => n.presence === 'ghost')
     expect(ghosts).toHaveLength(10)
@@ -146,6 +147,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Shell),
       [fakeSensor(0x60, 'FakeTemp sensor')],
+      [],
       ALL,
       'qemu_cortex_a53',
     )
@@ -159,6 +161,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(
       treeOf(twoBuses),
       [fakeSensor(0x48, 'TMP112 temperature')],
+      [],
       ALL,
       'qemu_cortex_a53',
     )
@@ -187,6 +190,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Shell),
       A53_SHELL_CHIPS,
+      [],
       { ...ALL, i2c: false, gnss: false },
       'qemu_cortex_a53',
     )
@@ -217,6 +221,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
         };
       `),
       [],
+      [],
       ALL,
       'qemu_cortex_a53',
     )
@@ -235,6 +240,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Blinky),
       [],
+      [],
       ALL,
       'qemu_cortex_a53',
     )
@@ -251,6 +257,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
   it('emits a gpio-keys dock row in the Keys class', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Blinky),
+      [],
       [],
       ALL,
       'qemu_cortex_a53',
@@ -303,6 +310,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
         };
       `),
       [chip],
+      [],
       ALL,
       'qemu_cortex_a53',
     )
@@ -326,7 +334,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
 
 describe('deriveDeviceInventory fallback (no devicetree)', () => {
   it('mirrors the A53 overlays', () => {
-    const inv = deriveDeviceInventory(null, A53_DEFAULT_CHIPS, ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(null, A53_DEFAULT_CHIPS, [], ALL, 'qemu_cortex_a53')
 
     expect(inv.source).toBe('fallback')
     expect(inv.nodes.filter((n) => n.parentKey === 'virtio_i2c0').map((n) => n.key)).toEqual([
@@ -347,7 +355,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
 
   it('ghosts a detached declared chip exactly like the devicetree path', () => {
     const chips = A53_DEFAULT_CHIPS.filter((chip) => chip.address !== 0x53)
-    const inv = deriveDeviceInventory(null, chips, ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(null, chips, [], ALL, 'qemu_cortex_a53')
     const adxl = nodeByKey(inv, 'virtio_i2c0:53')
     expect(adxl.presence).toBe('ghost')
     expect(adxl.deviceClass).toBe('sensor')
@@ -358,10 +366,11 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     const avail: Availability = {
       ...ALL,
       i2c: false,
+      spi: false,
       display: false,
       input: false,
     }
-    const inv = deriveDeviceInventory(null, [], avail, 'qemu_cortex_m3')
+    const inv = deriveDeviceInventory(null, [], [], avail, 'qemu_cortex_m3')
 
     expect(nodeByKey(inv, 'net').nodeName).toBe('ethernet@40048000')
     expect(nodeByKey(inv, 'net').crumb).toBe('eth0')
@@ -375,9 +384,9 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
 describe('buildRowList', () => {
   it('emits identical device keys in both views', () => {
     for (const inv of [
-      deriveDeviceInventory(treeOf(a53Shell), A53_SHELL_CHIPS, ALL, 'qemu_cortex_a53'),
-      deriveDeviceInventory(treeOf(twoBuses), [fakeSensor(0x48, 'TMP112')], ALL, 'qemu_cortex_a53'),
-      deriveDeviceInventory(null, A53_DEFAULT_CHIPS, ALL, 'qemu_cortex_a53'),
+      deriveDeviceInventory(treeOf(a53Shell), A53_SHELL_CHIPS, [], ALL, 'qemu_cortex_a53'),
+      deriveDeviceInventory(treeOf(twoBuses), [fakeSensor(0x48, 'TMP112')], [], ALL, 'qemu_cortex_a53'),
+      deriveDeviceInventory(null, A53_DEFAULT_CHIPS, [], ALL, 'qemu_cortex_a53'),
     ]) {
       const dt = deviceKeys(buildRowList(inv, 'devicetree'))
       const classes = deviceKeys(buildRowList(inv, 'classes'))
@@ -387,7 +396,7 @@ describe('buildRowList', () => {
   })
 
   it('nests the ⌗ view: root, soc scaffold, chips one deeper than their bus', () => {
-    const inv = deriveDeviceInventory(treeOf(a53Shell, 'shell.dts'), A53_SHELL_CHIPS, ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(treeOf(a53Shell, 'shell.dts'), A53_SHELL_CHIPS, [], ALL, 'qemu_cortex_a53')
     const rows = buildRowList(inv, 'devicetree')
 
     expect(rows[0]).toMatchObject({ kind: 'struct', key: 'root', name: '/' })
@@ -409,7 +418,7 @@ describe('buildRowList', () => {
   })
 
   it('groups the ▤ view with friendly labels and counts', () => {
-    const inv = deriveDeviceInventory(treeOf(a53Shell), A53_SHELL_CHIPS, ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(treeOf(a53Shell), A53_SHELL_CHIPS, [], ALL, 'qemu_cortex_a53')
     const rows = buildRowList(inv, 'classes')
 
     const sensors = rows.find((row) => row.kind === 'group' && row.deviceClass === 'sensor')
@@ -429,7 +438,7 @@ describe('buildRowList', () => {
   })
 
   it('nests an unbridged bus’s slots under it inside the bus group', () => {
-    const inv = deriveDeviceInventory(treeOf(twoBuses), [], ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(treeOf(twoBuses), [], [], ALL, 'qemu_cortex_a53')
     const rows = buildRowList(inv, 'classes')
     const bme = rows.find((row) => row.kind === 'device' && row.node.key === 'i2c0:76')
     expect((bme as Extract<Row, { kind: 'device' }>).depth).toBe(1)

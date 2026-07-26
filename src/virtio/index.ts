@@ -12,7 +12,10 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import { createGpioModel } from './devices/gpio'
 import { createI2cModel } from './devices/i2c'
 import type { I2cChip } from './devices/i2c'
+import { createSpiModel } from './devices/spi'
+import type { SpiChip } from './devices/spi'
 import { createAt24 } from './devices/chips/at24'
+import { createW25q } from './devices/chips/w25q'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
 import { createAdxl345 } from './devices/sensors/adxl345'
@@ -36,6 +39,9 @@ export const gpioModel = createGpioModel('gpio')
 
 /** VIRTIO I2C adapter, name=i2c. The chips on it are page-side models. */
 export const i2cModel = createI2cModel('i2c')
+
+/** VIRTIO SPI controller, name=spi. Chips selected by chip-select id. */
+export const spiModel = createSpiModel('spi')
 
 /**
  * What can be soldered to the browser's I2C bus. Instances are created once so
@@ -102,6 +108,9 @@ export const max17048 = createMax17048({ address: 0x36 })
 /** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
+/** JEDEC SPI NOR on CS0 — stock samples/drivers/spi_flash. */
+export const w25q = createW25q({ cs: 0, persistKey: 'zephyr.spi-flash.0' })
+
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x30, lp5562],
@@ -122,6 +131,9 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x6a, lsm6dso],
   [0x70, ht16k33],
 ])
+
+/** Managed SPI parts keyed by chip-select. */
+const MANAGED_SPI_CHIPS: ReadonlyMap<number, SpiChip> = new Map<number, SpiChip>([[0, w25q]])
 
 /**
  * Addresses the running build wants answered. Prefer the loaded tree's bridged
@@ -164,6 +176,37 @@ export function syncManagedChips() {
       i2cModel.detachChip(address)
     }
   }
+
+  syncManagedSpiChips()
+}
+
+function wantedManagedSpiCs(): Set<number> {
+  const insights = getDeviceTree()?.insights
+  if (insights) {
+    const selects = new Set<number>()
+    for (const bus of insights.spiBuses) {
+      if (!bus.bridged) continue
+      for (const slot of bus.slots) selects.add(slot.cs)
+    }
+    return selects
+  }
+  return new Set()
+}
+
+function syncManagedSpiChips() {
+  const wanted = wantedManagedSpiCs()
+  const onBus = new Map(spiModel.chips().map((chip) => [chip.cs, chip]))
+
+  for (const [cs, chip] of MANAGED_SPI_CHIPS) {
+    const current = onBus.get(cs)
+    if (wanted.has(cs)) {
+      if (current === chip) continue
+      if (current !== undefined) continue
+      spiModel.attachChip(chip)
+    } else if (current === chip) {
+      spiModel.detachChip(cs)
+    }
+  }
 }
 
 syncManagedChips()
@@ -177,6 +220,7 @@ subscribeDeviceTree(syncManagedChips)
 export function attach(mod: unknown) {
   register(gpioModel)
   register(i2cModel)
+  register(spiModel)
   transportAttach(mod)
 }
 

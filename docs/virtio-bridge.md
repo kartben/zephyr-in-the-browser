@@ -23,14 +23,15 @@ C file is a GPIO controller, an I2C adapter, or anything else:
 ```
 -device virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,queues=2,features=0x1,config=0800000000000000
 -device virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1
+-device virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000
 ```
 
 The payoff is the iteration loop. A new device type, or a new simulated I2C
-chip, is a TypeScript file with a vitest suite — not a containerised QEMU
+or SPI chip, is a TypeScript file with a vitest suite — not a containerised QEMU
 rebuild.
 
 What it does *not* buy: the guest still needs a driver per device type. For
-virtio-gpio that driver is vendored
+virtio-gpio and virtio-spi that driver is vendored
 ([VENDOR.md](../zephyr-module/drivers/vendor/VENDOR.md)); for I2C it does not
 exist in Zephyr yet and has to be written.
 

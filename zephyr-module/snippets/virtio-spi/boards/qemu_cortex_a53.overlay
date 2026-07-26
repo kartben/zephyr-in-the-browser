@@ -1,0 +1,34 @@
+/*
+ * Enable the browser SPI bridge and put a JEDEC SPI NOR on CS0. The page
+ * answers as a W25Q-class part (src/virtio/devices/chips/w25q.ts); jedec-id
+ * and size must match that model. Size is in *bits* (JESD216 / Zephyr binding).
+ *
+ * 64 KiB is enough for samples/drivers/spi_flash and keeps the hex card light.
+ */
+
+&virtio_mmio5 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	status = "okay";
+
+	w25q16jv: w25q16jv@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+		size = <0x80000>; /* 64 KiB */
+		jedec-id = [ef 40 15];
+		status = "okay";
+	};
+};
+
+/ {
+	chosen {
+		zephyr,flash = &w25q16jv;
+	};
+
+	aliases {
+		spi-flash0 = &w25q16jv;
+	};
+};

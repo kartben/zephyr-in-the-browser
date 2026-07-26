@@ -10,5 +10,7 @@ export type {
   GpioController,
   I2cBus,
   I2cSlot,
+  SpiBus,
+  SpiSlot,
   PwmLed,
 } from './insights'

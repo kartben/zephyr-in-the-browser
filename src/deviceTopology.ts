@@ -17,14 +17,16 @@
 
 import type { PanelKind } from '@/boards'
 import type { DeviceTreeState } from '@/devicetree'
-import type { DtsDocument, DtsInsights, DtsNode, I2cSlot } from '@/dts'
+import type { DtsDocument, DtsInsights, DtsNode, I2cSlot, SpiSlot } from '@/dts'
 import { byPath, chosen, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regAddress } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
+import type { SpiChip } from '@/virtio/devices/spi'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isLp5562 } from '@/virtio/devices/chips/lp5562'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
+import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isMemoryChip } from '@/virtio/devices/memory/model'
 import { isDacChip } from '@/virtio/devices/dac/model'
 import { isFuelGaugeChip } from '@/virtio/devices/fuel-gauge/model'
@@ -46,6 +48,7 @@ export type DeviceClass =
   | 'memory'
   | 'rtc'
   | 'i2c-bus'
+  | 'spi-bus'
   | 'gpio'
   | 'keys'
   | 'buzzer'
@@ -70,6 +73,8 @@ export type BodyKind =
   | 'fuel-gauge'
   | 'rtc'
   | 'i2c'
+  | 'spi'
+  | 'spi-flash'
   | 'gpio'
   | 'gpio-keys'
   | 'buzzer'
@@ -86,6 +91,7 @@ export interface Availability {
   mic: boolean
   net: boolean
   i2c: boolean
+  spi: boolean
   display: boolean
   input: boolean
 }
@@ -116,14 +122,14 @@ export interface DeviceNode {
   body?: BodyKind
   /** ▤-view breadcrumb locating the row on the hardware ('virtio_i2c0 · 0x48'). */
   crumb?: string
-  /** Live chip handle, for sensor/memory/oled bodies. */
-  chip?: I2cChip
+  /** Live chip handle, for sensor/memory/oled/spi-flash bodies. */
+  chip?: I2cChip | SpiChip
   /**
    * Children of a `pwm-leds` group when `body` is `pwm-leds` — channel index
    * and DT label, brightness read from {@link chip}'s PwmChip channels.
    */
   pwmLeds?: Array<{ channel: number; label: string }>
-  /** Controller label scoping an 'i2c' body's roster/traffic. */
+  /** Controller label scoping an 'i2c'/'spi' body's roster/traffic. */
   busLabel?: string
   /** The legacy panel kind whose expand-on-boot rule this row inherits. */
   panelKind?: PanelKind
@@ -156,6 +162,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   memory: 'Memory',
   rtc: 'RTC',
   'i2c-bus': 'I²C buses',
+  'spi-bus': 'SPI buses',
   gpio: 'GPIO',
   keys: 'Keys',
   buzzer: 'Buzzer',
@@ -177,6 +184,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'memory',
   'rtc',
   'i2c-bus',
+  'spi-bus',
   'gpio',
   'keys',
   'buzzer',
@@ -356,10 +364,69 @@ function liveBusChildren(
   return rows
 }
 
+function liveSpiBusChildren(
+  ids: Ids,
+  busKey: string,
+  busLabel: string,
+  busPath: string,
+  slots: readonly SpiSlot[],
+  chips: readonly SpiChip[],
+): DeviceNode[] {
+  const slotByCs = new Map(slots.map((slot) => [slot.cs, slot]))
+  const chipByCs = new Map(chips.map((chip) => [chip.cs, chip]))
+  const selects = [...new Set([...slotByCs.keys(), ...chipByCs.keys()])].sort((a, b) => a - b)
+
+  const rows: DeviceNode[] = []
+  for (const cs of selects) {
+    const slot = slotByCs.get(cs)
+    const chip = chipByCs.get(cs)
+    const crumb = `${busLabel} · CS${cs}`
+    const keyCs = cs.toString(16)
+
+    if (chip) {
+      const flash = isSpiFlashChip(chip)
+      rows.push({
+        key: uniqueKey(ids, `${busLabel}:${keyCs}`),
+        nodeName: slot?.nodeName ?? `spi-dev@${cs}`,
+        label: chip.name,
+        compatible: slot?.compatible || undefined,
+        deviceClass: flash ? 'memory' : 'other',
+        path: `${busPath}/${slot?.nodeName ?? `spi-dev@${cs}`}`,
+        parentKey: busKey,
+        presence: 'interactive',
+        tag: slot ? undefined : 'bus only',
+        body: flash ? 'spi-flash' : undefined,
+        crumb,
+        chip,
+        busLabel,
+        panelKind: flash ? 'spi' : undefined,
+      })
+      continue
+    }
+
+    const declared = slot!
+    rows.push({
+      key: uniqueKey(ids, `${busLabel}:${keyCs}`),
+      nodeName: declared.nodeName,
+      label: declared.compatible || declared.nodeName,
+      compatible: declared.compatible || undefined,
+      deviceClass: declared.chipId === 'w25q' ? 'memory' : 'spi-bus',
+      path: `${busPath}/${declared.nodeName}`,
+      parentKey: busKey,
+      presence: 'ghost',
+      note: 'ERR — detached',
+      crumb,
+      busLabel,
+    })
+  }
+  return rows
+}
+
 function deriveFromTree(
   doc: DtsDocument,
   insights: DtsInsights,
   chips: readonly I2cChip[],
+  spiChips: readonly SpiChip[],
   avail: Availability,
 ): DeviceNode[] {
   const ids: Ids = { used: new Set() }
@@ -689,6 +756,56 @@ function deriveFromTree(
     }
   }
 
+  let spiBodyUsed = false
+  for (const bus of insights.spiBuses) {
+    if (bus.bridged && !avail.spi) continue
+    const live = bus.bridged && avail.spi && !spiBodyUsed
+    if (live) spiBodyUsed = true
+    const busNode = byPath(doc, bus.path)
+    const busKey = uniqueKey(ids, bus.controllerLabel)
+    push({
+      key: busKey,
+      nodeName: busNode?.name ?? bus.controllerLabel,
+      label: bus.controllerLabel,
+      compatible: bus.compatible || undefined,
+      deviceClass: 'spi-bus',
+      path: bus.path,
+      presence: live ? 'interactive' : 'inert',
+      note: live ? undefined : 'no page model',
+      body: live ? 'spi' : undefined,
+      busLabel: bus.controllerLabel,
+      panelKind: live ? 'spi' : undefined,
+    })
+
+    if (live) {
+      for (const row of liveSpiBusChildren(
+        ids,
+        busKey,
+        bus.controllerLabel,
+        bus.path,
+        bus.slots,
+        spiChips,
+      )) {
+        push(row)
+      }
+    } else {
+      for (const slot of bus.slots) {
+        push({
+          key: uniqueKey(ids, `${bus.controllerLabel}:${slot.cs.toString(16)}`),
+          nodeName: slot.nodeName,
+          label: slot.nodeName,
+          compatible: slot.compatible || undefined,
+          deviceClass: 'spi-bus',
+          path: `${bus.path}/${slot.nodeName}`,
+          parentKey: busKey,
+          presence: 'inert',
+          crumb: `${bus.controllerLabel} · CS${slot.cs}`,
+          busLabel: bus.controllerLabel,
+        })
+      }
+    }
+  }
+
   return sortByDocumentOrder(nodes, doc)
 }
 
@@ -734,6 +851,7 @@ interface FallbackNames {
   net: { nodeName: string; compatible: string; label: string }
   gpio: { nodeName: string; compatible: string; label: string }
   i2c: { nodeName: string; compatible: string; label: string; parentPath: string }
+  spi: { nodeName: string; compatible: string; label: string; parentPath: string }
   display: { nodeName: string }
   input?: { nodeName: string }
 }
@@ -750,6 +868,12 @@ const A53_FALLBACK: FallbackNames = {
     compatible: 'virtio,i2c',
     label: 'virtio_i2c0',
     parentPath: '/soc/virtio_mmio@a000800',
+  },
+  spi: {
+    nodeName: 'virtio-spi',
+    compatible: 'virtio,spi',
+    label: 'virtio_spi0',
+    parentPath: '/soc/virtio_mmio@a000a00',
   },
   display: { nodeName: 'ramfb' },
   input: { nodeName: 'virtio-tablet' },
@@ -768,6 +892,12 @@ const RISCV32_FALLBACK: FallbackNames = {
     label: 'virtio_i2c0',
     parentPath: '/soc/virtio_mmio@10005000',
   },
+  spi: {
+    nodeName: 'virtio-spi',
+    compatible: 'virtio,spi',
+    label: 'virtio_spi0',
+    parentPath: '/soc/virtio_mmio@10006000',
+  },
   display: { nodeName: 'ramfb' },
   input: { nodeName: 'virtio-input' },
 }
@@ -785,12 +915,20 @@ const M3_FALLBACK: FallbackNames = {
     label: 'virtio_i2c0',
     parentPath: '/soc',
   },
+  // M3 has no virtio-mmio SPI bridge; kept for type completeness, never shown.
+  spi: {
+    nodeName: 'virtio-spi',
+    compatible: 'virtio,spi',
+    label: 'virtio_spi0',
+    parentPath: '/soc',
+  },
   display: { nodeName: 'ramfb' },
 }
 
 function deriveFallback(
   boardId: string,
   chips: readonly I2cChip[],
+  spiChips: readonly SpiChip[],
   avail: Availability,
 ): DeviceNode[] {
   const names =
@@ -974,6 +1112,30 @@ function deriveFallback(
     nodes.push(...liveBusChildren(ids, busKey, names.i2c.label, busPath, slots, chips))
   }
 
+  if (avail.spi) {
+    const busPath = `${names.spi.parentPath}/${names.spi.nodeName}`
+    const busKey = uniqueKey(ids, names.spi.label)
+    nodes.push({
+      key: busKey,
+      nodeName: names.spi.nodeName,
+      label: names.spi.label,
+      compatible: names.spi.compatible,
+      deviceClass: 'spi-bus',
+      path: busPath,
+      presence: 'interactive',
+      body: 'spi',
+      busLabel: names.spi.label,
+      panelKind: 'spi',
+    })
+    const slots: SpiSlot[] = spiChips.map((chip) => ({
+      cs: chip.cs,
+      compatible: isSpiFlashChip(chip) ? 'jedec,spi-nor' : '',
+      chipId: isSpiFlashChip(chip) ? 'w25q' : undefined,
+      nodeName: `spi-dev@${chip.cs}`,
+    }))
+    nodes.push(...liveSpiBusChildren(ids, busKey, names.spi.label, busPath, slots, spiChips))
+  }
+
   return nodes
 }
 
@@ -984,19 +1146,20 @@ function deriveFallback(
 export function deriveDeviceInventory(
   tree: Pick<DeviceTreeState, 'name' | 'doc' | 'insights'> | null,
   chips: readonly I2cChip[],
+  spiChips: readonly SpiChip[],
   avail: Availability,
   boardId: string,
 ): DeviceInventory {
   if (tree?.doc && tree.insights) {
     return {
-      nodes: deriveFromTree(tree.doc, tree.insights, chips, avail),
+      nodes: deriveFromTree(tree.doc, tree.insights, chips, spiChips, avail),
       source: 'devicetree',
       rootName: tree.insights.model,
       treeName: tree.name,
     }
   }
   return {
-    nodes: deriveFallback(boardId, chips, avail),
+    nodes: deriveFallback(boardId, chips, spiChips, avail),
     source: 'fallback',
   }
 }
