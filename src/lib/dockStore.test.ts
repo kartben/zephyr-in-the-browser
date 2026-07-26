@@ -36,7 +36,7 @@ afterEach(() => {
 describe('dockStore persistence', () => {
   it('starts from defaults when nothing is stored', () => {
     const state = dock.getState()
-    expect(state.view).toBe('devicetree')
+    expect(state.view).toBe('classes')
     expect(state.open).toBe(true)
     expect(state.width).toBe(dock.DOCK_DEFAULT_WIDTH)
     expect(state.devices).toEqual({})
@@ -64,13 +64,13 @@ describe('dockStore persistence', () => {
   })
 
   it('discards a stored blob with the wrong version or bad JSON', () => {
-    localStorage.setItem('zephyr.dock', JSON.stringify({ v: 999, view: 'classes' }))
+    localStorage.setItem('zephyr.dock', JSON.stringify({ v: 999, view: 'devicetree' }))
     dock.reloadFromStorage()
-    expect(dock.getState().view).toBe('devicetree')
+    expect(dock.getState().view).toBe('classes')
 
     localStorage.setItem('zephyr.dock', '{not json')
     dock.reloadFromStorage()
-    expect(dock.getState().view).toBe('devicetree')
+    expect(dock.getState().view).toBe('classes')
   })
 
   it('clamps the width', () => {
@@ -189,13 +189,13 @@ describe('legacy panel-layout key migration', () => {
 describe('resetLayout', () => {
   it('drops dock state and float boxes but keeps the current seed', () => {
     dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false })
-    dock.setView('classes')
+    dock.setView('devicetree')
     dock.setHidden('net', true)
     savePanelLayout('net', { floating: true, rect: { x: 9, y: 9, w: 500, h: 400 } })
 
     dock.resetLayout()
 
-    expect(dock.getState().view).toBe('devicetree')
+    expect(dock.getState().view).toBe('classes')
     expect(dock.isHidden('net')).toBe(false)
     expect(loadPanelLayout('net')).toBeNull()
     expect(dock.effectiveExpanded('virtio_i2c0', 'i2c')).toBe(true)

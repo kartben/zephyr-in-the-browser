@@ -167,13 +167,13 @@ export function Dock({ boardId }: { boardId: string }) {
 function ViewSwitch({ view }: { view: DockView }) {
   return (
     <span className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Dock view">
-      <ViewButton active={view === 'devicetree'} onClick={() => setView('devicetree')} label="Devicetree">
-        <ListTree className="size-3" aria-hidden />
-        Tree
-      </ViewButton>
       <ViewButton active={view === 'classes'} onClick={() => setView('classes')} label="Peripheral classes">
         <Boxes className="size-3" aria-hidden />
         Classes
+      </ViewButton>
+      <ViewButton active={view === 'devicetree'} onClick={() => setView('devicetree')} label="Devicetree">
+        <ListTree className="size-3" aria-hidden />
+        Tree
       </ViewButton>
     </span>
   )

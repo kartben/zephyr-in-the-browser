@@ -61,7 +61,7 @@ export interface DockState {
 
 function defaults(): DockState {
   return {
-    view: 'devicetree',
+    view: 'classes',
     open: true,
     width: DOCK_DEFAULT_WIDTH,
     seededFor: '',
@@ -109,7 +109,8 @@ function load(): DockState {
       delete (groups as Record<string, unknown>).serial
     }
     return {
-      view: parsed.view === 'classes' ? 'classes' : 'devicetree',
+      view:
+        parsed.view === 'classes' || parsed.view === 'devicetree' ? parsed.view : base.view,
       open: typeof parsed.open === 'boolean' ? parsed.open : base.open,
       width: clampWidth(typeof parsed.width === 'number' ? parsed.width : base.width),
       seededFor: typeof parsed.seededFor === 'string' ? parsed.seededFor : '',

@@ -650,7 +650,9 @@ export const BOARDS: Board[] = [
       hostTrace: true,
     },
     samples: CORTEX_A53_SAMPLES,
-    defaultSampleId: 'display',
+    // Interactive shell is the landing sample: it surfaces the I²C/SPI/audio
+    // bridges that make A53 the showcase board.
+    defaultSampleId: 'shell',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
@@ -729,10 +731,11 @@ export const BOARDS: Board[] = [
   },
 ]
 
-export const DEFAULT_BOARD_ID = BOARDS[0].id
+/** Landing board: A53 (wasm JIT) with the shell sample — see defaultSampleId. */
+export const DEFAULT_BOARD_ID = 'qemu_cortex_a53'
 
 export function getBoard(id: string): Board {
-  return BOARDS.find((b) => b.id === id) ?? BOARDS[0]
+  return BOARDS.find((b) => b.id === id) ?? BOARDS.find((b) => b.id === DEFAULT_BOARD_ID)!
 }
 
 export function getSample(board: Board, sampleId: string): GuestSample {
