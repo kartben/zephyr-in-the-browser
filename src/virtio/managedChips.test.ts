@@ -93,10 +93,7 @@ describe('syncManagedChips', () => {
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('swaps CS0 from the NOR to SCT2024 when that sample tree loads', () => {
-    // Regression: attach-then-detach against a stale onBus map used to call
-    // detachChip(0) after attaching sct2024, leaving the bus empty and the
-    // guest with TRANS_ERR on every LED write.
+  it('puts the SCT2024 on CS0 once that sample tree is loaded', () => {
     expect(spiModel.chips()).toContain(w25q)
 
     setUserDts('sct2024.dts', a53Sct2024)
@@ -104,7 +101,7 @@ describe('syncManagedChips', () => {
     expect(spiModel.chips()).not.toContain(w25q)
   })
 
-  it('restores the NOR after leaving the SCT2024 sample', () => {
+  it('restores the NOR after clearing the SCT2024 tree', () => {
     setUserDts('sct2024.dts', a53Sct2024)
     expect(spiModel.chips()).toEqual([sct2024])
 
