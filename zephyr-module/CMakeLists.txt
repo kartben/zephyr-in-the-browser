@@ -88,4 +88,8 @@ if(CONFIG_SAMPLE_ANNOTATIONS)
   # bytes of read-only data, and the subsystem walks the section at startup to
   # tell the page what this build actually linked in.
   zephyr_iterable_section(NAME sample_annotation GROUP RODATA_REGION)
+  # The qemu boards build with the template-based linker
+  # (CONFIG_CMAKE_LINKER_GENERATOR=n), which ignores the call above; emit the
+  # section from a .ld fragment too so both pipelines define the iterable.
+  zephyr_linker_sources(SECTIONS subsys/sample_annotation.ld)
 endif()
