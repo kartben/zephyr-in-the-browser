@@ -109,7 +109,7 @@ export const max17048 = createMax17048({ address: 0x36 })
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
 /** JEDEC SPI NOR on CS0 — stock samples/drivers/spi_flash. */
-export const w25q = createW25q({ cs: 0, persistKey: 'zephyr.spi-flash.0' })
+export const w25q = createW25q({ cs: 0 })
 
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
@@ -190,7 +190,10 @@ function wantedManagedSpiCs(): Set<number> {
     }
     return selects
   }
-  return new Set()
+  // Same idea as I²C FALLBACK_DT_SLOTS: before the sample DTS lands (or when
+  // none is shipped), keep answering CS0 so JEDEC probe at driver init does
+  // not race an empty bus into "device not ready".
+  return new Set(MANAGED_SPI_CHIPS.keys())
 }
 
 function syncManagedSpiChips() {

@@ -7,16 +7,20 @@
  * `jedec-id`. Deep power-down (0xB9 / 0xAB) is accepted as a no-op so drivers
  * that enter DPD on idle do not TRANS_ERR.
  *
- * Backing store persists like the AT24 EEPROM when `persistKey` is set.
+ * Capacity is 1 MiB so stock `samples/drivers/spi_flash` (test offset
+ * `0xff000`) fits. Prefer no full-image localStorage persist at this size.
  */
 
 import type { SpiChip, SpiTransferOpts } from '../spi'
 
-/** Winbond-ish JEDEC ID used by the virtio-spi snippet (W25Q16 density byte). */
-export const W25Q_JEDEC_ID = Uint8Array.of(0xef, 0x40, 0x15)
+/** Winbond-ish JEDEC ID — density 0x14 ⇒ 2^20 bytes = 1 MiB (W25Q80). */
+export const W25Q_JEDEC_ID = Uint8Array.of(0xef, 0x40, 0x14)
 
-/** Default capacity — 64 KiB keeps the hex card light in the browser. */
-export const W25Q_DEFAULT_SIZE = 64 * 1024
+/**
+ * Default capacity — must cover `SPI_FLASH_TEST_REGION_OFFSET` (0xff000) plus
+ * one 4 KiB sector from samples/drivers/spi_flash.
+ */
+export const W25Q_DEFAULT_SIZE = 1024 * 1024
 
 const CMD_WREN = 0x06
 const CMD_WRDI = 0x04
@@ -105,7 +109,7 @@ function savePersisted(key: string, bytes: Uint8Array) {
 }
 
 export const w25qDecl: SpiFlashDecl = {
-  name: 'W25Q16JV SPI NOR',
+  name: 'W25Q80JV SPI NOR',
   shellLabel: 'flash@0',
   defaultCs: 0,
   size: W25Q_DEFAULT_SIZE,
