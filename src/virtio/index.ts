@@ -220,21 +220,23 @@ function wantedManagedSpiChips(): Map<number, SpiChip> {
 
 function syncManagedSpiChips() {
   const wanted = wantedManagedSpiChips()
-  const onBus = new Map(spiModel.chips().map((chip) => [chip.cs, chip]))
   const managed = new Set(MANAGED_SPI_BY_ID.values())
+  const onBus = new Map(spiModel.chips().map((chip) => [chip.cs, chip]))
 
-  for (const [cs, chip] of wanted) {
-    const current = onBus.get(cs)
-    if (current === chip) continue
-    if (current !== undefined && !managed.has(current)) continue // user stranger
-    if (current !== undefined) spiModel.detachChip(cs)
-    spiModel.attachChip(chip)
-  }
-
+  // Detach first. Doing attach-then-detach against a stale onBus snapshot
+  // used to yank the newly attached chip when CS0 switched (W25Q → SCT2024):
+  // detachChip(cs) removes whoever is on that CS *now*, not the snapshot entry.
   for (const [cs, chip] of onBus) {
     if (!managed.has(chip)) continue
     if (wanted.get(cs) === chip) continue
     spiModel.detachChip(cs)
+  }
+
+  for (const [cs, chip] of wanted) {
+    const current = spiModel.chips().find((c) => c.cs === cs)
+    if (current === chip) continue
+    if (current !== undefined) continue // user-attached stranger; leave it
+    spiModel.attachChip(chip)
   }
 }
 
