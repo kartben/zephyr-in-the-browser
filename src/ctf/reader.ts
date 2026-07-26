@@ -483,9 +483,19 @@ export function windowStats(
 
 /** Count THREAD_SWITCHED_IN events in [view0, view1]. */
 export function contextSwitchesIn(tr: Trace, view0: number, view1: number): number {
+  // Events are appended in timestamp order — skip the prefix with a bisect
+  // rather than scanning every retained event on each paint.
+  const events = tr.events
+  let lo = 0
+  let hi = events.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (events[mid]!.ts < view0) lo = mid + 1
+    else hi = mid
+  }
   let n = 0
-  for (const ev of tr.events) {
-    if (ev.ts < view0) continue
+  for (let i = lo; i < events.length; i++) {
+    const ev = events[i]!
     if (ev.ts > view1) break
     if (ev.eid === 0x11) n++
   }

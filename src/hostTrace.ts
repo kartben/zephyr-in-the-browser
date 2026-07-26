@@ -124,6 +124,19 @@ function findTraceFile(fs: EmscriptenFS): string | null {
 
 function readNewBytes(fs: EmscriptenFS, filePath: string): Uint8Array | null {
   try {
+    // Prefer a view into MEMFS so a 200 ms poll does not copy the whole file
+    // every tick. TraceReader.feed() copies into its own buffer immediately.
+    if (fs.analyzePath) {
+      const info = fs.analyzePath(filePath)
+      const contents = info.object?.contents
+      if (contents) {
+        const length = info.object?.usedBytes ?? contents.length
+        if (length <= offset) return null
+        const chunk = contents.subarray(offset, length)
+        offset = length
+        return chunk
+      }
+    }
     if (!fs.readFile) return null
     const all = fs.readFile(filePath, { encoding: 'binary' })
     if (!all || all.length <= offset) return null

@@ -31,6 +31,10 @@ the list matters for a given workload:
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
+| 11 | Trace Gantt + CTF poll did work while collapsed / copied whole MEMFS file | `TracePanel`, `hostTrace` | Medium, tracing | Low | Low |
+| 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
+| 13 | Dock / hex / net panels re-render broad trees under load | React dock + panels | Medium | Medium | Low |
+| 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
 
 ## Instruments that already exist
 
@@ -414,6 +418,59 @@ to the one bridge where the failure mode is something the user can hear.
   reload the page. That is one extra full page load on every first visit, before
   anything else on this list gets a chance to matter.
 
+## 11. Trace panel work ran even when the Gantt was not on screen
+
+Two separate costs stacked on the CTF path:
+
+1. **`hostTrace` copied the whole MEMFS file every 200 ms.**
+   `FS.readFile(path)` returns a fresh `Uint8Array` of `./tracing.bin`, then
+   the poller sliced from its byte offset. As the file grew toward the 50k-event
+   cap, every idle poll paid an O(file) copy even when only a few dozen bytes
+   were new. The poller now prefers `FS.analyzePath` → MEMFS `contents` /
+   `usedBytes` and only views the new suffix (`TraceReader.feed` copies into its
+   own buffer immediately).
+2. **`TracePanel` computed lane order, window stats, context switches, and
+   followed the live edge on every store publish**, including while
+   `PanelFrame` had collapsed the body. Creating `<TracePanelBody />` as a child
+   is cheap; React only *renders* it while the frame is expanded, so paint,
+   follow-`setView`, and the summary strip stop when the user collapses the
+   card. `contextSwitchesIn` also bisects the timestamp-ordered event list
+   instead of scanning from the start of a 50k buffer on every paint.
+
+## 12. The closed Panels menu still subscribed to live stores
+
+[`PanelsMenu`](../src/components/dock/PanelsMenu.tsx) always subscribed to
+`useDeviceTree`, `guestStats`, and `hostTrace` even when the popover was shut —
+so a 2 Hz MIPS sample and a 5 Hz CTF publish could re-render the top-bar button
+and re-filter inventory for no visible change. The popover body (and those
+hooks) now mounts only while open.
+
+## 13. Remaining React re-render pressure under load
+
+Already mitigated in places (I²C/SPI log debounce, sensor UI ≤20 Hz, stable chip
+snapshots for `useSyncExternalStore`, hex windowing for large memories). What is
+still worth a profile when a dock session feels sticky:
+
+- **Dock row list** — [`Dock.tsx`](../src/components/dock/Dock.tsx) rebuilds the
+  visible row set on every dock-store change; expanded `DeviceBody` trees are
+  not memoized, so resizing or toggling one row redraws siblings.
+- **`NetBadge` / capture UI** — subscribe to the whole `NetSnapshot`, so
+  throughput history and capture bursts wake badges that only need link/IP.
+- **Hex / flash** — pointer moves recreate cell trees; flash program notifies
+  per programmed byte before the transfer wrapper can coalesce (React throttles
+  paints, but subscribers still wake).
+- **`useDeviceTree` ×3** — Dock, FloatingWindows, and PanelsMenu each derive
+  inventory. Steady-state chip value updates do *not* recreate inventory (stable
+  `chips()` snapshots); attach/detach storms at sample start still do.
+
+## 14. Microphone capture is still main-thread ScriptProcessor
+
+[`hostMic.ts`](../src/hostMic.ts) uses deprecated `ScriptProcessorNode` with
+manual resampling into the shared heap. Same argument as item 9: an
+`AudioWorklet` keeps capture off the React/xterm/bridge thread. Latency is
+already dominated by the guest's 100 ms block reads, so this is glitch
+robustness rather than end-to-end latency.
+
 ## Suggested order
 
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
@@ -425,5 +482,8 @@ to the one bridge where the failure mode is something the user can hear.
    3 without confounding it, since one moves size and the other speed.
 5. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
-6. Items 8/9 — consolidate the remaining main-thread pollers and move audio to
-   an `AudioWorklet`.
+6. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
+7. Items 8/9/14 — consolidate the remaining main-thread pollers and move audio
+   (and mic) onto `AudioWorklet`.
+8. Item 13 — memoize dock rows / split net snapshots / batch flash notifies when
+   a heavy dock session shows up in a profile.
