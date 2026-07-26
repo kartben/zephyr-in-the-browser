@@ -17,6 +17,25 @@ import { cn } from '@/lib/utils'
 import type { DeviceNode, DockView } from '@/deviceTopology'
 import { setExpanded, setWindowed } from '@/lib/dockStore'
 
+/**
+ * Secondary text beside the row's primary name.
+ *
+ * Classes view: bus breadcrumb (`virtio_i2c0 · 0x48`).
+ * Device-tree view: the friendly label beside the DT node name. Compatible
+ * strings used to sit here too, but PartIdentityStrip already shows them on
+ * expanded chip bodies — repeating `ti,tmp112` on every ⌗ row was noise and
+ * doubled up the moment a part opened. Catalogued parts (`partId`) therefore
+ * leave compatible off the row; uncatalogued / inert nodes still show it when
+ * there is no better label.
+ */
+export function dockRowSecondary(node: DeviceNode, view: DockView): string | undefined {
+  if (view === 'classes') return node.crumb
+  if (node.label && node.label !== node.nodeName) return node.label
+  if (node.partId) return undefined
+  if (node.compatible && node.compatible !== node.nodeName) return node.compatible
+  return undefined
+}
+
 /** Indent guides: one thin rule per ancestor level, echoing a tree gutter. */
 function Guides({ depth }: { depth: number }) {
   if (depth === 0) return null
@@ -48,7 +67,7 @@ export function DockDeviceRow({
   const Icon = deviceIcon(node)
 
   const primary = view === 'devicetree' ? node.nodeName : node.label
-  const secondary = view === 'devicetree' ? node.compatible : node.crumb
+  const secondary = dockRowSecondary(node, view)
 
   return (
     <div
