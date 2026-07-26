@@ -12,5 +12,7 @@ export type {
   I2cSlot,
   SpiBus,
   SpiSlot,
+  UartBus,
+  UartSlot,
   PwmLed,
 } from './insights'

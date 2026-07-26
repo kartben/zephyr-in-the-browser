@@ -111,7 +111,7 @@ describe('seeding and expansion precedence', () => {
 
     expect(dock.effectiveExpanded('virtio_i2c0:48', 'sensor')).toBe(true)
     expect(dock.effectiveExpanded('net', 'net')).toBe(false)
-    expect(dock.effectiveExpanded('serial:console', undefined)).toBe(false)
+    expect(dock.effectiveExpanded('uart0', undefined)).toBe(false)
 
     dock.setExpanded('net', true)
     expect(dock.effectiveExpanded('net', 'net')).toBe(true)

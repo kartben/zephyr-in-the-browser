@@ -15,6 +15,11 @@ describe('computeInsights', () => {
     expect(insights.model).toBe('QEMU Cortex-A53')
     expect(insights.console).toBe('uart0')
 
+    expect(insights.uartBuses.map((b) => [b.controllerLabel, b.role, b.slots.map((s) => s.chipId)])).toEqual([
+      ['uart0', 'console', []],
+      ['uart1', 'gnss', ['gnss']],
+    ])
+
     expect(insights.i2cBuses).toHaveLength(1)
     const bus = insights.i2cBuses[0]
     expect(bus.controllerLabel).toBe('virtio_i2c0')

@@ -18,7 +18,6 @@ import {
   MonitorDot,
   Network,
   Pointer,
-  SquareChevronRight,
   Activity,
   BatteryCharging,
   Grid3x3,
@@ -220,8 +219,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Cable
     case 'spi-bus':
       return Cable
-    case 'serial':
-      return SquareChevronRight
+    case 'uart-bus':
+      return Cable
     case 'gpio':
       return CircuitBoard
     case 'keys':

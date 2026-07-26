@@ -65,6 +65,26 @@ export interface SpiBus {
   slots: SpiSlot[]
 }
 
+export interface UartSlot {
+  compatible: string
+  /** Matching page-side model id when known (`gnss` for gnss-nmea-generic). */
+  chipId?: string
+  nodeName: string
+}
+
+/**
+ * A UART is a bus the same way I²C/SPI are: a controller with optional
+ * children hanging off it (NMEA GNSS, …). `role` is how the page uses it —
+ * console → terminal, gnss → browser-fed NMEA — not a virtio bridge flag.
+ */
+export interface UartBus {
+  controllerLabel: string
+  path: string
+  compatible: string
+  role?: 'console' | 'gnss'
+  slots: UartSlot[]
+}
+
 export interface DtsPin {
   id: number
   label: string
@@ -124,6 +144,7 @@ export interface DtsInsights {
   aliases: Record<string, string>
   i2cBuses: I2cBus[]
   spiBuses: SpiBus[]
+  uartBuses: UartBus[]
   gpioControllers: GpioController[]
   /** Children of okay `pwm-leds` groups that resolve a PWM controller. */
   pwmLeds: PwmLed[]
@@ -287,6 +308,61 @@ function collectSpiBuses(doc: DtsDocument): SpiBus[] {
   return buses
 }
 
+/** Controllers the page recognises as UART (plus name-shaped fallbacks). */
+const UART_COMPATS = new Set([
+  'arm,pl011',
+  'ns16550',
+  'ti,stellaris-uart',
+])
+
+const UART_SLOT_CHIP: Record<string, string> = {
+  'gnss-nmea-generic': 'gnss',
+}
+
+function uartSlots(bus: DtsNode): UartSlot[] {
+  const slots: UartSlot[] = []
+  for (const child of bus.children) {
+    if (!effectivelyOkay(child)) continue
+    const compatible = compatibles(child)[0] ?? ''
+    // Skip pure property-holder scaffolding; real children carry a compatible.
+    if (!compatible) continue
+    slots.push({
+      compatible,
+      chipId: compatibles(child)
+        .map((c) => UART_SLOT_CHIP[c])
+        .find((id) => id !== undefined),
+      nodeName: child.name,
+    })
+  }
+  return slots
+}
+
+function isUartBus(node: DtsNode): boolean {
+  const compats = compatibles(node)
+  if (compats.some((c) => UART_COMPATS.has(c))) return true
+  return /^uart[@-]?/.test(node.name) && compats.length > 0
+}
+
+function collectUartBuses(doc: DtsDocument): UartBus[] {
+  const consoleNode = chosen(doc)['zephyr,console']
+  const buses: UartBus[] = []
+  walk(doc.root, (node) => {
+    if (node.name === '/' || !effectivelyOkay(node) || !isUartBus(node)) return
+    const slots = uartSlots(node)
+    let role: UartBus['role']
+    if (consoleNode === node) role = 'console'
+    else if (slots.some((s) => s.chipId === 'gnss')) role = 'gnss'
+    buses.push({
+      controllerLabel: labelOf(node),
+      path: pathOf(node),
+      compatible: compatibles(node)[0] ?? '',
+      role,
+      slots,
+    })
+  })
+  return buses
+}
+
 function collectGpioControllers(doc: DtsDocument): GpioController[] {
   const controllers: Array<GpioController & { node: DtsNode }> = []
   walk(doc.root, (node) => {
@@ -411,6 +487,7 @@ export function emphasisPanels(insights: DtsInsights): Set<PanelKind> {
 export function computeInsights(doc: DtsDocument): DtsInsights {
   const i2cBuses = collectI2cBuses(doc)
   const spiBuses = collectSpiBuses(doc)
+  const uartBuses = collectUartBuses(doc)
   const gpioControllers = collectGpioControllers(doc)
   const pwmLeds = collectPwmLeds(doc)
   const chosenTable = chosen(doc)
@@ -476,6 +553,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     aliases: aliasTable,
     i2cBuses,
     spiBuses,
+    uartBuses,
     gpioControllers,
     pwmLeds,
     panels,
