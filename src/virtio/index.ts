@@ -108,8 +108,8 @@ export const max17048 = createMax17048({ address: 0x36 })
 /** NXP PCF8523 RTC at the Adafruit / Zephyr shield address. */
 export const pcf8523 = createPcf8523({ address: 0x68 })
 
-/** JEDEC SPI NOR on CS0 — stock samples/drivers/spi_flash. */
-export const w25q = createW25q({ cs: 0 })
+/** JEDEC SPI NOR on CS0 — stock spi_flash / littlefs; persists for boot-count. */
+export const w25q = createW25q({ cs: 0, persistKey: 'zephyr.w25q.0' })
 
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([

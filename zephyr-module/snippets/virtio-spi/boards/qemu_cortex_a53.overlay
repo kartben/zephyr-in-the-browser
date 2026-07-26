@@ -4,8 +4,8 @@
  * and size must match that model. Size is in *bits* (JESD216 / Zephyr binding).
  *
  * 1 MiB (density 0x14) covers samples/drivers/spi_flash's default test region
- * at offset 0xff000 plus a 4 KiB sector. A smaller stub fails flash_erase with
- * -EINVAL before any bytes move.
+ * at offset 0xff000 plus a 4 KiB sector. The whole chip is also a LittleFS
+ * "storage" partition with fstab entry lfs1 → /lfs for samples/subsys/fs/littlefs.
  */
 
 &virtio_mmio5 {
@@ -22,6 +22,17 @@
 		size = <0x800000>; /* 1 MiB */
 		jedec-id = [ef 40 14];
 		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			storage_partition: partition@0 {
+				label = "storage";
+				reg = <0x00000000 0x00100000>;
+			};
+		};
 	};
 };
 
@@ -32,5 +43,20 @@
 
 	aliases {
 		spi-flash0 = &w25q80jv;
+	};
+
+	fstab {
+		compatible = "zephyr,fstab";
+		lfs1: lfs1 {
+			compatible = "zephyr,fstab,littlefs";
+			mount-point = "/lfs";
+			partition = <&storage_partition>;
+			/* Sample mounts explicitly; shell can `fs mount` too. */
+			read-size = <16>;
+			prog-size = <16>;
+			cache-size = <64>;
+			lookahead-size = <32>;
+			block-cycles = <512>;
+		};
 	};
 };

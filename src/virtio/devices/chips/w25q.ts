@@ -8,7 +8,8 @@
  * that enter DPD on idle do not TRANS_ERR.
  *
  * Capacity is 1 MiB so stock `samples/drivers/spi_flash` (test offset
- * `0xff000`) fits. Prefer no full-image localStorage persist at this size.
+ * `0xff000`) fits. Optional `persistKey` stores only non-erased sectors
+ * (sparse JSON in localStorage) so LittleFS boot-counts survive reload.
  */
 
 import type { SpiChip, SpiTransferOpts } from '../spi'
@@ -82,27 +83,92 @@ type Phase =
   | { kind: 'program'; addr: number }
   | { kind: 'ignore' }
 
+const PERSIST_VERSION = 1
+const PERSIST_DEBOUNCE_MS = 250
+
 function toHex(bytes: Uint8Array): string {
   let hex = ''
   for (let i = 0; i < bytes.length; i++) hex += bytes[i]!.toString(16).padStart(2, '0')
   return hex
 }
 
-function loadPersisted(key: string, size: number): Uint8Array | null {
+function fromHex(hex: string, into: Uint8Array): boolean {
+  if (hex.length !== into.length * 2 || !/^[0-9a-fA-F]+$/.test(hex)) return false
+  for (let i = 0; i < into.length; i++) into[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return true
+}
+
+function sectorAllErased(bytes: Uint8Array, erased: number): boolean {
+  for (let i = 0; i < bytes.length; i++) if (bytes[i] !== erased) return false
+  return true
+}
+
+function loadPersisted(key: string, size: number, sectorSize: number, erased: number): Uint8Array | null {
   try {
     const raw = localStorage.getItem(key)
-    if (!raw || raw.length !== size * 2 || !/^[0-9a-fA-F]+$/.test(raw)) return null
-    const out = new Uint8Array(size)
-    for (let i = 0; i < size; i++) out[i] = parseInt(raw.slice(i * 2, i * 2 + 2), 16)
+    if (!raw) return null
+
+    // Legacy full-image hex (only practical for tiny stubs).
+    if (/^[0-9a-fA-F]+$/.test(raw) && raw.length === size * 2) {
+      const out = new Uint8Array(size)
+      return fromHex(raw, out) ? out : null
+    }
+
+    const parsed = JSON.parse(raw) as {
+      v?: number
+      size?: number
+      sectorSize?: number
+      sectors?: Record<string, string>
+    }
+    if (
+      parsed.v !== PERSIST_VERSION ||
+      parsed.size !== size ||
+      parsed.sectorSize !== sectorSize ||
+      !parsed.sectors ||
+      typeof parsed.sectors !== 'object'
+    ) {
+      return null
+    }
+    const out = new Uint8Array(size).fill(erased)
+    const sector = new Uint8Array(sectorSize)
+    for (const [index, hex] of Object.entries(parsed.sectors)) {
+      const si = Number(index)
+      if (!Number.isInteger(si) || si < 0 || si * sectorSize >= size) continue
+      if (!fromHex(hex, sector)) continue
+      out.set(sector, si * sectorSize)
+    }
     return out
   } catch {
     return null
   }
 }
 
-function savePersisted(key: string, bytes: Uint8Array) {
+function savePersistedSparse(
+  key: string,
+  bytes: Uint8Array,
+  sectorSize: number,
+  erased: number,
+) {
   try {
-    localStorage.setItem(key, toHex(bytes))
+    const sectors: Record<string, string> = {}
+    for (let off = 0, si = 0; off < bytes.length; off += sectorSize, si++) {
+      const slice = bytes.subarray(off, Math.min(off + sectorSize, bytes.length))
+      if (sectorAllErased(slice, erased)) continue
+      sectors[String(si)] = toHex(slice)
+    }
+    if (Object.keys(sectors).length === 0) {
+      localStorage.removeItem(key)
+      return
+    }
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        v: PERSIST_VERSION,
+        size: bytes.length,
+        sectorSize,
+        sectors,
+      }),
+    )
   } catch {
     /* private mode / quota — keep going in RAM */
   }
@@ -110,7 +176,7 @@ function savePersisted(key: string, bytes: Uint8Array) {
 
 export const w25qDecl: SpiFlashDecl = {
   name: 'W25Q80JV SPI NOR',
-  shellLabel: 'flash@0',
+  shellLabel: 'w25q80jv@0',
   defaultCs: 0,
   size: W25Q_DEFAULT_SIZE,
   pageSize: 256,
@@ -129,19 +195,32 @@ export function createW25q(options: SpiFlashOptions = {}): SpiFlashChip {
   }
   const erased = decl.erased ?? 0xff
   const memory =
-    (options.persistKey ? loadPersisted(options.persistKey, decl.size) : null) ??
-    new Uint8Array(decl.size).fill(erased)
+    (options.persistKey
+      ? loadPersisted(options.persistKey, decl.size, decl.sectorSize, erased)
+      : null) ?? new Uint8Array(decl.size).fill(erased)
 
   const listeners = new Set<() => void>()
   let version = 0
   let pointer = 0
   let status = 0
   let phase: Phase = { kind: 'idle' }
+  let persistTimer: ReturnType<typeof setTimeout> | undefined
+
+  const flushPersist = () => {
+    persistTimer = undefined
+    if (options.persistKey) savePersistedSparse(options.persistKey, memory, decl.sectorSize, erased)
+  }
+
+  const schedulePersist = () => {
+    if (!options.persistKey) return
+    if (persistTimer !== undefined) clearTimeout(persistTimer)
+    persistTimer = setTimeout(flushPersist, PERSIST_DEBOUNCE_MS)
+  }
 
   const notify = (bump: boolean) => {
     if (bump) {
       version++
-      if (options.persistKey) savePersisted(options.persistKey, memory)
+      schedulePersist()
     }
     for (const fn of listeners) fn()
   }
@@ -309,6 +388,17 @@ export function createW25q(options: SpiFlashOptions = {}): SpiFlashChip {
       memory.fill(erased)
       status = 0
       phase = { kind: 'idle' }
+      if (persistTimer !== undefined) {
+        clearTimeout(persistTimer)
+        persistTimer = undefined
+      }
+      if (options.persistKey) {
+        try {
+          localStorage.removeItem(options.persistKey)
+        } catch {
+          /* ignore */
+        }
+      }
       notify(true)
     },
     subscribe(fn) {

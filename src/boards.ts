@@ -292,10 +292,21 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     // JEDEC SPI NOR on the virtio-spi bridge (CS0). The page models a W25Q80-
     // class 1 MiB part so stock samples/drivers/spi_flash (offset 0xff000) fits.
+    // Sparse localStorage persist keeps written sectors across reloads.
     id: 'spi_flash',
     label: 'SPI flash',
     description: 'Erase, write and read a JEDEC SPI NOR on the browser SPI bus',
     zephyrSample: 'samples/drivers/spi_flash',
+    primaryPanels: ['spi'],
+  },
+  {
+    // Stock LittleFS sample on the same W25Q (storage partition + fstab lfs1).
+    // Boot count survives page reload via sparse flash persist; dock Filesystem
+    // dialog browses /lfs with partitions-tool-esp.
+    id: 'littlefs',
+    label: 'LittleFS',
+    description: 'Boot counter on LittleFS over the browser SPI NOR; survives reload',
+    zephyrSample: 'samples/subsys/fs/littlefs',
     primaryPanels: ['spi'],
   },
   {
@@ -407,9 +418,10 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
   {
     id: 'shell',
     label: 'Shell',
-    description: 'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `hostaudio` and `dmic`',
+    description:
+      'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-    primaryPanels: ['i2c', 'audio'],
+    primaryPanels: ['i2c', 'spi', 'audio'],
   },
   {
     // The display sample against the browser's SSD1306 instead of ramfb: the
