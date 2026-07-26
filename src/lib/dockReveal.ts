@@ -76,9 +76,20 @@ export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
  * hands it over here.
  */
 let inventory: DeviceInventory | null = null
+const inventoryListeners = new Set<() => void>()
 
 export function publishInventory(next: DeviceInventory): void {
   inventory = next
+  for (const fn of inventoryListeners) fn()
+}
+
+export function getInventory(): DeviceInventory | null {
+  return inventory
+}
+
+export function subscribeInventory(fn: () => void): () => void {
+  inventoryListeners.add(fn)
+  return () => inventoryListeners.delete(fn)
 }
 
 /**

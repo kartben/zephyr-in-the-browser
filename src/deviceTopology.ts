@@ -76,6 +76,7 @@ export type BodyKind =
   | 'rtc'
   | 'i2c'
   | 'spi'
+  | 'uart'
   | 'spi-flash'
   | 'gpio'
   | 'gpio-keys'
@@ -131,7 +132,7 @@ export interface DeviceNode {
    * and DT label, brightness read from {@link chip}'s PwmChip channels.
    */
   pwmLeds?: Array<{ channel: number; label: string }>
-  /** Controller label scoping an 'i2c'/'spi' body's roster/traffic. */
+  /** Controller label scoping an 'i2c'/'spi'/'uart' body's roster/traffic. */
   busLabel?: string
   /** The legacy panel kind whose expand-on-boot rule this row inherits. */
   panelKind?: PanelKind
@@ -761,10 +762,12 @@ function deriveFromTree(
   }
 
   // UART buses: every enumerated controller gets a row; children (GNSS, …)
-  // nest under it the same way chips nest under I²C/SPI.
+  // nest under it the same way chips nest under I²C/SPI. The GNSS UART is
+  // interactive with an "On the bus" roster — same paradigm, usually one seat.
   for (const bus of insights.uartBuses) {
     const busNode = byPath(doc, bus.path)
     const busKey = uniqueKey(ids, bus.controllerLabel)
+    const liveGnss = bus.role === 'gnss' && avail.gnss && bus.slots.some((s) => s.chipId === 'gnss')
     push({
       key: busKey,
       nodeName: busNode?.name ?? bus.controllerLabel,
@@ -772,8 +775,10 @@ function deriveFromTree(
       compatible: bus.compatible || undefined,
       deviceClass: 'uart-bus',
       path: bus.path,
-      presence: 'inert',
+      presence: liveGnss ? 'interactive' : 'inert',
       note: bus.role === 'console' ? '→ terminal' : undefined,
+      body: liveGnss ? 'uart' : undefined,
+      busLabel: bus.controllerLabel,
     })
 
     for (const slot of bus.slots) {
@@ -963,7 +968,9 @@ function deriveFallback(
       compatible: names.gnssUart.compatible,
       deviceClass: 'uart-bus',
       path: `/soc/${names.gnssUart.nodeName}`,
-      presence: 'inert',
+      presence: 'interactive',
+      body: 'uart',
+      busLabel: names.gnssUart.label ?? names.gnssUart.nodeName,
     })
     nodes.push({
       key: uniqueKey(ids, 'gnss'),
