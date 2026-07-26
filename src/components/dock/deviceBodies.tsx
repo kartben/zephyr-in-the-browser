@@ -46,8 +46,9 @@ import { PwmBadge, PwmBody } from '@/components/PwmPanel'
 import { PwmLedsBadge, PwmLedsBody } from '@/components/PwmLedsPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
+import { PartIdentityStrip } from '@/components/PartIdentityStrip'
 import { cn } from '@/lib/utils'
-import type { DeviceClass, DeviceNode } from '@/deviceTopology'
+import type { DeviceClass, DeviceNode, BodyKind } from '@/deviceTopology'
 import * as hostAudio from '@/hostAudio'
 import * as hostBuzzer from '@/hostBuzzer'
 import * as hostGnss from '@/hostGnss'
@@ -83,6 +84,36 @@ export function DeviceBody({
   /** Only memory differs today: the dock gets a preview, the window the editor. */
   variant?: 'dock' | 'window'
 }) {
+  const body = renderDeviceBody(node, variant)
+  if (!body) return null
+  if (!node.partId || !CHIP_BODIES.has(node.body ?? '')) return body
+  return (
+    <div>
+      <div className="border-b border-border/40 px-2 py-1.5">
+        <PartIdentityStrip partId={node.partId} compact />
+      </div>
+      {body}
+    </div>
+  )
+}
+
+/** Bodies that represent a catalogued silicon part (not a bus / host device). */
+const CHIP_BODIES = new Set<BodyKind | ''>([
+  'sensor',
+  'memory',
+  'oled',
+  'auxdisplay',
+  'led',
+  'rgb-led',
+  'led-bar',
+  'pwm',
+  'dac',
+  'fuel-gauge',
+  'rtc',
+  'spi-flash',
+])
+
+function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
   switch (node.body) {
     case 'sensor':
       return <SensorBody chip={node.chip as SensorChip} />

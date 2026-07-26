@@ -40,6 +40,7 @@ import { createLm75 } from './sensors/lm75'
 import { createLps22hh } from './sensors/lps22hh'
 import { createLsm6dso } from './sensors/lsm6dso'
 import { createTmp112 } from './sensors/tmp112'
+import { partById, type PartIdentity } from './parts'
 
 export type ChipKind =
   | 'sensor'
@@ -73,6 +74,11 @@ export interface ChipType {
    * like the JHD1313 returns `[lcd, backlight]` already linked.
    */
   create(address: number, secondary?: number): I2cChip | readonly I2cChip[]
+}
+
+/** Identity card for an I²C attach type — always present for catalogued parts. */
+export function chipIdentity(id: string): PartIdentity | undefined {
+  return partById(id)
 }
 
 /** Every chip type the panel offers to attach. */

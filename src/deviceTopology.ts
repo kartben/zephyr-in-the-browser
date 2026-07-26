@@ -22,7 +22,8 @@ import { byPath, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regA
 import type { I2cChip } from '@/virtio/devices/i2c'
 import type { SpiChip } from '@/virtio/devices/spi'
 import type { ChipKind } from '@/virtio/devices/registry'
-import { FALLBACK_DT_SLOTS, chipType } from '@/virtio/devices/registry'
+import { FALLBACK_DT_SLOTS, CHIP_TYPES, chipType } from '@/virtio/devices/registry'
+import { partCompatible } from '@/virtio/devices/parts'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isLp5562 } from '@/virtio/devices/chips/lp5562'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
@@ -128,6 +129,11 @@ export interface DeviceNode {
   /** Live chip handle, for sensor/memory/oled/spi-flash bodies. */
   chip?: I2cChip | SpiChip
   /**
+   * Catalog / attach-picker id when known (`tmp112`, `w25q`, …). Drives the
+   * datasheet identity strip on live chip bodies.
+   */
+  partId?: string
+  /**
    * Children of a `pwm-leds` group when `body` is `pwm-leds` — channel index
    * and DT label, brightness read from {@link chip}'s PwmChip channels.
    */
@@ -210,26 +216,6 @@ const KIND_TO_CLASS: Record<ChipKind, DeviceClass> = {
   rtc: 'rtc',
 }
 
-/** Fallback compatibles for the page's chip models, when no tree names them. */
-const CHIP_COMPAT: Record<string, string> = {
-  tmp112: 'ti,tmp112',
-  lm75: 'lm75',
-  adxl345: 'adi,adxl345',
-  lsm6dso: 'st,lsm6dso',
-  lps22hh: 'st,lps22hh',
-  ina219: 'ti,ina219',
-  isl29035: 'isil,isl29035',
-  at24: 'atmel,at24',
-  ssd1306: 'solomon,ssd1306',
-  jhd1313: 'jhd,jhd1313',
-  ht16k33: 'holtek,ht16k33',
-  lp5562: 'ti,lp5562',
-  pca9685: 'nxp,pca9685-pwm',
-  mcp4725: 'microchip,mcp4725',
-  max17048: 'maxim,max17048',
-  pcf8523: 'nxp,pcf8523',
-}
-
 function hex(address: number): string {
   return address.toString(16).padStart(2, '0')
 }
@@ -289,6 +275,13 @@ function synthChipNodeName(chip: I2cChip): string {
   return `${stem}@${hex(chip.address)}`
 }
 
+/** Prefer DT chipId; otherwise match the attach-picker label to the live name. */
+function inferI2cPartId(chip: I2cChip, slot?: I2cSlot): string | undefined {
+  if (slot?.chipId) return slot.chipId
+  if (isJhd1313Lcd(chip)) return 'jhd1313'
+  return CHIP_TYPES.find((t) => t.label === chip.name)?.id
+}
+
 interface Ids {
   used: Set<string>
 }
@@ -327,11 +320,12 @@ function liveBusChildren(
       // backlight-addr), not its own child node — the LCD card owns its UI.
       if (isJhd1313Backlight(chip)) continue
       const cls = chipClass(chip)
+      const partId = inferI2cPartId(chip, slot)
       rows.push({
         key: uniqueKey(ids, `${busLabel}:${hex(address)}`),
         nodeName: slot?.nodeName ?? synthChipNodeName(chip),
         label: chip.name,
-        compatible: slot?.compatible || undefined,
+        compatible: slot?.compatible || (partId ? partCompatible(partId) : undefined),
         deviceClass: cls,
         path: `${busPath}/${slot?.nodeName ?? synthChipNodeName(chip)}`,
         parentKey: busKey,
@@ -340,6 +334,7 @@ function liveBusChildren(
         body: chipBody(cls, chip),
         crumb,
         chip,
+        partId,
         busLabel,
         panelKind: chipPanelKind(cls),
       })
@@ -361,6 +356,7 @@ function liveBusChildren(
       presence: 'ghost',
       note: 'NAK — detached',
       crumb,
+      partId: declared.chipId,
       busLabel,
     })
   }
@@ -389,11 +385,12 @@ function liveSpiBusChildren(
     if (chip) {
       const flash = isSpiFlashChip(chip)
       const led = isSct2024(chip)
+      const partId = slot?.chipId ?? (flash ? 'w25q' : led ? 'sct2024' : undefined)
       rows.push({
         key: uniqueKey(ids, `${busLabel}:${keyCs}`),
         nodeName: slot?.nodeName ?? `spi-dev@${cs}`,
         label: chip.name,
-        compatible: slot?.compatible || undefined,
+        compatible: slot?.compatible || (partId ? partCompatible(partId) : undefined),
         deviceClass: flash ? 'memory' : led ? 'led' : 'other',
         path: `${busPath}/${slot?.nodeName ?? `spi-dev@${cs}`}`,
         parentKey: busKey,
@@ -402,6 +399,7 @@ function liveSpiBusChildren(
         body: flash ? 'spi-flash' : led ? 'led-bar' : undefined,
         crumb,
         chip,
+        partId,
         busLabel,
         panelKind: flash ? 'spi' : led ? 'led' : undefined,
       })
@@ -425,6 +423,7 @@ function liveSpiBusChildren(
       presence: 'ghost',
       note: 'ERR — detached',
       crumb,
+      partId: declared.chipId,
       busLabel,
     })
   }
@@ -1113,7 +1112,7 @@ function deriveFallback(
     })
     const slots: I2cSlot[] = Object.entries(FALLBACK_DT_SLOTS).map(([address, chipId]) => ({
       address: Number(address),
-      compatible: CHIP_COMPAT[chipId] ?? '',
+      compatible: partCompatible(chipId) ?? '',
       chipId,
       nodeName: `${chipId}@${hex(Number(address))}`,
     }))
