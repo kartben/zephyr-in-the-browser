@@ -1,0 +1,24 @@
+diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
+index 1968c9c..1a685d3 100644
+--- a/hw/virtio/virtio-browser.c
++++ b/hw/virtio/virtio-browser.c
+@@ -449,6 +449,19 @@ static bool req_write(VirtIOBrowser *b, uint32_t token, uint16_t queue,
+ 
+     /* Publish only once the record is whole. */
+     qatomic_store_release(&area->req_wr, wr + rec);
++
++    /*
++     * Symmetric with the page's own wake word (virtio_browser_wake): this
++     * runs on the QEMU thread synchronously with the guest's virtqueue kick,
++     * so there is no drain-timer analogue here to race -- a waiting page
++     * worker just needs telling. A raw wasm atomic notify needs no BQL, no
++     * bottom half, and no Emscripten export call, unlike qemu_virtio_browser_kick():
++     * any thread parked in Atomics.wait on this exact address wakes
++     * immediately, whether or not it ever instantiated this module.
++     */
++#ifdef __EMSCRIPTEN__
++    __builtin_wasm_memory_atomic_notify((int32_t *)&area->req_wr, UINT32_MAX);
++#endif
+     return true;
+ }
+ 
