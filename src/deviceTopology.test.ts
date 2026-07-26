@@ -262,6 +262,44 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
   })
 
+  it('emits a stepper dock row when gpio step/dir is on the bridged controller', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(`
+        /dts-v1/;
+        / {
+          model = "QEMU Cortex-A53";
+          soc {
+            virtio_gpio0: gpio@a000400 {
+              compatible = "virtio,gpio";
+              gpio-controller;
+              #gpio-cells = <2>;
+              ngpios = <8>;
+              status = "okay";
+            };
+          };
+          browser_stepper: motion-controller {
+            compatible = "zephyr,gpio-step-dir-stepper-ctrl";
+            step-gpios = <&virtio_gpio0 6 0>;
+            dir-gpios = <&virtio_gpio0 7 0>;
+          };
+        };
+      `),
+      [],
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const stepper = nodeByKey(inv, 'stepper')
+    expect(stepper.presence).toBe('interactive')
+    expect(stepper.body).toBe('stepper')
+    expect(stepper.deviceClass).toBe('stepper')
+    expect(stepper.compatible).toBe('zephyr,gpio-step-dir-stepper-ctrl')
+    expect(stepper.panelKind).toBe('stepper')
+    expect(stepper.crumb).toBe('STEP 6 · DIR 7')
+    expect(stepper.label).toBe('browser_stepper')
+    expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
+  })
+
   it('emits a gpio-leds dock row in the LED class', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Blinky),

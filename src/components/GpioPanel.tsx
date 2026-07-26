@@ -22,12 +22,15 @@ import {
  * card is a claimed-pin table (docs/gpio-controller.md Proposal B).
  */
 
-const CONSUMER_ROW: Record<PinConsumerKind, { key: string; deviceClass: 'keys' | 'led' | 'buzzer'; kind: string }> =
-  {
-    keys: { key: 'gpio-keys', deviceClass: 'keys', kind: 'keys' },
-    leds: { key: 'gpio-leds', deviceClass: 'led', kind: 'leds' },
-    buzzer: { key: 'buzzer', deviceClass: 'buzzer', kind: 'buzzer' },
-  }
+const CONSUMER_ROW: Record<
+  PinConsumerKind,
+  { key: string; deviceClass: 'keys' | 'led' | 'buzzer' | 'stepper'; kind: string }
+> = {
+  keys: { key: 'gpio-keys', deviceClass: 'keys', kind: 'keys' },
+  leds: { key: 'gpio-leds', deviceClass: 'led', kind: 'leds' },
+  buzzer: { key: 'buzzer', deviceClass: 'buzzer', kind: 'buzzer' },
+  stepper: { key: 'stepper', deviceClass: 'stepper', kind: 'stepper' },
+}
 
 /** Buttons without the frame — `gpio-keys` dock body. */
 export function GpioKeysBody() {

@@ -100,6 +100,67 @@ describe('computeInsights', () => {
     expect(insights.panels.has('gpio')).toBe(true)
   })
 
+  it('discovers a gpio step/dir stepper on the bridged controller', () => {
+    const insights = insightsOf(`
+      /dts-v1/;
+      / {
+        aliases { stepper-ctrl = &browser_stepper; };
+        soc {
+          virtio_gpio0: gpio@0 {
+            compatible = "virtio,gpio";
+            gpio-controller;
+            #gpio-cells = <2>;
+            ngpios = <8>;
+            status = "okay";
+          };
+        };
+        browser_stepper: motion-controller {
+          compatible = "zephyr,gpio-step-dir-stepper-ctrl";
+          step-gpios = <&virtio_gpio0 6 0>;
+          dir-gpios = <&virtio_gpio0 7 0>;
+        };
+      };
+    `)
+    expect(insights.gpioControllers).toHaveLength(1)
+    expect(insights.gpioControllers[0].steppers).toEqual([
+      {
+        id: '/motion-controller',
+        label: 'browser_stepper',
+        stepPin: 6,
+        stepActiveHigh: true,
+        dirPin: 7,
+        dirActiveHigh: true,
+        invertDirection: false,
+      },
+    ])
+    expect(insights.panels.has('stepper')).toBe(true)
+    expect(insights.panels.has('gpio')).toBe(true)
+  })
+
+  it('marks invert-direction on a step/dir stepper', () => {
+    const insights = insightsOf(`
+      /dts-v1/;
+      / {
+        soc {
+          virtio_gpio0: gpio@0 {
+            compatible = "virtio,gpio";
+            gpio-controller;
+            #gpio-cells = <2>;
+            ngpios = <8>;
+            status = "okay";
+          };
+        };
+        motion-controller {
+          compatible = "zephyr,gpio-step-dir-stepper-ctrl";
+          step-gpios = <&virtio_gpio0 6 0>;
+          dir-gpios = <&virtio_gpio0 7 0>;
+          invert-direction;
+        };
+      };
+    `)
+    expect(insights.gpioControllers[0].steppers[0]?.invertDirection).toBe(true)
+  })
+
   it('marks led panel when bridged gpio-leds are present', () => {
     const insights = insightsOf(a53Blinky)
     expect(insights.gpioControllers[0]?.leds.length).toBeGreaterThan(0)

@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/stepper/generic: step/dir on virtio_gpio0 pins 6/7.
+ * Requires -S virtio-gpio so the controller is okay.
+ * No separate stepper-driver IC — the motion controller drives GPIO only.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		stepper-ctrl = &browser_stepper;
+	};
+
+	browser_stepper: motion-controller {
+		compatible = "zephyr,gpio-step-dir-stepper-ctrl";
+		step-gpios = <&virtio_gpio0 6 GPIO_ACTIVE_HIGH>;
+		dir-gpios = <&virtio_gpio0 7 GPIO_ACTIVE_HIGH>;
+	};
+};

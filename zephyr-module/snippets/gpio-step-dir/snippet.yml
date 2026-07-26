@@ -1,0 +1,19 @@
+name: gpio-step-dir
+description: >
+  Enable zephyr,gpio-step-dir-stepper-ctrl on STEP pin 6 / DIR pin 7 of the
+  browser GPIO controller (alias stepper_ctrl) for samples/drivers/stepper/generic.
+  Leaves LED0 on pin 4, SW0 on pin 0, and buzzer pin 5 alone.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay

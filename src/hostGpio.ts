@@ -23,7 +23,7 @@
  */
 
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
-import type { BuzzerPin } from '@/dts'
+import type { BuzzerPin, StepperAxis } from '@/dts'
 import { gpioModel, isBound, subscribeBinds } from '@/virtio'
 
 /** Pin roles. Must match the ngpios and wiring the guest overlay declares. */
@@ -34,11 +34,11 @@ export interface Pin {
   flags: number
 }
 
-export type { BuzzerPin }
+export type { BuzzerPin, StepperAxis }
 
 export type PinDirection = 'in' | 'out' | 'none'
 
-export type PinConsumerKind = 'keys' | 'leds' | 'buzzer'
+export type PinConsumerKind = 'keys' | 'leds' | 'buzzer' | 'stepper'
 
 export interface ClaimedPin {
   id: number
@@ -77,14 +77,24 @@ let derived: {
   buttons: Pin[]
   leds: Pin[]
   buzzers: BuzzerPin[]
+  steppers: StepperAxis[]
   node: string | null
   ngpios: number
 } = {
   buttons: FALLBACK_BUTTONS,
   leds: FALLBACK_LEDS,
   buzzers: [],
+  steppers: [],
   node: null,
   ngpios: 8,
+}
+
+/** Default MMIO output poll. Steppers need a faster tick to catch STEP edges. */
+const MMIO_POLL_MS = 100
+const MMIO_POLL_STEPPER_MS = 1
+
+function mmioPollMs(): number {
+  return derived.steppers.length > 0 ? MMIO_POLL_STEPPER_MS : MMIO_POLL_MS
 }
 
 function recomputeDerived() {
@@ -94,6 +104,7 @@ function recomputeDerived() {
         buttons: bridged.buttons,
         leds: bridged.leds,
         buzzers: bridged.buzzers,
+        steppers: bridged.steppers,
         node: bridged.controllerLabel,
         ngpios: bridged.ngpios ?? 8,
       }
@@ -101,9 +112,11 @@ function recomputeDerived() {
         buttons: FALLBACK_BUTTONS,
         leds: FALLBACK_LEDS,
         buzzers: [],
+        steppers: [],
         node: null,
         ngpios: 8,
       }
+  restartMmioPoller()
 }
 
 /** What the browser drives: gpio-keys pins when a devicetree says, else 0-3. */
@@ -121,6 +134,11 @@ export function getBuzzers(): BuzzerPin[] {
   return derived.buzzers
 }
 
+/** Step/dir steppers whose STEP pin is on the bridged controller. */
+export function getSteppers(): StepperAxis[] {
+  return derived.steppers
+}
+
 /** Controller width from DT `ngpios` (fallback 8). */
 export function getNgpios(): number {
   return derived.ngpios
@@ -136,7 +154,11 @@ export function getPinDirection(pin: number): PinDirection {
     return gpioModel.getDirection(pin)
   }
   if (derived.buttons.some((p) => p.id === pin)) return 'in'
-  if (derived.leds.some((p) => p.id === pin) || derived.buzzers.some((p) => p.id === pin)) {
+  if (
+    derived.leds.some((p) => p.id === pin) ||
+    derived.buzzers.some((p) => p.id === pin) ||
+    derived.steppers.some((s) => s.stepPin === pin || s.dirPin === pin)
+  ) {
     return 'out'
   }
   return 'none'
@@ -178,6 +200,20 @@ export function getClaimedPins(): ClaimedPin[] {
       pin.id,
       { kind: 'buzzer', label: pin.label },
       pin.activeHigh ? 0 : 1,
+      'out',
+    )
+  }
+  for (const axis of derived.steppers) {
+    claim(
+      axis.stepPin,
+      { kind: 'stepper', label: `${axis.label} STEP` },
+      axis.stepActiveHigh ? 0 : 1,
+      'out',
+    )
+    claim(
+      axis.dirPin,
+      { kind: 'stepper', label: `${axis.label} DIR` },
+      axis.dirActiveHigh ? 0 : 1,
       'out',
     )
   }
@@ -239,6 +275,7 @@ function bindMmio(mod: GpioExports | null): MmioBridge | null {
 
 let mmio: MmioBridge | null = null
 let poller: ReturnType<typeof setInterval> | undefined
+let pollerMs = 0
 let unsubscribeModel: (() => void) | undefined
 let unsubscribeBinds: (() => void) | undefined
 const listeners = new Set<() => void>()
@@ -247,6 +284,15 @@ const listeners = new Set<() => void>()
 let inputs = 0
 /** Last output word seen from the guest, one bit per pin. */
 let outputs = 0
+
+function restartMmioPoller() {
+  if (!mmio) return
+  const ms = mmioPollMs()
+  if (poller !== undefined && pollerMs === ms) return
+  if (poller !== undefined) clearInterval(poller)
+  pollerMs = ms
+  poller = setInterval(pollMmio, ms)
+}
 
 /**
  * Called by the qemu backend once its module is live. A build with neither
@@ -263,10 +309,12 @@ export function attach(mod: unknown) {
   if (mmio) {
     // Push the seeded input state so the guest reads something defined, then
     // start pulling outputs. 100 ms is imperceptible for a blinking LED yet
-    // costs almost nothing — the read is a single shared-memory load.
+    // costs almost nothing — the read is a single shared-memory load. When a
+    // step/dir stepper is in the tree we poll at 1 ms so STEP edges are not
+    // lost on the MMIO path (virtio notifies on every write instead).
     mmio.setInputs(inputs)
     pollMmio()
-    poller = setInterval(pollMmio, 100)
+    restartMmioPoller()
   } else {
     unsubscribeBinds = subscribeBinds(notify)
     unsubscribeModel = gpioModel.subscribe(() => {
@@ -281,6 +329,7 @@ export function attach(mod: unknown) {
 export function detach() {
   if (poller !== undefined) clearInterval(poller)
   poller = undefined
+  pollerMs = 0
   unsubscribeModel?.()
   unsubscribeModel = undefined
   unsubscribeBinds?.()
