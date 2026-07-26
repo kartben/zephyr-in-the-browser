@@ -193,6 +193,13 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'gpio'],
   },
   {
+    id: 'guided',
+    label: 'Guided Blinky',
+    description: 'Blinky, annotated — it stops and explains itself as it runs',
+    zephyrSample: 'zephyr-module/apps/guided_blinky',
+    primaryPanels: ['led', 'gpio'],
+  },
+  {
     // gpio-buzzer on host_gpio pin 5; LED0 stays on pin 4. Frequency args are
     // on/off only for the GPIO backend — the dock shakes + vibrates/buzzes.
     id: 'buzzer',
@@ -394,6 +401,13 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'Blinky',
     description: 'Blinks LED0 over a VIRTIO GPIO device',
     zephyrSample: 'samples/basic/blinky',
+    primaryPanels: ['led', 'gpio'],
+  },
+  {
+    id: 'guided',
+    label: 'Guided Blinky',
+    description: 'Blinky, annotated — it stops and explains itself as it runs',
+    zephyrSample: 'zephyr-module/apps/guided_blinky',
     primaryPanels: ['led', 'gpio'],
   },
   {

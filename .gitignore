@@ -27,3 +27,6 @@ qemu-wasm-artifacts.tar.gz
 
 # macOS AppleDouble sidecars from tar extracts
 ._*
+
+# Python bytecode from tools/
+__pycache__/
