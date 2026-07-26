@@ -184,11 +184,11 @@
       )
       const selected = 0
 
-      // Channel strip — PwmPanel ChannelStrip geometry (TRACK_H=72, MIN_FILL=10).
+      // Channel strip — PwmPanel ChannelStrip geometry (TRACK_H=72, MIN_FILL=1).
       const strip = document.getElementById('strip')
       for (let i = 0; i < 16; i++) {
         const duty = duties[i]
-        const fill = Math.round(10 + duty * (72 - 10))
+        const fill = Math.round(1 + duty * (72 - 1))
         const active = i === selected
         const btn = document.createElement('div')
         btn.className = 'ch' + (active ? ' active' : '')

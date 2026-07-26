@@ -330,7 +330,7 @@ function WaveformCanvas({ chip, index }: { chip: PwmChip; index: number }) {
 }
 
 const TRACK_H = 72
-const MIN_FILL = 10
+const MIN_FILL = 1
 /** Label row is always this tall so "0" vs "CH0" never resizes the strip. */
 const LABEL_H = 12
 
