@@ -15,6 +15,7 @@ other end of the wire.
 | [performance.md](performance.md) | Where the time goes — emulator build flags, bridge round-trip latency, and the experiment that settles each |
 | [../public/qemu/README.md](../public/qemu/README.md) | The emulator itself: how it is built, what is patched into it, and its known limits |
 | [deploying.md](deploying.md) | Cutting a release and deploying to GitHub Pages |
+| [sample-annotations.md](sample-annotations.md) | Samples that explain themselves as they run — teaching popups from `@annotate` comments, and stopping the machine to read them |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 
@@ -34,6 +35,8 @@ real time to chase, and the misleading part is worth recognising again:
 
 Vite, React, TypeScript, Tailwind, shadcn/ui, and
 [`xterm-pty`](https://github.com/mame/xterm-pty) for the terminal. `npm test`
-runs the vitest suite — the network stack and the virtio device models are
-covered — and `npm run typecheck` type-checks without emitting. Both run in CI
-on every push.
+runs the vitest suite — the network stack, the virtio device models and the
+annotation protocol are covered — and `npm run typecheck` type-checks without
+emitting. `python3 -m unittest discover -s tools` covers the annotation
+extractor, which runs inside the Zephyr build container. All three run in CI on
+every push.
