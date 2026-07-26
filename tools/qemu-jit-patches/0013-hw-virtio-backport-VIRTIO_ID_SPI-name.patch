@@ -1,0 +1,26 @@
+diff --git a/hw/virtio/virtio.c b/hw/virtio/virtio.c
+index 9a81ad9..cb30589 100644
+--- a/hw/virtio/virtio.c
++++ b/hw/virtio/virtio.c
+@@ -194,7 +194,8 @@ const char *virtio_device_names[] = {
+     [VIRTIO_ID_PARAM_SERV] = "virtio-param-serv",
+     [VIRTIO_ID_AUDIO_POLICY] = "virtio-audio-pol",
+     [VIRTIO_ID_BT] = "virtio-bluetooth",
+-    [VIRTIO_ID_GPIO] = "virtio-gpio"
++    [VIRTIO_ID_GPIO] = "virtio-gpio",
++    [VIRTIO_ID_SPI] = "virtio-spi"
+ };
+ 
+ static const char *virtio_id_to_name(uint16_t device_id)
+diff --git a/include/standard-headers/linux/virtio_ids.h b/include/standard-headers/linux/virtio_ids.h
+index 7aa2eb7..6c12db1 100644
+--- a/include/standard-headers/linux/virtio_ids.h
++++ b/include/standard-headers/linux/virtio_ids.h
+@@ -68,6 +68,7 @@
+ #define VIRTIO_ID_AUDIO_POLICY		39 /* virtio audio policy */
+ #define VIRTIO_ID_BT			40 /* virtio bluetooth */
+ #define VIRTIO_ID_GPIO			41 /* virtio gpio */
++#define VIRTIO_ID_SPI			45 /* virtio spi */
+ 
+ /*
+  * Virtio Transitional IDs
