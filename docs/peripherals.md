@@ -89,8 +89,12 @@ the card that drives it — so adding a part is a declaration, not another panel
   backing store in `localStorage` (`zephyr.eeprom.50`) across page reloads, so
   Zephyr's stock `samples/drivers/eeprom` boot counter keeps counting after an
   "MCU reset"; the card's **erase** button clears both the live image and the
-  stored one. The hex dump *is* the fine-grained view — EEPROMs are a flat
-  address space, not named SVD registers. The SPI NOR (W25Q on virtio-spi CS0)
+  stored one. When `pageSize` is declared, writes wrap within the page (real
+  AT24 behaviour) and the card shows a page wear map scaled to datasheet
+  `enduranceCycles`; session read/write counters and utilisation sit on the
+  shared memory machine so a second EEPROM stays declaration-only. The hex
+  dump *is* the fine-grained view — EEPROMs are a flat address space, not
+  named SVD registers. The SPI NOR (W25Q on virtio-spi CS0)
   reuses the same hex surface plus a **Filesystem** dialog that mounts the
   image as LittleFS via real littlefs ([Dreagonmon littlefs-js](https://github.com/Dreagonmon/littlefs-js));
   sparse sector persist (`zephyr.w25q.0`) keeps `samples/subsys/fs/littlefs`

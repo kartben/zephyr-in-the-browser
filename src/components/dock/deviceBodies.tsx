@@ -39,6 +39,7 @@ import { UartBody } from '@/components/UartPanel'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { FlashBadge } from '@/components/FlashStats'
 import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
+import { MemoryBadge } from '@/components/MemoryStats'
 import { NetworkBody } from '@/components/NetworkPanel'
 import { OledBody } from '@/components/OledPanel'
 import { DacBody } from '@/components/DacPanel'
@@ -280,10 +281,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
   switch (node.body) {
     case 'sensor':
       return <SensorBadge chip={node.chip as SensorChip} />
-    case 'memory': {
-      const chip = node.chip as MemoryChip
-      return <Mono>{chip.decl.size} B</Mono>
-    }
+    case 'memory':
+      return <MemoryBadge chip={node.chip as MemoryChip} />
     case 'oled': {
       const chip = node.chip as Ssd1306Chip
       return (

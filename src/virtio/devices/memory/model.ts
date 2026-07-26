@@ -11,21 +11,17 @@
  * A part is a {@link MemoryDecl}; {@link createMemoryChip} turns it into an
  * {@link I2cChip} the bus carries unchanged, plus the surface its card needs —
  * the backing store to render, a version counter to coalesce repaints against,
- * the pointer to show where the guest is reading, and poke/erase so the page
- * can plant bytes for the guest to find. An optional `persistKey` keeps the
- * backing store in localStorage across page reloads — the board AT24 uses it
- * so the stock EEPROM boot-counter sample survives an "MCU reset". The AT24
- * re-expressed this way is behaviour-for-behaviour the hand-written part it
- * replaced, which is what says the model is right (see the EEPROM cases in
- * src/virtio/i2c.test.ts).
+ * the pointer to show where the guest is reading, poke/erase, and session
+ * {@link MemoryStats} (reads / writes / occupancy / per-page write wear) so
+ * the card stays a pure consumer. An optional `persistKey` keeps the backing
+ * store in localStorage across page reloads — the board AT24 uses it so the
+ * stock EEPROM boot-counter sample survives an "MCU reset".
  *
- * Deliberately not modelled, exactly as before: write cycle time. A real AT24
- * NAKs for a few milliseconds after a write while the page programs, and
- * drivers poll for that; here the write lands immediately, so a driver that
- * polls simply succeeds on its first try. Page-boundary wrapping is likewise
- * left out — `pageSize` is declared because the devicetree and the card both
- * want to state it, but a write that runs off a page continues into the next
- * one rather than wrapping within it.
+ * Deliberately not modelled: write cycle time. A real AT24 NAKs for a few
+ * milliseconds after a write while the page programs, and drivers poll for
+ * that; here the write lands immediately. When {@link MemoryDecl.pageSize} is
+ * set, data writes wrap within the page (real AT24 behaviour); otherwise the
+ * pointer wraps at the end of the device.
  */
 
 import type { I2cChip } from '../i2c'
@@ -53,8 +49,34 @@ export interface MemoryDecl {
    * blank part from a missing one. That is true of the real chip too.
    */
   erased?: number
-  /** Programming page size. Stated by the card; not modelled (see above). */
+  /**
+   * Programming page size. When set, a write that runs off a page wraps
+   * within that page (AT24-style), and the card's wear map is keyed per page.
+   */
   pageSize?: number
+  /**
+   * Rated write cycles per page (datasheet endurance). Scales the page wear
+   * map when set; omit for a relative (max-in-session) scale.
+   */
+  enduranceCycles?: number
+}
+
+/** Session bus activity + occupancy for the EEPROM card. */
+export interface MemoryStats {
+  readOps: number
+  readBytes: number
+  writeOps: number
+  writeBytes: number
+  /** Non-erased byte count. */
+  usedBytes: number
+  /** Pages with at least one non-erased byte (0 when pageSize is unset). */
+  dirtyPages: number
+  pageCount: number
+  /** Per-page write counts (one bump per write() that touches the page). */
+  pageWriteCounts: Uint32Array
+  /** Non-erased bytes per page. */
+  pageUsedBytes: Uint32Array
+  maxPageWrites: number
 }
 
 /** A byte array the hex dump / preview can render and poke. */
@@ -74,6 +96,9 @@ export interface MemoryChip extends I2cChip, HexBacked {
   write(bytes: Uint8Array): boolean
   read(length: number): Uint8Array
   readonly decl: MemoryDecl
+  stats(): MemoryStats
+  /** Clear session counters and page wear; does not touch the image. */
+  resetStats(): void
 }
 
 export interface MemoryChipOptions {
@@ -96,10 +121,16 @@ export interface MemoryChipOptions {
  * Whether a chip on the bus is a declared memory part (and so has a card).
  * Sensors also expose `poke` (register-map edits) and the SSD1306 exposes
  * GDDRAM as `memory`, so the discriminant is the EEPROM-specific surface:
- * `erase` + `version`.
+ * `erase` + `version` + `stats`.
  */
 export function isMemoryChip(chip: I2cChip): chip is MemoryChip {
-  return 'decl' in chip && 'erase' in chip && 'version' in chip && 'poke' in chip
+  return (
+    'decl' in chip &&
+    'erase' in chip &&
+    'version' in chip &&
+    'poke' in chip &&
+    typeof (chip as MemoryChip).stats === 'function'
+  )
 }
 
 /** Hex-encode a byte array for localStorage (512 chars for a 256-byte AT24). */
@@ -136,6 +167,17 @@ function savePersisted(key: string, memory: Uint8Array, erased: number): void {
   }
 }
 
+function countUsed(memory: Uint8Array, base: number, len: number, erased: number): number {
+  let n = 0
+  for (let i = 0; i < len; i++) if (memory[base + i] !== erased) n++
+  return n
+}
+
+export function memoryUsedFraction(stats: MemoryStats, size: number): number {
+  if (size <= 0) return 0
+  return Math.min(1, Math.max(0, stats.usedBytes / size))
+}
+
 /** Build a live {@link MemoryChip} from a declaration. */
 export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {}): MemoryChip {
   const address = opts.address ?? decl.defaultAddress
@@ -143,6 +185,7 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
   const size = opts.size ?? decl.size
   const erased = decl.erased ?? 0xff
   const { addressWidth } = decl
+  const pageSize = decl.pageSize && decl.pageSize > 0 ? decl.pageSize : undefined
   const persistKey = opts.persistKey
 
   const memory = new Uint8Array(size).fill(erased)
@@ -150,6 +193,28 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
     const saved = loadPersisted(persistKey, size)
     if (saved) memory.set(saved)
   }
+
+  const pageCount = pageSize ? Math.ceil(size / pageSize) : 0
+  const pageUsedBytes = new Uint32Array(pageCount)
+  const pageWriteCounts = new Uint32Array(pageCount)
+  let usedBytes = 0
+  if (pageSize) {
+    for (let pi = 0; pi < pageCount; pi++) {
+      const base = pi * pageSize
+      const len = Math.min(pageSize, size - base)
+      const n = countUsed(memory, base, len, erased)
+      pageUsedBytes[pi] = n
+      usedBytes += n
+    }
+  } else {
+    usedBytes = countUsed(memory, 0, size, erased)
+  }
+
+  let readOps = 0
+  let readBytes = 0
+  let writeOps = 0
+  let writeBytes = 0
+  let maxPageWrites = 0
   let pointer = 0
   let version = 0
 
@@ -160,6 +225,43 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
     version++
     if (persist && persistKey) savePersisted(persistKey, memory, erased)
     for (const fn of listeners) fn()
+  }
+
+  const noteCellWrite = (addr: number, next: number) => {
+    const prev = memory[addr]!
+    memory[addr] = next
+    if (prev === next) return
+    if (pageSize) {
+      const pi = Math.floor(addr / pageSize)
+      if (prev === erased && next !== erased) {
+        pageUsedBytes[pi]!++
+        usedBytes++
+      } else if (prev !== erased && next === erased) {
+        pageUsedBytes[pi]!--
+        usedBytes--
+      }
+    } else if (prev === erased && next !== erased) {
+      usedBytes++
+    } else if (prev !== erased && next === erased) {
+      usedBytes--
+    }
+  }
+
+  const advanceWritePointer = () => {
+    if (!pageSize) {
+      pointer = (pointer + 1) % size
+      return
+    }
+    const pageBase = pointer - (pointer % pageSize)
+    const pageEnd = Math.min(pageBase + pageSize, size)
+    const next = pointer + 1
+    pointer = next >= pageEnd ? pageBase : next
+  }
+
+  const dirtyPages = () => {
+    let n = 0
+    for (let i = 0; i < pageCount; i++) if (pageUsedBytes[i]! > 0) n++
+    return n
   }
 
   return {
@@ -178,12 +280,25 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
       for (let i = 0; i < addressWidth; i++) addr = (addr << 8) | bytes[i]!
       pointer = addr % size
 
-      // Anything after the address is data, written from there and wrapping at
-      // the end of the device.
+      // Anything after the address is data — page wrap when pageSize is set,
+      // otherwise wrap at the end of the device.
       const wrote = bytes.length > addressWidth
-      for (let i = addressWidth; i < bytes.length; i++) {
-        memory[pointer] = bytes[i]!
-        pointer = (pointer + 1) % size
+      if (wrote) {
+        writeOps++
+        const touched = pageSize ? new Set<number>() : null
+        for (let i = addressWidth; i < bytes.length; i++) {
+          if (touched) touched.add(Math.floor(pointer / pageSize!))
+          noteCellWrite(pointer, bytes[i]!)
+          writeBytes++
+          advanceWritePointer()
+        }
+        if (touched) {
+          for (const pi of touched) {
+            const next = (pageWriteCounts[pi]! + 1) >>> 0
+            pageWriteCounts[pi] = next
+            if (next > maxPageWrites) maxPageWrites = next
+          }
+        }
       }
       notify(wrote)
       return true
@@ -191,9 +306,13 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
 
     read(length) {
       const out = new Uint8Array(length)
-      for (let i = 0; i < length; i++) {
-        out[i] = memory[pointer]!
-        pointer = (pointer + 1) % size
+      if (length > 0) {
+        readOps++
+        for (let i = 0; i < length; i++) {
+          out[i] = memory[pointer]!
+          pointer = (pointer + 1) % size
+          readBytes++
+        }
       }
       // The pointer moved, and the card draws it — so a read is a change too.
       notify(false)
@@ -208,13 +327,40 @@ export function createMemoryChip(decl: MemoryDecl, opts: MemoryChipOptions = {})
       if (!Number.isInteger(value)) return
       const next = value & 0xff
       if (memory[offset] === next) return
-      memory[offset] = next
+      noteCellWrite(offset, next)
       notify()
     },
 
     erase() {
       memory.fill(erased)
+      usedBytes = 0
+      pageUsedBytes.fill(0)
       notify()
+    },
+
+    stats(): MemoryStats {
+      return {
+        readOps,
+        readBytes,
+        writeOps,
+        writeBytes,
+        usedBytes,
+        dirtyPages: dirtyPages(),
+        pageCount,
+        pageWriteCounts,
+        pageUsedBytes,
+        maxPageWrites,
+      }
+    },
+
+    resetStats() {
+      readOps = 0
+      readBytes = 0
+      writeOps = 0
+      writeBytes = 0
+      pageWriteCounts.fill(0)
+      maxPageWrites = 0
+      notify(false)
     },
 
     subscribe(fn) {

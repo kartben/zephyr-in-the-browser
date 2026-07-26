@@ -3,6 +3,7 @@ import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView } from '@/components/HexView'
 import { LittlefsBrowserButton } from '@/components/LittlefsBrowser'
+import { MemoryStatsView } from '@/components/MemoryStats'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import { formatFlashSize, type SpiFlashChip } from '@/virtio/devices/flash/model'
 
@@ -38,7 +39,8 @@ export function MemoryBody({
     <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
       <div className="flex items-baseline gap-3">
         <span className="font-mono text-[10px] text-muted-foreground">
-          {size} B{pageSize ? ` · ${pageSize} B pages` : ''}
+          {formatFlashSize(size)}
+          {pageSize ? ` · ${pageSize} B pages` : ''}
         </span>
         {compact && onOpenWindow && (
           <button
@@ -60,6 +62,8 @@ export function MemoryBody({
           erase
         </button>
       </div>
+
+      <MemoryStatsView chip={chip} compact={compact} />
 
       {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
 
