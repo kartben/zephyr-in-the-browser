@@ -5,6 +5,7 @@ import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import a53Sct2024 from '@/dts/fixtures/qemu_cortex_a53_sct2024.dts?raw'
 import a53Ws2812 from '@/dts/fixtures/qemu_cortex_a53_ws2812.dts?raw'
 import a53Pt6314 from '@/dts/fixtures/qemu_cortex_a53_pt6314.dts?raw'
+import a53Tmc50xx from '@/dts/fixtures/qemu_cortex_a53_tmc50xx.dts?raw'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
 import { createW25q } from './devices/chips/w25q'
 import {
@@ -23,6 +24,7 @@ import {
   ssd1306,
   syncManagedChips,
   tmp112,
+  tmc50xx,
   w25q,
   ws2812,
 } from './index'
@@ -31,7 +33,13 @@ afterEach(() => {
   clear()
   // Drop any user-attached SPI strangers left by a test.
   for (const chip of [...spiModel.chips()]) {
-    if (chip !== w25q && chip !== sct2024 && chip !== ws2812 && chip !== pt6314) {
+    if (
+      chip !== w25q &&
+      chip !== sct2024 &&
+      chip !== ws2812 &&
+      chip !== pt6314 &&
+      chip !== tmc50xx
+    ) {
       spiModel.detachChip(chip.cs)
     }
   }
@@ -123,6 +131,14 @@ describe('syncManagedChips', () => {
     expect(spiModel.chips()).not.toContain(w25q)
   })
 
+  it('puts the TMC50xx on CS0 once that sample tree is loaded', () => {
+    expect(spiModel.chips()).toContain(w25q)
+
+    setUserDts('tmc50xx.dts', a53Tmc50xx)
+    expect(spiModel.chips()).toEqual([tmc50xx])
+    expect(spiModel.chips()).not.toContain(w25q)
+  })
+
   it('restores the NOR after clearing the SCT2024 tree', () => {
     setUserDts('sct2024.dts', a53Sct2024)
     expect(spiModel.chips()).toEqual([sct2024])
@@ -144,6 +160,15 @@ describe('syncManagedChips', () => {
   it('restores the NOR after clearing the PT6314 tree', () => {
     setUserDts('pt6314.dts', a53Pt6314)
     expect(spiModel.chips()).toEqual([pt6314])
+
+    clear()
+    syncManagedChips()
+    expect(spiModel.chips()).toEqual([w25q])
+  })
+
+  it('restores the NOR after clearing the TMC50xx tree', () => {
+    setUserDts('tmc50xx.dts', a53Tmc50xx)
+    expect(spiModel.chips()).toEqual([tmc50xx])
 
     clear()
     syncManagedChips()

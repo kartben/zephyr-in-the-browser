@@ -103,6 +103,13 @@ and a dock dial tracks position/velocity. Press SW0 to advance the stock sample
 modes. MMIO host-gpio polls at 1 ms when steppers are present so edges are not
 lost; virtio notifies on every write.
 
+**TMC50xx SPI stepper (done).** Stock Zephyr `adi,tmc50xx` on virtio-spi CS0
+(motor 0 driver + motion controller), packaged as
+`samples/drivers/stepper/tmc50xx` behind `-S tmc50xx-only`. Page model
+(`chips/tmc50xx.ts`) speaks the 5-byte SPI datagram / delayed-read protocol,
+simulates positioning motion into XACTUAL, and sets RAMPSTAT POS_REACHED for the
+guest's rampstat poll. Dock dial + Registers on the stepper row.
+
 Original rationale, kept for the record —
 the highest demo-value-per-effort item, and it reuses shapes we already have in
 both directions:
@@ -363,7 +370,7 @@ with an in-tree I²C (or SPI) driver *and* a stock sample, because the virtio-i2
 and virtio-spi bridges mean a new chip is TypeScript + a DT node (+ a JSON
 register map for register-file parts) — no wasm rebuild.
 
-**SPI bus — ✅ done (controller + JEDEC NOR + LittleFS + SCT2024 LED + WS2812 strip).** Same generic bridge as I2C, on
+**SPI bus — ✅ done (controller + JEDEC NOR + LittleFS + SCT2024 LED + WS2812 strip + TMC50xx).** Same generic bridge as I2C, on
 virtio-mmio slot 5 (`name=spi`, device-id 45). Guest driver vendored from
 kartben/zephyr#469; page model in [`spi.ts`](../src/virtio/devices/spi.ts);
 first chip is a W25Q-class stub
@@ -381,6 +388,10 @@ register-file part and not wall-clock timing: Zephyr's `ws2812_spi` driver
 encodes each data bit as an 8-bit SPI symbol (`spi-one-frame` /
 `spi-zero-frame`), so one 16-pixel update is ~384 bytes in a single virtqueue
 transfer. Packaging `samples/drivers/led/led_strip` behind `-S ws2812-only`.
+The TMC50xx (`chips/tmc50xx.ts` + `maps/tmc50xx.json`) is a 5-byte SPI
+datagram register file with a wall-clock motion sim for motor 0 — XTARGET /
+XACTUAL / RAMPSTAT so stock `samples/drivers/stepper/tmc50xx` can ping-pong;
+packaging behind `-S tmc50xx-only`.
 
 **Rule for every new I²C part: model the registers.** Sensors and the PCF8523
 already share [`registers/`](../src/virtio/devices/registers) (SVD-inspired JSON
@@ -617,6 +628,9 @@ shell is a UX problem before it is a driver problem.
    `zephyr,gpio-step-dir-stepper-ctrl` on pins 6/7, `samples/drivers/stepper/generic`,
    dock shaft dial + position/velocity. Observes existing GPIO outputs — no new
    QEMU device.
+5⅞. ~~**TMC50xx SPI stepper**~~ — ✅ done; `adi,tmc50xx` on virtio-spi CS0,
+   `samples/drivers/stepper/tmc50xx`, dial + ramp Registers. Motion sim is
+   wall-clock, not silicon timing.
 6. ~~**PWM (I²C)**~~ — ✅ done; `PwmChip` framework + `nxp,pca9685-pwm` with
    `samples/drivers/led/pwm`, duty-cycle chart. More PWM providers are
    declaration + packaging only.

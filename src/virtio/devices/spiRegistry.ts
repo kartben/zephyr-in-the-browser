@@ -9,6 +9,7 @@ import type { SpiChip } from './spi'
 import { createSct2024 } from './chips/sct2024'
 import { createPt6314 } from './chips/pt6314'
 import { createWs2812 } from './chips/ws2812'
+import { createTmc50xx } from './chips/tmc50xx'
 import { createSpiLoopback, createW25q } from './chips/w25q'
 import { partById, type PartIdentity } from './parts'
 
@@ -52,6 +53,13 @@ export const SPI_CHIP_TYPES: SpiChipType[] = [
     defaultCs: 0,
     catalogued: true,
     create: (cs) => createPt6314({ cs }),
+  },
+  {
+    id: 'tmc50xx',
+    label: 'TMC50xx stepper',
+    defaultCs: 0,
+    catalogued: true,
+    create: (cs) => createTmc50xx({ cs }),
   },
   {
     id: 'loopback',

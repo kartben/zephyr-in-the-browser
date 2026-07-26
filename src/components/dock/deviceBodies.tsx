@@ -32,7 +32,7 @@ import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody, type AuxdisplayChip } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
-import { StepperBody } from '@/components/StepperPanel'
+import { StepperBody, Tmc50xxStepperBody } from '@/components/StepperPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
@@ -66,6 +66,7 @@ import { i2cModel, spiModel } from '@/virtio'
 import type { Ht16k33Chip } from '@/virtio/devices/chips/ht16k33'
 import type { RgbLedView } from '@/components/LedPanel'
 import type { Sct2024Chip } from '@/virtio/devices/chips/sct2024'
+import type { Tmc50xxChip } from '@/virtio/devices/chips/tmc50xx'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import {
   formatDacVolts,
@@ -115,6 +116,7 @@ const CHIP_BODIES = new Set<BodyKind | ''>([
   'fuel-gauge',
   'rtc',
   'spi-flash',
+  'stepper-tmc',
 ])
 
 function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
@@ -178,6 +180,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <BuzzerBody />
     case 'stepper':
       return <StepperBody />
+    case 'stepper-tmc':
+      return <Tmc50xxStepperBody chip={node.chip as Tmc50xxChip} />
     case 'gnss':
       return <GnssBody />
     case 'speaker':
@@ -234,6 +238,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
     case 'buzzer':
       return Vibrate
     case 'stepper':
+      return RotateCw
+    case 'stepper-tmc':
       return RotateCw
     case 'gnss':
       return MapPin
@@ -371,6 +377,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <BuzzerBadge />
     case 'stepper':
       return <StepperBadge />
+    case 'stepper-tmc':
+      return <Tmc50xxBadge chip={node.chip as Tmc50xxChip} />
     case 'speaker':
       return <SpeakerBadge />
     case 'mic':
@@ -474,7 +482,11 @@ export function GroupBadge({
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioControllerBadge />
   if (deviceClass === 'keys' && nodes.some((n) => n.body === 'gpio-keys')) return <GpioKeysBadge />
   if (deviceClass === 'buzzer' && nodes.some((n) => n.body === 'buzzer')) return <BuzzerBadge />
-  if (deviceClass === 'stepper' && nodes.some((n) => n.body === 'stepper')) return <StepperBadge />
+  if (deviceClass === 'stepper' && nodes.some((n) => n.body === 'stepper' || n.body === 'stepper-tmc')) {
+    const tmc = nodes.find((n) => n.body === 'stepper-tmc')
+    if (tmc?.chip) return <Tmc50xxBadge chip={tmc.chip as Tmc50xxChip} />
+    return <StepperBadge />
+  }
   if (deviceClass === 'i2c-bus' && nodes.some((n) => n.body === 'i2c')) return <BusBadge />
   if (deviceClass === 'spi-bus' && nodes.some((n) => n.body === 'spi')) return <SpiBusBadge />
   if (deviceClass === 'uart-bus') {
@@ -709,6 +721,17 @@ function StepperBadge() {
   return (
     <Mono className={axis.moving ? 'text-emerald-400' : undefined}>
       {axis.moving ? `${Math.round(axis.stepsPerSec)}/s` : `${axis.position}`}
+    </Mono>
+  )
+}
+
+function Tmc50xxBadge({ chip }: { chip: Tmc50xxChip }) {
+  const version = useSyncExternalStore(chip.subscribe, chip.version, chip.version)
+  void version
+  const motor = chip.getMotor(0)
+  return (
+    <Mono className={motor.moving ? 'text-emerald-400' : undefined}>
+      {motor.moving ? `${Math.round(motor.stepsPerSec)}/s` : `${motor.position}`}
     </Mono>
   )
 }

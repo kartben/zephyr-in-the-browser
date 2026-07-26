@@ -178,40 +178,57 @@ export function isSensorChip(chip: I2cChip): chip is SensorChip {
 }
 
 /** Mask a value into a `bytes`-wide word. */
-function toWord(value: number, bytes: 1 | 2 | 3): number {
+function toWord(value: number, bytes: 1 | 2 | 3 | 4): number {
   if (bytes === 1) return value & 0xff
   if (bytes === 2) return value & 0xffff
-  return value & 0xffffff
+  if (bytes === 3) return value & 0xffffff
+  return value >>> 0
 }
 
 /** Split a register word into `bytes` bytes in the given order. */
-function wordToBytes(value: number, bytes: 1 | 2 | 3, endian: Endian): number[] {
+function wordToBytes(value: number, bytes: 1 | 2 | 3 | 4, endian: Endian): number[] {
   if (bytes === 1) return [value & 0xff]
   if (bytes === 2) {
     const hi = (value >> 8) & 0xff
     const lo = value & 0xff
     return endian === 'le' ? [lo, hi] : [hi, lo]
   }
+  if (bytes === 3) {
+    const b0 = value & 0xff
+    const b1 = (value >> 8) & 0xff
+    const b2 = (value >> 16) & 0xff
+    return endian === 'le' ? [b0, b1, b2] : [b2, b1, b0]
+  }
   const b0 = value & 0xff
   const b1 = (value >> 8) & 0xff
   const b2 = (value >> 16) & 0xff
-  return endian === 'le' ? [b0, b1, b2] : [b2, b1, b0]
+  const b3 = (value >>> 24) & 0xff
+  return endian === 'le' ? [b0, b1, b2, b3] : [b3, b2, b1, b0]
 }
 
 /** Assemble `bytes` bytes in the given order back into a register word. */
-function bytesToWord(src: Uint8Array, bytes: 1 | 2 | 3, endian: Endian): number {
+function bytesToWord(src: Uint8Array, bytes: 1 | 2 | 3 | 4, endian: Endian): number {
   if (bytes === 1) return src[0] ?? 0
   if (bytes === 2) {
     const first = src[0] ?? 0
     const second = src[1] ?? 0
     return endian === 'le' ? ((second << 8) | first) & 0xffff : ((first << 8) | second) & 0xffff
   }
+  if (bytes === 3) {
+    const a = src[0] ?? 0
+    const b = src[1] ?? 0
+    const c = src[2] ?? 0
+    return endian === 'le'
+      ? ((c << 16) | (b << 8) | a) & 0xffffff
+      : ((a << 16) | (b << 8) | c) & 0xffffff
+  }
   const a = src[0] ?? 0
   const b = src[1] ?? 0
   const c = src[2] ?? 0
+  const d = src[3] ?? 0
   return endian === 'le'
-    ? ((c << 16) | (b << 8) | a) & 0xffffff
-    : ((a << 16) | (b << 8) | c) & 0xffffff
+    ? ((d << 24) | (c << 16) | (b << 8) | a) >>> 0
+    : ((a << 24) | (b << 16) | (c << 8) | d) >>> 0
 }
 
 /**

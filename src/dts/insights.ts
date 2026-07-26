@@ -202,6 +202,7 @@ const COMPAT_TO_SPI_CHIP: Record<string, string> = {
   'sct,sct2024': 'sct2024',
   'worldsemi,ws2812-spi': 'ws2812',
   'ptc,pt6314': 'pt6314',
+  'adi,tmc50xx': 'tmc50xx',
 }
 
 const SENSOR_CHIP_IDS = new Set([
@@ -558,6 +559,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (gpioControllers.some((c) => c.bridged && c.buttons.length > 0)) panels.add('keys')
   if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
   if (gpioControllers.some((c) => c.bridged && c.steppers.length > 0)) panels.add('stepper')
+  if (hasOkayCompat(doc, 'adi,tmc50xx')) panels.add('stepper')
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
   if (hasOkayCompat(doc, 'jhd,jhd1313') || hasOkayCompat(doc, 'ptc,pt6314')) {

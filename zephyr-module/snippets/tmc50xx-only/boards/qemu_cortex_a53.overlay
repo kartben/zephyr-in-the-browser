@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/stepper/tmc50xx: TMC50xx on virtio-spi CS0. Self-contained —
+ * does not compose with the virtio-spi snippet (that one puts a JEDEC NOR on
+ * CS0). Aliases stepper / stepper-ctrl / stepper-driver match the stock sample.
+ */
+
+&virtio_mmio5 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	status = "okay";
+
+	tmc50xx: tmc50xx@0 {
+		compatible = "adi,tmc50xx";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(1)>;
+		clock-frequency = <DT_FREQ_M(10)>;
+		status = "okay";
+
+		tmc_stepper_driver: stepper-driver {
+			compatible = "adi,tmc50xx-stepper-driver";
+			idx = <0>;
+			micro-step-res = <256>;
+			stallguard2-threshold = <30>;
+		};
+
+		tmc_motion_controller: motion-controller {
+			compatible = "adi,tmc50xx-stepper-ctrl";
+			idx = <0>;
+			vstart = <1000>;
+			vstop = <10>;
+			a1 = <10000>;
+			v1 = <50000>;
+			d1 = <14000>;
+			vmax = <900000>;
+			amax = <50000>;
+			dmax = <7000>;
+			tzerowait = <100>;
+			vhigh = <900000>;
+			vcoolthrs = <900000>;
+			ihold = <1>;
+			irun = <10>;
+			iholddelay = <1>;
+		};
+	};
+};
+
+/ {
+	aliases {
+		stepper-driver = &tmc_stepper_driver;
+		stepper-ctrl = &tmc_motion_controller;
+	};
+};

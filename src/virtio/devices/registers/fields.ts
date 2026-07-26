@@ -36,10 +36,16 @@ export function insertField(
 }
 
 /** Hex dump of a register word at its declared width (e.g. `0x60A0`). */
-export function formatRegHex(value: number, bytes: 1 | 2 | 3): string {
+export function formatRegHex(value: number, bytes: 1 | 2 | 3 | 4): string {
   const width = bytes * 2
   const masked =
-    bytes === 1 ? value & 0xff : bytes === 2 ? value & 0xffff : value & 0xffffff
+    bytes === 1
+      ? value & 0xff
+      : bytes === 2
+        ? value & 0xffff
+        : bytes === 3
+          ? value & 0xffffff
+          : value >>> 0
   return `0x${masked.toString(16).toUpperCase().padStart(width, '0')}`
 }
 
