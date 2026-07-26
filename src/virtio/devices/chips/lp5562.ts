@@ -1,11 +1,4 @@
-/**
- * TI LP5562 4-channel RGBW LED driver — page-side I²C model.
- *
- * Matches Zephyr's `drivers/led/lp5562.c`: direct PWM registers, LED_MAP
- * source select, ENABLE chip/engine bits, and enough engine program memory
- * for `led_blink` patterns the stock `samples/drivers/led/lp5562` loads.
- * LED indices match the sample: B=0, G=1, R=2, W=3.
- */
+/** LP5562 RGBW LED I²C model. Indices: B=0, G=1, R=2, W=3. */
 
 import type { I2cChip } from '../i2c'
 import { insertField } from '../registers/fields'

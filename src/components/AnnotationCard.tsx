@@ -1,11 +1,4 @@
-/**
- * The annotation popup: what the running sample has to say for itself.
- *
- * Sits over the stage, above the device panels and below the modals. When the
- * annotation asked for it the machine is stopped underneath — the whole reason
- * the pause exists is that a lesson about `gpio_pin_toggle_dt()` is worthless
- * once the LED has already blinked forty times.
- */
+/** Annotation popup over the stage. May pause the guest while open. */
 
 import { useSyncExternalStore } from 'react'
 import { GraduationCap, Pause, X } from 'lucide-react'

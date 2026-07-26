@@ -1,13 +1,6 @@
 /**
- * One row of the dock, in either view: a header line (indent guides, icon,
- * name, live badge, pop-out control) and — for interactive rows — the device's
- * body, expanded in place. Inert rows document topology (`→ terminal`); ghost
- * rows document absence (a declared chip nothing answers for).
- *
- * Rows are rendered as one flat keyed list under a single parent, so flipping
- * the dock's view moves these nodes instead of remounting them — sliders,
- * scroll positions and the OLED canvas all survive. Nesting is data (`depth`),
- * never wrapper elements.
+ * One dock row. Flat keyed list so view flips remount nothing; nesting is
+ * `depth`, not wrappers. Inert rows are topology; ghost rows are absence.
  */
 
 import { ChevronRight, Dock as DockIcon, PictureInPicture2 } from 'lucide-react'

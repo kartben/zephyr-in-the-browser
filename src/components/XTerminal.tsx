@@ -54,12 +54,7 @@ const LIGHT: ITheme = {
 const prefersLight = () => window.matchMedia('(prefers-color-scheme: light)').matches
 
 /**
- * Owns the xterm.js instance imperatively.
- *
- * Mounted exactly once and memoised so React state changes upstream never touch
- * it — xterm renders into DOM that React does not manage, and re-creating it
- * would drop the pty the backend is attached to. Everything reactive (theme,
- * sizing) is handled inside the effect via listeners rather than props.
+ * Imperative xterm.js host. Mount once — remounting would drop the attached pty.
  */
 function XTerminalImpl({ onSession, onTeardown }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)

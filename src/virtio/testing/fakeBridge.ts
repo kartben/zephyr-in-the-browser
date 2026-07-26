@@ -1,12 +1,6 @@
 /**
- * A JS stand-in for `hw/virtio/virtio-browser.c`, backed by a plain
- * Uint8Array "heap". Tests attach this to the transport so the entire
- * production path — discovery, ring codec, dispatch, parking, reset — runs
- * with no QEMU assets, the arrangement src/net/testing/fakeModule.ts already
- * uses for the netdev rings.
- *
- * The `guest` handle is the far end: `kick` submits a descriptor chain the way
- * a driver would, `completions` collects what the device pushed back.
+ * Test stand-in for `hw/virtio/virtio-browser.c` (Uint8Array heap). `guest.kick`
+ * submits chains; `completions` collects device replies.
  */
 
 import {

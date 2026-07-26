@@ -5,22 +5,7 @@ import { LittlefsBrowserButton } from '@/components/LittlefsBrowser'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import type { SpiFlashChip } from '@/virtio/devices/chips/w25q'
 
-/**
- * The control surface for a simulated I2C memory part.
- *
- * The counterpart of SensorCard: a sensor's state is a handful of channels, so
- * its card is sliders; a memory's state *is* its contents, so its card is a hex
- * dump (HexView) and little else. Everything it needs comes from the chip's
- * declaration, so a second EEPROM is a declaration rather than another panel.
- *
- * Like the sensor cards this is a *device*, and lives on the devices edge — the
- * bus it rides is the I2C panel's business.
- */
-/**
- * The hex dump and its trimmings without the frame. Two densities: `compact`
- * (the dock row) shows a two-row pointer-following preview with a "Hex editor"
- * hand-off to a floating window; full (the window) is the whole editable dump.
- */
+/** Hex dump for a memory chip. `compact` is the dock preview; full is the window. */
 export function MemoryBody({
   chip,
   compact = false,

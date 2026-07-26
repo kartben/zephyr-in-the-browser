@@ -1,11 +1,4 @@
-/**
- * Live SVD-style register map for any {@link RegisterMapSource}.
- *
- * Sensor cards, RTC cards, and future register-file parts share this dialog —
- * the kind-specific UI stays a slider / clock / … surface; this is the
- * fine-grained view. Collapsed by default: the card only shows a small
- * "Registers" affordance until you open it.
- */
+/** Live SVD-style register map dialog for any {@link RegisterMapSource}. */
 
 import { useEffect, useReducer, useState } from 'react'
 import { ChevronRight } from 'lucide-react'

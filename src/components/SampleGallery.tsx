@@ -46,17 +46,7 @@ import { peekSampleDts } from '@/devicetree'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
 
-/**
- * The app picker as a compact, searchable catalog: one row per sample with
- * title and description (from the mirrored Zephyr docs when available), what
- * hardware it exercises, and where to read more — plus the devicetree of the
- * exact build that will boot.
- *
- * Replaces a plain dropdown. Choosing an app is the biggest decision on the
- * page, and a dropdown gave it one truncated line.
- */
-
-/** The panel a sample is primarily about picks its row icon. */
+/** Searchable sample catalog. */
 const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   display: Monitor,
   gnss: Satellite,

@@ -12,25 +12,7 @@ import {
   toggle as toggleMic,
 } from '@/hostMic'
 
-/**
- * Floating control for the qemu,host-audio (speaker) and qemu,host-mic
- * (microphone) bridges, one panel because they are two halves of one sound
- * device.
- *
- * Hidden entirely when the running emulator has neither device, so a stock
- * qemu-wasm build shows no dead UI. Both directions start off and want a
- * click: speakers because the Web Audio API sits behind the browser autoplay
- * policy, the microphone because getUserMedia prompts for permission. Guest
- * flow control never notices either switch — playback drains (and drops)
- * samples while muted, and the DMIC driver reads silence while the mic is
- * off. Reach the speaker from the shell with `hostaudio beep`; the mic feeds
- * the stock dmic sample.
- */
-/**
- * The two halves of the sound device, as standalone bodies: the devicetree
- * gives each its own node (qemu,host-audio / qemu,host-mic), so the dock gives
- * each its own row, and each carries its own shell hint.
- */
+/** Speaker body for qemu,host-audio. Starts muted (browser autoplay policy). */
 export function SpeakerBody() {
   const audio = useSyncExternalStore(subscribeAudio, getAudioSnapshot, getAudioSnapshot)
 
@@ -62,6 +44,7 @@ export function SpeakerBody() {
   )
 }
 
+/** Mic body for qemu,host-mic. Starts off (getUserMedia permission). */
 export function MicBody() {
   const mic = useSyncExternalStore(subscribeMic, getMicSnapshot, getMicSnapshot)
 

@@ -1,10 +1,6 @@
 /**
- * Guest registry: the machines QEMU can emulate, and the images each can boot.
- *
- * Boards are hardware; images are guest programs. Keep them separate so several
- * images can share a board and a user ELF can replace an image without changing argv.
- *
- * `qemuBinary` must match the Emscripten JS/Wasm artifact: arm, aarch64 or riscv32.
+ * Guest registry: boards (hardware) vs images (guest programs). `qemuBinary`
+ * must match the Emscripten JS/Wasm artifact (arm, aarch64, or riscv32).
  */
 
 export type PanelKind =

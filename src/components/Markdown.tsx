@@ -1,11 +1,6 @@
 /**
- * Renders the Markdown subset annotation bodies are written in.
- *
- * Every node here is a React element built from a parsed tree — no HTML string
- * is ever produced from author markup, so there is nothing to sanitise and
- * markup inside a body is text by construction. Fenced C blocks are the one
- * exception: highlight.js emits escaped HTML spans for tokens. See
- * src/annotations/markdown.ts for the grammar.
+ * Annotation Markdown as React elements (no author HTML). Fenced C blocks use
+ * highlight.js escaped spans; see src/annotations/markdown.ts.
  */
 
 import { parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/annotations/markdown'

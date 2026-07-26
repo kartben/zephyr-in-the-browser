@@ -1,11 +1,5 @@
 /**
- * Analog Devices / Maxim MAX17048 ModelGauge fuel gauge — page-side I²C model.
- *
- * First {@link FuelGaugeChip} provider. Matches Zephyr's
- * `drivers/fuel_gauge/max17048/max17048.c`: 16-bit big-endian register file,
- * VERSION probe `(value & 0xFFF0) == 0x0010`, VCELL / SOC / CRATE conversions.
- * Stock `samples/drivers/fuel_gauge` polls SoC % and voltage via
- * `fuel_gauge_get_props` against alias `fuel-gauge0`.
+ * MAX17048 I²C model (BE 16-bit regs; VERSION probe `(v & 0xFFF0) == 0x0010`).
  */
 
 import type { I2cChip } from '../i2c'

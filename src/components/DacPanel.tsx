@@ -1,13 +1,6 @@
 /**
- * Dock body for any {@link DacChip}.
- *
- * Paints a Vout-over-time trace from getHistory, a level bar, code/Vref
- * readout, and the shared Registers dialog. Provider-agnostic — do not import
- * MCP4725 here.
- *
- * The scope time base is wall clock. Guest icount looked right for the stock
- * ~4 s period but freezes while the guest blocks on virtio-i2c (see
- * `dac/clock.ts`); wall time keeps the trace moving with real samples.
+ * Dock body for any {@link DacChip}. Scope uses wall clock — guest icount
+ * freezes while blocked on virtio-i2c (see `dac/clock.ts`).
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'

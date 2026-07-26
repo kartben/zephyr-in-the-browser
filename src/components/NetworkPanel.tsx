@@ -24,14 +24,7 @@ import {
   subscribe,
 } from '@/hostNet'
 
-/**
- * The cockpit without the frame, shared by the dock row and the floating
- * window: five disclosures over one column — status and throughput open by
- * default, link/impairments, capture and tools folded until wanted. The open
- * set persists per device in dockStore, so it survives reloads, view flips
- * and pop-outs alike. The "About this network" toggle lives inline with the
- * IP — a body has no header to put it in.
- */
+/** Network panel body; section open-state persists in dockStore. */
 export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)

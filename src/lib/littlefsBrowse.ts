@@ -1,12 +1,4 @@
-/**
- * Browse a LittleFS v2 image from SPI NOR bytes.
- *
- * Mounts with the real littlefs C library via Dreagonmon's littlefs-js
- * (vendored under src/vendor/littlefs-js, rebuilt for littlefs v2.11 / disk
- * v2.1 so Zephyr-formatted volumes mount). A pure-TS reimplementation was not
- * reliable against Zephyr images (live move/global state, CTZ layout with
- * 64 KiB SPI-NOR layout pages).
- */
+/** Browse a LittleFS v2 image from SPI NOR bytes via vendored littlefs-js. */
 
 import {
   BlockDevice,

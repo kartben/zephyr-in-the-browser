@@ -1,11 +1,4 @@
-/**
- * NXP PCA9685 16-channel PWM — page-side I²C model.
- *
- * First {@link PwmChip} provider. Matches Zephyr's `drivers/pwm/pwm_pca9685.c`:
- * MODE1/MODE2, LEDn_ON/OFF, PRE_SCALE. Stock `samples/drivers/led/pwm` drives
- * this through `pwm-leds` + the LED API; the dock shows both the LED strip and
- * the PWM duty chart (see docs/pwm-leds.md).
- */
+/** PCA9685 16-ch PWM I²C model (MODE1/2, LEDn_ON/OFF, PRE_SCALE). */
 
 import type { I2cChip } from '../i2c'
 import { insertField } from '../registers/fields'

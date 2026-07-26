@@ -1,10 +1,5 @@
 /**
- * Collapsed-by-default controller inspector for the SSD1306.
- *
- * The OLED is a *command stream*, not a pointered register file — so this is
- * not the SVD-style Registers dialog. It still gives the same "open when you
- * care" affordance: live on/invert/contrast/addressing window as the guest
- * last programmed them.
+ * SSD1306 controller inspector (command stream, not an SVD register file).
  */
 
 import { useEffect, useReducer, useState } from 'react'

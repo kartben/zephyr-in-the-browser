@@ -1,11 +1,4 @@
-/**
- * The dock's control vocabulary: label · control · live value on one grid
- * line. The old bodies spent three stacked lines per control (label row,
- * control row, follow row); at dock width a single 24px line reads better and
- * triples what fits on screen. Every body generates these from its declarative
- * table (SensorDecl channels/attributes, GNSS FIELDS, impairments) — adding a
- * device stays a declaration, not new layout.
- */
+/** Dock control row: label · control · live value on one line. */
 
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'

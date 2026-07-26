@@ -1,10 +1,6 @@
 /**
- * Data model for a parsed devicetree source file.
- *
- * The shape mirrors DTS syntax rather than any binding semantics: a tree of
- * named nodes with ordered properties, each property keeping both its decoded
- * values and its verbatim source text (`raw`) so a viewer can show exactly
- * what the build saw without re-serializing.
+ * Parsed DTS model (syntax tree, not bindings). Properties keep decoded values
+ * and verbatim `raw` text for exact viewer display.
  */
 
 export interface DtsNode {
