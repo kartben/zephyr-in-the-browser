@@ -6,6 +6,8 @@
  * 1 MiB (density 0x14) covers samples/drivers/spi_flash's default test region
  * at offset 0xff000 plus a 4 KiB sector. The whole chip is also a LittleFS
  * "storage" partition with fstab entry lfs1 → /lfs for samples/subsys/fs/littlefs.
+ * Packaged conf sets SPI_NOR_FLASH_LAYOUT_PAGE_SIZE=4096 so LFS block_size
+ * matches the erase sector (stock Zephyr defaults this to 64 KiB).
  */
 
 &virtio_mmio5 {

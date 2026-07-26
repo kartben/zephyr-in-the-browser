@@ -1,12 +1,21 @@
 /**
  * Browse a LittleFS v2 image from SPI NOR bytes.
  *
- * Uses [`partitions-tool-esp/littlefs`](https://www.npmjs.com/package/partitions-tool-esp)
- * (pure TypeScript parser) rather than a hand-rolled on-disk format reader.
- * Verified against images produced by real littlefs (v2.x).
+ * Mounts with the real littlefs C library via Dreagonmon's littlefs-js
+ * (vendored under src/vendor/littlefs-js). A pure-TS reimplementation was not
+ * reliable against Zephyr-formatted images (live move/global state, CTZ layout
+ * with 64 KiB SPI-NOR layout pages).
  */
 
-import { parse, type LittleFSParsedFile, type LittleFSSuperblock } from 'partitions-tool-esp/littlefs'
+import {
+  BlockDevice,
+  LFS,
+  LFSModule,
+  LFS_O_RDONLY,
+  LFS_TYPE_DIR,
+  LFS_TYPE_REG,
+  type LFSInfo,
+} from '@/vendor/littlefs-js/lfs_js.js'
 
 export interface LittlefsTreeFile {
   kind: 'file'
@@ -25,92 +34,209 @@ export interface LittlefsTreeDir {
 
 export type LittlefsTreeNode = LittlefsTreeFile | LittlefsTreeDir
 
+export interface LittlefsSuperblockInfo {
+  blockSize: number
+  blockCount: number
+}
+
 export interface LittlefsBrowseResult {
-  superblock: LittleFSSuperblock
-  files: LittleFSParsedFile[]
+  superblock: LittlefsSuperblockInfo
+  files: Array<{ path: string; size: number; content: Uint8Array }>
   root: LittlefsTreeDir
+  /** Set when mount succeeded but listing hit an error. */
+  error?: string
+}
+
+export interface LittlefsBrowseFailure {
+  error: string
 }
 
 /** True when the image looks erased (no LittleFS yet). */
 export function isBlankFlash(image: Uint8Array, erased = 0xff): boolean {
-  // Sample a few blocks — full 1 MiB scan is wasteful for the empty case.
   const step = Math.max(1, Math.floor(image.length / 64))
   for (let i = 0; i < image.length; i += step) {
     if (image[i] !== erased) return false
   }
-  // Confirm edges of first two erase blocks (superblock pair lives here).
   for (let i = 0; i < Math.min(image.length, 8192); i++) {
     if (image[i] !== erased) return false
   }
   return true
 }
 
-/**
- * Mount-and-list a LittleFS image. Returns `null` when the flash is blank or
- * the image is not a recognisable littlefs v2 filesystem.
- */
-export function browseLittlefs(
-  image: Uint8Array,
-  opts: { blockSize?: number } = {},
-): LittlefsBrowseResult | null {
-  if (image.length === 0 || isBlankFlash(image)) return null
-  try {
-    const parsed = parse(image, { blockSize: opts.blockSize ?? 4096 })
-    return {
-      superblock: parsed.superblock,
-      files: parsed.files,
-      root: buildTree(parsed.files),
+/** Scan for the on-disk "littlefs" magic (hints a filesystem is present). */
+export function findLittlefsMagic(image: Uint8Array): number | null {
+  const magic = [0x6c, 0x69, 0x74, 0x74, 0x6c, 0x65, 0x66, 0x73] // littlefs
+  const limit = Math.min(image.length - 8, 256 * 1024)
+  for (let i = 0; i < limit; i++) {
+    let ok = true
+    for (let j = 0; j < 8; j++) {
+      if (image[i + j] !== magic[j]) {
+        ok = false
+        break
+      }
     }
-  } catch {
-    return null
+    if (ok) return i
+  }
+  return null
+}
+
+/**
+ * Block sizes Zephyr may have used. Stock SPI_NOR_FLASH_LAYOUT_PAGE_SIZE is
+ * 65536; we pin packaged samples to 4096 (erase sector). Try both.
+ */
+function blockSizeCandidates(preferred?: number): number[] {
+  const out: number[] = []
+  for (const n of [preferred, 4096, 65536, 32768, 8192]) {
+    if (n && n > 0 && !out.includes(n)) out.push(n)
+  }
+  return out
+}
+
+/** Read-only block device over a flash image (0xff for out-of-range). */
+class ImageBlockDevice extends BlockDevice {
+  private readonly image: Uint8Array
+
+  constructor(image: Uint8Array, blockSize: number, readSize = 16, progSize = 16) {
+    super()
+    this.image = image
+    this.block_size = blockSize
+    this.block_count = Math.floor(image.length / blockSize)
+    this.read_size = readSize
+    this.prog_size = progSize
+  }
+
+  read(block: number, off: number, buffer: number, size: number): number {
+    const start = block * this.block_size + off
+    for (let i = 0; i < size; i++) {
+      const addr = start + i
+      LFSModule.HEAPU8[buffer + i] = addr >= 0 && addr < this.image.length ? this.image[addr]! : 0xff
+    }
+    return 0
+  }
+
+  prog(_block: number, _off: number, _buffer: number, _size: number): number {
+    return 0 // read-only browser
+  }
+
+  erase(_block: number): number {
+    return 0
   }
 }
 
-function buildTree(files: LittleFSParsedFile[]): LittlefsTreeDir {
-  const root: LittlefsTreeDir = { kind: 'dir', name: '/', path: '/', children: [] }
+/**
+ * Mount-and-list a LittleFS image with the real littlefs library.
+ * Returns `null` when the flash is blank; throws / returns `{ error }` details
+ * via the result object when mount fails on non-blank flash.
+ */
+export async function browseLittlefs(
+  image: Uint8Array,
+  opts: { blockSize?: number; readSize?: number; progSize?: number } = {},
+): Promise<LittlefsBrowseResult | null> {
+  if (image.length === 0 || isBlankFlash(image)) return null
 
-  const ensureDir = (parts: string[]): LittlefsTreeDir => {
-    let dir = root
-    let path = ''
-    for (const part of parts) {
-      path += `/${part}`
-      let child = dir.children.find((c): c is LittlefsTreeDir => c.kind === 'dir' && c.name === part)
-      if (!child) {
-        child = { kind: 'dir', name: part, path, children: [] }
-        dir.children.push(child)
-      }
-      dir = child
+  const magicAt = findLittlefsMagic(image)
+  let lastErr = magicAt === null ? 'no littlefs magic in image' : `mount failed (magic @ 0x${magicAt.toString(16)})`
+
+  for (const blockSize of blockSizeCandidates(opts.blockSize)) {
+    if (image.length < blockSize * 2 || image.length % blockSize !== 0) continue
+    const bd = new ImageBlockDevice(image, blockSize, opts.readSize ?? 16, opts.progSize ?? 16)
+    const lfs = new LFS(bd, 512)
+    const mountRc = await lfs.mount()
+    if (typeof mountRc === 'number' && mountRc < 0) {
+      lastErr = `lfs_mount(${blockSize}) → ${mountRc}`
+      continue
     }
-    return dir
+    try {
+      const files: Array<{ path: string; size: number; content: Uint8Array }> = []
+      const root = await walkDir(lfs, '/', files)
+      return {
+        superblock: { blockSize, blockCount: bd.block_count },
+        files,
+        root,
+      }
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : String(err)
+    } finally {
+      try {
+        await lfs.unmount()
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
-  for (const file of files) {
-    const segs = file.path.split('/').filter(Boolean)
-    if (segs.length === 0) continue
-    const name = segs[segs.length - 1]!
-    const parent = ensureDir(segs.slice(0, -1))
-    parent.children.push({
-      kind: 'file',
-      name,
-      path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-      size: file.size,
-      content: file.content,
-    })
+  return {
+    superblock: { blockSize: opts.blockSize ?? 4096, blockCount: 0 },
+    files: [],
+    root: { kind: 'dir', name: '/', path: '/', children: [] },
+    error: lastErr,
   }
+}
 
-  const sortNode = (node: LittlefsTreeDir) => {
-    node.children.sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
-    for (const c of node.children) if (c.kind === 'dir') sortNode(c)
+async function walkDir(
+  lfs: LFS,
+  path: string,
+  files: Array<{ path: string; size: number; content: Uint8Array }>,
+): Promise<LittlefsTreeDir> {
+  const name = path === '/' ? '/' : path.split('/').filter(Boolean).pop()!
+  const node: LittlefsTreeDir = { kind: 'dir', name, path, children: [] }
+  const dir = await lfs.opendir(path)
+  if (typeof dir === 'number') {
+    throw new Error(`opendir ${path} → ${dir}`)
   }
-  sortNode(root)
-  return root
+  try {
+    for (;;) {
+      const ent = (await dir.read()) as LFSInfo | null | number
+      if (ent === null || ent === undefined) break
+      if (typeof ent === 'number') {
+        if (ent < 0) throw new Error(`readdir ${path} → ${ent}`)
+        break
+      }
+      if (ent.name === '.' || ent.name === '..') continue
+      const childPath = path === '/' ? `/${ent.name}` : `${path}/${ent.name}`
+      if (ent.type === LFS_TYPE_DIR) {
+        node.children.push(await walkDir(lfs, childPath, files))
+      } else if (ent.type === LFS_TYPE_REG) {
+        const content = await readFile(lfs, childPath, ent.size)
+        files.push({ path: childPath, size: content.length, content })
+        node.children.push({
+          kind: 'file',
+          name: ent.name,
+          path: childPath,
+          size: content.length,
+          content,
+        })
+      }
+    }
+  } finally {
+    await dir.close()
+  }
+  node.children.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return node
+}
+
+async function readFile(lfs: LFS, path: string, hintSize: number): Promise<Uint8Array> {
+  const file = await lfs.open(path, LFS_O_RDONLY)
+  if (typeof file === 'number') throw new Error(`open ${path} → ${file}`)
+  try {
+    const size = hintSize > 0 ? hintSize : await file.size()
+    if (size <= 0) return new Uint8Array(0)
+    const data = await file.read(size)
+    if (typeof data === 'number') throw new Error(`read ${path} → ${data}`)
+    return data
+  } finally {
+    await file.close()
+  }
 }
 
 /** Decode file bytes as UTF-8 when printable; otherwise hex. */
-export function previewFileContent(bytes: Uint8Array, max = 512): { kind: 'text' | 'hex'; text: string } {
+export function previewFileContent(
+  bytes: Uint8Array,
+  max = 512,
+): { kind: 'text' | 'hex'; text: string } {
   const slice = bytes.length > max ? bytes.subarray(0, max) : bytes
   let printable = true
   for (let i = 0; i < slice.length; i++) {

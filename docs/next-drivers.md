@@ -360,8 +360,9 @@ kartben/zephyr#469; page model in [`spi.ts`](../src/virtio/devices/spi.ts);
 first chip is a W25Q-class stub
 ([`w25q.ts`](../src/virtio/devices/chips/w25q.ts)) packaged as
 `samples/drivers/spi_flash` and `samples/subsys/fs/littlefs` behind `-S virtio-spi`
-(storage partition + fstab `lfs1` → `/lfs`). Sparse `localStorage` persist and a
-dock **Filesystem** dialog (`partitions-tool-esp/littlefs`) browse the same image.
+(storage partition + fstab `lfs1` → `/lfs`, `SPI_NOR_FLASH_LAYOUT_PAGE_SIZE=4096`).
+Sparse `localStorage` persist and a dock **Filesystem** dialog (real littlefs via
+Dreagonmon littlefs-js) browse the same image.
 Roster rows on the bus panel navigate/blink to the dock card for that chip (same for I²C).
 
 **Rule for every new I²C part: model the registers.** Sensors and the PCF8523

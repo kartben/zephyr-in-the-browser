@@ -7,40 +7,75 @@
 
 import { useEffect, useState } from 'react'
 import { HardDrive } from 'lucide-react'
-import { generate } from 'partitions-tool-esp/littlefs'
-import { createDir, createFile } from 'partitions-tool-esp'
+import {
+  LFS,
+  LFS_O_CREAT,
+  LFS_O_TRUNC,
+  LFS_O_WRONLY,
+  MemoryBlockDevice,
+} from '@/vendor/littlefs-js/lfs_js.js'
 import { SpiFlashBody } from '@/components/MemoryCard'
 import { createW25q, W25Q_DEFAULT_SIZE } from '@/virtio/devices/chips/w25q'
 
-function seedFlash() {
-  const chip = createW25q({ cs: 0, size: W25Q_DEFAULT_SIZE })
-  const image = generate({
-    imageSize: W25Q_DEFAULT_SIZE,
-    blockSize: 4096,
-    readSize: 16,
-    progSize: 16,
-    source: createDir('root', [
-      createFile('boot_count', new Uint8Array([7, 0, 0, 0])),
-      createDir('cfg', [
-        createFile('note.txt', new TextEncoder().encode('hello from /lfs\n')),
-        createFile('banner', new TextEncoder().encode('Zephyr LittleFS\n')),
-      ]),
-      createFile('README', new TextEncoder().encode('Persists across reload via sparse W25Q sectors.\n')),
-    ]),
-  })
-  chip.memory.set(image.subarray(0, Math.min(image.length, chip.memory.length)))
-  // Nudge subscribers so HexPreview / dialog refresh once.
-  chip.poke(0, chip.memory[0]!)
-  return chip
+async function seedFlashImage(): Promise<Uint8Array> {
+  const block = 4096
+  const count = W25Q_DEFAULT_SIZE / block
+  const bdev = new MemoryBlockDevice(block, count)
+  bdev.read_size = 16
+  bdev.prog_size = 16
+  const lfs = new LFS(bdev, 512)
+  await lfs.format()
+  await lfs.mount()
+
+  const write = async (path: string, data: Uint8Array) => {
+    const file = await lfs.open(path, LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC)
+    if (typeof file === 'number') throw new Error(`open ${path} → ${file}`)
+    await file.write(data)
+    await file.close()
+  }
+
+  await write('/boot_count', new Uint8Array([7, 0, 0, 0]))
+  await lfs.mkdir('/cfg')
+  await write('/cfg/note.txt', new TextEncoder().encode('hello from /lfs\n'))
+  await write('/cfg/banner', new TextEncoder().encode('Zephyr LittleFS\n'))
+  await write(
+    '/README',
+    new TextEncoder().encode('Persists across reload via sparse W25Q sectors.\n'),
+  )
+  await lfs.unmount()
+
+  const image = new Uint8Array(W25Q_DEFAULT_SIZE).fill(0xff)
+  for (let i = 0; i < bdev._storage.length; i++) {
+    const sector = bdev._storage[i]
+    if (sector) image.set(sector, i * block)
+  }
+  return image
 }
 
-const flash = seedFlash()
+const flash = createW25q({ cs: 0, size: W25Q_DEFAULT_SIZE })
+let seeded = false
 
 export function LittlefsPreview() {
+  const [ready, setReady] = useState(seeded)
   const [openOnce] = useState(true)
 
   useEffect(() => {
-    if (!openOnce) return
+    if (seeded) return
+    let cancelled = false
+    void seedFlashImage().then((image) => {
+      if (cancelled) return
+      flash.memory.set(image)
+      flash.poke(0, flash.memory[0]!)
+      seeded = true
+      setReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!openOnce || !ready) return
     const id = window.setTimeout(() => {
       const link = [...document.querySelectorAll('button')].find((b) =>
         /^Filesystem$/i.test((b.textContent || '').trim()),
@@ -49,12 +84,12 @@ export function LittlefsPreview() {
       window.setTimeout(() => {
         const fileBtn = [...document.querySelectorAll('[role="dialog"] button')].find((b) =>
           (b.textContent || '').includes('boot_count'),
-        )
+        ) as HTMLButtonElement | undefined
         fileBtn?.click()
-      }, 350)
-    }, 300)
+      }, 500)
+    }, 400)
     return () => window.clearTimeout(id)
-  }, [openOnce])
+  }, [openOnce, ready])
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -74,7 +109,7 @@ export function LittlefsPreview() {
           <p className="max-w-xl text-sm text-muted-foreground">
             The W25Q card’s hex dump plus a{' '}
             <span className="text-foreground">Filesystem</span> dialog that mounts the same
-            bytes with <code className="font-mono text-foreground">partitions-tool-esp/littlefs</code>.
+            bytes with real littlefs (Dreagonmon littlefs-js).
           </p>
         </header>
 
