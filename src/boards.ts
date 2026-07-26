@@ -575,14 +575,14 @@ export const BOARDS: Board[] = [
       // TypeScript file rather than an emulator rebuild.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
-      // SPI: a VIRTIO SPI controller (device id 45) on slot 5. One request
-      // queue. `config` is struct virtio_spi_config — 4 chip-selects,
-      // cs_change supported, single-lane only, 8-bit words (mask bit 7),
-      // SPI modes 0–3, 50 MHz max, no timing limits. Seeded here so the
-      // guest can read it before the page attaches.
-      '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
-        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
+      // SPI (virtio-mmio slot 5, device-id 45) is intentionally omitted until
+      // the published emulator ships the VIRTIO_ID_SPI backport in
+      // tools/qemu-jit-patches/0013-*. QEMU v10.1.0's virtio_device_names only
+      // goes to GPIO (41); realizing device-id=45 aborts in virtio_id_to_name
+      // and takes down every guest on this board. Re-add with:
+      // '-device',
+      // 'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+      //   'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],
@@ -625,9 +625,12 @@ export const BOARDS: Board[] = [
       '-m',
       '256',
       // Matches Zephyr boards/qemu/riscv32/board.cmake + qemu_riscv32_defconfig
-      // (CONFIG_RISCV_PMP=y → pmp=on,u=on).
+      // (CONFIG_RISCV_PMP=y → pmp=on,u=on). QEMU v10.1 bare CPUs (rv32i)
+      // warn and default to satp=bare when no mode is set; Zephyr's stock
+      // qemu_riscv32 is PMP/M-mode only (no CONFIG_RISCV_MMU), so pin
+      // sv32=off explicitly to select bare without the warning.
       '-cpu',
-      'rv32i,i=on,m=on,a=on,f=on,d=on,c=on,zicsr=on,zifencei=on,pmp=on,u=on',
+      'rv32i,i=on,m=on,a=on,f=on,d=on,c=on,zicsr=on,zifencei=on,pmp=on,u=on,sv32=off',
       '-device',
       'ramfb',
       '-vga',
@@ -647,14 +650,12 @@ export const BOARDS: Board[] = [
         'queues=2,features=0x1,config=0800000000000000',
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
-      // SPI: a VIRTIO SPI controller (device id 45) on slot 5. One request
-      // queue. `config` is struct virtio_spi_config — 4 chip-selects,
-      // cs_change supported, single-lane only, 8-bit words (mask bit 7),
-      // SPI modes 0–3, 50 MHz max, no timing limits. Seeded here so the
-      // guest can read it before the page attaches.
-      '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
-        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
+      // SPI (slot 5, device-id 45) omitted until the published emulator includes
+      // tools/qemu-riscv-patches/0011-* (VIRTIO_ID_SPI backport). Same abort as
+      // on A53 — see the qemu_cortex_a53 comment above. Re-add with:
+      // '-device',
+      // 'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+      //   'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
       '-kernel',
       '/pack/zephyr.elf',
     ],
