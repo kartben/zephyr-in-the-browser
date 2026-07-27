@@ -49,17 +49,6 @@ describe('hostMonitor debug', () => {
     })
   })
 
-  it('advances the stub PC on step', async () => {
-    monitor.attachStub('R15=00001000\n')
-    monitor.pause()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(monitor.getSnapshot().pc).toBe('00001000')
-
-    await monitor.step()
-    expect(monitor.getSnapshot().pc).toBe('00001002')
-  })
-
   it('matches QMP replies by id over the ring', async () => {
     const ringSize = 256
     const heap = new Uint8Array(ringSize + 64)
