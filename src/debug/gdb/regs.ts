@@ -117,8 +117,17 @@ function decodeRiscv32(bytes: Uint8Array): RegView {
 /** Map board.arch strings onto a gdb register layout. */
 export function archFromBoard(arch: string): GdbArch {
   const a = arch.toLowerCase()
-  if (a.includes('aarch64') || a.includes('arm64')) return 'aarch64'
-  if (a.includes('riscv')) return 'riscv32'
+  // boards.ts uses "ARMv8-A" for Cortex-A53 — not the string "aarch64".
+  if (
+    a.includes('aarch64') ||
+    a.includes('arm64') ||
+    a.includes('armv8') ||
+    a.includes('cortex-a')
+  ) {
+    return 'aarch64'
+  }
+  // boards.ts uses "RV32IMAFDC" for qemu_riscv32.
+  if (a.includes('riscv') || a.startsWith('rv32') || a.startsWith('rv64')) return 'riscv32'
   return 'arm'
 }
 
