@@ -134,11 +134,24 @@ build_one() {
 
   log "Building $id ($sample) for $board"
   if [ -n "${ZEPHYR_NATIVE:-}" ]; then
+    # Drop a prior *container* cache: its absolute paths are /out and /workdir,
+    # which west's pristine step cannot resolve on the host.
+    if [ -f "$work/build/CMakeCache.txt" ] &&
+       grep -qE '(/out/build|/workdir/)' "$work/build/CMakeCache.txt"; then
+      rm -rf "$work/build"
+    fi
     # Same command string the container path hands to bash -lc, with the build
     # directory reachable directly; eval applies the quoting it carries.
     local build_cmd="west build -p always -b '$board'$snippet_args '$src' -d '$work/build' -- $cmake_args"
     (cd "$ZEPHYR_WS" && eval "$build_cmd")
   else
+    # Drop a prior *native* cache: west -p always re-runs pristine.cmake using
+    # host absolute paths from CMakeCache, which do not exist inside the
+    # container (CMake Error: Not a file: /Users/.../pristine.cmake).
+    if [ -f "$work/build/CMakeCache.txt" ] &&
+       ! grep -q '/out/build' "$work/build/CMakeCache.txt"; then
+      rm -rf "$work/build"
+    fi
     docker run --rm \
       -v "$ZEPHYR_WS:/workdir" \
       -v "$work:/out" \
