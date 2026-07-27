@@ -374,7 +374,8 @@ an idle timeline.
 | `src/virtio/devices/chips/mcp2515.ts` | SPI register file, buffers, filters, INT |
 | `src/virtio/devices/chips/maps/mcp2515.json` | register map for the Registers dialog |
 | `src/hostCan.ts` | the only module that knows both sides, plus the INT pin |
-| `src/components/CanPanel.tsx` | roster, add, send, traffic |
+| `src/components/CanPanel.tsx` | roster, add, send, arbitration lanes, traffic |
+| `src/components/CanArbitrationLanes.ts` | lane model + canvas paint for the strip |
 | `zephyr-module/snippets/mcp2515-only/` | overlay: chip on cs0, INT on gpio 8, chosen canbus |
 | `zephyr-module/conf/mcp2515.conf` | `CAN` + `CAN_MCP2515` + SPI/GPIO |
 
