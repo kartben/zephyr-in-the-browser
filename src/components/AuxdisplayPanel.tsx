@@ -31,33 +31,43 @@ import {
 
 const UI_MS = 100
 
-/** Dot pitch inside an LCD cell — 5×8 CGROM at 2×. */
-const LCD_DOT = 2
+/**
+ * JHD1313 FP-RGB mechanical (datasheet §2): character is a 5×8 CGROM field
+ * (5×7 glyph + cursor row) at 2.95×4.35 mm; character pitch 3.65×5.05 mm.
+ * Cell = exact 5×8 dot grid so ink fills the background rectangle.
+ */
+const LCD_DOT_PX = 3
+const LCD_CELL_W = HD44780_GLYPH_W * LCD_DOT_PX
+const LCD_CELL_H = HD44780_GLYPH_H * LCD_DOT_PX
+/** Inter-character gap ≈ (pitch − size): 0.7/2.95 · cellW, 0.7/4.35 · cellH. */
+const LCD_GAP_X = Math.max(1, Math.round((0.7 / 2.95) * LCD_CELL_W))
+const LCD_GAP_Y = Math.max(1, Math.round((0.7 / 4.35) * LCD_CELL_H))
+const LCD_PAD_X = 10
+const LCD_PAD_Y = 8
 
 /**
- * Paint one HD44780 CGROM glyph as discrete LCD dots (no canvas text AA).
+ * Paint one HD44780 CGROM glyph flush to the cell — each of the 5×8 dots
+ * owns an equal tile of the background rectangle (no inset / centering).
  */
 function paintLcdGlyph(
   ctx: CanvasRenderingContext2D,
   ch: number,
   cellX: number,
   cellY: number,
-  cellW: number,
-  cellH: number,
 ) {
   if (ch < 0x20 || ch > 0x7f) return
   const rows = HD44780_GLYPHS[ch - 0x20]
   if (!rows) return
-  const glyphPxW = HD44780_GLYPH_W * LCD_DOT
-  const glyphPxH = HD44780_GLYPH_H * LCD_DOT
-  const ox = cellX + Math.floor((cellW - glyphPxW) / 2)
-  const oy = cellY + Math.floor((cellH - glyphPxH) / 2)
   for (let r = 0; r < HD44780_GLYPH_H; r++) {
     const bits = rows[r] ?? 0
     for (let c = 0; c < HD44780_GLYPH_W; c++) {
       if (bits & (0x80 >> c)) {
-        // Solid 2×2 blocks — hairline gaps vanish under CSS scale and kill contrast.
-        ctx.fillRect(ox + c * LCD_DOT, oy + r * LCD_DOT, LCD_DOT, LCD_DOT)
+        ctx.fillRect(
+          cellX + c * LCD_DOT_PX,
+          cellY + r * LCD_DOT_PX,
+          LCD_DOT_PX,
+          LCD_DOT_PX,
+        )
       }
     }
   }
@@ -182,16 +192,18 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
     let blinkPhase = false
     let blinkTimer: ReturnType<typeof setInterval> | undefined
 
-    const cellW = vfd ? 10 : 12
-    const cellH = vfd ? 16 : 18
-    const padX = vfd ? 14 : 10
-    const padY = vfd ? 12 : 8
-    const gapX = vfd ? 3 : 2
-    const gapY = vfd ? 6 : 4
+    const cellW = vfd ? 10 : LCD_CELL_W
+    const cellH = vfd ? 16 : LCD_CELL_H
+    const padX = vfd ? 14 : LCD_PAD_X
+    const padY = vfd ? 12 : LCD_PAD_Y
+    const gapX = vfd ? 3 : LCD_GAP_X
+    const gapY = vfd ? 6 : LCD_GAP_Y
     const width = padX * 2 + chip.columns * cellW + (chip.columns - 1) * gapX
     const height = padY * 2 + chip.rows * cellH + (chip.rows - 1) * gapY
     canvas.width = width
     canvas.height = height
+    // Keep CSS box in lockstep with the bitmap so pixelated scale stays square.
+    canvas.style.aspectRatio = `${width} / ${height}`
 
     const paint = () => {
       frame = 0
@@ -301,12 +313,13 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
 
           const ch = chip.cells[row * chip.columns + col] ?? 0x20
           ctx.fillStyle = ink
-          paintLcdGlyph(ctx, ch, x, y, cellW, cellH)
+          paintLcdGlyph(ctx, ch, x, y)
 
           const atCursor = state.cursorColumn === col && state.cursorRow === row
           if (on && state.cursor && atCursor && (!state.blinking || blinkPhase)) {
+            // HD44780 cursor occupies the bottom (8th) CGROM row.
             ctx.fillStyle = ink
-            ctx.fillRect(x + 1, y + cellH - 3, cellW - 2, 2)
+            ctx.fillRect(x, y + (HD44780_GLYPH_H - 1) * LCD_DOT_PX, cellW, LCD_DOT_PX)
           }
         }
       }
@@ -340,8 +353,9 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       className="w-full rounded border border-border"
       style={{
         imageRendering: vfd ? 'auto' : 'pixelated',
-        aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}`,
-        ...(vfd ? { background: '#05070a' } : null),
+        ...(vfd
+          ? { background: '#05070a', aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}` }
+          : null),
       }}
     />
   )
