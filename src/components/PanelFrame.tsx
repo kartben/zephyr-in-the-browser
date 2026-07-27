@@ -7,6 +7,8 @@ import { loadPanelLayout, savePanelLayout, type PanelBox } from '@/lib/panelLayo
 
 /** 1rem in CSS px, matching the Tailwind default so rem widths convert cleanly. */
 const REM = 16
+/** Approx. height of a collapsed floating header (py-2 + controls). */
+const FLOATING_HEADER_H = 40
 
 interface PanelFrameProps {
   /**
@@ -91,12 +93,27 @@ export function PanelFrame({
     return clampBox(seedBox(dockedWidth, seedHeight, side))
   })
 
-  const { dragHandlers, resizeHandlers } = useDragResize(rect, setRect)
+  // Collapsed floaters are header-tall; clamp Y against that so they can sit
+  // near the bottom. Full rect.h is preserved for expand.
+  const { dragHandlers, resizeHandlers } = useDragResize(
+    rect,
+    setRect,
+    collapsed ? { visibleHeight: FLOATING_HEADER_H } : undefined,
+  )
 
   // Persist only the floating layout; collapse/dismiss stay session-only.
   useEffect(() => {
     savePanelLayout(id, { floating, rect })
   }, [id, floating, rect])
+
+  const setCollapsedSafe = (next: boolean | ((c: boolean) => boolean)) => {
+    const collapsedNext = typeof next === 'function' ? next(collapsed) : next
+    // Expanding after a low drag: push up so the restored body fits.
+    if (collapsed && !collapsedNext && rect) {
+      setRect(clampBox(rect))
+    }
+    setCollapsed(collapsedNext)
+  }
 
   const undock = () => {
     // Seed a box from the docked width, popping out near this panel's own edge
@@ -141,7 +158,7 @@ export function PanelFrame({
           // Undocked windows: title-bar double-click toggles collapse (OS-like).
           if (!floating) return
           if (event.target instanceof Element && event.target.closest('button')) return
-          setCollapsed((c) => !c)
+          setCollapsedSafe((c) => !c)
         }}
         className={cn(
           'flex items-center gap-2 px-3 py-2 outline-none',
@@ -176,7 +193,7 @@ export function PanelFrame({
             className="size-6"
             aria-label={collapsed ? `Expand ${title} panel` : `Collapse ${title} panel`}
             aria-expanded={!collapsed}
-            onClick={() => setCollapsed((c) => !c)}
+            onClick={() => setCollapsedSafe((c) => !c)}
           >
             <ChevronDown className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')} />
           </Button>

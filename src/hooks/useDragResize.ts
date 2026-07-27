@@ -13,12 +13,22 @@ import type { PanelBox } from '@/lib/panelLayout'
 const MIN_W = 192 // 12rem
 const MIN_H = 96 // 6rem
 
+export type ClampBoxOpts = {
+  /**
+   * Height used only for vertical viewport clamping (e.g. a collapsed
+   * header). Stored `box.h` is left alone so expand can restore full size.
+   */
+  visibleHeight?: number
+}
+
 /** Keep a box at least MIN sized and fully inside the viewport. */
-export function clampBox(box: PanelBox): PanelBox {
+export function clampBox(box: PanelBox, opts?: ClampBoxOpts): PanelBox {
   const w = Math.max(MIN_W, Math.round(box.w))
   const h = Math.max(MIN_H, Math.round(box.h))
+  const clampH =
+    opts?.visibleHeight != null ? Math.max(1, Math.round(opts.visibleHeight)) : h
   const maxX = Math.max(0, window.innerWidth - w)
-  const maxY = Math.max(0, window.innerHeight - h)
+  const maxY = Math.max(0, window.innerHeight - clampH)
   return {
     w,
     h,
@@ -29,18 +39,22 @@ export function clampBox(box: PanelBox): PanelBox {
 
 type Gesture = { pointerX: number; pointerY: number; box: PanelBox; mode: 'move' | 'resize' }
 
-export function useDragResize(rect: PanelBox | null, onChange: (box: PanelBox) => void) {
+export function useDragResize(
+  rect: PanelBox | null,
+  onChange: (box: PanelBox) => void,
+  opts?: ClampBoxOpts,
+) {
   const gesture = useRef<Gesture | null>(null)
   // The window-resize listener is registered once; this ref keeps the freshest
   // rect/onChange reachable from it without re-subscribing on every change.
-  const latest = useRef({ rect, onChange })
-  latest.current = { rect, onChange }
+  const latest = useRef({ rect, onChange, opts })
+  latest.current = { rect, onChange, opts }
 
   // A shrinking viewport must not strand a floating panel off-screen.
   useEffect(() => {
     const onResize = () => {
-      const { rect: current, onChange: update } = latest.current
-      if (current) update(clampBox(current))
+      const { rect: current, onChange: update, opts: clampOpts } = latest.current
+      if (current) update(clampBox(current, clampOpts))
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -73,7 +87,10 @@ export function useDragResize(rect: PanelBox | null, onChange: (box: PanelBox) =
       g.mode === 'move'
         ? { ...g.box, x: g.box.x + dx, y: g.box.y + dy }
         : { ...g.box, w: g.box.w + dx, h: g.box.h + dy }
-    latest.current.onChange(clampBox(next))
+    // Resize always clamps against the live box height; move may use a
+    // shorter visibleHeight (collapsed header) so the strip can sit lower.
+    const clampOpts = g.mode === 'move' ? latest.current.opts : undefined
+    latest.current.onChange(clampBox(next, clampOpts))
   }, [])
 
   const end = useCallback((event: ReactPointerEvent) => {
