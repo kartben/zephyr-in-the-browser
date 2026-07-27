@@ -17,7 +17,8 @@
 
 import type { SpiChip, SpiTransferOpts } from '../spi'
 import { registersFromJson, type RegisterMapJson } from '../registers'
-import type { RegisterDecl } from '../registers/types'
+import { insertField } from '../registers/fields'
+import type { FieldDecl, RegisterDecl } from '../registers/types'
 import type { CanFrame, CanReceipt } from '@/can/bus'
 import mcp2515Map from './maps/mcp2515.json'
 
@@ -73,6 +74,7 @@ const CANCTRL_RESET = 0x87
 const REGS = 128
 
 const MCP2515_REGISTERS = registersFromJson(mcp2515Map as RegisterMapJson)
+const REGISTERS_BY_ADDR = new Map(MCP2515_REGISTERS.map((r) => [r.addr, r]))
 
 export interface Mcp2515Options {
   cs?: number
@@ -90,13 +92,19 @@ export interface Mcp2515Hooks {
 
 export interface Mcp2515Chip extends SpiChip {
   readonly kind: 'can'
+  /** Chip-select, also used as {@link RegisterMapSource.address}. */
+  readonly address: number
+  readonly registers: readonly RegisterDecl[]
+  peek(addr: number): number
+  getPointer(): number
+  poke(addr: number, value: number): void
+  setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   /**
    * Wire the sideband after construction. The attach picker builds a bare
    * chip — `devices/` must not reach into host modules — and `hostCan.ts`
    * wires it when it sees one land on the bus.
    */
   setHooks(hooks: Mcp2515Hooks): void
-  readonly registers: readonly RegisterDecl[]
   readBytes(addr: number, len: number): Uint8Array
   writeBytes(addr: number, bytes: Uint8Array): void
   /**
@@ -109,12 +117,32 @@ export interface Mcp2515Chip extends SpiChip {
   subscribe(fn: () => void): () => void
 }
 
+/**
+ * A command still open across SPI transfers. Real silicon is a byte-stream
+ * device: the opcode (and address, for the register-file commands) latches
+ * an internal pointer, and every clocked byte after that reads or writes the
+ * pointed-at register and advances it — regardless of how the bytes are
+ * chunked into transfers. Zephyr's `spi_context` splits a multi-`spi_buf`
+ * message at segment boundaries (see `spi_virtio_transceive`), so the opcode
+ * and the data phase of a READ/WRITE/LOAD_TX/READ_RX often arrive as two
+ * separate {@link SpiChip.transfer} calls with chip select held low between
+ * them. `pending` is what carries the address pointer across that boundary.
+ */
+type Pending =
+  | { op: 'read' | 'write' | 'load-tx'; addr: number }
+  | { op: 'read-rx'; addr: number; buffer: 0 | 1 }
+  | { op: 'read-status' }
+  | { op: 'rx-status' }
+
 export function createMcp2515(opts: Mcp2515Options = {}): Mcp2515Chip {
   const cs = opts.cs ?? 0
   const hooks: Mcp2515Hooks = { onInt: opts.onInt, onTransmit: opts.onTransmit }
   const regs = new Uint8Array(REGS)
   const listeners = new Set<() => void>()
   let int = false
+  let pending: Pending | null = null
+  /** Last address the byte stream touched — what the Registers dialog rings. */
+  let pointer = 0
 
   function notify() {
     for (const fn of listeners) fn()
@@ -126,6 +154,7 @@ export function createMcp2515(opts: Mcp2515Options = {}): Mcp2515Chip {
     // OPMOD mirrors REQOP; after reset that is configuration mode.
     regs[REG_CANSTAT] = MODE_CONFIG << 5
     setInt(false)
+    pending = null
   }
 
   function setInt(next: boolean) {
@@ -308,87 +337,131 @@ export function createMcp2515(opts: Mcp2515Options = {}): Mcp2515Chip {
     cs,
     kind: 'can',
     name: opts.name ?? 'MCP2515 CAN',
+    address: cs,
     registers: MCP2515_REGISTERS,
 
-    transfer(tx: Uint8Array, rx: Uint8Array, _opts: SpiTransferOpts) {
+    peek(addr) {
+      return readReg(addr)
+    },
+    getPointer() {
+      return pointer
+    },
+    poke(addr, value) {
+      if (REGISTERS_BY_ADDR.get(addr)?.access === 'ro') return
+      writeReg(addr, value)
+    },
+    setField(addr, field, value) {
+      if (REGISTERS_BY_ADDR.get(addr)?.access === 'ro') return
+      writeReg(addr, insertField(readReg(addr), field, value))
+    },
+
+    transfer(tx: Uint8Array, rx: Uint8Array, spiOpts: SpiTransferOpts) {
       rx.fill(0)
-      if (tx.length === 0) return true
-      const cmd = tx[0]!
-
-      if (cmd === CMD_RESET) {
-        reset()
-        notify()
+      if (tx.length === 0) {
+        if (spiOpts.csChange) pending = null
         return true
       }
 
-      if (cmd === CMD_READ) {
-        const addr = tx[1] ?? 0
-        for (let i = 2; i < rx.length; i++) rx[i] = readReg(addr + (i - 2))
-        return true
-      }
+      let i = 0
 
-      if (cmd === CMD_WRITE) {
-        const addr = tx[1] ?? 0
-        for (let i = 2; i < tx.length; i++) writeReg(addr + (i - 2), tx[i]!)
-        return true
-      }
+      // A held chip select mid-command means every byte in this call is a
+      // continuation of `pending`, with no opcode to (re-)parse.
+      if (!pending) {
+        const cmd = tx[i++]!
 
-      if (cmd === CMD_BIT_MODIFY) {
-        const addr = tx[1] ?? 0
-        const mask = tx[2] ?? 0
-        const data = tx[3] ?? 0
-        writeReg(addr, (readReg(addr) & ~mask) | (data & mask))
-        return true
-      }
-
-      if (cmd === CMD_READ_STATUS) {
-        for (let i = 1; i < rx.length; i++) rx[i] = statusByte()
-        return true
-      }
-
-      if (cmd === CMD_RX_STATUS) {
-        for (let i = 1; i < rx.length; i++) rx[i] = rxStatusByte()
-        return true
-      }
-
-      if ((cmd & 0xf8) === CMD_LOAD_TX) {
-        // abc: bit 0 selects D0 over SIDH, bits 2:1 select the buffer.
-        const abc = cmd & 0x07
-        const buffer = abc >> 1
-        const base = TXB_BASE[Math.min(buffer, 2)]!
-        const addr = (abc & 1) === 0 ? base + 1 : base + 6
-        for (let i = 1; i < tx.length; i++) {
-          const target = addr + (i - 1)
-          if (target < REGS) regs[target] = tx[i]!
+        if (cmd === CMD_RESET) {
+          reset()
+          notify()
+          return true
+        } else if (cmd === CMD_READ) {
+          pending = { op: 'read', addr: tx[i++] ?? 0 }
+        } else if (cmd === CMD_WRITE) {
+          pending = { op: 'write', addr: tx[i++] ?? 0 }
+        } else if (cmd === CMD_BIT_MODIFY) {
+          // Always a single 4-byte transfer on real silicon — no data phase
+          // to defer, so this never needs `pending`.
+          const addr = tx[i++] ?? 0
+          const mask = tx[i++] ?? 0
+          const data = tx[i++] ?? 0
+          pointer = addr
+          writeReg(addr, (readReg(addr) & ~mask) | (data & mask))
+          if (spiOpts.csChange) pending = null
+          return true
+        } else if (cmd === CMD_READ_STATUS) {
+          pending = { op: 'read-status' }
+        } else if (cmd === CMD_RX_STATUS) {
+          pending = { op: 'rx-status' }
+        } else if ((cmd & 0xf8) === CMD_LOAD_TX) {
+          // abc: bit 0 selects D0 over SIDH, bits 2:1 select the buffer.
+          const abc = cmd & 0x07
+          const buffer = abc >> 1
+          const base = TXB_BASE[Math.min(buffer, 2)]!
+          pending = { op: 'load-tx', addr: (abc & 1) === 0 ? base + 1 : base + 6 }
+        } else if ((cmd & 0xf8) === CMD_RTS) {
+          const mask = cmd & 0x07
+          for (let n = 0; n < 3; n++) {
+            if ((mask & (1 << n)) === 0) continue
+            regs[TXB_BASE[n]!] = regs[TXB_BASE[n]!]! | TXB_CTRL_TXREQ
+            requestSend(n)
+          }
+          if (spiOpts.csChange) pending = null
+          return true
+        } else if ((cmd & 0xf9) === CMD_READ_RX) {
+          const nm = (cmd >> 1) & 0x03
+          const buffer = (nm >> 1) as 0 | 1
+          const base = RXB_BASE[Math.min(buffer, 1)]!
+          pending = { op: 'read-rx', addr: (nm & 1) === 0 ? base + 1 : base + 6, buffer }
+          // Real silicon clears the flag as soon as the command latches, not
+          // after the bytes stream out — do it here so a command with no
+          // data phase at all still drains it.
+          regs[REG_CANINTF] = regs[REG_CANINTF]! & ~(buffer === 0 ? INTF_RX0 : INTF_RX1)
+          refreshInt()
+        } else {
+          // Unrecognised opcode: no data phase to defer.
+          if (spiOpts.csChange) pending = null
+          return true
         }
-        notify()
-        return true
       }
 
-      if ((cmd & 0xf8) === CMD_RTS) {
-        const mask = cmd & 0x07
-        for (let n = 0; n < 3; n++) {
-          if ((mask & (1 << n)) === 0) continue
-          regs[TXB_BASE[n]!] = regs[TXB_BASE[n]!]! | TXB_CTRL_TXREQ
-          requestSend(n)
+      let loadedTx = false
+      for (; i < tx.length; i++) {
+        switch (pending.op) {
+          case 'read':
+            pointer = pending.addr
+            rx[i] = readReg(pending.addr)
+            pending.addr = (pending.addr + 1) & 0x7f
+            break
+          case 'write':
+            // `writeReg` notifies on every path (CANCTRL's mirror, INTF/INTE,
+            // TXREQ, or the plain fallthrough) — nothing to add here.
+            pointer = pending.addr
+            writeReg(pending.addr, tx[i]!)
+            pending.addr = (pending.addr + 1) & 0x7f
+            break
+          case 'load-tx':
+            // Raw buffer bytes, deliberately bypassing writeReg's side
+            // effects — matches the original LOAD_TX handler.
+            pointer = pending.addr
+            if (pending.addr < REGS) regs[pending.addr] = tx[i]!
+            pending.addr++
+            loadedTx = true
+            break
+          case 'read-rx':
+            pointer = pending.addr
+            rx[i] = readReg(pending.addr)
+            pending.addr++
+            break
+          case 'read-status':
+            rx[i] = statusByte()
+            break
+          case 'rx-status':
+            rx[i] = rxStatusByte()
+            break
         }
-        return true
       }
+      if (loadedTx) notify()
 
-      if ((cmd & 0xf9) === CMD_READ_RX) {
-        const nm = (cmd >> 1) & 0x03
-        const buffer = nm >> 1
-        const base = RXB_BASE[Math.min(buffer, 1)]!
-        const addr = (nm & 1) === 0 ? base + 1 : base + 6
-        for (let i = 1; i < rx.length; i++) rx[i] = readReg(addr + (i - 1))
-        // Reading a buffer out clears its flag, exactly as the fast command
-        // does on silicon — that is the point of using it over a plain READ.
-        regs[REG_CANINTF] = regs[REG_CANINTF]! & ~(buffer === 0 ? INTF_RX0 : INTF_RX1)
-        refreshInt()
-        notify()
-        return true
-      }
-
+      if (spiOpts.csChange) pending = null
       return true
     },
 

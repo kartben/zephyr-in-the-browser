@@ -6,12 +6,15 @@ import {
   LOCAL_NODE,
   addNode,
   canBus,
+  canChip,
   recover,
   removeNode,
   sendAs,
 } from '@/hostCan'
 import { nodeType } from '@/can/nodes'
 import type { CanLogEntry, CanNodeSnapshot, CanState } from '@/can/bus'
+import type { Mcp2515Chip } from '@/virtio/devices/chips/mcp2515'
+import { RegisterMapButton } from './RegisterMap'
 
 /**
  * The CAN bus, as a workbench — the same three sections as {@link ./I2cPanel},
@@ -46,7 +49,10 @@ export function CanBody() {
     bus.log,
     useCallback(() => [] as readonly CanLogEntry[], []),
   )
-  return <CanView nodes={nodes} log={log} onClear={bus.clearLog} />
+  // `canChip()` changes exactly when a node does (wire/unwire attach or
+  // detach the local node together), so this stays in sync off the same
+  // subscription without a separate one.
+  return <CanView nodes={nodes} log={log} onClear={bus.clearLog} chip={canChip()} />
 }
 
 /**
@@ -59,10 +65,13 @@ export function CanView({
   nodes,
   log,
   onClear,
+  chip,
 }: {
   nodes: readonly CanNodeSnapshot[]
   log: readonly CanLogEntry[]
   onClear?: () => void
+  /** The local controller, for the roster row's Registers link. */
+  chip?: Mcp2515Chip | null
 }) {
   const local = nodes.find((n) => n.local)
   const recent = log.slice(-8).reverse()
@@ -76,7 +85,7 @@ export function CanView({
             <li className="text-[11px] text-muted-foreground">Nothing attached.</li>
           )}
           {nodes.map((node) => (
-            <NodeRow key={node.id} node={node} />
+            <NodeRow key={node.id} node={node} chip={node.local ? chip : undefined} />
           ))}
         </ul>
       </div>
@@ -133,7 +142,7 @@ const STATE_TITLE: Record<CanState, string> = {
   'bus-off': 'Transmit errors reached 256. Off the bus until recovery.',
 }
 
-function NodeRow({ node }: { node: CanNodeSnapshot }) {
+function NodeRow({ node, chip }: { node: CanNodeSnapshot; chip?: Mcp2515Chip | null }) {
   return (
     <li
       className={cn(
@@ -155,9 +164,12 @@ function NodeRow({ node }: { node: CanNodeSnapshot }) {
             {node.state}
           </span>
         </div>
-        <span className="truncate font-mono text-[10px] tabular-nums text-muted-foreground">
-          {node.summary}
-        </span>
+        <div className="flex items-baseline gap-2">
+          <span className="truncate font-mono text-[10px] tabular-nums text-muted-foreground">
+            {node.summary}
+          </span>
+          {chip && <RegisterMapButton chip={chip} />}
+        </div>
       </div>
       {node.local ? (
         <span className="size-[18px] shrink-0" />
