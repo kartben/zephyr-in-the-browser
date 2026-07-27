@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CAN bus dock mockup (from real styles)</title>
+    <link
+      href="https://cdn.jsdelivr.net/fontsource/fonts/jetbrains-mono:vf@latest/latin-wght-normal.woff2"
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <style>
+      /* Tokens copied from src/index.css :root (dark default). */
+      :root {
+        --background: oklch(0.15 0.004 285.8);
+        --foreground: oklch(0.92 0.004 286.3);
+        --muted: oklch(0.21 0.006 285.9);
+        --muted-foreground: oklch(0.65 0.011 286.1);
+        --card: oklch(0.18 0.005 285.8);
+        --border: oklch(0.27 0.007 286);
+        --input: oklch(0.27 0.007 286);
+        --primary: oklch(0.62 0.19 292);
+        --secondary: oklch(0.24 0.006 286);
+        --destructive: oklch(0.62 0.21 25.5);
+        --success: oklch(0.7 0.16 152);
+        --warning: oklch(0.77 0.15 78);
+        --radius: 0.5rem;
+        --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; border-color: var(--border); }
+      body {
+        margin: 0;
+        background: #0a0a0c;
+        color: var(--foreground);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 40px;
+      }
+      .stage {
+        width: 380px;
+        margin: 24px auto 8px;
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .caption {
+        width: 380px;
+        margin: 0 auto 8px;
+        color: #888;
+        font: 11px/1.4 var(--font-mono);
+      }
+      .caption b { color: #bbb; font-weight: 500; }
+
+      /* Dock row chrome — DockRow.tsx */
+      .row-head { display: flex; min-height: 28px; align-items: center; gap: 4px; padding-right: 6px; }
+      .row-btn { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; border-radius: 6px; padding: 4px 0 4px 4px; }
+      .chev { width: 12px; height: 12px; color: color-mix(in oklch, var(--muted-foreground) 70%, transparent); transform: rotate(90deg); flex-shrink: 0; }
+      .chev.closed { transform: none; }
+      .icon { width: 14px; height: 14px; color: var(--primary); flex-shrink: 0; }
+      .name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .crumb { font-family: var(--font-mono); font-size: 10px; color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .badge { margin-left: auto; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); padding-left: 4px; flex-shrink: 0; }
+      .badge.bad { color: var(--destructive); }
+      .body-wrap { border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent); }
+      .group {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 8px 4px; font-size: 10px; font-weight: 600;
+        letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground);
+      }
+
+      /* CanBody — mirrors I2cBody: roster / attach / traffic, 12px rhythm */
+      .pad { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+      .sec { display: flex; flex-direction: column; gap: 6px; }
+      .sec-label { font-size: 11px; font-weight: 500; color: var(--muted-foreground); }
+      .sec-head { display: flex; align-items: baseline; gap: 8px; }
+      .clear { margin-left: auto; font-size: 10px; color: var(--muted-foreground); background: none; border: 0; padding: 0; cursor: pointer; text-underline-offset: 2px; }
+      .clear:hover { text-decoration: underline; }
+
+      /* Roster — I2cPanel roster li, two lines to survive 380px */
+      .roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+      .node {
+        display: flex; align-items: center; gap: 6px;
+        border: 1px solid var(--border); background: var(--secondary);
+        border-radius: 6px; padding: 5px 8px;
+      }
+      .node.self { border-color: color-mix(in oklch, var(--primary) 45%, var(--border)); }
+      .node-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+      .node-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .node-name { font-size: 11px; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .node-top .pill { margin-left: auto; padding-left: 6px; }
+      .tag { font-size: 10px; color: var(--muted-foreground); }
+      .tag.guest { color: var(--primary); }
+      .node-sub { font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .x { flex-shrink: 0; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 4px; color: var(--muted-foreground); cursor: pointer; }
+      .x.spacer { pointer-events: none; }
+      .x:hover { background: var(--background); color: var(--destructive); }
+      .x svg { width: 12px; height: 12px; }
+
+      /* State pill — StatusPill.tsx dot + label */
+      .pill { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 10px; color: var(--muted-foreground); }
+      .pill .dot { width: 6px; height: 6px; border-radius: 9999px; flex-shrink: 0; }
+      .dot-active { background: var(--success); }
+      .dot-passive { background: var(--warning); }
+      .dot-off { background: var(--destructive); }
+
+      /* Add-node row — I2cPanel AttachRow */
+      .attach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      select, .field {
+        border: 1px solid var(--input); background: var(--background); color: var(--foreground);
+        border-radius: 6px; font-size: 11px; padding: 4px 8px; outline: none; font-family: inherit;
+      }
+      select { flex: 1; min-width: 0; }
+      .btn {
+        border: 1px solid var(--input); background: var(--secondary); color: var(--foreground);
+        border-radius: 6px; font-size: 11px; padding: 4px 8px; cursor: pointer;
+      }
+      .btn:hover { background: var(--background); }
+      .btn.primary { border-color: color-mix(in oklch, var(--primary) 60%, transparent); color: var(--foreground); }
+
+      /* Frame composer */
+      .compose { display: flex; flex-direction: column; gap: 6px; }
+      .compose-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .hexfield { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--input); background: var(--background); border-radius: 6px; padding: 0 6px; }
+      .hexfield .lab { font-size: 10px; color: var(--muted-foreground); }
+      .hexfield .pre { font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); }
+      .hexfield input { width: 30px; border: 0; background: transparent; outline: none; color: var(--foreground); font-family: var(--font-mono); font-size: 11px; padding: 4px 0; }
+      .hexfield input.dlc { width: 14px; }
+      .toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted-foreground); }
+      .toggle input { accent-color: var(--primary); width: 11px; height: 11px; margin: 0; }
+      .bytes { display: flex; gap: 3px; }
+      .bytes input {
+        width: 100%; min-width: 0; text-align: center;
+        border: 1px solid var(--input); background: var(--background); color: var(--foreground);
+        border-radius: 4px; font-family: var(--font-mono); font-size: 10px; padding: 4px 0; outline: none;
+      }
+      .bytes span { flex: 1; min-width: 0; display: flex; }
+      .bytes input:disabled { opacity: 0.35; }
+
+      /* Arbitration lanes */
+      canvas { display: block; width: 100%; border-radius: 4px; border: 1px solid var(--border); background: #0c0e12; }
+
+      /* Traffic trace — I2cPanel TransactionRow */
+      .trace { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); font-size: 10px; }
+      .trace li { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+      .dir-tx { color: oklch(0.78 0.14 78); }   /* amber-400, as I2C write */
+      .dir-rx { color: oklch(0.75 0.13 235); }  /* sky-400, as I2C read */
+      .fid { color: var(--primary); }
+      .data { overflow: hidden; text-overflow: ellipsis; }
+      .note { margin-left: auto; padding-left: 6px; }
+      .note.err { color: var(--destructive); }
+      .note.mut { color: color-mix(in oklch, var(--muted-foreground) 75%, transparent); }
+      li.dropped { color: color-mix(in oklch, var(--muted-foreground) 60%, transparent); }
+      li.dropped .fid { color: color-mix(in oklch, var(--primary) 45%, transparent); }
+      li.arb { color: var(--warning); }
+      li.arb .fid { color: var(--warning); }
+
+      .hint { font-size: 11px; line-height: 1.45; color: var(--muted-foreground); margin: 0; }
+      code { font-family: var(--font-mono); color: var(--foreground); font-size: 11px; }
+      .regs { align-self: flex-start; font-size: 11px; color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; background: transparent; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <!-- ───────────────────────── Block A — normal operation ───────────────────────── -->
+    <p class="caption">
+      <b>A — bus healthy.</b> CanBody = I2cBody's three sections (roster / add / traffic) plus the two
+      things I²C structurally cannot have: a frame composer and arbitration.
+    </p>
+    <div class="stage">
+      <div class="group">CAN</div>
+      <div class="row-head">
+        <div class="row-btn">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+          <span class="name">MCP2515 CAN</span>
+          <span class="crumb">virtio_spi0 · cs0</span>
+        </div>
+        <span class="badge">42 fps · 500k</span>
+      </div>
+      <div class="body-wrap">
+        <div class="pad">
+
+          <div class="sec">
+            <span class="sec-label">On the bus</span>
+            <ul class="roster">
+              <li class="node self">
+                <div class="node-main">
+                  <div class="node-top">
+                    <span class="node-name">Zephyr guest</span>
+                    <span class="tag guest">guest</span>
+                    <span class="pill"><span class="dot dot-active"></span>error-active</span>
+                  </div>
+                  <div class="node-sub">tx 0x100 · filter 0x100/0x7F0 · TEC 0 REC 0</div>
+                </div>
+                <span class="x spacer"></span>
+              </li>
+              <li class="node">
+                <div class="node-main">
+                  <div class="node-top">
+                    <span class="node-name">Engine ECU</span>
+                    <span class="tag">sim</span>
+                    <span class="pill"><span class="dot dot-active"></span>error-active</span>
+                  </div>
+                  <div class="node-sub">tx 0x0A0 @ 100 ms · TEC 0 REC 0</div>
+                </div>
+                <button class="x" title="Unplug — the guest stops seeing ACKs" aria-label="Unplug Engine ECU">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              </li>
+              <li class="node">
+                <div class="node-main">
+                  <div class="node-top">
+                    <span class="node-name">Dashboard</span>
+                    <span class="tag">sim</span>
+                    <span class="pill"><span class="dot dot-active"></span>error-active</span>
+                  </div>
+                  <div class="node-sub">listen-only · TEC 0 REC 0</div>
+                </div>
+                <button class="x" title="Unplug" aria-label="Unplug Dashboard">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div class="sec">
+            <span class="sec-label">Add node</span>
+            <div class="attach">
+              <select aria-label="Node type">
+                <option>Engine ECU — periodic 0x0A0</option>
+                <option>Dashboard — listen-only</option>
+                <option>Babbler — floods 0x000</option>
+                <option>Echo node — replies to RTR</option>
+                <option>Silent node — never ACKs</option>
+              </select>
+              <button class="btn">Add</button>
+            </div>
+          </div>
+
+          <div class="sec">
+            <span class="sec-label">Send a frame</span>
+            <div class="compose">
+              <div class="compose-line">
+                <span class="hexfield"><span class="lab">ID</span><span class="pre">0x</span><input value="0A0" aria-label="Frame ID" /></span>
+                <span class="hexfield"><span class="lab">DLC</span><input class="dlc" value="8" aria-label="Data length" /></span>
+                <label class="toggle"><input type="checkbox" /> RTR</label>
+                <label class="toggle"><input type="checkbox" /> ext</label>
+                <button class="btn primary" style="margin-left:auto">Send</button>
+              </div>
+              <div class="bytes">
+                <span><input value="DE" aria-label="byte 0" /></span>
+                <span><input value="AD" aria-label="byte 1" /></span>
+                <span><input value="BE" aria-label="byte 2" /></span>
+                <span><input value="EF" aria-label="byte 3" /></span>
+                <span><input value="00" aria-label="byte 4" /></span>
+                <span><input value="00" aria-label="byte 5" /></span>
+                <span><input value="00" aria-label="byte 6" /></span>
+                <span><input value="01" aria-label="byte 7" /></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <span class="sec-label">Arbitration</span>
+            <canvas id="lanes"></canvas>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">
+              <span class="sec-label">Traffic</span>
+              <button class="clear">clear</button>
+            </div>
+            <ul class="trace">
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">04 00 00 00 00 00 00 00</span></li>
+              <li><span class="dir-rx">↓</span><span class="fid">0x0A0</span><span class="tag">[8]</span><span class="data">DE AD BE EF 00 00 00 01</span></li>
+              <li class="arb"><span>⚡</span><span class="fid">0x200</span><span class="data">lost arbitration to 0x100</span><span class="note">retry</span></li>
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">03 00 00 00 00 00 00 00</span></li>
+              <li class="dropped"><span class="dir-rx">↓</span><span class="fid">0x2FF</span><span class="tag">[2]</span><span class="data">00 01</span><span class="note mut">filtered</span></li>
+              <li><span class="dir-rx">↓</span><span class="fid">0x0A0</span><span class="tag">[8]</span><span class="data">DE AD BE EF 00 00 00 00</span></li>
+              <li class="dropped"><span class="dir-rx">↓</span><span class="fid">0x310</span><span class="tag">[1]</span><span class="data">7F</span><span class="note mut">filtered</span></li>
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">02 00 00 00 00 00 00 00</span></li>
+            </ul>
+          </div>
+
+          <p class="hint">
+            <code>MCP2515</code> — SPI CAN controller on cs0. The bus, the other nodes and
+            arbitration are page-side; the guest runs stock <code>microchip,mcp2515</code>.
+          </p>
+          <button class="regs" type="button">Registers</button>
+        </div>
+      </div>
+    </div>
+    <p class="caption" style="margin-bottom:28px">
+      Greyed rows are frames the guest's acceptance filters <b>dropped</b> — normally invisible,
+      since a filtered frame leaves no trace anywhere in the guest.
+    </p>
+
+    <!-- ───────────────────────── Block B — bus-off ───────────────────────── -->
+    <p class="caption">
+      <b>B — the payoff.</b> Same panel after unplugging the last other node. No one ACKs, TEC
+      climbs 8 per attempt, and at 256 the controller takes itself off the bus. This is the
+      I²C ghost row's lesson, for a failure real engineers hit and misdiagnose.
+    </p>
+    <div class="stage">
+      <div class="group">CAN</div>
+      <div class="row-head">
+        <div class="row-btn">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+          <span class="name">MCP2515 CAN</span>
+          <span class="crumb">virtio_spi0 · cs0</span>
+        </div>
+        <span class="badge bad">bus-off</span>
+      </div>
+      <div class="body-wrap">
+        <div class="pad">
+          <div class="sec">
+            <span class="sec-label">On the bus</span>
+            <ul class="roster">
+              <li class="node self">
+                <div class="node-main">
+                  <div class="node-top">
+                    <span class="node-name">Zephyr guest</span>
+                    <span class="tag guest">guest</span>
+                    <span class="pill"><span class="dot dot-off"></span>bus-off</span>
+                  </div>
+                  <div class="node-sub">tx 0x100 · TEC 256 REC 0 · alone on the bus</div>
+                </div>
+                <span class="x spacer"></span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">
+              <span class="sec-label">Traffic</span>
+              <button class="clear">clear</button>
+            </div>
+            <ul class="trace">
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 256</span></li>
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 248</span></li>
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 240</span></li>
+              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 232</span></li>
+            </ul>
+          </div>
+
+          <div class="sec">
+            <span class="sec-label">Recover</span>
+            <div class="attach">
+              <button class="btn primary">Plug a node back in</button>
+              <span class="tag">or <code>can recover can0</code></span>
+            </div>
+          </div>
+
+          <p class="hint">
+            Bus-off is not an error the guest can shrug off: transmission stops until the
+            application calls <code>can_recover()</code>. Zephyr's CAN shell has it.
+          </p>
+        </div>
+      </div>
+    </div>
+    <p class="caption" style="margin-bottom:28px">
+      The <b>×</b> on a roster row is the same affordance as detaching an I²C chip — same gesture,
+      a different (and better) lesson.
+    </p>
+
+    <!-- ───────────────────────── Block C — collapsed ───────────────────────── -->
+    <p class="caption"><b>C — collapsed row readouts.</b> What the dock keeps when the body is folded.</p>
+    <div class="stage">
+      <div class="group">CAN</div>
+      <div class="row-head">
+        <div class="row-btn">
+          <svg class="chev closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+          <span class="name">MCP2515 CAN</span>
+          <span class="crumb">virtio_spi0 · cs0</span>
+        </div>
+        <span class="badge">42 fps · 500k</span>
+      </div>
+      <div class="row-head" style="border-top:1px solid color-mix(in oklch, var(--border) 50%, transparent)">
+        <div class="row-btn">
+          <svg class="chev closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+          <span class="name">MCP2515 CAN</span>
+          <span class="crumb">virtio_spi0 · cs0</span>
+        </div>
+        <span class="badge bad">bus-off</span>
+      </div>
+    </div>
+
+    <script>
+      /*
+       * Arbitration lanes. One lane per node, time to the right; each tick is a
+       * frame. A tick that lost arbitration is drawn hollow, with a hop to the
+       * retry that won. No bit timing is modelled or implied — the lane view is
+       * "who transmitted, who deferred", which is exactly what the page-side bus
+       * knows. Same latitude ws2812.ts takes ignoring pulse timing.
+       */
+      const canvas = document.getElementById('lanes')
+      const ctx = canvas.getContext('2d')
+      const dpr = 2
+      const cssW = 356
+      const cssH = 92
+      // Backing store and CSS box from one source — drifting these silently
+      // clips whatever is drawn past the bitmap's bottom edge.
+      canvas.width = cssW * dpr
+      canvas.height = cssH * dpr
+      canvas.style.width = cssW + 'px'
+      canvas.style.height = cssH + 'px'
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+      const LANES = [
+        { label: 'guest', id: '0x100', color: 'oklch(0.62 0.19 292)' },
+        { label: 'engine', id: '0x0A0', color: 'oklch(0.7 0.16 152)' },
+        { label: 'dash', id: '0x200', color: 'oklch(0.77 0.15 78)' },
+      ]
+      const padL = 52, padR = 8, padT = 8, padB = 16
+      const plotW = cssW - padL - padR
+      const laneH = (cssH - padT - padB) / LANES.length
+
+      ctx.fillStyle = '#0c0e12'
+      ctx.fillRect(0, 0, cssW, cssH)
+
+      // Lane baselines + labels.
+      ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textBaseline = 'middle'
+      LANES.forEach((lane, i) => {
+        const y = padT + laneH * i + laneH / 2
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+        ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(cssW - padR, y); ctx.stroke()
+        ctx.fillStyle = 'rgba(255,255,255,0.45)'
+        ctx.textAlign = 'left'
+        ctx.fillText(lane.label, 4, y - 6)
+        ctx.fillStyle = 'rgba(255,255,255,0.28)'
+        ctx.fillText(lane.id, 4, y + 6)
+      })
+
+      // (lane, t, lost?) — at t=0.42 the dash node and the guest collide; 0x100
+      // is the lower ID, so it wins and 0x200 defers to 0.50.
+      const TICKS = [
+        [0, 0.06], [0, 0.20], [0, 0.42], [0, 0.63], [0, 0.84],
+        [1, 0.02], [1, 0.16], [1, 0.30], [1, 0.52], [1, 0.66], [1, 0.80], [1, 0.94],
+        [2, 0.42, true], [2, 0.50], [2, 0.90],
+      ]
+      const xAt = (t) => padL + t * plotW
+      const TICK_H = 11
+
+      for (const [laneIdx, t, lost] of TICKS) {
+        const lane = LANES[laneIdx]
+        const y = padT + laneH * laneIdx + laneH / 2
+        const x = xAt(t)
+        if (lost) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.30)'
+          ctx.lineWidth = 1
+          ctx.strokeRect(x - 1.5, y - TICK_H / 2, 3, TICK_H)
+        } else {
+          ctx.fillStyle = lane.color
+          ctx.fillRect(x - 1.5, y - TICK_H / 2, 3, TICK_H)
+        }
+      }
+
+      // The collision: a dotted drop from the winner down to the loser, and a
+      // hop from the loser to its retry.
+      const yGuest = padT + laneH * 0 + laneH / 2
+      const yDash = padT + laneH * 2 + laneH / 2
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+      ctx.setLineDash([2, 2])
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(xAt(0.42), yGuest + TICK_H / 2)
+      ctx.lineTo(xAt(0.42), yDash - TICK_H / 2)
+      ctx.stroke()
+      ctx.setLineDash([])
+
+      ctx.strokeStyle = 'oklch(0.77 0.15 78 / 0.75)'
+      ctx.beginPath()
+      ctx.moveTo(xAt(0.42) + 2, yDash + TICK_H / 2 + 2)
+      ctx.lineTo(xAt(0.50) - 2, yDash + TICK_H / 2 + 2)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(xAt(0.50) - 2, yDash + TICK_H / 2 + 2)
+      ctx.lineTo(xAt(0.50) - 5, yDash + TICK_H / 2)
+      ctx.lineTo(xAt(0.50) - 5, yDash + TICK_H / 2 + 4)
+      ctx.closePath()
+      ctx.fillStyle = 'oklch(0.77 0.15 78 / 0.75)'
+      ctx.fill()
+
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'
+      ctx.textAlign = 'center'
+      ctx.font = '8px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.fillText('lost → retry', xAt(0.46), yDash + TICK_H / 2 + 11)
+    </script>
+  </body>
+</html>
