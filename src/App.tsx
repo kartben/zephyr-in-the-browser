@@ -78,7 +78,10 @@ function StageOverlays({
         <div className="self-start">
           <StagePill />
         </div>
-        <TracePanel defaultExpanded={traceExpanded} />
+        <TracePanel
+          defaultExpanded={traceExpanded}
+          showPipeline={sampleId === 'tracing_pipeline'}
+        />
       </div>
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
         <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end">
