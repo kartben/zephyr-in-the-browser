@@ -26,6 +26,7 @@ vi.mock('@/hostGpio', () => ({
   getBuzzers: () => gpio.getBuzzers(),
   isBuzzerOn: () => gpio.isBuzzerOn(),
   subscribe: (fn: () => void) => gpio.subscribe(fn),
+  subscribeOutputs: (fn: () => void) => gpio.subscribe(fn),
 }))
 
 import {

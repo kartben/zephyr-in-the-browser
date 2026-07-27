@@ -172,6 +172,13 @@ const HOT_WINDOW_MS = 100
  */
 const HOT_PERIOD_MS = 1
 /**
+ * Max virtio requests handled per bridge per poll. gpio-7-segment at a 1 ms
+ * refresh can enqueue far more than this; draining them all in one turn was
+ * measured to leave the console pty with a blank terminal while I²C/SPI still
+ * moved. Leftover requests keep the hot window alive for the next tick.
+ */
+const MAX_REQUESTS_PER_POLL = 32
+/**
  * A model that never answers hangs the guest on `k_sem_take(…, K_FOREVER)`.
  * Generous, because parking is legal and indefinite: this only catches tokens
  * a device took and then dropped, not ones it is holding on purpose — models
@@ -738,6 +745,7 @@ function pollBridge(b: Bridge, now: number) {
 
   const wr = load(b.areaBase + AREA.reqWr)
   if (wr !== b.reqRd) {
+    const before = b.reqRd
     b.reqRd = drainRequests(
       heap!,
       view!,
@@ -758,9 +766,15 @@ function pollBridge(b: Bridge, now: number) {
           req.fail()
         }
       },
+      MAX_REQUESTS_PER_POLL,
     )
     store(b.areaBase + AREA.reqRd, b.reqRd)
     hotUntil = now + HOT_WINDOW_MS
+    // Partial drain: keep the hot loop running so the rest are not stuck
+    // behind IDLE_MS when the request-waiter already fired for this batch.
+    if (b.reqRd !== wr && b.reqRd !== before) {
+      hotUntil = Math.max(hotUntil, now + HOT_PERIOD_MS * 2)
+    }
   }
 
   // Anything still unanswered after the watchdog is a model that took a chain

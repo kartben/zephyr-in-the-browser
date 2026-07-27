@@ -24,8 +24,7 @@ const displays: Array<{
 vi.mock('@/hostGpio', () => ({
   getSevenSegs: () => displays,
   isOutputHigh: (pin: number) => (outputs.word & (1 << pin)) !== 0,
-  subscribe: (fn: () => void) => {
-    // Re-export is wired at module load; tests call refreshForTest instead.
+  subscribeOutputs: (fn: () => void) => {
     void fn
     return () => {}
   },

@@ -68,9 +68,13 @@ export interface RawRequest {
 }
 
 /**
- * Read every complete request between `rd` and `wr`, returning the advanced
- * read index. `onRequest` receives a view into the ring, valid only for the
+ * Read complete requests between `rd` and `wr`, returning the advanced read
+ * index. `onRequest` receives a view into the ring, valid only for the
  * duration of the call.
+ *
+ * When `limit` is set, stop after that many delivered requests so the caller
+ * can yield the main thread (a virtio-gpio 1 ms multiplex can otherwise drain
+ * thousands of SET_VALUE records in one poll and starve the console pty).
  */
 export function drainRequests(
   heap: Uint8Array,
@@ -80,8 +84,10 @@ export function drainRequests(
   rd: number,
   wr: number,
   onRequest: (req: RawRequest) => void,
+  limit = Infinity,
 ): number {
-  while (rd !== wr) {
+  let delivered = 0
+  while (rd !== wr && delivered < limit) {
     const off = rd % size
     const token = view.getUint32(base + off, true)
     if (token === TOKEN_SKIP) {
@@ -102,6 +108,7 @@ export function drainRequests(
     const start = base + off + REQ_HDR
     onRequest({ token, queue, out: heap.subarray(start, start + outLen), inCap })
     rd = (rd + rec) >>> 0
+    delivered += 1
   }
   return rd
 }

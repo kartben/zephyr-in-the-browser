@@ -109,10 +109,10 @@ function pinMask(ngpios: number): number {
 }
 
 function mmioPollMs(): number {
-  // Seven-seg multiplexes at ~1 ms; catch digit commons with the fast tick.
-  return derived.steppers.length > 0 || derived.sevenSegs.length > 0
-    ? MMIO_POLL_STEPPER_MS
-    : MMIO_POLL_MS
+  // Steppers need 1 ms on the MMIO path. Seven-seg also multiplexes, but on
+  // virtio every SET_VALUE notifies synchronously — do not put a 1 ms timer
+  // on the main thread just for the LED panel (see hostGpio subscribeOutputs).
+  return derived.steppers.length > 0 ? MMIO_POLL_STEPPER_MS : MMIO_POLL_MS
 }
 
 function recomputeDerived() {
@@ -322,7 +322,17 @@ let fastPoller: ReturnType<typeof setInterval> | undefined
 let pollerMs = 0
 let unsubscribeModel: (() => void) | undefined
 let unsubscribeBinds: (() => void) | undefined
+/** React / dock subscribers — coalesced to one rAF so a virtio flood cannot starve the console. */
 const listeners = new Set<() => void>()
+/**
+ * Sync observers that must see every output word (seven-seg PoV latch, step
+ * edges, buzzer). Kept separate from {@link subscribe}: gpio-7-segment refresh
+ * at 1 ms can deliver thousands of SET_VALUE notifies/sec, and wiring that
+ * straight into useSyncExternalStore freezes the main thread (blank terminal
+ * while the guest keeps talking on I²C/SPI).
+ */
+const outputListeners = new Set<() => void>()
+let uiNotifyRaf = 0
 
 /** What the browser is driving onto the input pins, one bit per pin. */
 let inputs = 0
@@ -377,14 +387,14 @@ export function attach(mod: unknown) {
     pollMmio()
     restartMmioPoller()
   } else {
-    unsubscribeBinds = subscribeBinds(notify)
+    unsubscribeBinds = subscribeBinds(notifyUi)
     unsubscribeModel = gpioModel.subscribe(() => {
       outputs = gpioModel.getOutputs() & pinMask(derived.ngpios)
-      notify()
+      notifyOutputs()
     })
     gpioModel.setInputs(inputs)
   }
-  notify()
+  notifyUi()
 }
 
 export function detach() {
@@ -395,7 +405,7 @@ export function detach() {
   unsubscribeBinds = undefined
   mmio = null
   outputs = 0
-  notify()
+  notifyOutputs()
 }
 
 export function available(): boolean {
@@ -443,12 +453,25 @@ export function setInput(pin: number, high: boolean) {
   // On the virtio path this is what raises the guest's interrupt, and it does
   // so at the instant of the edge rather than at the next sampling tick.
   else gpioModel.setInputs(inputs)
-  notify()
+  notifyUi()
 }
 
+/**
+ * UI subscription. Notifies at most once per animation frame so React panels
+ * cannot be driven at virtio SET_VALUE rate.
+ */
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
+}
+
+/**
+ * Every output-word change, synchronously. For host-side models that latch or
+ * count edges; do not put React setState here.
+ */
+export function subscribeOutputs(fn: () => void): () => void {
+  outputListeners.add(fn)
+  return () => outputListeners.delete(fn)
 }
 
 function pollMmio() {
@@ -456,11 +479,20 @@ function pollMmio() {
   const masked = next & pinMask(derived.ngpios)
   if (masked === outputs) return
   outputs = masked
-  notify()
+  notifyOutputs()
 }
 
-function notify() {
-  for (const fn of listeners) fn()
+function notifyOutputs() {
+  for (const fn of outputListeners) fn()
+  notifyUi()
+}
+
+function notifyUi() {
+  if (uiNotifyRaf !== 0) return
+  uiNotifyRaf = requestAnimationFrame(() => {
+    uiNotifyRaf = 0
+    for (const fn of listeners) fn()
+  })
 }
 
 // A devicetree can arrive at any point (sample fetch, user drop, startup
@@ -468,5 +500,5 @@ function notify() {
 recomputeDerived()
 subscribeDeviceTree(() => {
   recomputeDerived()
-  notify()
+  notifyUi()
 })

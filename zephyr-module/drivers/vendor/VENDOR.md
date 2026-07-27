@@ -1,12 +1,13 @@
 # Vendored upstream sources
 
-Files here are **pristine copies** of code that is not yet in the Zephyr tree
-this repo builds against. They are byte-identical to their upstream revision so
-that drift is a one-line `diff` away, and they carry their original copyright
-headers. Everything else under `zephyr-module/` is this repo's own code.
+Files here are mostly **pristine copies** of code that is not yet in the Zephyr
+tree this repo builds against (byte-identical to an upstream revision so drift
+is a one-line `diff` away). `auxdisplay_gpio_7seg.c` is the exception: it is a
+deliberate fix of an in-tree ISR misuse — see that section. Everything else
+under `zephyr-module/` is this repo's own code.
 
-Each entry is retired — deleted, along with its Kconfig and the CMake guard
-that builds it — as soon as the upstream commit lands in mainline Zephyr.
+Each pristine entry is retired — deleted, along with its Kconfig and the CMake
+guard that builds it — as soon as the upstream commit lands in mainline Zephyr.
 
 ## `display_virtio_gpu.c`
 
@@ -155,3 +156,42 @@ diff <(gh api "repos/kartben/zephyr/contents/drivers/auxdisplay/auxdisplay_shell
 `CONFIG_AUXDISPLAY_SHELL` is declared in `zephyr-module/Kconfig` under the
 *same* name upstream uses, with the same CMake guard on
 `${ZEPHYR_BASE}/drivers/auxdisplay/auxdisplay_shell.c`.
+
+## `auxdisplay_gpio_7seg.c`
+
+GPIO-driven 7-segment auxdisplay — **patched** fork of the in-tree driver.
+
+| | |
+| --- | --- |
+| Upstream | <https://github.com/zephyrproject-rtos/zephyr/blob/main/drivers/auxdisplay/auxdisplay_gpio_7seg.c> |
+| Based on | `a258a4b017e6` — *auxdisplay: gpio-7seg: fix display glitch* |
+| Path | `drivers/auxdisplay/auxdisplay_gpio_7seg.c` |
+
+Unlike the pristine vendored drivers above, this file is **intentionally
+diverged**: upstream's `k_timer` expiry (and stop) handlers call
+`gpio_pin_set_dt()` from interrupt context. That is unsafe for any GPIO
+controller that may sleep or take a virtqueue round trip — in particular
+`virtio,gpio`, which this repo uses on the browser boards. The ISR flood
+deadlocks the qemu-wasm console (blank terminal while I²C/SPI still move).
+
+The fix keeps the same `gpio-7-segment` compatible and auxdisplay API, but
+schedules multiplex refresh on a `k_work_delayable` so GPIO updates run on the
+system workqueue (thread context).
+
+### Coexistence with in-tree
+
+Both drivers claim `DT_DRV_COMPAT gpio_7_segment`. Enable only one:
+
+- `CONFIG_AUXDISPLAY_GPIO_7SEG=n` (in-tree off)
+- `CONFIG_AUXDISPLAY_GPIO_7SEG_WQ=y` (this copy)
+
+`zephyr-module/conf/auxdisplay-shell.conf` sets that pair. CMake always builds
+this file when `CONFIG_AUXDISPLAY_GPIO_7SEG_WQ` is set — there is no “wait until
+upstream deletes its copy” guard, because the upstream file exists and is the
+problem.
+
+### Retire when
+
+Upstream moves refresh (and blank-on-stop) out of ISR context. Then delete this
+file, drop `CONFIG_AUXDISPLAY_GPIO_7SEG_WQ`, and re-enable
+`CONFIG_AUXDISPLAY_GPIO_7SEG`.

@@ -3,8 +3,9 @@ description: >
   Enable every browser-backed auxdisplay the shell can drive: Grove JHD1313 on
   I²C (node already in virtio-i2c), PTC PT6314 on SPI CS1 (alongside the JEDEC
   NOR on CS0 from virtio-spi), and a gpio-7-segment LED module on virtio_gpio0
-  (pins 5–7 digits, 8–15 segments; ngpios widened to 16). Pair with
-  virtio-i2c, virtio-spi, and virtio-gpio.
+  (pins 5–7 digits, 8–15 segments; ngpios widened to 16). Multiplex refresh
+  uses the module's workqueue driver (AUXDISPLAY_GPIO_7SEG_WQ), not in-tree
+  AUXDISPLAY_GPIO_7SEG. Pair with virtio-i2c, virtio-spi, and virtio-gpio.
 
 boards:
   qemu_cortex_a53/qemu_cortex_a53:

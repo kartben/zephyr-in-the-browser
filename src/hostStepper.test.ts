@@ -37,6 +37,7 @@ vi.mock('@/hostGpio', () => ({
   getSteppers: () => gpio.getSteppers(),
   isOutputHigh: (pin: number) => gpio.isOutputHigh(pin),
   subscribe: (fn: () => void) => gpio.subscribe(fn),
+  subscribeOutputs: (fn: () => void) => gpio.subscribe(fn),
 }))
 
 import { getSnapshot, resetForTests, subscribe } from '@/hostStepper'
