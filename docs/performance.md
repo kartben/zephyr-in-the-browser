@@ -23,8 +23,8 @@ the list matters for a given workload:
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Atomic QEMU→page request wake** — productionized; no DAC throughput win in A/B test | `src/virtio/transport.ts`, virtio QEMU patch | Medium, latency/idle CPU | Medium | Low |
 | 1d | **Coalesce page→QEMU kicks per poll** — one BH for a multi-msg I²C batch | `src/virtio/transport.ts` | Medium for register reads / multi-queue drains; none for DAC | Very low | Low |
-| 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
-| 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
+| 2 | Asyncify probably instruments the TCG hot path — `-sASYNCIFY=1` is on and structural; the **pruning** experiment is what is untried | build | High, everything | Medium | Medium |
+| 3 | Nothing set an optimisation level at *link* — **patched and shipping since the import; never A/B'd** | build | Unknown, already banked | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount` prevents the DAC reaching 1 kHz — **disabled after measurement** | `src/boards.ts` | High, synchronous virtio | Very low | Low (MIPS telemetry unavailable) |
@@ -78,9 +78,9 @@ another pass; see item 15 for the method and the caveats.
 
 What still moves the needle:
 
-1. **Raise guest MIPS** — link `-O3` (patched, unmeasured), `ASYNCIFY_ADVISE`
-   prune (item 2), newer emsdk (item 5). Helps every sync virtio path, not
-   only I²C.
+1. **Raise guest MIPS** — `ASYNCIFY_ADVISE` prune (item 2), newer emsdk
+   (item 5). Link `-O3` is already on every build (item 3), so it is banked
+   rather than available. Helps every sync virtio path, not only I²C.
 2. **Publish the rebuilt qemu-wasm** so kick-primary drain and #118 land on
    the deployed page (local ~748 Hz vs older deployed ~236 Hz mixes rebuild
    confounds; do not attribute that gap to the request waiter).
@@ -223,6 +223,14 @@ So Asyncify is structural — it cannot simply be dropped — but *how much of t
 binary it instruments* is a build parameter, and nothing in this project has
 ever looked at it.
 
+Worth separating two things that get remembered as one: `-sASYNCIFY=1` has been
+on since the build existed, and has been *encountered* (see the littlefs mount
+serialisation, which exists because concurrent mounts tripped an Asyncify
+abort). The untried part is **pruning** — no `ASYNCIFY_ADVISE`,
+`ASYNCIFY_REMOVE` or `ASYNCIFY_ONLY` appears anywhere in this tree except in
+these paragraphs proposing them. Having the feature on is not the same as
+having asked it what it instruments.
+
 This matters because Asyncify's cost is paid per call in every instrumented
 function: a state check on entry, spilling locals to the unwind stack, and a
 rewind path. Its analysis is a whole-program reachability question — any
@@ -239,8 +247,9 @@ The diagnostic is one build away and costs nothing to run: add
 prints every instrumented function and the call path that forced it. If
 `tcg_qemu_tb_exec`, the TCI dispatch loop, or the softmmu load/store helpers
 appear, prune them with `-sASYNCIFY_REMOVE=…` (or invert it with
-`-sASYNCIFY_ONLY=…` once the real suspend set is known) and re-measure with the
-MIPS panel.
+`-sASYNCIFY_ONLY=…` once the real suspend set is known) and re-measure with
+`guestOnlyMs` from `tools/profile-dac.mjs` — not the MIPS panel, which item 6
+took away from the A53 along with `-icount`.
 
 Risk is real and worth stating plainly: removing a function that genuinely can
 be on the stack across a suspend corrupts the unwind rather than failing
@@ -272,12 +281,28 @@ level is 0, which means:
   and the runtime.
 - The JS glue is not minified (the deployed `qemu-system-aarch64.js` is 172 KB).
 
-**Patched, and that is as far as this can be taken here** — a build needs
-Docker and hours, so the number is still owed.
+**Patched, and applied to every build the series has produced.**
 `0009-emscripten-optimise-the-link.patch` (and `0011-` in the JIT series) adds
-`-O3` to `c_link_args`/`cpp_link_args`. `-sASSERTIONS=0` is not in it because
-`ASSERTIONS` already defaults to 0 at any `-O` above zero; one flag is easier to
-attribute a measurement to than two.
+`-O3` to `c_link_args`/`cpp_link_args`, and `tools/build-qemu-wasm.sh`
+re-applies the whole series to a restored tree on every run — so any artifact
+built from this repo has it. `-sASSERTIONS=0` is not in it because `ASSERTIONS`
+already defaults to 0 at any `-O` above zero; one flag is easier to attribute a
+measurement to than two.
+
+What is missing is not the flag but the **A/B**: nothing ever compared a build
+with it against one without. That distinction matters, because "patched,
+unmeasured" reads like "untried" and it is not — the win, whatever its size, is
+already banked in every number on this page. Recovering it would mean
+deliberately dropping the patch and rebuilding, which costs the same hours as
+any other build.
+
+The recipe this section used to give — compare the Performance panel's MIPS
+readout — **no longer works on the A53**, because item 6 removed `-icount` and
+MIPS telemetry with it. Use `guestOnlyMs` from `node tools/profile-dac.mjs`
+instead (item 15): it isolates guest instructions plus TCG from the browser and
+the vCPU wake, needs no `-icount`, and sat at 0.903 ms across the runs recorded
+there. That is the before/after number for any build-configuration change,
+this one included.
 
 It has to be a patch, and now for a verified reason rather than a remembered
 one: `configure` adds its generated `config-meson.cross` as a machine file
@@ -743,8 +768,10 @@ harness will be re-run against other workloads and other builds.
    **needs release artifact publication**.
 2b. ~~Item 1d (coalesce completion kicks per poll)~~ — done; helps multi-msg
    transfers, not the one-msg DAC ceiling (see "I²C throughput: what is left").
-3. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
-   is a precondition for trusting item 2. Compare MIPS before and after.
+3. ~~Item 3 (link `-O3`)~~ — patched and shipping in every build; the A/B was
+   never run and would now cost a deliberate revert-and-rebuild. Not worth it
+   for its own sake, but it does mean item 2 is being judged against an
+   already-optimised link, which is the right baseline anyway.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
 5. ~~Item 15's round-trip read~~ — done, including the re-hooked vCPU wake:
