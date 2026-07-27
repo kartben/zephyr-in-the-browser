@@ -4,10 +4,12 @@ Build contract for the next peripheral class. Source mockup:
 [`can-bus-mockup.html`](can-bus-mockup.html). Ranking rationale belongs in
 [next-drivers.md](next-drivers.md); this note is the shape.
 
-**Iteration 1 has landed** — page side complete and tested, guest side written
-but unbuilt (§12). What shipped differs from this spec in three places, each
-noted inline: no arbitration lane view, Counter learns its ids from traffic,
-and the chip is wired by `hostCan.ts` rather than by the attach picker.
+**Iteration 1 has landed and now boots end-to-end** — `can_counter` runs
+clean, exchanges counter frames with a page-side Counter node, and every risk
+§9 called unverified has been checked against a real boot (§14). What shipped
+differs from this spec in three places, each noted inline: no arbitration lane
+view, Counter learns its ids from traffic, and the chip is wired by
+`hostCan.ts` rather than by the attach picker.
 
 CAN is the one bus class the tree does not model. I²C, SPI, UART and Ethernet
 all have a page-side counterpart; CAN is the one that most rewards it, because
@@ -447,3 +449,95 @@ between them, and the panel's rendered output.
 - `samples/drivers/can/counter` exchanges counter frames with a page-side
   node on both A53 and riscv32.
 - `npm test` and `npm run typecheck` clean.
+
+## 14. What broke on the first real boot
+
+§12 built the chip against the driver source. This is what building the guest
+image and actually booting it — the thing §9 and §12 both called out as
+unverified — turned up, in the order a fresh session hits them. Each is fixed;
+this is the record of why, for the next class that gets this far.
+
+**Attaching the chip crashed the panel.** `bus.ts`'s `nodes()` and `log()`
+rebuilt their return array on every call. `useSyncExternalStore` compares
+snapshots by reference, so a fresh array every render reads as "changed
+every time," and React throws `The result of getSnapshot should be cached`
+rather than loop forever. Fixed by caching both snapshots and only
+rebuilding them at `notify()`, the same pattern `spi.ts` already used for its
+own transaction log.
+
+**Nothing was on the bus at boot.** `can_counter`'s `can@0` node declares
+`compatible = "microchip,mcp2515"`, but `COMPAT_TO_SPI_CHIP` in
+`src/dts/insights.ts` had no entry for it, so the slot's `chipId` came back
+`undefined` and `virtio/index.ts`'s managed-chip sync — the mechanism that
+already auto-attaches `w25q`/`sct2024`/`ws2812`/`pt6314`/`tmc50xx` for their
+own samples — never got a `chipId` to look up. The chip existed and the
+attach picker could place it manually, but nothing told the sync to do it
+automatically. Both maps now carry an `mcp2515` entry.
+
+**The mode handshake timed out, then produced garbage.** Zephyr's SPI stack
+splits a multi-`spi_buf` transceive (opcode+address in one segment, the data
+phase in another) into separate virtio-spi requests with chip select held
+low between them — see `spi_virtio_transceive` in
+`zephyr-module/drivers/vendor/spi_virtio.c`. `mcp2515.ts`'s original
+`transfer()` treated every call as a self-contained command; the second
+request in a split pair arrived as a bare data byte with no opcode context
+and read back zero. The chip model is now a byte-stream state machine
+(`pending` carries the address pointer across the boundary, matching what
+real silicon's SPI engine does), the same way the datasheet describes it.
+
+**`can_counter`'s own threads overflowed their stack.** `rx_thread` and
+`poll_state_thread` each declare a 512-byte `K_THREAD_STACK_DEFINE` in the
+stock sample — sized for the small MCUs this sample usually runs on.
+Measured against the built ELF (`aarch64-zephyr-elf-objdump` prologue sizes),
+the straight-line frame chain for one `poll_state_thread` register read —
+`poll_state_thread` → `mcp2515_get_state` → `mcp2515_cmd_read_reg` →
+`spi_virtio_transceive` → `virtq_add_buffer_chain` — already summed to 624
+bytes before any leaf call, on AArch64's wider registers and deeper virtio
+call chain. The overflow didn't fault cleanly at the guard page; it quietly
+corrupted adjacent memory, so the crash surfaced later and elsewhere (a data
+abort in `mcp2515_get_state` dereferencing a corrupted argument pointer,
+registers reading Zephyr's `0xaa` stack-poison fill). Not fixable from a
+`.conf` fragment — these two sizes are C `#define`s in the sample's own
+`main.c`, not Kconfig symbols. Fixed by vendoring the sample at
+`zephyr-module/apps/can_counter/` (packaged via `tools/samples.manifest`
+instead of the stock `samples/drivers/can/counter` path) with both stacks
+raised to 2048, and one incidental Kconfig rename fixed along the way
+(`CAN_MAX_FILTER` → `CAN_MCP2515_MAX_FILTERS`, current Zephyr scopes it per
+driver).
+
+**The INT line never fired, not even once.** This is the one that took the
+longest to find, because the symptom was silence: `can0` reached `bus-off`
+and stayed there, `can send` from the shell returned `-EAGAIN` (no free TX
+mailbox), and nothing about it looked like an error — the driver was
+correctly refusing to enqueue while off the bus. What the new Registers panel
+(§15, below) showed was `CANINTF = 0x04` — `TX0IF`, from the very first frame
+the guest ever sent, latched forever. The driver's interrupt thread never
+serviced it, because it was never woken. Zephyr configures this line
+`GPIO_INT_EDGE_TO_ACTIVE`, and the virtio-gpio event-virtqueue protocol
+(`zephyr-module/drivers/vendor/gpio_virtio.c`, `src/virtio/devices/gpio.ts`)
+correctly implements it — an armed line only fires when the page's `inputs`
+word actually transitions. The bug was earlier: `hostCan.ts`'s `wire()` seeds
+the line idle-high (`setInput(INT_PIN, true)`) as soon as the chip attaches,
+which is before the guest's virtio-gpio driver has read `ngpio` from config
+space. At that moment `src/virtio/devices/gpio.ts`'s `lineMask` is still 0,
+so the seed is masked to a no-op and silently dropped — the model's internal
+`inputs` word for that line stays stuck at its default 0 (logically low)
+forever. Every later "idle high, assert low" transition computes no change
+against that wrong baseline, so no edge — ever, for the life of the
+session — reaches `gpio_fire_callbacks()`. Fixed at the bridge, not in CAN
+code, since any consumer that idles a virtio-gpio input line high hits the
+same race: `attachConfig()` now calls `notify()` once `ngpio` is known, and
+`hostGpio.ts` re-pushes its real intended `inputs` word on that notify — a
+no-op once the two are already in sync, the fix only on the first, previously
+lost, occasion.
+
+## 15. Registers, live
+
+Added while chasing the INT bug above, and worth keeping for the next one:
+`mcp2515.ts` now implements the same live `RegisterMapSource` surface
+(`peek`/`poke`/`setField`/`getPointer`/`subscribe`) that `RegisterMapButton`
+(`src/components/RegisterMap.tsx`) already drives for TMC50xx and the sensor
+chips — `getPointer()` rings whichever address the current SPI byte stream is
+pointed at. `CanPanel.tsx` renders the button on the local `can0` roster row.
+Without it, the INT bug above would have needed the same DOM-poking this
+session used to find it by hand.
