@@ -2,17 +2,18 @@
  * Quiet debug surface attached to the Pause control.
  *
  * Invisible while the guest is running. While paused: PC chip + popover with
- * CPU regs, and (when gdbstub is attached) Step, breakpoints, and memory.
+ * CPU regs, and (when gdbstub is attached) Step, breakpoints, memory, threads.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Pause, Play, Redo2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RegisterGrid } from '@/components/RegisterGrid'
+import { compactHex } from '@/debug/hexFormat'
 import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
 
-type Tab = 'cpu' | 'breakpoints' | 'memory'
+type Tab = 'cpu' | 'breakpoints' | 'memory' | 'threads'
 
 export function PauseDebugControl() {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
@@ -64,16 +65,20 @@ export function PauseDebugControl() {
           variant="ghost"
           size="sm"
           className={cn(
-            'h-8 max-w-[9.5rem] shrink gap-1 px-1.5 font-mono text-[11px] text-muted-foreground',
+            'h-8 max-w-[8.5rem] shrink gap-1 px-1.5 font-mono text-[11px] tabular-nums text-muted-foreground',
             open && 'bg-secondary text-foreground',
           )}
           aria-label="CPU debug"
           aria-expanded={open}
-          title={snap.summary ?? 'CPU debug'}
+          title={snap.pc ? `0x${snap.pc}` : 'CPU debug'}
           onClick={() => setOpen((value) => !value)}
         >
           <span className="truncate">
-            {snap.registersLoading && !snap.summary ? '…' : (snap.summary ?? 'regs')}
+            {snap.registersLoading && !snap.summary
+              ? '…'
+              : snap.pc
+                ? `PC ${compactHex(snap.pc)}`
+                : (snap.summary ?? 'regs')}
           </span>
           <ChevronDown className="size-3 shrink-0 opacity-60" aria-hidden />
         </Button>
@@ -87,6 +92,7 @@ export function PauseDebugControl() {
 function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
   const [tab, setTab] = useState<Tab>('cpu')
   const [stepping, setStepping] = useState(false)
+  const [peekAddr, setPeekAddr] = useState<string | null>(null)
 
   const onStep = async () => {
     if (stepping || !snap.canStep) return
@@ -98,19 +104,35 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
     }
   }
 
+  const onPeek = (addrHex: string) => {
+    setPeekAddr(compactHex(addrHex))
+    setTab('memory')
+  }
+
+  const tabs = (
+    [
+      ['cpu', 'CPU'],
+      ['breakpoints', 'Break'],
+      ['memory', 'Mem'],
+      ['threads', 'Threads'],
+    ] as const
+  ).filter(([id]) => id !== 'threads' || snap.gdb)
+
   return (
     <div
       role="dialog"
       aria-label="CPU debug"
-      className="absolute right-0 top-full z-50 mt-1 w-[26rem] max-w-[min(26rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-card p-2.5 shadow-xl"
+      className="absolute right-0 top-full z-50 mt-1 w-[30rem] max-w-[min(30rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-card p-2.5 shadow-xl"
     >
       <div className="mb-2 flex items-center gap-2 px-1">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {snap.gdb ? 'gdb' : 'CPU · QMP'}
           </div>
-          <div className="truncate font-mono text-xs text-foreground">
-            {snap.summary ?? (snap.registersLoading ? 'Reading…' : 'No registers')}
+          <div className="truncate font-mono text-xs tabular-nums text-foreground">
+            {snap.pc
+              ? `PC ${compactHex(snap.pc)}`
+              : (snap.summary ?? (snap.registersLoading ? 'Reading…' : 'No registers'))}
           </div>
         </div>
         {snap.canStep && (
@@ -129,20 +151,16 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
       </div>
 
       {snap.gdb && (
-        <div className="mb-2 flex gap-1 px-1">
-          {([
-            ['cpu', 'CPU'],
-            ['breakpoints', 'Breakpoints'],
-            ['memory', 'Memory'],
-          ] as const).map(([id, label]) => (
+        <div className="mb-2 flex gap-0.5 px-1">
+          {tabs.map(([id, label]) => (
             <button
               key={id}
               type="button"
               className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+                'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
                 tab === id
                   ? 'bg-secondary text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
+                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
               )}
               onClick={() => setTab(id)}
             >
@@ -153,11 +171,18 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
       )}
 
       {(!snap.gdb || tab === 'cpu') && (
-        <RegisterGrid dump={snap.registers} loading={snap.registersLoading} />
+        <RegisterGrid
+          dump={snap.registers}
+          loading={snap.registersLoading}
+          onPeek={snap.gdb ? onPeek : undefined}
+        />
       )}
 
       {snap.gdb && tab === 'breakpoints' && <BreakpointsPane snap={snap} />}
-      {snap.gdb && tab === 'memory' && <MemoryPane snap={snap} />}
+      {snap.gdb && tab === 'memory' && (
+        <MemoryPane snap={snap} seedAddr={peekAddr} onSeedConsumed={() => setPeekAddr(null)} />
+      )}
+      {snap.gdb && tab === 'threads' && <ThreadsPane snap={snap} onPeek={onPeek} />}
     </div>
   )
 }
@@ -187,14 +212,16 @@ function BreakpointsPane({ snap }: { snap: debug.DebugSnapshot }) {
 
   return (
     <div className="space-y-2 px-1">
-      <ul className="max-h-32 space-y-1 overflow-auto font-mono text-[11px]">
+      <ul className="max-h-40 space-y-1 overflow-auto font-mono text-[11px]">
         {snap.breakpoints.length === 0 && (
           <li className="text-muted-foreground">No breakpoints</li>
         )}
         {snap.breakpoints.map((bp) => (
           <li key={bp.addr} className="flex items-center gap-2">
             <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-            <span className="min-w-0 flex-1 truncate text-foreground">0x{bp.addrHex}</span>
+            <span className="min-w-0 flex-1 truncate tabular-nums text-foreground">
+              {compactHex(bp.addrHex)}
+            </span>
             <Button
               variant="ghost"
               size="icon"
@@ -209,7 +236,7 @@ function BreakpointsPane({ snap }: { snap: debug.DebugSnapshot }) {
       </ul>
       <div className="flex gap-1">
         <input
-          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-muted/50 px-2 font-mono text-[11px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2 font-mono text-[11px] tabular-nums text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Break at… (hex)"
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -232,9 +259,30 @@ function BreakpointsPane({ snap }: { snap: debug.DebugSnapshot }) {
   )
 }
 
-function MemoryPane({ snap }: { snap: debug.DebugSnapshot }) {
-  const [addrText, setAddrText] = useState(snap.memory ? snap.memory.addr.toString(16) : '')
+function MemoryPane({
+  snap,
+  seedAddr,
+  onSeedConsumed,
+}: {
+  snap: debug.DebugSnapshot
+  seedAddr: string | null
+  onSeedConsumed: () => void
+}) {
+  const defaultAddr = snap.pc ? compactHex(snap.pc) : ''
+  const [addrText, setAddrText] = useState(
+    snap.memory ? compactHex(snap.memory.addr.toString(16)) : defaultAddr,
+  )
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!seedAddr) return
+    setAddrText(seedAddr)
+    onSeedConsumed()
+    const addr = Number.parseInt(seedAddr, 16)
+    if (Number.isFinite(addr)) void debug.readMemory(addr, 64)
+    // Intentionally only when a register click seeds a new address.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedAddr])
 
   const load = async () => {
     const raw = addrText.trim().replace(/^0x/i, '')
@@ -254,7 +302,7 @@ function MemoryPane({ snap }: { snap: debug.DebugSnapshot }) {
     <div className="space-y-2 px-1">
       <div className="flex gap-1">
         <input
-          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-muted/50 px-2 font-mono text-[11px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2 font-mono text-[11px] tabular-nums text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Address (hex)"
           value={addrText}
           onChange={(e) => setAddrText(e.target.value)}
@@ -273,12 +321,77 @@ function MemoryPane({ snap }: { snap: debug.DebugSnapshot }) {
         </Button>
       </div>
       <pre
-        className="max-h-40 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground"
+        className="max-h-48 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-relaxed tabular-nums text-muted-foreground"
         tabIndex={0}
       >
-        {formatted || 'Enter an address and Read.'}
+        {formatted || 'Enter an address and Read — or click a register.'}
       </pre>
     </div>
+  )
+}
+
+function ThreadsPane({
+  snap,
+  onPeek,
+}: {
+  snap: debug.DebugSnapshot
+  onPeek: (addrHex: string) => void
+}) {
+  if (!snap.threadInfo) {
+    return (
+      <p className="px-1 py-3 text-[11px] leading-relaxed text-muted-foreground">
+        Needs an unstripped ELF built with{' '}
+        <code className="text-foreground/80">CONFIG_DEBUG_THREAD_INFO</code> (same
+        symbols OpenOCD uses). Packaged images ship that way; a stripped drop-in
+        will not.
+      </p>
+    )
+  }
+  if (snap.threadsLoading && snap.threads.length === 0) {
+    return (
+      <p className="px-1 py-3 text-center text-[11px] text-muted-foreground">Reading threads…</p>
+    )
+  }
+  if (snap.threadsError) {
+    return <p className="px-1 py-3 text-[11px] text-destructive">{snap.threadsError}</p>
+  }
+  if (snap.threads.length === 0) {
+    return <p className="px-1 py-3 text-[11px] text-muted-foreground">No threads found.</p>
+  }
+
+  return (
+    <ul className="max-h-[min(22rem,50vh)] space-y-0.5 overflow-auto px-0.5">
+      {snap.threads.map((t) => (
+        <li key={t.addr}>
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-baseline gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/50',
+              t.current && 'bg-primary/10 ring-1 ring-primary/20',
+            )}
+            title="Peek thread control block"
+            onClick={() => onPeek(t.addr.toString(16))}
+          >
+            <span
+              className={cn(
+                'size-1.5 shrink-0 self-center rounded-full',
+                t.current ? 'bg-primary' : 'bg-muted-foreground/40',
+              )}
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">{t.name}</span>
+            {t.prio != null && (
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/80">
+                p{t.prio}
+              </span>
+            )}
+            <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+              {compactHex(t.addr.toString(16))}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -288,12 +401,15 @@ function formatHexDump(addr: number, hex: string): string {
   for (let i = 0; i < hex.length; i += 2) {
     bytes.push(Number.parseInt(hex.slice(i, i + 2), 16))
   }
+  const addrDigits = Math.max(8, compactHex(addr.toString(16)).length)
   const lines: string[] = []
   for (let i = 0; i < bytes.length; i += 16) {
     const slice = bytes.slice(i, i + 16)
     const hexPart = slice.map((b) => b.toString(16).padStart(2, '0')).join(' ')
     const ascii = slice.map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')
-    lines.push(`${(addr + i).toString(16).padStart(8, '0')}  ${hexPart.padEnd(47)}  ${ascii}`)
+    lines.push(
+      `${(addr + i).toString(16).padStart(addrDigits, '0')}  ${hexPart.padEnd(47)}  ${ascii}`,
+    )
   }
   return lines.join('\n')
 }

@@ -18,6 +18,9 @@ import {
   decodeGPacket,
   type GdbArch,
 } from '@/debug/gdb/regs'
+import { compactHex } from '@/debug/hexFormat'
+import { parseThreadInfoFromElf, type ThreadInfo } from '@/debug/kernel/meta'
+import { listThreads, type ZephyrThread } from '@/debug/kernel/threads'
 import { bytesToHex } from '@/debug/gdb/rspCodec'
 
 const POLL_MS = 20
@@ -40,6 +43,11 @@ export interface GdbState {
   breakpoints: Breakpoint[]
   /** Last memory peek, if any. */
   memory: { addr: number; hex: string } | null
+  /** Guest ELF has CONFIG_DEBUG_THREAD_INFO symbols. */
+  threadInfo: boolean
+  threads: ZephyrThread[]
+  threadsLoading: boolean
+  threadsError: string | null
 }
 
 const EMPTY: GdbState = {
@@ -52,12 +60,17 @@ const EMPTY: GdbState = {
   registersLoading: false,
   breakpoints: [],
   memory: null,
+  threadInfo: false,
+  threads: [],
+  threadsLoading: false,
+  threadsError: null,
 }
 
 let mod: Record<string, unknown> | null = null
 let ch: ChardevExports | null = null
 let client: RspClient | null = null
 let arch: GdbArch = 'arm'
+let threadInfo: ThreadInfo | null = null
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const listeners = new Set<() => void>()
@@ -104,14 +117,52 @@ async function refreshRegs() {
   try {
     const hex = await client.readRegisters()
     const view = decodeGPacket(arch, hex)
+    const pc = view.pc
     publish({
       registers: view.dump,
-      pc: view.pc,
-      summary: view.summary,
+      pc,
+      summary: pc ? `PC ${compactHex(pc)}` : view.summary,
       registersLoading: false,
     })
   } catch {
     publish({ registersLoading: false })
+  }
+  void refreshThreads()
+}
+
+async function refreshThreads() {
+  if (!client || !state.paused || !threadInfo) {
+    publish({ threads: [], threadsLoading: false, threadsError: null })
+    return
+  }
+  publish({ threadsLoading: true, threadsError: null })
+  try {
+    const threads = await listThreads(threadInfo, async (addr, length) => {
+      if (!client) throw new Error('no client')
+      return client.readMemory(addr, length)
+    })
+    publish({ threads, threadsLoading: false, threadsError: null })
+  } catch (err) {
+    publish({
+      threads: [],
+      threadsLoading: false,
+      threadsError: err instanceof Error ? err.message : 'Thread walk failed',
+    })
+  }
+}
+
+/**
+ * Parse CONFIG_DEBUG_THREAD_INFO from the guest ELF (needs an unstripped image
+ * with symbols). Safe no-op on stripped ELFs.
+ */
+export function setKernelImage(elf: Uint8Array | null) {
+  threadInfo = elf ? parseThreadInfoFromElf(elf) : null
+  if (state.available || state.attached) {
+    publish({
+      threadInfo: threadInfo !== null,
+      threads: [],
+      threadsError: null,
+    })
   }
 }
 
@@ -120,12 +171,18 @@ async function refreshRegs() {
  * Does not open the stub yet — call {@link attachSession} after boot.
  */
 export function bind(module: unknown, boardArch: string) {
+  const kept = threadInfo
   detach()
+  threadInfo = kept
   mod = module as Record<string, unknown>
   ch = bindChardev(mod, 'gdb')
   arch = archFromBoard(boardArch)
   const available = chardevAvailable(ch) && typeof mod._qemu_browser_gdb_attach === 'function'
-  publish({ ...EMPTY, available })
+  publish({
+    ...EMPTY,
+    available,
+    threadInfo: threadInfo !== null,
+  })
 }
 
 /** Open the gdbstub and start an RSP session. Safe to call when unavailable. */
@@ -198,6 +255,7 @@ export function detach() {
   client = null
   ch = null
   mod = null
+  threadInfo = null
   state = EMPTY
   notify()
 }
@@ -224,6 +282,9 @@ export async function resume(): Promise<void> {
       summary: null,
       registers: null,
       registersLoading: false,
+      threads: [],
+      threadsLoading: false,
+      threadsError: null,
     })
   } catch {
     // ignore

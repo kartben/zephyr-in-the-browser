@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 #
-# Build the packaged Zephyr samples for the browser and install stripped ELFs
+# Build the packaged Zephyr samples for the browser and install unstripped ELFs
 # into public/qemu/zephyr/, where the qemu backend fetches them at runtime.
+#
+# Images stay unstripped so the in-page debugger can resolve
+# CONFIG_DEBUG_THREAD_INFO symbols (_kernel, _kernel_thread_info_offsets, …)
+# the same way OpenOCD does. Drop-in custom ELFs should likewise keep symbols
+# if you want the Threads tab.
 #
 #   tools/build-zephyr-image.sh [board|all] [app|all]
 #     board  a board from tools/samples.manifest, or "all" (the default)
@@ -102,13 +107,9 @@ build_one() {
   work="${ZEPHYR_BUILD_WORKDIR:-$ROOT/.zephyr-build}/$board_dir-$id"
   mkdir -p "$dest" "$work"
 
-  # Every packaged build carries conf/stripped.conf: what ships is the
-  # zephyr.strip the build emits itself, produced by the same toolchain that
-  # linked the ELF — no strip binary for this script to locate, in either
-  # mode. Manifest fragments (relative to zephyr-module/) follow it; several
-  # join with ';', and the quotes keep the ';' from splitting the outer
-  # bash -lc command before Zephyr sees the list.
-  local conf_list="$MODULE/conf/stripped.conf"
+  # debug-threads.conf → CONFIG_DEBUG_THREAD_INFO (OpenOCD-compatible thread
+  # awareness). Manifest fragments (relative to zephyr-module/) follow it.
+  local conf_list="$MODULE/conf/debug-threads.conf"
   if [ -n "$confs" ]; then
     conf_list="$conf_list;$(echo "$confs" | tr ',' '\n' | sed "s|^|$MODULE/|" | paste -sd';' -)"
   fi
@@ -161,11 +162,10 @@ build_one() {
       bash -lc "west build -p always -b '$board'$snippet_args '$src' -d /out/build -- $cmake_args"
   fi
 
-  # The linked ELF is mostly DWARF — ~1.5 MB against ~64 KB of loadable image —
-  # and it is fetched over HTTP on every boot, so ship the stripped copy that
-  # CONFIG_BUILD_OUTPUT_STRIPPED (conf/stripped.conf, above) made the build
-  # produce.
-  cp "$work/build/zephyr/zephyr.strip" "$dest/$id.elf"
+  # Ship the unstripped ELF so the page can resolve DEBUG_THREAD_INFO symbols
+  # (_kernel, _kernel_thread_info_offsets, …) like OpenOCD. Larger than the old
+  # stripped ~64 KB images (DWARF), but required for the Threads tab.
+  cp "$work/build/zephyr/zephyr.elf" "$dest/$id.elf"
   printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$dest/$id.elf" | xargs)"
 
   # The flattened devicetree the build actually used. Shipped verbatim next to
