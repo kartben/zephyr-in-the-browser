@@ -308,23 +308,7 @@
       padding: 0 0.25rem;
     }
     .bp-list .rm:hover { color: var(--danger); }
-    .note {
-      margin: 0.35rem 0 0;
-      font-size: 0.68rem;
-      color: var(--accent);
-      opacity: 0.9;
-    }
 
-    .gate {
-      margin: 0.25rem 0.75rem 0.85rem;
-      padding: 0.7rem 0.8rem;
-      border-radius: 8px;
-      border: 1px dashed var(--line);
-      color: var(--fg-mute);
-      font-size: 0.72rem;
-      line-height: 1.4;
-      background: color-mix(in srgb, var(--bg) 60%, transparent);
-    }
 
     .tabs {
       display: flex;
@@ -391,12 +375,6 @@
       font-size: 0.65rem;
     }
     .gpr span { color: var(--fg-mute); display: inline-block; width: 1.6rem; }
-    .hint {
-      margin: 0;
-      font-size: 0.65rem;
-      color: var(--fg-mute);
-      padding: 0 0.75rem 0.85rem;
-    }
 
     footer.page {
       font-size: 0.72rem;
@@ -489,17 +467,12 @@
             <button type="button" class="rm" title="Remove">×</button>
           </li>
         </ul>
-        <p class="note only-running">Editable while running — no pause required.</p>
-      </div>
-
-      <div class="gate only-running">
-        Pause the machine to inspect CPU registers, memory, and Zephyr threads.
       </div>
 
       <div class="only-paused">
         <div class="tabs" role="tablist">
           <button type="button" aria-selected="true">CPU</button>
-          <button type="button" aria-selected="false">Memory</button>
+          <button type="button" aria-selected="false">Mem</button>
           <button type="button" aria-selected="false">Threads</button>
         </div>
         <div class="regs">
@@ -518,20 +491,18 @@
             </div>
           </div>
           <div class="gpr">
-            <div><span>X00</span> 40001000</div>
-            <div><span>X01</span> 2</div>
-            <div><span>X02</span> 0</div>
-            <div><span>X03</span> aaaaaaaa</div>
+            <div title="pathname · arg0 / return&#10;in shell_process"><span>X00</span> 40001000</div>
+            <div title="flags · arg1&#10;in shell_process"><span>X01</span> 2</div>
+            <div title="arg2"><span>X02</span> 0</div>
+            <div title="arg3"><span>X03</span> aaaaaaaa</div>
           </div>
         </div>
-        <p class="hint">Hover X00 → <em>pathname · arg0 / return</em> · in shell_process</p>
       </div>
     </aside>
   </div>
 
   <footer class="page">
-    Plan: <code>docs/debug-panel-plan.md</code>.
-    This file is a static mockup — toggle Running / Paused above to compare modes.
+    Plan: <code>docs/debug-panel-plan.md</code> · toggle Running / Paused above.
   </footer>
 
   <script>

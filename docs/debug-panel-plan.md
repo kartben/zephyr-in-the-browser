@@ -68,16 +68,13 @@ Opened from **Panels** menu as `Debug` (gdb-only; hidden when stub unavailable).
 
 **Rules**
 
-- **Breakpoints section is never gated on pause.** Symbol typeahead + hex add
-  work while running; list shows labels from the ELF.
-- **CPU / Memory / Threads** only populate when paused. While running, show one
-  short line: “Pause to inspect registers, memory, and threads” — not empty
-  tabs that look broken.
-- **One job per section:** Breakpoints = manage stops; CPU = registers;
-  Memory = peek; Threads = RTOS walk.
-- **No cards in the “hero”** of the panel — flat list + compact toolbar, same
-  language as Trace / dock rows.
+- **Breakpoints** always available (running or paused). No helper copy.
+- **CPU / Mem / Threads** appear only when paused — omit them while running
+  (no “pause to inspect…” banner).
+- Tooltips carry detail (reg roles, wait targets); the chrome stays labels + values.
+- Flat list + compact toolbar — same language as Trace / dock rows.
 - Width ~22–26 rem docked; undockable via existing `PanelFrame`.
+- Tab labels stay short: **CPU · Mem · Threads** (not “Memory”).
 
 ### Why a panel, not a bigger popover
 
