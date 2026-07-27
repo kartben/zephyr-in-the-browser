@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Pause, Play, Redo2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { RegisterGrid } from '@/components/RegisterGrid'
 import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
 
@@ -101,7 +102,7 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
     <div
       role="dialog"
       aria-label="CPU debug"
-      className="absolute right-0 top-full z-50 mt-1 w-[24rem] max-w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-card p-2 shadow-xl"
+      className="absolute right-0 top-full z-50 mt-1 w-[26rem] max-w-[min(26rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-card p-2.5 shadow-xl"
     >
       <div className="mb-2 flex items-center gap-2 px-1">
         <div className="min-w-0 flex-1">
@@ -152,13 +153,7 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
       )}
 
       {(!snap.gdb || tab === 'cpu') && (
-        <pre
-          className="max-h-48 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground"
-          tabIndex={0}
-        >
-          {snap.registers?.trim() ||
-            (snap.registersLoading ? 'Reading registers…' : 'No register dump yet.')}
-        </pre>
+        <RegisterGrid dump={snap.registers} loading={snap.registersLoading} />
       )}
 
       {snap.gdb && tab === 'breakpoints' && <BreakpointsPane snap={snap} />}
