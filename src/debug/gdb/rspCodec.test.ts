@@ -45,4 +45,41 @@ describe('decodeGPacket', () => {
     expect(view.summary).toBe('PC 00001234')
     expect(view.dump).toContain('R15=00001234')
   })
+
+  it('reads AArch64 PC from a g blob', () => {
+    // Core packet: x0..x30 + sp + pc + 4-byte pstate = 268 bytes
+    const regs = new Uint8Array(268)
+    const pcOff = 32 * 8
+    const spOff = 31 * 8
+    // PC = 0x0000000040081234 LE
+    regs[pcOff] = 0x34
+    regs[pcOff + 1] = 0x12
+    regs[pcOff + 2] = 0x08
+    regs[pcOff + 3] = 0x40
+    // SP = 0x0000000080000000 LE
+    regs[spOff + 3] = 0x80
+    const view = decodeGPacket('aarch64', bytesToHex(regs))
+    expect(view.pc).toBe('0000000040081234')
+    expect(view.dump).toContain('PC=0000000040081234')
+    expect(view.dump).toContain('SP=0000000080000000')
+    expect(view.dump).toContain('PSTATE=')
+  })
+
+  it('does not treat a real 268-byte aarch64 g packet as too short', () => {
+    const regs = new Uint8Array(268)
+    regs[0] = 0x40 // would previously dump as "40 00 00 …" when mis-sized
+    const view = decodeGPacket('aarch64', bytesToHex(regs))
+    expect(view.pc).not.toBeNull()
+    expect(view.dump).toContain('PC=')
+    expect(view.dump).not.toMatch(/^40 00 00/)
+  })
+})
+
+describe('archFromBoard', () => {
+  it('maps boards.ts arch strings', async () => {
+    const { archFromBoard } = await import('@/debug/gdb/regs')
+    expect(archFromBoard('ARMv7-M')).toBe('arm')
+    expect(archFromBoard('ARMv8-A')).toBe('aarch64')
+    expect(archFromBoard('RV32IMAFDC')).toBe('riscv32')
+  })
 })

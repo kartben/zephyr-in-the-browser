@@ -76,21 +76,26 @@ function decodeArm(bytes: Uint8Array): RegView {
 }
 
 function decodeAarch64(bytes: Uint8Array): RegView {
-  // x0..x30, sp, pc — each 8 bytes; pc at index 33. pstate often follows.
-  const pcOff = 33 * 8
-  const spOff = 32 * 8
+  // QEMU target/arm/gdbstub64.c:
+  //   0..30  x0..x30   (8 bytes each)
+  //   31     sp        (8)
+  //   32     pc        (8)
+  //   33     pstate    (4)  — not 8!
+  // Core `g` packet is therefore 31*8 + 8 + 8 + 4 = 268 bytes.
+  const spOff = 31 * 8
+  const pcOff = 32 * 8
+  const pstateOff = 33 * 8
   if (bytes.length < pcOff + 8) {
     return { pc: null, dump: bytesToDump(bytes), summary: null }
   }
   const pc = hex64(u64(bytes, pcOff))
   const lines: string[] = [`PC=${pc}`, `SP=${hex64(u64(bytes, spOff))}`]
-  // LR is X30
   lines.push(`X30=${hex64(u64(bytes, 30 * 8))}`)
   for (let i = 0; i < 30; i++) {
     lines.push(`X${i.toString().padStart(2, '0')}=${hex64(u64(bytes, i * 8))}`)
   }
-  if (bytes.length >= 34 * 8 + 4) {
-    lines.push(`PSTATE=${hex32(u32(bytes, 34 * 8))}`)
+  if (bytes.length >= pstateOff + 4) {
+    lines.push(`PSTATE=${hex32(u32(bytes, pstateOff))}`)
   }
   return { pc, dump: lines.join('\n'), summary: `PC ${pc}` }
 }
@@ -117,8 +122,17 @@ function decodeRiscv32(bytes: Uint8Array): RegView {
 /** Map board.arch strings onto a gdb register layout. */
 export function archFromBoard(arch: string): GdbArch {
   const a = arch.toLowerCase()
-  if (a.includes('aarch64') || a.includes('arm64')) return 'aarch64'
-  if (a.includes('riscv')) return 'riscv32'
+  // boards.ts uses "ARMv8-A" for Cortex-A53 — not the string "aarch64".
+  if (
+    a.includes('aarch64') ||
+    a.includes('arm64') ||
+    a.includes('armv8') ||
+    a.includes('cortex-a')
+  ) {
+    return 'aarch64'
+  }
+  // boards.ts uses "RV32IMAFDC" for qemu_riscv32.
+  if (a.includes('riscv') || a.startsWith('rv32') || a.startsWith('rv64')) return 'riscv32'
   return 'arm'
 }
 
