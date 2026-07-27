@@ -36,7 +36,7 @@ the list matters for a given workload:
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
 | 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
-| 15 | **The browser hop measured at 4 % of a transfer** — settles "move device models into wasm": no | virtio patch, `src/virtio/transport.ts` | None; closes a question | Low | Low |
+| 15 | **A DAC transfer is 90 % guest, 5 % browser, 4 % vCPU wake** — settles "move device models into wasm": no | virtio patch, `src/virtio/transport.ts` | None; closes a question, points at items 2/3/5 | Low | Low |
 
 ## I²C throughput: what is left
 
@@ -57,18 +57,24 @@ Measured ceiling after the work above:
 | QEMU hot-path (token stack, idle 50 ms) | Done (#118) | Needs published wasm |
 | **Coalesce completion kicks per poll** | Done (this change) | Cuts BH storms on multi-msg transfers; DAC unchanged (1 msg) |
 | Page chip model | Not the limit | Pure-JS microbench ~380 kHz; 5 µs of a 1000 µs transfer measured live (item 15) |
-| Device models in wasm/C instead of the page | Not worth it | Caps at the 44 µs hop — 4.4 % (item 15) |
+| Device models in wasm/C instead of the page | Not worth it | Caps at the 49 µs hop — 4.9 % (item 15) |
+| Anything outside the guest, including a synchronous non-halting device | Bounded | 97 µs total — under 10 % (item 15) |
 
-The binding constraint for a synchronous one-message write is still ~1.1–1.2 ms
-of **guest VirtIO/I²C stack work** under Wasm TCG (~1.1 measured MIPS while
-blocked). The JS handle + MCP4725 path is microseconds.
+The binding constraint for a synchronous one-message write is **guest
+VirtIO/I²C stack work** under Wasm TCG, and that is now measured rather than
+inferred. A 1.000 ms DAC transfer splits:
 
-That attribution used to rest on elimination — every lever above moved
-something else, so what was left had to be guest-side. Item 15 now times it
-directly, and the elimination held: of a 1.000 ms DAC transfer, **0.049 ms is
-the browser** (0.005 ms of it the device model) and **0.951 ms is guest + TCG**
-plus the notify→vCPU-resume gap. On accel_chart's 4.167 ms transfer the browser
-is 0.064 ms. Nothing page-side is worth another pass.
+| | ms | share |
+| --- | --- | --- |
+| guest instructions + TCG | 0.903 | 90.3 % |
+| browser round trip | 0.054 | 5.4 % |
+| — of which the device model | 0.005 | 0.5 % |
+| notify → vCPU resume | 0.043 | 4.3 % |
+
+The attribution used to rest on elimination — every lever above moved something
+else, so what was left had to be guest-side — and the elimination held. The
+accel chart is 98 % guest on the same breakdown. Nothing page-side is worth
+another pass; see item 15 for the method and the caveats.
 
 What still moves the needle:
 
@@ -88,7 +94,7 @@ What still moves the needle:
 
 Not worth chasing for I²C Hz: moving chip models into a Worker (#101 measured
 zero gain), moving them into the wasm module as QEMU C (item 15 bounds the win
-at 4.4 % of a transfer, and #101's null result is the same finding from the
+at 4.9 % of a transfer, and #101's null result is the same finding from the
 other side), SCL/"bus speed" knobs (there is no bus), or classic DMA/FIFO.
 
 ## Instruments that already exist
@@ -113,20 +119,22 @@ second), and `bridgeWaiterActive`. A hot workload on an old emulator gets a
 `bridge_waiter_inactive` note; `tools/probe-timer-clamp.mjs` measures the timer
 fallback in isolation.
 
-**One instrument here was lying by omission, and is now fixed pending a
-rebuild.** `wakeAvgNs` / `wakeCount` (notify→vCPU-resume,
-`0015-instrument-vcpu-wake-latency.patch`) returned `count = 0` across two
-12-second DAC runs with ~12,000 completions each — the exports answered, so
-they were in the build, but nothing incremented them. The patch hooked
-`rr_cpu_thread_fn`, and the A53 stopped running it when item 6 removed
-`-icount`: that makes MTTCG eligible, and MTTCG uses `mttcg_cpu_thread_fn`.
+**One instrument here was lying by omission, and is now fixed.** `wakeAvgNs` /
+`wakeCount` (notify→vCPU-resume, `0015-instrument-vcpu-wake-latency.patch`)
+returned `count = 0` across two 12-second DAC runs with ~12,000 completions
+each — the exports answered, so they were in the build, but nothing incremented
+them. The patch hooked `rr_cpu_thread_fn`, and the A53 stopped running it when
+item 6 removed `-icount`: that makes MTTCG eligible, and MTTCG uses
+`mttcg_cpu_thread_fn`.
 
-The hook has moved to `qemu_wait_io_event_common()` in `system/cpus.c`, which
-rr, MTTCG and the hardware accels all funnel through, so it cannot go stale
-the next time accel selection changes. **Needs a rebuild to read.** Until
-then a zero `wakeCount` means "not measured on this build", never "no wake
-latency" — the profiler now says so itself with a `vcpu_wake_unmeasured` note
-whenever completions are being delivered and no wake was ever timed.
+The hook now sits in `qemu_wait_io_event_common()` (`system/cpus.c`), which rr,
+MTTCG and the hardware accels all funnel through, so it cannot go stale the
+next time accel selection changes. After the rebuild it reports 11,925 wakes
+for 11,925 DAC completions — 1:1 coverage — at 0.043 ms mean.
+
+A zero `wakeCount` therefore means "not measured on this build", never "no wake
+latency", and the profiler now says so itself with a `vcpu_wake_unmeasured`
+note whenever completions are being delivered and no wake was ever timed.
 
 The other half of the round trip — how long QEMU took to notice a completion —
 used to be missing here. Item 15 closes it: QEMU now times each chain from
@@ -581,53 +589,71 @@ own cost, which `tools/bench-dac-i2c.mjs` puts at **8.5 µs** per I²C transfer
 against a round trip three orders of magnitude larger. So the hop is the entire
 upside, and the hop had never been measured.
 
-**Measured**, on a local rebuilt A53 artifact, two runs of each workload:
+**Measured**, on a local rebuilt A53 artifact. Three runs of each workload; the
+third also carries the re-hooked vCPU wake, so it is the complete one:
 
 | | DAC sawtooth (1 kHz) | accel_chart (240 Hz) |
 | --- | --- | --- |
 | `periodMs` — one transfer, end to end | 1.000 | 4.167 |
-| `roundTripAvgMs` — QEMU's whole browser hop | 0.049 / 0.058 | 0.064 / 0.084 |
-| `serviceAvgMs` — dispatch + device model | 0.005 / 0.005 | 0.013 / 0.015 |
-| **`hopAvgMs`** — the two cross-thread hops | **0.044 / 0.054** | **0.051 / 0.068** |
-| `guestShareMs` — guest + TCG | 0.951 / 0.942 | 4.103 / 4.083 |
-| samples / over 5 ms | ~12,000 / 0–1 | ~2,390 / 0 |
+| `roundTripAvgMs` — QEMU's whole browser hop | 0.054 | 0.070 |
+| `serviceAvgMs` — dispatch + device model | 0.005 | 0.013 |
+| **`hopAvgMs`** — the two cross-thread hops | **0.049** | **0.057** |
+| `wakePerTransferMs` — notify → vCPU resume | 0.043 | 0.021 |
+| `guestOnlyMs` — guest instructions + TCG | **0.903** | **4.076** |
+| samples / over 5 ms | 11,925 / 0 | 2,398 / 0 |
 
-Run-to-run spread is about 20 % on the hop and nil on the conclusion. Both
-workloads held their rate (1000 Hz, 240 Hz) across both runs, and the two
-`serviceAvgMs` columns barely move, which is what you would expect of a
-main thread that is not contended.
+Earlier runs of the same builds gave hops of 0.044 and 0.054 (DAC), 0.051 and
+0.068 (accel) — about 20 % run-to-run, and no movement in the conclusion. Both
+workloads held their rate across all three runs, and `serviceAvgMs` barely
+moves, which is what an uncontended main thread looks like.
 
-**The browser is 5–6 % of a DAC transfer and 1.5–2 % of an accel-chart one**, of
-which the hop proper — everything a wasm-side device model could delete — is
-4.4–5.4 % and 1.2–1.6 %. The DAC is already at its intended 1 kHz, so even that
-is not realizable throughput: the sample is rate-limited by its own loop, not
-by the bus. Nine transfers per SSD1306 frame come to 0.4 ms of hop against a
-~90 ms frame.
+`wakePerTransferMs` is scaled, not raw: a wake is per `virtio_notify`, and a
+notify covers a whole drain. The DAC's one-message writes come out 1:1 (11,925
+wakes for 11,925 requests); the accel chart batches a register read as two
+chains behind one notify, so 1,205 wakes cover 2,398 requests and the raw
+0.043 ms halves. `tools/profile-decompose.mjs` does that division, with the
+double-counting case pinned in `src/profileDecompose.test.ts`.
+
+So a 1 ms DAC transfer is **90 % guest instructions, 5.4 % browser, 4.3 % vCPU
+wake**. The accel chart is 98 % guest. The hop proper — everything a wasm-side
+device model could delete — is 4.9 % and 1.4 %, and the DAC is already at its
+intended 1 kHz, so even that is not realizable throughput: the sample is
+rate-limited by its own loop, not by the bus. Nine transfers per SSD1306 frame
+come to 0.4 ms of hop against a ~90 ms frame.
+
+Worth stating as a bound, because it covers the aggressive version of the idea
+too: **everything outside the guest is 9.7 % of a DAC transfer.** Even a
+synchronous in-wasm device that answered inside the MMIO handler and never
+halted the vCPU — no bridge, no IRQ, no wake — could not do better than take
+1.000 ms to 0.903 ms, plus whatever guest-side scheduling it also removed
+(the `k_sem_take` suspend and the ISR are inside that 0.903 ms and were not
+measured separately). That is the ceiling on the whole family of "put the
+peripherals in wasm" designs, and it is under 10 %.
 
 So the answer to "should peripheral emulation happen in the wasm environment?"
 is no, at least not for latency. It would move 9.4k lines of TypeScript models
 and 2.7k lines of vitest into C behind an hours-long containerised rebuild, add
 a state-sync channel per chip for the ones owning browser state, and buy back
-around 5 % of a transfer. The `serviceAvgMs` of 4–15 µs also lands right on the
+5 % of a transfer. The `serviceAvgMs` of 4–15 µs also lands right on the
 8.5 µs `tools/bench-dac-i2c.mjs` measures for the model alone, which says the
 main thread is not contended on these workloads either — item 8's consolidation
 already did its job.
 
-One caveat on `guestShareMs`, and it is the honest limit of this measurement:
-the round trip ends when QEMU *drains* the completion, before `virtio_notify`
-and before the vCPU resumes. So `guestShareMs` is guest instructions **plus**
-notify→vCPU-resume, and the DAC's guest blocks with nothing else runnable, so
-Zephyr idles into WFI and QEMU halts the vCPU on essentially every transfer.
-Something has to wake that thread, and how long it takes is not yet known.
+The round trip ends when QEMU *drains* the completion, before `virtio_notify`
+and before the vCPU resumes — so `guestShareMs` alone is guest instructions
+**plus** notify→vCPU-resume. That distinction is not academic here: the DAC's
+guest blocks with nothing else runnable, Zephyr idles into WFI, and QEMU halts
+the vCPU on essentially every transfer, so something has to wake that thread
+1,000 times a second.
 
-`wake_*` exists to measure exactly that and reported `wakeCount = 0` on both
-runs — the hook was on `rr_cpu_thread_fn`, which the A53 stopped using when
-item 6 removed `-icount`. It now hooks `qemu_wait_io_event_common()`, which
-every accel funnels through; that needs one rebuild to read. Until it is read,
-do not quote 0.951 ms as "guest code" — it is guest code *plus* however long
-the host takes to reschedule a halted vCPU, and which of the two dominates
-decides whether the remaining work is raising guest MIPS (items 2, 3, 5) or
-not halting the vCPU at all.
+The first two runs could not see it — `wake_*` reported `wakeCount = 0`,
+because the hook was on `rr_cpu_thread_fn` and the A53 stopped using it when
+item 6 removed `-icount`. Re-hooked at `qemu_wait_io_event_common()`, it reads
+**0.043 ms**, with 11,925 wakes for 11,925 completions. So the wake is real but
+small, and the answer is the first branch of the two below: the remaining
+0.903 ms is genuinely guest instructions under Wasm TCG, and the work that
+would move it is raising guest MIPS (items 2, 3, 5) — not anything about how
+the device is modelled or where it lives.
 
 The instrumentation, for reference.
 `tools/qemu-jit-patches/0018-instrument-bridge-roundtrip.patch` stamps
@@ -699,12 +725,16 @@ harness will be re-run against other workloads and other builds.
   `src/virtio/requestWaitWorker.ts` — which already blocks in `Atomics.wait` on
   the shared heap and today only forwards a `postMessage` — would not help
   either.
-- **`guestShareMs` dominant** — what the DAC and accel_chart both show, at 95 %
-  and 98 %. The lever is the guest's own path: the suspend/IRQ/resume per
-  transfer, and workloads that pay it repeatedly, like the SSD1306's nine
-  transfers per frame (`src/virtio/devices/chips/ssd1306.ts:11`). Before
-  attributing all of it to guest instructions, though, close the `wake_*` gap
-  above — notify→vCPU-resume is inside this number and is currently unmeasured.
+- **`guestOnlyMs` dominant** — what the DAC and accel_chart both show, at 90 %
+  and 98 % once the vCPU wake is taken out. The lever is the guest's own path:
+  raising MIPS so those instructions retire faster, and cutting the number of
+  transfers a workload needs at all — the SSD1306's nine chunked writes per
+  frame (`src/virtio/devices/chips/ssd1306.ts:11`) are nine of these, and
+  larger chunks would be worth more than anything on the host side.
+- **A large `wakePerTransferMs`** — did not happen (0.043 ms, 4.3 %). Had it
+  been large, the target would have been the vCPU halt itself rather than the
+  guest: a device that answers synchronously never puts the guest in WFI, so
+  there is nothing to wake.
 
 ## Suggested order
 
@@ -717,11 +747,10 @@ harness will be re-run against other workloads and other builds.
    is a precondition for trusting item 2. Compare MIPS before and after.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
-5. ~~Item 15's round-trip read~~ — done: the hop is 4.4 % of a DAC transfer,
-   so no work that moves device models anywhere is worth starting. It also
-   turned up a dead `wake_*` instrument, now re-hooked accel-agnostically;
-   **that read is the next rebuild's job** and is what splits the remaining
-   0.951 ms between guest code and vCPU wake latency.
+5. ~~Item 15's round-trip read~~ — done, including the re-hooked vCPU wake:
+   90 % guest, 5 % browser, 4 % wake. No work that moves device models
+   anywhere is worth starting, and the remaining time is squarely in items 2,
+   3 and 5.
 6. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
 7. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.

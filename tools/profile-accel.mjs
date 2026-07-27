@@ -104,7 +104,11 @@ try {
         mips: +avg('mips').toFixed(1),
         // Browser hop vs device model vs what is left for the guest. See
         // docs/performance.md item 15.
-        ...decompose(avg('i2cHz'), avg('i2cRoundTripAvgMs'), avg('i2cServiceAvgMs')),
+        ...decompose(avg('i2cHz'), avg('i2cRoundTripAvgMs'), avg('i2cServiceAvgMs'), {
+          avgMs: avg('wakeAvgNs') / 1e6,
+          count: samples.at(-1)?.wakeCount ?? 0,
+          requests: samples.at(-1)?.i2cRoundTripCount ?? 0,
+        }),
         roundTripSlowCount: samples.at(-1)?.i2cRoundTripSlowCount ?? null,
         notes: [...new Set(samples.flatMap((s) => s.notes))],
         last: samples.at(-1),

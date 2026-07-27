@@ -218,7 +218,11 @@ try {
         // An emulator without 0018 reports -1, and the derived fields go null
         // rather than to a plausible-looking 0: "not measured" and "free" are
         // the two answers this whole exercise exists to tell apart.
-        ...decompose(avg('i2cHzMeas'), avg('rtAvgMs'), avg('serviceAvgMs')),
+        ...decompose(avg('i2cHzMeas'), avg('rtAvgMs'), avg('serviceAvgMs'), {
+          avgMs: avg('wakeAvgNs') / 1e6,
+          count: rows.at(-1)?.wakeCount ?? 0,
+          requests: rows.at(-1)?.rtCount ?? 0,
+        }),
         roundTripMaxMs: avg('rtMaxMs') >= 0 ? +avg('rtMaxMs').toFixed(3) : null,
         roundTripSlowCount: rows.at(-1)?.rtSlowCount ?? null,
         wakeAvgMs: +(avg('wakeAvgNs') / 1e6).toFixed(2),
