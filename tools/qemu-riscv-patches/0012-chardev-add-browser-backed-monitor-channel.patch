@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/chardev/char-browser.c
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,359 @@
 +/*
 + * Browser-backed character device.
 + *
@@ -17,8 +17,9 @@ index 0000000..1111111
 + *   -chardev browser,id=gdb0 -gdb chardev:gdb0
 + *
 + * `mon0` is always-open (QMP needs OPENED immediately). `gdb0` stays closed
-+ * until the page calls qemu_browser_gdb_attach(), otherwise the gdbstub would
-+ * treat boot as "client connected" and freeze the guest.
++ * until the page calls qemu_browser_gdb_attach() (OPENED is applied on the
++ * QEMU-thread drain timer), otherwise the gdbstub would treat boot as
++ * "client connected" and freeze the guest.
 + *
 + * Unknown ids still get a working Chardev (timer + rings) but no JS exports.
 + *
@@ -62,6 +63,14 @@ index 0000000..1111111
 +    uint8_t out_buf[BROWSER_OUT_SIZE];
 +    uint32_t out_head;
 +    uint32_t out_tail;
++
++    /*
++     * Deferred OPENED/CLOSED for gdb0. The page runs on the browser thread and
++     * must not call qemu_chr_be_event directly under wasm pthreads; the
++     * realtime drain timer runs on QEMU's thread and applies these flags.
++     */
++    bool pending_open;
++    bool pending_close;
 +};
 +typedef struct BrowserChardev BrowserChardev;
 +
@@ -106,6 +115,19 @@ index 0000000..1111111
 +    uint32_t tail = s->in_tail;
 +
 +    smp_rmb();
++
++    if (s->pending_open) {
++        s->pending_open = false;
++        if (!chr->be_open) {
++            qemu_chr_be_event(chr, CHR_EVENT_OPENED);
++        }
++    }
++    if (s->pending_close) {
++        s->pending_close = false;
++        if (chr->be_open) {
++            qemu_chr_be_event(chr, CHR_EVENT_CLOSED);
++        }
++    }
 +
 +    while (tail != head) {
 +        uint8_t byte;
@@ -300,30 +322,23 @@ index 0000000..1111111
 +EMSCRIPTEN_KEEPALIVE
 +int qemu_browser_gdb_attach(void)
 +{
-+    Chardev *chr;
-+
 +    if (browser_gdb == NULL) {
 +        return -1;
 +    }
-+    chr = CHARDEV(browser_gdb);
-+    if (!chr->be_open) {
-+        qemu_chr_be_event(chr, CHR_EVENT_OPENED);
-+    }
++    /* Request OPENED on the next drain tick (QEMU thread), not here. */
++    browser_gdb->pending_close = false;
++    browser_gdb->pending_open = true;
 +    return 0;
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
 +void qemu_browser_gdb_detach(void)
 +{
-+    Chardev *chr;
-+
 +    if (browser_gdb == NULL) {
 +        return;
 +    }
-+    chr = CHARDEV(browser_gdb);
-+    if (chr->be_open) {
-+        qemu_chr_be_event(chr, CHR_EVENT_CLOSED);
-+    }
++    browser_gdb->pending_open = false;
++    browser_gdb->pending_close = true;
 +}
 +
 +static void char_browser_class_init(ObjectClass *oc, const void *data)
@@ -353,15 +368,16 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/include/chardev/char-browser.h
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,44 @@
 +/*
 + * Browser-backed character device: the entry points page JavaScript calls.
 + *
 + * Declared in a header only because QEMU builds with -Wmissing-prototypes;
 + * nothing inside QEMU calls any of these. See chardev/char-browser.c.
 + *
-+ * Two named slots: mon0 (QMP) and gdb0 (gdbstub). gdb_attach/detach fire
-+ * CHR_EVENT_OPENED/CLOSED so the stub does not freeze the guest at boot.
++ * Two named slots: mon0 (QMP) and gdb0 (gdbstub). gdb_attach/detach request
++ * OPENED/CLOSED on the QEMU-thread drain timer so the stub does not freeze
++ * the guest at boot and events are not raised from the browser thread.
 + *
 + * SPDX-License-Identifier: GPL-2.0-or-later
 + */

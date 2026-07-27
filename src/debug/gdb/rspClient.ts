@@ -109,8 +109,13 @@ export class RspClient {
     return null
   }
 
-  /** Interrupt the running guest (Break). */
   async interrupt(): Promise<StopInfo> {
+    // Break must reach the stub even if a prior request is wedged.
+    if (this.waiting) {
+      clearTimeout(this.waiting.timer)
+      this.waiting.reject(new Error('superseded by interrupt'))
+      this.waiting = null
+    }
     this.sendRaw('\x03')
     return this.waitStop()
   }

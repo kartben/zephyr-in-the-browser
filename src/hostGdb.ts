@@ -132,30 +132,61 @@ export function bind(module: unknown, boardArch: string) {
 export async function attachSession(): Promise<boolean> {
   if (!mod || !ch || !state.available) return false
   const attach = mod._qemu_browser_gdb_attach as (() => number) | undefined
-  if (!attach || attach() < 0) return false
+  if (!attach) return false
 
-  client = new RspClient(ch)
-  client.setStopHandler((info) => {
+  // Chardev creation races the module factory under wasm pthreads — retry.
+  let opened = false
+  for (let i = 0; i < 25; i++) {
+    if (attach() === 0) {
+      opened = true
+      break
+    }
+    await sleep(100)
+  }
+  if (!opened) {
+    console.warn('[gdb] gdb0 chardev not ready; staying on QMP')
+    return false
+  }
+
+  // OPENED is applied on QEMU's drain timer (~20 ms); give it a beat.
+  await sleep(50)
+
+  const next = new RspClient(ch)
+  next.setStopHandler((info) => {
     if (info.kind === 'signal') {
       publish({ paused: true })
       void refreshRegs()
     }
   })
+  client = next
   startPoll()
-  publish({ attached: true, paused: false })
 
   try {
-    // `\x03` if already running; `?` during start may report no stop yet.
-    client.poll()
-    await client.start()
-    // Do not force a halt at attach — guest should keep running until Pause.
+    next.poll()
+    const stop = await next.start()
+    // Connecting the stub often stops the VM; kick it again so boot is not
+    // left frozen until the user notices Pause.
+    if (stop) {
+      await next.continue()
+    }
+    // Only claim the session once RSP answers — otherwise Pause would leave
+    // QMP and hang on a dead stub.
     publish({ attached: true, paused: false })
+    console.info('[gdb] RSP session attached')
     return true
-  } catch {
-    // Stub connected but handshake failed — keep trying via interrupt later.
-    publish({ attached: true })
-    return true
+  } catch (err) {
+    console.warn('[gdb] RSP handshake failed; staying on QMP', err)
+    stopPoll()
+    client = null
+    const det = mod._qemu_browser_gdb_detach as (() => void) | undefined
+    det?.()
+    publish({ attached: false, paused: false })
+    return false
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function detach() {
