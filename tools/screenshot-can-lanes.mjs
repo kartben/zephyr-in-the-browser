@@ -52,17 +52,17 @@ const paintInfo = await page.evaluate(async (kind) => {
     let t = 1000
     const bus = createCanBus(() => t)
     bus.attach({ id: 'can0', name: 'can0', local: true })
-    bus.attach({ id: 'periodic', name: 'Periodic' })
+    bus.attach({ id: 'babbling', name: 'Babbling' })
     bus.attach({ id: 'responder', name: 'Responder' })
 
-    bus.send('periodic', frame(0x0a0, [0]))
+    bus.send('babbling', frame(0x0a0, [0]))
     t += 280
     bus.pump(t)
-    bus.send('periodic', frame(0x0a0, [1]))
+    bus.send('babbling', frame(0x0a0, [1]))
     t += 280
     bus.pump(t)
 
-    bus.send('periodic', frame(0x0a0, [2]))
+    bus.send('babbling', frame(0x0a0, [2]))
     bus.send('responder', frame(0x200, [9]))
     bus.send('can0', frame(0x100, [3]))
     t += 10

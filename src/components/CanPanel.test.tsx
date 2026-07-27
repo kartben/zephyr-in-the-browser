@@ -86,11 +86,11 @@ describe('CanView', () => {
   })
 
   it('shows a peer with its behaviour summary and an unplug button', () => {
-    const out = html(harness('periodic').bus.nodes())
-    expect(out).toContain('Periodic')
+    const out = html(harness('babbling').bus.nodes())
+    expect(out).toContain('Babbling')
     expect(out).toContain('0x0A0 every 100 ms')
     expect(out).toContain('TEC 0 REC 0')
-    expect(out).toContain('Unplug Periodic')
+    expect(out).toContain('Unplug Babbling')
   })
 
   it('distinguishes Listener from Silent in the roster', () => {
@@ -101,7 +101,7 @@ describe('CanView', () => {
 
   it('offers only the fields the selected node type needs', () => {
     const out = html([])
-    // Periodic leads the catalog, so both of its fields are shown.
+    // Babbling leads the catalog, so both of its fields are shown.
     expect(out).toContain('Frame ID')
     expect(out).toContain('Period in ms')
     expect(out).toContain('Counter, Listener and Silent take none.')
@@ -109,8 +109,8 @@ describe('CanView', () => {
 
   it('lists peers in attachment order, not by frame ID', () => {
     const { bus } = harness()
-    bus.attach(nodeType('periodic')!.create('late', { id: 0x200, periodMs: 100 }))
-    bus.attach(nodeType('periodic')!.create('early', { id: 0x0a0, periodMs: 100 }))
+    bus.attach(nodeType('babbling')!.create('late', { id: 0x200, periodMs: 100 }))
+    bus.attach(nodeType('babbling')!.create('early', { id: 0x0a0, periodMs: 100 }))
 
     // Attachment order: late then early — sorting by frame ID would reverse them.
     expect(bus.nodes().map((n) => n.id)).toEqual(['can0', 'late', 'early'])
@@ -178,7 +178,7 @@ describe('CanView', () => {
   })
 
   it('keeps the lane strip off an idle bus', () => {
-    const out = text(harness('periodic').bus.nodes())
+    const out = text(harness('babbling').bus.nodes())
     expect(out).not.toContain('Arbitration')
   })
 

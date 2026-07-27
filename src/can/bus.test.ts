@@ -258,7 +258,7 @@ describe('acknowledgement and error counters', () => {
   it('exposes a frame ID only when the preset has one', () => {
     const { bus } = harness()
     bus.attach({ id: 'can0', name: 'can0', local: true })
-    bus.attach(nodeType('periodic')!.create('hi', { id: 0x200, periodMs: 50 }))
+    bus.attach(nodeType('babbling')!.create('hi', { id: 0x200, periodMs: 50 }))
     bus.attach(nodeType('listener')!.create('l', { id: 0, periodMs: 0 }))
     bus.attach(nodeType('responder')!.create('r', { id: 0x100, periodMs: 0 }))
 
@@ -271,10 +271,10 @@ describe('acknowledgement and error counters', () => {
 })
 
 describe('node presets', () => {
-  it('periodic transmits on its own schedule', () => {
+  it('babbling transmits on its own schedule', () => {
     const { bus, advance } = harness()
     bus.attach({ id: 'can0', name: 'can0', local: true })
-    bus.attach(nodeType('periodic')!.create('p', { id: 0x0a0, periodMs: 100 }))
+    bus.attach(nodeType('babbling')!.create('p', { id: 0x0a0, periodMs: 100 }))
 
     advance(50)
     expect(bus.log()).toHaveLength(0)

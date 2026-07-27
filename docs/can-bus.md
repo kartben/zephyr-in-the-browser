@@ -134,9 +134,9 @@ signal-decoding scope this spec rules out in §10.
 | Node | Behaviour | Exists for |
 | --- | --- | --- |
 | Counter | Echoes any frame with its first byte incremented | `samples/drivers/can/counter`, which otherwise has nobody to count with |
-| Periodic | Transmits an ID at a period | `can recv`; gives the lane view something to draw |
+| Babbling | Keeps transmitting on a chosen frame ID | loads the bus so arbitration lanes have something to draw; counterpart to `samples/drivers/can/babbling` |
 | Responder | Replies to an RTR for an ID | `can send`; RTR is otherwise unexercised |
-| Listener | ACKs every frame, transmits none | keeps the bus alive under `babbling`; unplug it for bus-off |
+| Listener | ACKs every frame, transmits none | keeps the bus alive under babbling; unplug it for bus-off |
 | Silent | Listen-only: no transmit, **no ACK** | present but useless, the subtler bus-off |
 
 Counter is a `respondTo` preset with a counter in its reply, not a sixth
@@ -153,14 +153,14 @@ does when it shows a second address field only for chips that have one.
 
 | Type | Fields |
 | --- | --- |
-| Periodic | Frame ID, period in ms |
+| Babbling | Frame ID, period in ms |
 | Responder | Frame ID |
 | Counter, Listener, Silent | none |
 
 Fields are set at add time and not editable afterwards. Removing and re-adding
 is the way to change one. The field is a **frame / arbitration ID**, not a node
 address — CAN has none; the lowest ID wins the bus. Two arguments were weighed
-for making a Periodic node's period live-editable, and both lost: it is the only
+for making a Babbling node's period live-editable, and both lost: it is the only
 field anyone would want to change, and the composer already covers one-off
 traffic. Revisit if the arbitration demo turns out to need a load knob.
 
@@ -357,7 +357,7 @@ an idle timeline.
   transmits when the emulated board gets round to an RTS, and that board runs
   well below wall clock, so collisions *with the local node* — the ones a
   reader cares about — are the least likely of all. Mitigation is load, not
-  fakery: package `babbling`, and if that is still not enough, add a Periodic
+  fakery: package `babbling`, and if that is still not enough, add a Babbling
   preset fast enough to saturate. Manufacturing a collision `can0` did not
   lose is off the table.
 

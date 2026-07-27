@@ -21,13 +21,13 @@ export interface CanNodeType {
 
 export const CAN_NODE_TYPES: CanNodeType[] = [
   {
-    id: 'periodic',
-    label: 'Periodic · transmits an ID',
+    id: 'babbling',
+    label: 'Babbling · floods the bus',
     fields: ['id', 'period'],
     defaults: { id: 0x0a0, periodMs: 100 },
     create: (nodeId, o) => ({
       id: nodeId,
-      name: 'Periodic',
+      name: 'Babbling',
       transmit: {
         id: o.id,
         periodMs: o.periodMs,

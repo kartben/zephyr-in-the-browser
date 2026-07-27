@@ -88,7 +88,7 @@ export interface CanNodeSnapshot {
   loopback: boolean
   /**
    * Characteristic **frame** / arbitration ID when the preset has one
-   * (Periodic's TX id, Responder's RTR id). `null` when the node has none —
+   * (Babbling's TX id, Responder's RTR id). `null` when the node has none —
    * CAN has no node addresses. Not used for roster order: a node may transmit
    * any ID from one frame to the next.
    */
@@ -324,7 +324,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
   }
 
   function pump(at = now()) {
-    // Periodic nodes become ready on their own schedule.
+    // Transmit presets become ready on their own schedule.
     for (const node of attached.values()) {
       const tx = node.transmit
       if (!tx || node.state === 'bus-off') continue
