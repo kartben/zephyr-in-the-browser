@@ -57,10 +57,18 @@ selects `THREAD_MONITOR` + `THREAD_NAME` and emits:
 
 Packaged images ship **unstripped** ELFs so the page can resolve those symbols,
 read the offset table, then walk `_kernel.threads` over gdb memory reads.
-**Threads** tab: name, priority, TCB address (click to peek). Semaphores /
-mutexes / object cores can come later.
+**Threads** tab: name, priority, state, stack size (matched via SP → ELF stack
+symbols, or `stack_info` when DWARF has it), and Memory links for the stack /
+TCB. Semaphores / mutexes / object cores can come later.
 
 ### Phase E — Disassembly / DWARF (optional)
+
+### Phase F — Dedicated Debug panel
+
+See [`debug-panel-plan.md`](debug-panel-plan.md) and the interactive mockup
+[`mockups/debug-panel.html`](mockups/debug-panel.html). Move Break / CPU /
+Memory / Threads out of the pause-only TopBar popover into a dockable panel so
+breakpoints can be set while the guest is running.
 
 ---
 

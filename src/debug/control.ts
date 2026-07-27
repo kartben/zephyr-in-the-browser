@@ -29,6 +29,10 @@ export interface DebugSnapshot {
   threadInfo: boolean
   hasSymbols: boolean
   symbols: ElfSymbol[]
+  /** DWARF formals for the function at PC (empty if unknown). */
+  regFormals: string[]
+  /** Register ABI arch for hover hints. */
+  regArch: 'arm' | 'aarch64' | 'riscv32' | null
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
@@ -53,6 +57,8 @@ function snap(): DebugSnapshot {
       threadInfo: g.threadInfo,
       hasSymbols: g.hasSymbols,
       symbols: g.symbols,
+      regFormals: g.regFormals,
+      regArch: g.regArch,
       threads: g.threads,
       threadsLoading: g.threadsLoading,
       threadsError: g.threadsError,
@@ -73,6 +79,8 @@ function snap(): DebugSnapshot {
     threadInfo: false,
     hasSymbols: false,
     symbols: [],
+    regFormals: [],
+    regArch: null,
     threads: [],
     threadsLoading: false,
     threadsError: null,

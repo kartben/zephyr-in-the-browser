@@ -5,20 +5,45 @@
  * then status/PSR. Falls back to a monospace pre when the dump cannot be parsed.
  */
 
+import { useMemo } from 'react'
 import { compactHex, isInactiveRegValue } from '@/debug/hexFormat'
 import { organizeRegisters, type RegEntry } from '@/debug/registerModel'
+import {
+  functionNameFromLabel,
+  inferArchFromDump,
+  regTooltip,
+  type HintArch,
+  type RegHintContext,
+} from '@/debug/regHints'
 import { cn } from '@/lib/utils'
 
 export function RegisterGrid({
   dump,
   loading,
   onPeek,
+  pcLabel,
+  formals,
+  arch,
 }: {
   dump: string | null
   loading?: boolean
   /** Click a value to peek that address in the Memory tab. */
   onPeek?: (addrHex: string) => void
+  /** e.g. `shell_process+0x14` — enables "in fn" on arg tooltips. */
+  pcLabel?: string | null
+  /** DWARF formal names in declaration order. */
+  formals?: string[]
+  arch?: HintArch | null
 }) {
+  const hintCtx: RegHintContext = useMemo(
+    () => ({
+      arch: arch ?? (dump ? inferArchFromDump(dump) : null),
+      functionName: functionNameFromLabel(pcLabel ?? null),
+      formals: formals ?? [],
+    }),
+    [arch, dump, pcLabel, formals],
+  )
+
   if (loading && !dump) {
     return (
       <p className="px-1 py-3 text-center text-[11px] text-muted-foreground">Reading registers…</p>
@@ -57,7 +82,7 @@ export function RegisterGrid({
           )}
         >
           {layout.featured.map((reg) => (
-            <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} />
+            <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} hintCtx={hintCtx} />
           ))}
         </div>
       )}
@@ -72,7 +97,7 @@ export function RegisterGrid({
             )}
           >
             {layout.general.map((reg) => (
-              <RegRow key={reg.name} reg={reg} onPeek={onPeek} />
+              <RegRow key={reg.name} reg={reg} onPeek={onPeek} hintCtx={hintCtx} />
             ))}
           </div>
         </section>
@@ -81,9 +106,14 @@ export function RegisterGrid({
       {layout.status.length > 0 && (
         <section>
           <SectionLabel>Status</SectionLabel>
-          <div className="grid grid-cols-1 gap-y-0.5">
+          <div
+            className={cn(
+              'grid gap-1.5',
+              layout.status.length === 1 ? 'grid-cols-1' : 'grid-cols-2',
+            )}
+          >
             {layout.status.map((reg) => (
-              <RegRow key={reg.name} reg={reg} wide onPeek={onPeek} />
+              <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} hintCtx={hintCtx} />
             ))}
           </div>
         </section>
@@ -103,12 +133,15 @@ function SectionLabel({ children }: { children: string }) {
 function FeaturedReg({
   reg,
   onPeek,
+  hintCtx,
 }: {
   reg: RegEntry
   onPeek?: (addrHex: string) => void
+  hintCtx: RegHintContext
 }) {
   const isPc = reg.name === 'PC'
   const display = compactHex(reg.value)
+  const tip = regTooltip(reg.name, reg.value, hintCtx, { canPeek: !!onPeek })
   return (
     <button
       type="button"
@@ -117,7 +150,7 @@ function FeaturedReg({
         isPc ? 'bg-primary/10 ring-1 ring-primary/25' : 'bg-muted/45 hover:bg-muted/70',
         onPeek && 'cursor-pointer',
       )}
-      title={`0x${reg.value}${onPeek ? ' — click to peek memory' : ''}`}
+      title={tip}
       onClick={() => onPeek?.(reg.value)}
     >
       <div
@@ -144,33 +177,37 @@ function RegRow({
   reg,
   wide,
   onPeek,
+  hintCtx,
 }: {
   reg: RegEntry
   wide?: boolean
   onPeek?: (addrHex: string) => void
+  hintCtx: RegHintContext
 }) {
   const display = compactHex(reg.value)
   const dim = isInactiveRegValue(reg.value)
+  const tip = regTooltip(reg.name, reg.value, hintCtx, { canPeek: !!onPeek })
   return (
     <button
       type="button"
       className={cn(
-        'flex min-w-0 items-baseline gap-1 rounded px-0.5 py-px text-left font-mono text-[10px] leading-snug',
+        'flex min-w-0 items-baseline rounded px-0.5 py-px text-left font-mono text-[10px] leading-snug',
+        wide ? 'gap-2' : 'gap-1',
         onPeek && 'hover:bg-muted/50',
         dim && 'opacity-40',
       )}
-      title={`0x${reg.value}${onPeek ? ' — click to peek memory' : ''}`}
+      title={tip}
       onClick={() => onPeek?.(reg.value)}
     >
-      <span className="w-7 shrink-0 text-muted-foreground">{reg.name}</span>
       <span
         className={cn(
-          'min-w-0 tabular-nums text-foreground/90',
-          wide ? 'truncate' : 'truncate',
+          'shrink-0 overflow-hidden text-ellipsis text-muted-foreground',
+          wide ? 'w-[4.5rem]' : 'w-7',
         )}
       >
-        {display}
+        {reg.name}
       </span>
+      <span className="min-w-0 truncate tabular-nums text-foreground/90">{display}</span>
     </button>
   )
 }
