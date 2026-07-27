@@ -51,12 +51,12 @@ function DigitGlyph({
 
   return (
     <svg
-      // Vertical viewBox pad keeps skew + glow off the panel edge. Crop the
-      // horizontal pad and overlap neighbors so the DP gutter of one digit
-      // sits in the crack before the next — like a real LED module strip.
-      viewBox="-1 -12 59 108"
+      // Vertical viewBox pad keeps skew + glow off the panel edge. Keep the
+      // horizontal crop near the glyph bounds (incl. DP) so digits abut —
+      // no flex gap and no negative margins that smash segment bodies together.
+      viewBox="-2 -12 61 108"
       className={cn(
-        '-mx-2 h-[4.75rem] w-[2.65rem] shrink-0 overflow-visible sm:-mx-2.5 sm:h-[6.25rem] sm:w-[3.45rem]',
+        'h-[4.75rem] w-[2.7rem] shrink-0 overflow-visible sm:h-[6.25rem] sm:w-[3.55rem]',
         scanning && 'sevenseg-scan',
       )}
       aria-hidden
