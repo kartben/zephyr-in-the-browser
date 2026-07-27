@@ -89,6 +89,8 @@ export interface CanNodeSnapshot {
 
 export interface CanLogEntry {
   seq: number
+  /** Wall-clock ms when the event landed. Lane view places ticks from this. */
+  at: number
   kind: 'frame' | 'arbitration' | 'no-ack'
   /** Node id that transmitted (or tried to). */
   from: string
@@ -248,7 +250,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
     if (!acked) {
       node.tec += 8
       updateState(node)
-      push({ kind: 'no-ack', from: node.id, local: !!node.local, frame, tec: node.tec })
+      push({ kind: 'no-ack', at, from: node.id, local: !!node.local, frame, tec: node.tec })
       // The MCP2515 retransmits automatically unless one-shot mode is set, so
       // the frame goes back on the queue and the counter climbs until bus-off
       // stops it. This loop *is* the demo.
@@ -273,7 +275,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
     }
 
     recent.push(at)
-    push({ kind: 'frame', from: node.id, local: !!node.local, frame, drop })
+    push({ kind: 'frame', at, from: node.id, local: !!node.local, frame, drop })
   }
 
   function dropQueued(nodeId: string) {
@@ -311,6 +313,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
         loser.lostLogged = true
         push({
           kind: 'arbitration',
+          at,
           from: loser.node.id,
           local: !!loser.node.local,
           frame: loser.frame,

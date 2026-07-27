@@ -143,6 +143,14 @@ describe('CanView', () => {
     const out = text(bus.nodes(), bus.log())
     expect(out).toContain('lost arbitration to')
     expect(out).toContain('retry')
+    // Lane strip mounts once there is traffic to place.
+    expect(out).toContain('Arbitration')
+    expect(html(bus.nodes(), bus.log())).toContain('aria-label="Arbitration lanes"')
+  })
+
+  it('keeps the lane strip off an idle bus', () => {
+    const out = text(harness('periodic').bus.nodes())
+    expect(out).not.toContain('Arbitration')
   })
 
   it('surfaces Recover only once the controller is bus-off', () => {

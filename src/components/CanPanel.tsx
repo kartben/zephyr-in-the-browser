@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -15,6 +15,11 @@ import { nodeType } from '@/can/nodes'
 import type { CanLogEntry, CanNodeSnapshot, CanState } from '@/can/bus'
 import type { Mcp2515Chip } from '@/virtio/devices/chips/mcp2515'
 import { RegisterMapButton } from './RegisterMap'
+import {
+  LANE_WINDOW_MS,
+  buildLaneModel,
+  paintArbitrationLanes,
+} from './CanArbitrationLanes'
 
 /**
  * The CAN bus, as a workbench — the same three sections as {@link ./I2cPanel},
@@ -27,15 +32,12 @@ import { RegisterMapButton } from './RegisterMap'
  * - **Add node.** Page-side presets, with the fields each one needs.
  * - **Send.** A composed frame, transmitted *as* a chosen node so the error
  *   counters and arbitration attribute to something real.
+ * - **Arbitration.** One lane per node over a short sliding window. Hollow
+ *   ticks are deferrals; a hop marks the retry. Drawn here rather than through
+ *   TracePanel's CTF Gantt — that renderer is bound to thread/state, and the
+ *   subject here is frames.
  * - **Traffic.** Every frame, plus the two events nothing in the guest can
  *   show: a frame its filters dropped, and one that lost arbitration.
- *
- * No arbitration lane view here on purpose. The trace already carries those
- * events as rows, and the only Gantt renderer in the tree
- * ({@link ./TracePanel}, over `src/ctf`) is bound to CTF's thread/state model
- * — reusing it would mean inventing fake threads, and duplicating it would
- * mean a second lane renderer. If lanes are wanted later, the honest move is
- * to lift the row renderer out of `ctf/` first.
  */
 export function CanBody() {
   const bus = canBus()
@@ -102,6 +104,7 @@ export function CanView({
 
       <AddNodeRow />
       <SendRow nodes={nodes} />
+      <ArbitrationSection nodes={nodes} log={log} />
 
       <div className="space-y-1.5">
         <div className="flex items-baseline gap-2">
@@ -126,6 +129,83 @@ export function CanView({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Live lane strip. Hidden until something has crossed the bus — an empty
+ * timeline teaches nothing, and the roster already says who is attached.
+ */
+function ArbitrationSection({
+  nodes,
+  log,
+}: {
+  nodes: readonly CanNodeSnapshot[]
+  log: readonly CanLogEntry[]
+}) {
+  if (nodes.length === 0 || log.length === 0) return null
+  return (
+    <div className="space-y-1.5">
+      <span
+        className="text-[11px] font-medium text-muted-foreground"
+        title="Who transmitted, who deferred. Lower ID wins the bus."
+      >
+        Arbitration
+      </span>
+      <ArbitrationLanes nodes={nodes} log={log} />
+    </div>
+  )
+}
+
+function ArbitrationLanes({
+  nodes,
+  log,
+}: {
+  nodes: readonly CanNodeSnapshot[]
+  log: readonly CanLogEntry[]
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Advance the window even when the bus is quiet, so ticks scroll off.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 50)
+    return () => clearInterval(id)
+  }, [])
+
+  // Prefer the freshest log timestamp so tests (and a paused page) still place
+  // ticks inside the window without waiting on wall clock.
+  const tip = log.length > 0 ? Math.max(log[log.length - 1]!.at, now) : now
+  const model = useMemo(
+    () => buildLaneModel(nodes, log, tip, LANE_WINDOW_MS),
+    [nodes, log, tip],
+  )
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const paint = () => {
+      const styles = getComputedStyle(canvas)
+      paintArbitrationLanes(canvas, model, {
+        bg: '#0c0e12',
+        muted: styles.getPropertyValue('--muted-foreground').trim() || 'rgba(255,255,255,0.45)',
+        faint: 'rgba(255,255,255,0.07)',
+      })
+    }
+    paint()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(paint)
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  }, [model])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="block w-full rounded border border-border"
+      title="Hollow tick: lost arbitration. Hop: the retry that followed."
+      aria-label="Arbitration lanes"
+    />
   )
 }
 
