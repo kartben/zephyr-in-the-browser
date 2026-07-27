@@ -12,7 +12,7 @@
 
 import { loadCatalog, type AnnotationCatalog, type CatalogEntry } from '@/annotations/catalog'
 import type { AnnotationRecord } from '@/annotations/protocol'
-import * as monitor from '@/hostMonitor'
+import * as debug from '@/debug/control'
 import { revealPanelKind } from '@/lib/dockReveal'
 
 const ENABLED_KEY = 'zephyr-annotations-enabled'
@@ -133,13 +133,13 @@ function show(id: number, pause: boolean) {
   // Only claim a pause the emulator can actually deliver: on a build without
   // the monitor bridge the machine keeps running, and saying otherwise on the
   // card would be a straight lie about what the reader is looking at.
-  const view = viewFor(id, pause && monitor.available())
+  const view = viewFor(id, pause && debug.getSnapshot().available)
   if (!view) return
 
   // Reveal before pausing, so the row is already in view when the machine
   // stops and the reader's eye has somewhere to go.
   if (view.entry.panel) revealPanelKind(view.entry.panel)
-  if (pause) monitor.pause()
+  if (pause) debug.pause()
 
   const seen = new Set(state.seen)
   seen.add(id)
@@ -195,7 +195,7 @@ export function revisit(id: number) {
 
 /** Dismiss the current annotation and let the machine run on. */
 export function dismiss() {
-  if (state.current?.paused) monitor.resume()
+  if (state.current?.paused) debug.resume()
   publish({ current: null })
 }
 
@@ -211,7 +211,7 @@ export function setEnabled(enabled: boolean) {
   } catch {
     // Preference is a nicety; the toggle still works for this session.
   }
-  if (!enabled && state.current?.paused) monitor.resume()
+  if (!enabled && state.current?.paused) debug.resume()
   publish({ enabled, current: enabled ? state.current : null })
 }
 

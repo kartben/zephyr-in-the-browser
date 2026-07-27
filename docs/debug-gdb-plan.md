@@ -2,119 +2,61 @@
 
 Basic guest debugging without cluttering the existing UI.
 
-## Step 1 — shipped (registers only)
+## Shipped
 
-Reuse the existing QMP browser-chardev monitor (already used for Pause):
+### Step 1 — QMP registers (no rebuild)
 
-- On `STOP`, ask for `info registers` via `human-monitor-command`
-- Quiet UI: a PC chip next to Pause, **only while paused**; popover shows the dump
-- No dock row, no stage widget, no always-on chrome
+- On `STOP`, `info registers` via QMP; PC chip next to Pause while paused
+- No Step on QMP — HMP has no one-instruction step
 
-**No Step button.** QEMU 10.1’s human monitor has no one-instruction step
-command (an early UI offered HMP `step`; that packet does not exist — QEMU
-returns an error and the PC never moves). Real single-step lives on the
-**gdbstub** (`s` / `vCont;s`), not on QMP/HMP. `one-insn-per-tb` is unrelated
-(TCG translation-block size, not CPU step).
+### Phases A–C — gdbstub path (this work)
 
-Works on current published qemu-wasm builds that already expose `monitor`.
+**Phase A (QEMU patches + feature gate)**
 
-Code: `src/hostMonitor.ts`, `src/components/PauseDebugControl.tsx`,
-`src/debug/parseRegisters.ts`.
+- Dual browser chardev slots: `id=mon0` (QMP, always open) and `id=gdb0`
+  (gdbstub, closed until `qemu_browser_gdb_attach()`)
+- Parallel exports `qemu_browser_gdb_*` (+ attach/detach)
+- `features.json` may list `"gdb"`; `GDB_ARGS` appended only then
+- Patches: `tools/qemu-{,jit-,riscv-}patches/*chardev-add-browser*`
 
----
+**Phase B (host RSP + control plane)**
 
-## Why a chardev at all?
+- Thin RSP client: `src/debug/gdb/*`, `src/hostGdb.ts`
+- Façade `src/debug/control.ts` — Pause/Step/annotations use gdb when attached,
+  else QMP
+- Step button appears only when gdb session is live
 
-You already have one: Pause/registers talk QMP over `-chardev browser,id=mon0`.
+**Phase C (breakpoints + memory)**
 
-Gdbstub is a **different** QEMU front-end. It speaks GDB Remote Serial Protocol
-bytes. On a desktop that is usually TCP (`-s` / `-gdb tcp:…`). In the browser
-there is no listening TCP socket the page can dial.
+- Software breakpoints (`Z0`/`z0`) and memory read (`m`) in the pause popover
+  tabs — only with gdb
 
-QEMU already supports “put the gdbstub on any chardev” (`-gdb chardev:ID`).
-Native example from upstream docs: unix socket chardev. Our analogue is a second
-**browser** chardev — the same ring pattern as the monitor, pointed at gdb
-instead of QMP:
-
-```
--chardev browser,id=mon0 -mon chardev=mon0,mode=control   # QMP (have today)
--chardev browser,id=gdb0 -gdb chardev:gdb0                # RSP (next)
-```
-
-So “chardev” is not a new invention for debugging — it is the byte pipe. Without
-it (or an equivalent custom ring wired into gdbstub), the stub has nowhere to
-send/receive packets in wasm.
-
-### Do we need gdbstub / a second channel?
-
-| Capability | QMP (mon0, today) | gdbstub (gdb0) |
-| --- | --- | --- |
-| Pause / resume | yes | yes |
-| Register dump | yes (`info registers`) | yes (`g`) |
-| One-insn step | **no** | yes |
-| Breakpoints | no | yes |
-| Memory read/write | clumsy HMP `x`/`xp` | yes (`m`/`M`) |
-| Zephyr threads later | hard | natural (mem + symbols) |
-
-If “peek PC while paused” is enough, stop at Step 1 — no second chardev.
-Step, breakpoints, and Zephyr object views need the stub, hence a second pipe.
+**Needs an emulator rebuild** before `"gdb"` appears in `features.json`. Until
+then the page stays on Step 1 automatically.
 
 ---
 
-## Current blocker: singleton browser chardev
+## Why a chardev?
 
-All three patch series ship the same file:
-
-| Series | Patch |
-| --- | --- |
-| `tools/qemu-patches/` (ARM TCI) | `0011-chardev-add-browser-backed-monitor-channel.patch` |
-| `tools/qemu-jit-patches/` (AArch64 JIT) | `0014-…` |
-| `tools/qemu-riscv-patches/` (RISC-V TCI) | `0012-…` |
-
-Today the first `-chardev browser,…` claims the only JS exports
-(`qemu_browser_monitor_*`). A second instance is unreachable from the page —
-so monitor + gdb cannot coexist until the patch grows **named slots** (`mon0` /
-`gdb0`) with parallel `qemu_browser_gdb_*` exports.
-
-**Critical:** open gdb0 with `be_opened = false` and attach explicitly from the
-page. Always-open would make gdbstub treat “client connected” at boot and freeze
-the guest before our RSP client exists.
+Desktop gdbstub uses TCP. The browser has none. Upstream already supports
+`-gdb chardev:ID`; a second browser chardev is that byte pipe (same pattern as
+today’s monitor).
 
 ---
 
-## Phased plan
+## Still later
 
-### Phase A — Multi-channel chardev + feature gate
-**(Next implementation PR if we want Step/breakpoints)**
+### Phase D — Zephyr kernel objects
 
-QEMU patches (all 3 series) + `write_features` probes `"gdb"` + gated
-`GDB_ARGS` in `boards.ts` / `qemu.ts`. No RSP UI yet.
-
-Acceptance: rebuild; `features.json` has `"monitor","gdb"`; cold boot still
-runs; old artifacts without `"gdb"` unchanged; monitor Pause/PC still work.
-
-### Phase B — RSP client + Step
-
-Thin in-page RSP (~200–400 LOC under `src/debug/gdb/`). Pause/Step/regs via
-gdb when attached; QMP fallback when `"gdb"` absent. Step button returns here.
-
-### Phase C — Software breakpoints + memory read
-
-### Phase D — Zephyr thread list (symbols / offsets, one board first)
+Walk `struct k_thread` (and friends) via memory reads + ELF symbols / image-build
+offsets. First cut: thread list in the popover. Not shipped yet — needs a
+rebuilt emulator to dogfood memory reads, then a symbol helper.
 
 ### Phase E — Disassembly / DWARF (optional)
 
-Host TypeScript for B+ can land **before** the new emulator tarball (gate on
-`features.has('gdb')`). Publishing the rebuilt qemu-wasm asset is what flips
-gdb on.
-
-Do not merge A+B unless you can rebuild and dogfood in one change — boot-freeze
-vs RSP bugs are easier to bisect split.
-
 ---
 
-## Control plane (once gdb exists)
+## Control plane
 
-When a gdb session is attached, Pause / Step / annotation pause use RSP only.
-QMP stays for builds that only advertise `monitor`, and for STOP/RESUME sync if
-useful. One façade so TopBar and annotations cannot diverge.
+When gdb is attached: Pause / Step / annotation pause → RSP only.  
+When not: QMP only (Step 1). One façade so TopBar and annotations cannot diverge.

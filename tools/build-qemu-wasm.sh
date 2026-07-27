@@ -225,14 +225,20 @@ build_qemu() {
 
 # Probe the Emscripten glue for the exports each optional bridge is known by.
 write_features() {
-  local dest="$1" binary="$2" features=""
+  local dest="$1" binary="$2"
+  local -a feats=()
 
   if grep -q "qemu_browser_monitor_feed" "$dest/$binary.js" 2>/dev/null; then
-    features="\"monitor\""
+    feats+=("\"monitor\"")
+  fi
+  if grep -q "qemu_browser_gdb_feed" "$dest/$binary.js" 2>/dev/null; then
+    feats+=("\"gdb\"")
   fi
 
-  printf '{\n  "features": [%s]\n}\n' "$features" > "$dest/features.json"
-  echo "  - features.json: [$features]"
+  local joined
+  joined=$(IFS=,; echo "${feats[*]}")
+  printf '{\n  "features": [%s]\n}\n' "$joined" > "$dest/features.json"
+  echo "  - features.json: [$joined]"
 }
 
 # ---------------------------------------------------------------------------
