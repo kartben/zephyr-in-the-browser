@@ -97,6 +97,12 @@ export function CanView({
   chip?: Mcp2515Chip | null
 }) {
   const local = nodes.find((n) => n.local)
+  // Local first, then attachment order. Not sorted by frame ID: a node may
+  // transmit any ID from one frame to the next.
+  const roster = useMemo(
+    () => [...nodes].sort((a, b) => Number(b.local) - Number(a.local)),
+    [nodes],
+  )
   const recent = log.slice(-8).reverse()
 
   return (
@@ -104,10 +110,10 @@ export function CanView({
       <div className="space-y-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">On the bus</span>
         <ul className="space-y-1">
-          {nodes.length === 0 && (
+          {roster.length === 0 && (
             <li className="text-[11px] text-muted-foreground">Nothing attached.</li>
           )}
-          {nodes.map((node) => (
+          {roster.map((node) => (
             <NodeRow key={node.id} node={node} chip={node.local ? chip : undefined} />
           ))}
         </ul>
@@ -124,8 +130,8 @@ export function CanView({
       )}
 
       <AddNodeRow />
-      <SendRow nodes={nodes} />
-      <ArbitrationSection nodes={nodes} log={log} />
+      <SendRow nodes={roster} />
+      <ArbitrationSection nodes={roster} log={log} />
 
       <div className="space-y-1.5">
         <div className="flex items-baseline gap-2">
@@ -546,7 +552,19 @@ function AddNodeRow() {
           className="flex flex-wrap items-center gap-1.5"
           title="Only the fields this type needs. Counter, Listener and Silent take none."
         >
-          {needsId && <HexField label="ID" ariaLabel="Node ID" value={id} onChange={setId} />}
+          {needsId && (
+            <HexField
+              label="Frame"
+              ariaLabel="Frame ID"
+              title={
+                typeId === 'responder'
+                  ? 'Frame ID this node replies to on RTR. CAN has no node addresses; lower ID wins arbitration.'
+                  : 'Frame ID this node transmits. CAN has no node addresses; lower ID wins arbitration.'
+              }
+              value={id}
+              onChange={setId}
+            />
+          )}
           {needsPeriod && (
             <span className="flex items-center gap-1 rounded-md border border-input bg-background px-1.5">
               <span className="text-[10px] text-muted-foreground">every</span>
@@ -610,7 +628,14 @@ function SendRow({ nodes }: { nodes: readonly CanNodeSnapshot[] }) {
             </option>
           ))}
         </select>
-        <HexField label="ID" ariaLabel="Frame ID" value={id} onChange={setId} width="w-9" />
+        <HexField
+          label="Frame"
+          ariaLabel="Frame ID"
+          title="Frame ID of the composed frame. CAN has no node addresses; lower ID wins arbitration."
+          value={id}
+          onChange={setId}
+          width="w-9"
+        />
         <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <input
             type="checkbox"
@@ -652,18 +677,23 @@ function SendRow({ nodes }: { nodes: readonly CanNodeSnapshot[] }) {
 function HexField({
   label,
   ariaLabel,
+  title,
   value,
   onChange,
   width = 'w-8',
 }: {
   label: string
   ariaLabel: string
+  title?: string
   value: string
   onChange: (v: string) => void
   width?: string
 }) {
   return (
-    <span className="flex items-center gap-1 rounded-md border border-input bg-background px-1.5">
+    <span
+      className="flex items-center gap-1 rounded-md border border-input bg-background px-1.5"
+      title={title}
+    >
       <span className="text-[10px] text-muted-foreground">{label}</span>
       <span className="font-mono text-[11px] text-muted-foreground">0x</span>
       <input

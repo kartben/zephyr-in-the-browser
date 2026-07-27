@@ -153,16 +153,16 @@ does when it shows a second address field only for chips that have one.
 
 | Type | Fields |
 | --- | --- |
-| Periodic | ID, period in ms |
-| Responder | ID |
+| Periodic | Frame ID, period in ms |
+| Responder | Frame ID |
 | Counter, Listener, Silent | none |
 
 Fields are set at add time and not editable afterwards. Removing and re-adding
-is the way to change one, exactly as it is for an I²C chip at a different
-address. Two arguments were weighed for making a Periodic node's period live-
-editable, and both lost: it is the only field anyone would want to change, and
-the composer already covers one-off traffic. Revisit if the arbitration demo
-turns out to need a load knob.
+is the way to change one. The field is a **frame / arbitration ID**, not a node
+address — CAN has none; the lowest ID wins the bus. Two arguments were weighed
+for making a Periodic node's period live-editable, and both lost: it is the only
+field anyone would want to change, and the composer already covers one-off
+traffic. Revisit if the arbitration demo turns out to need a load knob.
 
 **Listener and Silent are not the same node.** In CAN, listen-only (Bosch
 "silent") mode sends no dominant bits at all, so a listen-only node does not
@@ -264,10 +264,10 @@ Body sections, top to bottom, mirroring `I2cBody`'s rhythm:
 
 | Section | Contents |
 | --- | --- |
-| On the bus | Roster. Local node first, accent border, no `×`. |
-| Add node | Catalog select + Add, exactly `AttachRow`'s shape. |
-| Send | Sender select, ID, RTR, eight byte fields, Send. |
-| Arbitration | Lane strip. Live-follow like Trace; drag freezes, ± zooms, Crosshair resumes. |
+| On the bus | Roster. Local first, then attachment order. Accent border on local, no `×`. |
+| Add node | Catalog select + Add, exactly `AttachRow`'s shape. Frame ID field when the type needs one. |
+| Send | Sender select, Frame ID, RTR, eight byte fields, Send. |
+| Arbitration | Lane strip. Ticks are labeled with the frame ID that crossed. Live-follow like Trace. |
 | Traffic | Frame trace, newest first, `clear`. |
 
 The arbitration lane strip is a small canvas of its own, not TracePanel's CTF
@@ -311,6 +311,7 @@ The panel is dense with real data already; prose is what makes it unreadable.
 | Element | Tooltip |
 | --- | --- |
 | Local roster row | This board's controller |
+| Frame ID field | Frame ID. CAN has no node addresses; lower ID wins arbitration. |
 | `error-active` pill | Transmit errors below 128. Normal operation. |
 | `error-passive` pill | Transmit errors above 127. Still on the bus, defers longer after transmitting. |
 | `bus-off` pill | Transmit errors reached 256. Off the bus until recovery. |
