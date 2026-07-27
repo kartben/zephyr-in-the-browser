@@ -42,8 +42,12 @@ export interface CanFrame {
 
 export type CanState = 'error-active' | 'error-passive' | 'bus-off'
 
-/** What a node did with a frame offered to it. */
-export type CanReceipt = 'accepted' | 'filtered'
+/**
+ * What a node did with a frame offered to it. `overflow` is distinct from
+ * `filtered` because they mean opposite things about the receiver: one did not
+ * want the frame, the other wanted it and had nowhere to put it.
+ */
+export type CanReceipt = 'accepted' | 'filtered' | 'overflow'
 
 /** Wildcard for {@link CanNodeSpec.respondTo}: reply to any id. */
 export const ANY_ID = -1
@@ -91,8 +95,8 @@ export interface CanLogEntry {
   /** Transmitted by the local controller. */
   local: boolean
   frame: CanFrame
-  /** `kind: 'frame'`, inbound only: the local node's filters dropped it. */
-  filtered?: boolean
+  /** `kind: 'frame'`, inbound only: why the local node did not take it. */
+  drop?: 'filtered' | 'overflow'
   /** `kind: 'arbitration'`: id of the frame that won. */
   lostTo?: number
   /** `kind: 'no-ack'`: transmit error counter after the failure. */
@@ -230,10 +234,10 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
     node.tec = Math.max(0, node.tec - 1)
     updateState(node)
 
-    let filtered: boolean | undefined
+    let drop: 'filtered' | 'overflow' | undefined
     for (const other of others) {
       const receipt = other.receive ? other.receive(frame) : 'accepted'
-      if (other.local) filtered = receipt === 'filtered'
+      if (other.local && receipt !== 'accepted') drop = receipt
       if (receipt !== 'accepted') continue
       const responder = other.respondTo
       if (responder && (responder.id === ANY_ID || responder.id === frame.id)) {
@@ -243,7 +247,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
     }
 
     recent.push(at)
-    push({ kind: 'frame', from: node.id, local: !!node.local, frame, filtered })
+    push({ kind: 'frame', from: node.id, local: !!node.local, frame, drop })
   }
 
   function dropQueued(nodeId: string) {

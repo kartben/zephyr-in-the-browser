@@ -397,21 +397,24 @@ function TrafficRow({ entry }: { entry: CanLogEntry }) {
     <li
       className={cn(
         'flex items-baseline gap-1.5 whitespace-nowrap',
-        entry.filtered && 'text-muted-foreground/60',
+        entry.drop === 'filtered' && 'text-muted-foreground/60',
+        entry.drop === 'overflow' && 'text-warning',
       )}
       title={
-        entry.filtered
+        entry.drop === 'filtered'
           ? `Reached ${LOCAL_NODE}. No acceptance filter matches ${id}.`
-          : undefined
+          : entry.drop === 'overflow'
+            ? `Reached ${LOCAL_NODE}. Both receive buffers still hold undrained frames.`
+            : undefined
       }
     >
       <span className={entry.local ? 'text-amber-400' : 'text-sky-400'}>
         {entry.local ? '↑' : '↓'}
       </span>
-      <span className={cn(entry.filtered ? 'text-primary/45' : 'text-primary')}>{id}</span>
+      <span className={cn(entry.drop === 'filtered' ? 'text-primary/45' : 'text-primary')}>{id}</span>
       <span className="text-muted-foreground">[{entry.frame.rtr ? 'r' : entry.frame.data.length}]</span>
       <span className="truncate">{data || '(none)'}</span>
-      {entry.filtered && <span className="ml-auto pl-1.5">filtered</span>}
+      {entry.drop && <span className="ml-auto pl-1.5">{entry.drop}</span>}
     </li>
   )
 }

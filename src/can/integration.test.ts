@@ -103,7 +103,7 @@ describe('mcp2515 on the bus', () => {
     h.advance(60)
 
     const entry = h.bus.log().find((e) => e.kind === 'frame')
-    expect(entry).toMatchObject({ filtered: true })
+    expect(entry).toMatchObject({ drop: 'filtered' })
     expect(h.read(R.CANINTF, 1)[0]! & 0x03).toBe(0)
     expect(h.int()).toBe(false)
   })

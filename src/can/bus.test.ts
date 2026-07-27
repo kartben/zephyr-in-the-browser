@@ -63,9 +63,9 @@ describe('delivery', () => {
     advance(5)
 
     const frames = bus.log().filter((e) => e.kind === 'frame')
-    expect(frames.map((e) => [e.frame.id, e.filtered])).toEqual([
-      [0x100, false],
-      [0x2ff, true],
+    expect(frames.map((e) => [e.frame.id, e.drop])).toEqual([
+      [0x100, undefined],
+      [0x2ff, 'filtered'],
     ])
   })
 })

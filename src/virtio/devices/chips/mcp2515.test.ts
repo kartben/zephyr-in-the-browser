@@ -157,11 +157,43 @@ describe('receive', () => {
     expect(int).toHaveBeenLastCalledWith(false)
   })
 
-  it('a full buffer rolls into the second one, then refuses', () => {
+  it('rolls into the second buffer, then overflows rather than filtering', () => {
+    // The distinction matters: Zephyr's driver sets RXM to masks-off and
+    // filters in software, so overflow is the only drop a real guest produces.
     const chip = normalChip()
     expect(chip.deliver(frame(0x100))).toBe('accepted')
     expect(chip.deliver(frame(0x101))).toBe('accepted')
-    expect(chip.deliver(frame(0x102))).toBe('filtered')
+    expect(chip.deliver(frame(0x102))).toBe('overflow')
+    // Latched in EFLG, where the Registers dialog shows it.
+    expect(read(chip, [CMD_READ, 0x2d], 1)[0]! & 0xc0).toBe(0xc0)
+  })
+
+  it('masks-off is what the driver actually programs, and takes everything', () => {
+    const chip = normalChip()
+    // rx0_ctrl = BIT(6)|BIT(5)|BIT(2) in can_mcp2515.c: RXM=11 plus BUKT.
+    write(chip, [CMD_WRITE, 0x60, 0x64])
+    write(chip, [CMD_WRITE, 0x70, 0x60])
+    expect(chip.deliver(frame(0x7ff))).toBe('accepted')
+    read(chip, [CMD_READ_RX0], 13)
+    expect(chip.deliver({ id: 0x12345, ext: true, rtr: false, data: Uint8Array.from([1, 2]) })).toBe(
+      'accepted',
+    )
+  })
+
+  it('round-trips an extended id, which the counter sample uses', () => {
+    // samples/drivers/can/counter sends COUNTER_MSG_ID 0x12345 with
+    // CAN_FRAME_IDE, so the 29-bit path is load-bearing, not decorative.
+    const chip = normalChip()
+    expect(
+      chip.deliver({ id: 0x12345, ext: true, rtr: false, data: Uint8Array.from([0xaa, 0xbb]) }),
+    ).toBe('accepted')
+
+    const sidh = read(chip, [CMD_READ, R.RXB0 + 1], 4)
+    const std = ((sidh[0]! << 3) | (sidh[1]! >> 5)) & 0x7ff
+    const low = ((sidh[1]! & 0x03) << 16) | (sidh[2]! << 8) | sidh[3]!
+    expect(sidh[1]! & 0x08).toBe(0x08) // EXIDE set
+    expect(((std << 18) | low) >>> 0).toBe(0x12345)
+    expect([...read(chip, [CMD_READ, R.RXB0 + 6], 2)]).toEqual([0xaa, 0xbb])
   })
 
   it('takes nothing while still in configuration mode', () => {

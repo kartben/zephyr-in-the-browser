@@ -96,7 +96,7 @@ describe('CanView', () => {
     expect(out).toContain('Counter, Listener and Silent take none.')
   })
 
-  it('renders a delivered frame and marks a filtered one', () => {
+  it('renders a delivered frame and marks a dropped one', () => {
     let t = 0
     const bus = createCanBus(() => t)
     bus.attach({

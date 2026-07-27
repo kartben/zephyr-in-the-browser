@@ -64,6 +64,8 @@ requiring the network to be rewritten.
 ## 3. Devicetree contract
 
 ```dts
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
 &virtio_spi0 {
 	can0: can@0 {
 		compatible = "microchip,mcp2515";
@@ -71,7 +73,8 @@ requiring the network to be rewritten.
 		spi-max-frequency = <10000000>;
 		int-gpios = <&virtio_gpio0 8 GPIO_ACTIVE_LOW>;
 		osc-freq = <16000000>;
-		bus-speed = <500000>;
+		bitrate = <500000>;
+		sample-point = <875>;
 		status = "okay";
 	};
 };
@@ -81,7 +84,13 @@ requiring the network to be rewritten.
 };
 ```
 
-Pin 8 for `int-gpios`: 4 is LED0, 5 the buzzer, 6/7 are step/dir or LA/OE.
+Pin 8 for `int-gpios`: 4 is LED0, 5 the buzzer, 6/7 are step/dir or LA/OE. The
+`#include` is not optional — without it `GPIO_ACTIVE_LOW` reaches dtc as a bare
+token and the property fails to parse.
+
+`bitrate`, not `bus-speed`: the latter is marked deprecated in
+`can-controller.yaml` and renamed. `sjw` is not a property of this binding at
+all. Both were found by building, then confirmed against the binding.
 
 Insights resolve the row from the `zephyr,canbus` chosen node, so the roster's
 local entry is named from **its DT label** (`can0`). Without a live MCP2515 on
@@ -379,23 +388,51 @@ into node-environment tests, which broke `managedChips.test.ts` the first time
 it was written the other way round. `hostStepper` and `hostBuzzer` already
 follow the watch-the-roster shape.
 
-## 12. What is not verified
+## 12. Checked against the tree
 
-The guest half is written but has never been built or run: there is no Zephyr
-tree or QEMU wasm build in the environment this landed from. Specifically
-unverified —
+Read from `zephyrproject-rtos/zephyr@main` after the first build attempt.
 
-- that Zephyr's `can_mcp2515.c` drives the mode handshake and the fast SPI
-  commands the way `mcp2515.ts` assumes (both command families are implemented
-  precisely because that is a guess),
+**The driver filters in software.** `can_mcp2515.c` programs
+`RXB0CTRL = BIT(6)|BIT(5)|BIT(2)` and `RXB1CTRL = BIT(6)|BIT(5)`, which is
+RXM = masks-off plus roll-over, under the comment *"Receive everything,
+filtering done in driver"*. Two consequences, and the first one costs this
+design a selling point:
+
+- **The `filtered` trace row cannot fire under Zephyr.** Frames the application
+  did not ask for are dropped in the driver's software filter, where the page
+  cannot see them. "Filtering made visible" was a real claim for hardware that
+  filters in hardware; it is not one here. The row stays because the chip
+  models filters correctly and answers truthfully whenever they *are*
+  programmed — but nothing in tree programs them.
+- **What does happen is overflow**, and the model was mislabelling it. Both
+  receive buffers holding undrained frames is not a filter miss; it is
+  `EFLG.RX0OVR/RX1OVR`. `deliver()` now returns `overflow` distinctly, the
+  chip latches the flags, and the trace renders it in `--warning` rather than
+  greyed. That row *will* fire on a real guest under load.
+
+**The counter sample uses an extended id.** `COUNTER_MSG_ID` is `0x12345` with
+`CAN_FRAME_IDE` (the LED frame at `0x10` is standard). The 29-bit
+encode/decode path is therefore load-bearing for the headline sample, and it
+had no test until this pass added one.
+
+**Kconfig, confirmed:** `CAN_MCP2515` is `default y` on
+`DT_HAS_MICROCHIP_MCP2515_ENABLED`, so setting it is redundant.
+`CAN_MCP2515_INT_THREAD_STACK_SIZE` exists (default 1024).
+`CAN_MANUAL_RECOVERY_MODE` exists and is **off by default** — without it
+`can_recover()` is unavailable and recovery is automatic, which would make both
+the dock's Recover button and the bus model's bus-off latch wrong. The fragment
+now sets it.
+
+### Still unverified
+
+- The mode handshake and which SPI command family the driver uses. Both are
+  implemented, so this should be tolerated rather than fatal.
 - INT timing: whether a level-triggered virtio-gpio line satisfies the driver's
-  interrupt thread,
-- every Kconfig symbol in `conf/mcp2515.conf`, including whether
-  `CAN_MCP2515_INT_THREAD_STACK_SIZE` still exists under that name,
-- whether `samples/drivers/can/counter` builds for these boards at all.
+  interrupt thread.
+- Whether the sample links and runs on these boards.
 
-The page side is fully exercised: 35 tests across the bus, the chip, and the
-seam between them, including the counter round trip and the walk to bus-off.
+The page side is exercised by 47 tests across the bus, the chip, the seam
+between them, and the panel's rendered output.
 
 ## 13. Acceptance
 

@@ -18,7 +18,7 @@
 import type { SpiChip, SpiTransferOpts } from '../spi'
 import { registersFromJson, type RegisterMapJson } from '../registers'
 import type { RegisterDecl } from '../registers/types'
-import type { CanFrame } from '@/can/bus'
+import type { CanFrame, CanReceipt } from '@/can/bus'
 import mcp2515Map from './maps/mcp2515.json'
 
 /* SPI commands. */
@@ -55,6 +55,9 @@ const RXF_BASE = [0x00, 0x04, 0x08, 0x10, 0x14, 0x18] as const
 
 const TXB_CTRL_TXREQ = 1 << 3
 const RXB_CTRL_RXM_MASK = 0x60
+
+const EFLG_RX0OVR = 1 << 6
+const EFLG_RX1OVR = 1 << 7
 
 const INTF_RX0 = 1 << 0
 const INTF_RX1 = 1 << 1
@@ -96,8 +99,11 @@ export interface Mcp2515Chip extends SpiChip {
   readonly registers: readonly RegisterDecl[]
   readBytes(addr: number, len: number): Uint8Array
   writeBytes(addr: number, bytes: Uint8Array): void
-  /** Offer an inbound frame. Returns whether a filter accepted it. */
-  deliver(frame: CanFrame): 'accepted' | 'filtered'
+  /**
+   * Offer an inbound frame. `filtered` means no acceptance filter matched;
+   * `overflow` means both receive buffers still hold undrained frames.
+   */
+  deliver(frame: CanFrame): CanReceipt
   mode(): number
   intAsserted(): boolean
   subscribe(fn: () => void): () => void
@@ -242,14 +248,19 @@ export function createMcp2515(opts: Mcp2515Options = {}): Mcp2515Chip {
     return false
   }
 
-  function deliver(frame: CanFrame): 'accepted' | 'filtered' {
+  function deliver(frame: CanFrame): CanReceipt {
     if (mode() === MODE_CONFIG) return 'filtered'
 
+    // Separated deliberately: "no filter matched" and "nowhere to put it" are
+    // different events, and only the second one can happen under Zephyr's
+    // driver, which sets RXM to masks-off and filters in software.
+    let matched = false
     for (let n = 0; n < RXB_BASE.length; n++) {
       const flag = n === 0 ? INTF_RX0 : INTF_RX1
-      // A full buffer the driver has not drained yet cannot take another.
-      if ((regs[REG_CANINTF]! & flag) !== 0) continue
       if (!accepts(n, frame)) continue
+      matched = true
+      // A buffer the driver has not drained yet cannot take another.
+      if ((regs[REG_CANINTF]! & flag) !== 0) continue
 
       const base = RXB_BASE[n]!
       encodeId(base + 1, frame.id, frame.ext)
@@ -259,6 +270,13 @@ export function createMcp2515(opts: Mcp2515Options = {}): Mcp2515Chip {
       refreshInt()
       notify()
       return 'accepted'
+    }
+
+    if (matched) {
+      // Real silicon latches this, and it is what the Registers dialog shows.
+      regs[REG_EFLG] = regs[REG_EFLG]! | EFLG_RX0OVR | EFLG_RX1OVR
+      notify()
+      return 'overflow'
     }
     return 'filtered'
   }

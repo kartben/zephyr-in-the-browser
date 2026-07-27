@@ -33,8 +33,7 @@
 		spi-max-frequency = <10000000>;
 		int-gpios = <&virtio_gpio0 8 GPIO_ACTIVE_LOW>;
 		osc-freq = <16000000>;
-		bus-speed = <500000>;
-		sjw = <1>;
+		bitrate = <500000>;
 		sample-point = <875>;
 		status = "okay";
 	};
