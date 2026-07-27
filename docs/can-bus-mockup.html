@@ -196,24 +196,24 @@
               <li class="node">
                 <div class="node-main">
                   <div class="node-top">
-                    <span class="node-name">Engine ECU</span>
+                    <span class="node-name">Periodic</span>
                     <span class="pill" title="Transmit errors below 128. Normal operation."><span class="dot dot-active"></span>error-active</span>
                   </div>
                   <div class="node-sub">0x0A0 every 100 ms · TEC 0 REC 0</div>
                 </div>
-                <button class="x" title="Unplug. Nothing left to ACK can0's frames." aria-label="Unplug Engine ECU">
+                <button class="x" title="Unplug. Nothing left to ACK can0's frames." aria-label="Unplug Periodic">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
               </li>
               <li class="node">
                 <div class="node-main">
                   <div class="node-top">
-                    <span class="node-name">Dashboard</span>
+                    <span class="node-name">Responder</span>
                     <span class="pill" title="Transmit errors below 128. Normal operation."><span class="dot dot-active"></span>error-active</span>
                   </div>
-                  <div class="node-sub" title="Receives and ACKs, never transmits.">listen-only · TEC 0 REC 0</div>
+                  <div class="node-sub" title="Replies when an RTR for 0x200 arrives.">replies 0x200 · TEC 0 REC 0</div>
                 </div>
-                <button class="x" title="Unplug" aria-label="Unplug Dashboard">
+                <button class="x" title="Unplug" aria-label="Unplug Responder">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
               </li>
@@ -224,11 +224,11 @@
             <span class="sec-label">Add node</span>
             <div class="attach">
               <select aria-label="Node type">
-                <option>Engine ECU · 0x0A0</option>
-                <option>Dashboard · listen-only</option>
+                <option>Counter peer · samples/can/counter</option>
+                <option>Listener · acks only</option>
                 <option>Babbler · floods 0x000</option>
-                <option>Echo · replies to RTR</option>
-                <option>Silent · never ACKs</option>
+                <option>Responder · replies to RTR</option>
+                <option>Silent · listen-only, no ACK</option>
               </select>
               <button class="btn">Add</button>
             </div>
@@ -395,8 +395,8 @@
 
       const LANES = [
         { label: 'can0', id: '0x100', color: 'oklch(0.62 0.19 292)' },
-        { label: 'engine', id: '0x0A0', color: 'oklch(0.7 0.16 152)' },
-        { label: 'dash', id: '0x200', color: 'oklch(0.77 0.15 78)' },
+        { label: 'periodic', id: '0x0A0', color: 'oklch(0.7 0.16 152)' },
+        { label: 'responder', id: '0x200', color: 'oklch(0.77 0.15 78)' },
       ]
       const padL = 52, padR = 8, padT = 8, padB = 16
       const plotW = cssW - padL - padR
@@ -420,7 +420,7 @@
         ctx.fillText(lane.id, 4, y + 6)
       })
 
-      // (lane, t, lost?) — at t=0.42 the dash node and can0 collide; 0x100
+      // (lane, t, lost?) — at t=0.42 the third node and can0 collide; 0x100
       // is the lower ID, so it wins and 0x200 defers to 0.50.
       const TICKS = [
         [0, 0.06], [0, 0.20], [0, 0.42], [0, 0.63], [0, 0.84],

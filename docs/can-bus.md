@@ -88,15 +88,40 @@ bridges.
 ```ts
 interface CanNode {
   id: string
-  name: string          // 'Engine ECU'; the local node uses its DT label
+  name: string          // the local node uses its DT label
   local: boolean        // the MCP2515 this board drives
-  listenOnly: boolean   // ACKs, never transmits
-  acks: boolean         // false models a node that cannot ACK
+  acks: boolean         // false = listen-only: sends no dominant bit, ACK included
+  transmit?: { id: number; periodMs: number; data: () => Uint8Array }
+  respondTo?: { id: number; reply: (f: CanFrame) => CanFrame | null }
   tec: number
   rec: number
   state: 'error-active' | 'error-passive' | 'bus-off'
 }
 ```
+
+### The node catalog
+
+Page-side nodes are **not scenarios and not personas**. Each is a preset over
+the three behaviour fields above, and each earns its place by being the
+counterpart a packaged sample needs — the same reason `src/net/stack.ts` plays
+gateway and DNS rather than for flavour. A node named for a device it is not
+("Engine ECU") implies simulation depth that does not exist, and invites the
+signal-decoding scope this spec rules out in §10.
+
+| Node | Behaviour | Exists for |
+| --- | --- | --- |
+| Counter peer | Receives the counter frame, replies with its own | `samples/drivers/can/counter`, which otherwise has nobody to count with |
+| Periodic | Transmits an ID at a period | `can recv`; gives the lane view something to draw |
+| Responder | Replies to an RTR for an ID | `can send`; RTR is otherwise unexercised |
+| Listener | ACKs every frame, transmits none | keeps the bus alive under `babbling`; unplug it for bus-off |
+| Silent | Listen-only: no transmit, **no ACK** | present but useless, the subtler bus-off |
+
+**Listener and Silent are not the same node.** In CAN, listen-only (Bosch
+"silent") mode sends no dominant bits at all, so a listen-only node does not
+acknowledge either; Zephyr's `CAN_MODE_LISTENONLY` is that mode. Collapsing
+the two breaks the class's headline demo: a Silent node on the roster looks
+like company while `can0` counts its way to bus-off with nothing ACKing.
+Listener is an ordinary node that happens never to transmit.
 
 Rules, all of them page-side and none of them timed to the bit:
 
@@ -105,9 +130,9 @@ Rules, all of them page-side and none of them timed to the bit:
 - **Arbitration.** Frames offered within the same dispatch window contend;
   lowest ID wins, losers requeue ahead of new traffic. This is the layer the
   lane view draws.
-- **ACK** is "at least one other node is attached and can ACK". This is the
-  whole mechanism behind bus-off, and it is why the roster's `×` is the
-  interesting control.
+- **ACK** is "at least one other attached node has `acks`". This is the whole
+  mechanism behind bus-off, and it is why the roster's `×` is the interesting
+  control. A Silent node deliberately does not satisfy it.
 - **Error counters** follow ISO 11898-1 closely enough to teach: a transmit
   that nobody ACKs adds 8 to TEC, a successful one subtracts 1;
   `error-passive` above 127, `bus-off` above 255.
@@ -212,7 +237,8 @@ The panel is dense with real data already; prose is what makes it unreadable.
 | No-ACK trace row | No node acknowledged the frame. Each failure adds 8 to TEC. |
 | Arbitration trace row | Both started in the same slot. Lower ID wins the bus. |
 | Recover button | Transmission stays stopped until `can_recover()`. |
-| Listen-only sub-line | Receives and ACKs, never transmits. |
+| Listener sub-line | Acknowledges every frame, never transmits one. |
+| Silent sub-line | Listen-only. Sends nothing, not even an ACK. |
 
 ## 8. Packaging
 
