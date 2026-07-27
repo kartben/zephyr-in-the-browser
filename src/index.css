@@ -286,6 +286,10 @@
     inset 0 12px 28px rgba(255, 40, 40, 0.07);
 }
 
+.sevenseg-panel svg {
+  overflow: visible;
+}
+
 @keyframes sevenseg-scan-pulse {
   0%,
   100% {

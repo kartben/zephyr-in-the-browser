@@ -51,24 +51,27 @@ function DigitGlyph({
 
   return (
     <svg
-      viewBox="0 0 57 80"
+      // Pad the viewBox so skew + feGaussianBlur bloom stay inside the SVG
+      // box (HTML `<svg>` defaults to overflow:hidden, which was clipping the
+      // top/bottom glow flush to the panel edge).
+      viewBox="-12 -12 84 108"
       className={cn(
-        'h-[4.5rem] w-[3.25rem] shrink-0 sm:h-24 sm:w-[4.25rem]',
+        'h-[4.75rem] w-[3.6rem] shrink-0 overflow-visible sm:h-[6.25rem] sm:w-[4.6rem]',
         scanning && 'sevenseg-scan',
       )}
       aria-hidden
     >
       <defs>
-        <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" result="blur" />
+        <filter id={glowId} x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="blur" />
           <feMerge>
             <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
-      {/* Slight classic LED slant (sevenSeg `slant: 8`). */}
-      <g transform="skewX(-8) translate(4,0)">
+      {/* Inset + slight classic LED slant (sevenSeg `slant: 8`). */}
+      <g transform="translate(10,10) skewX(-8)">
         {SEG_PATHS.map((d, bit) => {
           const on = (mask & (1 << bit)) !== 0
           return (
@@ -109,7 +112,7 @@ export function SevenSegBody() {
       {snap.displays.map((disp) => (
         <div key={disp.id} className="space-y-2">
           <div
-            className="sevenseg-panel rounded-md px-4 py-3"
+            className="sevenseg-panel overflow-visible rounded-md px-6 py-6"
             style={
               {
                 // sevenSeg.js defaults: Red on / #320000 off / Black bay —
