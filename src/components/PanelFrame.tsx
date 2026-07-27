@@ -155,8 +155,7 @@ export function PanelFrame({
         tabIndex={-1}
         {...(floating ? dragHandlers : {})}
         onDoubleClick={(event) => {
-          // Undocked windows: title-bar double-click toggles collapse (OS-like).
-          if (!floating) return
+          // Title-bar double-click toggles collapse (docked or floating).
           if (event.target instanceof Element && event.target.closest('button')) return
           setCollapsedSafe((c) => !c)
         }}
