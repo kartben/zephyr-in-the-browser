@@ -93,6 +93,25 @@ describe('findWaitObject', () => {
     ]
     expect(findWaitObject(objs, 0x20000010)?.name).toBe('uart_sem')
   })
+
+  it('maps shell_*_ctx containment to event <shell>', () => {
+    // shell_thread waits on shell_uart_ctx.signal_event — ELF only names the ctx.
+    const objs = [
+      { name: 'shell_uart_ctx', addr: 0x40050000, size: 0x800, kind: null },
+    ]
+    expect(findWaitObject(objs, 0x40050420)).toMatchObject({
+      name: 'shell_uart',
+      kind: 'event',
+    })
+  })
+
+  it('prefers a classified object over a larger kindless container', () => {
+    const objs = [
+      { name: 'shell_uart_ctx', addr: 0x40050000, size: 0x800, kind: null },
+      { name: 'nested_sem', addr: 0x40050100, size: 0x40, kind: 'sem' },
+    ]
+    expect(findWaitObject(objs, 0x40050108)?.name).toBe('nested_sem')
+  })
 })
 
 describe('listThreads', () => {
