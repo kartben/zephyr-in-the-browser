@@ -229,6 +229,7 @@ const COMPAT_TO_SPI_CHIP: Record<string, string> = {
   'worldsemi,ws2812-spi': 'ws2812',
   'ptc,pt6314': 'pt6314',
   'adi,tmc50xx': 'tmc50xx',
+  'microchip,mcp2515': 'mcp2515',
 }
 
 const SENSOR_CHIP_IDS = new Set([
