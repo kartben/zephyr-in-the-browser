@@ -58,5 +58,9 @@ rebuilt emulator to dogfood memory reads, then a symbol helper.
 
 ## Control plane
 
-When gdb is attached: Pause / Step / annotation pause → RSP only.  
-When not: QMP only (Step 1). One façade so TopBar and annotations cannot diverge.
+When gdb is **attached** (RSP handshake succeeded): Pause / Step / annotation
+pause → RSP only. Label in the popover reads `gdb`.
+
+When not (missing feature, attach race, or handshake failure): QMP only. Label
+reads `CPU · QMP`. Step / breakpoint / memory tabs stay hidden. One façade so
+TopBar and annotations cannot diverge.

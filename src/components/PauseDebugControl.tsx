@@ -107,7 +107,7 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
       <div className="mb-2 flex items-center gap-2 px-1">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {snap.gdb ? 'gdb' : 'CPU'}
+            {snap.gdb ? 'gdb' : 'CPU · QMP'}
           </div>
           <div className="truncate font-mono text-xs text-foreground">
             {snap.summary ?? (snap.registersLoading ? 'Reading…' : 'No registers')}

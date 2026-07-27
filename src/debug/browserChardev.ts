@@ -23,7 +23,8 @@ export function bindChardev(mod: Record<string, unknown>, slot: ChardevSlot): Ch
   return {
     feed: mod[`${prefix}feed`] as ChardevExports['feed'],
     ring: mod[`${prefix}ring`] as ChardevExports['ring'],
-    ringSize: mod[`${prefix}ringSize`] as ChardevExports['ringSize'],
+    // Emscripten keeps the C snake_case: ring_size, not ringSize.
+    ringSize: mod[`${prefix}ring_size`] as ChardevExports['ringSize'],
     readIndex: mod[`${prefix}read_index`] as ChardevExports['readIndex'],
     writeIndex: mod[`${prefix}write_index`] as ChardevExports['writeIndex'],
     setReadIndex: mod[`${prefix}set_read_index`] as ChardevExports['setReadIndex'],
