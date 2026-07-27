@@ -23,7 +23,16 @@ import {
   type DacChip,
 } from '@/virtio/devices/dac/model'
 
-const UI_MS = 50
+/*
+ * The scope and its readout share the page's main thread with the virtio
+ * dispatcher.  A DAC produces far more updates than a human can read, and on
+ * a phone an eager React update competes with the next I2C completion.  Keep
+ * the textual controls comfortably live without asking React to reconcile on
+ * every sample.
+ */
+const UI_MS = 100
+/** A scope needs motion, not a 60 Hz redraw of identical data. */
+const SCOPE_FRAME_MS = 50
 
 function useChip(chip: DacChip) {
   const [, force] = useReducer((n: number) => n + 1, 0)
@@ -74,15 +83,16 @@ function VoutCanvas({
     const canvas = canvasRef.current
     if (!canvas) return
     let raf = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
     let alive = true
+    let lastPaintAt = -Infinity
 
     const paint = () => {
+      raf = 0
       if (!alive) return
+      lastPaintAt = performance.now()
       const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        raf = requestAnimationFrame(paint)
-        return
-      }
+      if (!ctx) return
 
       const dpr = Math.min(2, window.devicePixelRatio || 1)
       const cssW = canvas.clientWidth || 360
@@ -195,12 +205,34 @@ function VoutCanvas({
         ctx.fillText('waiting for dac_write_value', padL + plotW / 2, padT + plotH / 2)
       }
 
-      raf = requestAnimationFrame(paint)
     }
 
-    raf = requestAnimationFrame(paint)
+    /*
+     * `subscribe` can fire once per I2C transfer.  Coalesce those writes into
+     * a single browser frame and cap it at 20 fps: that is fluid for a scope,
+     * but leaves the main thread free to dispatch the next bridge wake.  In
+     * particular, do not run a perpetual rAF loop while the DAC is idle.
+     */
+    const requestPaint = () => {
+      if (!alive || raf || timer !== undefined) return
+      const delay = Math.max(0, SCOPE_FRAME_MS - (performance.now() - lastPaintAt))
+      const queueFrame = () => {
+        timer = undefined
+        if (alive) raf = requestAnimationFrame(paint)
+      }
+      if (delay > 0) {
+        timer = setTimeout(queueFrame, delay)
+      } else {
+        queueFrame()
+      }
+    }
+
+    const unsubscribe = chip.subscribe(requestPaint)
+    requestPaint()
     return () => {
       alive = false
+      unsubscribe()
+      if (timer !== undefined) clearTimeout(timer)
       cancelAnimationFrame(raf)
     }
   }, [chip, channel, windowMs])
