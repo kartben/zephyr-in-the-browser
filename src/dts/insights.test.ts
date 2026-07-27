@@ -9,7 +9,7 @@ import twoBuses from './fixtures/two_i2c_buses.dts?raw'
 const insightsOf = (src: string) => computeInsights(parseDts(src))
 
 describe('computeInsights', () => {
-  it('grounds the A53 shell build: ten chips, no GPIO', () => {
+  it('grounds the A53 shell build: eleven I²C chips, SPI NOR+VFD, no GPIO', () => {
     const insights = insightsOf(a53Shell)
 
     expect(insights.model).toBe('QEMU Cortex-A53')
@@ -26,6 +26,7 @@ describe('computeInsights', () => {
     expect(bus.bridged).toBe(true)
     expect(bus.slots.map((s) => [s.address, s.chipId])).toEqual([
       [0x3c, 'ssd1306'],
+      [0x3e, 'jhd1313'],
       [0x40, 'ina219'],
       [0x44, 'isl29035'],
       [0x48, 'tmp112'],
@@ -37,10 +38,21 @@ describe('computeInsights', () => {
       [0x6a, 'lsm6dso'],
     ])
 
+    expect(insights.spiBuses).toHaveLength(1)
+    const spi = insights.spiBuses[0]
+    expect(spi.controllerLabel).toBe('virtio_spi0')
+    expect(spi.bridged).toBe(true)
+    expect(spi.slots.map((s) => [s.cs, s.chipId])).toEqual([
+      [0, 'w25q'],
+      [1, 'pt6314'],
+    ])
+
     // virtio_gpio0 is disabled in this build, so no controller and no panel.
     expect(insights.gpioControllers).toEqual([])
     expect(insights.panels.has('gpio')).toBe(false)
     expect(insights.panels.has('i2c')).toBe(true)
+    expect(insights.panels.has('spi')).toBe(true)
+    expect(insights.panels.has('auxdisplay')).toBe(true)
     expect(insights.panels.has('sensor')).toBe(true)
     expect(insights.panels.has('display')).toBe(true) // ramfb okay
     expect(insights.panels.has('oled')).toBe(false) // zephyr,display not chosen

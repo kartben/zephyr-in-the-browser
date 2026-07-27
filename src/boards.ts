@@ -517,9 +517,9 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     id: 'shell',
     label: 'Shell',
     description:
-      'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `hostaudio` and `dmic`',
+      'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `auxdisplay`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-    primaryPanels: ['i2c', 'spi', 'audio'],
+    primaryPanels: ['i2c', 'spi', 'auxdisplay', 'audio'],
   },
   {
     // The display sample against the browser's SSD1306 instead of ramfb: the

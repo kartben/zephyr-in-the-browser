@@ -203,6 +203,15 @@
 					status = "okay";
 				};
 
+				auxdisplay_0: jhd1313@3e {
+					compatible = "jhd,jhd1313";
+					reg = <0x3e>;
+					columns = <16>;
+					rows = <2>;
+					backlight-addr = <0x62>;
+					status = "okay";
+				};
+
 				ssd1306_0: ssd1306@3c {
 					compatible = "solomon,ssd1306";
 					reg = <0x3c>;
@@ -215,6 +224,38 @@
 					prechargep = <0x22>;
 					segment-remap;
 					com-invdir;
+					status = "okay";
+				};
+			};
+		};
+
+		virtio_mmio5: virtio_mmio@a000a00 {
+			compatible = "virtio,mmio";
+			reg = < 0x0 0xa000a00 0x0 0x200 >;
+			interrupts = < 0x0 0x15 0x1 0xa0 >;
+			status = "okay";
+
+			virtio_spi0: virtio-spi {
+				compatible = "virtio,spi";
+				#address-cells = <0x1>;
+				#size-cells = <0x0>;
+				status = "okay";
+
+				w25q80jv: w25q80jv@0 {
+					compatible = "jedec,spi-nor";
+					reg = <0x0>;
+					spi-max-frequency = <0x2625a00>;
+					size = <0x800000>;
+					jedec-id = [ef 40 14];
+					status = "okay";
+				};
+
+				auxdisplay_1: pt6314@1 {
+					compatible = "ptc,pt6314";
+					reg = <0x1>;
+					spi-max-frequency = <0xf4240>;
+					columns = <20>;
+					rows = <2>;
 					status = "okay";
 				};
 			};

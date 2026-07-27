@@ -37,6 +37,7 @@ import { createMcp4725 } from './devices/chips/mcp4725'
 import { createPca9685 } from './devices/chips/pca9685'
 import { createPcf8523 } from './devices/rtc/pcf8523'
 import { FALLBACK_DT_SLOTS } from './devices/registry'
+import { spiChipType } from './devices/spiRegistry'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 
 /** VIRTIO GPIO controller, name=gpio on the Cortex-A53 command line. */
@@ -170,7 +171,9 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
 /**
  * Managed SPI parts by Zephyr compatible chip id. CS can be shared across
  * samples (NOR vs SCT2024 vs WS2812 vs PT6314 vs TMC50xx all use CS0);
- * selection is by DT `chipId`.
+ * selection is by DT `chipId`. When the tree wants the same chipId on a
+ * different CS (shell: PT6314 @1 beside NOR @0), {@link managedSpiFor}
+ * mints a second instance via the SPI registry.
  */
 const MANAGED_SPI_BY_ID: ReadonlyMap<string, SpiChip> = new Map<string, SpiChip>([
   ['w25q', w25q],
@@ -179,6 +182,23 @@ const MANAGED_SPI_BY_ID: ReadonlyMap<string, SpiChip> = new Map<string, SpiChip>
   ['pt6314', pt6314],
   ['tmc50xx', tmc50xx],
 ])
+
+/** (chipId@cs) → instance for selects that are not the stock singleton's CS. */
+const managedSpiAltCs = new Map<string, SpiChip>()
+
+function managedSpiFor(chipId: string, cs: number): SpiChip | undefined {
+  const singleton = MANAGED_SPI_BY_ID.get(chipId)
+  if (singleton && singleton.cs === cs) return singleton
+  const type = spiChipType(chipId)
+  if (!type) return undefined
+  const key = `${chipId}@${cs}`
+  let chip = managedSpiAltCs.get(key)
+  if (!chip) {
+    chip = type.create(cs)
+    managedSpiAltCs.set(key, chip)
+  }
+  return chip
+}
 
 /** LA on virtio_gpio0 pin 6, OE on pin 7 — matches sct2024-only overlay. */
 sct2024.bindGpio(gpioModel, { la: 6, oe: 7, laActiveLow: true, oeActiveLow: true })
@@ -237,7 +257,7 @@ function wantedManagedSpiChips(): Map<number, SpiChip> {
       if (!bus.bridged) continue
       for (const slot of bus.slots) {
         if (!slot.chipId) continue
-        const chip = MANAGED_SPI_BY_ID.get(slot.chipId)
+        const chip = managedSpiFor(slot.chipId, slot.cs)
         if (chip) wanted.set(slot.cs, chip)
       }
     }
@@ -251,7 +271,10 @@ function wantedManagedSpiChips(): Map<number, SpiChip> {
 
 function syncManagedSpiChips() {
   const wanted = wantedManagedSpiChips()
-  const managed = new Set(MANAGED_SPI_BY_ID.values())
+  const managed = new Set<SpiChip>([
+    ...MANAGED_SPI_BY_ID.values(),
+    ...managedSpiAltCs.values(),
+  ])
   const onBus = new Map(spiModel.chips().map((chip) => [chip.cs, chip]))
 
   // A CS has at most one child in a real tree. The page may still have a

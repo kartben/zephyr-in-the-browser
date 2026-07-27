@@ -125,3 +125,33 @@ diff <(gh api "repos/kartben/zephyr/contents/drivers/spi/spi_virtio.c?ref=claude
 `CONFIG_SPI_VIRTIO` is declared in `zephyr-module/Kconfig` under the *same*
 name upstream uses, with the same CMake guard on
 `${ZEPHYR_BASE}/drivers/spi/spi_virtio.c`.
+
+## `auxdisplay_shell.c`
+
+Auxiliary display shell module (`auxdisplay` commands: write, clear, cursor, …).
+
+| | |
+| --- | --- |
+| Upstream | <https://github.com/kartben/zephyr/tree/auxdisplay_shell_> |
+| Commit | `2c6a159a57b193cd43696076f6524f779cf73557` — *drivers: auxdisplay: add shell module for testing* |
+| Path | `drivers/auxdisplay/auxdisplay_shell.c` |
+| SHA-256 | `a5dc27b44a5f1c225e639ae4db4cc7630cf2b44d0d7733aeafca54076b97beb6` |
+
+Upstream also adds `CONFIG_AUXDISPLAY_SHELL` to `drivers/auxdisplay/Kconfig` and
+a one-line `zephyr_library_sources_ifdef` in that directory's CMakeLists — the
+Kconfig symbol is mirrored here under the same name; CMake builds this copy
+only while `${ZEPHYR_BASE}/drivers/auxdisplay/auxdisplay_shell.c` is absent.
+The docs tweak in that commit is not vendored.
+
+### Checking for drift
+
+```console
+diff <(gh api "repos/kartben/zephyr/contents/drivers/auxdisplay/auxdisplay_shell.c?ref=auxdisplay_shell_" --jq .content | base64 -d) \
+     zephyr-module/drivers/vendor/auxdisplay_shell.c
+```
+
+### Kconfig symbol collision
+
+`CONFIG_AUXDISPLAY_SHELL` is declared in `zephyr-module/Kconfig` under the
+*same* name upstream uses, with the same CMake guard on
+`${ZEPHYR_BASE}/drivers/auxdisplay/auxdisplay_shell.c`.

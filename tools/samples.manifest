@@ -12,15 +12,10 @@
 # - snippet          optional snippets (west build -S ...), comma-separated.
 #                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
 #                    virtio-i2c, virtio-spi, gpio-buzzer, gpio-step-dir,
-#                    i2c-sensors-extra, eeprom-only,
+#                    i2c-sensors-extra, auxdisplays, eeprom-only,
 #                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
-#                    max17048-only, lp5562-only, lp5012-only, sct2024-only, ws2812-only,
-#                    tmc50xx-only, and the *-only
-#                    sensor / RTC snippets; leave the conf field empty
-#                    (a bare "::") to use snippets without fragments.
-#                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
-#                    max17048-only, lp5562-only, lp5012-only, sct2024-only, ws2812-only,
-#                    tmc50xx-only, and the *-only
+#                    max17048-only, lp5562-only, lp5012-only, sct2024-only,
+#                    ws2812-only, tmc50xx-only, pt6314-only, and the *-only
 #                    sensor / RTC snippets; leave the conf field empty
 #                    (a bare "::") to use snippets without fragments.
 #
@@ -87,7 +82,7 @@ qemu_cortex_a53:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
 qemu_cortex_a53:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_cortex_a53:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gpio,gpio-step-dir
-qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf:virtio-i2c,i2c-sensors-extra,virtio-spi
+qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-sensors-extra,virtio-spi,auxdisplays
 qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
@@ -130,7 +125,7 @@ qemu_riscv32:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_riscv32:basic_button:samples/basic/button::virtio-gpio
 qemu_riscv32:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_riscv32:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gpio,gpio-step-dir
-qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf:virtio-i2c,i2c-sensors-extra,virtio-spi
+qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-sensors-extra,virtio-spi,auxdisplays
 qemu_riscv32:oled:samples/drivers/display::virtio-i2c,oled
 qemu_riscv32:hsm:samples/subsys/smf/hsm_psicc2
 qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf

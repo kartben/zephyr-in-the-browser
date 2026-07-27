@@ -1,0 +1,17 @@
+name: auxdisplays
+description: >
+  Enable every browser-backed auxdisplay the shell can drive: Grove JHD1313 on
+  I²C (node already in virtio-i2c) and PTC PT6314 on SPI CS1 (alongside the
+  JEDEC NOR on CS0 from virtio-spi). Pair with virtio-i2c and virtio-spi; used
+  by the shell sample so `auxdisplay` commands reach both parts.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
