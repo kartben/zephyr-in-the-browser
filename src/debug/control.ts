@@ -8,6 +8,7 @@
 
 import * as gdb from '@/hostGdb'
 import * as monitor from '@/hostMonitor'
+import type { ElfSymbol } from '@/debug/elfSymbols'
 import type { ZephyrThread } from '@/debug/kernel/threads'
 
 export interface DebugSnapshot {
@@ -17,14 +18,17 @@ export interface DebugSnapshot {
   gdb: boolean
   paused: boolean
   pc: string | null
+  pcLabel: string | null
   summary: string | null
   registers: string | null
   registersLoading: boolean
   canStep: boolean
-  breakpoints: { addr: number; addrHex: string }[]
+  breakpoints: { addr: number; addrHex: string; label: string | null }[]
   memory: { addr: number; hex: string } | null
   /** Guest ELF has CONFIG_DEBUG_THREAD_INFO symbols. */
   threadInfo: boolean
+  hasSymbols: boolean
+  symbols: ElfSymbol[]
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
@@ -39,6 +43,7 @@ function snap(): DebugSnapshot {
       gdb: true,
       paused: g.paused,
       pc: g.pc,
+      pcLabel: g.pcLabel,
       summary: g.summary,
       registers: g.registers,
       registersLoading: g.registersLoading,
@@ -46,6 +51,8 @@ function snap(): DebugSnapshot {
       breakpoints: g.breakpoints,
       memory: g.memory,
       threadInfo: g.threadInfo,
+      hasSymbols: g.hasSymbols,
+      symbols: g.symbols,
       threads: g.threads,
       threadsLoading: g.threadsLoading,
       threadsError: g.threadsError,
@@ -56,6 +63,7 @@ function snap(): DebugSnapshot {
     gdb: false,
     paused: m.paused,
     pc: m.pc,
+    pcLabel: null,
     summary: m.summary,
     registers: m.registers,
     registersLoading: m.registersLoading,
@@ -63,6 +71,8 @@ function snap(): DebugSnapshot {
     breakpoints: [],
     memory: null,
     threadInfo: false,
+    hasSymbols: false,
+    symbols: [],
     threads: [],
     threadsLoading: false,
     threadsError: null,
@@ -124,7 +134,7 @@ export async function readMemory(addr: number, length?: number): Promise<string 
   return gdb.readMemory(addr, length)
 }
 
-/** Feed the guest ELF so CONFIG_DEBUG_THREAD_INFO symbols can be resolved. */
+/** Feed the guest ELF so thread-info + function symbols can be resolved. */
 export function setKernelImage(elf: Uint8Array | null) {
   gdb.setKernelImage(elf)
 }
