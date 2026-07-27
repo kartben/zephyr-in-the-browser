@@ -367,7 +367,8 @@ export const PARTS: readonly PartIdentity[] = [
     kind: 'auxdisplay',
     datasheetUrl: 'https://newhavendisplay.com/content/app_notes/PT6314.pdf',
     bindingUrl: binding('auxdisplay/ptc%2Cpt6314.html'),
-    summary: 'Dot-character VFD controller; Futaba-style 20×2 viewport over SPI.',
+    summary:
+      'Dot-character VFD controller; Futaba-style 20×2 viewport over SPI with PT6314-001 5×8 CGROM glyphs.',
   },
   {
     id: 'tmc50xx',

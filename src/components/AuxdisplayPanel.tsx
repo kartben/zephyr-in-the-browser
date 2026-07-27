@@ -2,8 +2,9 @@
  * Dock body for character aux displays (JHD1313 LCD + PT6314 VFD).
  *
  * Shared Status / Registers affordances; the canvas branches on part —
- * Grove RGB LCD wash vs Futaba-style cyan VFD phosphor — without cloning the
- * dock shell.
+ * Grove RGB LCD wash vs Newhaven/Futaba-style cyan-green VFD phosphor —
+ * without cloning the dock shell. Both paint the same 5×8 CGROM bitmaps
+ * (PT6314-001 English/Japanese ASCII matches HD44780U A00).
  */
 
 import { useEffect, useReducer, useRef, useState } from 'react'
@@ -46,6 +47,21 @@ const LCD_PAD_X = 10
 const LCD_PAD_Y = 8
 
 /**
+ * PT6314 CGROM is also 5×8 (datasheet §5.3 / §12.1). Newhaven modules show
+ * discrete phosphor dots with a clear gap between character blocks — cell is
+ * the 5×8 grid; dots are inset slightly so the dark mesh reads between them.
+ */
+const VFD_DOT_PX = 3
+const VFD_CELL_W = HD44780_GLYPH_W * VFD_DOT_PX
+const VFD_CELL_H = HD44780_GLYPH_H * VFD_DOT_PX
+const VFD_GAP_X = 4
+const VFD_GAP_Y = 6
+const VFD_PAD_X = 14
+const VFD_PAD_Y = 12
+/** Inset inside each phosphor-dot tile (dark glass mesh). */
+const VFD_DOT_INSET = 0.55
+
+/**
  * Paint one HD44780 CGROM glyph flush to the cell — each of the 5×8 dots
  * owns an equal tile of the background rectangle (no inset / centering).
  */
@@ -67,6 +83,35 @@ function paintLcdGlyph(
           cellY + r * LCD_DOT_PX,
           LCD_DOT_PX,
           LCD_DOT_PX,
+        )
+      }
+    }
+  }
+}
+
+/**
+ * Paint one PT6314 CGROM glyph as discrete VFD phosphor dots.
+ * ASCII 0x20..0x7f uses the same A00 bitmaps as the LCD.
+ */
+function paintVfdGlyph(
+  ctx: CanvasRenderingContext2D,
+  ch: number,
+  cellX: number,
+  cellY: number,
+) {
+  if (ch < 0x20 || ch > 0x7f) return
+  const rows = HD44780_GLYPHS[ch - 0x20]
+  if (!rows) return
+  const size = VFD_DOT_PX - VFD_DOT_INSET * 2
+  for (let r = 0; r < HD44780_GLYPH_H; r++) {
+    const bits = rows[r] ?? 0
+    for (let c = 0; c < HD44780_GLYPH_W; c++) {
+      if (bits & (0x80 >> c)) {
+        ctx.fillRect(
+          cellX + c * VFD_DOT_PX + VFD_DOT_INSET,
+          cellY + r * VFD_DOT_PX + VFD_DOT_INSET,
+          size,
+          size,
         )
       }
     }
@@ -173,8 +218,8 @@ function AuxdisplayControllerButton({ chip }: { chip: AuxdisplayChip }) {
 }
 
 /**
- * Character-cell canvas. LCD: RGB backlight wash. VFD: dark glass + cyan
- * phosphor glow (Futaba M202MD15FA / PT6314 look).
+ * Character-cell canvas. LCD: RGB backlight wash. VFD: dark glass + cyan-green
+ * phosphor dots (Newhaven / Futaba M202MD15FA PT6314 look).
  */
 function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -192,12 +237,12 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
     let blinkPhase = false
     let blinkTimer: ReturnType<typeof setInterval> | undefined
 
-    const cellW = vfd ? 10 : LCD_CELL_W
-    const cellH = vfd ? 16 : LCD_CELL_H
-    const padX = vfd ? 14 : LCD_PAD_X
-    const padY = vfd ? 12 : LCD_PAD_Y
-    const gapX = vfd ? 3 : LCD_GAP_X
-    const gapY = vfd ? 6 : LCD_GAP_Y
+    const cellW = vfd ? VFD_CELL_W : LCD_CELL_W
+    const cellH = vfd ? VFD_CELL_H : LCD_CELL_H
+    const padX = vfd ? VFD_PAD_X : LCD_PAD_X
+    const padY = vfd ? VFD_PAD_Y : LCD_PAD_Y
+    const gapX = vfd ? VFD_GAP_X : LCD_GAP_X
+    const gapY = vfd ? VFD_GAP_Y : LCD_GAP_Y
     const width = padX * 2 + chip.columns * cellW + (chip.columns - 1) * gapX
     const height = padY * 2 + chip.rows * cellH + (chip.rows - 1) * gapY
     canvas.width = width
@@ -217,12 +262,12 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       const state = chip.getControllerState()
 
       if (vfd) {
-        // Futaba-style blue-cyan VFD: near-black filter glass, phosphor glow.
+        // Newhaven-style cyan-green VFD: near-black filter glass, 5×8 phosphor.
         const level = on ? chip.getBrightness() / 4 : 0
         ctx.fillStyle = '#05070a'
         ctx.fillRect(0, 0, width, height)
 
-        // Soft inner vignette.
+        // Soft inner vignette (tube glow).
         const wash = ctx.createRadialGradient(
           width / 2,
           height / 2,
@@ -231,20 +276,17 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
           height / 2,
           Math.max(width, height) * 0.7,
         )
-        wash.addColorStop(0, `rgba(20, 40, 55, ${0.35 * level})`)
+        wash.addColorStop(0, `rgba(18, 55, 40, ${0.32 * level})`)
         wash.addColorStop(1, 'rgba(0, 0, 0, 0)')
         ctx.fillStyle = wash
         ctx.fillRect(0, 0, width, height)
 
-        const glow = Math.round(140 + 100 * level)
+        // Cyan-green phosphor (matches Newhaven green VFD modules).
         const ink = on
-          ? `rgb(${Math.round(80 * level)}, ${Math.round(200 * level)}, ${glow})`
-          : 'rgb(18, 22, 26)'
-        const dimSlot = 'rgba(30, 50, 60, 0.35)'
-
-        ctx.font = `bold ${cellH - 3}px ui-monospace, SFMono-Regular, Menlo, monospace`
-        ctx.textBaseline = 'middle'
-        ctx.textAlign = 'center'
+          ? `rgb(${Math.round(70 * level)}, ${Math.round(235 * level)}, ${Math.round(175 * level)})`
+          : 'rgb(16, 20, 18)'
+        const dimSlot = 'rgba(24, 48, 40, 0.4)'
+        const bloom = `rgba(60, 240, 170, ${0.5 * level})`
 
         for (let row = 0; row < chip.rows; row++) {
           for (let col = 0; col < chip.columns; col++) {
@@ -254,34 +296,53 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
             ctx.fillRect(x, y, cellW, cellH)
 
             const ch = chip.cells[row * chip.columns + col] ?? 0x20
-            const glyph = ch >= 0x20 && ch < 0x7f ? String.fromCharCode(ch) : ' '
             const atCursor = state.cursorColumn === col && state.cursorRow === row
             const blinkOn = on && state.blinking && atCursor && blinkPhase
+            const lit = on && level > 0 && (ch !== 0x20 || blinkOn)
 
-            if (on && level > 0) {
-              // Soft bloom behind lit glyphs.
-              if (glyph !== ' ' || blinkOn) {
-                ctx.save()
-                ctx.shadowColor = `rgba(80, 220, 255, ${0.55 * level})`
-                ctx.shadowBlur = 6 + 4 * level
-                ctx.fillStyle = ink
-                ctx.fillText(glyph === ' ' && blinkOn ? '█' : glyph, x + cellW / 2, y + cellH / 2 + 1)
-                ctx.restore()
-              } else {
-                ctx.fillStyle = ink
-                ctx.fillText(glyph, x + cellW / 2, y + cellH / 2 + 1)
+            if (blinkOn) {
+              // Full-cell blink block (CGROM has no solid block in ASCII).
+              ctx.save()
+              if (level > 0) {
+                ctx.shadowColor = bloom
+                ctx.shadowBlur = 5 + 3 * level
               }
-            } else {
               ctx.fillStyle = ink
-              ctx.fillText(glyph, x + cellW / 2, y + cellH / 2 + 1)
+              const size = VFD_DOT_PX - VFD_DOT_INSET * 2
+              for (let r = 0; r < HD44780_GLYPH_H; r++) {
+                for (let c = 0; c < HD44780_GLYPH_W; c++) {
+                  ctx.fillRect(
+                    x + c * VFD_DOT_PX + VFD_DOT_INSET,
+                    y + r * VFD_DOT_PX + VFD_DOT_INSET,
+                    size,
+                    size,
+                  )
+                }
+              }
+              ctx.restore()
+            } else {
+              ctx.save()
+              if (lit) {
+                ctx.shadowColor = bloom
+                ctx.shadowBlur = 4 + 3 * level
+              }
+              ctx.fillStyle = ink
+              paintVfdGlyph(ctx, ch, x, y)
+              ctx.restore()
             }
 
             if (on && state.cursor && atCursor && (!state.blinking || blinkPhase)) {
+              // PT6314 cursor OR's onto the 8th CGROM row (datasheet §5.4).
+              ctx.save()
+              ctx.shadowColor = bloom
+              ctx.shadowBlur = 3 + 2 * level
               ctx.fillStyle = ink
-              ctx.shadowColor = `rgba(80, 220, 255, ${0.45 * level})`
-              ctx.shadowBlur = 4
-              ctx.fillRect(x + 1, y + cellH - 3, cellW - 2, 2)
-              ctx.shadowBlur = 0
+              const size = VFD_DOT_PX - VFD_DOT_INSET * 2
+              const cy = y + (HD44780_GLYPH_H - 1) * VFD_DOT_PX + VFD_DOT_INSET
+              for (let c = 0; c < HD44780_GLYPH_W; c++) {
+                ctx.fillRect(x + c * VFD_DOT_PX + VFD_DOT_INSET, cy, size, size)
+              }
+              ctx.restore()
             }
           }
         }
@@ -352,7 +413,7 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       aria-label={vfd ? 'PT6314 character VFD' : 'JHD1313 character LCD'}
       className="w-full rounded border border-border"
       style={{
-        imageRendering: vfd ? 'auto' : 'pixelated',
+        imageRendering: 'pixelated',
         ...(vfd
           ? { background: '#05070a', aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}` }
           : null),
@@ -395,7 +456,7 @@ export function AuxdisplayBody({ chip }: { chip: AuxdisplayChip }) {
             className="inline-block size-3 rounded-sm border border-border"
             style={{
               backgroundColor: chip.isOn()
-                ? `rgb(${Math.round(40 * (chip.getBrightness() / 4))}, ${Math.round(180 * (chip.getBrightness() / 4))}, ${Math.round(220 * (chip.getBrightness() / 4))})`
+                ? `rgb(${Math.round(70 * (chip.getBrightness() / 4))}, ${Math.round(235 * (chip.getBrightness() / 4))}, ${Math.round(175 * (chip.getBrightness() / 4))})`
                 : '#111',
             }}
             title="VFD brightness"
