@@ -24,6 +24,11 @@ interface PanelFrameProps {
   /** Docked card width, in rem. The floating card seeds its size from this. */
   dockedWidth?: number
   /**
+   * First-pop-out height, in rem. Hex/flash windows carry a sector map plus
+   * the dump — the default 24 rem clips the bottom of that stack.
+   */
+  seedHeight?: number
+  /**
    * Which edge this panel docks to. Buses live on the left, devices on the
    * right; the value only biases where an undocked card first pops out, since
    * docked alignment is handled by the column it sits in.
@@ -65,6 +70,7 @@ export function PanelFrame({
   icon: Icon,
   defaultExpanded = true,
   dockedWidth = 19,
+  seedHeight = 24,
   side = 'right',
   status,
   actions,
@@ -81,7 +87,7 @@ export function PanelFrame({
     if (!windowed) return null
     // A window opens floating with nothing saved yet: seed its box now, the
     // same math undock() uses on first pop-out.
-    return clampBox(seedBox(dockedWidth, side))
+    return clampBox(seedBox(dockedWidth, seedHeight, side))
   })
 
   const { dragHandlers, resizeHandlers } = useDragResize(rect, setRect)
@@ -95,7 +101,7 @@ export function PanelFrame({
     // Seed a box from the docked width, popping out near this panel's own edge
     // on first undock, then reuse whatever the user last left. clampBox keeps it
     // on-screen.
-    setRect(clampBox(rect ?? seedBox(dockedWidth, side)))
+    setRect(clampBox(rect ?? seedBox(dockedWidth, seedHeight, side)))
     setFloating(true)
   }
 
@@ -199,14 +205,17 @@ export function PanelFrame({
   )
 }
 
-/** First-pop-out box: docked width, a third down, hugging the panel's edge. */
-function seedBox(dockedWidth: number, side: 'left' | 'right'): PanelBox {
+/** First-pop-out box: docked width, hugging the panel's edge, high enough to clear the chrome. */
+function seedBox(dockedWidth: number, seedHeight: number, side: 'left' | 'right'): PanelBox {
   const width = dockedWidth * REM
+  const height = seedHeight * REM
   const margin = REM
+  // Prefer sitting near the top so a taller seed still leaves the bottom in view.
+  const y = Math.max(margin, Math.min(window.innerHeight / 8, window.innerHeight - height - margin))
   return {
     x: side === 'left' ? margin : window.innerWidth - width - margin,
-    y: window.innerHeight / 3,
+    y,
     w: width,
-    h: 24 * REM,
+    h: height,
   }
 }

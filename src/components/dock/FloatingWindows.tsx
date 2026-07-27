@@ -13,11 +13,16 @@ import type { DeviceNode } from '@/deviceTopology'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
 import { getState, setWindowed, subscribe } from '@/lib/dockStore'
 
-/** The hex dump wants width; the rest are fine at the default. */
-function windowWidth(node: DeviceNode): number {
-  if (node.body === 'memory') return 27
-  if (node.body === 'net') return 21
-  return 19
+/**
+ * Seed size for a popped-out device. Hex/flash carry a dump (and for NOR, a
+ * sector map); they need more room than a sensor card so the bottom chrome —
+ * hints, legend, last hex rows — is not scrolled off the first look.
+ */
+function windowSeed(node: DeviceNode): { width: number; height?: number } {
+  if (node.body === 'spi-flash') return { width: 32, height: 40 }
+  if (node.body === 'memory') return { width: 28, height: 34 }
+  if (node.body === 'net') return { width: 21 }
+  return { width: 19 }
 }
 
 export function FloatingWindows({ boardId }: { boardId: string }) {
@@ -30,25 +35,29 @@ export function FloatingWindows({ boardId }: { boardId: string }) {
 
   return (
     <>
-      {windowed.map((node) => (
-        <PanelFrame
-          key={node.key}
-          id={node.key}
-          title={node.label}
-          icon={deviceIcon(node)}
-          dockedWidth={windowWidth(node)}
-          windowed={{ onClose: () => setWindowed(node.key, false) }}
-          status={
-            (node.crumb ?? node.compatible) && (
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {node.crumb ?? node.compatible}
-              </span>
-            )
-          }
-        >
-          <DeviceBody node={node} variant="window" />
-        </PanelFrame>
-      ))}
+      {windowed.map((node) => {
+        const seed = windowSeed(node)
+        return (
+          <PanelFrame
+            key={node.key}
+            id={node.key}
+            title={node.label}
+            icon={deviceIcon(node)}
+            dockedWidth={seed.width}
+            seedHeight={seed.height}
+            windowed={{ onClose: () => setWindowed(node.key, false) }}
+            status={
+              (node.crumb ?? node.compatible) && (
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {node.crumb ?? node.compatible}
+                </span>
+              )
+            }
+          >
+            <DeviceBody node={node} variant="window" />
+          </PanelFrame>
+        )
+      })}
     </>
   )
 }
