@@ -91,7 +91,7 @@
       .node-name { font-size: 11px; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .node-top .pill { margin-left: auto; padding-left: 6px; }
       .tag { font-size: 10px; color: var(--muted-foreground); }
-      .tag.guest { color: var(--primary); }
+      .node-name.mono { font-family: var(--font-mono); }
       .node-sub { font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .x { flex-shrink: 0; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 4px; color: var(--muted-foreground); cursor: pointer; }
       .x.spacer { pointer-events: none; }
@@ -102,12 +102,12 @@
       .pill { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 10px; color: var(--muted-foreground); }
       .pill .dot { width: 6px; height: 6px; border-radius: 9999px; flex-shrink: 0; }
       .dot-active { background: var(--success); }
-      .dot-passive { background: var(--warning); }
+      .dot-passive { background: var(--warning); } /* error-passive; unused in these three blocks */
       .dot-off { background: var(--destructive); }
 
       /* Add-node row — I2cPanel AttachRow */
       .attach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-      select, .field {
+      select {
         border: 1px solid var(--input); background: var(--background); color: var(--foreground);
         border-radius: 6px; font-size: 11px; padding: 4px 8px; outline: none; font-family: inherit;
       }
@@ -156,7 +156,6 @@
       li.arb { color: var(--warning); }
       li.arb .fid { color: var(--warning); }
 
-      .hint { font-size: 11px; line-height: 1.45; color: var(--muted-foreground); margin: 0; }
       code { font-family: var(--font-mono); color: var(--foreground); font-size: 11px; }
       .regs { align-self: flex-start; font-size: 11px; color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; background: transparent; cursor: pointer; }
     </style>
@@ -184,14 +183,13 @@
           <div class="sec">
             <span class="sec-label">On the bus</span>
             <ul class="roster">
-              <li class="node self">
+              <li class="node self" title="This board's controller">
                 <div class="node-main">
                   <div class="node-top">
-                    <span class="node-name">Zephyr guest</span>
-                    <span class="tag guest">guest</span>
-                    <span class="pill"><span class="dot dot-active"></span>error-active</span>
+                    <span class="node-name mono">can0</span>
+                    <span class="pill" title="Transmit errors below 128. Normal operation."><span class="dot dot-active"></span>error-active</span>
                   </div>
-                  <div class="node-sub">tx 0x100 · filter 0x100/0x7F0 · TEC 0 REC 0</div>
+                  <div class="node-sub" title="Transmits 0x100. Accepts 0x100 under mask 0x7F0.">0x100 · filter 0x100/0x7F0 · TEC 0 REC 0</div>
                 </div>
                 <span class="x spacer"></span>
               </li>
@@ -199,12 +197,11 @@
                 <div class="node-main">
                   <div class="node-top">
                     <span class="node-name">Engine ECU</span>
-                    <span class="tag">sim</span>
-                    <span class="pill"><span class="dot dot-active"></span>error-active</span>
+                    <span class="pill" title="Transmit errors below 128. Normal operation."><span class="dot dot-active"></span>error-active</span>
                   </div>
-                  <div class="node-sub">tx 0x0A0 @ 100 ms · TEC 0 REC 0</div>
+                  <div class="node-sub">0x0A0 every 100 ms · TEC 0 REC 0</div>
                 </div>
-                <button class="x" title="Unplug — the guest stops seeing ACKs" aria-label="Unplug Engine ECU">
+                <button class="x" title="Unplug. Nothing left to ACK can0's frames." aria-label="Unplug Engine ECU">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
               </li>
@@ -212,10 +209,9 @@
                 <div class="node-main">
                   <div class="node-top">
                     <span class="node-name">Dashboard</span>
-                    <span class="tag">sim</span>
-                    <span class="pill"><span class="dot dot-active"></span>error-active</span>
+                    <span class="pill" title="Transmit errors below 128. Normal operation."><span class="dot dot-active"></span>error-active</span>
                   </div>
-                  <div class="node-sub">listen-only · TEC 0 REC 0</div>
+                  <div class="node-sub" title="Receives and ACKs, never transmits.">listen-only · TEC 0 REC 0</div>
                 </div>
                 <button class="x" title="Unplug" aria-label="Unplug Dashboard">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
@@ -228,18 +224,18 @@
             <span class="sec-label">Add node</span>
             <div class="attach">
               <select aria-label="Node type">
-                <option>Engine ECU — periodic 0x0A0</option>
-                <option>Dashboard — listen-only</option>
-                <option>Babbler — floods 0x000</option>
-                <option>Echo node — replies to RTR</option>
-                <option>Silent node — never ACKs</option>
+                <option>Engine ECU · 0x0A0</option>
+                <option>Dashboard · listen-only</option>
+                <option>Babbler · floods 0x000</option>
+                <option>Echo · replies to RTR</option>
+                <option>Silent · never ACKs</option>
               </select>
               <button class="btn">Add</button>
             </div>
           </div>
 
           <div class="sec">
-            <span class="sec-label">Send a frame</span>
+            <span class="sec-label">Send</span>
             <div class="compose">
               <div class="compose-line">
                 <span class="hexfield"><span class="lab">ID</span><span class="pre">0x</span><input value="0A0" aria-label="Frame ID" /></span>
@@ -274,26 +270,22 @@
             <ul class="trace">
               <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">04 00 00 00 00 00 00 00</span></li>
               <li><span class="dir-rx">↓</span><span class="fid">0x0A0</span><span class="tag">[8]</span><span class="data">DE AD BE EF 00 00 00 01</span></li>
-              <li class="arb"><span>⚡</span><span class="fid">0x200</span><span class="data">lost arbitration to 0x100</span><span class="note">retry</span></li>
+              <li class="arb" title="Both started in the same slot. Lower ID wins the bus."><span>⚡</span><span class="fid">0x200</span><span class="data">lost arbitration to 0x100</span><span class="note">retry</span></li>
               <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">03 00 00 00 00 00 00 00</span></li>
-              <li class="dropped"><span class="dir-rx">↓</span><span class="fid">0x2FF</span><span class="tag">[2]</span><span class="data">00 01</span><span class="note mut">filtered</span></li>
+              <li class="dropped" title="Reached can0. No acceptance filter matches 0x2FF."><span class="dir-rx">↓</span><span class="fid">0x2FF</span><span class="tag">[2]</span><span class="data">00 01</span><span class="note mut">filtered</span></li>
               <li><span class="dir-rx">↓</span><span class="fid">0x0A0</span><span class="tag">[8]</span><span class="data">DE AD BE EF 00 00 00 00</span></li>
-              <li class="dropped"><span class="dir-rx">↓</span><span class="fid">0x310</span><span class="tag">[1]</span><span class="data">7F</span><span class="note mut">filtered</span></li>
+              <li class="dropped" title="Reached can0. No acceptance filter matches 0x310."><span class="dir-rx">↓</span><span class="fid">0x310</span><span class="tag">[1]</span><span class="data">7F</span><span class="note mut">filtered</span></li>
               <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">02 00 00 00 00 00 00 00</span></li>
             </ul>
           </div>
 
-          <p class="hint">
-            <code>MCP2515</code> — SPI CAN controller on cs0. The bus, the other nodes and
-            arbitration are page-side; the guest runs stock <code>microchip,mcp2515</code>.
-          </p>
-          <button class="regs" type="button">Registers</button>
+          <button class="regs" type="button" title="MCP2515 register map">Registers</button>
         </div>
       </div>
     </div>
     <p class="caption" style="margin-bottom:28px">
-      Greyed rows are frames the guest's acceptance filters <b>dropped</b> — normally invisible,
-      since a filtered frame leaves no trace anywhere in the guest.
+      Greyed rows are frames the acceptance filters <b>dropped</b>. Normally invisible: a filtered
+      frame leaves no trace anywhere on the board.
     </p>
 
     <!-- ───────────────────────── Block B — bus-off ───────────────────────── -->
@@ -318,14 +310,13 @@
           <div class="sec">
             <span class="sec-label">On the bus</span>
             <ul class="roster">
-              <li class="node self">
+              <li class="node self" title="This board's controller">
                 <div class="node-main">
                   <div class="node-top">
-                    <span class="node-name">Zephyr guest</span>
-                    <span class="tag guest">guest</span>
-                    <span class="pill"><span class="dot dot-off"></span>bus-off</span>
+                    <span class="node-name mono">can0</span>
+                    <span class="pill" title="Transmit errors reached 256. Off the bus until recovery."><span class="dot dot-off"></span>bus-off</span>
                   </div>
-                  <div class="node-sub">tx 0x100 · TEC 256 REC 0 · alone on the bus</div>
+                  <div class="node-sub">0x100 · TEC 256 REC 0 · alone on the bus</div>
                 </div>
                 <span class="x spacer"></span>
               </li>
@@ -338,25 +329,17 @@
               <button class="clear">clear</button>
             </div>
             <ul class="trace">
-              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 256</span></li>
-              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 248</span></li>
-              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 240</span></li>
-              <li><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 232</span></li>
+              <li title="No node acknowledged the frame. Each failure adds 8 to TEC."><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 256</span></li>
+              <li title="No node acknowledged the frame. Each failure adds 8 to TEC."><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 248</span></li>
+              <li title="No node acknowledged the frame. Each failure adds 8 to TEC."><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 240</span></li>
+              <li title="No node acknowledged the frame. Each failure adds 8 to TEC."><span class="dir-tx">↑</span><span class="fid">0x100</span><span class="tag">[8]</span><span class="data">1F 00 00 …</span><span class="note err">no ACK · TEC 232</span></li>
             </ul>
           </div>
 
-          <div class="sec">
-            <span class="sec-label">Recover</span>
-            <div class="attach">
-              <button class="btn primary">Plug a node back in</button>
-              <span class="tag">or <code>can recover can0</code></span>
-            </div>
+          <div class="attach">
+            <button class="btn primary" title="Transmission stays stopped until can_recover(). Zephyr's CAN shell: can recover can0">Recover</button>
+            <button class="btn" title="Adds a node that ACKs, which is the other way back">Add node</button>
           </div>
-
-          <p class="hint">
-            Bus-off is not an error the guest can shrug off: transmission stops until the
-            application calls <code>can_recover()</code>. Zephyr's CAN shell has it.
-          </p>
         </div>
       </div>
     </div>
@@ -411,7 +394,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
       const LANES = [
-        { label: 'guest', id: '0x100', color: 'oklch(0.62 0.19 292)' },
+        { label: 'can0', id: '0x100', color: 'oklch(0.62 0.19 292)' },
         { label: 'engine', id: '0x0A0', color: 'oklch(0.7 0.16 152)' },
         { label: 'dash', id: '0x200', color: 'oklch(0.77 0.15 78)' },
       ]
@@ -437,7 +420,7 @@
         ctx.fillText(lane.id, 4, y + 6)
       })
 
-      // (lane, t, lost?) — at t=0.42 the dash node and the guest collide; 0x100
+      // (lane, t, lost?) — at t=0.42 the dash node and can0 collide; 0x100
       // is the lower ID, so it wins and 0x200 defers to 0.50.
       const TICKS = [
         [0, 0.06], [0, 0.20], [0, 0.42], [0, 0.63], [0, 0.84],
@@ -463,13 +446,13 @@
 
       // The collision: a dotted drop from the winner down to the loser, and a
       // hop from the loser to its retry.
-      const yGuest = padT + laneH * 0 + laneH / 2
+      const yLocal = padT + laneH * 0 + laneH / 2
       const yDash = padT + laneH * 2 + laneH / 2
       ctx.strokeStyle = 'rgba(255,255,255,0.22)'
       ctx.setLineDash([2, 2])
       ctx.lineWidth = 1
       ctx.beginPath()
-      ctx.moveTo(xAt(0.42), yGuest + TICK_H / 2)
+      ctx.moveTo(xAt(0.42), yLocal + TICK_H / 2)
       ctx.lineTo(xAt(0.42), yDash - TICK_H / 2)
       ctx.stroke()
       ctx.setLineDash([])
