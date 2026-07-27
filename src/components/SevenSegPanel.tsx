@@ -51,12 +51,11 @@ function DigitGlyph({
 
   return (
     <svg
-      // Pad the viewBox so skew + feGaussianBlur bloom stay inside the SVG
-      // box (HTML `<svg>` defaults to overflow:hidden, which was clipping the
-      // top/bottom glow flush to the panel edge).
-      viewBox="-12 -12 84 108"
+      // Vertical viewBox pad keeps skew + glow off the panel edge; keep the
+      // horizontal pad tight so digits sit close like a real LED module.
+      viewBox="-4 -12 68 108"
       className={cn(
-        'h-[4.75rem] w-[3.6rem] shrink-0 overflow-visible sm:h-[6.25rem] sm:w-[4.6rem]',
+        '-mx-0.5 h-[4.75rem] w-[3.1rem] shrink-0 overflow-visible sm:h-[6.25rem] sm:w-[4rem]',
         scanning && 'sevenseg-scan',
       )}
       aria-hidden
@@ -70,8 +69,8 @@ function DigitGlyph({
           </feMerge>
         </filter>
       </defs>
-      {/* Inset + slight classic LED slant (sevenSeg `slant: 8`). */}
-      <g transform="translate(10,10) skewX(-8)">
+      {/* Slight classic LED slant (sevenSeg `slant: 8`). */}
+      <g transform="translate(2,10) skewX(-8)">
         {SEG_PATHS.map((d, bit) => {
           const on = (mask & (1 << bit)) !== 0
           return (
