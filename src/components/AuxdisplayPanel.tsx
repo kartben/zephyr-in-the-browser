@@ -48,18 +48,23 @@ const LCD_PAD_Y = 8
 
 /**
  * PT6314 CGROM is also 5×8 (datasheet §5.3 / §12.1). Newhaven modules show
- * discrete phosphor dots with a clear gap between character blocks — cell is
- * the 5×8 grid; dots are inset slightly so the dark mesh reads between them.
+ * soft phosphor anodes with bloom that bleeds between neighbours — not hard
+ * LCD squares. Cell is still the 5×8 grid; glow is a blurred underlay plus
+ * a brighter core pass.
  */
-const VFD_DOT_PX = 3
+const VFD_DOT_PX = 4
 const VFD_CELL_W = HD44780_GLYPH_W * VFD_DOT_PX
 const VFD_CELL_H = HD44780_GLYPH_H * VFD_DOT_PX
-const VFD_GAP_X = 4
-const VFD_GAP_Y = 6
-const VFD_PAD_X = 14
-const VFD_PAD_Y = 12
-/** Inset inside each phosphor-dot tile (dark glass mesh). */
-const VFD_DOT_INSET = 0.55
+const VFD_GAP_X = 5
+const VFD_GAP_Y = 7
+const VFD_PAD_X = 16
+const VFD_PAD_Y = 14
+/** Core anode radius (bitmap pass). */
+const VFD_CORE_R = VFD_DOT_PX * 0.42
+/** How hard the bloom underlay is blurred (px). */
+const VFD_BLOOM_BLUR = 4.5
+/** Bloom underlay opacity (drawn twice for a richer halo). */
+const VFD_BLOOM_ALPHA = 0.55
 
 /**
  * Paint one HD44780 CGROM glyph flush to the cell — each of the 5×8 dots
@@ -89,33 +94,95 @@ function paintLcdGlyph(
   }
 }
 
-/**
- * Paint one PT6314 CGROM glyph as discrete VFD phosphor dots.
- * ASCII 0x20..0x7f uses the same A00 bitmaps as the LCD.
- */
-function paintVfdGlyph(
-  ctx: CanvasRenderingContext2D,
-  ch: number,
+/** Collect lit anode centers for a CGROM code (or a solid blink block). */
+function vfdLitCenters(
+  ch: number | 'block',
   cellX: number,
   cellY: number,
-) {
-  if (ch < 0x20 || ch > 0x7f) return
+): { x: number; y: number }[] {
+  const half = VFD_DOT_PX / 2
+  const out: { x: number; y: number }[] = []
+  if (ch === 'block') {
+    for (let r = 0; r < HD44780_GLYPH_H; r++) {
+      for (let c = 0; c < HD44780_GLYPH_W; c++) {
+        out.push({ x: cellX + c * VFD_DOT_PX + half, y: cellY + r * VFD_DOT_PX + half })
+      }
+    }
+    return out
+  }
+  if (ch < 0x20 || ch > 0x7f) return out
   const rows = HD44780_GLYPHS[ch - 0x20]
-  if (!rows) return
-  const size = VFD_DOT_PX - VFD_DOT_INSET * 2
+  if (!rows) return out
   for (let r = 0; r < HD44780_GLYPH_H; r++) {
     const bits = rows[r] ?? 0
     for (let c = 0; c < HD44780_GLYPH_W; c++) {
       if (bits & (0x80 >> c)) {
-        ctx.fillRect(
-          cellX + c * VFD_DOT_PX + VFD_DOT_INSET,
-          cellY + r * VFD_DOT_PX + VFD_DOT_INSET,
-          size,
-          size,
-        )
+        out.push({ x: cellX + c * VFD_DOT_PX + half, y: cellY + r * VFD_DOT_PX + half })
       }
     }
   }
+  return out
+}
+
+/** Stamp solid anode discs into a context (used for bloom + core passes). */
+function stampVfdCores(
+  ctx: CanvasRenderingContext2D,
+  centers: readonly { x: number; y: number }[],
+  fill: string,
+  radius: number,
+) {
+  ctx.fillStyle = fill
+  for (const { x, y } of centers) {
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+function paintVfdAnodes(
+  ctx: CanvasRenderingContext2D,
+  centers: readonly { x: number; y: number }[],
+  level: number,
+) {
+  if (level <= 0 || centers.length === 0) return
+
+  // Bloom underlay — larger discs, canvas blur, additive mix for tube glow.
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.globalAlpha = VFD_BLOOM_ALPHA * level
+  ctx.filter = `blur(${VFD_BLOOM_BLUR}px)`
+  stampVfdCores(
+    ctx,
+    centers,
+    `rgb(${Math.round(50 * level + 30)}, ${Math.round(240 * level)}, ${Math.round(170 * level)})`,
+    VFD_CORE_R * 1.55,
+  )
+  // Second softer pass for a longer tail.
+  ctx.globalAlpha = 0.4 * level
+  ctx.filter = `blur(${VFD_BLOOM_BLUR * 2}px)`
+  stampVfdCores(
+    ctx,
+    centers,
+    `rgb(${Math.round(40 * level + 20)}, ${Math.round(220 * level)}, ${Math.round(150 * level)})`,
+    VFD_CORE_R * 2.2,
+  )
+  ctx.restore()
+
+  // Hot cores on top — soft radial, no hard square edges.
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  for (const { x: cx, y: cy } of centers) {
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, VFD_CORE_R)
+    core.addColorStop(0, `rgba(230, 255, 235, ${0.85 * level})`)
+    core.addColorStop(0.45, `rgba(110, 250, 195, ${0.75 * level})`)
+    core.addColorStop(0.85, `rgba(55, 210, 155, ${0.35 * level})`)
+    core.addColorStop(1, `rgba(40, 160, 120, 0)`)
+    ctx.fillStyle = core
+    ctx.beginPath()
+    ctx.arc(cx, cy, VFD_CORE_R, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
 }
 
 /** Common surface both character panels paint and inspect. */
@@ -262,31 +329,29 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       const state = chip.getControllerState()
 
       if (vfd) {
-        // Newhaven-style cyan-green VFD: near-black filter glass, 5×8 phosphor.
+        // Newhaven-style cyan-green VFD: dark filter glass + soft phosphor anodes.
         const level = on ? chip.getBrightness() / 4 : 0
-        ctx.fillStyle = '#05070a'
+        ctx.fillStyle = '#040608'
         ctx.fillRect(0, 0, width, height)
 
-        // Soft inner vignette (tube glow).
+        // Soft tube wash behind the character field.
         const wash = ctx.createRadialGradient(
           width / 2,
           height / 2,
-          Math.min(width, height) * 0.15,
+          Math.min(width, height) * 0.12,
           width / 2,
           height / 2,
-          Math.max(width, height) * 0.7,
+          Math.max(width, height) * 0.75,
         )
-        wash.addColorStop(0, `rgba(18, 55, 40, ${0.32 * level})`)
+        wash.addColorStop(0, `rgba(12, 48, 36, ${0.45 * level})`)
+        wash.addColorStop(0.55, `rgba(8, 28, 22, ${0.18 * level})`)
         wash.addColorStop(1, 'rgba(0, 0, 0, 0)')
         ctx.fillStyle = wash
         ctx.fillRect(0, 0, width, height)
 
-        // Cyan-green phosphor (matches Newhaven green VFD modules).
-        const ink = on
-          ? `rgb(${Math.round(70 * level)}, ${Math.round(235 * level)}, ${Math.round(175 * level)})`
-          : 'rgb(16, 20, 18)'
-        const dimSlot = 'rgba(24, 48, 40, 0.4)'
-        const bloom = `rgba(60, 240, 170, ${0.5 * level})`
+        // Dim character-cell slots, then one bloom/core pass for all lit anodes.
+        const dimSlot = `rgba(16, 36, 28, ${0.5 + 0.15 * level})`
+        const lit: { x: number; y: number }[] = []
 
         for (let row = 0; row < chip.rows; row++) {
           for (let col = 0; col < chip.columns; col++) {
@@ -295,57 +360,30 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
             ctx.fillStyle = dimSlot
             ctx.fillRect(x, y, cellW, cellH)
 
+            if (!on || level <= 0) continue
+
             const ch = chip.cells[row * chip.columns + col] ?? 0x20
             const atCursor = state.cursorColumn === col && state.cursorRow === row
-            const blinkOn = on && state.blinking && atCursor && blinkPhase
-            const lit = on && level > 0 && (ch !== 0x20 || blinkOn)
+            const blinkOn = state.blinking && atCursor && blinkPhase
 
             if (blinkOn) {
-              // Full-cell blink block (CGROM has no solid block in ASCII).
-              ctx.save()
-              if (level > 0) {
-                ctx.shadowColor = bloom
-                ctx.shadowBlur = 5 + 3 * level
-              }
-              ctx.fillStyle = ink
-              const size = VFD_DOT_PX - VFD_DOT_INSET * 2
-              for (let r = 0; r < HD44780_GLYPH_H; r++) {
-                for (let c = 0; c < HD44780_GLYPH_W; c++) {
-                  ctx.fillRect(
-                    x + c * VFD_DOT_PX + VFD_DOT_INSET,
-                    y + r * VFD_DOT_PX + VFD_DOT_INSET,
-                    size,
-                    size,
-                  )
-                }
-              }
-              ctx.restore()
+              lit.push(...vfdLitCenters('block', x, y))
             } else {
-              ctx.save()
-              if (lit) {
-                ctx.shadowColor = bloom
-                ctx.shadowBlur = 4 + 3 * level
-              }
-              ctx.fillStyle = ink
-              paintVfdGlyph(ctx, ch, x, y)
-              ctx.restore()
+              lit.push(...vfdLitCenters(ch, x, y))
             }
 
-            if (on && state.cursor && atCursor && (!state.blinking || blinkPhase)) {
+            if (state.cursor && atCursor && (!state.blinking || blinkPhase)) {
               // PT6314 cursor OR's onto the 8th CGROM row (datasheet §5.4).
-              ctx.save()
-              ctx.shadowColor = bloom
-              ctx.shadowBlur = 3 + 2 * level
-              ctx.fillStyle = ink
-              const size = VFD_DOT_PX - VFD_DOT_INSET * 2
-              const cy = y + (HD44780_GLYPH_H - 1) * VFD_DOT_PX + VFD_DOT_INSET
+              const half = VFD_DOT_PX / 2
+              const cy = y + (HD44780_GLYPH_H - 1) * VFD_DOT_PX + half
               for (let c = 0; c < HD44780_GLYPH_W; c++) {
-                ctx.fillRect(x + c * VFD_DOT_PX + VFD_DOT_INSET, cy, size, size)
+                lit.push({ x: x + c * VFD_DOT_PX + half, y: cy })
               }
-              ctx.restore()
             }
           }
         }
+
+        paintVfdAnodes(ctx, lit, level)
         return
       }
 
@@ -413,9 +451,10 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       aria-label={vfd ? 'PT6314 character VFD' : 'JHD1313 character LCD'}
       className="w-full rounded border border-border"
       style={{
-        imageRendering: 'pixelated',
+        // LCD stays crisp/pixelated; VFD soft phosphor needs antialiased scale.
+        imageRendering: vfd ? 'auto' : 'pixelated',
         ...(vfd
-          ? { background: '#05070a', aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}` }
+          ? { background: '#040608', aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}` }
           : null),
       }}
     />
