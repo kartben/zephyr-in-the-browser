@@ -1,10 +1,11 @@
 /**
  * Live SVD-style register map for any {@link RegisterMapSource}.
  *
- * Sensor cards, RTC cards, and future register-file parts share this dialog —
+ * Sensor cards, RTC cards, and future register-file parts share this panel —
  * the kind-specific UI stays a slider / clock / … surface; this is the
  * fine-grained view. Collapsed by default: the card only shows a small
- * "Registers" affordance until you open it.
+ * "Registers" affordance until you open it. The panel is non-modal so you
+ * can keep poking the rest of the simulator while it stays open.
  */
 
 import { useEffect, useReducer, useState } from 'react'
@@ -106,8 +107,14 @@ function RegisterMapDialog({
   const named = chip.registers.filter((r) => r.name).length
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+    // Non-modal: keep the map open while poking the rest of the simulator.
+    // Outside clicks must not dismiss it — only Escape / the close button.
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+      <DialogContent
+        className="max-w-2xl"
+        showOverlay={false}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>
             {chip.name} · 0x{hex}

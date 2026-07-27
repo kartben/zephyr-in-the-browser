@@ -10,11 +10,17 @@ const DialogClose = DialogPrimitive.Close
 function DialogContent({
   className,
   children,
+  showOverlay = true,
   ...props
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  /** Dimmed backdrop. Set false for non-modal floating panels. */
+  showOverlay?: boolean
+}) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60" />
+      {showOverlay && (
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60" />
+      )}
       <DialogPrimitive.Content
         className={cn(
           'fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[92vw] max-w-lg -translate-x-1/2',
