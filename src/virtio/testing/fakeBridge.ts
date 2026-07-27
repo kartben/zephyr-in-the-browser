@@ -96,6 +96,13 @@ export function createFakeBridge(
 
   const devices = new Map<string, FakeDevice>()
   const areaBases: number[] = []
+  /**
+   * The round-trip counters `0018-instrument-bridge-roundtrip.patch` keeps in
+   * C, per device and in the same registry order, so the transport's
+   * index-to-device mapping is exercised here rather than only against a
+   * rebuilt emulator. `completions()` stands in for QEMU's drain.
+   */
+  const roundTrips: Array<{ sumNs: number; maxNs: number; count: number; slow: number }> = []
 
   let cursor = HEAP_BASE
   for (const { spec, ringSize } of layouts) {
@@ -127,6 +134,10 @@ export function createFakeBridge(
     const generations = new Uint16Array(64)
     const live = new Set<number>()
     let cmpRd = 0
+    const rt = { sumNs: 0, maxNs: 0, count: 0, slow: 0 }
+    roundTrips.push(rt)
+    /** Token → publish time, the C token's `published_ns`. */
+    const publishedAt = new Map<number, number>()
 
     const setOutstanding = () => store(areaBase + AREA.outstanding, live.size)
 
@@ -162,6 +173,7 @@ export function createFakeBridge(
         view.setUint32(reqBase + off + 12, inCap, true)
         heap.set(out, reqBase + off + REQ_HDR)
         store(areaBase + AREA.reqWr, (wr + rec) >>> 0)
+        publishedAt.set(token, performance.now())
         Atomics.add(words, REQUEST_WAKE_ADDR >> 2, 1)
         Atomics.notify(words, REQUEST_WAKE_ADDR >> 2)
 
@@ -190,6 +202,15 @@ export function createFakeBridge(
             generations[token & 0xffff]++
             setOutstanding()
           }
+          const published = publishedAt.get(token)
+          if (published !== undefined) {
+            publishedAt.delete(token)
+            const ns = (performance.now() - published) * 1e6
+            rt.sumNs += ns
+            rt.count++
+            if (ns > rt.maxNs) rt.maxNs = ns
+            if (ns > 5e6) rt.slow++
+          }
         }
         store(areaBase + AREA.cmpRd, cmpRd)
         return out
@@ -198,6 +219,7 @@ export function createFakeBridge(
       reset() {
         for (const token of live) generations[token & 0xffff]++
         live.clear()
+        publishedAt.clear()
         setOutstanding()
         // Neither side rewinds an index the other owns: QEMU skips whatever
         // the page had queued and bumps the generation.
@@ -221,6 +243,13 @@ export function createFakeBridge(
         Atomics.add(words, COMPLETION_WAKE_ADDR >> 2, 1)
         Atomics.notify(words, COMPLETION_WAKE_ADDR >> 2)
       },
+      _qemu_virtio_browser_roundtrip_avg_ns: (i: number) => {
+        const rt = roundTrips[i]
+        return rt?.count ? rt.sumNs / rt.count : -1
+      },
+      _qemu_virtio_browser_roundtrip_max_ns: (i: number) => roundTrips[i]?.maxNs ?? -1,
+      _qemu_virtio_browser_roundtrip_count: (i: number) => roundTrips[i]?.count ?? 0,
+      _qemu_virtio_browser_roundtrip_slow_count: (i: number) => roundTrips[i]?.slow ?? 0,
     },
     device(name) {
       const d = devices.get(name)

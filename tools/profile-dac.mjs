@@ -14,6 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { existsSync } from 'node:fs'
+import { decompose } from './profile-decompose.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 5177
@@ -159,6 +160,11 @@ try {
       wakeAvgNs: snap?.wakeAvgNs ?? null,
       wakeMaxNs: snap?.wakeMaxNs ?? null,
       wakeCount: snap?.wakeCount ?? null,
+      rtAvgMs: snap?.i2cRoundTripAvgMs ?? null,
+      rtMaxMs: snap?.i2cRoundTripMaxMs ?? null,
+      rtCount: snap?.i2cRoundTripCount ?? null,
+      rtSlowCount: snap?.i2cRoundTripSlowCount ?? null,
+      serviceAvgMs: snap?.i2cServiceAvgMs ?? null,
       warpOvershootAvgNs: snap?.warpOvershootAvgNs ?? null,
       warpOvershootMaxNs: snap?.warpOvershootMaxNs ?? null,
       warpOvershootCount: snap?.warpOvershootCount ?? null,
@@ -173,6 +179,8 @@ try {
         `bridgeHz=${row.bridgeHz?.toFixed?.(0) ?? '-'} wakeHz=${row.bridgeWakeHz?.toFixed?.(0) ?? '-'} ` +
         `waiter=${row.bridgeWaiterActive ?? '-'} pollMs=${row.bridgePollMs?.toFixed?.(2) ?? '-'} ` +
         `mips=${row.mips?.toFixed?.(1) ?? '-'} code=${row.code} ` +
+        `rtAvgMs=${row.rtAvgMs != null ? row.rtAvgMs.toFixed(3) : '-'} ` +
+        `svcAvgMs=${row.serviceAvgMs != null ? row.serviceAvgMs.toFixed(3) : '-'} ` +
         `wakeAvgMs=${row.wakeAvgNs != null ? (row.wakeAvgNs / 1e6).toFixed(2) : '-'} ` +
         `wakeMaxMs=${row.wakeMaxNs != null ? (row.wakeMaxNs / 1e6).toFixed(2) : '-'} ` +
         `wakeN=${row.wakeCount ?? '-'} ` +
@@ -202,6 +210,17 @@ try {
         bridgeWaiterActive: rows.at(-1)?.bridgeWaiterActive ?? null,
         bridgePollMs: +avg('bridgePollMs').toFixed(2),
         mips: +avg('mips').toFixed(1),
+        // The decomposition item 15 exists for. periodMs is what one transfer
+        // costs end to end; roundTrip is the browser's share of it, service
+        // the device model's share of that, and hop the two cross-thread
+        // hops — the only part moving models into wasm could remove.
+        //
+        // An emulator without 0018 reports -1, and the derived fields go null
+        // rather than to a plausible-looking 0: "not measured" and "free" are
+        // the two answers this whole exercise exists to tell apart.
+        ...decompose(avg('i2cHzMeas'), avg('rtAvgMs'), avg('serviceAvgMs')),
+        roundTripMaxMs: avg('rtMaxMs') >= 0 ? +avg('rtMaxMs').toFixed(3) : null,
+        roundTripSlowCount: rows.at(-1)?.rtSlowCount ?? null,
         wakeAvgMs: +(avg('wakeAvgNs') / 1e6).toFixed(2),
         wakeMaxMs: +(avg('wakeMaxNs') / 1e6).toFixed(2),
         warpOvershootAvgMs: +(avg('warpOvershootAvgNs') / 1e6).toFixed(2),

@@ -36,6 +36,7 @@ the list matters for a given workload:
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
 | 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
+| 15 | **Nothing ever measured the browser hop itself** — instrumented, needs a rebuild to read | virtio patch, `src/virtio/transport.ts` | Decides whether moving device models is worth anything | Low | Low |
 
 ## I²C throughput: what is left
 
@@ -60,6 +61,11 @@ Measured ceiling after the work above:
 The binding constraint for a synchronous one-message write is still ~1.1–1.2 ms
 of **guest VirtIO/I²C stack work** under Wasm TCG (~1.1 measured MIPS while
 blocked). The JS handle + MCP4725 path is microseconds.
+
+That attribution is arrived at by elimination — every lever above moved
+something else, so what is left must be guest-side. Item 15 now times the
+browser hop directly instead, so the next revision of this table can state the
+split rather than infer it.
 
 What still moves the needle:
 
@@ -102,11 +108,10 @@ second), and `bridgeWaiterActive`. A hot workload on an old emulator gets a
 `bridge_waiter_inactive` note; `tools/probe-timer-clamp.mjs` measures the timer
 fallback in isolation.
 
-What is still missing is the other half of the round trip: the page cannot see
-how long QEMU took to notice a completion. Item 7 is now measured from the
-page side via `tools/profile-dac.mjs` (`i2cHz` / `bridgePollMs`); settling the
-QEMU-side half still means counting the interval from a completion being
-published to the drain timer picking it up.
+The other half of the round trip — how long QEMU took to notice a completion —
+used to be missing here. Item 15 closes it: QEMU now times each chain from
+request publish to completion drained, and the page times its own share of
+that, so the two hops in between are a subtraction rather than an inference.
 
 ## 1. The bridge's hot poll runs at 4 ms, not the 1 ms it documents
 
@@ -534,6 +539,101 @@ manual resampling into the shared heap. Same argument as item 9: an
 already dominated by the guest's 100 ms block reads, so this is glitch
 robustness rather than end-to-end latency.
 
+## 15. Nothing ever measured the browser hop itself
+
+Every latency conclusion on this page so far has been reached by elimination:
+the atomic request waiter changed no DAC throughput (item 1), `-icount` removal
+tripled it (item 6), the completion kick removed a drain-timer ceiling (item 7)
+— so what remains "is more likely real guest-side cost". Likely, not measured.
+Nobody could say whether the page's share of a blocking I²C transfer is 100 µs
+or 1 ms, because the two clocks involved sit on different threads with
+different epochs and neither side could see the other's half.
+
+That question is worth settling on its own, and it is the question behind the
+recurring suggestion to move device models into the wasm module (a QEMU C
+device, or chip models compiled alongside it). Such a move removes exactly one
+thing: the two cross-thread hops between QEMU publishing a request and QEMU
+seeing the answer. It removes nothing guest-side — the guest still builds a
+virtqueue chain, still blocks in `k_sem_take(…, K_FOREVER)`
+(`zephyr-module/drivers/i2c_virtio.c:202`), still takes the completion
+interrupt and switches back — and it removes nothing from the device model's
+own cost, which `tools/bench-dac-i2c.mjs` puts at **8.5 µs** per I²C transfer
+against a round trip three orders of magnitude larger. So the hop is the entire
+upside, and the hop had never been measured.
+
+**Instrumented, unmeasured — the number is owed.**
+`tools/qemu-jit-patches/0018-instrument-bridge-roundtrip.patch` stamps
+`QEMU_CLOCK_REALTIME` into each token as its request record is published and
+closes the loop when the drain claims that token, keeping a per-device
+sum/max/count plus a count of round trips over 5 ms. Per device on purpose: a
+model that parks chains by design — virtio-gpio holds one event chain per line,
+indefinitely — would otherwise bury i2c's answer in its own idle time.
+
+The page half is measured on the page's own clock, so no epoch has to be
+reconciled: `src/virtio/transport.ts` accumulates service time per bridge from
+the poll that picked a request up to the reply going into the completion ring,
+excluding parked chains. `roundTripStats(name)` returns both halves, and the
+profiler exposes them as `i2cRoundTripAvgMs`, `i2cServiceAvgMs`,
+`i2cRoundTripMaxMs`, `i2cRoundTripCount` and `i2cRoundTripSlowCount`.
+
+### Running it
+
+The QEMU-side half needs a rebuilt aarch64 artifact; the page-side half works
+against whatever is in `public/qemu/` today.
+
+```console
+tools/build-qemu-wasm.sh aarch64-softmmu   # picks up the 0018 patch
+node tools/profile-dac.mjs                 # synchronous 1 kHz I²C writes
+node tools/profile-accel.mjs               # sensor reads + display, 10 s
+```
+
+Both print the decomposition in their steady-state summary:
+
+| Field | Meaning |
+| --- | --- |
+| `periodMs` | wall time per I²C transfer, `1000 / i2cHz` |
+| `roundTripAvgMs` | QEMU's view: request published → completion drained |
+| `serviceAvgMs` | the page's share of that: dispatch + device model |
+| `hopAvgMs` | `roundTrip − service` — the two cross-thread hops |
+| `guestShareMs` | `period − roundTrip` — what is left for the guest and TCG |
+
+Without a rebuilt emulator the QEMU-side fields read `-1` and the profiler adds
+a `bridge_roundtrip_unavailable` note on a hot bus, so a `-1` cannot be misread
+as "the hop is free". In the browser, `?profile=1` then
+`window.__zephyrProfile.snapshot()` shows the same fields live.
+
+Sanity checks before trusting a number: `roundTripCount` should track
+`bridgeHz × duration`, `roundTripSlowCount` should be ~0 in a foreground tab
+(anything else is a GC or a throttled tab, not the loop), and `serviceAvgMs`
+should land near the 8.5 µs the microbench measures for a DAC write — a much
+larger value means main-thread contention, which is item 8 and is fixable
+without moving anything into C.
+
+### How to read the result
+
+- **`hopAvgMs` small relative to `periodMs`** (the outcome the elimination
+  evidence predicts): moving device models into the wasm module buys that much
+  and no more. It would cost the 9.4k lines of TypeScript models and 2.7k lines
+  of vitest that
+  [`docs/virtio-bridge.md`](virtio-bridge.md#why-it-exists) exists to keep out of
+  C, plus a state-sync channel per chip for the ones that own browser state —
+  `localStorage` (`memory/model.ts`), device motion, and the UI subscriptions
+  every card renders from. Spend the hours on the guest side instead.
+- **`hopAvgMs` a large share of `periodMs`**: the hop is worth removing, but
+  the first thing to try is still not C — and note that it has partly been
+  tried already. Moving chip models into a worker measured zero gain (#101,
+  recorded above under "not worth chasing for I²C Hz"), which under a small
+  `hopAvgMs` is simply consistent; under a large one it would mean the cost is
+  in the QEMU-side hop rather than the main-thread dispatch, and answering from
+  `src/virtio/requestWaitWorker.ts` — which already blocks in `Atomics.wait` on
+  the shared heap and today only forwards a `postMessage` — would not help
+  either. Either way that measurement, not a rewrite, is what tells the two
+  apart.
+- **`guestShareMs` dominant either way**: the lever is the guest's own path —
+  the suspend/IRQ/resume per transfer, and workloads that pay it repeatedly,
+  like the SSD1306's nine transfers per frame
+  (`src/virtio/devices/chips/ssd1306.ts:11`).
+
 ## Suggested order
 
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
@@ -545,10 +645,14 @@ robustness rather than end-to-end latency.
    is a precondition for trusting item 2. Compare MIPS before and after.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
-5. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
+5. Item 15's round-trip read — rides the same rebuild as items 3 and 4 and
+   costs one `node tools/profile-dac.mjs` afterwards. Do it before any work
+   that moves device models anywhere, because it is the only thing that says
+   whether such a move has an upside at all.
+6. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
-6. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
-7. ~~Item 8 (shared host poll)~~ — done in-page. Items 9/14 — move audio
+7. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
+8. ~~Item 8 (shared host poll)~~ — done in-page. Items 9/14 — move audio
    (and mic) onto `AudioWorklet`.
-8. Item 13 leftovers — hex cell memoization / shared `useDeviceTree` only if a
+9. Item 13 leftovers — hex cell memoization / shared `useDeviceTree` only if a
    profile still shows them after the NetBadge / dock-memo / flash-coalesce pass.

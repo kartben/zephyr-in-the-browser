@@ -20,6 +20,7 @@ import {
   i2cModel,
   wakeLatencyStats,
   notifySourceStats,
+  roundTripStats,
   type BridgeStats,
 } from '@/virtio'
 import type { MainToWorker } from '@/display/renderWorker'
@@ -73,6 +74,22 @@ export interface ProfileSnapshot {
   /** Diagnostic: completions delivered via the kick BH vs the periodic timer. */
   notifyViaKick: number
   notifyViaTimer: number
+  /**
+   * Diagnostic: the i2c bridge's round trip, request published to completion
+   * drained, measured on QEMU's clock — the whole browser hop. Cumulative
+   * since boot. -1/0 when the build predates the instrumentation.
+   *
+   * `i2cServiceAvgMs` is the page's share of it (dispatch + device model), so
+   * `i2cRoundTripAvgMs - i2cServiceAvgMs` is the two cross-thread hops. That
+   * subtraction is the whole point: it is what moving device models into the
+   * wasm module could remove, and nothing else. See docs/performance.md
+   * item 15.
+   */
+  i2cRoundTripAvgMs: number
+  i2cRoundTripMaxMs: number
+  i2cRoundTripCount: number
+  i2cRoundTripSlowCount: number
+  i2cServiceAvgMs: number
   display: { width: number; height: number; available: boolean }
   notes: string[]
 }
@@ -148,6 +165,11 @@ let lastSnapshot: ProfileSnapshot = {
   warpOvershootCount: 0,
   notifyViaKick: 0,
   notifyViaTimer: 0,
+  i2cRoundTripAvgMs: -1,
+  i2cRoundTripMaxMs: -1,
+  i2cRoundTripCount: 0,
+  i2cRoundTripSlowCount: 0,
+  i2cServiceAvgMs: -1,
   display: { width: 0, height: 0, available: false },
   notes: [],
 }
@@ -242,6 +264,11 @@ function rollWindow() {
   const wake = wakeLatencyStats()
   const warp = warpOvershootStats()
   const notifySource = notifySourceStats()
+  const rt = roundTripStats('i2c')
+  // A hot bus with no round-trip counters is an emulator artifact that predates
+  // the instrumentation — worth saying, because the alternative reading of a
+  // -1 is "the hop is free".
+  if (i2cDelta / elapsed > 40 && !rt) notes.push('bridge_roundtrip_unavailable')
 
   lastSnapshot = {
     wallMs: now,
@@ -267,6 +294,11 @@ function rollWindow() {
     warpOvershootCount: warp?.count ?? 0,
     notifyViaKick: notifySource?.viaKick ?? 0,
     notifyViaTimer: notifySource?.viaTimer ?? 0,
+    i2cRoundTripAvgMs: rt && rt.avgNs >= 0 ? rt.avgNs / 1e6 : -1,
+    i2cRoundTripMaxMs: rt && rt.maxNs >= 0 ? rt.maxNs / 1e6 : -1,
+    i2cRoundTripCount: rt?.count ?? 0,
+    i2cRoundTripSlowCount: rt?.slowCount ?? 0,
+    i2cServiceAvgMs: rt?.serviceAvgMs ?? -1,
     display: {
       width: display.width,
       height: display.height,

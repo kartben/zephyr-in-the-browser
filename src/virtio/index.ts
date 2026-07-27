@@ -298,6 +298,7 @@ export {
   subscribeBinds,
   wakeLatencyStats,
   notifySourceStats,
+  roundTripStats,
 } from './transport'
 export type {
   BridgeStats,
@@ -305,4 +306,5 @@ export type {
   VirtioRequest,
   WakeLatencyStats,
   NotifySourceStats,
+  RoundTripStats,
 } from './transport'

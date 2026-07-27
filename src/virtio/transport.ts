@@ -78,6 +78,16 @@ interface BridgeExports {
   /** Diagnostic: which path actually delivered each completion. */
   _qemu_virtio_notify_via_kick_count?: () => number
   _qemu_virtio_notify_via_timer_count?: () => number
+  /**
+   * Diagnostic: per-device ns from a request being published to its
+   * completion being drained — the whole browser hop, measured on QEMU's own
+   * clock so no page/QEMU epoch has to be reconciled. Indexed the same way
+   * `_qemu_virtio_browser_area` is.
+   */
+  _qemu_virtio_browser_roundtrip_avg_ns?: (index: number) => number
+  _qemu_virtio_browser_roundtrip_max_ns?: (index: number) => number
+  _qemu_virtio_browser_roundtrip_count?: (index: number) => number
+  _qemu_virtio_browser_roundtrip_slow_count?: (index: number) => number
   HEAPU8?: Uint8Array
 }
 
@@ -115,6 +125,51 @@ export function notifySourceStats(): NotifySourceStats | null {
   return {
     viaKick: exports._qemu_virtio_notify_via_kick_count(),
     viaTimer: exports._qemu_virtio_notify_via_timer_count?.() ?? 0,
+  }
+}
+
+/**
+ * One device's round trip, split into the two intervals each side can time
+ * with its own clock.
+ *
+ * `avgNs`/`maxNs` are QEMU's: request published → completion drained, so they
+ * cover the futex wake, the waiter worker, the main-thread dispatcher, the
+ * device model, and QEMU noticing the answer. `serviceAvgMs` is the page's
+ * share of that, from the poll that picked the request up to the reply going
+ * into the ring. The difference between them is the two cross-thread hops —
+ * the part, and the only part, that moving device models into the wasm
+ * module would remove. See docs/performance.md item 15.
+ *
+ * Both are per device: a model that parks chains by design (virtio-gpio holds
+ * one event chain per line, indefinitely) would otherwise bury i2c's answer.
+ * Parked chains are excluded from `serviceAvgMs` outright.
+ */
+export interface RoundTripStats {
+  /** QEMU-side mean, ns. -1 when the device has completed nothing yet. */
+  avgNs: number
+  maxNs: number
+  count: number
+  /** Of those, how many took more than 5 ms — a hidden tab or a GC, not the loop. */
+  slowCount: number
+  /** Page-side mean service time, ms. -1 when nothing has been answered. */
+  serviceAvgMs: number
+  serviceCount: number
+}
+
+export function roundTripStats(name: string): RoundTripStats | null {
+  const b = bridges.find((x) => x.name === name)
+  if (!b) return null
+  // The page half is measurable on any build; the QEMU half needs the
+  // instrumented emulator and reads as -1/0 without it. Reporting the page
+  // half regardless is the point — a profile against an old artifact should
+  // say "the hop is unknown", not "there is no service time either".
+  return {
+    avgNs: exports?._qemu_virtio_browser_roundtrip_avg_ns?.(b.index) ?? -1,
+    maxNs: exports?._qemu_virtio_browser_roundtrip_max_ns?.(b.index) ?? -1,
+    count: exports?._qemu_virtio_browser_roundtrip_count?.(b.index) ?? 0,
+    slowCount: exports?._qemu_virtio_browser_roundtrip_slow_count?.(b.index) ?? 0,
+    serviceAvgMs: b.serviceCount ? b.serviceMsSum / b.serviceCount : -1,
+    serviceCount: b.serviceCount,
   }
 }
 
@@ -188,6 +243,8 @@ interface Pending {
 
 interface Bridge {
   name: string
+  /** Registry index, as `_qemu_virtio_browser_area` orders them. */
+  index: number
   deviceId: number
   numQueues: number
   areaBase: number
@@ -203,6 +260,14 @@ interface Bridge {
   /** Completions computed but not yet written, because the ring was full. */
   outbox: Array<{ token: number; flags: number; payload: Uint8Array | null }>
   pending: Map<number, Pending>
+  /**
+   * Diagnostic: summed page-side service time, request picked up to reply
+   * published, and the number of samples. Parked chains are not counted —
+   * holding one is a device's job, not latency. Free-running; a reader diffs
+   * or divides, never resets.
+   */
+  serviceMsSum: number
+  serviceCount: number
 }
 
 const models = new Map<string, VirtioDeviceModel>()
@@ -538,6 +603,7 @@ function rescanInner() {
 
     const bridge: Bridge = {
       name,
+      index: i,
       deviceId: view.getUint32(areaBase + AREA.deviceId, true),
       numQueues: view.getUint32(areaBase + AREA.numQueues, true),
       areaBase,
@@ -555,6 +621,8 @@ function rescanInner() {
       resetGen: load(areaBase + AREA.resetGen),
       outbox: [],
       pending: new Map(),
+      serviceMsSum: 0,
+      serviceCount: 0,
     }
     bridges.push(bridge)
 
@@ -688,6 +756,20 @@ function makeRequest(
 ): VirtioRequest {
   let answered = false
   const entry: Pending = { req: null as unknown as VirtioRequest, at: now, parked: false }
+  /**
+   * How long the page held this chain: the poll that picked it up through the
+   * model to the completion record being written. `entry.at` is the poll's
+   * clock rather than a fresh reading, deliberately — the dispatch that got
+   * here is part of what the guest waited for, so it belongs inside the
+   * measurement. Called after `enqueue` for the same reason: `flush` writing
+   * the record is the page's work too. The kick that follows is not, since a
+   * poll now coalesces one for the whole batch.
+   */
+  const noteService = () => {
+    if (entry.parked) return
+    b.serviceMsSum += performance.now() - entry.at
+    b.serviceCount += 1
+  }
   const req: VirtioRequest = {
     queue,
     out,
@@ -700,12 +782,14 @@ function makeRequest(
       answered = true
       b.pending.delete(token)
       enqueue(b, token, CMP_OK, bytes ?? null)
+      noteService()
     },
     fail() {
       if (answered) return
       answered = true
       b.pending.delete(token)
       enqueue(b, token, CMP_FAIL, null)
+      noteService()
     },
     park() {
       entry.parked = true

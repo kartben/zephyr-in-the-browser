@@ -62,12 +62,17 @@ finds them by name:
 | `_qemu_virtio_browser_wake_addr()` | futex word the page `Atomics.notify`s after `cmp_wr` |
 | `_qemu_virtio_browser_request_wake_addr()` | futex word QEMU increments and notifies after `req_wr` |
 | `_qemu_virtio_browser_kick()` | drain every cmp ring now + `qemu_notify_event()` |
+| `_qemu_virtio_browser_roundtrip_*(i)` | diagnostic: instance *i*'s request-publish→completion-drained ns (avg/max/count/slow) |
 
 `name` is matched rather than `device_id`, because two instances can share a
 device id (two I2C buses) and index order is a command-line accident. The wake
 exports are optional for older wasm builds. Without the completion exports,
 QEMU's realtime drain timer remains the safety net; without the request export,
-the page retains its adaptive timer poll.
+the page retains its adaptive timer poll. The round-trip exports are
+diagnostic-only and take the same instance index `_area` does — the page holds
+that index alongside the name so `roundTripStats('i2c')` reads the i2c
+instance's counters and not the first device's. Absent, they read as `-1`/`0`
+rather than as zero latency; see [performance.md](performance.md) item 15.
 
 ## The shared area
 

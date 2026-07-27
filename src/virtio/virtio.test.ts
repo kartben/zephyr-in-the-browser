@@ -2,7 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createFakeBridge } from './testing/fakeBridge'
 import { createGpioModel } from './devices/gpio'
-import { attach, detach, available, boundNames, pollOnce, register, stats } from './transport'
+import {
+  attach,
+  detach,
+  available,
+  boundNames,
+  pollOnce,
+  register,
+  roundTripStats,
+  stats,
+} from './transport'
 import type { VirtioDeviceModel, VirtioRequest } from './transport'
 import { CMP_FAIL, CMP_OK } from './protocol'
 
@@ -549,6 +558,81 @@ describe('virtio transport', () => {
     held!.reply(Uint8Array.of(0xaa))
     expect(stats().kicks).toBe(before.kicks + 1)
     expect(dev.completions()).toHaveLength(1)
+  })
+
+  it('times both halves of the round trip', () => {
+    const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }])
+    register({ name: 'echo', handle: (req) => req.reply(req.out.slice()) })
+    attach(bridge.module)
+
+    const dev = bridge.device('echo')
+    dev.kick(0, Uint8Array.of(1), 1)
+    dev.kick(0, Uint8Array.of(2), 1)
+    pollOnce()
+
+    // Answered, but not yet drained: the page's half is known and the
+    // emulator's is not, which is exactly the state an un-drained ring is in.
+    expect(roundTripStats('echo')?.serviceCount).toBe(2)
+    expect(roundTripStats('echo')?.serviceAvgMs).toBeGreaterThanOrEqual(0)
+    expect(roundTripStats('echo')?.count).toBe(0)
+    expect(roundTripStats('echo')?.avgNs).toBe(-1)
+
+    dev.completions() // the fake's stand-in for QEMU's drain
+    const rt = roundTripStats('echo')
+    expect(rt?.count).toBe(2)
+    expect(rt?.avgNs).toBeGreaterThanOrEqual(0)
+    expect(rt?.slowCount).toBe(0)
+  })
+
+  it("reads each device's counters, not the first one's", () => {
+    const bridge = createFakeBridge([
+      { name: 'quiet', deviceId: 99 },
+      { name: 'busy', deviceId: 99 },
+    ])
+    register({ name: 'quiet', handle: (req) => req.reply(req.out.slice()) })
+    register({ name: 'busy', handle: (req) => req.reply(req.out.slice()) })
+    attach(bridge.module)
+
+    const busy = bridge.device('busy')
+    busy.kick(0, Uint8Array.of(1), 1)
+    pollOnce()
+    busy.completions()
+
+    // Registry order is a command-line accident, so a stats call that ignored
+    // the index would read the wrong device and never say so.
+    expect(roundTripStats('busy')?.count).toBe(1)
+    expect(roundTripStats('quiet')?.count).toBe(0)
+  })
+
+  it('leaves parked chains out of service time', () => {
+    const bridge = createFakeBridge([{ name: 'park', deviceId: 99 }])
+    const held: VirtioRequest[] = []
+    register({
+      name: 'park',
+      handle(req) {
+        held.push(req)
+        req.park()
+      },
+    })
+    attach(bridge.module)
+
+    const dev = bridge.device('park')
+    dev.kick(0, Uint8Array.of(1), 1)
+    pollOnce()
+    // Holding a chain is a device's job — virtio-gpio parks one per line —
+    // so answering it later must not be reported as a slow round trip.
+    held[0].reply(Uint8Array.of(0x11))
+
+    expect(roundTripStats('park')?.serviceCount).toBe(0)
+  })
+
+  it('reports no round-trip stats for a device that never bound', () => {
+    const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }])
+    register({ name: 'echo', handle: (req) => req.reply(req.out.slice()) })
+    attach(bridge.module)
+    pollOnce()
+
+    expect(roundTripStats('nosuch')).toBeNull()
   })
 })
 

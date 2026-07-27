@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { decompose } from './profile-decompose.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 5173
@@ -101,6 +102,10 @@ try {
         drawMs: +avg('drawMs').toFixed(3),
         i2cHz: +avg('i2cHz').toFixed(1),
         mips: +avg('mips').toFixed(1),
+        // Browser hop vs device model vs what is left for the guest. See
+        // docs/performance.md item 15.
+        ...decompose(avg('i2cHz'), avg('i2cRoundTripAvgMs'), avg('i2cServiceAvgMs')),
+        roundTripSlowCount: samples.at(-1)?.i2cRoundTripSlowCount ?? null,
         notes: [...new Set(samples.flatMap((s) => s.notes))],
         last: samples.at(-1),
       },

@@ -1,0 +1,174 @@
+diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
+index ff2ae52..6006ddf 100644
+--- a/hw/virtio/virtio-browser.c
++++ b/hw/virtio/virtio-browser.c
+@@ -138,6 +138,13 @@ typedef struct VirtioBrowserToken {
+     uint16_t generation;
+     uint16_t qidx;
+     bool in_use;
++    /*
++     * Diagnostic only: QEMU_CLOCK_REALTIME when this chain's request record
++     * was published to the page, so the drain can close the loop on it. Zero
++     * means "not stamped" -- a chain whose token was allocated but whose
++     * req_write failed for want of ring space never reaches the page.
++     */
++    int64_t published_ns;
+ } VirtioBrowserToken;
+ 
+ struct VirtIOBrowser {
+@@ -168,9 +175,29 @@ struct VirtIOBrowser {
+     uint32_t stalled;
+     uint32_t config_gen_seen;
+ 
++    /*
++     * Diagnostic only: the browser round trip, request publish to completion
++     * drained, in ns. Per device on purpose -- a device that parks chains by
++     * design (virtio-gpio's event queue holds one per line, indefinitely)
++     * would otherwise bury the answer this exists to give about i2c.
++     * Cumulative since boot, like wake_* above: a reader diffs or divides.
++     * Reset clears the per-token stamps, not these.
++     */
++    int64_t rt_sum_ns;
++    int64_t rt_max_ns;
++    uint32_t rt_count;
++    uint32_t rt_slow_count;
++
+     QEMUTimer *drain;
+ };
+ 
++/*
++ * A round trip past this is not the mechanism under test -- it is a hidden
++ * tab, a GC pause, or a parked chain. Counted separately so a handful of
++ * outliers cannot quietly carry the mean.
++ */
++#define VIRTIO_BROWSER_RT_SLOW_NS (5 * 1000 * 1000)
++
+ /*
+  * Registry, so the page can enumerate instances without a device handle. A
+  * machine has a handful of these at most.
+@@ -291,6 +318,91 @@ uint32_t qemu_virtio_wake_count(void)
+     return wake_latency_count;
+ }
+ 
++/*
++ * Diagnostic only: the other half of the round trip, and the half nothing
++ * could see until now. wake_* above measures notify -> vCPU resume, which is
++ * the tail; this measures request published -> completion drained, which is
++ * everything the browser is responsible for: QEMU's futex wake, the waiter
++ * worker, the main-thread dispatcher, the device model itself, and QEMU
++ * noticing the answer.
++ *
++ * It is the number that decides whether moving device models out of the page
++ * could help. Subtract it (and wake_*) from the guest's measured per-transfer
++ * period and what remains is guest-side: the virtio-i2c driver's chain build,
++ * the k_sem_take suspend, the ISR, and the context switch back.
++ *
++ * Runs under the BQL on both ends -- req_write from the pump, this from the
++ * drain -- so plain arithmetic is fine. The KEEPALIVE readers below run on the
++ * browser thread and may tear a 64-bit read; they are sampled on a 250 ms
++ * profiler tick against counters that only grow, so a torn read is a wrong
++ * digit in one sample, not a wrong conclusion.
++ */
++static void virtio_browser_note_roundtrip(VirtIOBrowser *b, uint32_t slot)
++{
++    int64_t published = b->tokens[slot].published_ns;
++    int64_t elapsed;
++
++    if (!published) {
++        return;
++    }
++    b->tokens[slot].published_ns = 0;
++    elapsed = qemu_clock_get_ns(QEMU_CLOCK_REALTIME) - published;
++    if (elapsed < 0) {
++        return;
++    }
++    b->rt_sum_ns += elapsed;
++    b->rt_count++;
++    if (elapsed > b->rt_max_ns) {
++        b->rt_max_ns = elapsed;
++    }
++    if (elapsed > VIRTIO_BROWSER_RT_SLOW_NS) {
++        b->rt_slow_count++;
++    }
++}
++
++static VirtIOBrowser *browser_device(uint32_t index)
++{
++    if (index >= qatomic_read(&browser_device_count)) {
++        return NULL;
++    }
++    return browser_devices[index];
++}
++
++EMSCRIPTEN_KEEPALIVE
++double qemu_virtio_browser_roundtrip_avg_ns(uint32_t index)
++{
++    VirtIOBrowser *b = browser_device(index);
++
++    if (!b || !b->rt_count) {
++        return -1;
++    }
++    return (double)b->rt_sum_ns / b->rt_count;
++}
++
++EMSCRIPTEN_KEEPALIVE
++double qemu_virtio_browser_roundtrip_max_ns(uint32_t index)
++{
++    VirtIOBrowser *b = browser_device(index);
++
++    return b ? (double)b->rt_max_ns : -1;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_browser_roundtrip_count(uint32_t index)
++{
++    VirtIOBrowser *b = browser_device(index);
++
++    return b ? b->rt_count : 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_virtio_browser_roundtrip_slow_count(uint32_t index)
++{
++    VirtIOBrowser *b = browser_device(index);
++
++    return b ? b->rt_slow_count : 0;
++}
++
+ EMSCRIPTEN_KEEPALIVE
+ uint32_t qemu_virtio_browser_count(void)
+ {
+@@ -488,6 +600,14 @@ static bool req_write(VirtIOBrowser *b, uint32_t token, uint16_t queue,
+         iov_to_buf(iov, iov_cnt, 0, p + VIRTIO_BROWSER_REQ_HDR, out_len);
+     }
+ 
++    /*
++     * Stamp before publishing, not after: the page can be inside its dispatch
++     * before this function returns, and a stamp taken afterwards would
++     * subtract time the browser had already spent.
++     */
++    b->tokens[token & 0xffff].published_ns =
++        qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
++
+     /* Publish only once the record is whole. */
+     qatomic_store_release(&area->req_wr, wr + rec);
+     qatomic_inc(&virtio_browser_request_wake);
+@@ -638,6 +758,9 @@ static void virtio_browser_drain(void *opaque)
+             continue;
+         }
+ 
++        /* token_claim leaves published_ns alone; read it before reusing. */
++        virtio_browser_note_roundtrip(b, token & 0xffff);
++
+         if (!(flags & VIRTIO_BROWSER_CMP_FAIL) && in_len) {
+             written = iov_from_buf(elem->in_sg, elem->in_num, 0,
+                                    p + VIRTIO_BROWSER_CMP_HDR, in_len);
+@@ -736,6 +859,8 @@ static void virtio_browser_reset(VirtIODevice *vdev)
+         t->vq = NULL;
+         t->in_use = false;
+         t->generation++;
++        /* Diagnostic: a stamp left here would time the reset, not a transfer. */
++        t->published_ns = 0;
+     }
+     token_free_init(b);
+     b->outstanding = 0;
