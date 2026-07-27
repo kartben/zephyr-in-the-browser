@@ -51,6 +51,11 @@ interface PanelFrameProps {
    * the caller (returning the body to its dock row) instead of self-managing.
    */
   windowed?: { onClose: () => void }
+  /**
+   * Show the header close (X) control. Debug keeps run-control visible for the
+   * session — hide via the Panels menu instead of dismissing the card.
+   */
+  dismissible?: boolean
   /** Panel body — rendered only while expanded. */
   children: ReactNode
 }
@@ -65,7 +70,7 @@ interface PanelFrameProps {
  * its header and resized from the corner. Floating position and size persist
  * across reloads (src/lib/panelLayout.ts); collapse and dismissal are
  * session-only so the running sample keeps driving which panels open expanded.
- * Double-clicking a floating header collapses or expands the body.
+ * Double-clicking the header collapses or expands the body (docked or floating).
  */
 export function PanelFrame({
   id,
@@ -79,6 +84,7 @@ export function PanelFrame({
   actions,
   fill = false,
   windowed,
+  dismissible = true,
   children,
 }: PanelFrameProps) {
   const [saved] = useState(() => loadPanelLayout(id))
@@ -196,15 +202,17 @@ export function PanelFrame({
           >
             <ChevronDown className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')} />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label={windowed ? `Close ${title} window` : `Hide ${title} panel`}
-            onClick={close}
-          >
-            <X className="size-3.5" />
-          </Button>
+          {dismissible && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label={windowed ? `Close ${title} window` : `Hide ${title} panel`}
+              onClick={close}
+            >
+              <X className="size-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 

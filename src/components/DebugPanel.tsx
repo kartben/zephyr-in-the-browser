@@ -99,6 +99,7 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
       dockedWidth={24}
       seedHeight={28}
       side="left"
+      dismissible={false}
       status={
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
           <span
