@@ -110,11 +110,33 @@ signal-decoding scope this spec rules out in §10.
 
 | Node | Behaviour | Exists for |
 | --- | --- | --- |
-| Counter peer | Receives the counter frame, replies with its own | `samples/drivers/can/counter`, which otherwise has nobody to count with |
+| Counter | Replies to the counter frame with an incrementing one | `samples/drivers/can/counter`, which otherwise has nobody to count with |
 | Periodic | Transmits an ID at a period | `can recv`; gives the lane view something to draw |
 | Responder | Replies to an RTR for an ID | `can send`; RTR is otherwise unexercised |
 | Listener | ACKs every frame, transmits none | keeps the bus alive under `babbling`; unplug it for bus-off |
 | Silent | Listen-only: no transmit, **no ACK** | present but useless, the subtler bus-off |
+
+Counter is a `respondTo` preset with a counter in its reply, not a sixth
+primitive. Its IDs come from the sample and are not user-set.
+
+### Adding a node
+
+The Add row is `AttachRow`'s shape: a type select, a button, and **fields the
+selected type needs** — the same progressive disclosure `AttachRow` already
+does when it shows a second address field only for chips that have one.
+
+| Type | Fields |
+| --- | --- |
+| Periodic | ID, period in ms |
+| Responder | ID |
+| Counter, Listener, Silent | none |
+
+Fields are set at add time and not editable afterwards. Removing and re-adding
+is the way to change one, exactly as it is for an I²C chip at a different
+address. Two arguments were weighed for making a Periodic node's period live-
+editable, and both lost: it is the only field anyone would want to change, and
+the composer already covers one-off traffic. Revisit if the arbitration demo
+turns out to need a load knob.
 
 **Listener and Silent are not the same node.** In CAN, listen-only (Bosch
 "silent") mode sends no dominant bits at all, so a listen-only node does not
@@ -127,9 +149,10 @@ Rules, all of them page-side and none of them timed to the bit:
 
 - **Delivery** is broadcast. A transmitted frame is offered to every other
   attached node; each decides whether it matches its filters.
-- **Arbitration.** Frames offered within the same dispatch window contend;
-  lowest ID wins, losers requeue ahead of new traffic. This is the layer the
-  lane view draws.
+- **Arbitration.** A node that becomes ready while the medium is occupied
+  queues. When the medium frees, everything queued contends and the lowest ID
+  wins. This is the layer the lane view draws, and §4.1 is what makes it
+  happen at all.
 - **ACK** is "at least one other attached node has `acks`". This is the whole
   mechanism behind bus-off, and it is why the roster's `×` is the interesting
   control. A Silent node deliberately does not satisfy it.
@@ -140,10 +163,36 @@ Rules, all of them page-side and none of them timed to the bit:
 Wall-clock, not guest time — the DAC scope already learned that icount freezes
 while the board waits on a virtqueue.
 
-**Bit timing is accepted and ignored.** The driver programs CNF1–3; the model
-stores them, reports the configured bitrate in the row badge, and paces
-nothing by them. Same latitude `ws2812.ts` takes with pulse timing, and safe
-for the same reason: here the timing is configuration, not the protocol.
+### 4.1 Bit timing, and what actually triggers a retry
+
+An earlier draft said bit timing was accepted and ignored. That cannot stand,
+because it leaves nothing to arbitrate: if the bus dispatches one frame at a
+time and every transmission completes instantly, two nodes are never ready at
+once and a lost-arbitration event could only ever be staged.
+
+So the medium has **occupancy**, and that is the one thing bit timing is used
+for. The driver programs CNF1–3; the model derives the bitrate and computes
+how long each frame holds the bus — frame bits ÷ bitrate, about 216 µs for an
+8-byte standard frame at 500 kbit/s. Nothing is paced to the bit, no stuffing,
+no error frames. That single derived number is the whole difference between
+real contention and theatre.
+
+Two causes of a retry follow, and the trace distinguishes them because they
+mean different things:
+
+1. **Lost arbitration.** The node was ready while the bus was busy, queued,
+   and then lost the contest when it freed. No error counter moves; the frame
+   goes out on a later attempt. Rendered `0x200 lost arbitration to 0x100`.
+2. **No ACK.** The frame went out and nobody acknowledged it. TEC += 8 and the
+   controller retransmits — the MCP2515 does this automatically unless
+   one-shot mode is set in `CANCTRL`. Rendered `no ACK · TEC n`.
+
+The useful consequence: **arbitration frequency follows bus load, and at idle
+it is near zero.** That is not a shortcoming, it is what real hardware does —
+a quiet bus does not arbitrate. It does mean the lane view is dull until
+something loads the bus, which is the concrete reason `babbling` is worth
+packaging (§8) rather than a nice-to-have: it holds the medium almost
+continuously, so every other node queues and contends on nearly every frame.
 
 ## 5. The chip model — `chips/mcp2515.ts`
 
@@ -267,12 +316,15 @@ an idle timeline.
   Check before drawing that button. Adding a node back is the fallback that
   always works.
 - **MCP2515 mode handshake and INT timing** — §5.
-- **Dispatch-window arbitration is a model, not silicon.** Two nodes only
-  contend if the page hands their frames to the bus in the same window. With
-  the emulated board running slower than wall clock, genuine contention with
-  `can0` may be rarer than the mockup implies. If it turns out too rare to
-  demonstrate, the honest fix is a "hold and contend" window in the bus model,
-  and to say so in the tooltip — not to fake collisions.
+- **Contention involving `can0` specifically may stay rare.** §4.1 makes
+  arbitration real by giving the medium occupancy, and under `babbling` the
+  bus is loaded enough that page-side nodes contend constantly. But `can0`
+  transmits when the emulated board gets round to an RTS, and that board runs
+  well below wall clock, so collisions *with the local node* — the ones a
+  reader cares about — are the least likely of all. Mitigation is load, not
+  fakery: package `babbling`, and if that is still not enough, add a Periodic
+  preset fast enough to saturate. Manufacturing a collision `can0` did not
+  lose is off the table.
 
 ## 10. Out of scope
 

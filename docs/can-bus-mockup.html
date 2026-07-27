@@ -127,6 +127,7 @@
       .hexfield .pre { font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); }
       .hexfield input { width: 30px; border: 0; background: transparent; outline: none; color: var(--foreground); font-family: var(--font-mono); font-size: 11px; padding: 4px 0; }
       .hexfield input.dlc { width: 14px; }
+      .hexfield input.ms { width: 24px; }
       .toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted-foreground); }
       .toggle input { accent-color: var(--primary); width: 11px; height: 11px; margin: 0; }
       .bytes { display: flex; gap: 3px; }
@@ -224,13 +225,17 @@
             <span class="sec-label">Add node</span>
             <div class="attach">
               <select aria-label="Node type">
-                <option>Counter peer · samples/can/counter</option>
-                <option>Listener · acks only</option>
-                <option>Babbler · floods 0x000</option>
+                <option>Periodic · transmits an ID</option>
                 <option>Responder · replies to RTR</option>
+                <option>Counter · samples/can/counter</option>
+                <option>Listener · acks only</option>
                 <option>Silent · listen-only, no ACK</option>
               </select>
               <button class="btn">Add</button>
+            </div>
+            <div class="attach" title="Only the fields this type needs. Counter, Listener and Silent take none.">
+              <span class="hexfield"><span class="lab">ID</span><span class="pre">0x</span><input value="0A0" aria-label="Node ID" /></span>
+              <span class="hexfield"><span class="lab">every</span><input class="ms" value="100" aria-label="Period in ms" /><span class="lab">ms</span></span>
             </div>
           </div>
 
