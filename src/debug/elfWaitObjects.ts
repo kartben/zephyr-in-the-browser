@@ -123,39 +123,19 @@ export function buildWaitObjects(elf: Uint8Array): WaitObject[] {
 /**
  * Resolve a `pended_on` wait-queue pointer to a named object.
  * Prefers exact address match (wait_q is often the first field).
- * On containment, prefers a classified sync object over a bare blob.
+ * Containment matches only count when the symbol looks like a sync primitive
+ * (`kind` set) — bare blobs like `shell_uart_ctx` are not wait objects.
  */
 export function findWaitObject(objects: WaitObject[], pendedOn: number): WaitObject | null {
   if (!pendedOn) return null
   for (const o of objects) {
-    if (o.addr === pendedOn) return polishWaitObject(o)
+    if (o.addr === pendedOn) return o
   }
   let best: WaitObject | null = null
   for (const o of objects) {
+    if (!o.kind) continue
     if (pendedOn < o.addr || pendedOn >= o.addr + o.size) continue
-    if (!best) {
-      best = o
-      continue
-    }
-    const kindScore = (x: WaitObject) => (x.kind ? 1 : 0)
-    if (kindScore(o) !== kindScore(best)) {
-      if (kindScore(o) > kindScore(best)) best = o
-      continue
-    }
-    if (o.size < best.size) best = o
+    if (!best || o.size < best.size) best = o
   }
-  return best ? polishWaitObject(best) : null
-}
-
-/**
- * ELF often only names the outer blob (`shell_uart_ctx`) while `pended_on`
- * points at an embedded `k_event` / wait_q. Shell threads wait on
- * `ctx->signal_event` — surface that as `event shell_uart`, not the ctx name.
- */
-export function polishWaitObject(o: WaitObject): WaitObject {
-  if (o.kind) return o
-  if (o.name.endsWith('_ctx') && o.name.length > 4) {
-    return { ...o, name: o.name.slice(0, -4), kind: 'event' }
-  }
-  return o
+  return best
 }
