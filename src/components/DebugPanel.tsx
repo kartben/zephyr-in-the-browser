@@ -1,11 +1,15 @@
 /**
- * Stage Debug panel — breakpoints while running; CPU / Mem / Threads when paused.
- * Opened from the Panels menu (gdb only). TopBar Pause / Step / PC chip stay thin.
+ * Stage Debug panel — run control + breakpoints while running;
+ * CPU / Mem / Threads when paused. gdb only (Panels menu).
+ *
+ * Pause / Continue / Step live in the panel header (not the TopBar) so a
+ * debug session stays in one place.
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Bug } from 'lucide-react'
+import { Bug, Pause, Play, Redo2 } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
+import { Button } from '@/components/ui/button'
 import { RegisterGrid } from '@/components/RegisterGrid'
 import { BreakpointsPane } from '@/components/debug/BreakpointsPane'
 import { MemoryPane } from '@/components/debug/MemoryPane'
@@ -34,11 +38,12 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const [tab, setTab] = useState<InspectTab>('cpu')
   const [peekAddr, setPeekAddr] = useState<string | null>(null)
   const [peekLen, setPeekLen] = useState(64)
+  const [stepping, setStepping] = useState(false)
 
   useEffect(() => {
-    if (defaultExpanded) setExpanded(STAGE_DEBUG_KEY, true)
+    if (defaultExpanded || snap.gdb) setExpanded(STAGE_DEBUG_KEY, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultExpanded])
+  }, [defaultExpanded, snap.gdb])
 
   useEffect(() => {
     if (focus.nonce === 0) return
@@ -47,20 +52,29 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
     }
   }, [focus.nonce, focus.section])
 
-  // Drop inspect tab selection when we resume (tabs vanish).
   useEffect(() => {
     if (!snap.paused && (tab === 'memory' || tab === 'threads')) setTab('cpu')
   }, [snap.paused, tab])
 
   if (!gdb.available || dock.devices[STAGE_DEBUG_KEY]?.hidden) return null
 
-  const expanded = defaultExpanded || effectiveExpandedIn(dock, STAGE_DEBUG_KEY, 'debug')
+  const expanded = defaultExpanded || snap.gdb || effectiveExpandedIn(dock, STAGE_DEBUG_KEY, 'debug')
   const live = snap.gdb
 
   const onPeek = (addrHex: string, length = 64) => {
     setPeekAddr(compactHex(addrHex))
     setPeekLen(length)
     setTab('memory')
+  }
+
+  const onStep = async () => {
+    if (stepping || !snap.canStep || !snap.paused) return
+    setStepping(true)
+    try {
+      await debug.step()
+    } finally {
+      setStepping(false)
+    }
   }
 
   const statusLabel = !live ? 'gdb' : snap.paused ? 'paused' : 'running'
@@ -103,6 +117,40 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
             <span className="min-w-0 truncate text-muted-foreground">{statusDetail}</span>
           )}
         </span>
+      }
+      actions={
+        live ? (
+          <span className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label={snap.paused ? 'Resume the machine' : 'Pause the machine'}
+              title={snap.paused ? 'Continue' : 'Pause'}
+              aria-pressed={snap.paused}
+              onClick={debug.toggle}
+            >
+              {snap.paused ? (
+                <Play className="size-3.5 text-primary" aria-hidden />
+              ) : (
+                <Pause className="size-3.5" aria-hidden />
+              )}
+            </Button>
+            {snap.paused && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                disabled={stepping || snap.registersLoading}
+                onClick={() => void onStep()}
+                title="Step one instruction"
+                aria-label="Step one instruction"
+              >
+                <Redo2 className="size-3.5" aria-hidden />
+              </Button>
+            )}
+          </span>
+        ) : undefined
       }
     >
       {!live ? (
