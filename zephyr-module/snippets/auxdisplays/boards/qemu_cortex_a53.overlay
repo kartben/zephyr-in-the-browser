@@ -43,10 +43,18 @@
 };
 
 / {
+	/*
+	 * No `label` property on purpose. Zephyr names a device after its DT
+	 * label when it has one, so `label = "7-segment LED"` is what the shell
+	 * would quote — `auxdisplay write "7-segment LED" 42.` next to a plain
+	 * `jhd1313@3e` and `pt6314@1`. Without it the device is `digi-display`,
+	 * the node name, and the dock still reads "7-segment LED": the panel
+	 * falls back to that string when the property is absent (src/dts/
+	 * insights.ts).
+	 */
 	auxdisplay_2: digi-display {
 		compatible = "gpio-7-segment";
 		status = "okay";
-		label = "7-segment LED";
 		columns = <3>;
 		rows = <1>;
 		/* Common-anode style: digits active-high, segments active-low. */
