@@ -234,7 +234,7 @@
               <button class="btn">Add</button>
             </div>
             <div class="attach" title="Only the fields this type needs. Counter, Listener and Silent take none.">
-              <span class="hexfield"><span class="lab">ID</span><span class="pre">0x</span><input value="0A0" aria-label="Node ID" /></span>
+              <span class="hexfield"><span class="lab">Frame</span><span class="pre">0x</span><input value="0A0" aria-label="Frame ID" title="Frame ID this node transmits. CAN has no node addresses; lower ID wins arbitration." /></span>
               <span class="hexfield"><span class="lab">every</span><input class="ms" value="100" aria-label="Period in ms" /><span class="lab">ms</span></span>
             </div>
           </div>
@@ -243,7 +243,7 @@
             <span class="sec-label">Send</span>
             <div class="compose">
               <div class="compose-line">
-                <span class="hexfield"><span class="lab">ID</span><span class="pre">0x</span><input value="0A0" aria-label="Frame ID" /></span>
+                <span class="hexfield"><span class="lab">Frame</span><span class="pre">0x</span><input value="0A0" aria-label="Frame ID" title="Frame ID of the composed frame. CAN has no node addresses; lower ID wins arbitration." /></span>
                 <span class="hexfield"><span class="lab">DLC</span><input class="dlc" value="8" aria-label="Data length" /></span>
                 <label class="toggle"><input type="checkbox" /> RTR</label>
                 <label class="toggle"><input type="checkbox" /> ext</label>

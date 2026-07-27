@@ -50,6 +50,21 @@ describe('buildLaneModel', () => {
     expect(model.hops[0]!.retryAt).toBeGreaterThan(model.hops[0]!.lostAt)
   })
 
+  it('keeps frame IDs on ticks, not on the lane gutter', () => {
+    let t = 0
+    const bus = createCanBus(() => t)
+    bus.attach({ id: 'can0', name: 'can0', local: true })
+    bus.attach({ id: 'peer', name: 'Peer' })
+    for (const id of [0x100, 0x7ff, 0x010]) {
+      bus.send('peer', frame(id))
+      t += 5
+      bus.pump(t)
+    }
+    const model = buildLaneModel(bus.nodes(), bus.log(), livePinnedView(t, 2000))
+    expect(model.lanes[1]).toEqual({ id: 'peer', name: 'Peer', color: expect.any(String) })
+    expect(model.ticks.map((tick) => tick.frameId)).toEqual([0x100, 0x7ff, 0x010])
+  })
+
   it('drops ticks outside the view window', () => {
     let t = 0
     const bus = createCanBus(() => t)

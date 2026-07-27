@@ -102,9 +102,24 @@ describe('CanView', () => {
   it('offers only the fields the selected node type needs', () => {
     const out = html([])
     // Babbling leads the catalog, so both of its fields are shown.
-    expect(out).toContain('Node ID')
+    expect(out).toContain('Frame ID')
     expect(out).toContain('Period in ms')
     expect(out).toContain('Counter, Listener and Silent take none.')
+  })
+
+  it('lists peers in attachment order, not by frame ID', () => {
+    const { bus } = harness()
+    bus.attach(nodeType('babbling')!.create('late', { id: 0x200, periodMs: 100 }))
+    bus.attach(nodeType('babbling')!.create('early', { id: 0x0a0, periodMs: 100 }))
+
+    // Attachment order: late then early — sorting by frame ID would reverse them.
+    expect(bus.nodes().map((n) => n.id)).toEqual(['can0', 'late', 'early'])
+    const out = html(bus.nodes())
+    const lateAt = out.indexOf('0x200 every 100 ms')
+    const earlyAt = out.indexOf('0x0A0 every 100 ms')
+    expect(lateAt).toBeGreaterThan(-1)
+    expect(earlyAt).toBeGreaterThan(-1)
+    expect(lateAt).toBeLessThan(earlyAt)
   })
 
   it('renders a delivered frame and marks a dropped one', () => {

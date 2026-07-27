@@ -86,6 +86,13 @@ export interface CanNodeSnapshot {
    * path. Only meaningful on the local controller.
    */
   loopback: boolean
+  /**
+   * Characteristic **frame** / arbitration ID when the preset has one
+   * (Babbling's TX id, Responder's RTR id). `null` when the node has none —
+   * CAN has no node addresses. Not used for roster order: a node may transmit
+   * any ID from one frame to the next.
+   */
+  frameId: number | null
   tec: number
   rec: number
   state: CanState
@@ -206,6 +213,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
       local: !!n.local,
       acks: n.acks !== false,
       loopback: n.loopback,
+      frameId: characteristicFrameId(n),
       tec: n.tec,
       rec: n.rec,
       state: n.state,
@@ -466,4 +474,11 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
 
 function hex(id: number): string {
   return id.toString(16).toUpperCase().padStart(3, '0')
+}
+
+/** Frame ID a preset is known for, when it has one. Not a node address. */
+function characteristicFrameId(node: Attached): number | null {
+  if (node.transmit) return node.transmit.id
+  if (node.respondTo && node.respondTo.id !== ANY_ID) return node.respondTo.id
+  return null
 }

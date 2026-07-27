@@ -8,6 +8,10 @@
  * INT rides virtio-gpio line 8: 4 is LED0, 5 the buzzer, 6/7 are step/dir or
  * the SCT2024's LA/OE, so 8 is the first line nothing else claims. It is
  * active low, and src/hostCan.ts drives it from the controller's flags.
+ *
+ * led0 on pin 4 is required too: can_counter's LED frames (0x10) drive
+ * DT_ALIAS(led0), and without this node GPIO_DT_SPEC_GET_OR yields a null
+ * port — the sample falls back to printf and the dock never shows an LED.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
@@ -40,7 +44,20 @@
 };
 
 / {
+	aliases {
+		led0 = &led0;
+	};
+
 	chosen {
 		zephyr,canbus = &can0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = <&virtio_gpio0 4 GPIO_ACTIVE_HIGH>;
+			label = "Browser LED0";
+		};
 	};
 };

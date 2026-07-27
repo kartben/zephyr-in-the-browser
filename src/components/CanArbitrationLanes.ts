@@ -1,12 +1,12 @@
 /**
  * Arbitration lane strip for {@link ./CanPanel}.
  *
- * One lane per node, time to the right. Each tick is a frame that crossed (or
- * tried to). A hollow tick is a lost-arbitration deferral; a dotted drop links
- * it to the winner that took the slot, and a hop points to the retry that
- * eventually went out. No bit timing is modelled or implied — the view is
- * "who transmitted, who deferred", which is exactly what the page-side bus
- * knows. Same latitude `ws2812.ts` takes ignoring pulse timing.
+ * One lane per node, time to the right. Each tick is a frame chip labeled with
+ * its frame / arbitration ID. A hollow chip is a lost-arbitration deferral; a
+ * dotted drop links it to the winner that took the slot, and a hop points to
+ * the retry that eventually went out. No bit timing is modelled or implied —
+ * the view is "who transmitted which ID, who deferred". Same latitude
+ * `ws2812.ts` takes ignoring pulse timing.
  *
  * Interaction mirrors {@link ./TracePanel}'s live-follow idiom (not its CTF
  * Gantt): pinned to the newest edge until the reader pans, Crosshair jumps
@@ -31,9 +31,12 @@ export const LANE_LABEL_W = 52
 const PAD_R = 8
 const PAD_T = 8
 const PAD_B = 16
-const TICK_H = 11
-const LANE_MIN_H = 24
+/** Tall enough for a labeled frame-ID chip. */
+const TICK_H = 13
+const LANE_MIN_H = 26
 const PAN_THRESHOLD_PX = 8
+const TICK_FONT = '8px ui-monospace, SFMono-Regular, Menlo, monospace'
+const TICK_PAD_X = 3
 
 /** Stable palette; local node always takes the primary slot. */
 const LANE_COLORS = [
@@ -73,7 +76,7 @@ export interface LaneView {
 }
 
 export interface LaneModel {
-  lanes: { id: string; name: string; color: string; idLabel: string }[]
+  lanes: { id: string; name: string; color: string }[]
   ticks: LaneTick[]
   hops: LaneHop[]
   t0: number
@@ -142,13 +145,13 @@ export function buildLaneModel(
   const { t0, t1 } = view
   const inWindow = log.filter((e) => e.at >= t0 && e.at <= t1)
 
-  // Local first, then attachment order — matches the roster.
+  // Local first, then attachment order — matches the roster. Frame IDs live on
+  // the ticks themselves: a node is not "at" an address.
   const ordered = [...nodes].sort((a, b) => Number(b.local) - Number(a.local))
   const lanes = ordered.map((n, i) => ({
     id: n.id,
     name: n.name,
     color: LANE_COLORS[i % LANE_COLORS.length]!,
-    idLabel: primaryIdLabel(n, inWindow),
   }))
 
   const ticks: LaneTick[] = []
@@ -204,21 +207,8 @@ export function buildLaneModel(
   return { lanes, ticks, hops, t0, t1 }
 }
 
-function primaryIdLabel(node: CanNodeSnapshot, log: readonly CanLogEntry[]): string {
-  // Prefer the node's advertised transmit id from its summary ("0x0A0 every…"),
-  // else the most recent frame id it put on the bus in the window.
-  const m = node.summary.match(/0x([0-9A-Fa-f]+)/)
-  if (m) return `0x${m[1]!.toUpperCase()}`
-  for (let i = log.length - 1; i >= 0; i--) {
-    const e = log[i]!
-    if (e.from === node.id && e.kind !== 'arbitration') {
-      return `0x${hex(e.frame.id)}`
-    }
-  }
-  return ''
-}
-
-function hex(id: number): string {
+/** Compact hex for a tick chip — no `0x` prefix; the chip is the ID. */
+export function tickFrameLabel(id: number): string {
   return id.toString(16).toUpperCase().padStart(3, '0')
 }
 
@@ -268,25 +258,59 @@ export function paintArbitrationLanes(
     ctx.fillStyle = colors.muted
     ctx.textAlign = 'left'
     const name = lane.name.length > 8 ? `${lane.name.slice(0, 7)}…` : lane.name
-    ctx.fillText(name, 4, y - (lane.idLabel ? 6 : 0))
-    if (lane.idLabel) {
-      ctx.fillStyle = 'rgba(255,255,255,0.28)'
-      ctx.fillText(lane.idLabel, 4, y + 6)
-    }
+    ctx.fillText(name, 4, y)
   })
 
+  ctx.font = TICK_FONT
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  // Per-lane: labeled chips when neighbors leave room, else a thin time tick.
+  // Frame IDs belong on the event, but a 2 s window packs them tighter than
+  // a readable chip — collapsing into one smear teaches nothing.
+  const byLane = new Map<string, LaneTick[]>()
   for (const tick of model.ticks) {
     if (!laneIndex.has(tick.nodeId)) continue
-    const lane = model.lanes[laneIndex.get(tick.nodeId)!]!
-    const y = yOf(tick.nodeId)
-    const x = xAt(tick.at)
-    if (tick.lost) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.30)'
-      ctx.lineWidth = 1
-      ctx.strokeRect(x - 1.5, y - TICK_H / 2, 3, TICK_H)
-    } else {
-      ctx.fillStyle = lane.color
-      ctx.fillRect(x - 1.5, y - TICK_H / 2, 3, TICK_H)
+    const list = byLane.get(tick.nodeId)
+    if (list) list.push(tick)
+    else byLane.set(tick.nodeId, [tick])
+  }
+  for (const [, laneTicks] of byLane) {
+    laneTicks.sort((a, b) => a.at - b.at || a.seq - b.seq)
+    let prevRight = -Infinity
+    for (const tick of laneTicks) {
+      const lane = model.lanes[laneIndex.get(tick.nodeId)!]!
+      const y = yOf(tick.nodeId)
+      const x = xAt(tick.at)
+      const label = tickFrameLabel(tick.frameId)
+      const tw = ctx.measureText(label).width
+      const rw = Math.ceil(tw + TICK_PAD_X * 2)
+      const labeled = x - rw / 2 >= prevRight + 2
+
+      if (labeled) {
+        const rx = Math.round(x - rw / 2)
+        const ry = Math.round(y - TICK_H / 2)
+        if (tick.lost) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.40)'
+          ctx.lineWidth = 1
+          ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, TICK_H - 1)
+          ctx.fillStyle = 'rgba(255,255,255,0.45)'
+          ctx.fillText(label, x, y)
+        } else {
+          ctx.fillStyle = lane.color
+          ctx.fillRect(rx, ry, rw, TICK_H)
+          ctx.fillStyle = 'rgba(12, 14, 18, 0.92)'
+          ctx.fillText(label, x, y)
+        }
+        prevRight = rx + rw
+      } else if (tick.lost) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.40)'
+        ctx.lineWidth = 1
+        ctx.strokeRect(x - 1.5, y - TICK_H / 2, 3, TICK_H)
+      } else {
+        ctx.fillStyle = lane.color
+        ctx.fillRect(x - 1.5, y - TICK_H / 2, 3, TICK_H)
+      }
     }
   }
 
