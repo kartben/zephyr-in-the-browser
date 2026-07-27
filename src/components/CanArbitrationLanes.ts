@@ -17,6 +17,7 @@
  */
 
 import type { CanLogEntry, CanNodeSnapshot } from '@/can/bus'
+import { compareCanNodes } from '@/can/bus'
 
 /** Default live-follow window. */
 export const LANE_WINDOW_MS = 2000
@@ -142,8 +143,8 @@ export function buildLaneModel(
   const { t0, t1 } = view
   const inWindow = log.filter((e) => e.at >= t0 && e.at <= t1)
 
-  // Local first, then attachment order — matches the roster.
-  const ordered = [...nodes].sort((a, b) => Number(b.local) - Number(a.local))
+  // Same order as the roster: local first, then by frame ID ascending.
+  const ordered = [...nodes].sort(compareCanNodes)
   const lanes = ordered.map((n, i) => ({
     id: n.id,
     name: n.name,
@@ -205,10 +206,9 @@ export function buildLaneModel(
 }
 
 function primaryIdLabel(node: CanNodeSnapshot, log: readonly CanLogEntry[]): string {
-  // Prefer the node's advertised transmit id from its summary ("0x0A0 every…"),
-  // else the most recent frame id it put on the bus in the window.
-  const m = node.summary.match(/0x([0-9A-Fa-f]+)/)
-  if (m) return `0x${m[1]!.toUpperCase()}`
+  // Prefer the node's characteristic frame ID, else the most recent frame id
+  // it put on the bus in the window.
+  if (node.frameId != null) return `0x${hex(node.frameId)}`
   for (let i = log.length - 1; i >= 0; i--) {
     const e = log[i]!
     if (e.from === node.id && e.kind !== 'arbitration') {

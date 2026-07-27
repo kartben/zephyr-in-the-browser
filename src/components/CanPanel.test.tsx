@@ -102,9 +102,25 @@ describe('CanView', () => {
   it('offers only the fields the selected node type needs', () => {
     const out = html([])
     // Periodic leads the catalog, so both of its fields are shown.
-    expect(out).toContain('Node ID')
+    expect(out).toContain('Frame ID')
     expect(out).toContain('Period in ms')
     expect(out).toContain('Counter, Listener and Silent take none.')
+  })
+
+  it('lists peers by frame ID, not attachment order', () => {
+    const { bus } = harness()
+    bus.attach(nodeType('periodic')!.create('late', { id: 0x200, periodMs: 100 }))
+    bus.attach(nodeType('periodic')!.create('early', { id: 0x0a0, periodMs: 100 }))
+    bus.attach(nodeType('listener')!.create('l', { id: 0, periodMs: 0 }))
+
+    // Attachment order still has late before early; the panel sorts by frame ID.
+    expect(bus.nodes().map((n) => n.id)).toEqual(['can0', 'late', 'early', 'l'])
+    const out = html(bus.nodes())
+    const earlyAt = out.indexOf('0x0A0 every 100 ms')
+    const lateAt = out.indexOf('0x200 every 100 ms')
+    expect(earlyAt).toBeGreaterThan(-1)
+    expect(lateAt).toBeGreaterThan(-1)
+    expect(earlyAt).toBeLessThan(lateAt)
   })
 
   it('renders a delivered frame and marks a dropped one', () => {

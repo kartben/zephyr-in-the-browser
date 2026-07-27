@@ -86,11 +86,33 @@ export interface CanNodeSnapshot {
    * path. Only meaningful on the local controller.
    */
   loopback: boolean
+  /**
+   * Characteristic **frame** / arbitration ID when the preset has one
+   * (Periodic's TX id, Responder's RTR id). `null` when the node has none —
+   * CAN has no node addresses.
+   */
+  frameId: number | null
   tec: number
   rec: number
   state: CanState
   /** One-line behaviour summary for the roster sub-line. */
   summary: string
+}
+
+/**
+ * Roster and lane order: local controller first, then by frame ID ascending
+ * (lower ID wins arbitration, so the list teaches that), nodes without a
+ * frame ID after those, name as a tiebreak. Not an address sort — CAN has
+ * none.
+ */
+export function compareCanNodes(a: CanNodeSnapshot, b: CanNodeSnapshot): number {
+  if (a.local !== b.local) return a.local ? -1 : 1
+  const ai = a.frameId
+  const bi = b.frameId
+  if (ai != null && bi != null && ai !== bi) return ai - bi
+  if (ai != null && bi == null) return -1
+  if (ai == null && bi != null) return 1
+  return a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
 }
 
 export interface CanLogEntry {
@@ -206,6 +228,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
       local: !!n.local,
       acks: n.acks !== false,
       loopback: n.loopback,
+      frameId: characteristicFrameId(n),
       tec: n.tec,
       rec: n.rec,
       state: n.state,
@@ -466,4 +489,11 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
 
 function hex(id: number): string {
   return id.toString(16).toUpperCase().padStart(3, '0')
+}
+
+/** Frame ID a preset is known for, when it has one. Not a node address. */
+function characteristicFrameId(node: Attached): number | null {
+  if (node.transmit) return node.transmit.id
+  if (node.respondTo && node.respondTo.id !== ANY_ID) return node.respondTo.id
+  return null
 }
