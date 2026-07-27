@@ -16,6 +16,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  HD44780_GLYPH_H,
+  HD44780_GLYPH_W,
+  HD44780_GLYPHS,
+} from '@/components/hd44780Glyphs'
+import {
   isJhd1313Lcd,
   type Jhd1313LcdChip,
 } from '@/virtio/devices/chips/jhd1313'
@@ -24,21 +29,39 @@ import {
   type Pt6314Chip,
 } from '@/virtio/devices/chips/pt6314'
 
-/** HD44780U A00 pixel font (Display Module 2) — matches the JHD1313 CGROM. */
-const LCD_FONT = '"Display Module 2", ui-monospace, monospace'
+const UI_MS = 100
+
+/** Dot pitch inside an LCD cell — 5×8 CGROM at 2×. */
+const LCD_DOT = 2
 
 /**
- * Map a DDRAM byte to a canvas glyph. Printable ASCII plus the A00 arrows at
- * 0x7e/0x7f (tilde / DEL slots on Western keyboards).
+ * Paint one HD44780 CGROM glyph as discrete LCD dots (no canvas text AA).
  */
-function lcdGlyph(ch: number): string {
-  if (ch === 0x7e) return '\u2192'
-  if (ch === 0x7f) return '\u2190'
-  if (ch >= 0x20 && ch < 0x7f) return String.fromCharCode(ch)
-  return ' '
+function paintLcdGlyph(
+  ctx: CanvasRenderingContext2D,
+  ch: number,
+  cellX: number,
+  cellY: number,
+  cellW: number,
+  cellH: number,
+) {
+  if (ch < 0x20 || ch > 0x7f) return
+  const rows = HD44780_GLYPHS[ch - 0x20]
+  if (!rows) return
+  const glyphPxW = HD44780_GLYPH_W * LCD_DOT
+  const glyphPxH = HD44780_GLYPH_H * LCD_DOT
+  const ox = cellX + Math.floor((cellW - glyphPxW) / 2)
+  const oy = cellY + Math.floor((cellH - glyphPxH) / 2)
+  for (let r = 0; r < HD44780_GLYPH_H; r++) {
+    const bits = rows[r] ?? 0
+    for (let c = 0; c < HD44780_GLYPH_W; c++) {
+      if (bits & (0x80 >> c)) {
+        // Solid 2×2 blocks — hairline gaps vanish under CSS scale and kill contrast.
+        ctx.fillRect(ox + c * LCD_DOT, oy + r * LCD_DOT, LCD_DOT, LCD_DOT)
+      }
+    }
+  }
 }
-
-const UI_MS = 100
 
 /** Common surface both character panels paint and inspect. */
 export type AuxdisplayChip = Jhd1313LcdChip | Pt6314Chip
@@ -158,7 +181,6 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
     let painted = -1
     let blinkPhase = false
     let blinkTimer: ReturnType<typeof setInterval> | undefined
-    let cancelled = false
 
     const cellW = vfd ? 10 : 12
     const cellH = vfd ? 16 : 18
@@ -254,38 +276,32 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
         return
       }
 
-      // Grove JHD1313 LCD: RGB backlight wash + HD44780U A00 pixel glyphs.
+      // Grove JHD1313 LCD: RGB backlight wash + crisp 5×8 CGROM dots.
       const lcd = chip as Jhd1313LcdChip
       const rgb = lcd.getBacklightRgb()
-      const glassR = on ? Math.max(18, Math.round(rgb.r * 0.35 + 12)) : 8
-      const glassG = on ? Math.max(22, Math.round(rgb.g * 0.4 + 16)) : 10
-      const glassB = on ? Math.max(18, Math.round(rgb.b * 0.35 + 12)) : 8
+      // Luminous wash — dim navy swallows near-black glyphs on saturated blue.
+      const glassR = on ? Math.max(36, Math.round(rgb.r * 0.72 + 28)) : 8
+      const glassG = on ? Math.max(40, Math.round(rgb.g * 0.78 + 32)) : 10
+      const glassB = on ? Math.max(36, Math.round(rgb.b * 0.72 + 28)) : 8
 
       ctx.fillStyle = `rgb(${glassR}, ${glassG}, ${glassB})`
       ctx.fillRect(0, 0, width, height)
 
-      // 5×8 CGROM glyphs; size lands near 2× pixel scale inside the cell.
-      ctx.font = `${cellH - 2}px ${LCD_FONT}`
-      ctx.textBaseline = 'middle'
-      ctx.textAlign = 'center'
-
-      // TN LCD "black" is charcoal with a bit of backlight bleed — brighter
-      // than a crushed black, still clearly darker than the wash.
+      // Punchy near-black ink (a touch of backlight tint, never crushed to #000).
       const ink = on
-        ? `rgb(${Math.round(glassR * 0.25 + 38)}, ${Math.round(glassG * 0.25 + 42)}, ${Math.round(glassB * 0.25 + 38)})`
-        : 'rgb(48, 50, 52)'
+        ? `rgb(${Math.round(4 + glassR * 0.03)}, ${Math.round(5 + glassG * 0.03)}, ${Math.round(6 + glassB * 0.04)})`
+        : 'rgb(28, 30, 32)'
 
       for (let row = 0; row < chip.rows; row++) {
         for (let col = 0; col < chip.columns; col++) {
           const x = padX + col * (cellW + gapX)
           const y = padY + row * (cellH + gapY)
-          ctx.fillStyle = `rgba(0,0,0,${on ? 0.12 : 0.25})`
+          ctx.fillStyle = `rgba(0,0,0,${on ? 0.1 : 0.25})`
           ctx.fillRect(x, y, cellW, cellH)
 
           const ch = chip.cells[row * chip.columns + col] ?? 0x20
-          const glyph = lcdGlyph(ch)
           ctx.fillStyle = ink
-          ctx.fillText(glyph, x + cellW / 2, y + cellH / 2 + 1)
+          paintLcdGlyph(ctx, ch, x, y, cellW, cellH)
 
           const atCursor = state.cursorColumn === col && state.cursorRow === row
           if (on && state.cursor && atCursor && (!state.blinking || blinkPhase)) {
@@ -300,33 +316,16 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       if (!frame) frame = requestAnimationFrame(paint)
     }
 
-    const start = async () => {
-      // Ensure the HD44780 webfont is ready before the first LCD paint.
-      if (!vfd && typeof document !== 'undefined' && document.fonts?.load) {
-        try {
-          await document.fonts.load(`${cellH - 2}px "Display Module 2"`)
-        } catch {
-          /* fall back to monospace stack */
-        }
-      }
-      if (cancelled) return
-      painted = -1
-      paint()
-      blinkTimer = setInterval(() => {
-        blinkPhase = !blinkPhase
-        schedule()
-      }, 500)
-    }
-
+    paint()
     const unsub = chip.subscribe(schedule)
     const unsubBl =
       isJhd1313Lcd(chip) && chip.backlight ? chip.backlight.subscribe(schedule) : undefined
-    // Paint immediately (monospace fallback), then again once the LCD font loads.
-    paint()
-    void start()
+    blinkTimer = setInterval(() => {
+      blinkPhase = !blinkPhase
+      schedule()
+    }, 500)
 
     return () => {
-      cancelled = true
       unsub()
       unsubBl?.()
       if (frame) cancelAnimationFrame(frame)
