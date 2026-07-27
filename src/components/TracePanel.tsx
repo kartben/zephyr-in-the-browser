@@ -27,6 +27,7 @@ import {
 } from 'react'
 import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
+import { PipelineView } from '@/components/PipelineView'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -244,7 +245,14 @@ type Gesture =
       origin: { t0: number; t1: number }
     }
 
-export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
+export function TracePanel({
+  defaultExpanded = false,
+  /** When true, show the live pipeline topology above the Gantt. */
+  showPipeline = false,
+}: {
+  defaultExpanded?: boolean
+  showPipeline?: boolean
+}) {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const [follow, setFollow] = useState(true)
@@ -265,7 +273,7 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
   return (
     <PanelFrame
       id="trace"
-      title="Trace"
+      title={showPipeline ? 'Pipeline' : 'Trace'}
       icon={Activity}
       defaultExpanded={expanded}
       dockedWidth={34}
@@ -299,7 +307,13 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       }
     >
       {/* PanelFrame only mounts children while expanded — keep Gantt work there. */}
-      <TracePanelBody snap={snap} follow={follow} setFollow={setFollow} apiRef={bodyApiRef} />
+      <TracePanelBody
+        snap={snap}
+        follow={follow}
+        setFollow={setFollow}
+        apiRef={bodyApiRef}
+        showPipeline={showPipeline}
+      />
     </PanelFrame>
   )
 }
@@ -309,11 +323,13 @@ function TracePanelBody({
   follow,
   setFollow,
   apiRef,
+  showPipeline,
 }: {
   snap: ReturnType<typeof getSnapshot>
   follow: boolean
   setFollow: (v: boolean) => void
   apiRef: MutableRefObject<{ jumpLive: () => void } | null>
+  showPipeline: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
@@ -421,13 +437,21 @@ function TracePanelBody({
 
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
+      {showPipeline && <PipelineView trace={tr} eventCount={snap.eventCount} />}
       {!tr || tr.events.length === 0 ? (
-        <p className="px-1 text-[11px] leading-relaxed text-muted-foreground">
-          Semihosting is writing <code className="font-mono text-foreground">tracing.bin</code> into
-          the emulator filesystem. The Gantt appears as soon as the first CTF records land.
-        </p>
+        !showPipeline && (
+          <p className="px-1 text-[11px] leading-relaxed text-muted-foreground">
+            Semihosting is writing <code className="font-mono text-foreground">tracing.bin</code> into
+            the emulator filesystem. The Gantt appears as soon as the first CTF records land.
+          </p>
+        )
       ) : (
         <>
+          {showPipeline && (
+            <div className="border-t border-border/60 pt-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              Schedule
+            </div>
+          )}
           <div className="flex items-center gap-1 px-0.5">
             <Button
               type="button"

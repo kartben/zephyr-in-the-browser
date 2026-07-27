@@ -303,3 +303,59 @@
 .sevenseg-scan {
   animation: sevenseg-scan-pulse 120ms ease-out;
 }
+
+/* Tracing pipeline live diagram (PipelineView). */
+@keyframes pipeline-run-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.22);
+  }
+}
+
+@keyframes pipeline-flash-ring {
+  0% {
+    opacity: 0.95;
+    stroke-width: 2.2;
+  }
+  100% {
+    opacity: 0;
+    stroke-width: 0.5;
+  }
+}
+
+@keyframes pipeline-wire-flow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -16;
+  }
+}
+
+.pipeline-run {
+  animation: pipeline-run-pulse 0.9s ease-in-out infinite;
+}
+
+.pipeline-flash {
+  animation: pipeline-flash-ring 0.55s ease-out infinite;
+}
+
+.pipeline-wire-hot {
+  stroke-dasharray: 5 5;
+  animation: pipeline-wire-flow 0.7s linear infinite;
+}
+
+.pipeline-edge-hot rect {
+  filter: drop-shadow(0 0 4px color-mix(in oklch, var(--color-primary) 55%, transparent));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-run,
+  .pipeline-flash,
+  .pipeline-wire-hot {
+    animation: none;
+  }
+}

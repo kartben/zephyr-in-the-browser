@@ -492,7 +492,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     // pipeline so msgq / mutex / condvar contention shows up in the Gantt.
     id: 'tracing_pipeline',
     label: 'Tracing Pipeline',
-    description: 'Sensor pipeline with msgq/mutex/condvar — richer CTF schedule story',
+    description: 'Live sensor pipeline diagram + CTF schedule (msgq/mutex/condvar)',
     zephyrSample: 'samples/subsys/tracing/pipeline',
     primaryPanels: ['trace'],
   },
