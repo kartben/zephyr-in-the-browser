@@ -77,6 +77,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   pwm: Activity,
   dac: Waves,
   'fuel-gauge': BatteryCharging,
+  can: Network,
   trace: Activity,
 }
 
@@ -99,6 +100,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   pwm: 'PWM',
   dac: 'DAC',
   'fuel-gauge': 'battery',
+  can: 'CAN',
   trace: 'trace',
 }
 

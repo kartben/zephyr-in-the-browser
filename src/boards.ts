@@ -31,6 +31,7 @@ export type PanelKind =
   | 'pwm'
   | 'dac'
   | 'fuel-gauge'
+  | 'can'
   | 'trace'
 
 /**
@@ -417,6 +418,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     // Stock TMC50xx sample against the browser SPI motion controller on CS0.
     // Ping-pong positioning; the dock dial tracks XACTUAL and Registers show
     // the ramp map.
+    // Stock CAN counter sample against the browser MCP2515 on SPI CS0. The
+    // page plays the rest of the bus, so the sample has a peer to count with.
+    id: 'can_counter',
+    label: 'CAN counter',
+    description: 'Exchanges counter frames over CAN; bus roster and traffic in the page',
+    zephyrSample: 'samples/drivers/can/counter',
+    primaryPanels: ['can', 'spi'],
+  },
+  {
     id: 'tmc50xx',
     label: 'TMC50xx stepper',
     description:

@@ -1,0 +1,17 @@
+name: mcp2515-only
+description: >
+  Microchip MCP2515 CAN controller alone on the browser SPI bus: enable
+  virtio-spi with microchip,mcp2515 on CS0 (no JEDEC NOR) for
+  samples/drivers/can/*. INT is virtio-gpio line 8; chosen zephyr,canbus
+  points at the controller.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

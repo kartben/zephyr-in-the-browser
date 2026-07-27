@@ -10,6 +10,7 @@ import { createSct2024 } from './chips/sct2024'
 import { createPt6314 } from './chips/pt6314'
 import { createWs2812 } from './chips/ws2812'
 import { createTmc50xx } from './chips/tmc50xx'
+import { createMcp2515 } from './chips/mcp2515'
 import { createSpiLoopback, createW25q } from './chips/w25q'
 import { partById, type PartIdentity } from './parts'
 
@@ -60,6 +61,15 @@ export const SPI_CHIP_TYPES: SpiChipType[] = [
     defaultCs: 0,
     catalogued: true,
     create: (cs) => createTmc50xx({ cs }),
+  },
+  {
+    id: 'mcp2515',
+    label: 'MCP2515 CAN',
+    defaultCs: 0,
+    catalogued: true,
+    // Bare chip: hostCan.ts wires it to the bus and the INT line when it sees
+    // one attach, the same way hostStepper watches GPIO for step/dir.
+    create: (cs) => createMcp2515({ cs }),
   },
   {
     id: 'loopback',

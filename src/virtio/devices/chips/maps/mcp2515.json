@@ -1,0 +1,312 @@
+{
+  "name": "MCP2515",
+  "description": "Microchip MCP2515 stand-alone CAN controller with SPI interface. Flat 128-byte register file: TX and RX buffers are memory-mapped, so the fast commands (LOAD TX, RTS, READ RX) and plain READ/WRITE reach the same bytes. Matches Zephyr drivers/can/can_mcp2515.c. Bit timing (CNF1-3) is stored and used only to give the page-side bus a frame duration; nothing here is paced to the bit.",
+  "registers": [
+    {
+      "name": "CANSTAT",
+      "addr": "0x0e",
+      "bytes": 1,
+      "access": "ro",
+      "reset": "0x80",
+      "description": "Status. OPMOD is what the driver polls after requesting a mode change.",
+      "fields": [
+        {
+          "name": "OPMOD",
+          "lsb": 5,
+          "msb": 7,
+          "description": "Operation mode currently in effect.",
+          "values": [
+            { "name": "Normal", "value": 0 },
+            { "name": "Sleep", "value": 1 },
+            { "name": "Loopback", "value": 2 },
+            { "name": "Listen-only", "value": 3 },
+            { "name": "Configuration", "value": 4 }
+          ]
+        },
+        { "name": "ICOD", "lsb": 1, "msb": 3, "description": "Interrupt flag code." }
+      ]
+    },
+    {
+      "name": "CANCTRL",
+      "addr": "0x0f",
+      "bytes": 1,
+      "access": "rw",
+      "reset": "0x87",
+      "description": "Control. Writing REQOP takes effect immediately in this model, so the driver's CANSTAT.OPMOD readback succeeds.",
+      "fields": [
+        {
+          "name": "REQOP",
+          "lsb": 5,
+          "msb": 7,
+          "description": "Requested operation mode.",
+          "values": [
+            { "name": "Normal", "value": 0 },
+            { "name": "Sleep", "value": 1 },
+            { "name": "Loopback", "value": 2 },
+            { "name": "Listen-only", "value": 3 },
+            { "name": "Configuration", "value": 4 }
+          ]
+        },
+        { "name": "ABAT", "lsb": 4, "msb": 4, "description": "Abort all pending transmissions." },
+        { "name": "OSM", "lsb": 3, "msb": 3, "description": "One-shot mode: no automatic retransmission." },
+        { "name": "CLKEN", "lsb": 2, "msb": 2, "description": "CLKOUT pin enable." },
+        { "name": "CLKPRE", "lsb": 0, "msb": 1, "description": "CLKOUT prescaler." }
+      ]
+    },
+    {
+      "name": "TEC",
+      "addr": "0x1c",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Transmit error counter. +8 per unacknowledged transmit, -1 per good one; error-passive above 127, bus-off at 256."
+    },
+    {
+      "name": "REC",
+      "addr": "0x1d",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Receive error counter."
+    },
+    {
+      "name": "CNF3",
+      "addr": "0x28",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Bit timing: PHSEG2.",
+      "fields": [
+        { "name": "SOF", "lsb": 7, "msb": 7 },
+        { "name": "WAKFIL", "lsb": 6, "msb": 6 },
+        { "name": "PHSEG2", "lsb": 0, "msb": 2 }
+      ]
+    },
+    {
+      "name": "CNF2",
+      "addr": "0x29",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Bit timing: propagation and phase segment 1.",
+      "fields": [
+        { "name": "BTLMODE", "lsb": 7, "msb": 7 },
+        { "name": "SAM", "lsb": 6, "msb": 6 },
+        { "name": "PHSEG1", "lsb": 3, "msb": 5 },
+        { "name": "PRSEG", "lsb": 0, "msb": 2 }
+      ]
+    },
+    {
+      "name": "CNF1",
+      "addr": "0x2a",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Bit timing: sync jump width and baud rate prescaler.",
+      "fields": [
+        { "name": "SJW", "lsb": 6, "msb": 7 },
+        { "name": "BRP", "lsb": 0, "msb": 5 }
+      ]
+    },
+    {
+      "name": "CANINTE",
+      "addr": "0x2b",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Interrupt enables. INT is asserted while CANINTF & CANINTE is non-zero.",
+      "fields": [
+        { "name": "MERRE", "lsb": 7, "msb": 7 },
+        { "name": "WAKIE", "lsb": 6, "msb": 6 },
+        { "name": "ERRIE", "lsb": 5, "msb": 5 },
+        { "name": "TX2IE", "lsb": 4, "msb": 4 },
+        { "name": "TX1IE", "lsb": 3, "msb": 3 },
+        { "name": "TX0IE", "lsb": 2, "msb": 2 },
+        { "name": "RX1IE", "lsb": 1, "msb": 1 },
+        { "name": "RX0IE", "lsb": 0, "msb": 0 }
+      ]
+    },
+    {
+      "name": "CANINTF",
+      "addr": "0x2c",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Interrupt flags. RXnIF also clears when READ RX BUFFER shifts that buffer out.",
+      "fields": [
+        { "name": "MERRF", "lsb": 7, "msb": 7 },
+        { "name": "WAKIF", "lsb": 6, "msb": 6 },
+        { "name": "ERRIF", "lsb": 5, "msb": 5 },
+        { "name": "TX2IF", "lsb": 4, "msb": 4 },
+        { "name": "TX1IF", "lsb": 3, "msb": 3 },
+        { "name": "TX0IF", "lsb": 2, "msb": 2 },
+        { "name": "RX1IF", "lsb": 1, "msb": 1, "description": "Receive buffer 1 holds a frame." },
+        { "name": "RX0IF", "lsb": 0, "msb": 0, "description": "Receive buffer 0 holds a frame." }
+      ]
+    },
+    {
+      "name": "EFLG",
+      "addr": "0x2d",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Error flags.",
+      "fields": [
+        { "name": "RX1OVR", "lsb": 7, "msb": 7 },
+        { "name": "RX0OVR", "lsb": 6, "msb": 6 },
+        { "name": "TXBO", "lsb": 5, "msb": 5, "description": "Bus-off: TEC reached 256." },
+        { "name": "TXEP", "lsb": 4, "msb": 4, "description": "Transmit error-passive." },
+        { "name": "RXEP", "lsb": 3, "msb": 3 },
+        { "name": "TXWAR", "lsb": 2, "msb": 2 },
+        { "name": "RXWAR", "lsb": 1, "msb": 1 },
+        { "name": "EWARN", "lsb": 0, "msb": 0 }
+      ]
+    },
+    {
+      "name": "RXM0SIDH",
+      "addr": "0x20",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Acceptance mask 0, standard id high. A zero mask accepts every id."
+    },
+    {
+      "name": "RXM0SIDL",
+      "addr": "0x21",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Acceptance mask 0, standard id low."
+    },
+    {
+      "name": "RXF0SIDH",
+      "addr": "0x00",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Acceptance filter 0, standard id high (filters receive buffer 0)."
+    },
+    {
+      "name": "RXF0SIDL",
+      "addr": "0x01",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Acceptance filter 0, standard id low.",
+      "fields": [
+        { "name": "SID", "lsb": 5, "msb": 7 },
+        { "name": "EXIDE", "lsb": 3, "msb": 3, "description": "Filter matches extended frames only." },
+        { "name": "EID", "lsb": 0, "msb": 1 }
+      ]
+    },
+    {
+      "name": "TXB0CTRL",
+      "addr": "0x30",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Transmit buffer 0 control. Setting TXREQ puts the buffer on the bus; it clears when the frame goes out.",
+      "fields": [
+        { "name": "ABTF", "lsb": 6, "msb": 6 },
+        { "name": "MLOA", "lsb": 5, "msb": 5, "description": "Message lost arbitration." },
+        { "name": "TXERR", "lsb": 4, "msb": 4 },
+        { "name": "TXREQ", "lsb": 3, "msb": 3, "description": "Request to send." },
+        { "name": "TXP", "lsb": 0, "msb": 1, "description": "Transmit priority." }
+      ]
+    },
+    {
+      "name": "TXB0SIDH",
+      "addr": "0x31",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Transmit buffer 0, standard id high."
+    },
+    {
+      "name": "TXB0SIDL",
+      "addr": "0x32",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Transmit buffer 0, standard id low.",
+      "fields": [
+        { "name": "SID", "lsb": 5, "msb": 7 },
+        { "name": "EXIDE", "lsb": 3, "msb": 3, "description": "Extended identifier." },
+        { "name": "EID", "lsb": 0, "msb": 1 }
+      ]
+    },
+    {
+      "name": "TXB0DLC",
+      "addr": "0x35",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Transmit buffer 0 data length.",
+      "fields": [
+        { "name": "RTR", "lsb": 6, "msb": 6, "description": "Remote transmission request." },
+        { "name": "DLC", "lsb": 0, "msb": 3 }
+      ]
+    },
+    {
+      "name": "RXB0CTRL",
+      "addr": "0x60",
+      "bytes": 1,
+      "access": "rw",
+      "reset": 0,
+      "description": "Receive buffer 0 control.",
+      "fields": [
+        {
+          "name": "RXM",
+          "lsb": 5,
+          "msb": 6,
+          "description": "Receive mode.",
+          "values": [
+            { "name": "Filters on", "value": 0 },
+            { "name": "Standard only", "value": 1 },
+            { "name": "Extended only", "value": 2 },
+            { "name": "Masks off", "value": 3 }
+          ]
+        },
+        { "name": "RXRTR", "lsb": 3, "msb": 3 },
+        { "name": "BUKT", "lsb": 2, "msb": 2, "description": "Roll over into receive buffer 1." },
+        { "name": "FILHIT", "lsb": 0, "msb": 0 }
+      ]
+    },
+    {
+      "name": "RXB0SIDH",
+      "addr": "0x61",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Receive buffer 0, standard id high."
+    },
+    {
+      "name": "RXB0SIDL",
+      "addr": "0x62",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Receive buffer 0, standard id low."
+    },
+    {
+      "name": "RXB0DLC",
+      "addr": "0x65",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Receive buffer 0 data length.",
+      "fields": [
+        { "name": "RTR", "lsb": 6, "msb": 6 },
+        { "name": "DLC", "lsb": 0, "msb": 3 }
+      ]
+    },
+    {
+      "name": "RXB0D0",
+      "addr": "0x66",
+      "bytes": 1,
+      "access": "ro",
+      "reset": 0,
+      "description": "Receive buffer 0, first payload byte."
+    }
+  ]
+}

@@ -4,6 +4,11 @@ Build contract for the next peripheral class. Source mockup:
 [`can-bus-mockup.html`](can-bus-mockup.html). Ranking rationale belongs in
 [next-drivers.md](next-drivers.md); this note is the shape.
 
+**Iteration 1 has landed** — page side complete and tested, guest side written
+but unbuilt (§12). What shipped differs from this spec in three places, each
+noted inline: no arbitration lane view, Counter learns its ids from traffic,
+and the chip is wired by `hostCan.ts` rather than by the attach picker.
+
 CAN is the one bus class the tree does not model. I²C, SPI, UART and Ethernet
 all have a page-side counterpart; CAN is the one that most rewards it, because
 the page does not model *a chip on a bus* — it models **the rest of the
@@ -83,6 +88,10 @@ local entry is named from **its DT label** (`can0`). Without a live MCP2515 on
 the bus there is no interactive row, same progressive fill as the other
 bridges.
 
+Iteration 1 hardcodes the roster's local name to `can0` rather than reading the
+DT label, since every packaged overlay uses that label. Reading it properly is
+a small follow-up in `hostCan.ts`.
+
 ## 4. The network model — `src/can/bus.ts`
 
 ```ts
@@ -110,14 +119,17 @@ signal-decoding scope this spec rules out in §10.
 
 | Node | Behaviour | Exists for |
 | --- | --- | --- |
-| Counter | Replies to the counter frame with an incrementing one | `samples/drivers/can/counter`, which otherwise has nobody to count with |
+| Counter | Echoes any frame with its first byte incremented | `samples/drivers/can/counter`, which otherwise has nobody to count with |
 | Periodic | Transmits an ID at a period | `can recv`; gives the lane view something to draw |
 | Responder | Replies to an RTR for an ID | `can send`; RTR is otherwise unexercised |
 | Listener | ACKs every frame, transmits none | keeps the bus alive under `babbling`; unplug it for bus-off |
 | Silent | Listen-only: no transmit, **no ACK** | present but useless, the subtler bus-off |
 
 Counter is a `respondTo` preset with a counter in its reply, not a sixth
-primitive. Its IDs come from the sample and are not user-set.
+primitive. **It matches on a wildcard id rather than the sample's constants**
+— it echoes whatever arrives. That removes the only place this design needed
+to know a sample's internals, and it keeps working if those ids change
+upstream, which matters because nobody here has read them.
 
 ### Adding a node
 
@@ -240,9 +252,18 @@ Body sections, top to bottom, mirroring `I2cBody`'s rhythm:
 | --- | --- |
 | On the bus | Roster. Local node first, accent border, no `×`. |
 | Add node | Catalog select + Add, exactly `AttachRow`'s shape. |
-| Send | ID / DLC / RTR / ext, eight byte fields, Send. |
-| Arbitration | Lane strip, one lane per node. |
+| Send | Sender select, ID, RTR, eight byte fields, Send. |
 | Traffic | Frame trace, newest first, `clear`. |
+
+**The arbitration lane strip is not in iteration 1**, and the reason is worth
+recording rather than rediscovering. The trace already carries every
+arbitration event as a row, so lanes are a second view of data the panel
+already shows. The tree's only Gantt renderer is `renderStateRows` in
+[`src/ctf/reader.ts`](../src/ctf/reader.ts), and it is bound to CTF's
+thread/state model — driving it from CAN would mean inventing fake threads,
+and writing a second one would mean two lane renderers to keep in step. If
+lanes are wanted, lift the row renderer out of `ctf/` first; that refactor is
+the actual prerequisite, not the CAN drawing code.
 
 The composer sends **as the roster's selected node**, so TEC/REC and
 arbitration attribute to something real rather than to an anonymous injector.
@@ -337,7 +358,46 @@ an idle timeline.
 - **A second CAN controller / gateway topologies.** The `bus.ts` seam allows
   it; nothing needs it yet.
 
-## 11. Acceptance
+## 11. What iteration 1 ships
+
+| File | Role |
+| --- | --- |
+| `src/can/bus.ts` | the medium: nodes, delivery, occupancy, arbitration, ACK, counters |
+| `src/can/nodes.ts` | the five presets |
+| `src/virtio/devices/chips/mcp2515.ts` | SPI register file, buffers, filters, INT |
+| `src/virtio/devices/chips/maps/mcp2515.json` | register map for the Registers dialog |
+| `src/hostCan.ts` | the only module that knows both sides, plus the INT pin |
+| `src/components/CanPanel.tsx` | roster, add, send, traffic |
+| `zephyr-module/snippets/mcp2515-only/` | overlay: chip on cs0, INT on gpio 8, chosen canbus |
+| `zephyr-module/conf/mcp2515.conf` | `CAN` + `CAN_MCP2515` + SPI/GPIO |
+
+**The wiring direction is inverted from §2's implication.** The attach picker
+builds a *bare* chip and `hostCan.ts` wires it when it sees one land on the SPI
+roster, rather than the picker reaching into host modules. That is not a
+stylistic choice: `devices/` importing a `host*` module drags `requestAnimationFrame`
+into node-environment tests, which broke `managedChips.test.ts` the first time
+it was written the other way round. `hostStepper` and `hostBuzzer` already
+follow the watch-the-roster shape.
+
+## 12. What is not verified
+
+The guest half is written but has never been built or run: there is no Zephyr
+tree or QEMU wasm build in the environment this landed from. Specifically
+unverified —
+
+- that Zephyr's `can_mcp2515.c` drives the mode handshake and the fast SPI
+  commands the way `mcp2515.ts` assumes (both command families are implemented
+  precisely because that is a guess),
+- INT timing: whether a level-triggered virtio-gpio line satisfies the driver's
+  interrupt thread,
+- every Kconfig symbol in `conf/mcp2515.conf`, including whether
+  `CAN_MCP2515_INT_THREAD_STACK_SIZE` still exists under that name,
+- whether `samples/drivers/can/counter` builds for these boards at all.
+
+The page side is fully exercised: 35 tests across the bus, the chip, and the
+seam between them, including the counter round trip and the walk to bus-off.
+
+## 13. Acceptance
 
 - `bus.ts` unit tests: broadcast delivery, filter match, lowest-ID
   arbitration, TEC +8 on unACKed transmit and −1 on success, thresholds at

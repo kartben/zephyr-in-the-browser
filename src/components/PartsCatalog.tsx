@@ -25,6 +25,7 @@ import {
   Tv,
   Waves,
 } from 'lucide-react'
+import { Network } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Dialog,
@@ -55,6 +56,7 @@ const KIND_ICONS: Record<PartIdentity['kind'], LucideIcon> = {
   rtc: Clock,
   flash: MemoryStick,
   stepper: RotateCw,
+  can: Network,
 }
 
 function formatAddress(part: PartIdentity): string {

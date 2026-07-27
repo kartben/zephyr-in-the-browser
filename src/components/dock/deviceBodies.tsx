@@ -40,6 +40,7 @@ import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
 import { SpiBody } from '@/components/SpiPanel'
 import { UartBody } from '@/components/UartPanel'
+import { CanBody } from '@/components/CanPanel'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { FlashBadge } from '@/components/FlashStats'
 import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
@@ -119,6 +120,7 @@ const CHIP_BODIES = new Set<BodyKind | ''>([
   'rtc',
   'spi-flash',
   'stepper-tmc',
+  'can',
 ])
 
 function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
@@ -166,6 +168,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <SpiBody busLabel={node.busLabel} />
     case 'uart':
       return <UartBody busKey={node.key} busLabel={node.busLabel} />
+    case 'can':
+      return <CanBody />
     case 'spi-flash':
       return (
         <SpiFlashBody
@@ -235,6 +239,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Cable
     case 'uart':
       return Cable
+    case 'can':
+      return Network
     case 'spi-flash':
       return MemoryStick
     case 'gpio':
