@@ -48,9 +48,9 @@ const LCD_PAD_Y = 8
 
 /**
  * PT6314 CGROM is also 5×8 (datasheet §5.3 / §12.1). Newhaven modules show
- * soft phosphor anodes with bloom that bleeds between neighbours — not hard
- * LCD squares. Cell is still the 5×8 grid; glow is a blurred underlay plus
- * a brighter core pass.
+ * soft phosphor anodes with a mild bloom — not hard LCD squares. Cell is
+ * still the 5×8 grid; glow uses source-over (not additive) so dense glyphs
+ * stay even with sparse ones.
  */
 const VFD_DOT_PX = 4
 const VFD_CELL_W = HD44780_GLYPH_W * VFD_DOT_PX
@@ -60,11 +60,12 @@ const VFD_GAP_Y = 7
 const VFD_PAD_X = 16
 const VFD_PAD_Y = 14
 /** Core anode radius (bitmap pass). */
-const VFD_CORE_R = VFD_DOT_PX * 0.42
-/** How hard the bloom underlay is blurred (px). */
-const VFD_BLOOM_BLUR = 4.5
-/** Bloom underlay opacity (drawn twice for a richer halo). */
-const VFD_BLOOM_ALPHA = 0.55
+const VFD_CORE_R = VFD_DOT_PX * 0.4
+/** Soft falloff radius — kept under pitch so neighbour cores barely overlap. */
+const VFD_HALO_R = VFD_DOT_PX * 0.62
+/** Mild whole-field bloom blur (px) — kept light so dense glyphs don't wash out. */
+const VFD_BLOOM_BLUR = 2.2
+const VFD_BLOOM_ALPHA = 0.22
 
 /**
  * Paint one HD44780 CGROM glyph flush to the cell — each of the 5×8 dots
@@ -124,7 +125,7 @@ function vfdLitCenters(
   return out
 }
 
-/** Stamp solid anode discs into a context (used for bloom + core passes). */
+/** Stamp solid anode discs into a context (used for the bloom underlay). */
 function stampVfdCores(
   ctx: CanvasRenderingContext2D,
   centers: readonly { x: number; y: number }[],
@@ -139,6 +140,11 @@ function stampVfdCores(
   }
 }
 
+/**
+ * Soft phosphor anodes. Avoid `lighter` compositing — additive bloom makes
+ * dense CGROM strokes (w/m/e) wash out far brighter than sparse ones (_, .).
+ * One mild blurred underlay + per-dot radial core keeps glow even.
+ */
 function paintVfdAnodes(
   ctx: CanvasRenderingContext2D,
   centers: readonly { x: number; y: number }[],
@@ -146,43 +152,30 @@ function paintVfdAnodes(
 ) {
   if (level <= 0 || centers.length === 0) return
 
-  // Bloom underlay — larger discs, canvas blur, additive mix for tube glow.
+  // Gentle field bloom (source-over, single pass) — soft air, not a hot wash.
   ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
   ctx.globalAlpha = VFD_BLOOM_ALPHA * level
   ctx.filter = `blur(${VFD_BLOOM_BLUR}px)`
   stampVfdCores(
     ctx,
     centers,
-    `rgb(${Math.round(50 * level + 30)}, ${Math.round(240 * level)}, ${Math.round(170 * level)})`,
-    VFD_CORE_R * 1.55,
-  )
-  // Second softer pass for a longer tail.
-  ctx.globalAlpha = 0.4 * level
-  ctx.filter = `blur(${VFD_BLOOM_BLUR * 2}px)`
-  stampVfdCores(
-    ctx,
-    centers,
-    `rgb(${Math.round(40 * level + 20)}, ${Math.round(220 * level)}, ${Math.round(150 * level)})`,
-    VFD_CORE_R * 2.2,
+    `rgb(${Math.round(45 * level + 25)}, ${Math.round(210 * level)}, ${Math.round(150 * level)})`,
+    VFD_CORE_R * 1.2,
   )
   ctx.restore()
 
-  // Hot cores on top — soft radial, no hard square edges.
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
+  // Even per-anode glow: short halo + soft core (no additive stacking).
   for (const { x: cx, y: cy } of centers) {
-    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, VFD_CORE_R)
-    core.addColorStop(0, `rgba(230, 255, 235, ${0.85 * level})`)
-    core.addColorStop(0.45, `rgba(110, 250, 195, ${0.75 * level})`)
-    core.addColorStop(0.85, `rgba(55, 210, 155, ${0.35 * level})`)
-    core.addColorStop(1, `rgba(40, 160, 120, 0)`)
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, VFD_HALO_R)
+    core.addColorStop(0, `rgba(215, 255, 230, ${0.95 * level})`)
+    core.addColorStop(0.35, `rgba(110, 245, 190, ${0.88 * level})`)
+    core.addColorStop(0.7, `rgba(60, 200, 150, ${0.35 * level})`)
+    core.addColorStop(1, 'rgba(25, 100, 70, 0)')
     ctx.fillStyle = core
     ctx.beginPath()
-    ctx.arc(cx, cy, VFD_CORE_R, 0, Math.PI * 2)
+    ctx.arc(cx, cy, VFD_HALO_R, 0, Math.PI * 2)
     ctx.fill()
   }
-  ctx.restore()
 }
 
 /** Common surface both character panels paint and inspect. */
