@@ -3,8 +3,13 @@ import { createCanBus, type CanLogEntry } from '@/can/bus'
 import {
   buildLaneModel,
   clampLaneView,
+  clampWindowMs,
   livePinnedView,
+  MAX_WINDOW_MS,
+  MIN_WINDOW_MS,
   panDeltaMs,
+  ZOOM_IN,
+  zoomAround,
 } from './CanArbitrationLanes'
 
 const frame = (id: number, data: number[] = []) => ({
@@ -82,6 +87,32 @@ describe('clampLaneView', () => {
   it('collapses to the full span when the window is wider than the log', () => {
     const log = [entry(100, 0), entry(150, 1)]
     expect(clampLaneView(log, 0, 2000)).toEqual({ t0: 100, t1: 150 })
+  })
+})
+
+describe('clampWindowMs', () => {
+  it('clamps to the live-follow bounds', () => {
+    expect(clampWindowMs(10)).toBe(MIN_WINDOW_MS)
+    expect(clampWindowMs(1_000_000)).toBe(MAX_WINDOW_MS)
+    expect(clampWindowMs(1500)).toBe(1500)
+  })
+})
+
+describe('zoomAround', () => {
+  const entry = (at: number, seq: number): CanLogEntry => ({
+    seq,
+    at,
+    kind: 'frame',
+    from: 'a',
+    local: false,
+    frame: frame(0x100),
+  })
+
+  it('shrinks the window around the pivot', () => {
+    const log = [entry(0, 0), entry(10_000, 1)]
+    const next = zoomAround(log, { t0: 0, t1: 2000 }, ZOOM_IN, 1000)
+    expect(next.t1 - next.t0).toBeCloseTo(2000 * ZOOM_IN, 5)
+    expect((next.t0 + next.t1) / 2).toBeCloseTo(1000, 5)
   })
 })
 

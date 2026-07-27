@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
   type MutableRefObject,
 } from 'react'
-import { Crosshair, X } from 'lucide-react'
+import { Crosshair, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   CAN_NODE_TYPES,
@@ -27,11 +27,15 @@ import {
   LANE_LABEL_W,
   LANE_WINDOW_MS,
   PAN_THRESHOLD_PX,
+  ZOOM_IN,
+  ZOOM_OUT,
   buildLaneModel,
   clampLaneView,
+  clampWindowMs,
   livePinnedView,
   paintArbitrationLanes,
   panDeltaMs,
+  zoomAround,
   type LaneView,
 } from './CanArbitrationLanes'
 
@@ -48,8 +52,9 @@ import {
  *   counters and arbitration attribute to something real.
  * - **Arbitration.** One lane per node over a short sliding window. Hollow
  *   ticks are deferrals; a hop marks the retry. Live-follow matches
- *   TracePanel (drag to freeze, Crosshair to jump back); the canvas itself
- *   is not TracePanel's CTF Gantt — that renderer is bound to thread/state.
+ *   TracePanel (drag to freeze, Crosshair to jump back, ± / wheel zoom);
+ *   the canvas itself is not TracePanel's CTF Gantt — that renderer is bound
+ *   to thread/state.
  * - **Traffic.** Every frame, plus the two events nothing in the guest can
  *   show: a frame its filters dropped, and one that lost arbitration.
  */
@@ -158,41 +163,61 @@ function ArbitrationSection({
   log: readonly CanLogEntry[]
 }) {
   const [follow, setFollow] = useState(true)
-  const jumpLiveRef = useRef<(() => void) | null>(null)
+  const apiRef = useRef<{ jumpLive: () => void; zoom: (factor: number) => void } | null>(null)
 
   if (nodes.length === 0 || log.length === 0) return null
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <span
           className="text-[11px] font-medium text-muted-foreground"
           title="Who transmitted, who deferred. Lower ID wins the bus."
         >
           Arbitration
         </span>
-        <button
-          type="button"
-          title={follow ? 'Following live edge' : 'Jump to live edge'}
-          aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
-          aria-pressed={follow}
-          onClick={() => {
-            jumpLiveRef.current?.()
-            setFollow(true)
-          }}
-          className={cn(
-            'ml-auto rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground',
-            follow && 'text-primary',
-          )}
-        >
-          <Crosshair className="size-3" />
-        </button>
+        <div className="ml-auto flex items-center gap-0.5">
+          <button
+            type="button"
+            title="Zoom in"
+            aria-label="Zoom in"
+            onClick={() => apiRef.current?.zoom(ZOOM_IN)}
+            className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <ZoomIn className="size-3" />
+          </button>
+          <button
+            type="button"
+            title="Zoom out"
+            aria-label="Zoom out"
+            onClick={() => apiRef.current?.zoom(ZOOM_OUT)}
+            className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <ZoomOut className="size-3" />
+          </button>
+          <button
+            type="button"
+            title={follow ? 'Following live edge' : 'Jump to live edge'}
+            aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
+            aria-pressed={follow}
+            onClick={() => {
+              apiRef.current?.jumpLive()
+              setFollow(true)
+            }}
+            className={cn(
+              'rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground',
+              follow && 'text-primary',
+            )}
+          >
+            <Crosshair className="size-3" />
+          </button>
+        </div>
       </div>
       <ArbitrationLanes
         nodes={nodes}
         log={log}
         follow={follow}
         setFollow={setFollow}
-        jumpLiveRef={jumpLiveRef}
+        apiRef={apiRef}
       />
     </div>
   )
@@ -203,13 +228,13 @@ function ArbitrationLanes({
   log,
   follow,
   setFollow,
-  jumpLiveRef,
+  apiRef,
 }: {
   nodes: readonly CanNodeSnapshot[]
   log: readonly CanLogEntry[]
   follow: boolean
   setFollow: (v: boolean) => void
-  jumpLiveRef: MutableRefObject<(() => void) | null>
+  apiRef: MutableRefObject<{ jumpLive: () => void; zoom: (factor: number) => void } | null>
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<{
@@ -219,9 +244,12 @@ function ArbitrationLanes({
     moved: boolean
   } | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const [liveWindowMs, setLiveWindowMs] = useState(LANE_WINDOW_MS)
   const [view, setView] = useState<LaneView | null>(null)
   const followRef = useRef(follow)
   followRef.current = follow
+  const viewRef = useRef(view)
+  viewRef.current = view
 
   // Only tick the clock while following — a frozen view must not drift.
   useEffect(() => {
@@ -235,17 +263,35 @@ function ArbitrationLanes({
   const tip = log.length > 0 ? Math.max(log[log.length - 1]!.at, now) : now
 
   useEffect(() => {
-    if (follow) setView(livePinnedView(tip, LANE_WINDOW_MS))
-  }, [follow, tip])
+    if (follow) setView(livePinnedView(tip, liveWindowMs))
+  }, [follow, tip, liveWindowMs])
+
+  const applyZoom = (factor: number, pivot?: number) => {
+    const current = viewRef.current
+    if (!current) return
+    if (followRef.current) {
+      const next = clampWindowMs((current.t1 - current.t0) * factor)
+      setLiveWindowMs(next)
+      setView(livePinnedView(tip, next))
+      return
+    }
+    const p = pivot ?? (current.t0 + current.t1) / 2
+    setView(zoomAround(log, current, factor, p))
+  }
 
   useEffect(() => {
-    jumpLiveRef.current = () => {
-      setView(livePinnedView(tip, LANE_WINDOW_MS))
+    apiRef.current = {
+      jumpLive: () => {
+        const current = viewRef.current
+        if (current) setLiveWindowMs(clampWindowMs(current.t1 - current.t0))
+        setFollow(true)
+      },
+      zoom: (factor) => applyZoom(factor),
     }
     return () => {
-      jumpLiveRef.current = null
+      apiRef.current = null
     }
-  }, [jumpLiveRef, tip])
+  })
 
   const model = useMemo(() => {
     if (!view) return null
@@ -281,8 +327,24 @@ function ArbitrationLanes({
     <canvas
       ref={canvasRef}
       className="block w-full cursor-grab touch-none rounded border border-border active:cursor-grabbing"
-      title="Drag to pause. Hollow tick: lost arbitration. Hop: the retry that followed."
+      title="Drag to pause · wheel or ± to zoom. Hollow tick: lost arbitration."
       aria-label="Arbitration lanes"
+      onWheel={(e) => {
+        if (!view) return
+        e.preventDefault()
+        const factor = e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN
+        if (follow) {
+          applyZoom(factor)
+          return
+        }
+        const rect = e.currentTarget.getBoundingClientRect()
+        const plotW = Math.max(1, rect.width - LANE_LABEL_W)
+        const x = e.clientX - rect.left
+        const frac =
+          x < LANE_LABEL_W ? 0.5 : Math.min(1, Math.max(0, (x - LANE_LABEL_W) / plotW))
+        const pivot = view.t0 + frac * (view.t1 - view.t0)
+        applyZoom(factor, pivot)
+      }}
       onPointerDown={(e) => {
         if (!view || !e.isPrimary) return
         try {

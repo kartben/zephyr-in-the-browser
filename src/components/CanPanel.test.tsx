@@ -147,6 +147,8 @@ describe('CanView', () => {
     expect(out).toContain('Arbitration')
     expect(html(bus.nodes(), bus.log())).toContain('aria-label="Arbitration lanes"')
     expect(html(bus.nodes(), bus.log())).toContain('Following live edge')
+    expect(html(bus.nodes(), bus.log())).toContain('Zoom in')
+    expect(html(bus.nodes(), bus.log())).toContain('Zoom out')
   })
 
   it('keeps the lane strip off an idle bus', () => {

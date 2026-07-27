@@ -10,14 +10,19 @@
  *
  * Interaction mirrors {@link ./TracePanel}'s live-follow idiom (not its CTF
  * Gantt): pinned to the newest edge until the reader pans, Crosshair jumps
- * back to live. The strip stays its own renderer — TracePanel's lanes are
- * thread/state, and inventing fake threads for CAN would be the wrong seam.
+ * back to live, ± / wheel zoom changes the window without leaving follow.
+ * The strip stays its own renderer — TracePanel's lanes are thread/state, and
+ * inventing fake threads for CAN would be the wrong seam.
  */
 
 import type { CanLogEntry, CanNodeSnapshot } from '@/can/bus'
 
-/** Sliding window the strip shows, in ms. */
+/** Default live-follow window. */
 export const LANE_WINDOW_MS = 2000
+export const MIN_WINDOW_MS = 50
+export const MAX_WINDOW_MS = 30_000
+export const ZOOM_IN = 0.7
+export const ZOOM_OUT = 1.4
 
 /** Left gutter for lane labels — pan math needs the same number. */
 export const LANE_LABEL_W = 52
@@ -79,6 +84,10 @@ export function livePinnedView(tip: number, windowMs = LANE_WINDOW_MS): LaneView
   return { t0: tip - windowMs, t1: tip }
 }
 
+export function clampWindowMs(ms: number): number {
+  return Math.max(MIN_WINDOW_MS, Math.min(MAX_WINDOW_MS, ms))
+}
+
 /**
  * Keep a panned window inside the log's span. A window taller than the log
  * collapses to the full extent; an empty log is left alone.
@@ -104,6 +113,20 @@ export function clampLaneView(
     a = b - span
   }
   return { t0: a, t1: b }
+}
+
+/** Zoom `view` around `pivot`, then clamp into the log. */
+export function zoomAround(
+  log: readonly CanLogEntry[],
+  view: LaneView,
+  factor: number,
+  pivot: number,
+): LaneView {
+  const span = Math.max(1, view.t1 - view.t0)
+  const next = clampWindowMs(span * factor)
+  const frac = span > 0 ? (pivot - view.t0) / span : 0.5
+  const t0 = pivot - next * frac
+  return clampLaneView(log, t0, t0 + next)
 }
 
 /**
