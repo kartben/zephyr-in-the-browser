@@ -9,15 +9,18 @@
  * reports what we consumed, which is how the guest sees free space. Every
  * access is a plain shared-memory operation — no call ever enters the guest.
  *
- * Consumption runs on a 100 ms poll whether or not sound is enabled: a muted
- * page still drains (and drops) samples so the guest's flow control behaves
- * identically either way. Playback goes through the Web Audio API, which the
- * browser's autoplay policy gates behind a user gesture — hence enable() being
- * called from a click in AudioPanel rather than from attach().
+ * Consumption runs on the shared 100 ms host poll whether or not sound is
+ * enabled: a muted page still drains (and drops) samples so the guest's flow
+ * control behaves identically either way. Playback goes through the Web Audio
+ * API, which the browser's autoplay policy gates behind a user gesture —
+ * hence enable() being called from a click in AudioPanel rather than from
+ * attach().
  *
  * Like hostGpio, deliberately not part of the PtyBackend seam: the bridge is
  * optional, and a backend with no audio device need not know it exists.
  */
+
+import { HOST_POLL_MS, register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
 interface AudioExports {
   _qemu_host_audio_get_rate?: () => number
@@ -47,8 +50,9 @@ const EMPTY: AudioSnapshot = { available: false, enabled: false, rate: 0, channe
 /** Keep scheduled audio this far ahead of the clock to ride out poll jitter. */
 const LEAD_SECONDS = 0.06
 
+const POLL_ID = 'audio'
+
 let exports: AudioExports | null = null
-let poller: ReturnType<typeof setInterval> | undefined
 const listeners = new Set<() => void>()
 
 let snapshot = EMPTY
@@ -64,14 +68,13 @@ export function attach(mod: unknown) {
   exports = mod as AudioExports
   if (available()) {
     readIndex = exports?._qemu_host_audio_get_write_index?.() ?? 0
-    poller = setInterval(poll, 100)
+    registerPoll(POLL_ID, HOST_POLL_MS, poll)
   }
   update()
 }
 
 export function detach() {
-  if (poller !== undefined) clearInterval(poller)
-  poller = undefined
+  unregisterPoll(POLL_ID)
   exports = null
   enabled = false
   readIndex = 0

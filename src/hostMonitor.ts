@@ -25,7 +25,10 @@
  * nothing. Old image tarballs stay bootable.
  */
 
-const POLL_MS = 120
+import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
+
+const POLL_ID = 'monitor'
+const POLL_MS = 100
 
 interface MonitorExports {
   /** Queue one byte of command text towards the monitor. */
@@ -50,7 +53,6 @@ const EMPTY: MonitorState = { available: false, paused: false }
 
 let exports: MonitorExports | null = null
 let state: MonitorState = EMPTY
-let poll: ReturnType<typeof setInterval> | undefined
 let pending = ''
 let negotiated = false
 /** The mock stand-in, which has no machine and so never sends events. */
@@ -182,14 +184,13 @@ export function attach(mod: unknown) {
   stub = false
   if (available()) {
     // The greeting is already waiting in the ring; drain() answers it.
-    poll = setInterval(drain, POLL_MS)
+    registerPoll(POLL_ID, POLL_MS, drain)
     publish({ available: true, paused: false })
   }
 }
 
 export function detach() {
-  if (poll !== undefined) clearInterval(poll)
-  poll = undefined
+  unregisterPoll(POLL_ID)
   exports = null
   pending = ''
   negotiated = false

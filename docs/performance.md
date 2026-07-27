@@ -28,7 +28,7 @@ the list matters for a given workload:
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount` prevents the DAC reaching 1 kHz — **disabled after measurement** | `src/boards.ts` | High, synchronous virtio | Very low | Low (MIPS telemetry unavailable) |
 | 7 | QEMU **completion wake** + idle drain 10→50 ms safety net — local measured, release pending | virtio patch | High, I²C-bound | Low | Medium |
-| 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
+| 8 | Slow host bridges share one 100 ms beat (`hostPoll`) — net / stepper / virtio keep private timers | `src/hostPoll.ts`, `src/host*.ts` | Medium | Done | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
 | 11 | Trace Gantt + CTF poll did work while collapsed / copied whole MEMFS file | `TracePanel`, `hostTrace` | Medium, tracing | Low | Low |
@@ -368,37 +368,44 @@ the request-detection or completion-wake hop.
 
 ## 8. Seven pollers share the thread that runs xterm and React
 
-Attached at once on the A53 board, all on the main thread:
+Attached at once on the A53 board:
 
-| Poller | Period | File |
-| --- | --- | --- |
-| virtio bridge | atomic request wake; 50 ms maintenance/fallback | `src/virtio/transport.ts` |
-| net | 10 ms hot, 100 ms idle | `src/hostNet.ts:398` |
-| GPIO (MMIO boards) | 100 ms | `src/hostGpio.ts:135` |
-| audio | 100 ms | `src/hostAudio.ts:67` |
-| display metadata | 200 ms | `src/hostDisplay.ts:89` |
-| trace | 200 ms | `src/hostTrace.ts:181` |
-| guest stats | 500 ms | `src/guestStats.ts:99` |
-| GNSS transmit | 1000 ms | `src/hostGnss.ts:35` |
+| Poller | Period | File | Timer |
+| --- | --- | --- | --- |
+| virtio bridge | atomic request wake; 50 ms maintenance/fallback | `src/virtio/transport.ts` | own |
+| net | 10 ms hot, 100 ms idle | `src/hostNet.ts` | own (adaptive) |
+| GPIO (MMIO boards) | 100 ms; 1 ms with steppers | `src/hostGpio.ts` | shared / own |
+| audio | 100 ms | `src/hostAudio.ts` | shared |
+| display metadata | 200 ms | `src/hostDisplay.ts` | shared |
+| trace | 200 ms | `src/hostTrace.ts` | shared |
+| guest stats | 500 ms | `src/guestStats.ts` | shared |
+| GNSS transmit | 1000 ms | `src/hostGnss.ts` | shared |
+| QMP monitor | 100 ms | `src/hostMonitor.ts` | shared |
 
-Each remaining poller is individually cheap — most are a single shared-memory load — but they
-share the thread with xterm.js, React, and Emscripten's proxied main-thread work,
-and `transport.ts` already documents catching the display falling behind because
-of main-thread contention. The framebuffer upload was moved off this thread for
-exactly that reason. Virtio request detection now blocks in a worker, although
-its browser-facing device models still dispatch on this thread.
+The slow bridges share one 100 ms beat in [`src/hostPoll.ts`](../src/hostPoll.ts)
+— one wakeup runs whichever tasks are due, instead of five staggered
+`setInterval`s. Each remaining poller is individually cheap — most are a
+single shared-memory load — but they share the thread with xterm.js, React,
+and Emscripten's proxied main-thread work, and `transport.ts` already
+documents catching the display falling behind because of main-thread
+contention. The framebuffer upload was moved off this thread for exactly
+that reason. Virtio request detection now blocks in a worker, although its
+browser-facing device models still dispatch on this thread.
 
-Two remaining directions are worth doing: fold the slow pollers into one timer
-that runs all of them (one wakeup at 100 ms instead of five staggered ones), and
-move other shared-heap readers with no DOM dependency into dedicated workers.
+Net keeps its adaptive 10/100 ms timer (hot bursts matter). GPIO steppers
+keep a private 1 ms timer so STEP edges are not lost; the default MMIO
+path rides the shared beat. Further wins: move other shared-heap readers
+with no DOM dependency into dedicated workers, and replace the audio /
+mic timers with an `AudioWorklet` (items 9 and 14).
 
 ## 9. Audio is pulled on a 100 ms timer
 
-`src/hostAudio.ts:67` pulls PCM out of the guest's ring on a 100 ms
-`setInterval` and schedules it `LEAD_SECONDS = 0.06` ahead of the AudioContext
-clock. A 60 ms lead against a 100 ms poll has no margin: any main-thread stall
-longer than 60 ms — a React re-render storm, a large terminal write, a GC — is an
-audible gap, and in a hidden tab, where timers clamp to ~1 s, it is silence.
+`src/hostAudio.ts` pulls PCM out of the guest's ring on the shared 100 ms
+host poll (`src/hostPoll.ts`) and schedules it `LEAD_SECONDS = 0.06` ahead of
+the AudioContext clock. A 60 ms lead against a 100 ms poll has no margin: any
+main-thread stall longer than 60 ms — a React re-render storm, a large
+terminal write, a GC — is an audible gap, and in a hidden tab, where timers
+clamp to ~1 s, it is silence.
 
 An `AudioWorklet` reading the same ring straight out of the shared heap removes
 the timer from the path entirely: the audio thread is real-time, never clamped,
@@ -495,7 +502,7 @@ robustness rather than end-to-end latency.
 5. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
 6. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
-7. Items 8/9/14 — consolidate the remaining main-thread pollers and move audio
+7. ~~Item 8 (shared host poll)~~ — done in-page. Items 9/14 — move audio
    (and mic) onto `AudioWorklet`.
 8. Item 13 leftovers — hex cell memoization / shared `useDeviceTree` only if a
    profile still shows them after the NetBadge / dock-memo / flash-coalesce pass.

@@ -1,5 +1,7 @@
 /** Browser end of the NMEA-over-UART GNSS bridge. */
 
+import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
+
 export interface GnssFix {
   latitude: number
   longitude: number
@@ -24,7 +26,8 @@ const DEFAULT_FIX: GnssFix = {
 
 let exports: GnssExports | null = null
 let fix = DEFAULT_FIX
-let transmitter: ReturnType<typeof setInterval> | undefined
+const POLL_ID = 'gnss'
+const POLL_MS = 1000
 const listeners = new Set<() => void>()
 
 export function attach(mod: unknown) {
@@ -32,14 +35,13 @@ export function attach(mod: unknown) {
   exports = mod as GnssExports
   if (available()) {
     transmit()
-    transmitter = setInterval(transmit, 1000)
+    registerPoll(POLL_ID, POLL_MS, transmit)
   }
   notify()
 }
 
 export function detach() {
-  if (transmitter !== undefined) clearInterval(transmitter)
-  transmitter = undefined
+  unregisterPoll(POLL_ID)
   exports = null
   notify()
 }

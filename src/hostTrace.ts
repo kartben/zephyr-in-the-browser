@@ -12,9 +12,11 @@
  */
 
 import { fallbackDefs, loadEventDefs, TraceReader, type Trace } from '@/ctf'
+import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
 const TRACE_PATHS = ['./tracing.bin', '/tracing.bin', 'tracing.bin']
 const METADATA_URL = `${import.meta.env.BASE_URL}tracing/metadata`
+const POLL_ID = 'trace'
 const POLL_MS = 200
 /** Cap retained events so a long-running sample cannot unbounded-grow the heap. */
 const MAX_EVENTS = 50_000
@@ -57,7 +59,6 @@ let mod: TraceModule | null = null
 let reader: TraceReader | null = null
 let offset = 0
 let path: string | null = null
-let poll: ReturnType<typeof setInterval> | undefined
 let snapshot: TraceSnapshot = EMPTY
 let defsReady: Promise<void> | null = null
 let defs = fallbackDefs()
@@ -191,12 +192,11 @@ export function attach(instance: unknown) {
   mod = instance as TraceModule
   void ensureDefs()
   sample()
-  poll = setInterval(sample, POLL_MS)
+  registerPoll(POLL_ID, POLL_MS, sample)
 }
 
 export function detach() {
-  if (poll !== undefined) clearInterval(poll)
-  poll = undefined
+  unregisterPoll(POLL_ID)
   mod = null
   reader = null
   offset = 0
