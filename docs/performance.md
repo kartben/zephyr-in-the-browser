@@ -36,7 +36,7 @@ the list matters for a given workload:
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
 | 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
-| 15 | **Nothing ever measured the browser hop itself** — instrumented, needs a rebuild to read | virtio patch, `src/virtio/transport.ts` | Decides whether moving device models is worth anything | Low | Low |
+| 15 | **The browser hop measured at 4 % of a transfer** — settles "move device models into wasm": no | virtio patch, `src/virtio/transport.ts` | None; closes a question | Low | Low |
 
 ## I²C throughput: what is left
 
@@ -56,16 +56,19 @@ Measured ceiling after the work above:
 | Atomic request waiter | Done (#102) | **No DAC win** in same-build A/B (~800 Hz both ways) |
 | QEMU hot-path (token stack, idle 50 ms) | Done (#118) | Needs published wasm |
 | **Coalesce completion kicks per poll** | Done (this change) | Cuts BH storms on multi-msg transfers; DAC unchanged (1 msg) |
-| Page chip model | Not the limit | Pure-JS microbench ~380 kHz |
+| Page chip model | Not the limit | Pure-JS microbench ~380 kHz; 5 µs of a 1000 µs transfer measured live (item 15) |
+| Device models in wasm/C instead of the page | Not worth it | Caps at the 44 µs hop — 4.4 % (item 15) |
 
 The binding constraint for a synchronous one-message write is still ~1.1–1.2 ms
 of **guest VirtIO/I²C stack work** under Wasm TCG (~1.1 measured MIPS while
 blocked). The JS handle + MCP4725 path is microseconds.
 
-That attribution is arrived at by elimination — every lever above moved
-something else, so what is left must be guest-side. Item 15 now times the
-browser hop directly instead, so the next revision of this table can state the
-split rather than infer it.
+That attribution used to rest on elimination — every lever above moved
+something else, so what was left had to be guest-side. Item 15 now times it
+directly, and the elimination held: of a 1.000 ms DAC transfer, **0.049 ms is
+the browser** (0.005 ms of it the device model) and **0.951 ms is guest + TCG**
+plus the notify→vCPU-resume gap. On accel_chart's 4.167 ms transfer the browser
+is 0.064 ms. Nothing page-side is worth another pass.
 
 What still moves the needle:
 
@@ -84,7 +87,9 @@ What still moves the needle:
    driven.
 
 Not worth chasing for I²C Hz: moving chip models into a Worker (#101 measured
-zero gain), SCL/"bus speed" knobs (there is no bus), or classic DMA/FIFO.
+zero gain), moving them into the wasm module as QEMU C (item 15 bounds the win
+at 4.4 % of a transfer, and #101's null result is the same finding from the
+other side), SCL/"bus speed" knobs (there is no bus), or classic DMA/FIFO.
 
 ## Instruments that already exist
 
@@ -107,6 +112,16 @@ Item 1 added `bridgePollMs` (the compatibility hot-loop pace), `bridgeHz`
 second), and `bridgeWaiterActive`. A hot workload on an old emulator gets a
 `bridge_waiter_inactive` note; `tools/probe-timer-clamp.mjs` measures the timer
 fallback in isolation.
+
+**One instrument here is currently lying by omission.** `wakeAvgNs` /
+`wakeCount` (notify→vCPU-resume,
+`0015-instrument-vcpu-wake-latency.patch`) returned `count = 0` across a
+12-second DAC run with 11,979 completions — the exports answer, so they are in
+the build, but nothing increments them. The likely cause is that the patch
+hooks `rr_cpu_thread_fn` and the A53 no longer runs it: removing `-icount`
+(item 6) makes MTTCG eligible, which uses `mttcg_cpu_thread_fn` instead. Treat
+a zero `wakeCount` as "not measured on this build", not as "no wake latency",
+and see item 15 for what that leaves unresolved.
 
 The other half of the round trip — how long QEMU took to notice a completion —
 used to be missing here. Item 15 closes it: QEMU now times each chain from
@@ -539,7 +554,7 @@ manual resampling into the shared heap. Same argument as item 9: an
 already dominated by the guest's 100 ms block reads, so this is glitch
 robustness rather than end-to-end latency.
 
-## 15. Nothing ever measured the browser hop itself
+## 15. The browser hop, measured: 4 % of a blocking I²C transfer
 
 Every latency conclusion on this page so far has been reached by elimination:
 the atomic request waiter changed no DAC throughput (item 1), `-icount` removal
@@ -561,7 +576,47 @@ own cost, which `tools/bench-dac-i2c.mjs` puts at **8.5 µs** per I²C transfer
 against a round trip three orders of magnitude larger. So the hop is the entire
 upside, and the hop had never been measured.
 
-**Instrumented, unmeasured — the number is owed.**
+**Measured**, on a local rebuilt A53 artifact:
+
+| | DAC sawtooth (1 kHz) | accel_chart (240 Hz) |
+| --- | --- | --- |
+| `periodMs` — one transfer, end to end | 1.000 | 4.167 |
+| `roundTripAvgMs` — QEMU's whole browser hop | 0.049 | 0.064 |
+| `serviceAvgMs` — dispatch + device model | 0.005 | 0.013 |
+| **`hopAvgMs`** — the two cross-thread hops | **0.044** | **0.051** |
+| `guestShareMs` — guest + TCG | 0.951 | 4.103 |
+| samples / over 5 ms | 11,979 / 1 | 2,386 / 0 |
+
+**The browser is 4.9 % of a DAC transfer and 1.5 % of an accel-chart one**, of
+which the hop proper — everything a wasm-side device model could delete — is
+4.4 % and 1.2 %. The DAC is already at its intended 1 kHz, so even that 4.4 %
+is not realizable throughput: the sample is rate-limited by its own loop, not
+by the bus. Nine transfers per SSD1306 frame come to 0.4 ms of hop against a
+~90 ms frame.
+
+So the answer to "should peripheral emulation happen in the wasm environment?"
+is no, at least not for latency. It would move 9.4k lines of TypeScript models
+and 2.7k lines of vitest into C behind an hours-long containerised rebuild, add
+a state-sync channel per chip for the ones owning browser state, and buy back
+under 5 % of a transfer. The `serviceAvgMs` of 5–13 µs also lands right on the
+8.5 µs `tools/bench-dac-i2c.mjs` measures for the model alone, which says the
+main thread is not contended on these workloads either — item 8's consolidation
+already did its job.
+
+One caveat on `guestShareMs`, and it is the honest limit of this measurement:
+the round trip ends when QEMU *drains* the completion, before `virtio_notify`
+and before the vCPU resumes. So `guestShareMs` is guest instructions **plus**
+notify→vCPU-resume. Item 7's `wake_*` counters exist to separate exactly those
+and reported `wakeCount = 0` on this run — the exports answer, so they are
+compiled in, but nothing ever incremented them. Most likely
+`0015-instrument-vcpu-wake-latency.patch` hooks `rr_cpu_thread_fn` and the A53
+stopped using it when item 6 removed `-icount`, since MTTCG becomes eligible as
+soon as icount is off. Unconfirmed, and worth confirming before anyone reads
+0.951 ms as "guest code": if it is MTTCG, the same hook belongs in
+`tcg-accel-ops-mttcg.c`, and until then the split inside `guestShareMs` is
+unknown.
+
+The instrumentation, for reference.
 `tools/qemu-jit-patches/0018-instrument-bridge-roundtrip.patch` stamps
 `QEMU_CLOCK_REALTIME` into each token as its request record is published and
 closes the loop when the drain claims that token, keeping a per-device
@@ -611,28 +666,32 @@ without moving anything into C.
 
 ### How to read the result
 
-- **`hopAvgMs` small relative to `periodMs`** (the outcome the elimination
-  evidence predicts): moving device models into the wasm module buys that much
-  and no more. It would cost the 9.4k lines of TypeScript models and 2.7k lines
-  of vitest that
+The first bullet is the one that happened; the others are kept because the
+harness will be re-run against other workloads and other builds.
+
+- **`hopAvgMs` small relative to `periodMs`** — the measured outcome, and the
+  one the elimination evidence predicted. Moving device models into the wasm
+  module buys that much and no more. It would cost the 9.4k lines of TypeScript
+  models and 2.7k lines of vitest that
   [`docs/virtio-bridge.md`](virtio-bridge.md#why-it-exists) exists to keep out of
   C, plus a state-sync channel per chip for the ones that own browser state —
   `localStorage` (`memory/model.ts`), device motion, and the UI subscriptions
   every card renders from. Spend the hours on the guest side instead.
-- **`hopAvgMs` a large share of `periodMs`**: the hop is worth removing, but
-  the first thing to try is still not C — and note that it has partly been
-  tried already. Moving chip models into a worker measured zero gain (#101,
-  recorded above under "not worth chasing for I²C Hz"), which under a small
-  `hopAvgMs` is simply consistent; under a large one it would mean the cost is
-  in the QEMU-side hop rather than the main-thread dispatch, and answering from
+- **`hopAvgMs` a large share of `periodMs`** — did not happen here, but if a
+  future workload shows it, the first thing to try is still not C, and part of
+  it has been tried: moving chip models into a worker measured zero gain
+  (#101). Under the small hop measured here that null result is simply
+  consistent. Under a large one it would mean the cost sits in the QEMU-side
+  hop rather than main-thread dispatch, so answering from
   `src/virtio/requestWaitWorker.ts` — which already blocks in `Atomics.wait` on
   the shared heap and today only forwards a `postMessage` — would not help
-  either. Either way that measurement, not a rewrite, is what tells the two
-  apart.
-- **`guestShareMs` dominant either way**: the lever is the guest's own path —
-  the suspend/IRQ/resume per transfer, and workloads that pay it repeatedly,
-  like the SSD1306's nine transfers per frame
-  (`src/virtio/devices/chips/ssd1306.ts:11`).
+  either.
+- **`guestShareMs` dominant** — what the DAC and accel_chart both show, at 95 %
+  and 98 %. The lever is the guest's own path: the suspend/IRQ/resume per
+  transfer, and workloads that pay it repeatedly, like the SSD1306's nine
+  transfers per frame (`src/virtio/devices/chips/ssd1306.ts:11`). Before
+  attributing all of it to guest instructions, though, close the `wake_*` gap
+  above — notify→vCPU-resume is inside this number and is currently unmeasured.
 
 ## Suggested order
 
@@ -645,10 +704,10 @@ without moving anything into C.
    is a precondition for trusting item 2. Compare MIPS before and after.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
-5. Item 15's round-trip read — rides the same rebuild as items 3 and 4 and
-   costs one `node tools/profile-dac.mjs` afterwards. Do it before any work
-   that moves device models anywhere, because it is the only thing that says
-   whether such a move has an upside at all.
+5. ~~Item 15's round-trip read~~ — done: the hop is 4.4 % of a DAC transfer,
+   so no work that moves device models anywhere is worth starting. What it
+   turned up instead is that item 7's `wake_*` counters have gone silent
+   (`wakeCount = 0`), which is now the open question about that 0.951 ms.
 6. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
 7. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.

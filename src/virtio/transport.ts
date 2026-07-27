@@ -138,7 +138,8 @@ export function notifySourceStats(): NotifySourceStats | null {
  * share of that, from the poll that picked the request up to the reply going
  * into the ring. The difference between them is the two cross-thread hops —
  * the part, and the only part, that moving device models into the wasm
- * module would remove. See docs/performance.md item 15.
+ * module would remove. Measured on a rebuilt A53: 0.044 ms of a 1.000 ms DAC
+ * transfer, so that move is not worth making. See docs/performance.md item 15.
  *
  * Both are per device: a model that parks chains by design (virtio-gpio holds
  * one event chain per line, indefinitely) would otherwise bury i2c's answer.
