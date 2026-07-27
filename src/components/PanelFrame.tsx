@@ -63,6 +63,7 @@ interface PanelFrameProps {
  * its header and resized from the corner. Floating position and size persist
  * across reloads (src/lib/panelLayout.ts); collapse and dismissal are
  * session-only so the running sample keeps driving which panels open expanded.
+ * Double-clicking a floating header collapses or expands the body.
  */
 export function PanelFrame({
   id,
@@ -136,6 +137,12 @@ export function PanelFrame({
         data-dock-focus
         tabIndex={-1}
         {...(floating ? dragHandlers : {})}
+        onDoubleClick={(event) => {
+          // Undocked windows: title-bar double-click toggles collapse (OS-like).
+          if (!floating) return
+          if (event.target instanceof Element && event.target.closest('button')) return
+          setCollapsed((c) => !c)
+        }}
         className={cn(
           'flex items-center gap-2 px-3 py-2 outline-none',
           !collapsed && 'border-b border-border',
