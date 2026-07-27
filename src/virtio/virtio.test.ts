@@ -503,6 +503,53 @@ describe('virtio transport', () => {
     expect(Atomics.load(words, wakeAddr >> 2)).toBeGreaterThan(wakeBefore)
     expect(dev.completions()).toHaveLength(1)
   })
+
+  it('coalesces one page→QEMU kick for a multi-request drain', () => {
+    // Mirrors virtio-i2c: the guest queues every message of a transfer, then
+    // notifies once, so N chains land in one poll. Each used to kick QEMU on
+    // its own reply; one BH is enough for the whole batch.
+    const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }])
+    register({
+      name: 'echo',
+      handle: (req) => req.reply(req.out.slice()),
+    })
+    const before = stats()
+    attach(bridge.module)
+    const dev = bridge.device('echo')
+    dev.kick(0, Uint8Array.of(1), 1)
+    dev.kick(0, Uint8Array.of(2), 1)
+    dev.kick(0, Uint8Array.of(3), 1)
+    pollOnce()
+
+    const after = stats()
+    expect(after.requests).toBe(before.requests + 3)
+    expect(after.kicks).toBe(before.kicks + 1)
+    expect(dev.completions()).toHaveLength(3)
+  })
+
+  it('still kicks immediately for a reply outside the poll', () => {
+    let held: VirtioRequest | null = null
+    const bridge = createFakeBridge([{ name: 'park', deviceId: 99 }])
+    register({
+      name: 'park',
+      handle(req) {
+        req.park()
+        held = req
+      },
+    })
+    const before = stats()
+    attach(bridge.module)
+    const dev = bridge.device('park')
+    dev.kick(0, Uint8Array.of(1), 1)
+    pollOnce()
+    // Parking answers nothing, so the drain produced no completion wake.
+    expect(stats().kicks).toBe(before.kicks)
+    expect(held).not.toBeNull()
+
+    held!.reply(Uint8Array.of(0xaa))
+    expect(stats().kicks).toBe(before.kicks + 1)
+    expect(dev.completions()).toHaveLength(1)
+  })
 })
 
 describe('virtio-gpio model', () => {
