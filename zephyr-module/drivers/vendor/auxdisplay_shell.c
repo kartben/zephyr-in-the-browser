@@ -178,13 +178,13 @@ static int cmd_write(const struct shell *sh, size_t argc, char **argv)
 		}
 	}
 
-	len = strlen(argv[AUXD_ARGV_PATTERN]);
+	len = strlen(argv[AUXD_ARGV_TEXT]);
 	if (len > UINT16_MAX) {
-		shell_error(sh, "Pattern too long");
+		shell_error(sh, "Text too long");
 		return -EINVAL;
 	}
 
-	err = auxdisplay_write(dev, (const uint8_t *)argv[AUXD_ARGV_PATTERN], (uint16_t)len);
+	err = auxdisplay_write(dev, (const uint8_t *)argv[AUXD_ARGV_TEXT], (uint16_t)len);
 	if (err < 0) {
 		return report_error(sh, "write", err);
 	}
@@ -499,7 +499,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      cmd_size, 2, 0),
 	SHELL_CMD_ARG(write, &dsub_device_name,
 		      SHELL_HELP("Write text to the auxiliary display",
-				 "<device> <pattern> [x] [y]"),
+				 "<device> <text> [x] [y]"),
 		      cmd_write, 3, 2),
 	SHELL_SUBCMD_SET_END
 );
