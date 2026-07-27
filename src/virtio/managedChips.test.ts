@@ -14,6 +14,8 @@ import {
   i2cModel,
   ina219,
   isl29035,
+  jhd1313,
+  jhd1313Backlight,
   lm75,
   lps22hh,
   lsm6dso,
@@ -28,10 +30,12 @@ import {
   w25q,
   ws2812,
 } from './index'
+import { isPt6314 } from './devices/chips/pt6314'
 
 afterEach(() => {
   clear()
-  // Drop any user-attached SPI strangers left by a test.
+  // Drop any user-attached SPI strangers left by a test (including CS1
+  // PT6314 minted for the shell tree).
   for (const chip of [...spiModel.chips()]) {
     if (
       chip !== w25q &&
@@ -63,14 +67,24 @@ describe('syncManagedChips', () => {
 
   it('attaches every shell extra when the shell tree arrives', () => {
     setUserDts('shell.dts', a53Shell)
-    expect(addresses()).toEqual([0x3c, 0x40, 0x44, 0x48, 0x49, 0x50, 0x53, 0x5c, 0x68, 0x6a])
+    expect(addresses()).toEqual([
+      0x3c, 0x3e, 0x40, 0x44, 0x48, 0x49, 0x50, 0x53, 0x5c, 0x62, 0x68, 0x6a,
+    ])
     expect(i2cModel.chips()).toContain(lsm6dso)
     expect(i2cModel.chips()).toContain(pcf8523)
+    expect(i2cModel.chips()).toContain(jhd1313)
+    expect(i2cModel.chips()).toContain(jhd1313Backlight)
+    // SPI: NOR stays on CS0; PT6314 coexists on CS1 (auxdisplays snippet).
+    expect(spiModel.chips()).toContain(w25q)
+    const vfd = spiModel.chips().find((c) => c.cs === 1)
+    expect(vfd).toBeDefined()
+    expect(isPt6314(vfd)).toBe(true)
+    expect(vfd).not.toBe(pt6314) // CS0 singleton; shell uses a CS1 instance
   })
 
   it('drops managed chips when the tree has no bridged I2C bus', () => {
     setUserDts('shell.dts', a53Shell)
-    expect(addresses()).toHaveLength(10)
+    expect(addresses()).toHaveLength(12)
 
     setUserDts('blinky.dts', a53Blinky)
     expect(addresses()).toEqual([])

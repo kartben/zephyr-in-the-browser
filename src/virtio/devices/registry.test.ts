@@ -17,7 +17,7 @@ describe('hasDriver', () => {
 
   it('answers from the loaded devicetree when one is known', () => {
     setUserDts('shell.dts', a53Shell)
-    for (const address of [0x40, 0x44, 0x48, 0x49, 0x50, 0x53, 0x5c, 0x68, 0x6a, 0x3c]) {
+    for (const address of [0x3c, 0x3e, 0x40, 0x44, 0x48, 0x49, 0x50, 0x53, 0x5c, 0x68, 0x6a]) {
       expect(hasDriver(address)).toBe(true)
     }
     expect(hasDriver(0x20)).toBe(false)

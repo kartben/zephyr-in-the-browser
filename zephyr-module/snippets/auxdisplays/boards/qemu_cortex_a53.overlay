@@ -1,0 +1,23 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on every auxdisplay the browser models. Requires -S virtio-i2c (for
+ * &auxdisplay_0 / jhd1313@3e) and -S virtio-spi (for &virtio_spi0 + NOR on
+ * CS0). PT6314 sits on CS1 so it coexists with the shell's flash/LittleFS.
+ */
+
+&auxdisplay_0 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	auxdisplay_1: pt6314@1 {
+		compatible = "ptc,pt6314";
+		reg = <1>;
+		spi-max-frequency = <1000000>;
+		columns = <20>;
+		rows = <2>;
+		status = "okay";
+	};
+};

@@ -107,6 +107,15 @@ config VIRTIO_GPU_DISPLAY
 	help
 	  Enable the VIRTIO GPU 2D display driver.
 
+# Vendored from kartben/zephyr auxdisplay_shell_ — same symbol upstream will
+# use under drivers/auxdisplay/Kconfig. CMakeLists.txt drops the vendored
+# source once Zephyr ships drivers/auxdisplay/auxdisplay_shell.c.
+config AUXDISPLAY_SHELL
+	bool "Auxiliary display shell"
+	depends on AUXDISPLAY && SHELL
+	help
+	  Enable the auxiliary display shell with related commands.
+
 config VIRTIO_GPU_DISPLAY_QUEUE_SIZE
 	int "VIRTIO GPU virtqueue size"
 	depends on VIRTIO_GPU_DISPLAY

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { computeInsights, parseDts } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
 import { createPca9685 } from '@/virtio/devices/chips/pca9685'
+import { createJhd1313Pair } from '@/virtio/devices/chips/jhd1313'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
@@ -78,7 +79,8 @@ const A53_DEFAULT_CHIPS: I2cChip[] = [
   fakeSensor(0x53, 'ADXL345 accelerometer'),
 ]
 
-/** Shell with i2c-sensors-extra: defaults plus the optional parts. */
+/** Shell with i2c-sensors-extra + auxdisplays: defaults plus optional parts. */
+const jhd1313Pair = createJhd1313Pair()
 const A53_SHELL_CHIPS: I2cChip[] = [
   ...A53_DEFAULT_CHIPS,
   fakeSensor(0x40, 'INA219 power monitor'),
@@ -86,6 +88,8 @@ const A53_SHELL_CHIPS: I2cChip[] = [
   fakeSensor(0x5c, 'LPS22HH pressure'),
   fakeRtc(0x68, 'PCF8523 RTC'),
   fakeSensor(0x6a, 'LSM6DSO IMU'),
+  jhd1313Pair.lcd,
+  jhd1313Pair.backlight,
 ]
 
 const nodeByKey = (inv: DeviceInventory, key: string) => {
@@ -109,10 +113,12 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(bus.body).toBe('i2c')
     expect(bus.nodeName).toBe('virtio-i2c')
 
-    // All ten chips, in address order, named by their devicetree nodes.
+    // All eleven declared chips, in address order, named by their DT nodes.
+    // Backlight @0x62 is not a DT child (backlight-addr on the LCD node).
     const chipRows = inv.nodes.filter((n) => n.parentKey === 'virtio_i2c0')
     expect(chipRows.map((n) => n.key)).toEqual([
       'virtio_i2c0:3c',
+      'virtio_i2c0:3e',
       'virtio_i2c0:40',
       'virtio_i2c0:44',
       'virtio_i2c0:48',
@@ -131,6 +137,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(tmp.crumb).toBe('virtio_i2c0 · 0x48')
     expect(nodeByKey(inv, 'virtio_i2c0:50').deviceClass).toBe('memory')
     expect(nodeByKey(inv, 'virtio_i2c0:3c').body).toBe('oled')
+    expect(nodeByKey(inv, 'virtio_i2c0:3e').body).toBe('auxdisplay')
+    expect(nodeByKey(inv, 'virtio_i2c0:3e').deviceClass).toBe('auxdisplay')
     expect(nodeByKey(inv, 'virtio_i2c0:68').deviceClass).toBe('rtc')
     expect(nodeByKey(inv, 'virtio_i2c0:68').body).toBe('rtc')
 
@@ -159,7 +167,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     const inv = deriveDeviceInventory(treeOf(a53Shell), [], [], ALL, 'qemu_cortex_a53')
 
     const ghosts = inv.nodes.filter((n) => n.presence === 'ghost')
-    expect(ghosts).toHaveLength(10)
+    expect(ghosts).toHaveLength(11)
     expect(ghosts.every((n) => n.note === 'NAK — detached')).toBe(true)
 
     // A detached declared sensor still files under Sensors, as a ghost.
