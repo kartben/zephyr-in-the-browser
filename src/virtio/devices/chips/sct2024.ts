@@ -55,6 +55,7 @@ export interface Sct2024Options {
 export interface Sct2024Chip extends SpiChip {
   /** Chip-select, also used as {@link RegisterMapSource.address}. */
   readonly address: number
+  readonly addressKind: 'spi-cs'
   readonly registers: readonly RegisterDecl[]
   readonly ledCount: typeof LED_COUNT
   peek(addr: number): number
@@ -183,6 +184,7 @@ export function createSct2024({
   return {
     cs,
     address: cs,
+    addressKind: 'spi-cs',
     name,
     registers: SCT2024_REGISTERS,
     ledCount: LED_COUNT,

@@ -66,7 +66,14 @@ export interface RegisterDecl {
  */
 export interface RegisterMapSource {
   name: string
+  /**
+   * Bus locator for this instance: I²C 7-bit address, or SPI chip-select when
+   * {@link addressKind} is `spi-cs`. Distinguishes multiple copies of the same
+   * part.
+   */
   address: number
+  /** How to display {@link address}. Defaults to I²C hex (`0x48`). */
+  addressKind?: 'i2c' | 'spi-cs'
   registers: readonly RegisterDecl[]
   /** Live register word as a guest read would see it right now. */
   peek(addr: number): number
@@ -77,6 +84,14 @@ export interface RegisterMapSource {
   /** Read-modify-write a bitfield on an `rw` register. */
   setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   subscribe(fn: () => void): () => void
+}
+
+/** Instance locator shown in the Registers panel title (`0x48` / `CS0`). */
+export function formatRegisterMapLocator(
+  chip: Pick<RegisterMapSource, 'address' | 'addressKind'>,
+): string {
+  if (chip.addressKind === 'spi-cs') return `CS${chip.address}`
+  return `0x${chip.address.toString(16).padStart(2, '0')}`
 }
 
 /** Whether a chip exposes a non-empty register map for the inspector. */

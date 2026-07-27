@@ -25,6 +25,7 @@ import {
   formatRegHex,
 } from '@/virtio/devices/registers/fields'
 import {
+  formatRegisterMapLocator,
   hasRegisterMap,
   type FieldDecl,
   type RegisterDecl,
@@ -103,7 +104,7 @@ function RegisterMapDialog({
   onOpenChange: (open: boolean) => void
 }) {
   useRegisterMap(chip)
-  const hex = chip.address.toString(16).padStart(2, '0')
+  const locator = formatRegisterMapLocator(chip)
   const named = chip.registers.filter((r) => r.name).length
 
   return (
@@ -116,10 +117,11 @@ function RegisterMapDialog({
         onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>
-            {chip.name} · 0x{hex}
+          <DialogTitle className="flex min-w-0 items-baseline gap-2 pr-8">
+            <span className="shrink-0 font-mono text-primary">{locator}</span>
+            <span className="min-w-0 truncate">{chip.name}</span>
           </DialogTitle>
-          <DialogDescription className="sr-only">
+          <DialogDescription>
             {named > 0
               ? `${chip.registers.length} registers, ${named} named`
               : `${chip.registers.length} registers`}
