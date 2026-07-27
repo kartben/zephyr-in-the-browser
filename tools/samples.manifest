@@ -79,6 +79,7 @@ qemu_cortex_a53:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c
 qemu_cortex_a53:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:tracing:samples/subsys/tracing/basic
+qemu_cortex_a53:tracing_pipeline:samples/subsys/tracing/pipeline
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
 qemu_cortex_a53:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
@@ -95,8 +96,8 @@ qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf
 qemu_cortex_a53:hello_world:samples/hello_world
 
 # RISC-V 32-bit virt: same virtio / browser-bridge shape as A53. Built with
-# tools/build-qemu-wasm.sh riscv32-softmmu (TCI). Tracing is omitted — that
-# sample rides ARM semihosting on A53.
+# tools/build-qemu-wasm.sh riscv32-softmmu (TCI). Tracing samples are omitted —
+# they ride ARM semihosting on A53.
 qemu_riscv32:gnss:samples/drivers/gnss
 qemu_riscv32:display:samples/drivers/display
 qemu_riscv32:touch:samples/subsys/input/draw_touch_events

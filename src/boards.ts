@@ -487,6 +487,15 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['trace'],
   },
   {
+    // Same CTF + semihosting path as `tracing`, with a multi-thread sensor
+    // pipeline so msgq / mutex / condvar contention shows up in the Gantt.
+    id: 'tracing_pipeline',
+    label: 'Tracing Pipeline',
+    description: 'Sensor pipeline with msgq/mutex/condvar — richer CTF schedule story',
+    zephyrSample: 'samples/subsys/tracing/pipeline',
+    primaryPanels: ['trace'],
+  },
+  {
     // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
@@ -798,8 +807,10 @@ export const BOARDS: Board[] = [
       virtio: true,
       // No -icount / guest-icount export on the TCI riscv32 build yet.
     },
-    // Same guest apps as A53, minus tracing (ARM semihosting CTF path).
-    samples: CORTEX_A53_SAMPLES.filter((s) => s.id !== 'tracing'),
+    // Same guest apps as A53, minus tracing samples (ARM semihosting CTF path).
+    samples: CORTEX_A53_SAMPLES.filter(
+      (s) => s.id !== 'tracing' && s.id !== 'tracing_pipeline',
+    ),
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
