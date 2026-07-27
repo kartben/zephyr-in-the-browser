@@ -38,7 +38,17 @@ export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
     setGroupCollapsed(deviceClass, false)
   }
   setExpanded(key, true)
+  pulseDockKey(key)
+}
 
+/** Unhide + expand + attention blink for a stage panel (does not open the dock). */
+export function revealStagePanel(key: string): void {
+  if (getState().devices[key]?.hidden) setHidden(key, false)
+  setExpanded(key, true)
+  pulseDockKey(key)
+}
+
+function pulseDockKey(key: string): void {
   // Wait a frame so expand/unhide have committed to the DOM.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
