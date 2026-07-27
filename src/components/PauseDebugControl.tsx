@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { RegisterGrid } from '@/components/RegisterGrid'
 import { compactHex } from '@/debug/hexFormat'
 import { filterSymbols, type ElfSymbol } from '@/debug/elfSymbols'
-import { formatStackSize, threadStateLabel } from '@/debug/kernel/threads'
+import { formatStackSize, describeThreadStatus } from '@/debug/kernel/threads'
 import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
 
@@ -467,7 +467,7 @@ function ThreadsPane({
   return (
     <ul className="max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5">
       {snap.threads.map((t) => {
-        const stateLabel = threadStateLabel(t.state, t.current)
+        const status = describeThreadStatus(t)
         const stackAddr = t.stackStart ?? t.sp
         return (
           <li
@@ -477,64 +477,88 @@ function ThreadsPane({
               t.current ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-muted/50',
             )}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-baseline gap-2">
               <span
                 className={cn(
-                  'size-1.5 shrink-0 rounded-full',
+                  'mt-1.5 size-1.5 shrink-0 rounded-full',
                   t.current ? 'bg-primary' : 'bg-foreground/35',
                 )}
                 aria-hidden
               />
-              <button
-                type="button"
-                className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-foreground"
-                title={`Peek TCB at 0x${t.addr.toString(16)}`}
-                onClick={() => onPeek(t.addr.toString(16))}
-              >
-                {t.name}
-              </button>
-              {stateLabel && (
-                <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-foreground/55">
-                  {stateLabel}
-                </span>
-              )}
-            </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 truncate text-left text-[12px] font-medium text-foreground"
+                    title={`Peek TCB at 0x${t.addr.toString(16)}`}
+                    onClick={() => onPeek(t.addr.toString(16))}
+                  >
+                    {t.name}
+                  </button>
+                  {t.prio != null && (
+                    <span
+                      className="shrink-0 font-mono text-[11px] tabular-nums text-foreground/70"
+                      title="Scheduler priority (negative = cooperative)"
+                    >
+                      <span className="text-foreground/40">prio </span>
+                      {t.prio}
+                    </span>
+                  )}
+                </div>
 
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 pl-3.5 font-mono text-[11px] tabular-nums">
-              {t.prio != null && (
-                <span className="text-foreground/80" title="Scheduler priority (negative = cooperative)">
-                  <span className="text-foreground/45">prio </span>
-                  <span className="font-semibold text-foreground">{t.prio}</span>
-                </span>
-              )}
-              {t.stackSize != null && (
-                <span className="text-foreground/80" title="Stack buffer size">
-                  <span className="text-foreground/45">stack </span>
-                  <span className="text-foreground">{formatStackSize(t.stackSize)}</span>
-                </span>
-              )}
-              {stackAddr != null && (
-                <button
-                  type="button"
-                  className="text-primary underline-offset-2 hover:underline"
-                  title={
-                    t.stackStart != null
-                      ? `Peek stack at 0x${t.stackStart.toString(16)}`
-                      : `Peek SP 0x${stackAddr.toString(16)}`
-                  }
-                  onClick={() => onPeek(stackAddr.toString(16), 128)}
-                >
-                  Mem {compactHex(stackAddr.toString(16))}
-                </button>
-              )}
-              <button
-                type="button"
-                className="text-foreground/45 hover:text-foreground/70"
-                title="Peek thread control block"
-                onClick={() => onPeek(t.addr.toString(16))}
-              >
-                tcb {compactHex(t.addr.toString(16))}
-              </button>
+                {status.label && (
+                  <div className="mt-0.5 text-[11px] leading-snug text-foreground/70">
+                    <span className="text-foreground/90">{status.label}</span>
+                    {status.detail && (
+                      <>
+                        <span className="text-foreground/40"> on </span>
+                        {status.detailAddr != null ? (
+                          <button
+                            type="button"
+                            className="font-mono text-primary underline-offset-2 hover:underline"
+                            title={`Peek wait object at 0x${status.detailAddr.toString(16)}`}
+                            onClick={() => onPeek(status.detailAddr!.toString(16))}
+                          >
+                            {status.detail}
+                          </button>
+                        ) : (
+                          <span className="font-mono text-foreground/80">{status.detail}</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[10px] tabular-nums text-foreground/50">
+                  {t.stackSize != null && (
+                    <span title="Stack buffer size">
+                      stack {formatStackSize(t.stackSize)}
+                    </span>
+                  )}
+                  {stackAddr != null && (
+                    <button
+                      type="button"
+                      className="text-primary/90 underline-offset-2 hover:underline"
+                      title={
+                        t.stackStart != null
+                          ? `Peek stack at 0x${t.stackStart.toString(16)}`
+                          : `Peek SP 0x${stackAddr.toString(16)}`
+                      }
+                      onClick={() => onPeek(stackAddr.toString(16), 128)}
+                    >
+                      Mem {compactHex(stackAddr.toString(16))}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="hover:text-foreground/70"
+                    title="Peek thread control block"
+                    onClick={() => onPeek(t.addr.toString(16))}
+                  >
+                    tcb {compactHex(t.addr.toString(16))}
+                  </button>
+                </div>
+              </div>
             </div>
           </li>
         )

@@ -4,9 +4,11 @@
  * Mirrors OpenOCD src/rtos/zephyr.c: start at `_kernel + K_THREADS`, follow
  * `T_NEXT_THREAD`, read name / prio / state from each TCB.
  *
- * Stack bounds (host-only, no guest Kconfig change required):
+ * Stack bounds (host-only):
  *   1. Prefer `stack_info` via DWARF offsetof when the ELF has it
  *   2. Else match SP (T_STACK_PTR) against ELF stack object symbols
+ *
+ * Wait target (host-only): read `base.pended_on` and match to ELF symbols.
  */
 
 import {
@@ -15,6 +17,17 @@ import {
   type ThreadInfo,
 } from '@/debug/kernel/meta'
 import { findStackRegion, type StackRegion } from '@/debug/elfStacks'
+import { findWaitObject, type WaitObject } from '@/debug/elfWaitObjects'
+
+/** Zephyr thread_state bits — include/zephyr/kernel_structs.h */
+const ST_DUMMY = 0x01
+const ST_PENDING = 0x02
+const ST_SLEEPING = 0x04
+const ST_DEAD = 0x08
+const ST_SUSPENDED = 0x10
+const ST_ABORTING = 0x20
+const ST_SUSPENDING = 0x40
+const ST_QUEUED = 0x80
 
 export interface ZephyrThread {
   addr: number
@@ -29,6 +42,10 @@ export interface ZephyrThread {
   stackStart: number | null
   /** Stack buffer size in bytes. */
   stackSize: number | null
+  /** `base.pended_on` wait-queue pointer, when readable. */
+  pendedOn: number | null
+  /** Named object for pendedOn, when matched in the ELF. */
+  waitingOn: { name: string; addr: number; kind: string | null } | null
 }
 
 export type MemReader = (addr: number, length: number) => Promise<Uint8Array>
@@ -36,7 +53,18 @@ export type MemReader = (addr: number, length: number) => Promise<Uint8Array>
 export interface ListThreadsOptions {
   /** ELF stack objects for SP→region matching. */
   stacks?: StackRegion[]
+  /** ELF sync objects for pended_on→name matching. */
+  waitObjects?: WaitObject[]
   limit?: number
+}
+
+export interface ThreadStatus {
+  /** Short primary label: running / ready / sleeping / waiting / … */
+  label: string
+  /** Extra line, e.g. object name when waiting. */
+  detail: string | null
+  /** Address to peek for the wait object, if any. */
+  detailAddr: number | null
 }
 
 function u32(bytes: Uint8Array, at = 0): number {
@@ -65,18 +93,62 @@ function decodeCString(bytes: Uint8Array): string {
   return out
 }
 
-/** Zephyr `_thread_base.thread_state` bits → short label. */
+/** @deprecated Prefer {@link describeThreadStatus}. */
 export function threadStateLabel(state: number | null, current: boolean): string {
-  if (current) return 'running'
-  if (state === null) return ''
-  // include/zephyr/kernel_structs.h
-  if (state & 0x08) return 'dead'
-  if (state & 0x10) return 'suspended'
-  if (state & 0x02) return 'pending'
-  if (state & 0x04) return 'prestart'
-  if (state & 0x80) return 'ready'
-  if (state & 0x01) return 'dummy'
-  return 'active'
+  return describeThreadStatus({
+    state,
+    current,
+    waitingOn: null,
+    pendedOn: null,
+  }).label
+}
+
+/**
+ * Human-readable status for the Threads list — keep labels short; put the
+ * wait target in `detail` so the UI can show it on its own line.
+ */
+export function describeThreadStatus(
+  t: Pick<ZephyrThread, 'state' | 'current' | 'waitingOn' | 'pendedOn'>,
+): ThreadStatus {
+  if (t.current) return { label: 'running', detail: null, detailAddr: null }
+
+  const state = t.state
+  if (state === null) return { label: '', detail: null, detailAddr: null }
+
+  if (state & ST_DEAD) return { label: 'dead', detail: null, detailAddr: null }
+  if (state & ST_ABORTING) return { label: 'aborting', detail: null, detailAddr: null }
+  if (state & ST_SUSPENDED || state & ST_SUSPENDING) {
+    return { label: 'suspended', detail: null, detailAddr: null }
+  }
+
+  if (state & ST_PENDING) {
+    if (t.waitingOn) {
+      const kind = t.waitingOn.kind
+      const name = t.waitingOn.name
+      return {
+        label: 'waiting',
+        detail: kind ? `${kind} ${name}` : name,
+        detailAddr: t.waitingOn.addr,
+      }
+    }
+    if (t.pendedOn) {
+      return {
+        label: 'waiting',
+        detail: `0x${t.pendedOn.toString(16)}`,
+        detailAddr: t.pendedOn,
+      }
+    }
+    // Pending with no wait queue — often a timed sleep still settling.
+    if (state & ST_SLEEPING) {
+      return { label: 'sleeping', detail: null, detailAddr: null }
+    }
+    return { label: 'waiting', detail: null, detailAddr: null }
+  }
+
+  if (state & ST_SLEEPING) return { label: 'sleeping', detail: null, detailAddr: null }
+  if (state & ST_QUEUED) return { label: 'ready', detail: null, detailAddr: null }
+  if (state & ST_DUMMY) return { label: 'dummy', detail: null, detailAddr: null }
+  return { label: 'active', detail: null, detailAddr: null }
 }
 
 export function formatStackSize(bytes: number): string {
@@ -87,7 +159,6 @@ export function formatStackSize(bytes: number): string {
 
 function plausibleStack(start: number, size: number): boolean {
   if (!start || size < 64 || size > 512 * 1024) return false
-  // Reject obviously non-RAM pointers (null page / flash-ish on Cortex-M).
   if (start < 0x1000) return false
   return true
 }
@@ -97,11 +168,11 @@ export async function listThreads(
   read: MemReader,
   options: ListThreadsOptions | number = {},
 ): Promise<ZephyrThread[]> {
-  // Back-compat: older tests passed `limit` as the third arg.
   const opts: ListThreadsOptions =
     typeof options === 'number' ? { limit: options } : options
   const limit = opts.limit ?? 64
   const stacks = opts.stacks ?? []
+  const waitObjects = opts.waitObjects ?? []
 
   const threadsOff = off(info, ThreadInfoOffset.K_THREADS)
   const nextOff = off(info, ThreadInfoOffset.T_NEXT_THREAD)
@@ -114,7 +185,6 @@ export async function listThreads(
   const currOff = off(info, ThreadInfoOffset.K_CURR_THREAD)
   if (currOff !== null) {
     try {
-      // K_CURR_THREAD is offsetof(_cpu, current); cpus[0] is at _kernel+0.
       current = readPtr(await read(info.kernel + currOff, ptr), ptr)
     } catch {
       current = 0
@@ -127,6 +197,7 @@ export async function listThreads(
   const stateOff = off(info, ThreadInfoOffset.T_STATE)
   const spLocOff = off(info, ThreadInfoOffset.T_STACK_PTR)
   const stackInfoOff = info.stackInfoOff
+  const pendedOnOff = info.pendedOnOff
 
   const out: ZephyrThread[] = []
   const seen = new Set<number>()
@@ -201,7 +272,7 @@ export async function listThreads(
           stackSize = size
         }
       } catch {
-        /* fall through to ELF match */
+        /* fall through */
       }
     }
 
@@ -210,6 +281,29 @@ export async function listThreads(
       if (region) {
         stackStart = region.addr
         stackSize = region.size
+      }
+    }
+
+    let pendedOn: number | null = null
+    let waitingOn: ZephyrThread['waitingOn'] = null
+    if (pendedOnOff !== null && state !== null && state & ST_PENDING) {
+      try {
+        const q = readPtr(await read(node + pendedOnOff, ptr), ptr)
+        if (q) {
+          pendedOn = q
+          // Another thread's join_queue lives inside that TCB.
+          const joined = out.find(
+            (o) => q >= o.addr && q < o.addr + 512,
+          )
+          if (joined) {
+            waitingOn = { name: joined.name, addr: joined.addr, kind: 'join' }
+          } else {
+            const obj = findWaitObject(waitObjects, q)
+            if (obj) waitingOn = { name: obj.name, addr: obj.addr, kind: obj.kind }
+          }
+        }
+      } catch {
+        /* leave null */
       }
     }
 
@@ -223,6 +317,8 @@ export async function listThreads(
       sp,
       stackStart,
       stackSize,
+      pendedOn,
+      waitingOn,
     })
 
     try {
@@ -231,5 +327,18 @@ export async function listThreads(
       break
     }
   }
+
+  // Second pass: join targets that appear later in the list.
+  for (const t of out) {
+    if (t.waitingOn || !t.pendedOn) continue
+    if (t.state === null || !(t.state & ST_PENDING)) continue
+    const joined = out.find(
+      (o) => o.addr !== t.addr && t.pendedOn! >= o.addr && t.pendedOn! < o.addr + 512,
+    )
+    if (joined) {
+      t.waitingOn = { name: joined.name, addr: joined.addr, kind: 'join' }
+    }
+  }
+
   return out
 }

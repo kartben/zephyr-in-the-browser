@@ -22,6 +22,7 @@ import { compactHex } from '@/debug/hexFormat'
 import { parseThreadInfoFromElf, type ThreadInfo } from '@/debug/kernel/meta'
 import { listThreads, type ZephyrThread } from '@/debug/kernel/threads'
 import { buildStackRegions, type StackRegion } from '@/debug/elfStacks'
+import { buildWaitObjects, type WaitObject } from '@/debug/elfWaitObjects'
 import {
   buildSymbolIndex,
   formatSymbol,
@@ -91,6 +92,7 @@ let arch: GdbArch = 'arm'
 let threadInfo: ThreadInfo | null = null
 let symbolIndex: SymbolIndex | null = null
 let stackRegions: StackRegion[] = []
+let waitObjects: WaitObject[] = []
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const listeners = new Set<() => void>()
@@ -175,7 +177,7 @@ async function refreshThreads() {
         if (!client) throw new Error('no client')
         return client.readMemory(addr, length)
       },
-      { stacks: stackRegions },
+      { stacks: stackRegions, waitObjects },
     )
     publish({ threads, threadsLoading: false, threadsError: null })
   } catch (err) {
@@ -195,6 +197,7 @@ export function setKernelImage(elf: Uint8Array | null) {
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
   symbolIndex = elf ? buildSymbolIndex(elf) : null
   stackRegions = elf ? buildStackRegions(elf) : []
+  waitObjects = elf ? buildWaitObjects(elf) : []
   if (state.available || state.attached) {
     publish({
       threadInfo: threadInfo !== null,
@@ -214,10 +217,12 @@ export function bind(module: unknown, boardArch: string) {
   const keptInfo = threadInfo
   const keptSyms = symbolIndex
   const keptStacks = stackRegions
+  const keptWaits = waitObjects
   detach()
   threadInfo = keptInfo
   symbolIndex = keptSyms
   stackRegions = keptStacks
+  waitObjects = keptWaits
   mod = module as Record<string, unknown>
   ch = bindChardev(mod, 'gdb')
   arch = archFromBoard(boardArch)

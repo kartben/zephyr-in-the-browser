@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { ThreadInfoOffset, type ThreadInfo } from '@/debug/kernel/meta'
 import {
+  describeThreadStatus,
   formatStackSize,
   listThreads,
-  threadStateLabel,
 } from '@/debug/kernel/threads'
 import { findStackRegion } from '@/debug/elfStacks'
+import { findWaitObject } from '@/debug/elfWaitObjects'
 import { compactHex, isInactiveRegValue } from '@/debug/hexFormat'
 
 describe('compactHex', () => {
@@ -22,18 +23,53 @@ describe('compactHex', () => {
   })
 })
 
-describe('thread labels', () => {
+describe('thread status', () => {
   it('formats stack sizes', () => {
     expect(formatStackSize(512)).toBe('512 B')
     expect(formatStackSize(2048)).toBe('2 KiB')
     expect(formatStackSize(1536)).toBe('1.5 KiB')
   })
 
-  it('labels thread state', () => {
-    expect(threadStateLabel(0, true)).toBe('running')
-    expect(threadStateLabel(0x10, false)).toBe('suspended')
-    expect(threadStateLabel(0x02, false)).toBe('pending')
-    expect(threadStateLabel(0x80, false)).toBe('ready')
+  it('describes waiting with a named object', () => {
+    expect(
+      describeThreadStatus({
+        state: 0x02,
+        current: false,
+        pendedOn: 0x20004000,
+        waitingOn: { name: 'uart_sem', addr: 0x20004000, kind: 'sem' },
+      }),
+    ).toEqual({
+      label: 'waiting',
+      detail: 'sem uart_sem',
+      detailAddr: 0x20004000,
+    })
+  })
+
+  it('labels sleeping and ready correctly', () => {
+    expect(
+      describeThreadStatus({
+        state: 0x04,
+        current: false,
+        pendedOn: null,
+        waitingOn: null,
+      }).label,
+    ).toBe('sleeping')
+    expect(
+      describeThreadStatus({
+        state: 0x80,
+        current: false,
+        pendedOn: null,
+        waitingOn: null,
+      }).label,
+    ).toBe('ready')
+    expect(
+      describeThreadStatus({
+        state: 0,
+        current: true,
+        pendedOn: null,
+        waitingOn: null,
+      }).label,
+    ).toBe('running')
   })
 })
 
@@ -49,12 +85,23 @@ describe('findStackRegion', () => {
   })
 })
 
+describe('findWaitObject', () => {
+  it('prefers exact address match', () => {
+    const objs = [
+      { name: 'outer', addr: 0x20000000, size: 64, kind: null },
+      { name: 'uart_sem', addr: 0x20000010, size: 16, kind: 'sem' },
+    ]
+    expect(findWaitObject(objs, 0x20000010)?.name).toBe('uart_sem')
+  })
+})
+
 describe('listThreads', () => {
   it('walks _kernel.threads like OpenOCD', async () => {
     const info: ThreadInfo = {
       kernel: 0x1000,
       ptrBytes: 4,
       stackInfoOff: null,
+      pendedOnOff: null,
       offsets: [
         1, // VERSION
         0x64, // K_CURR_THREAD
@@ -109,6 +156,7 @@ describe('listThreads', () => {
       kernel: 0x1000,
       ptrBytes: 4,
       stackInfoOff: null,
+      pendedOnOff: null,
       offsets: [
         1,
         0x64,
@@ -118,7 +166,7 @@ describe('listThreads', () => {
         0x20,
         0x21,
         0x22,
-        0x30, // T_STACK_PTR — location of saved SP inside TCB
+        0x30, // T_STACK_PTR
         8,
       ],
     }
@@ -131,9 +179,9 @@ describe('listThreads', () => {
     set(0x2000 + 4, ptr(0))
     set(0x2000 + 8, [...'main'].map((c) => c.charCodeAt(0)).concat([0]))
     set(0x2000 + 0x22, [0])
-    set(0x2000 + 0x20, [0x80]) // ready
+    set(0x2000 + 0x20, [0x80])
     set(0x2000 + 0x28, ptr(0xbbbb))
-    set(0x2000 + 0x30, ptr(0x20001800)) // SP inside main_stack
+    set(0x2000 + 0x30, ptr(0x20001800))
 
     const read = async (addr: number, length: number) => {
       const out = new Uint8Array(length)
@@ -154,6 +202,66 @@ describe('listThreads', () => {
       sp: 0x20001800,
       stackStart: 0x20001000,
       stackSize: 2048,
+    })
+  })
+
+  it('resolves pended_on to a wait object name', async () => {
+    // Layout: qnode(8) + pended_on(4) @ 8, user_options @ 12 → pendedOnOff=8
+    const info: ThreadInfo = {
+      kernel: 0x1000,
+      ptrBytes: 4,
+      stackInfoOff: null,
+      pendedOnOff: 8,
+      offsets: [
+        1,
+        0x64,
+        0,
+        0x28,
+        4,
+        0x20, // T_STATE
+        12, // T_USER_OPTIONS
+        0x22,
+        0xffffffff,
+        0x30, // T_NAME at 0x30
+      ],
+    }
+    const mem = new Map<number, Uint8Array>()
+    const set = (addr: number, bytes: number[]) => mem.set(addr, Uint8Array.from(bytes))
+    const ptr = (n: number) => [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff]
+
+    set(0x1000, ptr(0x2000))
+    set(0x1000 + 0x64, ptr(0))
+    set(0x2000 + 4, ptr(0))
+    set(0x2000 + 8, ptr(0x40001000)) // pended_on → uart_sem
+    set(0x2000 + 0x20, [0x02]) // PENDING
+    set(0x2000 + 0x22, [5])
+    set(0x2000 + 0x28, ptr(0xbbbb))
+    set(0x2000 + 0x30, [...'worker'].map((c) => c.charCodeAt(0)).concat([0]))
+
+    const read = async (addr: number, length: number) => {
+      const out = new Uint8Array(length)
+      for (const [base, chunk] of mem) {
+        for (let i = 0; i < chunk.length; i++) {
+          const a = base + i
+          if (a >= addr && a < addr + length) out[a - addr] = chunk[i]!
+        }
+      }
+      return out
+    }
+
+    const threads = await listThreads(info, read, {
+      waitObjects: [
+        { name: 'uart_sem', addr: 0x40001000, size: 16, kind: 'sem' },
+      ],
+    })
+    expect(threads[0]).toMatchObject({
+      name: 'worker',
+      pendedOn: 0x40001000,
+      waitingOn: { name: 'uart_sem', kind: 'sem' },
+    })
+    expect(describeThreadStatus(threads[0]!)).toMatchObject({
+      label: 'waiting',
+      detail: 'sem uart_sem',
     })
   })
 })

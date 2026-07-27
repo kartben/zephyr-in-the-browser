@@ -46,6 +46,11 @@ export interface ThreadInfo {
    * `_thread_stack_info.start` is at +0; `.size` at +ptrBytes.
    */
   stackInfoOff: number | null
+  /**
+   * Byte offset of `base.pended_on` inside `struct k_thread` (= `_thread_base`
+   * since `base` is first). From DWARF or inferred as T_USER_OPTIONS − ptr.
+   */
+  pendedOnOff: number | null
 }
 
 const NEED = [
@@ -203,18 +208,39 @@ export function parseThreadInfoFromElf(elf: Uint8Array): ThreadInfo | null {
   if (offsets[ThreadInfoOffset.VERSION]! > 1) return null
 
   let stackInfoOff: number | null = null
+  let pendedOnOff: number | null = null
   try {
-    const members = dwarfStructMembers(elf, 'k_thread')
-    if (members.stack_info !== undefined) stackInfoOff = members.stack_info
+    const kMembers = dwarfStructMembers(elf, 'k_thread')
+    if (kMembers.stack_info !== undefined) stackInfoOff = kMembers.stack_info
   } catch {
-    stackInfoOff = null
+    /* ignore */
+  }
+  try {
+    const baseMembers = dwarfStructMembers(elf, '_thread_base')
+    if (baseMembers.pended_on !== undefined) pendedOnOff = baseMembers.pended_on
+  } catch {
+    /* ignore */
+  }
+
+  const ptrBytes: 4 | 8 = elfclass === 2 ? 8 : 4
+  if (pendedOnOff === null) {
+    // _thread_base layout: qnode…, then pended_on, then user_options.
+    const userOpts = offsets[ThreadInfoOffset.T_USER_OPTIONS]
+    if (
+      userOpts !== undefined &&
+      userOpts !== UNIMPLEMENTED &&
+      userOpts >= ptrBytes
+    ) {
+      pendedOnOff = (userOpts - ptrBytes) >>> 0
+    }
   }
 
   return {
     kernel: symbols.get('_kernel')!,
-    ptrBytes: elfclass === 2 ? 8 : 4,
+    ptrBytes,
     offsets,
     stackInfoOff,
+    pendedOnOff,
   }
 }
 
