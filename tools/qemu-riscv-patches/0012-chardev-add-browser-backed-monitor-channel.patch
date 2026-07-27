@@ -1,27 +1,30 @@
 diff --git a/chardev/char-browser.c b/chardev/char-browser.c
 new file mode 100644
-index 0000000..b563b1f
+index 0000000..1111111
 --- /dev/null
 +++ b/chardev/char-browser.c
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,344 @@
 +/*
 + * Browser-backed character device.
 + *
 + * Exposes a chardev whose two ends live either side of the wasm boundary: page
 + * JavaScript writes bytes into an input ring and reads whatever the frontend
-+ * produced out of an output ring. Pointed at the HMP monitor
-+ * (`-chardev browser,id=mon0 -monitor chardev:mon0`) it lets the page drive
-+ * QEMU the way a person at a terminal would — `stop` and `cont` above all, so
-+ * a page can genuinely halt the machine rather than merely stop looking at it.
++ * produced out of an output ring.
 + *
-+ * Threading follows the browser GNSS backend: JavaScript only ever touches the
-+ * rings, and a timer running on QEMU's own thread moves bytes between them and
-+ * the character frontend. Nothing calls into chardev state from outside.
++ * Two named slots are exported to the page, keyed by the chardev `id=`:
++ *
++ *   -chardev browser,id=mon0 -mon chardev=mon0,mode=control
++ *   -chardev browser,id=gdb0 -gdb chardev:gdb0
++ *
++ * `mon0` is always-open (QMP needs OPENED immediately). `gdb0` stays closed
++ * until the page calls qemu_browser_gdb_attach(), otherwise the gdbstub would
++ * treat boot as "client connected" and freeze the guest.
++ *
++ * Unknown ids still get a working Chardev (timer + rings) but no JS exports.
 + *
 + * The timer is on QEMU_CLOCK_REALTIME rather than the virtual clock, and that
-+ * is load-bearing: the virtual clock stops with the machine, so a `cont` typed
-+ * into a paused guest would never be delivered and the pause could not be
-+ * undone.
++ * is load-bearing: the virtual clock stops with the machine, so a `cont` or
++ * gdb vCont typed into a paused guest would never be delivered.
 + *
 + * SPDX-License-Identifier: GPL-2.0-or-later
 + */
@@ -33,6 +36,7 @@ index 0000000..b563b1f
 +#include "chardev/char.h"
 +#include "chardev/char-browser.h"
 +#include "qom/object.h"
++#include "qapi/error.h"
 +
 +#ifdef __EMSCRIPTEN__
 +#include <emscripten.h>
@@ -64,16 +68,11 @@ index 0000000..b563b1f
 +#define TYPE_CHARDEV_BROWSER "chardev-browser"
 +DECLARE_INSTANCE_CHECKER(BrowserChardev, BROWSER_CHARDEV, TYPE_CHARDEV_BROWSER)
 +
-+/*
-+ * The one instance the page can reach.
-+ *
-+ * The exported entry points take no handle — JavaScript has no way to hold a
-+ * Chardev pointer — so the first browser chardev created claims the channel.
-+ * A second one is still a working chardev, just not the one the page talks to.
-+ */
-+static BrowserChardev *browser_channel;
++/* Named slots the page can reach. Label comes from -chardev …,id=. */
++static BrowserChardev *browser_mon;
++static BrowserChardev *browser_gdb;
 +
-+/* Frontend -> page: monitor output, waiting to be read out of the heap. */
++/* Frontend -> page: output waiting to be read out of the heap. */
 +static int browser_chr_write(Chardev *chr, const uint8_t *buf, int len)
 +{
 +    BrowserChardev *s = BROWSER_CHARDEV(chr);
@@ -82,10 +81,7 @@ index 0000000..b563b1f
 +    int i;
 +
 +    for (i = 0; i < len; i++) {
-+        /* Full: drop the byte rather than overwrite one not yet read. The
-+         * page polls every few frames and monitor output is tiny, so this
-+         * only happens if nobody is listening at all.
-+         */
++        /* Full: drop the byte rather than overwrite one not yet read. */
 +        if (head - tail >= BROWSER_OUT_SIZE) {
 +            break;
 +        }
@@ -132,14 +128,30 @@ index 0000000..b563b1f
 +                             bool *be_opened, Error **errp)
 +{
 +    BrowserChardev *s = BROWSER_CHARDEV(chr);
++    const char *label = chr->label ? chr->label : "";
 +
-+    /* The frontend is always connected — there is no far end to wait for, and
-+     * the monitor needs its OPENED event to become ready.
-+     */
-+    *be_opened = true;
-+
-+    if (browser_channel == NULL) {
-+        browser_channel = s;
++    if (strcmp(label, "mon0") == 0) {
++        /* QMP needs OPENED immediately. */
++        *be_opened = true;
++        if (browser_mon != NULL && browser_mon != s) {
++            error_setg(errp, "browser chardev id=mon0 already claimed");
++            return;
++        }
++        browser_mon = s;
++    } else if (strcmp(label, "gdb0") == 0) {
++        /* Stay closed until qemu_browser_gdb_attach() — otherwise the
++         * gdbstub freezes the guest at boot waiting for a client that
++         * has not connected yet.
++         */
++        *be_opened = false;
++        if (browser_gdb != NULL && browser_gdb != s) {
++            error_setg(errp, "browser chardev id=gdb0 already claimed");
++            return;
++        }
++        browser_gdb = s;
++    } else {
++        /* Working chardev, but the page has no exports for this id. */
++        *be_opened = true;
 +    }
 +
 +    s->timer = timer_new_ms(QEMU_CLOCK_REALTIME, browser_chr_drain, s);
@@ -155,23 +167,21 @@ index 0000000..b563b1f
 +        timer_free(s->timer);
 +        s->timer = NULL;
 +    }
-+    if (browser_channel == s) {
-+        browser_channel = NULL;
++    if (browser_mon == s) {
++        browser_mon = NULL;
++    }
++    if (browser_gdb == s) {
++        browser_gdb = NULL;
 +    }
 +}
 +
 +/*
-+ * Entry points for page JavaScript.
-+ *
-+ * All of these run on the browser thread and touch nothing but the rings.
-+ * Indices are free-running uint32 and wrap naturally; the reader masks them,
-+ * which is the same convention as the browser netdev rings.
++ * Shared ring helpers. All run on the browser thread and touch nothing but
++ * the rings. Indices are free-running uint32 and wrap naturally.
 + */
 +
-+EMSCRIPTEN_KEEPALIVE
-+int qemu_browser_monitor_feed(int value)
++static int browser_feed(BrowserChardev *s, int value)
 +{
-+    BrowserChardev *s = browser_channel;
 +    uint32_t head, tail;
 +
 +    if (s == NULL) {
@@ -188,38 +198,131 @@ index 0000000..b563b1f
 +    return 0;
 +}
 +
++static void *browser_ring(BrowserChardev *s)
++{
++    return s ? s->out_buf : NULL;
++}
++
++static int browser_ring_size(BrowserChardev *s)
++{
++    return s ? BROWSER_OUT_SIZE : 0;
++}
++
++static unsigned int browser_write_index(BrowserChardev *s)
++{
++    return s ? qatomic_read(&s->out_head) : 0;
++}
++
++static unsigned int browser_read_index(BrowserChardev *s)
++{
++    return s ? s->out_tail : 0;
++}
++
++static void browser_set_read_index(BrowserChardev *s, unsigned int value)
++{
++    if (s != NULL) {
++        qatomic_set(&s->out_tail, value);
++    }
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_monitor_feed(int value)
++{
++    return browser_feed(browser_mon, value);
++}
++
 +EMSCRIPTEN_KEEPALIVE
 +void *qemu_browser_monitor_ring(void)
 +{
-+    return browser_channel ? browser_channel->out_buf : NULL;
++    return browser_ring(browser_mon);
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
 +int qemu_browser_monitor_ring_size(void)
 +{
-+    return browser_channel ? BROWSER_OUT_SIZE : 0;
++    return browser_ring_size(browser_mon);
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
 +unsigned int qemu_browser_monitor_write_index(void)
 +{
-+    if (browser_channel == NULL) {
-+        return 0;
-+    }
-+    return qatomic_read(&browser_channel->out_head);
++    return browser_write_index(browser_mon);
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
 +unsigned int qemu_browser_monitor_read_index(void)
 +{
-+    return browser_channel ? browser_channel->out_tail : 0;
++    return browser_read_index(browser_mon);
 +}
 +
 +EMSCRIPTEN_KEEPALIVE
 +void qemu_browser_monitor_set_read_index(unsigned int value)
 +{
-+    if (browser_channel != NULL) {
-+        qatomic_set(&browser_channel->out_tail, value);
++    browser_set_read_index(browser_mon, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_gdb_feed(int value)
++{
++    return browser_feed(browser_gdb, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void *qemu_browser_gdb_ring(void)
++{
++    return browser_ring(browser_gdb);
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_gdb_ring_size(void)
++{
++    return browser_ring_size(browser_gdb);
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_gdb_write_index(void)
++{
++    return browser_write_index(browser_gdb);
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_gdb_read_index(void)
++{
++    return browser_read_index(browser_gdb);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_gdb_set_read_index(unsigned int value)
++{
++    browser_set_read_index(browser_gdb, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_gdb_attach(void)
++{
++    Chardev *chr;
++
++    if (browser_gdb == NULL) {
++        return -1;
++    }
++    chr = CHARDEV(browser_gdb);
++    if (!chr->be_open) {
++        qemu_chr_be_event(chr, CHR_EVENT_OPENED);
++    }
++    return 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_gdb_detach(void)
++{
++    Chardev *chr;
++
++    if (browser_gdb == NULL) {
++        return;
++    }
++    chr = CHARDEV(browser_gdb);
++    if (chr->be_open) {
++        qemu_chr_be_event(chr, CHR_EVENT_CLOSED);
 +    }
 +}
 +
@@ -245,6 +348,55 @@ index 0000000..b563b1f
 +}
 +
 +type_init(register_types);
+diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/include/chardev/char-browser.h
+@@ -0,0 +1,43 @@
++/*
++ * Browser-backed character device: the entry points page JavaScript calls.
++ *
++ * Declared in a header only because QEMU builds with -Wmissing-prototypes;
++ * nothing inside QEMU calls any of these. See chardev/char-browser.c.
++ *
++ * Two named slots: mon0 (QMP) and gdb0 (gdbstub). gdb_attach/detach fire
++ * CHR_EVENT_OPENED/CLOSED so the stub does not freeze the guest at boot.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef CHARDEV_CHAR_BROWSER_H
++#define CHARDEV_CHAR_BROWSER_H
++
++/** Queue one byte from the page towards the monitor (id=mon0). */
++int qemu_browser_monitor_feed(int value);
++
++/** The monitor output ring: base pointer, size, and its free-running indices. */
++void *qemu_browser_monitor_ring(void);
++int qemu_browser_monitor_ring_size(void);
++unsigned int qemu_browser_monitor_write_index(void);
++unsigned int qemu_browser_monitor_read_index(void);
++void qemu_browser_monitor_set_read_index(unsigned int value);
++
++/** Queue one byte from the page towards the gdbstub (id=gdb0). */
++int qemu_browser_gdb_feed(int value);
++
++/** The gdbstub output ring: base pointer, size, and its free-running indices. */
++void *qemu_browser_gdb_ring(void);
++int qemu_browser_gdb_ring_size(void);
++unsigned int qemu_browser_gdb_write_index(void);
++unsigned int qemu_browser_gdb_read_index(void);
++void qemu_browser_gdb_set_read_index(unsigned int value);
++
++/**
++ * Tell the gdbstub a client is connected / gone.
++ * attach() returns 0 on success, -1 if gdb0 was never created.
++ */
++int qemu_browser_gdb_attach(void);
++void qemu_browser_gdb_detach(void);
++
++#endif /* CHARDEV_CHAR_BROWSER_H */
 diff --git a/chardev/meson.build b/chardev/meson.build
 index 56ee39a..3ce1352 100644
 --- a/chardev/meson.build
@@ -255,35 +407,6 @@ index 56ee39a..3ce1352 100644
    'char-fe.c',
    'char-file.c',
    'char-io.c',
-diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
-new file mode 100644
-index 0000000..698e069
---- /dev/null
-+++ b/include/chardev/char-browser.h
-@@ -0,0 +1,23 @@
-+/*
-+ * Browser-backed character device: the entry points page JavaScript calls.
-+ *
-+ * Declared in a header only because QEMU builds with -Wmissing-prototypes;
-+ * nothing inside QEMU calls any of these. See chardev/char-browser.c.
-+ *
-+ * SPDX-License-Identifier: GPL-2.0-or-later
-+ */
-+
-+#ifndef CHARDEV_CHAR_BROWSER_H
-+#define CHARDEV_CHAR_BROWSER_H
-+
-+/** Queue one byte from the page towards the character frontend. */
-+int qemu_browser_monitor_feed(int value);
-+
-+/** The output ring: base pointer, size, and its free-running indices. */
-+void *qemu_browser_monitor_ring(void);
-+int qemu_browser_monitor_ring_size(void);
-+unsigned int qemu_browser_monitor_write_index(void);
-+unsigned int qemu_browser_monitor_read_index(void);
-+void qemu_browser_monitor_set_read_index(unsigned int value);
-+
-+#endif /* CHARDEV_CHAR_BROWSER_H */
 diff --git a/qapi/char.json b/qapi/char.json
 index f0a53f7..801522a 100644
 --- a/qapi/char.json

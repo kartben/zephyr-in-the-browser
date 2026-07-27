@@ -45,6 +45,13 @@ export type PanelKind =
  */
 export const MONITOR_ARGS = ['-chardev', 'browser,id=mon0', '-mon', 'chardev=mon0,mode=control']
 
+/**
+ * GDB stub on a second browser chardev. Appended only when features.json lists
+ * `"gdb"` (dual-channel chardev patch). Do not pass `-S` — the page attaches
+ * after boot via qemu_browser_gdb_attach().
+ */
+export const GDB_ARGS = ['-chardev', 'browser,id=gdb0', '-gdb', 'chardev:gdb0']
+
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
   /** Also the artifact basename, so it must stay in step with the build script. */

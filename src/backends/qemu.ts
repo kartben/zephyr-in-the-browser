@@ -8,10 +8,15 @@ import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
 import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
+import {
+  bind as bindHostGdb,
+  attachSession as attachHostGdbSession,
+  detach as detachHostGdb,
+} from '@/hostGdb'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
 import { loadSampleDts } from '@/devicetree'
-import { MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
+import { GDB_ARGS, MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -253,10 +258,12 @@ export function createQemuBackend(): PtyBackend {
 
       onStatus({ status: 'loading', detail: 'starting emulator' })
 
-      // The monitor is a property of the build, not of the machine, so it is
-      // appended here rather than baked into each board's argv.
+      // Monitor / gdb are properties of the build, not of the machine, so they
+      // are appended here rather than baked into each board's argv.
       const features = await emulatorFeatures()
-      const args = features.has('monitor') ? [...board.args, ...MONITOR_ARGS] : board.args
+      let args = [...board.args]
+      if (features.has('monitor')) args = [...args, ...MONITOR_ARGS]
+      if (features.has('gdb')) args = [...args, ...GDB_ARGS]
 
       const mod: QemuModule = {
         arguments: args,
@@ -357,6 +364,11 @@ export function createQemuBackend(): PtyBackend {
       // build, not of the machine it is emulating. attach() no-ops when the
       // exports are missing.
       attachHostMonitor(instance)
+      if (features.has('gdb')) {
+        bindHostGdb(instance, board.arch)
+        // Attach after the machine is running so OPENED does not freeze boot.
+        void attachHostGdbSession()
+      }
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
     },
@@ -372,6 +384,7 @@ export function createQemuBackend(): PtyBackend {
       detachHostNet()
       detachHostInput()
       detachHostTrace()
+      detachHostGdb()
       detachHostMonitor()
       // Nothing global was touched, so there is nothing to tear down.
       if (!documentTainted) return
