@@ -10,6 +10,9 @@
  * The 7-segment module uses virtio_gpio0 pins 5–7 (digits) and 8–15
  * (A–G, DP), leaving 0–3 / 4 free for the virtio-gpio snippet's keys/LED.
  * ngpios is widened to 16 to match QEMU's virtio-gpio config space.
+ *
+ * Refresh runs from the vendored workqueue driver (AUXDISPLAY_GPIO_7SEG_WQ);
+ * do not use in-tree AUXDISPLAY_GPIO_7SEG with virtio,gpio.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
@@ -58,6 +61,7 @@
 		digit-gpios = <&virtio_gpio0 5 GPIO_ACTIVE_HIGH>,  /* DIG1 */
 			      <&virtio_gpio0 6 GPIO_ACTIVE_HIGH>,  /* DIG2 */
 			      <&virtio_gpio0 7 GPIO_ACTIVE_HIGH>;  /* DIG3 */
-		refresh-period-ms = <1>;
+		/* ~100 Hz digit scan; workqueue + virtio round-trips need headroom. */
+		refresh-period-ms = <5>;
 	};
 };

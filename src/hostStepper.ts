@@ -11,7 +11,7 @@
 import {
   getSteppers,
   isOutputHigh,
-  subscribe as subscribeGpio,
+  subscribeOutputs,
   type StepperAxis,
 } from '@/hostGpio'
 
@@ -181,7 +181,7 @@ function onGpioChange() {
 function ensureWatching() {
   if (gpioUnsub) return
   syncWiring()
-  gpioUnsub = subscribeGpio(onGpioChange)
+  gpioUnsub = subscribeOutputs(onGpioChange)
   onGpioChange()
 }
 

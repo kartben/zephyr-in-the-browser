@@ -2,8 +2,8 @@
 # and qemu,host-mic (DMIC) drivers, plus the browser_bridge shield
 # (boards/shields/browser_bridge/), which wires the browser-fed peripherals into
 # the QEMU boards. It also carries vendored copies of the not-yet-upstream
-# virtio,gpu / virtio,gpio / virtio,spi drivers and the auxdisplay shell
-# (drivers/vendor/).
+# virtio,gpu / virtio,gpio / virtio,spi drivers, the auxdisplay shell, and a
+# workqueue-based gpio-7-segment fix (drivers/vendor/).
 
 # Vendored drivers, built only while Zephyr itself lacks them: an in-tree copy
 # would define the same symbols and break the link. See drivers/vendor/VENDOR.md.
@@ -50,6 +50,7 @@ if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
    OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
    OR (CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
+   OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ
    OR CONFIG_SAMPLE_ANNOTATIONS)
   zephyr_library()
 endif()
@@ -76,6 +77,13 @@ endif()
 
 if(CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
   zephyr_library_sources(${VENDORED_AUXDISPLAY_SHELL})
+endif()
+
+# Always our copy while enabled: upstream ships a broken ISR refresh we replace.
+# Unlike the other vendored drivers, absence of the in-tree file is not the
+# gate — the in-tree file exists and must stay CONFIG_AUXDISPLAY_GPIO_7SEG=n.
+if(CONFIG_AUXDISPLAY_GPIO_7SEG_WQ)
+  zephyr_library_sources(drivers/vendor/auxdisplay_gpio_7seg.c)
 endif()
 
 if(CONFIG_QEMU_HOST_GPIO)

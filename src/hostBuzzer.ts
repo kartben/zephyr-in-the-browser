@@ -7,7 +7,7 @@
 import {
   getBuzzers,
   isBuzzerOn,
-  subscribe as subscribeGpio,
+  subscribeOutputs,
 } from '@/hostGpio'
 
 const VIBRATE_PREF_KEY = 'zephyr.buzzer.vibrateEnabled'
@@ -258,7 +258,7 @@ function syncFromGpio() {
 
 function ensureWatching() {
   if (gpioUnsub) return
-  gpioUnsub = subscribeGpio(syncFromGpio)
+  gpioUnsub = subscribeOutputs(syncFromGpio)
   syncFromGpio()
 }
 

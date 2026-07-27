@@ -116,6 +116,21 @@ config AUXDISPLAY_SHELL
 	help
 	  Enable the auxiliary display shell with related commands.
 
+# Drop-in replacement for in-tree CONFIG_AUXDISPLAY_GPIO_7SEG. Upstream's
+# k_timer expiry handler calls gpio_pin_set_dt() from ISR context, which breaks
+# virtio,gpio (and any other sleeping GPIO backend). Force the in-tree driver
+# off in conf/auxdisplay-shell.conf when enabling this.
+config AUXDISPLAY_GPIO_7SEG_WQ
+	bool "GPIO 7-segment display (workqueue multiplex)"
+	default y
+	depends on DT_HAS_GPIO_7_SEGMENT_ENABLED
+	select GPIO
+	help
+	  Same gpio-7-segment auxdisplay as CONFIG_AUXDISPLAY_GPIO_7SEG, but the
+	  digit multiplex runs on the system workqueue so GPIO updates happen in
+	  thread context. Use this with virtio,gpio; keep the in-tree driver
+	  disabled (CONFIG_AUXDISPLAY_GPIO_7SEG=n) to avoid linking both.
+
 config VIRTIO_GPU_DISPLAY_QUEUE_SIZE
 	int "VIRTIO GPU virtqueue size"
 	depends on VIRTIO_GPU_DISPLAY
