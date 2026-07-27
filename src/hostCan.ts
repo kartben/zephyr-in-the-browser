@@ -103,6 +103,11 @@ export function recover(nodeId = LOCAL_NODE) {
   bus.recover(nodeId)
 }
 
+/** Page-side loopback on the local controller. See {@link CanBus.setLoopback}. */
+export function setLoopback(on: boolean, nodeId = LOCAL_NODE) {
+  bus.setLoopback(nodeId, on)
+}
+
 export function canBus(): CanBus {
   return bus
 }

@@ -315,7 +315,8 @@ The panel is dense with real data already; prose is what makes it unreadable.
 | Filtered trace row | Reached `can0`. No acceptance filter matches `0x2FF`. |
 | No-ACK trace row | No node acknowledged the frame. Each failure adds 8 to TEC. |
 | Arbitration trace row | Both started in the same slot. Lower ID wins the bus. |
-| Recover button | Transmission stays stopped until `can_recover()`. |
+| Recover button | Bus-off latches until cleared. Resets TEC and REC so can0 can transmit again. |
+| Loopback on can0 | Wire loopback. Frames stay on can0 and never reach the rest of the bus. |
 | Listener sub-line | Acknowledges every frame, never transmits one. |
 | Silent sub-line | Listen-only. Sends nothing, not even an ACK. |
 
