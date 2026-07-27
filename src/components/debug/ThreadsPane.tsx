@@ -11,14 +11,7 @@ export function ThreadsPane({
   onPeek: (addrHex: string, length?: number) => void
 }) {
   if (!snap.threadInfo) {
-    return (
-      <p className="px-1 py-3 text-[11px] leading-relaxed text-foreground/60">
-        Needs an unstripped ELF built with{' '}
-        <code className="text-foreground/80">CONFIG_DEBUG_THREAD_INFO</code> (same
-        symbols OpenOCD uses). Packaged images ship that way; a stripped drop-in
-        will not.
-      </p>
-    )
+    return <p className="px-1 py-3 text-[11px] text-foreground/60">No thread info</p>
   }
   if (snap.threadsLoading && snap.threads.length === 0) {
     return (
