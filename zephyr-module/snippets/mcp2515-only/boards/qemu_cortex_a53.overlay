@@ -10,6 +10,8 @@
  * active low, and src/hostCan.ts drives it from the controller's flags.
  */
 
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
 &virtio_mmio2 {
 	status = "okay";
 };
