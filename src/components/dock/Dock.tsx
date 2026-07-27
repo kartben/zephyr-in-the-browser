@@ -165,8 +165,7 @@ export function Dock({ boardId }: { boardId: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
         {inventory.nodes.length === 0 ? (
           <p className="px-2 py-3 text-[11px] leading-relaxed text-muted-foreground">
-            Waiting for the guest to expose devices — panels appear as the emulator's bridges
-            come up.
+            Waiting for the guest to expose devices.
           </p>
         ) : (
           rendered

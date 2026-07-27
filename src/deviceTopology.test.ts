@@ -220,7 +220,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(nodeByKey(inv, 'gpio:soc_gpio').note).toBe('no page model')
   })
 
-  it('hides bridged surfaces the runtime has not exposed', () => {
+  it('lists bridged surfaces as inert until the runtime exposes them', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Shell),
       A53_SHELL_CHIPS,
@@ -228,8 +228,43 @@ describe('deriveDeviceInventory from a devicetree', () => {
       { ...ALL, i2c: false, gnss: false },
       'qemu_cortex_a53',
     )
-    expect(inv.nodes.some((n) => n.deviceClass === 'i2c-bus')).toBe(false)
-    expect(inv.nodes.some((n) => n.key === 'gnss')).toBe(false)
+    const bus = nodeByKey(inv, 'virtio_i2c0')
+    expect(bus.presence).toBe('inert')
+    expect(bus.body).toBeUndefined()
+    // Declared chips keep their seats (and keys) so the list does not reshuffle
+    // when the bridge binds.
+    expect(nodeByKey(inv, 'virtio_i2c0:48').presence).toBe('inert')
+    expect(nodeByKey(inv, 'virtio_i2c0:48').deviceClass).toBe('sensor')
+    const gnss = nodeByKey(inv, 'gnss')
+    expect(gnss.presence).toBe('inert')
+    expect(gnss.body).toBeUndefined()
+  })
+
+  it('keeps stable keys when availability flips from inert to interactive', () => {
+    const tree = treeOf(a53Shell, 'shell.dts')
+    const cold = deriveDeviceInventory(
+      tree,
+      A53_SHELL_CHIPS,
+      [],
+      {
+        gnss: false,
+        gpio: false,
+        audio: false,
+        mic: false,
+        net: false,
+        i2c: false,
+        spi: false,
+        display: false,
+        input: false,
+      },
+      'qemu_cortex_a53',
+    )
+    const hot = deriveDeviceInventory(tree, A53_SHELL_CHIPS, [], ALL, 'qemu_cortex_a53')
+    expect(cold.nodes.map((n) => n.key).sort()).toEqual(hot.nodes.map((n) => n.key).sort())
+    expect(nodeByKey(cold, 'virtio_i2c0').presence).toBe('inert')
+    expect(nodeByKey(hot, 'virtio_i2c0').presence).toBe('interactive')
+    expect(nodeByKey(cold, 'gnss').presence).toBe('inert')
+    expect(nodeByKey(hot, 'gnss').presence).toBe('interactive')
   })
 
   it('emits a buzzer dock row when gpio-buzzer is on the bridged controller', () => {
@@ -486,14 +521,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
   })
 
   it('mirrors the M3 board: stellaris names, no bus, no display', () => {
-    const avail: Availability = {
-      ...ALL,
-      i2c: false,
-      spi: false,
-      display: false,
-      input: false,
-    }
-    const inv = deriveDeviceInventory(null, [], [], avail, 'qemu_cortex_m3')
+    const inv = deriveDeviceInventory(null, [], [], ALL, 'qemu_cortex_m3')
 
     expect(nodeByKey(inv, 'net').nodeName).toBe('ethernet@40048000')
     expect(nodeByKey(inv, 'net').crumb).toBe('eth0')
@@ -501,6 +529,29 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     expect(nodeByKey(inv, 'gpio').compatible).toBe('qemu,host-gpio')
     expect(inv.nodes.some((n) => n.deviceClass === 'i2c-bus')).toBe(false)
     expect(inv.nodes.some((n) => n.deviceClass === 'display')).toBe(false)
+  })
+
+  it('lists the full A53 fallback as inert before any bridge is up', () => {
+    const none: Availability = {
+      gnss: false,
+      gpio: false,
+      audio: false,
+      mic: false,
+      net: false,
+      i2c: false,
+      spi: false,
+      display: false,
+      input: false,
+    }
+    const inv = deriveDeviceInventory(null, [], [], none, 'qemu_cortex_a53')
+    expect(inv.source).toBe('fallback')
+    expect(nodeByKey(inv, 'virtio_i2c0').presence).toBe('inert')
+    expect(nodeByKey(inv, 'virtio_i2c0:48').presence).toBe('inert')
+    expect(nodeByKey(inv, 'virtio_i2c0:48').deviceClass).toBe('sensor')
+    expect(nodeByKey(inv, 'gnss').presence).toBe('inert')
+    expect(nodeByKey(inv, 'gpio').presence).toBe('inert')
+    expect(nodeByKey(inv, 'display').note).toBe('on stage')
+    expect(nodeByKey(inv, 'virtio_spi0:0').presence).toBe('inert')
   })
 })
 

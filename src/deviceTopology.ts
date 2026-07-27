@@ -10,9 +10,10 @@
  * page does not bridge, which are listed inert rather than hidden. Only when no
  * tree is known does a per-board static table reproduce the historical picture.
  *
- * Availability still gates what is *interactive*: a devicetree can promise a
- * bridge the runtime has not exposed (mock backend, early boot), and those rows
- * simply do not appear yet — the same progressive fill the panels always had.
+ * Availability gates what is *interactive*, not what is *listed*. A bridge the
+ * runtime has not exposed yet (early boot, mock backend) still gets its row —
+ * inert — so the dock's membership and order stay put from the first paint
+ * instead of inserting and shoving neighbours as each bridge comes up.
  */
 
 import type { PanelKind } from '@/boards'
@@ -123,8 +124,9 @@ export interface DeviceNode {
   parentKey?: string
   /**
    * interactive: has live controls. inert: listed for topology completeness
-   * (console UART bus, an unbridged bus). ghost: the devicetree declares it but
-   * nothing answers on the bus — the NAK/bus-error demo, visible.
+   * (console UART, an unbridged bus, or a bridged surface waiting on its
+   * runtime bridge). ghost: the devicetree declares it but nothing answers on
+   * the bus — the NAK/bus-error demo, visible.
    */
   presence: 'interactive' | 'inert' | 'ghost'
   /** Short annotation ('→ terminal', 'on stage', 'NAK — detached'). */
@@ -301,6 +303,68 @@ function uniqueKey(ids: Ids, base: string): string {
   for (let n = 2; ids.used.has(key); n++) key = `${base}~${n}`
   ids.used.add(key)
   return key
+}
+
+/** Declared I²C children under a bus that is not live yet — same keys/classes as ghosts. */
+function declaredI2cChildren(
+  ids: Ids,
+  busKey: string,
+  busLabel: string,
+  busPath: string,
+  slots: readonly I2cSlot[],
+): DeviceNode[] {
+  return [...slots]
+    .sort((a, b) => a.address - b.address)
+    .map((slot) => {
+      const type = slot.chipId ? chipType(slot.chipId) : undefined
+      return {
+        key: uniqueKey(ids, `${busLabel}:${hex(slot.address)}`),
+        nodeName: slot.nodeName,
+        label: type?.label ?? slot.compatible ?? slot.nodeName,
+        compatible: slot.compatible || undefined,
+        deviceClass: type ? KIND_TO_CLASS[type.kind] : 'i2c-bus',
+        path: `${busPath}/${slot.nodeName}`,
+        parentKey: busKey,
+        presence: 'inert' as const,
+        crumb: `${busLabel} · 0x${hex(slot.address)}`,
+        partId: slot.chipId,
+        busLabel,
+      }
+    })
+}
+
+/** Declared SPI children under a bus that is not live yet — same keys as live/ghost rows. */
+function declaredSpiChildren(
+  ids: Ids,
+  busKey: string,
+  busLabel: string,
+  busPath: string,
+  slots: readonly SpiSlot[],
+): DeviceNode[] {
+  return [...slots]
+    .sort((a, b) => a.cs - b.cs)
+    .map((slot) => ({
+      key: uniqueKey(ids, `${busLabel}:${slot.cs.toString(16)}`),
+      nodeName: slot.nodeName,
+      label: slot.compatible || slot.nodeName,
+      compatible: slot.compatible || undefined,
+      deviceClass:
+        slot.chipId === 'w25q'
+          ? ('memory' as const)
+          : slot.chipId === 'sct2024' || slot.chipId === 'ws2812'
+            ? ('led' as const)
+            : slot.chipId === 'pt6314'
+              ? ('auxdisplay' as const)
+              : slot.chipId === 'tmc50xx'
+                ? ('stepper' as const)
+                : ('spi-bus' as const),
+      path: `${busPath}/${slot.nodeName}`,
+      parentKey: busKey,
+      presence: 'inert' as const,
+      crumb: `${busLabel} · CS${slot.cs}`,
+      partId: slot.chipId,
+      busLabel,
+    }))
 }
 
 /**
@@ -510,9 +574,10 @@ function deriveFromTree(
     return undefined
   }
 
-  if (avail.audio) {
+  {
     const speaker = firstOkay('qemu,host-audio')
     if (speaker) {
+      const live = avail.audio
       push({
         key: uniqueKey(ids, 'audio'),
         nodeName: speaker.name,
@@ -520,16 +585,17 @@ function deriveFromTree(
         compatible: compatibles(speaker)[0],
         deviceClass: 'audio',
         path: pathOf(speaker),
-        presence: 'interactive',
-        body: 'speaker',
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'speaker' : undefined,
         crumb: speaker.labels[0],
-        panelKind: 'audio',
+        panelKind: live ? 'audio' : undefined,
       })
     }
   }
-  if (avail.mic) {
+  {
     const mic = firstOkay('qemu,host-mic')
     if (mic) {
+      const live = avail.mic
       push({
         key: uniqueKey(ids, 'mic'),
         nodeName: mic.name,
@@ -537,17 +603,18 @@ function deriveFromTree(
         compatible: compatibles(mic)[0],
         deviceClass: 'audio',
         path: pathOf(mic),
-        presence: 'interactive',
-        body: 'mic',
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'mic' : undefined,
         crumb: mic.labels[0],
-        panelKind: 'audio',
+        panelKind: live ? 'audio' : undefined,
       })
     }
   }
 
-  if (avail.net) {
+  {
     const nic = firstOkay('virtio,net', 'ti,stellaris-ethernet')
     if (nic) {
+      const live = avail.net
       push({
         key: uniqueKey(ids, 'net'),
         nodeName: nic.name,
@@ -555,15 +622,15 @@ function deriveFromTree(
         compatible: compatibles(nic)[0],
         deviceClass: 'net',
         path: pathOf(nic),
-        presence: 'interactive',
-        body: 'net',
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'net' : undefined,
         crumb: nic.labels[0],
-        panelKind: 'net',
+        panelKind: live ? 'net' : undefined,
       })
     }
   }
 
-  if (avail.display) {
+  {
     const display = firstOkay('qemu,ramfb', 'virtio,gpu')
     if (display) {
       push({
@@ -580,7 +647,7 @@ function deriveFromTree(
     }
   }
 
-  if (avail.input) {
+  {
     const tablet = firstOkay('virtio,input')
     if (tablet) {
       push({
@@ -599,22 +666,24 @@ function deriveFromTree(
 
   // GPIO controllers: the bridged one drives the panel; the rest of the tree's
   // controllers are still listed, inert — a user-dropped board file has them.
+  // Claim the primary `gpio` key as soon as a bridged controller is known, even
+  // before avail.gpio, so the row identity does not change when the bridge lands.
   let gpioBodyUsed = false
   for (const ctl of insights.gpioControllers) {
-    const live = ctl.bridged && avail.gpio && !gpioBodyUsed
-    if (ctl.bridged && !avail.gpio) continue
-    if (live) gpioBodyUsed = true
+    const primary = ctl.bridged && !gpioBodyUsed
+    if (primary) gpioBodyUsed = true
+    const live = primary && avail.gpio
     const pathParts = ctl.path.split('/').filter(Boolean)
     const nodeName = pathParts[pathParts.length - 1] ?? ctl.controllerLabel
     push({
-      key: uniqueKey(ids, live ? 'gpio' : `gpio:${ctl.controllerLabel}`),
+      key: uniqueKey(ids, primary ? 'gpio' : `gpio:${ctl.controllerLabel}`),
       nodeName,
-      label: live ? 'GPIO' : ctl.controllerLabel,
+      label: primary ? 'GPIO' : ctl.controllerLabel,
       compatible: ctl.compatible || undefined,
       deviceClass: 'gpio',
       path: ctl.path,
       presence: live ? 'interactive' : 'inert',
-      note: live ? undefined : 'no page model',
+      note: live || ctl.bridged ? undefined : 'no page model',
       body: live ? 'gpio' : undefined,
       crumb: ctl.controllerLabel,
       panelKind: live ? 'gpio' : undefined,
@@ -625,7 +694,8 @@ function deriveFromTree(
   const bridgedKeys = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.buttons.length > 0,
   )
-  if (bridgedKeys && avail.gpio) {
+  if (bridgedKeys) {
+    const live = avail.gpio
     const keysNode = nodesByCompatible(doc, 'gpio-keys').find(isEffectivelyOkay)
     push({
       key: uniqueKey(ids, 'gpio-keys'),
@@ -634,10 +704,10 @@ function deriveFromTree(
       compatible: 'gpio-keys',
       deviceClass: 'keys',
       path: keysNode ? pathOf(keysNode) : '/keys',
-      presence: 'interactive',
-      body: 'gpio-keys',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'gpio-keys' : undefined,
       crumb: bridgedKeys.controllerLabel,
-      panelKind: 'keys',
+      panelKind: live ? 'keys' : undefined,
     })
   }
 
@@ -646,7 +716,8 @@ function deriveFromTree(
   const bridgedLeds = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.leds.length > 0,
   )
-  if (bridgedLeds && avail.gpio) {
+  if (bridgedLeds) {
+    const live = avail.gpio
     const ledsNode = nodesByCompatible(doc, 'gpio-leds').find(isEffectivelyOkay)
     push({
       key: uniqueKey(ids, 'gpio-leds'),
@@ -655,10 +726,10 @@ function deriveFromTree(
       compatible: 'gpio-leds',
       deviceClass: 'led',
       path: ledsNode ? pathOf(ledsNode) : '/leds',
-      presence: 'interactive',
-      body: 'gpio-leds',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'gpio-leds' : undefined,
       crumb: bridgedLeds.controllerLabel,
-      panelKind: 'led',
+      panelKind: live ? 'led' : undefined,
     })
   }
 
@@ -666,7 +737,8 @@ function deriveFromTree(
   const bridgedSeven = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.sevenSegs.length > 0,
   )
-  if (bridgedSeven && avail.gpio) {
+  if (bridgedSeven) {
+    const live = avail.gpio
     for (const disp of bridgedSeven.sevenSegs) {
       const node = nodesByCompatible(doc, 'gpio-7-segment').find(
         (n) => isEffectivelyOkay(n) && pathOf(n) === disp.id,
@@ -678,10 +750,10 @@ function deriveFromTree(
         compatible: 'gpio-7-segment',
         deviceClass: 'auxdisplay',
         path: disp.id,
-        presence: 'interactive',
-        body: 'seven-seg',
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'seven-seg' : undefined,
         crumb: `${disp.digits.length}-digit · ${bridgedSeven.controllerLabel}`,
-        panelKind: 'auxdisplay',
+        panelKind: live ? 'auxdisplay' : undefined,
       })
     }
   }
@@ -691,7 +763,8 @@ function deriveFromTree(
   const bridgedBuzz = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.buzzers.length > 0,
   )
-  if (bridgedBuzz && avail.gpio) {
+  if (bridgedBuzz) {
+    const live = avail.gpio
     const buzzerNode = nodesByCompatible(doc, 'gpio-buzzer').find(isEffectivelyOkay)
     const first = bridgedBuzz.buzzers[0]
     push({
@@ -701,10 +774,10 @@ function deriveFromTree(
       compatible: 'gpio-buzzer',
       deviceClass: 'buzzer',
       path: buzzerNode ? pathOf(buzzerNode) : '/buzzer',
-      presence: 'interactive',
-      body: 'buzzer',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'buzzer' : undefined,
       crumb: `pin ${first?.id}`,
-      panelKind: 'buzzer',
+      panelKind: live ? 'buzzer' : undefined,
     })
   }
 
@@ -712,7 +785,8 @@ function deriveFromTree(
   const bridgedStep = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.steppers.length > 0,
   )
-  if (bridgedStep && avail.gpio) {
+  if (bridgedStep) {
+    const live = avail.gpio
     const stepperNode = nodesByCompatible(doc, 'zephyr,gpio-step-dir-stepper-ctrl').find(
       isEffectivelyOkay,
     )
@@ -724,16 +798,17 @@ function deriveFromTree(
       compatible: 'zephyr,gpio-step-dir-stepper-ctrl',
       deviceClass: 'stepper',
       path: stepperNode ? pathOf(stepperNode) : first?.id ?? '/stepper',
-      presence: 'interactive',
-      body: 'stepper',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'stepper' : undefined,
       crumb: first ? `STEP ${first.stepPin} · DIR ${first.dirPin}` : undefined,
-      panelKind: 'stepper',
+      panelKind: live ? 'stepper' : undefined,
     })
   }
 
   // pwm-leds groups: brightness strip driven by an attached PwmChip. Sibling of
-  // the PWM controller row — see docs/pwm-leds.md.
-  if (avail.i2c && insights.pwmLeds.length > 0) {
+  // the PWM controller row — see docs/pwm-leds.md. Listed inert while I²C is
+  // still coming up so the row does not insert later.
+  if (insights.pwmLeds.length > 0) {
     const groups = new Map<string, typeof insights.pwmLeds>()
     for (const led of insights.pwmLeds) {
       const list = groups.get(led.groupPath) ?? []
@@ -749,7 +824,9 @@ function deriveFromTree(
         address !== undefined
           ? chips.find((c) => c.address === address && isPwmChip(c))
           : undefined
-      if (!chip || !isPwmChip(chip)) continue
+      const live = avail.i2c && !!chip && isPwmChip(chip)
+      // Without a live chip and with I²C already up, skip — the bus ghost covers it.
+      if (!live && avail.i2c) continue
       push({
         key: uniqueKey(ids, 'pwm-leds'),
         nodeName: first.groupName,
@@ -757,12 +834,12 @@ function deriveFromTree(
         compatible: 'pwm-leds',
         deviceClass: 'led',
         path: first.groupPath,
-        presence: 'interactive',
-        body: 'pwm-leds',
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'pwm-leds' : undefined,
         crumb: first.controllerLabel,
-        chip,
+        chip: live ? chip : undefined,
         pwmLeds: leds.map((led) => ({ channel: led.channel, label: led.label })),
-        panelKind: 'led',
+        panelKind: live ? 'led' : undefined,
       })
     }
   }
@@ -771,7 +848,6 @@ function deriveFromTree(
   // live, with the page's chips (and the tree's unanswered slots) as children.
   let busBodyUsed = false
   for (const bus of insights.i2cBuses) {
-    if (bus.bridged && !avail.i2c) continue
     const live = bus.bridged && avail.i2c && !busBodyUsed
     if (live) busBodyUsed = true
     const busNode = byPath(doc, bus.path)
@@ -784,7 +860,7 @@ function deriveFromTree(
       deviceClass: 'i2c-bus',
       path: bus.path,
       presence: live ? 'interactive' : 'inert',
-      note: live ? undefined : 'no page model',
+      note: live || bus.bridged ? undefined : 'no page model',
       body: live ? 'i2c' : undefined,
       busLabel: bus.controllerLabel,
       panelKind: live ? 'i2c' : undefined,
@@ -795,26 +871,14 @@ function deriveFromTree(
         push(row)
       }
     } else {
-      for (const slot of bus.slots) {
-        push({
-          key: uniqueKey(ids, `${bus.controllerLabel}:${hex(slot.address)}`),
-          nodeName: slot.nodeName,
-          label: slot.nodeName,
-          compatible: slot.compatible || undefined,
-          deviceClass: 'i2c-bus',
-          path: `${bus.path}/${slot.nodeName}`,
-          parentKey: busKey,
-          presence: 'inert',
-          crumb: `${bus.controllerLabel} · 0x${hex(slot.address)}`,
-          busLabel: bus.controllerLabel,
-        })
+      for (const row of declaredI2cChildren(ids, busKey, bus.controllerLabel, bus.path, bus.slots)) {
+        push(row)
       }
     }
   }
 
   let spiBodyUsed = false
   for (const bus of insights.spiBuses) {
-    if (bus.bridged && !avail.spi) continue
     const live = bus.bridged && avail.spi && !spiBodyUsed
     if (live) spiBodyUsed = true
     const busNode = byPath(doc, bus.path)
@@ -827,7 +891,7 @@ function deriveFromTree(
       deviceClass: 'spi-bus',
       path: bus.path,
       presence: live ? 'interactive' : 'inert',
-      note: live ? undefined : 'no page model',
+      note: live || bus.bridged ? undefined : 'no page model',
       body: live ? 'spi' : undefined,
       busLabel: bus.controllerLabel,
       panelKind: live ? 'spi' : undefined,
@@ -845,19 +909,8 @@ function deriveFromTree(
         push(row)
       }
     } else {
-      for (const slot of bus.slots) {
-        push({
-          key: uniqueKey(ids, `${bus.controllerLabel}:${slot.cs.toString(16)}`),
-          nodeName: slot.nodeName,
-          label: slot.nodeName,
-          compatible: slot.compatible || undefined,
-          deviceClass: 'spi-bus',
-          path: `${bus.path}/${slot.nodeName}`,
-          parentKey: busKey,
-          presence: 'inert',
-          crumb: `${bus.controllerLabel} · CS${slot.cs}`,
-          busLabel: bus.controllerLabel,
-        })
+      for (const row of declaredSpiChildren(ids, busKey, bus.controllerLabel, bus.path, bus.slots)) {
+        push(row)
       }
     }
   }
@@ -884,7 +937,7 @@ function deriveFromTree(
 
     for (const slot of bus.slots) {
       if (slot.chipId === 'gnss') {
-        if (!avail.gnss) continue
+        const live = avail.gnss
         push({
           key: uniqueKey(ids, 'gnss'),
           nodeName: slot.nodeName,
@@ -893,10 +946,10 @@ function deriveFromTree(
           deviceClass: 'gnss',
           path: `${bus.path}/${slot.nodeName}`,
           parentKey: busKey,
-          presence: 'interactive',
-          body: 'gnss',
+          presence: live ? 'interactive' : 'inert',
+          body: live ? 'gnss' : undefined,
           crumb: bus.controllerLabel,
-          panelKind: 'gnss',
+          panelKind: live ? 'gnss' : undefined,
         })
         continue
       }
@@ -950,7 +1003,9 @@ function sortByDocumentOrder(nodes: DeviceNode[], doc: DtsDocument): DeviceNode[
 
 /**
  * Names for the no-devicetree fallback, mirroring the bundled overlays the
- * same way FALLBACK_DT_SLOTS does. Availability decides which entries appear.
+ * same way FALLBACK_DT_SLOTS does. Every named surface is listed; availability
+ * only flips presence between inert and interactive. Optional fields are
+ * omitted on boards that never expose them (M3 has no virtio I²C/SPI/display).
  */
 interface FallbackNames {
   console: { nodeName: string; compatible: string; label?: string }
@@ -959,9 +1014,9 @@ interface FallbackNames {
   mic: { nodeName: string }
   net: { nodeName: string; compatible: string; label: string }
   gpio: { nodeName: string; compatible: string; label: string }
-  i2c: { nodeName: string; compatible: string; label: string; parentPath: string }
-  spi: { nodeName: string; compatible: string; label: string; parentPath: string }
-  display: { nodeName: string }
+  i2c?: { nodeName: string; compatible: string; label: string; parentPath: string }
+  spi?: { nodeName: string; compatible: string; label: string; parentPath: string }
+  display?: { nodeName: string }
   input?: { nodeName: string }
 }
 
@@ -1018,20 +1073,6 @@ const M3_FALLBACK: FallbackNames = {
   mic: { nodeName: 'audio@40063000' },
   net: { nodeName: 'ethernet@40048000', compatible: 'ti,stellaris-ethernet', label: 'eth0' },
   gpio: { nodeName: 'gpio@40061000', compatible: 'qemu,host-gpio', label: 'host_gpio' },
-  i2c: {
-    nodeName: 'virtio-i2c',
-    compatible: 'virtio,i2c',
-    label: 'virtio_i2c0',
-    parentPath: '/soc',
-  },
-  // M3 has no virtio-mmio SPI bridge; kept for type completeness, never shown.
-  spi: {
-    nodeName: 'virtio-spi',
-    compatible: 'virtio,spi',
-    label: 'virtio_spi0',
-    parentPath: '/soc',
-  },
-  display: { nodeName: 'ramfb' },
 }
 
 function deriveFallback(
@@ -1060,7 +1101,8 @@ function deriveFallback(
     note: '→ terminal',
   })
 
-  if (avail.gnss) {
+  {
+    const live = avail.gnss
     const uartKey = uniqueKey(ids, names.gnssUart.label ?? names.gnssUart.nodeName)
     nodes.push({
       key: uartKey,
@@ -1069,8 +1111,8 @@ function deriveFallback(
       compatible: names.gnssUart.compatible,
       deviceClass: 'uart-bus',
       path: `/soc/${names.gnssUart.nodeName}`,
-      presence: 'interactive',
-      body: 'uart',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'uart' : undefined,
       busLabel: names.gnssUart.label ?? names.gnssUart.nodeName,
     })
     nodes.push({
@@ -1081,14 +1123,15 @@ function deriveFallback(
       deviceClass: 'gnss',
       path: `/soc/${names.gnssUart.nodeName}/gnss-nmea-generic`,
       parentKey: uartKey,
-      presence: 'interactive',
-      body: 'gnss',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'gnss' : undefined,
       crumb: names.gnssUart.label,
-      panelKind: 'gnss',
+      panelKind: live ? 'gnss' : undefined,
     })
   }
 
-  if (avail.audio) {
+  {
+    const live = avail.audio
     nodes.push({
       key: uniqueKey(ids, 'audio'),
       nodeName: names.audio.nodeName,
@@ -1096,12 +1139,13 @@ function deriveFallback(
       compatible: 'qemu,host-audio',
       deviceClass: 'audio',
       path: `/soc/${names.audio.nodeName}`,
-      presence: 'interactive',
-      body: 'speaker',
-      panelKind: 'audio',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'speaker' : undefined,
+      panelKind: live ? 'audio' : undefined,
     })
   }
-  if (avail.mic) {
+  {
+    const live = avail.mic
     nodes.push({
       key: uniqueKey(ids, 'mic'),
       nodeName: names.mic.nodeName,
@@ -1109,13 +1153,14 @@ function deriveFallback(
       compatible: 'qemu,host-mic',
       deviceClass: 'audio',
       path: `/soc/${names.mic.nodeName}`,
-      presence: 'interactive',
-      body: 'mic',
-      panelKind: 'audio',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'mic' : undefined,
+      panelKind: live ? 'audio' : undefined,
     })
   }
 
-  if (avail.net) {
+  {
+    const live = avail.net
     nodes.push({
       key: uniqueKey(ids, 'net'),
       nodeName: names.net.nodeName,
@@ -1123,14 +1168,15 @@ function deriveFallback(
       compatible: names.net.compatible,
       deviceClass: 'net',
       path: `/soc/${names.net.nodeName}`,
-      presence: 'interactive',
-      body: 'net',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'net' : undefined,
       crumb: names.net.label,
-      panelKind: 'net',
+      panelKind: live ? 'net' : undefined,
     })
   }
 
-  if (avail.gpio) {
+  {
+    const live = avail.gpio
     nodes.push({
       key: uniqueKey(ids, 'gpio'),
       nodeName: names.gpio.nodeName,
@@ -1138,10 +1184,10 @@ function deriveFallback(
       compatible: names.gpio.compatible,
       deviceClass: 'gpio',
       path: `/soc/${names.gpio.nodeName}`,
-      presence: 'interactive',
-      body: 'gpio',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'gpio' : undefined,
       crumb: names.gpio.label,
-      panelKind: 'gpio',
+      panelKind: live ? 'gpio' : undefined,
     })
     nodes.push({
       key: uniqueKey(ids, 'gpio-keys'),
@@ -1150,10 +1196,10 @@ function deriveFallback(
       compatible: 'gpio-keys',
       deviceClass: 'keys',
       path: '/keys',
-      presence: 'interactive',
-      body: 'gpio-keys',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'gpio-keys' : undefined,
       crumb: names.gpio.label,
-      panelKind: 'keys',
+      panelKind: live ? 'keys' : undefined,
     })
     // Fallback fan-out always includes LEDs (hostGpio FALLBACK_LEDS) — same
     // LED-class split as the devicetree path.
@@ -1164,14 +1210,14 @@ function deriveFallback(
       compatible: 'gpio-leds',
       deviceClass: 'led',
       path: '/leds',
-      presence: 'interactive',
-      body: 'gpio-leds',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'gpio-leds' : undefined,
       crumb: names.gpio.label,
-      panelKind: 'led',
+      panelKind: live ? 'led' : undefined,
     })
   }
 
-  if (avail.display) {
+  if (names.display) {
     nodes.push({
       key: uniqueKey(ids, 'display'),
       nodeName: names.display.nodeName,
@@ -1184,7 +1230,7 @@ function deriveFallback(
     })
   }
 
-  if (avail.input && names.input) {
+  if (names.input) {
     nodes.push({
       key: uniqueKey(ids, 'input'),
       nodeName: names.input.nodeName,
@@ -1197,9 +1243,10 @@ function deriveFallback(
     })
   }
 
-  if (avail.i2c) {
+  if (names.i2c) {
     const busPath = `${names.i2c.parentPath}/${names.i2c.nodeName}`
     const busKey = uniqueKey(ids, names.i2c.label)
+    const live = avail.i2c
     nodes.push({
       key: busKey,
       nodeName: names.i2c.nodeName,
@@ -1207,10 +1254,10 @@ function deriveFallback(
       compatible: names.i2c.compatible,
       deviceClass: 'i2c-bus',
       path: busPath,
-      presence: 'interactive',
-      body: 'i2c',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'i2c' : undefined,
       busLabel: names.i2c.label,
-      panelKind: 'i2c',
+      panelKind: live ? 'i2c' : undefined,
     })
     const slots: I2cSlot[] = Object.entries(FALLBACK_DT_SLOTS).map(([address, chipId]) => ({
       address: Number(address),
@@ -1218,12 +1265,17 @@ function deriveFallback(
       chipId,
       nodeName: `${chipId}@${hex(Number(address))}`,
     }))
-    nodes.push(...liveBusChildren(ids, busKey, names.i2c.label, busPath, slots, chips))
+    if (live) {
+      nodes.push(...liveBusChildren(ids, busKey, names.i2c.label, busPath, slots, chips))
+    } else {
+      nodes.push(...declaredI2cChildren(ids, busKey, names.i2c.label, busPath, slots))
+    }
   }
 
-  if (avail.spi) {
+  if (names.spi) {
     const busPath = `${names.spi.parentPath}/${names.spi.nodeName}`
     const busKey = uniqueKey(ids, names.spi.label)
+    const live = avail.spi
     nodes.push({
       key: busKey,
       nodeName: names.spi.nodeName,
@@ -1231,40 +1283,54 @@ function deriveFallback(
       compatible: names.spi.compatible,
       deviceClass: 'spi-bus',
       path: busPath,
-      presence: 'interactive',
-      body: 'spi',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'spi' : undefined,
       busLabel: names.spi.label,
-      panelKind: 'spi',
+      panelKind: live ? 'spi' : undefined,
     })
-    const slots: SpiSlot[] = spiChips.map((chip) => ({
-      cs: chip.cs,
-      compatible: isSpiFlashChip(chip)
-        ? 'jedec,spi-nor'
-        : isSct2024(chip)
-          ? 'sct,sct2024'
+    if (live) {
+      const slots: SpiSlot[] = spiChips.map((chip) => ({
+        cs: chip.cs,
+        compatible: isSpiFlashChip(chip)
+          ? 'jedec,spi-nor'
+          : isSct2024(chip)
+            ? 'sct,sct2024'
+            : isWs2812(chip)
+              ? 'worldsemi,ws2812-spi'
+              : isPt6314(chip)
+                ? 'ptc,pt6314'
+                : '',
+        chipId: isSpiFlashChip(chip)
+          ? 'w25q'
+          : isSct2024(chip)
+            ? 'sct2024'
+            : isWs2812(chip)
+              ? 'ws2812'
+              : isPt6314(chip)
+                ? 'pt6314'
+                : undefined,
+        nodeName: isSct2024(chip)
+          ? `sct2024@${chip.cs}`
           : isWs2812(chip)
-            ? 'worldsemi,ws2812-spi'
+            ? `ws2812@${chip.cs}`
             : isPt6314(chip)
-              ? 'ptc,pt6314'
-              : '',
-      chipId: isSpiFlashChip(chip)
-        ? 'w25q'
-        : isSct2024(chip)
-          ? 'sct2024'
-          : isWs2812(chip)
-            ? 'ws2812'
-            : isPt6314(chip)
-              ? 'pt6314'
-              : undefined,
-      nodeName: isSct2024(chip)
-        ? `sct2024@${chip.cs}`
-        : isWs2812(chip)
-          ? `ws2812@${chip.cs}`
-          : isPt6314(chip)
-            ? `pt6314@${chip.cs}`
-            : `spi-dev@${chip.cs}`,
-    }))
-    nodes.push(...liveSpiBusChildren(ids, busKey, names.spi.label, busPath, slots, spiChips))
+              ? `pt6314@${chip.cs}`
+              : `spi-dev@${chip.cs}`,
+      }))
+      nodes.push(...liveSpiBusChildren(ids, busKey, names.spi.label, busPath, slots, spiChips))
+    } else {
+      // Default flash seat — same CS0 the managed bus attaches — so the child
+      // row is already in place before the bridge binds.
+      const slots: SpiSlot[] = [
+        {
+          cs: 0,
+          compatible: 'jedec,spi-nor',
+          chipId: 'w25q',
+          nodeName: 'spi-dev@0',
+        },
+      ]
+      nodes.push(...declaredSpiChildren(ids, busKey, names.spi.label, busPath, slots))
+    }
   }
 
   return nodes
