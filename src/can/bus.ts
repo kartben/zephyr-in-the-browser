@@ -173,11 +173,36 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
   let notifyAt = 0
   let notifyTimer: ReturnType<typeof setTimeout> | null = null
 
+  // `useSyncExternalStore` needs a snapshot whose reference is stable between
+  // calls that see no change — recomputing `[...attached.values()].map(...)`
+  // (or handing back a mutated-in-place `entries`) inside `nodes()`/`log()`
+  // themselves either builds a new array every render (React treats that as
+  // "changed every time" and throws "getSnapshot should be cached", the way
+  // attaching an MCP2515 blanked the CAN panel) or never signals a change at
+  // all. Snapshots are rebuilt here, once, wherever state actually mutates.
+  let nodesSnapshot: readonly CanNodeSnapshot[] = []
+  let logSnapshot: readonly CanLogEntry[] = entries
+
+  function refreshSnapshots() {
+    nodesSnapshot = [...attached.values()].map((n) => ({
+      id: n.id,
+      name: n.name,
+      local: !!n.local,
+      acks: n.acks !== false,
+      tec: n.tec,
+      rec: n.rec,
+      state: n.state,
+      summary: summarise(n),
+    }))
+    logSnapshot = entries.slice()
+  }
+
   /**
    * Throttled: a loaded bus produces frames far faster than React should
    * re-render, and the trace is the only consumer that cares about every one.
    */
   function notify() {
+    refreshSnapshots()
     const t = now()
     if (t - notifyAt >= NOTIFY_MS) {
       notifyAt = t
@@ -188,6 +213,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
     notifyTimer = setTimeout(() => {
       notifyTimer = null
       notifyAt = now()
+      refreshSnapshots()
       for (const fn of listeners) fn()
     }, NOTIFY_MS)
   }
@@ -342,19 +368,9 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
       notify()
     },
 
-    nodes: () =>
-      [...attached.values()].map((n) => ({
-        id: n.id,
-        name: n.name,
-        local: !!n.local,
-        acks: n.acks !== false,
-        tec: n.tec,
-        rec: n.rec,
-        state: n.state,
-        summary: summarise(n),
-      })),
+    nodes: () => nodesSnapshot,
 
-    log: () => entries,
+    log: () => logSnapshot,
 
     clearLog() {
       entries.length = 0
