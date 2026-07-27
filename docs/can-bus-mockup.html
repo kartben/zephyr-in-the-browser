@@ -197,12 +197,12 @@
               <li class="node">
                 <div class="node-main">
                   <div class="node-top">
-                    <span class="node-name">Periodic</span>
+                    <span class="node-name">Babbling</span>
                     <span class="pill" title="Transmit errors below 128. Normal operation."><span class="dot dot-active"></span>error-active</span>
                   </div>
                   <div class="node-sub">0x0A0 every 100 ms · TEC 0 REC 0</div>
                 </div>
-                <button class="x" title="Unplug. Nothing left to ACK can0's frames." aria-label="Unplug Periodic">
+                <button class="x" title="Unplug. Nothing left to ACK can0's frames." aria-label="Unplug Babbling">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
               </li>
@@ -225,7 +225,7 @@
             <span class="sec-label">Add node</span>
             <div class="attach">
               <select aria-label="Node type">
-                <option>Periodic · transmits an ID</option>
+                <option>Babbling · floods the bus</option>
                 <option>Responder · replies to RTR</option>
                 <option>Counter · samples/can/counter</option>
                 <option>Listener · acks only</option>
@@ -400,7 +400,7 @@
 
       const LANES = [
         { label: 'can0', id: '0x100', color: 'oklch(0.62 0.19 292)' },
-        { label: 'periodic', id: '0x0A0', color: 'oklch(0.7 0.16 152)' },
+        { label: 'babbling', id: '0x0A0', color: 'oklch(0.7 0.16 152)' },
         { label: 'responder', id: '0x200', color: 'oklch(0.77 0.15 78)' },
       ]
       const padL = 52, padR = 8, padT = 8, padB = 16

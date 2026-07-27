@@ -257,10 +257,10 @@ describe('acknowledgement and error counters', () => {
 })
 
 describe('node presets', () => {
-  it('periodic transmits on its own schedule', () => {
+  it('babbling transmits on its own schedule', () => {
     const { bus, advance } = harness()
     bus.attach({ id: 'can0', name: 'can0', local: true })
-    bus.attach(nodeType('periodic')!.create('p', { id: 0x0a0, periodMs: 100 }))
+    bus.attach(nodeType('babbling')!.create('p', { id: 0x0a0, periodMs: 100 }))
 
     advance(50)
     expect(bus.log()).toHaveLength(0)

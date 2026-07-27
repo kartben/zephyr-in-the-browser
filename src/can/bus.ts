@@ -316,7 +316,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
   }
 
   function pump(at = now()) {
-    // Periodic nodes become ready on their own schedule.
+    // Transmit presets become ready on their own schedule.
     for (const node of attached.values()) {
       const tx = node.transmit
       if (!tx || node.state === 'bus-off') continue

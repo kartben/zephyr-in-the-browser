@@ -94,7 +94,7 @@ describe('mcp2515 on the bus', () => {
 
   it('a frame the filters reject is on the bus but not in a buffer', () => {
     const h = harness()
-    h.bus.attach(nodeType('periodic')!.create('p', { id: 0x2ff, periodMs: 50 }))
+    h.bus.attach(nodeType('babbling')!.create('p', { id: 0x2ff, periodMs: 50 }))
     // Accept only 0x10x, on both buffers.
     h.write([CMD_WRITE, 0x20, 0xfe, 0x00])
     h.write([CMD_WRITE, 0x24, 0xfe, 0x00])
