@@ -2,18 +2,21 @@
  * Quiet debug surface attached to the Pause control.
  *
  * Invisible while the guest is running. While paused it shows a one-line PC
- * chip; opening it reveals Step + the raw register dump. No dock row, no stage
+ * chip; opening it reveals the raw register dump. No dock row, no stage
  * widget, no always-on TopBar chrome — the existing Pause button is the only
  * entry point.
+ *
+ * There is deliberately no Step here. QEMU's monitor has no one-instruction
+ * step (HMP `step` does not exist; `one-insn-per-tb` is unrelated). Real step
+ * needs the gdbstub — see docs/debug-gdb-plan.md.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Pause, Play, Redo2 } from 'lucide-react'
+import { ChevronDown, Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   getSnapshot as getMonitor,
-  step as stepGuest,
   subscribe as subscribeMonitor,
   toggle as togglePause,
 } from '@/hostMonitor'
@@ -93,17 +96,6 @@ export function PauseDebugControl() {
 
 function DebugPopover() {
   const monitor = useSyncExternalStore(subscribeMonitor, getMonitor, getMonitor)
-  const [stepping, setStepping] = useState(false)
-
-  const onStep = async () => {
-    if (stepping) return
-    setStepping(true)
-    try {
-      await stepGuest()
-    } finally {
-      setStepping(false)
-    }
-  }
 
   return (
     <div
@@ -111,26 +103,13 @@ function DebugPopover() {
       aria-label="CPU debug"
       className="absolute right-0 top-full z-50 mt-1 w-[22rem] max-w-[min(22rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-card p-2 shadow-xl"
     >
-      <div className="mb-2 flex items-center gap-2 px-1">
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            CPU
-          </div>
-          <div className="truncate font-mono text-xs text-foreground">
-            {monitor.summary ?? (monitor.registersLoading ? 'Reading…' : 'No registers')}
-          </div>
+      <div className="mb-2 px-1">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          CPU
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="h-7 shrink-0 gap-1 px-2 text-xs"
-          disabled={stepping || monitor.registersLoading}
-          onClick={() => void onStep()}
-          title="Step one instruction"
-        >
-          <Redo2 className="size-3.5" aria-hidden />
-          Step
-        </Button>
+        <div className="truncate font-mono text-xs text-foreground">
+          {monitor.summary ?? (monitor.registersLoading ? 'Reading…' : 'No registers')}
+        </div>
       </div>
 
       <pre

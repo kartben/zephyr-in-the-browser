@@ -21,10 +21,10 @@
  * Pause button whether or not the running sample is annotated.
  *
  * Step 1 of in-page debugging reuses this same channel: when the machine is
- * stopped we ask for `info registers` (via `human-monitor-command`) and offer
- * HMP `step`. A real gdbstub needs a second browser chardev — today's bridge is
- * a singleton — and lands later. Until then QMP is enough for a quiet "what is
- * the PC" view without a QEMU rebuild.
+ * stopped we ask for `info registers` (via `human-monitor-command`). There is
+ * no HMP one-instruction step in QEMU 10.1 — that needs the gdbstub (see
+ * docs/debug-gdb-plan.md). Until then this is a quiet "what is the PC" view
+ * without a QEMU rebuild.
  *
  * Everything degrades to a no-op on an emulator built before the bridge —
  * `available()` is false, the button hides, annotations still show but stop
@@ -149,13 +149,12 @@ function send(command: Record<string, unknown>) {
  * Send a QMP command and wait for the matching `id` reply.
  *
  * Pause / resume stay fire-and-forget: the STOP/RESUME events are the source
- * of truth for `paused`. Register dumps and `step` need the return value.
+ * of truth for `paused`. Register dumps need the return value.
  */
 function request(command: Record<string, unknown>): Promise<unknown> {
   if (stub) {
     const line = (command.arguments as { 'command-line'?: string } | undefined)?.['command-line']
     if (line === 'info registers') return Promise.resolve(stubRegisters)
-    if (line === 'step') return Promise.resolve('')
     return Promise.resolve({})
   }
   if (!available()) return Promise.reject(new Error('monitor unavailable'))
@@ -315,30 +314,6 @@ export function resume() {
 export function toggle() {
   if (state.paused) resume()
   else pause()
-}
-
-/**
- * Single-step one guest instruction, then refresh registers.
- *
- * Uses HMP `step` over QMP. The machine stays paused; QEMU may or may not
- * emit another STOP, so we always re-query registers after the reply.
- */
-export async function step(): Promise<void> {
-  if (!available() || !state.paused) return
-  try {
-    await request({
-      execute: 'human-monitor-command',
-      arguments: { 'command-line': 'step' },
-    })
-    if (stub) {
-      // Advance the fake PC so the UI has something to show.
-      const cur = Number.parseInt(parseRegisters(stubRegisters).pc ?? '0', 16)
-      stubRegisters = `R15=${(cur + 2).toString(16).padStart(8, '0')}\n`
-    }
-    await refreshRegisters()
-  } catch {
-    // Leave the last dump up; the user can retry.
-  }
 }
 
 export function attach(mod: unknown) {
