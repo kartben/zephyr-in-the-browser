@@ -27,7 +27,7 @@ the list matters for a given workload:
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount` prevents the DAC reaching 1 kHz — **disabled after measurement** | `src/boards.ts` | High, synchronous virtio | Very low | Low (MIPS telemetry unavailable) |
-| 7 | QEMU idle drain 10→1 ms + **completion wake** — local measured, release pending | virtio patch | High, I²C-bound | Low | Medium |
+| 7 | QEMU **completion wake** + idle drain 10→50 ms safety net — local measured, release pending | virtio patch | High, I²C-bound | Low | Medium |
 | 8 | Seven pollers share the thread that runs xterm and React | `src/host*.ts` | Medium | Medium | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
@@ -328,16 +328,21 @@ DAC's timing deficit without needing a Chrome flag or a QEMU rebuild.
 
 `virtio-browser.c` drains completions on a `QEMU_CLOCK_REALTIME` timer at
 `VIRTIO_BROWSER_DRAIN_BUSY_MS 1` while tokens are parked and
-`VIRTIO_BROWSER_DRAIN_IDLE_MS` otherwise. **Measured** on Cortex-A53 `dac`
-(`tools/profile-dac.mjs`): with idle at 10 ms the stock sawtooth runs at
-**~45 I²C Hz** (page poll already ~1.2 ms; guest MIPS ~0.1 — almost always
-blocked). One logical ~4 s period takes ~90 s of wall. The mechanism: a
-synchronous `dac_write` drops `outstanding` to zero between transfers, and
-`-icount sleep=on` then sleeps the host until the idle drain fires — twice
-per loop (sleep wake + completion), which matches the ~22 ms/transfer.
+`VIRTIO_BROWSER_DRAIN_IDLE_MS 50` otherwise (safety net; kick is primary).
+**Measured** on Cortex-A53 `dac` (`tools/profile-dac.mjs`): with idle at 10 ms
+and no kick, the stock sawtooth ran at **~45 I²C Hz** (page poll already
+~1.2 ms; guest MIPS ~0.1 — almost always blocked). One logical ~4 s period
+takes ~90 s of wall. The mechanism: a synchronous `dac_write` drops
+`outstanding` to zero between transfers, and `-icount sleep=on` then sleeps
+the host until the idle drain fires — twice per loop (sleep wake +
+completion), which matches the ~22 ms/transfer.
 
-**Patched to idle = 1 ms** in the virtio-browser series. **Also:** the page now
-actively wakes QEMU on every completion (`Atomics.notify` on
+**Patched:** completion kick BH + busy drain 1 ms; idle raised to **50 ms**
+once kick carried the hot path (a 1 ms idle was an interim step that kept the
+main loop waking once per ms per device when idle). Hot-path C also uses an
+O(1) token free-stack, skips empty devices in the kick BH, and avoids
+redundant `timer_mod` when a sooner deadline is already pending. The page
+wakes QEMU on every completion (`Atomics.notify` on
 `qemu_virtio_browser_wake_addr` + `_qemu_virtio_browser_kick()` → futex wake,
 `qemu_bh_schedule` of the drain under the BQL, `qemu_notify_event`). Draining
 inline from the keepalive export crashes A53 (`gicv3` asserts `bql_locked()`):
