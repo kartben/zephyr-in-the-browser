@@ -3,8 +3,7 @@ import { clampBox } from '@/hooks/useDragResize'
 
 describe('clampBox', () => {
   beforeEach(() => {
-    vi.stubGlobal('innerWidth', 1000)
-    vi.stubGlobal('innerHeight', 800)
+    vi.stubGlobal('window', { innerWidth: 1000, innerHeight: 800 })
   })
   afterEach(() => {
     vi.unstubAllGlobals()
