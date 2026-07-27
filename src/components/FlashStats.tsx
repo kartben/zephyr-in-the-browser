@@ -9,6 +9,7 @@
 
 import { useEffect, useReducer } from 'react'
 import { cn } from '@/lib/utils'
+import { useFluidCols } from '@/hooks/useFluidCols'
 import {
   flashTotalErases,
   flashUsedFraction,
@@ -174,7 +175,7 @@ function SectorWearMap({
   onSectorClick?: (address: number) => void
   viewRange?: FlashViewRange | null
 }) {
-  const cols = Math.max(8, Math.min(32, Math.round(Math.sqrt(stats.sectorCount))))
+  const { ref: gridRef, cols } = useFluidCols(stats.sectorCount)
   const scaleLabel = enduranceCycles
     ? `wear / ${formatFlashCount(enduranceCycles)} cycle rating`
     : 'wear relative to busiest sector'
@@ -204,7 +205,8 @@ function SectorWearMap({
         <span className="font-mono tabular-nums">{scaleLabel}</span>
       </div>
       <div
-        className="grid gap-px rounded-sm bg-border/60 p-px"
+        ref={gridRef}
+        className="grid w-full gap-px rounded-sm bg-border/60 p-px"
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         role="img"
         aria-label={`Sector wear map, ${stats.sectorCount} sectors${selectedCount ? `, ${selectedCount} in hex view` : ''}`}
@@ -218,7 +220,7 @@ function SectorWearMap({
           const selected = si >= viewFirst && si <= viewLast
           const label = `sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}${selected ? ' · in hex view' : ''}${onSectorClick ? ' — click to show in hex' : ''}`
           const tone = cn(
-            'aspect-square min-h-[5px] rounded-[1px]',
+            'aspect-square min-h-0 w-full rounded-[1px]',
             cellTone(erases, dirty, frac),
             selected &&
               'relative z-[1] shadow-[0_0_0_2px_var(--primary)]',

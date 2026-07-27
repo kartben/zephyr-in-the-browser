@@ -8,6 +8,7 @@
 
 import { useEffect, useReducer } from 'react'
 import { cn } from '@/lib/utils'
+import { useFluidCols } from '@/hooks/useFluidCols'
 import { formatFlashCount, formatFlashSize } from '@/virtio/devices/flash/model'
 import {
   memoryUsedFraction,
@@ -148,7 +149,7 @@ function PageWearMap({
   pageSize: number
   enduranceCycles?: number
 }) {
-  const cols = Math.max(8, Math.min(32, Math.round(Math.sqrt(stats.pageCount))))
+  const { ref: gridRef, cols } = useFluidCols(stats.pageCount)
   const scaleLabel = enduranceCycles
     ? `wear / ${formatFlashCount(enduranceCycles)} cycle rating`
     : 'wear relative to busiest page this session'
@@ -160,7 +161,8 @@ function PageWearMap({
         <span className="font-mono tabular-nums">{scaleLabel}</span>
       </div>
       <div
-        className="grid gap-px rounded-sm bg-border/60 p-px"
+        ref={gridRef}
+        className="grid w-full gap-px rounded-sm bg-border/60 p-px"
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         role="img"
         aria-label={`Page wear map, ${stats.pageCount} pages`}
@@ -175,7 +177,7 @@ function PageWearMap({
             <div
               key={pi}
               title={`page ${pi} · 0x${addr.toString(16)} · ${used} B used · ${writes} write${writes === 1 ? '' : 's'}`}
-              className={cn('aspect-square min-h-[5px] rounded-[1px]', cellTone(writes, dirty, frac))}
+              className={cn('aspect-square min-h-0 w-full rounded-[1px]', cellTone(writes, dirty, frac))}
             />
           )
         })}

@@ -123,7 +123,7 @@ export function HexView({
           )}
         </div>
       )}
-      <div className="max-h-[min(22rem,50vh)] overflow-auto rounded-md border border-border bg-background">
+      <div className="max-h-[min(30rem,60vh)] overflow-auto rounded-md border border-border bg-background">
         <div className="min-w-max p-2 font-mono text-[10px] leading-[1.6]">
           {Array.from({ length: rows }, (_, row) => {
             const rowBase = base + row * BYTES_PER_ROW
