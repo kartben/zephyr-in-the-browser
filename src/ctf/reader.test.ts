@@ -4,6 +4,7 @@ import {
   TraceReader,
   laneOrder,
   threadLabel,
+  threadPrio,
   renderStateRows,
   fmtTime,
   niceTimeStep,
@@ -26,6 +27,9 @@ function encU64(n: number): number[] {
     x = Math.floor(x / 256)
   }
   return out
+}
+function encI8(n: number): number[] {
+  return [n & 0xff]
 }
 function encName(s: string): number[] {
   const out = Array.from({ length: 20 }, () => 0)
@@ -62,11 +66,36 @@ describe('TraceReader', () => {
       [3000, 5000, b],
       [5000, 7000, a],
     ])
+    // No prio yet — busiest-first tie-break still puts a ahead of b.
     const order = laneOrder(reader.tr)
     expect(order[0]).toBe(a) // 3000 ns busy vs 2000
     const rows = renderStateRows(reader.tr, order, reader.tr.t0, reader.tr.t1, 10)
     expect(rows.get(a)?.some((c) => c === 'run')).toBe(true)
     expect(rows.get(b)?.some((c) => c === 'run')).toBe(true)
+  })
+
+  it('orders Gantt lanes by Zephyr priority (lower = higher), unknown last', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const coop = 0x1000
+    const preempt = 0x2000
+    const unknown = 0x3000
+    const bytes = [
+      ...record(100, 0x13, [...encU32(preempt), ...encName('preempt')]),
+      ...record(110, 0x13, [...encU32(coop), ...encName('coop')]),
+      ...record(120, 0x13, [...encU32(unknown), ...encName('unknown')]),
+      // thread_priority_set: prio 7 then -2 — busy times favour preempt.
+      ...record(200, 0x12, [...encU32(preempt), ...encName('preempt'), ...encI8(7)]),
+      ...record(210, 0x12, [...encU32(coop), ...encName('coop'), ...encI8(-2)]),
+      ...record(1000, 0x11, [...encU32(preempt), ...encName('preempt')]),
+      ...record(5000, 0x10, [...encU32(preempt), ...encName('preempt')]),
+      ...record(5000, 0x11, [...encU32(coop), ...encName('coop')]),
+      ...record(5500, 0x10, [...encU32(coop), ...encName('coop')]),
+    ]
+    reader.feed(Uint8Array.from(bytes))
+    expect(threadPrio(reader.tr, coop)).toBe(-2)
+    expect(threadPrio(reader.tr, preempt)).toBe(7)
+    expect(threadPrio(reader.tr, unknown)).toBeNull()
+    expect(laneOrder(reader.tr)).toEqual([coop, preempt, unknown])
   })
 
   it('holds a partial trailing record until the rest arrives', () => {

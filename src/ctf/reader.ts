@@ -308,19 +308,45 @@ export class TraceReader {
   }
 }
 
-/** Thread ids ordered busiest-first, then never-ran. */
+/**
+ * Thread ids for Gantt lanes: Zephyr priority ascending (lower = higher
+ * priority; negative = cooperative), unknown prio last. Ties break by CPU
+ * busy time (busiest first), then thread id.
+ */
 export function laneOrder(tr: Trace): number[] {
   const busy = new Map<number, number>()
   for (const [s, e, tid] of tr.segments) {
     busy.set(tid, (busy.get(tid) ?? 0) + Math.max(0, e - s))
   }
-  const ran = [...busy.keys()].sort((a, b) => (busy.get(b) ?? 0) - (busy.get(a) ?? 0))
-  const others = [...tr.threads.keys()].filter((t) => !busy.has(t))
-  return [...ran, ...others]
+  return [...tr.threads.keys()].sort((a, b) => {
+    const pa = tr.threads.get(a)?.prio
+    const pb = tr.threads.get(b)?.prio
+    const aKnown = pa != null
+    const bKnown = pb != null
+    if (aKnown && bKnown && pa !== pb) return pa - pb
+    if (aKnown !== bKnown) return aKnown ? -1 : 1
+    const ba = busy.get(a) ?? 0
+    const bb = busy.get(b) ?? 0
+    if (ba !== bb) return bb - ba
+    return a - b
+  })
+}
+
+/** Lanes worth painting: non-dead state somewhere in the trace. */
+export function visibleLanes(tr: Trace): number[] {
+  return laneOrder(tr).filter((tid) => {
+    const segs = tr.states.get(tid)
+    return segs != null && segs.some(([, , st]) => st !== 'dead')
+  })
 }
 
 export function threadLabel(tr: Trace, tid: number): string {
   return tr.threads.get(tid)?.name || '(unnamed)'
+}
+
+/** Scheduler priority from CTF, or null when never reported. */
+export function threadPrio(tr: Trace, tid: number): number | null {
+  return tr.threads.get(tid)?.prio ?? null
 }
 
 export function fmtTime(ns: number): string {

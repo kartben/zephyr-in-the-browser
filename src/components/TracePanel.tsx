@@ -34,17 +34,20 @@ import {
   STATE_LABEL,
   contextSwitchesIn,
   fmtTime,
-  laneOrder,
   niceTimeStep,
   renderStateRows,
   stateAt,
   threadLabel,
+  threadPrio,
   threadRunningAt,
+  visibleLanes,
   windowStats,
   type ThreadState,
   type Trace,
 } from '@/ctf'
 import { getSnapshot, subscribe } from '@/hostTrace'
+import * as debugUi from '@/lib/debugUi'
+import * as hostGdb from '@/hostGdb'
 import {
   STAGE_TRACE_KEY,
   effectiveExpandedIn,
@@ -54,7 +57,8 @@ import {
 } from '@/lib/dockStore'
 
 const LANE_H = 22
-const LABEL_W = 72
+/** Room for thread name + optional prio in the left gutter. */
+const LABEL_W = 96
 const PAD = 8
 /** Space reserved above the lanes for the time-axis ruler + labels. */
 const AXIS_H = 28
@@ -117,10 +121,7 @@ function paint(
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
-  const lanes = laneOrder(tr).filter((tid) => {
-    const segs = tr.states.get(tid)
-    return segs && segs.some(([, , st]) => st !== 'dead')
-  })
+  const lanes = visibleLanes(tr)
   const plotRows = lanes.length + (tr.isrSpans.length ? 1 : 0)
   const cssH = Math.max(120, AXIS_H + PAD + plotRows * LANE_H + 8)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
@@ -188,12 +189,21 @@ function paint(
   lanes.forEach((tid, row) => {
     const y = lanesTop + row * LANE_H
     const label = threadLabel(tr, tid)
+    const prio = threadPrio(tr, tid)
     const selected = selectedLane === tid
     ctx.fillStyle = selected ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.95)'
     ctx.font = `${selected ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
     ctx.textBaseline = 'middle'
-    const trimmed = label.length > 9 ? `${label.slice(0, 8)}…` : label
+    const nameMax = prio != null ? 7 : 10
+    const trimmed = label.length > nameMax ? `${label.slice(0, nameMax - 1)}…` : label
     ctx.fillText(trimmed, 4, y + LANE_H / 2)
+    if (prio != null) {
+      const prioStr = String(prio)
+      ctx.fillStyle = selected ? 'rgba(148, 163, 184, 0.95)' : 'rgba(100, 116, 139, 0.95)'
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+      const tw = ctx.measureText(prioStr).width
+      ctx.fillText(prioStr, LABEL_W - tw - 6, y + LANE_H / 2)
+    }
     if (selected) {
       ctx.fillStyle = 'rgba(59, 130, 246, 0.18)'
       ctx.fillRect(LABEL_W, y, plotW, LANE_H)
@@ -394,8 +404,9 @@ function TracePanelBody({
     [tr, view, setFollow],
   )
 
-  const lanes = tr ? laneOrder(tr) : []
+  const lanes = tr ? visibleLanes(tr) : []
   const lane = selectedLane ?? lanes[0] ?? null
+  const lanePrio = tr && lane !== null ? threadPrio(tr, lane) : null
   // Info strip reports state at the right edge of the window (live edge when
   // following) — same role as the Python viewer\'s cursor, without a movable one.
   const probeTs = view?.t1 ?? tr?.t1 ?? 0
@@ -418,6 +429,14 @@ function TracePanelBody({
     cpuBusy = Math.max(0, Math.min(1, (runTotal - idleRun) / stats.spanNs))
   }
   const secs = stats ? stats.spanNs / 1e9 : 0
+
+  const selectLane = (tid: number) => {
+    setSelectedLane(tid)
+    // CTF thread_id is the TCB address — open Debug → Threads and blink it.
+    if (hostGdb.getSnapshot().available) {
+      debugUi.focusDebugThread(tid, threadLabel(tr!, tid))
+    }
+  }
 
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
@@ -546,14 +565,14 @@ function TracePanelBody({
                 /* ignore */
               }
               if (g.moved || !view || !tr) return
-              // Tap on a lane label selects it (Python: up/down).
+              // Tap on a lane label selects it and opens Debug → Threads.
               const rect = e.currentTarget.getBoundingClientRect()
               const x = e.clientX - rect.left
               const y = e.clientY - rect.top
               if (x < LABEL_W && y >= AXIS_H) {
                 const row = Math.floor((y - AXIS_H) / LANE_H)
-                const order = laneOrder(tr)
-                if (row >= 0 && row < order.length) setSelectedLane(order[row]!)
+                const order = visibleLanes(tr)
+                if (row >= 0 && row < order.length) selectLane(order[row]!)
               }
             }}
             onPointerCancel={() => {
@@ -606,7 +625,8 @@ function TracePanelBody({
           />
 
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-            Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select
+            Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select (opens Debug
+            Threads when gdb is live)
           </p>
 
           {/* Colour legend — same states as the terminal viewer. */}
@@ -657,6 +677,15 @@ function TracePanelBody({
               <div className="mt-0.5">
                 <span className="text-muted-foreground">lane: </span>
                 <span className="font-mono text-foreground">{threadLabel(tr, lane)}</span>
+                {lanePrio != null && (
+                  <span
+                    className="ml-1.5 font-mono tabular-nums text-foreground/70"
+                    title="Scheduler priority (negative = cooperative)"
+                  >
+                    <span className="text-muted-foreground">prio </span>
+                    {lanePrio}
+                  </span>
+                )}
                 {st && (
                   <>
                     {' → '}

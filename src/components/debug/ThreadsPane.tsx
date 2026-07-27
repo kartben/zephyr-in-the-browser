@@ -1,7 +1,27 @@
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
 import { compactHex } from '@/debug/hexFormat'
 import { formatStackSize, describeThreadStatus } from '@/debug/kernel/threads'
 import * as debug from '@/debug/control'
+import * as debugUi from '@/lib/debugUi'
+
+const BLINK_MS = 900
+const BLINK_STATIC_MS = 600
+
+function pulseAttention(el: HTMLElement) {
+  el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  el.classList.remove('dock-row-attention', 'dock-row-attention-static')
+  void el.offsetWidth
+  const reduce =
+    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  el.classList.add(reduce ? 'dock-row-attention-static' : 'dock-row-attention')
+  window.setTimeout(
+    () => {
+      el.classList.remove('dock-row-attention', 'dock-row-attention-static')
+    },
+    reduce ? BLINK_STATIC_MS : BLINK_MS,
+  )
+}
 
 export function ThreadsPane({
   snap,
@@ -10,6 +30,35 @@ export function ThreadsPane({
   snap: debug.DebugSnapshot
   onPeek: (addrHex: string, length?: number) => void
 }) {
+  const focus = useSyncExternalStore(debugUi.subscribe, debugUi.getSnapshot, debugUi.getSnapshot)
+  const listRef = useRef<HTMLUListElement>(null)
+
+  useEffect(() => {
+    if (focus.nonce === 0 || focus.section !== 'threads') return
+    const root = listRef.current
+    if (!root) return
+
+    const byAddr =
+      focus.threadAddr != null
+        ? root.querySelector<HTMLElement>(`[data-thread-addr="${focus.threadAddr}"]`)
+        : null
+    let el = byAddr
+    if (!el && focus.threadName) {
+      for (const row of root.querySelectorAll<HTMLElement>('[data-thread-name]')) {
+        if (row.dataset.threadName === focus.threadName) {
+          el = row
+          break
+        }
+      }
+    }
+    if (!el) return
+
+    // Wait a frame so the Threads tab / expand has painted.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => pulseAttention(el!))
+    })
+  }, [focus.nonce, focus.section, focus.threadAddr, focus.threadName, snap.threads])
+
   if (!snap.threadInfo) {
     return <p className="px-1 py-3 text-[11px] text-foreground/60">No thread info</p>
   }
@@ -25,14 +74,25 @@ export function ThreadsPane({
     return <p className="px-1 py-3 text-[11px] text-foreground/60">No threads found.</p>
   }
 
+  // Prefer priority order when the debug walk has prio (matches Trace Gantt).
+  const threads = [...snap.threads].sort((a, b) => {
+    const aKnown = a.prio != null
+    const bKnown = b.prio != null
+    if (aKnown && bKnown && a.prio !== b.prio) return a.prio! - b.prio!
+    if (aKnown !== bKnown) return aKnown ? -1 : 1
+    return a.addr - b.addr
+  })
+
   return (
-    <ul className="max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5">
-      {snap.threads.map((t) => {
+    <ul ref={listRef} className="max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5">
+      {threads.map((t) => {
         const status = describeThreadStatus(t)
         const stackAddr = t.stackStart ?? t.sp
         return (
           <li
             key={t.addr}
+            data-thread-addr={t.addr}
+            data-thread-name={t.name}
             className={cn(
               'rounded-md px-2 py-1.5',
               t.current ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-muted/50',

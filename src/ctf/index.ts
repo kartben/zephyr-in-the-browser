@@ -9,7 +9,9 @@ export {
 export {
   TraceReader,
   laneOrder,
+  visibleLanes,
   threadLabel,
+  threadPrio,
   fmtTime,
   niceTimeStep,
   renderStateRows,
