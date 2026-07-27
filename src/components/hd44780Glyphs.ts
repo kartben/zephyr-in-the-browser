@@ -1,10 +1,10 @@
 /**
- * HD44780U A00 5×8 CGROM bitmaps for the JHD1313 LCD canvas.
+ * HD44780U A00 CGROM bitmaps for the JHD1313 LCD canvas (5×7 construction).
  *
  * Derived from Display Module 2 BDF
  * (https://github.com/dse/display-module-fonts), SIL OFL 1.1.
- * Each entry is 8 row bytes; MSB is the leftmost pixel. Bits 7..3
- * form the classic 5-dot glyph; bit 2 is unused spacing from the BDF.
+ * Each entry is 8 row bytes (controller buffer); the canvas paints the first
+ * 7 rows. MSB is the leftmost pixel. Bits 7..3 form the classic 5-dot glyph.
  * Indexed by DDRAM code − 0x20 for 0x20..0x7f (0x7e →, 0x7f ←).
  */
 export const HD44780_GLYPHS: readonly (readonly number[])[] = [
@@ -108,6 +108,8 @@ export const HD44780_GLYPHS: readonly (readonly number[])[] = [
 
 /** Visible glyph width in CGROM dots (bits 7..3). */
 export const HD44780_GLYPH_W = 5
-/** CGROM rows per character (incl. cursor row). */
+/** Controller CGROM buffer rows (canvas uses the first 7 for 5×7 construction). */
 export const HD44780_GLYPH_H = 8
+/** Datasheet character construction rows (JHD1313 §2). */
+export const HD44780_VISIBLE_ROWS = 7
 

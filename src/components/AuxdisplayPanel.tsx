@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  HD44780_GLYPH_H,
   HD44780_GLYPH_W,
   HD44780_GLYPHS,
 } from '@/components/hd44780Glyphs'
@@ -32,13 +31,15 @@ import {
 const UI_MS = 100
 
 /**
- * JHD1313 FP-RGB mechanical (datasheet §2): character is a 5×8 CGROM field
- * (5×7 glyph + cursor row) at 2.95×4.35 mm; character pitch 3.65×5.05 mm.
- * Cell = exact 5×8 dot grid so ink fills the background rectangle.
+ * JHD1313 FP-RGB mechanical (datasheet §2): character construction is **5×7
+ * dots**, size 2.95×4.35 mm, pitch 3.65×5.05 mm. (HD44780 still stores an 8th
+ * CGROM row for the cursor; the visible cell is only the 5×7 glyph field.)
  */
 const LCD_DOT_PX = 3
+/** Datasheet construction — not the full 8-row CGROM buffer. */
+const LCD_GLYPH_ROWS = 7
 const LCD_CELL_W = HD44780_GLYPH_W * LCD_DOT_PX
-const LCD_CELL_H = HD44780_GLYPH_H * LCD_DOT_PX
+const LCD_CELL_H = LCD_GLYPH_ROWS * LCD_DOT_PX
 /** Inter-character gap ≈ (pitch − size): 0.7/2.95 · cellW, 0.7/4.35 · cellH. */
 const LCD_GAP_X = Math.max(1, Math.round((0.7 / 2.95) * LCD_CELL_W))
 const LCD_GAP_Y = Math.max(1, Math.round((0.7 / 4.35) * LCD_CELL_H))
@@ -46,8 +47,8 @@ const LCD_PAD_X = 10
 const LCD_PAD_Y = 8
 
 /**
- * Paint one HD44780 CGROM glyph flush to the cell — each of the 5×8 dots
- * owns an equal tile of the background rectangle (no inset / centering).
+ * Paint one HD44780 5×7 glyph flush to the cell — each of the 5×7 dots owns
+ * an equal tile of the background rectangle (no inset / centering).
  */
 function paintLcdGlyph(
   ctx: CanvasRenderingContext2D,
@@ -58,7 +59,7 @@ function paintLcdGlyph(
   if (ch < 0x20 || ch > 0x7f) return
   const rows = HD44780_GLYPHS[ch - 0x20]
   if (!rows) return
-  for (let r = 0; r < HD44780_GLYPH_H; r++) {
+  for (let r = 0; r < LCD_GLYPH_ROWS; r++) {
     const bits = rows[r] ?? 0
     for (let c = 0; c < HD44780_GLYPH_W; c++) {
       if (bits & (0x80 >> c)) {
@@ -317,9 +318,10 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
 
           const atCursor = state.cursorColumn === col && state.cursorRow === row
           if (on && state.cursor && atCursor && (!state.blinking || blinkPhase)) {
-            // HD44780 cursor occupies the bottom (8th) CGROM row.
+            // Underline along the bottom of the 5×7 cell (8th CGROM row is
+            // off-cell on this module's 5×7 construction).
             ctx.fillStyle = ink
-            ctx.fillRect(x, y + (HD44780_GLYPH_H - 1) * LCD_DOT_PX, cellW, LCD_DOT_PX)
+            ctx.fillRect(x, y + cellH - LCD_DOT_PX, cellW, LCD_DOT_PX)
           }
         }
       }
