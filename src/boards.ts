@@ -33,6 +33,7 @@ export type PanelKind =
   | 'fuel-gauge'
   | 'can'
   | 'trace'
+  | 'debug'
 
 /**
  * Wires QEMU's QMP monitor to a chardev the page can read and write

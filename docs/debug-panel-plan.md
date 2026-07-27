@@ -118,12 +118,17 @@ ThreadsPane, RegisterGrid) — move, don’t rewrite.
 
 ## Migration / risk
 
-- Popover removal is a behaviour change — document in the panel’s empty state
-  (“Breakpoints live here now”).
+- Popover removal is a behaviour change — Breakpoints live in the Debug panel
+  (Panels menu → Debug); the TopBar keeps Pause / Step / PC.
 - QEMU gdbstub: confirm `Z0` while running on wasm builds (host already allows
   it; if a stub rejects, fall back to “pause → set → continue” with a toast).
 - Panel + Trace + docks: don’t auto-open Debug on every sample — user opens it,
   or seed only for gdb-featured boards.
+
+## Status
+
+Implemented on `cursor/debug-panel-3390`: `DebugPanel`, `stage:debug` in the
+Panels menu, TopBar shrunk to run-control + PC/bps chips that call `focusDebug`.
 
 ## Mockup
 

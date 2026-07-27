@@ -29,6 +29,7 @@ export const DOCK_DEFAULT_WIDTH = 20
 export const STAGE_DISPLAY_KEY = 'stage:display'
 export const STAGE_PERF_KEY = 'stage:perf'
 export const STAGE_TRACE_KEY = 'stage:trace'
+export const STAGE_DEBUG_KEY = 'stage:debug'
 
 export interface DockDeviceState {
   /** User override of the seeded default; absent = follow the seed. */
