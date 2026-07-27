@@ -57,8 +57,9 @@ selects `THREAD_MONITOR` + `THREAD_NAME` and emits:
 
 Packaged images ship **unstripped** ELFs so the page can resolve those symbols,
 read the offset table, then walk `_kernel.threads` over gdb memory reads.
-**Threads** tab: name, priority, TCB address (click to peek). Semaphores /
-mutexes / object cores can come later.
+**Threads** tab: name, priority, state, stack size (matched via SP → ELF stack
+symbols, or `stack_info` when DWARF has it), and Memory links for the stack /
+TCB. Semaphores / mutexes / object cores can come later.
 
 ### Phase E — Disassembly / DWARF (optional)
 

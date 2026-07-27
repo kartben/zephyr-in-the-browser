@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { RegisterGrid } from '@/components/RegisterGrid'
 import { compactHex } from '@/debug/hexFormat'
 import { filterSymbols, type ElfSymbol } from '@/debug/elfSymbols'
+import { formatStackSize, threadStateLabel } from '@/debug/kernel/threads'
 import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
 
@@ -102,6 +103,7 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
   const [tab, setTab] = useState<Tab>('cpu')
   const [stepping, setStepping] = useState(false)
   const [peekAddr, setPeekAddr] = useState<string | null>(null)
+  const [peekLen, setPeekLen] = useState(64)
 
   const onStep = async () => {
     if (stepping || !snap.canStep) return
@@ -113,8 +115,9 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
     }
   }
 
-  const onPeek = (addrHex: string) => {
+  const onPeek = (addrHex: string, length = 64) => {
     setPeekAddr(compactHex(addrHex))
+    setPeekLen(length)
     setTab('memory')
   }
 
@@ -200,7 +203,12 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
 
       {snap.gdb && tab === 'breakpoints' && <BreakpointsPane snap={snap} />}
       {snap.gdb && tab === 'memory' && (
-        <MemoryPane snap={snap} seedAddr={peekAddr} onSeedConsumed={() => setPeekAddr(null)} />
+        <MemoryPane
+          snap={snap}
+          seedAddr={peekAddr}
+          seedLen={peekLen}
+          onSeedConsumed={() => setPeekAddr(null)}
+        />
       )}
       {snap.gdb && tab === 'threads' && <ThreadsPane snap={snap} onPeek={onPeek} />}
     </div>
@@ -358,10 +366,12 @@ function BreakpointsPane({ snap }: { snap: debug.DebugSnapshot }) {
 function MemoryPane({
   snap,
   seedAddr,
+  seedLen,
   onSeedConsumed,
 }: {
   snap: debug.DebugSnapshot
   seedAddr: string | null
+  seedLen: number
   onSeedConsumed: () => void
 }) {
   const defaultAddr = snap.pc ? compactHex(snap.pc) : ''
@@ -375,7 +385,7 @@ function MemoryPane({
     setAddrText(seedAddr)
     onSeedConsumed()
     const addr = Number.parseInt(seedAddr, 16)
-    if (Number.isFinite(addr)) void debug.readMemory(addr, 64)
+    if (Number.isFinite(addr)) void debug.readMemory(addr, seedLen)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr])
 
@@ -430,7 +440,7 @@ function ThreadsPane({
   onPeek,
 }: {
   snap: debug.DebugSnapshot
-  onPeek: (addrHex: string) => void
+  onPeek: (addrHex: string, length?: number) => void
 }) {
   if (!snap.threadInfo) {
     return (
@@ -455,37 +465,80 @@ function ThreadsPane({
   }
 
   return (
-    <ul className="max-h-[min(22rem,50vh)] space-y-0.5 overflow-auto px-0.5">
-      {snap.threads.map((t) => (
-        <li key={t.addr}>
-          <button
-            type="button"
+    <ul className="max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5">
+      {snap.threads.map((t) => {
+        const stateLabel = threadStateLabel(t.state, t.current)
+        const stackAddr = t.stackStart ?? t.sp
+        return (
+          <li
+            key={t.addr}
             className={cn(
-              'flex w-full items-baseline gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/60',
-              t.current && 'bg-primary/10 ring-1 ring-primary/25',
+              'rounded-md px-2 py-1.5',
+              t.current ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-muted/50',
             )}
-            title="Peek thread control block"
-            onClick={() => onPeek(t.addr.toString(16))}
           >
-            <span
-              className={cn(
-                'size-1.5 shrink-0 self-center rounded-full',
-                t.current ? 'bg-primary' : 'bg-foreground/35',
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'size-1.5 shrink-0 rounded-full',
+                  t.current ? 'bg-primary' : 'bg-foreground/35',
+                )}
+                aria-hidden
+              />
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-foreground"
+                title={`Peek TCB at 0x${t.addr.toString(16)}`}
+                onClick={() => onPeek(t.addr.toString(16))}
+              >
+                {t.name}
+              </button>
+              {stateLabel && (
+                <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-foreground/55">
+                  {stateLabel}
+                </span>
               )}
-              aria-hidden
-            />
-            <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">{t.name}</span>
-            {t.prio != null && (
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground/65">
-                p{t.prio}
-              </span>
-            )}
-            <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground/65">
-              {compactHex(t.addr.toString(16))}
-            </span>
-          </button>
-        </li>
-      ))}
+            </div>
+
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 pl-3.5 font-mono text-[11px] tabular-nums">
+              {t.prio != null && (
+                <span className="text-foreground/80" title="Scheduler priority (negative = cooperative)">
+                  <span className="text-foreground/45">prio </span>
+                  <span className="font-semibold text-foreground">{t.prio}</span>
+                </span>
+              )}
+              {t.stackSize != null && (
+                <span className="text-foreground/80" title="Stack buffer size">
+                  <span className="text-foreground/45">stack </span>
+                  <span className="text-foreground">{formatStackSize(t.stackSize)}</span>
+                </span>
+              )}
+              {stackAddr != null && (
+                <button
+                  type="button"
+                  className="text-primary underline-offset-2 hover:underline"
+                  title={
+                    t.stackStart != null
+                      ? `Peek stack at 0x${t.stackStart.toString(16)}`
+                      : `Peek SP 0x${stackAddr.toString(16)}`
+                  }
+                  onClick={() => onPeek(stackAddr.toString(16), 128)}
+                >
+                  Mem {compactHex(stackAddr.toString(16))}
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-foreground/45 hover:text-foreground/70"
+                title="Peek thread control block"
+                onClick={() => onPeek(t.addr.toString(16))}
+              >
+                tcb {compactHex(t.addr.toString(16))}
+              </button>
+            </div>
+          </li>
+        )
+      })}
     </ul>
   )
 }

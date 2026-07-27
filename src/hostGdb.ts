@@ -21,6 +21,7 @@ import {
 import { compactHex } from '@/debug/hexFormat'
 import { parseThreadInfoFromElf, type ThreadInfo } from '@/debug/kernel/meta'
 import { listThreads, type ZephyrThread } from '@/debug/kernel/threads'
+import { buildStackRegions, type StackRegion } from '@/debug/elfStacks'
 import {
   buildSymbolIndex,
   formatSymbol,
@@ -89,6 +90,7 @@ let client: RspClient | null = null
 let arch: GdbArch = 'arm'
 let threadInfo: ThreadInfo | null = null
 let symbolIndex: SymbolIndex | null = null
+let stackRegions: StackRegion[] = []
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const listeners = new Set<() => void>()
@@ -167,10 +169,14 @@ async function refreshThreads() {
   }
   publish({ threadsLoading: true, threadsError: null })
   try {
-    const threads = await listThreads(threadInfo, async (addr, length) => {
-      if (!client) throw new Error('no client')
-      return client.readMemory(addr, length)
-    })
+    const threads = await listThreads(
+      threadInfo,
+      async (addr, length) => {
+        if (!client) throw new Error('no client')
+        return client.readMemory(addr, length)
+      },
+      { stacks: stackRegions },
+    )
     publish({ threads, threadsLoading: false, threadsError: null })
   } catch (err) {
     publish({
@@ -188,6 +194,7 @@ async function refreshThreads() {
 export function setKernelImage(elf: Uint8Array | null) {
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
   symbolIndex = elf ? buildSymbolIndex(elf) : null
+  stackRegions = elf ? buildStackRegions(elf) : []
   if (state.available || state.attached) {
     publish({
       threadInfo: threadInfo !== null,
@@ -206,9 +213,11 @@ export function setKernelImage(elf: Uint8Array | null) {
 export function bind(module: unknown, boardArch: string) {
   const keptInfo = threadInfo
   const keptSyms = symbolIndex
+  const keptStacks = stackRegions
   detach()
   threadInfo = keptInfo
   symbolIndex = keptSyms
+  stackRegions = keptStacks
   mod = module as Record<string, unknown>
   ch = bindChardev(mod, 'gdb')
   arch = archFromBoard(boardArch)
