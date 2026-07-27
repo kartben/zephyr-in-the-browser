@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { X } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MutableRefObject,
+} from 'react'
+import { Crosshair, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   CAN_NODE_TYPES,
@@ -16,9 +24,15 @@ import type { CanLogEntry, CanNodeSnapshot, CanState } from '@/can/bus'
 import type { Mcp2515Chip } from '@/virtio/devices/chips/mcp2515'
 import { RegisterMapButton } from './RegisterMap'
 import {
+  LANE_LABEL_W,
   LANE_WINDOW_MS,
+  PAN_THRESHOLD_PX,
   buildLaneModel,
+  clampLaneView,
+  livePinnedView,
   paintArbitrationLanes,
+  panDeltaMs,
+  type LaneView,
 } from './CanArbitrationLanes'
 
 /**
@@ -33,9 +47,9 @@ import {
  * - **Send.** A composed frame, transmitted *as* a chosen node so the error
  *   counters and arbitration attribute to something real.
  * - **Arbitration.** One lane per node over a short sliding window. Hollow
- *   ticks are deferrals; a hop marks the retry. Drawn here rather than through
- *   TracePanel's CTF Gantt — that renderer is bound to thread/state, and the
- *   subject here is frames.
+ *   ticks are deferrals; a hop marks the retry. Live-follow matches
+ *   TracePanel (drag to freeze, Crosshair to jump back); the canvas itself
+ *   is not TracePanel's CTF Gantt — that renderer is bound to thread/state.
  * - **Traffic.** Every frame, plus the two events nothing in the guest can
  *   show: a frame its filters dropped, and one that lost arbitration.
  */
@@ -143,16 +157,43 @@ function ArbitrationSection({
   nodes: readonly CanNodeSnapshot[]
   log: readonly CanLogEntry[]
 }) {
+  const [follow, setFollow] = useState(true)
+  const jumpLiveRef = useRef<(() => void) | null>(null)
+
   if (nodes.length === 0 || log.length === 0) return null
   return (
     <div className="space-y-1.5">
-      <span
-        className="text-[11px] font-medium text-muted-foreground"
-        title="Who transmitted, who deferred. Lower ID wins the bus."
-      >
-        Arbitration
-      </span>
-      <ArbitrationLanes nodes={nodes} log={log} />
+      <div className="flex items-center gap-2">
+        <span
+          className="text-[11px] font-medium text-muted-foreground"
+          title="Who transmitted, who deferred. Lower ID wins the bus."
+        >
+          Arbitration
+        </span>
+        <button
+          type="button"
+          title={follow ? 'Following live edge' : 'Jump to live edge'}
+          aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
+          aria-pressed={follow}
+          onClick={() => {
+            jumpLiveRef.current?.()
+            setFollow(true)
+          }}
+          className={cn(
+            'ml-auto rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground',
+            follow && 'text-primary',
+          )}
+        >
+          <Crosshair className="size-3" />
+        </button>
+      </div>
+      <ArbitrationLanes
+        nodes={nodes}
+        log={log}
+        follow={follow}
+        setFollow={setFollow}
+        jumpLiveRef={jumpLiveRef}
+      />
     </div>
   )
 }
@@ -160,51 +201,126 @@ function ArbitrationSection({
 function ArbitrationLanes({
   nodes,
   log,
+  follow,
+  setFollow,
+  jumpLiveRef,
 }: {
   nodes: readonly CanNodeSnapshot[]
   log: readonly CanLogEntry[]
+  follow: boolean
+  setFollow: (v: boolean) => void
+  jumpLiveRef: MutableRefObject<(() => void) | null>
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  // Advance the window even when the bus is quiet, so ticks scroll off.
+  const gestureRef = useRef<{
+    pointerId: number
+    startX: number
+    origin: LaneView
+    moved: boolean
+  } | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const [view, setView] = useState<LaneView | null>(null)
+  const followRef = useRef(follow)
+  followRef.current = follow
+
+  // Only tick the clock while following — a frozen view must not drift.
   useEffect(() => {
+    if (!follow) return
     const id = setInterval(() => setNow(Date.now()), 50)
     return () => clearInterval(id)
-  }, [])
+  }, [follow])
 
   // Prefer the freshest log timestamp so tests (and a paused page) still place
   // ticks inside the window without waiting on wall clock.
   const tip = log.length > 0 ? Math.max(log[log.length - 1]!.at, now) : now
-  const model = useMemo(
-    () => buildLaneModel(nodes, log, tip, LANE_WINDOW_MS),
-    [nodes, log, tip],
-  )
+
+  useEffect(() => {
+    if (follow) setView(livePinnedView(tip, LANE_WINDOW_MS))
+  }, [follow, tip])
+
+  useEffect(() => {
+    jumpLiveRef.current = () => {
+      setView(livePinnedView(tip, LANE_WINDOW_MS))
+    }
+    return () => {
+      jumpLiveRef.current = null
+    }
+  }, [jumpLiveRef, tip])
+
+  const model = useMemo(() => {
+    if (!view) return null
+    return buildLaneModel(nodes, log, view)
+  }, [nodes, log, view])
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !model) return
 
     const paint = () => {
       const styles = getComputedStyle(canvas)
-      paintArbitrationLanes(canvas, model, {
-        bg: '#0c0e12',
-        muted: styles.getPropertyValue('--muted-foreground').trim() || 'rgba(255,255,255,0.45)',
-        faint: 'rgba(255,255,255,0.07)',
-      })
+      paintArbitrationLanes(
+        canvas,
+        model,
+        {
+          bg: '#0c0e12',
+          muted: styles.getPropertyValue('--muted-foreground').trim() || 'rgba(255,255,255,0.45)',
+          faint: 'rgba(255,255,255,0.07)',
+          live: styles.getPropertyValue('--success').trim() || 'rgba(34, 197, 94, 0.95)',
+        },
+        follow,
+      )
     }
     paint()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(paint)
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [model])
+  }, [model, follow])
 
   return (
     <canvas
       ref={canvasRef}
-      className="block w-full rounded border border-border"
-      title="Hollow tick: lost arbitration. Hop: the retry that followed."
+      className="block w-full cursor-grab touch-none rounded border border-border active:cursor-grabbing"
+      title="Drag to pause. Hollow tick: lost arbitration. Hop: the retry that followed."
       aria-label="Arbitration lanes"
+      onPointerDown={(e) => {
+        if (!view || !e.isPrimary) return
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId)
+        } catch {
+          /* ignore */
+        }
+        gestureRef.current = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          origin: view,
+          moved: false,
+        }
+      }}
+      onPointerMove={(e) => {
+        const g = gestureRef.current
+        if (!g || g.pointerId !== e.pointerId) return
+        const dx = e.clientX - g.startX
+        if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+        g.moved = true
+        setFollow(false)
+        const plotW = Math.max(1, e.currentTarget.clientWidth - LANE_LABEL_W)
+        const dt = panDeltaMs(dx, plotW, g.origin)
+        setView(clampLaneView(log, g.origin.t0 + dt, g.origin.t1 + dt))
+      }}
+      onPointerUp={(e) => {
+        const g = gestureRef.current
+        if (!g || g.pointerId !== e.pointerId) return
+        gestureRef.current = null
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId)
+        } catch {
+          /* ignore */
+        }
+      }}
+      onPointerCancel={() => {
+        gestureRef.current = null
+      }}
     />
   )
 }

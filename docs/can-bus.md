@@ -264,13 +264,15 @@ Body sections, top to bottom, mirroring `I2cBody`'s rhythm:
 | On the bus | Roster. Local node first, accent border, no `×`. |
 | Add node | Catalog select + Add, exactly `AttachRow`'s shape. |
 | Send | Sender select, ID, RTR, eight byte fields, Send. |
-| Arbitration | Lane strip. One lane per node, hollow ticks for losses. |
+| Arbitration | Lane strip. Live-follow like Trace; drag freezes, Crosshair resumes. |
 | Traffic | Frame trace, newest first, `clear`. |
 
 The arbitration lane strip is a small canvas of its own, not TracePanel's CTF
 Gantt. That renderer is bound to thread/state; inventing fake threads for CAN
-would be the wrong seam. The strip reads the same log the Traffic section
-already shows — lanes are the spatial view of rows the trace already carries.
+would be the wrong seam. What it *does* reuse is TracePanel's live-follow
+idiom: pinned to the newest edge until the reader pans, Crosshair jumps back.
+The strip reads the same log the Traffic section already shows — lanes are the
+spatial view of rows the trace already carries.
 
 The composer sends **as the roster's selected node**, so TEC/REC and
 arbitration attribute to something real rather than to an anonymous injector.

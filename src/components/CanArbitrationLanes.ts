@@ -8,9 +8,10 @@
  * "who transmitted, who deferred", which is exactly what the page-side bus
  * knows. Same latitude `ws2812.ts` takes ignoring pulse timing.
  *
- * Kept out of `ctf/` on purpose: TracePanel's Gantt is bound to CTF's
- * thread/state model. This is a second, smaller renderer for a different
- * subject, not a reuse of that one.
+ * Interaction mirrors {@link ./TracePanel}'s live-follow idiom (not its CTF
+ * Gantt): pinned to the newest edge until the reader pans, Crosshair jumps
+ * back to live. The strip stays its own renderer — TracePanel's lanes are
+ * thread/state, and inventing fake threads for CAN would be the wrong seam.
  */
 
 import type { CanLogEntry, CanNodeSnapshot } from '@/can/bus'
@@ -18,12 +19,15 @@ import type { CanLogEntry, CanNodeSnapshot } from '@/can/bus'
 /** Sliding window the strip shows, in ms. */
 export const LANE_WINDOW_MS = 2000
 
-const PAD_L = 52
+/** Left gutter for lane labels — pan math needs the same number. */
+export const LANE_LABEL_W = 52
+
 const PAD_R = 8
 const PAD_T = 8
 const PAD_B = 16
 const TICK_H = 11
 const LANE_MIN_H = 24
+const PAN_THRESHOLD_PX = 8
 
 /** Stable palette; local node always takes the primary slot. */
 const LANE_COLORS = [
@@ -57,12 +61,49 @@ export interface LaneHop {
   winnerAt: number
 }
 
+export interface LaneView {
+  t0: number
+  t1: number
+}
+
 export interface LaneModel {
   lanes: { id: string; name: string; color: string; idLabel: string }[]
   ticks: LaneTick[]
   hops: LaneHop[]
   t0: number
   t1: number
+}
+
+/** Follow view: window of `windowMs` ending at the newest tip. */
+export function livePinnedView(tip: number, windowMs = LANE_WINDOW_MS): LaneView {
+  return { t0: tip - windowMs, t1: tip }
+}
+
+/**
+ * Keep a panned window inside the log's span. A window taller than the log
+ * collapses to the full extent; an empty log is left alone.
+ */
+export function clampLaneView(
+  log: readonly CanLogEntry[],
+  t0: number,
+  t1: number,
+): LaneView {
+  const span = Math.max(1, t1 - t0)
+  if (log.length === 0) return { t0, t1: t0 + span }
+  const min = log[0]!.at
+  const max = Math.max(min + 1, log[log.length - 1]!.at)
+  if (max - min <= span) return { t0: min, t1: max }
+  let a = t0
+  let b = t0 + span
+  if (a < min) {
+    a = min
+    b = a + span
+  }
+  if (b > max) {
+    b = max
+    a = b - span
+  }
+  return { t0: a, t1: b }
 }
 
 /**
@@ -72,11 +113,9 @@ export interface LaneModel {
 export function buildLaneModel(
   nodes: readonly CanNodeSnapshot[],
   log: readonly CanLogEntry[],
-  now: number,
-  windowMs = LANE_WINDOW_MS,
+  view: LaneView,
 ): LaneModel {
-  const t1 = now
-  const t0 = t1 - windowMs
+  const { t0, t1 } = view
   const inWindow = log.filter((e) => e.at >= t0 && e.at <= t1)
 
   // Local first, then attachment order — matches the roster.
@@ -162,7 +201,8 @@ function hex(id: number): string {
 export function paintArbitrationLanes(
   canvas: HTMLCanvasElement,
   model: LaneModel,
-  colors: { bg: string; muted: string; faint: string },
+  colors: { bg: string; muted: string; faint: string; live: string },
+  follow: boolean,
 ): void {
   const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
   const cssW = Math.max(1, canvas.clientWidth || 356)
@@ -177,10 +217,10 @@ export function paintArbitrationLanes(
   if (!ctx) return
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  const plotW = cssW - PAD_L - PAD_R
+  const plotW = cssW - LANE_LABEL_W - PAD_R
   const laneH = (cssH - PAD_T - PAD_B) / laneCount
   const span = Math.max(1, model.t1 - model.t0)
-  const xAt = (t: number) => PAD_L + ((t - model.t0) / span) * plotW
+  const xAt = (t: number) => LANE_LABEL_W + ((t - model.t0) / span) * plotW
   const laneIndex = new Map(model.lanes.map((l, i) => [l.id, i]))
   const yOf = (nodeId: string) => {
     const i = laneIndex.get(nodeId) ?? 0
@@ -198,7 +238,7 @@ export function paintArbitrationLanes(
     ctx.strokeStyle = colors.faint
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(PAD_L, y)
+    ctx.moveTo(LANE_LABEL_W, y)
     ctx.lineTo(cssW - PAD_R, y)
     ctx.stroke()
     ctx.fillStyle = colors.muted
@@ -270,4 +310,24 @@ export function paintArbitrationLanes(
       ctx.fillText('lost → retry', (xLost + xRetry) / 2, yLose + TICK_H / 2 + 11)
     }
   }
+
+  if (follow) {
+    ctx.fillStyle = colors.live
+    ctx.font = '8px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'top'
+    ctx.fillText('LIVE', cssW - PAD_R, 3)
+  }
 }
+
+/** How far a pointer drag pans the view, in the same units as `view`. */
+export function panDeltaMs(
+  dxPx: number,
+  plotW: number,
+  view: LaneView,
+): number {
+  const span = view.t1 - view.t0
+  return (-dxPx / Math.max(1, plotW)) * span
+}
+
+export { PAN_THRESHOLD_PX }

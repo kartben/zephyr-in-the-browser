@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createCanBus } from '@/can/bus'
-import { buildLaneModel } from './CanArbitrationLanes'
+import { createCanBus, type CanLogEntry } from '@/can/bus'
+import {
+  buildLaneModel,
+  clampLaneView,
+  livePinnedView,
+  panDeltaMs,
+} from './CanArbitrationLanes'
 
 const frame = (id: number, data: number[] = []) => ({
   id,
@@ -26,7 +31,7 @@ describe('buildLaneModel', () => {
     t += 10
     bus.pump(t)
 
-    const model = buildLaneModel(bus.nodes(), bus.log(), t, 2000)
+    const model = buildLaneModel(bus.nodes(), bus.log(), livePinnedView(t, 2000))
 
     expect(model.lanes.map((l) => l.id)).toEqual(['can0', 'hi', 'ack'])
     const lost = model.ticks.filter((tick) => tick.lost)
@@ -40,7 +45,7 @@ describe('buildLaneModel', () => {
     expect(model.hops[0]!.retryAt).toBeGreaterThan(model.hops[0]!.lostAt)
   })
 
-  it('drops ticks outside the sliding window', () => {
+  it('drops ticks outside the view window', () => {
     let t = 0
     const bus = createCanBus(() => t)
     bus.attach({ id: 'can0', name: 'can0', local: true })
@@ -49,7 +54,40 @@ describe('buildLaneModel', () => {
     t += 5
     bus.pump(t)
 
-    expect(buildLaneModel(bus.nodes(), bus.log(), t, 2000).ticks.length).toBeGreaterThan(0)
-    expect(buildLaneModel(bus.nodes(), bus.log(), t + 5000, 2000).ticks).toHaveLength(0)
+    expect(buildLaneModel(bus.nodes(), bus.log(), livePinnedView(t, 2000)).ticks.length).toBeGreaterThan(
+      0,
+    )
+    expect(
+      buildLaneModel(bus.nodes(), bus.log(), livePinnedView(t + 5000, 2000)).ticks,
+    ).toHaveLength(0)
+  })
+})
+
+describe('clampLaneView', () => {
+  const entry = (at: number, seq: number): CanLogEntry => ({
+    seq,
+    at,
+    kind: 'frame',
+    from: 'a',
+    local: false,
+    frame: frame(0x100),
+  })
+
+  it('keeps a panned window inside the log span', () => {
+    const log = [entry(100, 0), entry(500, 1), entry(900, 2)]
+    expect(clampLaneView(log, 0, 200)).toEqual({ t0: 100, t1: 300 })
+    expect(clampLaneView(log, 800, 1000)).toEqual({ t0: 700, t1: 900 })
+  })
+
+  it('collapses to the full span when the window is wider than the log', () => {
+    const log = [entry(100, 0), entry(150, 1)]
+    expect(clampLaneView(log, 0, 2000)).toEqual({ t0: 100, t1: 150 })
+  })
+})
+
+describe('panDeltaMs', () => {
+  it('maps a leftward drag to a later window', () => {
+    // Dragging left (negative dx) reveals later time — same as TracePanel.
+    expect(panDeltaMs(-50, 100, { t0: 0, t1: 200 })).toBe(100)
   })
 })

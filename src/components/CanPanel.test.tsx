@@ -146,6 +146,7 @@ describe('CanView', () => {
     // Lane strip mounts once there is traffic to place.
     expect(out).toContain('Arbitration')
     expect(html(bus.nodes(), bus.log())).toContain('aria-label="Arbitration lanes"')
+    expect(html(bus.nodes(), bus.log())).toContain('Following live edge')
   })
 
   it('keeps the lane strip off an idle bus', () => {
