@@ -81,9 +81,14 @@ export function RegisterGrid({
       {layout.status.length > 0 && (
         <section>
           <SectionLabel>Status</SectionLabel>
-          <div className="grid grid-cols-1 gap-y-0.5">
+          <div
+            className={cn(
+              'grid gap-1.5',
+              layout.status.length === 1 ? 'grid-cols-1' : 'grid-cols-2',
+            )}
+          >
             {layout.status.map((reg) => (
-              <RegRow key={reg.name} reg={reg} wide onPeek={onPeek} />
+              <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} />
             ))}
           </div>
         </section>
@@ -155,22 +160,24 @@ function RegRow({
     <button
       type="button"
       className={cn(
-        'flex min-w-0 items-baseline gap-1 rounded px-0.5 py-px text-left font-mono text-[10px] leading-snug',
+        'flex min-w-0 items-baseline rounded px-0.5 py-px text-left font-mono text-[10px] leading-snug',
+        wide ? 'gap-2' : 'gap-1',
         onPeek && 'hover:bg-muted/50',
         dim && 'opacity-40',
       )}
       title={`0x${reg.value}${onPeek ? ' — click to peek memory' : ''}`}
       onClick={() => onPeek?.(reg.value)}
     >
-      <span className="w-7 shrink-0 text-muted-foreground">{reg.name}</span>
       <span
         className={cn(
-          'min-w-0 tabular-nums text-foreground/90',
-          wide ? 'truncate' : 'truncate',
+          'shrink-0 overflow-hidden text-ellipsis text-muted-foreground',
+          // Status names (PSTATE, XPSR, …) need more than the GPR column.
+          wide ? 'w-[4.5rem]' : 'w-7',
         )}
       >
-        {display}
+        {reg.name}
       </span>
+      <span className="min-w-0 truncate tabular-nums text-foreground/90">{display}</span>
     </button>
   )
 }
