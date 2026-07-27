@@ -112,10 +112,10 @@ function RegisterMapDialog({
           <DialogTitle>
             {chip.name} · 0x{hex}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {named > 0
-              ? `${chip.registers.length} registers · ${named} named — live values as the guest would read them.`
-              : `${chip.registers.length} registers — live values as the guest would read them.`}
+              ? `${chip.registers.length} registers, ${named} named`
+              : `${chip.registers.length} registers`}
           </DialogDescription>
         </DialogHeader>
 

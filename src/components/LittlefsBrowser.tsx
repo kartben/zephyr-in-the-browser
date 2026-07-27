@@ -127,9 +127,8 @@ function LittlefsBrowserDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{chip.name} · /lfs</DialogTitle>
-          <DialogDescription>
-            LittleFS on the SPI NOR — same bytes the guest mounts at{' '}
-            <code className="font-mono text-foreground">/lfs</code>.
+          <DialogDescription className="sr-only">
+            LittleFS contents on this SPI flash
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-hidden px-5 pb-5">
@@ -170,9 +169,8 @@ function BrowserBody({
   if (!result) {
     return (
       <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-        No LittleFS image yet. Boot the LittleFS sample (or{' '}
-        <code className="font-mono text-foreground">fs mount littlefs /lfs</code> in the shell)
-        so the guest formats and mounts the partition — then reopen this view.
+        No LittleFS image yet — boot a sample that formats and mounts the
+        partition, then reopen this view.
       </p>
     )
   }
@@ -182,10 +180,6 @@ function BrowserBody({
       <div className="space-y-2 rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
         <p>Could not mount LittleFS from this flash image.</p>
         <p className="font-mono text-[10px] text-foreground/80">{result.error}</p>
-        <p>
-          Guest erase size should match the FS block size (packaged images use 4 KiB via{' '}
-          <code className="font-mono text-foreground">SPI_NOR_FLASH_LAYOUT_PAGE_SIZE</code>).
-        </p>
       </div>
     )
   }

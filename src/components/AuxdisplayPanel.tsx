@@ -105,20 +105,8 @@ function AuxdisplayControllerButton({ chip }: { chip: AuxdisplayChip }) {
             <DialogTitle>
               {chip.name} · {vfd ? `CS${chip.address}` : `0x${hex}`}
             </DialogTitle>
-            <DialogDescription>
-              {vfd ? (
-                <>
-                  Live display on/off, cursor, blink, and brightness from the
-                  guest&apos;s SPI instruction writes. Registers opens the
-                  start-byte / command / data map.
-                </>
-              ) : (
-                <>
-                  Live display on/off, cursor, and blink from the guest&apos;s
-                  instruction writes. LCD registers opens the command/data map;
-                  backlight PWM is on the separate chip at 0x62.
-                </>
-              )}
+            <DialogDescription className="sr-only">
+              Live display state
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto border-t border-border px-5 py-3">
@@ -370,22 +358,6 @@ export function AuxdisplayBody({ chip }: { chip: AuxdisplayChip }) {
           <span className="text-muted-foreground/80">· SPI CS{chip.address}</span>
         </div>
       ) : null}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        {vfd ? (
-          <>
-            Zephyr&apos;s stock{' '}
-            <code className="font-mono text-foreground">ptc,pt6314</code> auxdisplay
-            driver on SPI — {chip.columns}×{chip.rows} character VFD.
-          </>
-        ) : (
-          <>
-            Zephyr&apos;s stock{' '}
-            <code className="font-mono text-foreground">jhd,jhd1313</code> auxdisplay
-            driver — {chip.columns}×{chip.rows} LCD at 0x{chip.address.toString(16)},
-            RGB backlight at 0x62.
-          </>
-        )}
-      </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <AuxdisplayControllerButton chip={chip} />
         <RegisterMapButton

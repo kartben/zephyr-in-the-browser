@@ -33,12 +33,6 @@ export function BuzzerBody() {
       {buzzers.map((buzzer) => (
         <BuzzerCard key={buzzer.id} buzzer={buzzer} />
       ))}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Stock Zephyr{' '}
-        <code className="font-mono text-foreground">gpio-buzzer</code> — the guest
-        toggles a GPIO line; frequency args are on/off only. Try{' '}
-        <code className="font-mono text-foreground">samples/drivers/buzzer/tone</code>.
-      </p>
     </div>
   )
 }

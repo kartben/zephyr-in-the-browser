@@ -52,12 +52,6 @@ export function SpeakerBody() {
         disabledIcon={<Volume2 className="size-3.5" aria-hidden />}
         onToggle={toggleAudio}
       />
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        In the guest:{' '}
-        <code className="font-mono text-foreground">hostaudio beep 440 500</code>{' '}
-        queues a tone,{' '}
-        <code className="font-mono text-foreground">hostaudio melody</code> a short tune.
-      </p>
     </div>
   )
 }
@@ -78,10 +72,6 @@ export function MicBody() {
         onToggle={toggleMic}
         error={mic.error}
       />
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        In the guest: <code className="font-mono text-foreground">dmic vu dmic0</code>{' '}
-        meters the mic.
-      </p>
     </div>
   )
 }

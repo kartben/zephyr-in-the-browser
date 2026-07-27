@@ -98,10 +98,8 @@ function OledControllerDialog({
           <DialogTitle>
             {chip.name} · 0x{hex}
           </DialogTitle>
-          <DialogDescription>
-            Live on/invert/contrast and addressing window from the guest&apos;s
-            command stream. The canvas above is GDDRAM; this part has no
-            register map.
+          <DialogDescription className="sr-only">
+            Live OLED display state
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-auto border-t border-border px-5 py-3">

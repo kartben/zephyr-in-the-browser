@@ -114,10 +114,6 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
         )}
       </div>
 
-      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-        In the guest: chip select is the DT <code className="font-mono text-foreground">reg</code>{' '}
-        of each child of <code className="font-mono text-foreground">{busLabel}</code>.
-      </p>
     </div>
   )
 }

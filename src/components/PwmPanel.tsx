@@ -432,13 +432,6 @@ export function PwmBody({ chip }: { chip: PwmChip }) {
           </span>
         ))}
       </div>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        <code className="font-mono text-foreground">{chip.decl.name}</code>
-        {' — '}
-        {chip.decl.channelCount}-channel PWM
-        {chip.decl.periodScope === 'controller' ? ' (shared period)' : ''}
-        {chip.address != null ? ` at 0x${chip.address.toString(16)}` : ''}.
-      </p>
       <RegisterMapButton chip={chip} />
     </div>
   )
