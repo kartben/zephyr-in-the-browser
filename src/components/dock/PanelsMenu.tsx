@@ -129,7 +129,7 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
 
       {devices.length === 0 && !hasDisplay && !stats.available && !trace.available && (
         <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
-          Nothing to manage yet — panels appear as the guest exposes devices.
+          Nothing to manage yet — no interactive devices are ready.
         </p>
       )}
 

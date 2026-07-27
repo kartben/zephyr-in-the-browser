@@ -454,9 +454,9 @@ export default function App() {
 
         {/*
           The dock: every control surface, one scrollbar, two projections of
-          the same rows (devicetree ⌗ / peripheral classes ▤). Rows appear as
-          the emulator exposes bridges and as the loaded devicetree vouches for
-          them — the derivation in useDeviceTree owns that gating now.
+          the same rows (devicetree ⌗ / peripheral classes ▤). Known devices
+          are listed from the first paint (inert until their bridge is live);
+          the derivation in useDeviceTree owns that gating.
         */}
         <Dock boardId={boardId} />
         <FloatingWindows boardId={boardId} />
