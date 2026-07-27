@@ -11,8 +11,9 @@
  * Interaction mirrors {@link ./TracePanel}'s live-follow idiom (not its CTF
  * Gantt): pinned to the newest edge until the reader pans, Crosshair jumps
  * back to live, ± / wheel zoom changes the window without leaving follow.
- * The strip stays its own renderer — TracePanel's lanes are thread/state, and
- * inventing fake threads for CAN would be the wrong seam.
+ * Pausing snapshots the log so the rolling LOG_CAP cannot delete ticks under
+ * a frozen window. The strip stays its own renderer — TracePanel's lanes are
+ * thread/state, and inventing fake threads for CAN would be the wrong seam.
  */
 
 import type { CanLogEntry, CanNodeSnapshot } from '@/can/bus'
@@ -89,8 +90,10 @@ export function clampWindowMs(ms: number): number {
 }
 
 /**
- * Keep a panned window inside the log's span. A window taller than the log
- * collapses to the full extent; an empty log is left alone.
+ * Slide a window so it still overlaps the log. Never shrinks the span — a
+ * live window is often wider than the timestamps currently in the log (wall
+ * clock tip sits ahead of the last frame), and collapsing on pause made ticks
+ * look like they were vanishing.
  */
 export function clampLaneView(
   log: readonly CanLogEntry[],
@@ -101,16 +104,14 @@ export function clampLaneView(
   if (log.length === 0) return { t0, t1: t0 + span }
   const min = log[0]!.at
   const max = Math.max(min + 1, log[log.length - 1]!.at)
-  if (max - min <= span) return { t0: min, t1: max }
   let a = t0
   let b = t0 + span
-  if (a < min) {
-    a = min
-    b = a + span
-  }
-  if (b > max) {
-    b = max
+  if (b < min) {
+    b = min
     a = b - span
+  } else if (a > max) {
+    a = max
+    b = a + span
   }
   return { t0: a, t1: b }
 }

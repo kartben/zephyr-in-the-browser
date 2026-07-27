@@ -78,15 +78,21 @@ describe('clampLaneView', () => {
     frame: frame(0x100),
   })
 
-  it('keeps a panned window inside the log span', () => {
+  it('slides a window that misses the log without shrinking it', () => {
     const log = [entry(100, 0), entry(500, 1), entry(900, 2)]
-    expect(clampLaneView(log, 0, 200)).toEqual({ t0: 100, t1: 300 })
-    expect(clampLaneView(log, 800, 1000)).toEqual({ t0: 700, t1: 900 })
+    // Entirely before the log — slide forward so the right edge touches min.
+    expect(clampLaneView(log, 0, 50)).toEqual({ t0: 50, t1: 100 })
+    // Entirely after — slide back so the left edge touches max.
+    expect(clampLaneView(log, 1000, 1200)).toEqual({ t0: 900, t1: 1100 })
+    // Overlap is enough — leave it alone.
+    expect(clampLaneView(log, 0, 200)).toEqual({ t0: 0, t1: 200 })
   })
 
-  it('collapses to the full span when the window is wider than the log', () => {
+  it('preserves span when the window is wider than the log', () => {
     const log = [entry(100, 0), entry(150, 1)]
-    expect(clampLaneView(log, 0, 2000)).toEqual({ t0: 100, t1: 150 })
+    // Live windows are often wider than the timestamps on hand; collapsing
+    // them on pause was what made ticks look like they disappeared.
+    expect(clampLaneView(log, 0, 2000)).toEqual({ t0: 0, t1: 2000 })
   })
 })
 

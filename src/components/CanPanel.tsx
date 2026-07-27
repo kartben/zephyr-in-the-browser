@@ -246,16 +246,35 @@ function ArbitrationLanes({
   const [now, setNow] = useState(() => Date.now())
   const [liveWindowMs, setLiveWindowMs] = useState(LANE_WINDOW_MS)
   const [view, setView] = useState<LaneView | null>(null)
+  // Pause freezes the strip against a snapshot: the live log rolls at LOG_CAP
+  // and would otherwise delete the ticks under a frozen window.
+  const [frozen, setFrozen] = useState<{
+    log: readonly CanLogEntry[]
+    nodes: readonly CanNodeSnapshot[]
+  } | null>(null)
   const followRef = useRef(follow)
   followRef.current = follow
   const viewRef = useRef(view)
   viewRef.current = view
+  const logRef = useRef(log)
+  logRef.current = log
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
+  const frozenRef = useRef(frozen)
+  frozenRef.current = frozen
 
   // Only tick the clock while following — a frozen view must not drift.
   useEffect(() => {
     if (!follow) return
     const id = setInterval(() => setNow(Date.now()), 50)
     return () => clearInterval(id)
+  }, [follow])
+
+  useEffect(() => {
+    if (follow) {
+      frozenRef.current = null
+      setFrozen(null)
+    }
   }, [follow])
 
   // Prefer the freshest log timestamp so tests (and a paused page) still place
@@ -265,6 +284,19 @@ function ArbitrationLanes({
   useEffect(() => {
     if (follow) setView(livePinnedView(tip, liveWindowMs))
   }, [follow, tip, liveWindowMs])
+
+  const displayLog = !follow && frozen ? frozen.log : log
+  const displayNodes = !follow && frozen ? frozen.nodes : nodes
+
+  const leaveFollow = () => {
+    if (!followRef.current) return
+    const snap = { log: logRef.current.slice(), nodes: nodesRef.current.slice() }
+    frozenRef.current = snap
+    setFrozen(snap)
+    setFollow(false)
+  }
+
+  const sourceLog = () => frozenRef.current?.log ?? logRef.current
 
   const applyZoom = (factor: number, pivot?: number) => {
     const current = viewRef.current
@@ -276,7 +308,7 @@ function ArbitrationLanes({
       return
     }
     const p = pivot ?? (current.t0 + current.t1) / 2
-    setView(zoomAround(log, current, factor, p))
+    setView(zoomAround(sourceLog(), current, factor, p))
   }
 
   useEffect(() => {
@@ -295,8 +327,8 @@ function ArbitrationLanes({
 
   const model = useMemo(() => {
     if (!view) return null
-    return buildLaneModel(nodes, log, view)
-  }, [nodes, log, view])
+    return buildLaneModel(displayNodes, displayLog, view)
+  }, [displayNodes, displayLog, view])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -365,10 +397,10 @@ function ArbitrationLanes({
         const dx = e.clientX - g.startX
         if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
         g.moved = true
-        setFollow(false)
+        leaveFollow()
         const plotW = Math.max(1, e.currentTarget.clientWidth - LANE_LABEL_W)
         const dt = panDeltaMs(dx, plotW, g.origin)
-        setView(clampLaneView(log, g.origin.t0 + dt, g.origin.t1 + dt))
+        setView(clampLaneView(sourceLog(), g.origin.t0 + dt, g.origin.t1 + dt))
       }}
       onPointerUp={(e) => {
         const g = gestureRef.current
