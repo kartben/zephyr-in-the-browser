@@ -140,7 +140,7 @@ PCF8523, both halves of the JHD1313, the HT16K33, the LP5562, the PCA9685, the M
 the collapsed **Registers** dialog on each card
 ([`RegisterMap.tsx`](../src/components/RegisterMap.tsx)). Channel codecs and
 RTC BCD timekeeping stay in their own frameworks; the map is data. The SSD1306
-stays a pure *command stream* (Controller inspector, no fake SVD rows). The
+stays a pure *command stream* (Status dialog, no fake SVD rows). The
 JHD1313 LCD address *does* get a map — Instruction (0x00) / Instruction_Co
 (0x80) / Data (0x40) plus decoded Entry_Mode, Display_Control, Function_Set,
 and DDRAM_AC shadows (`chips/maps/jhd1313-lcd.json`) — and its backlight at

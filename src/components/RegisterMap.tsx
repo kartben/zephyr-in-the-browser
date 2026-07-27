@@ -83,7 +83,7 @@ export function RegisterMapButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="pt-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       >
         {label ?? `Registers (${count})`}
       </button>

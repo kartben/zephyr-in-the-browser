@@ -413,7 +413,7 @@ Classes worth taking next, ranked inside this cheaper track:
 Entry_Mode, Display_Control, Function_Set, DDRAM_AC) and a PCA9633-style
 backlight register file at `0x62`
 (`chips/maps/jhd1313-backlight.json`). Dock card paints a 16×2 character-cell
-canvas with RGB wash (`AuxdisplayPanel.tsx`); Controller summarises flags,
+canvas with RGB wash (`AuxdisplayPanel.tsx`); Status summarises flags,
 separate Registers affordances open the LCD and backlight maps. Guest side is
 stock `jhd,jhd1313` via `-S jhd1313-only` / `conf/jhd1313.conf`, packaging
 `samples/drivers/auxdisplay`.

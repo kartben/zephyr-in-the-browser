@@ -84,7 +84,7 @@ export interface Ssd1306Chip extends I2cChip {
   /**
    * Live controller state derived from the last commands the guest sent —
    * not an I²C register file (the SSD1306 is a command stream). The dock's
-   * Controller inspector reads this.
+   * Status dialog reads this.
    */
   getControllerState(): Ssd1306ControllerState
   /** Bumped on every change, so a renderer can skip identical frames. */

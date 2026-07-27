@@ -1,6 +1,6 @@
 {
   "name": "JHD1313 LCD",
-  "description": "Jinghua JHD1313 / AiP31068 character LCD at I²C 0x3e (Grove RGB module). Each write is [control, byte]: control selects the Instruction register (IR, 0x00 or Grove Co=0x80) or the Data register (DR, 0x40). HD44780 commands go to IR; character codes go to DR. Entry_Mode / Display_Control / Function_Set / DDRAM_AC are decoded shadows of what those commands programmed.",
+  "description": "Jinghua JHD1313 / AiP31068 character LCD at I²C 0x3e (Grove RGB). Writes are [control, byte]: control selects Instruction (0x00 / Co=0x80) or Data (0x40). Entry_Mode / Display_Control / Function_Set / DDRAM_AC mirror the last decoded commands.",
   "registers": [
     {
       "name": "Instruction",
@@ -130,7 +130,7 @@
       "bytes": 1,
       "access": "rw",
       "reset": 12,
-      "description": "Decoded Display On/Off Control (HD44780 0x08|D|C|B). Same flags the Controller inspector summarises.",
+      "description": "Decoded Display On/Off Control (HD44780 0x08|D|C|B). Same flags the Status dialog summarises.",
       "fields": [
         {
           "name": "D",

@@ -1,7 +1,7 @@
 /**
  * Dock body for character aux displays (JHD1313 LCD + PT6314 VFD).
  *
- * Shared Controller / Registers affordances; the canvas branches on part —
+ * Shared Status / Registers affordances; the canvas branches on part —
  * Grove RGB LCD wash vs Futaba-style cyan VFD phosphor — without cloning the
  * dock shell.
  */
@@ -97,7 +97,7 @@ function AuxdisplayControllerButton({ chip }: { chip: AuxdisplayChip }) {
         onClick={() => setOpen(true)}
         className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       >
-        Controller
+        Status
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
@@ -108,17 +108,15 @@ function AuxdisplayControllerButton({ chip }: { chip: AuxdisplayChip }) {
             <DialogDescription>
               {vfd ? (
                 <>
-                  Live PT6314 flags derived from Instruction-register writes
-                  over SPI (start byte + IR/DR). Open registers for the Start /
-                  Instruction / Data map and decoded Entry_Mode /
-                  Display_Control / Function_Set / DDRAM_AC shadows.
+                  Live display on/off, cursor, blink, and brightness from the
+                  guest&apos;s SPI instruction writes. Registers opens the
+                  start-byte / command / data map.
                 </>
               ) : (
                 <>
-                  Live HD44780 flags derived from Instruction-register writes.
-                  Open LCD registers for the full IR/DR map and decoded
-                  Entry_Mode / Display_Control / Function_Set / DDRAM_AC
-                  shadows; backlight PWM lives on the separate chip at 0x62.
+                  Live display on/off, cursor, and blink from the guest&apos;s
+                  instruction writes. LCD registers opens the command/data map;
+                  backlight PWM is on the separate chip at 0x62.
                 </>
               )}
             </DialogDescription>
@@ -377,23 +375,22 @@ export function AuxdisplayBody({ chip }: { chip: AuxdisplayChip }) {
           <>
             Zephyr&apos;s stock{' '}
             <code className="font-mono text-foreground">ptc,pt6314</code> auxdisplay
-            driver — SPI serial start byte + Instruction/Data,{' '}
-            {chip.columns}×{chip.rows} VFD viewport.
+            driver on SPI — {chip.columns}×{chip.rows} character VFD.
           </>
         ) : (
           <>
             Zephyr&apos;s stock{' '}
             <code className="font-mono text-foreground">jhd,jhd1313</code> auxdisplay
-            driver — LCD Instruction/Data at 0x{chip.address.toString(16)}, RGB
-            backlight register file at 0x62.
+            driver — {chip.columns}×{chip.rows} LCD at 0x{chip.address.toString(16)},
+            RGB backlight at 0x62.
           </>
         )}
       </p>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <AuxdisplayControllerButton chip={chip} />
         <RegisterMapButton
           chip={chip}
-          label={vfd ? `VFD registers (${chip.registers.length})` : `LCD registers (${chip.registers.length})`}
+          label={vfd ? undefined : `LCD registers (${chip.registers.length})`}
         />
         {bl ? (
           <RegisterMapButton chip={bl} label={`Backlight registers (${bl.registers.length})`} />
