@@ -154,7 +154,10 @@ than draining inline.
   idle between transfers — **10 ms idle → ~45 I²C Hz** on Cortex-A53 `dac`.
   Kick removed that ceiling; raising idle to 50 ms (matching the page's
   maintenance tick) avoids waking the QEMU main loop once per ms per device
-  when nothing is in flight.
+  when nothing is in flight. The page also **coalesces kicks across one poll**:
+  a multi-message I²C transfer that lands as N request records is answered
+  with one `Atomics.notify` + kick rather than N. Delayed replies outside the
+  poll (GPIO event queues) still kick immediately.
 - **QEMU → page.** After publishing a complete request record and `req_wr`,
   QEMU increments one process-wide futex and calls
   `emscripten_futex_wake()`. A dedicated page worker blocks on that word with

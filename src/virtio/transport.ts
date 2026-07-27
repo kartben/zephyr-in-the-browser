@@ -23,6 +23,13 @@
  * dac). Old emulators without the export keep working — they just stay on the
  * timer.
  *
+ * Wakes coalesce across one poll tick. The guest I²C driver queues a whole
+ * multi-message transfer before notifying, so a register read lands here as
+ * two (or more) request records in one drain; answering each with its own
+ * kick would schedule that many BHs for work QEMU can finish in one. A single
+ * wake after the batch is enough. Delayed replies outside the poll (GPIO
+ * event queues) still kick immediately.
+ *
  * New emulators wake a dedicated request waiter whenever they publish to a
  * request ring. The waiter blocks in Atomics.wait() on the shared wasm heap,
  * where browser timer clamping does not apply, then posts one task to this
@@ -239,9 +246,11 @@ export interface BridgeStats {
   /** Requests drained off the request rings. */
   requests: number
   /**
-   * Completions that triggered a page→QEMU wake (`Atomics.notify` + kick
-   * export). Diff two samples: a healthy dac sawtooth should show kicks ≈
-   * requests once the rebuilt emulator is in place.
+   * Page→QEMU wakes (`Atomics.notify` + kick export). One poll that answers
+   * N queued requests counts as one kick, so multi-message I²C transfers
+   * (register reads) show kicks < requests. A healthy dac sawtooth is still
+   * one message per transfer, so kicks ≈ requests there once the rebuilt
+   * emulator is in place.
    */
   kicks: number
   /** Worker futex notifications forwarded to the main-thread dispatcher. */
@@ -267,6 +276,15 @@ let waiterWakeupsSeen = 0
 let lastHotPollAt = 0
 /** Int32 index of the emulator's wake futex, or -1 when the export is absent. */
 let wakeWordIndex = -1
+/**
+ * Nesting depth of {@link withCoalescedWake}. While > 0, {@link wakeQemu}
+ * records a pending wake instead of crossing into QEMU; the outermost exit
+ * fires at most one. Depth (not a bool) so a nested call cannot clear the
+ * flag early and double-kick.
+ */
+let coalesceWakeDepth = 0
+/** A wake was requested inside the current coalesce window. */
+let wakePending = false
 
 export function stats(): BridgeStats {
   return {
@@ -578,7 +596,12 @@ function flush(b: Bridge) {
       next.payload,
     )
     if (wr === null) {
-      if (published) wakeQemu()
+      if (published) {
+        // Ring full: QEMU must drain before more fits. Force the wake even
+        // inside a coalesced poll — deferring would stall the outbox until
+        // something else kicks, and nothing else will.
+        forceWakeQemu()
+      }
       return // full; retry next tick
     }
     b.cmpWr = wr
@@ -603,8 +626,25 @@ function flush(b: Bridge) {
  * Either alone is enough on a rebuilt emulator; doing both covers the case
  * where the worker is in a generic sleep futex rather than our wake word.
  * Absent exports (old wasm) this is a no-op and the timer remains the path.
+ *
+ * Inside {@link withCoalescedWake} this only sets a flag; the outermost exit
+ * fires one real wake for the whole batch.
  */
 function wakeQemu() {
+  if (coalesceWakeDepth > 0) {
+    wakePending = true
+    return
+  }
+  doWakeQemu()
+}
+
+/** Bypass coalescing — used when the completion ring is full mid-flush. */
+function forceWakeQemu() {
+  wakePending = false
+  doWakeQemu()
+}
+
+function doWakeQemu() {
   kicksSeen += 1
   if (words && wakeWordIndex >= 0) {
     Atomics.add(words, wakeWordIndex, 1)
@@ -616,6 +656,24 @@ function wakeQemu() {
     // A throw here would abort the model's reply and hang the guest on the
     // semaphore; log and let the drain timer cover it.
     console.error('[virtio] kick failed; drain timer will retry', err)
+  }
+}
+
+/**
+ * Run `fn` with completion wakes deferred to a single kick on exit. Nested
+ * calls share one window. Used by both the timer/waiter poll and the test
+ * `pollOnce` seam so multi-message I²C batches pay one BH, not N.
+ */
+function withCoalescedWake(fn: () => void) {
+  coalesceWakeDepth++
+  try {
+    fn()
+  } finally {
+    coalesceWakeDepth--
+    if (coalesceWakeDepth === 0 && wakePending) {
+      wakePending = false
+      doWakeQemu()
+    }
   }
 }
 
@@ -732,8 +790,10 @@ function poll() {
   }
 
   try {
-    if (!bridges.length) rescan()
-    for (const b of bridges) pollBridge(b, now)
+    withCoalescedWake(() => {
+      if (!bridges.length) rescan()
+      for (const b of bridges) pollBridge(b, now)
+    })
   } catch (err) {
     // The loop is the only thing driving every device on the bridge, so it has
     // to outlive a single bad tick. Without this a throw anywhere in here — a
@@ -788,7 +848,9 @@ function schedule(delay: number) {
 /** Test seam: drive one poll iteration synchronously. */
 export function pollOnce() {
   if (!exports) return
-  if (!bridges.length) rescan()
-  const now = performance.now()
-  for (const b of bridges) pollBridge(b, now)
+  withCoalescedWake(() => {
+    if (!bridges.length) rescan()
+    const now = performance.now()
+    for (const b of bridges) pollBridge(b, now)
+  })
 }

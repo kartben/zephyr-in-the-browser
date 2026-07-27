@@ -22,6 +22,7 @@ the list matters for a given workload:
 | # | Opportunity | Where | Impact | Effort | Risk |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Atomic QEMU→page request wake** — productionized; no DAC throughput win in A/B test | `src/virtio/transport.ts`, virtio QEMU patch | Medium, latency/idle CPU | Medium | Low |
+| 1d | **Coalesce page→QEMU kicks per poll** — one BH for a multi-msg I²C batch | `src/virtio/transport.ts` | Medium for register reads / multi-queue drains; none for DAC | Very low | Low |
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
@@ -35,6 +36,49 @@ the list matters for a given workload:
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
 | 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
+
+## I²C throughput: what is left
+
+Short answer: **the page-side I²C path is largely saturated.** Further Hz on
+the stock DAC sawtooth (one fast-write per transfer) is mostly guest MIPS and
+a published qemu-wasm rebuild, not more bridge plumbing.
+
+Measured ceiling after the work above:
+
+| Lever | Status | Effect on DAC `i2cHz` |
+| --- | --- | --- |
+| Batch msgs before notify (guest) | Done | Avoids N×RTT for register reads |
+| MessagePort nesting reset (1 ms poll) | Done | ~3 ms off every timer-path RTT |
+| Completion kick BH | Done (#72 / #118) | Was timer-capped ~45 Hz |
+| Guest tick 10 kHz | Done | Real 1 ms sleeps on QEMU |
+| `-icount` off on A53 | Done | ~349 → ~1000 I²C Hz |
+| Atomic request waiter | Done (#102) | **No DAC win** in same-build A/B (~800 Hz both ways) |
+| QEMU hot-path (token stack, idle 50 ms) | Done (#118) | Needs published wasm |
+| **Coalesce completion kicks per poll** | Done (this change) | Cuts BH storms on multi-msg transfers; DAC unchanged (1 msg) |
+| Page chip model | Not the limit | Pure-JS microbench ~380 kHz |
+
+The binding constraint for a synchronous one-message write is still ~1.1–1.2 ms
+of **guest VirtIO/I²C stack work** under Wasm TCG (~1.1 measured MIPS while
+blocked). The JS handle + MCP4725 path is microseconds.
+
+What still moves the needle:
+
+1. **Raise guest MIPS** — link `-O3` (patched, unmeasured), `ASYNCIFY_ADVISE`
+   prune (item 2), newer emsdk (item 5). Helps every sync virtio path, not
+   only I²C.
+2. **Publish the rebuilt qemu-wasm** so kick-primary drain and #118 land on
+   the deployed page (local ~748 Hz vs older deployed ~236 Hz mixes rebuild
+   confounds; do not attribute that gap to the request waiter).
+3. **Fewer transfers in the guest app** — OLED fps is ~11 because Zephyr's
+   SSD1306 driver issues ~9 chunked writes per frame (132-byte chunks). Larger
+   chunks or partial updates raise fps without bridge changes. DAC cannot
+   coalesce: each MCP4725 fast-write is one 2-byte code by design.
+4. **Keep the main thread free** for virtio replies (item 8 / #126) — reduces
+   jank under load, not the DAC's steady-state Hz once the bridge is event-
+   driven.
+
+Not worth chasing for I²C Hz: moving chip models into a Worker (#101 measured
+zero gain), SCL/"bus speed" knobs (there is no bus), or classic DMA/FIFO.
 
 ## Instruments that already exist
 
@@ -488,6 +532,8 @@ robustness rather than end-to-end latency.
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
 2. ~~Item 1(b)+(c) (atomic request waiter)~~ — done and locally profiled;
    **needs release artifact publication**.
+2b. ~~Item 1d (coalesce completion kicks per poll)~~ — done; helps multi-msg
+   transfers, not the one-msg DAC ceiling (see "I²C throughput: what is left").
 3. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it
    is a precondition for trusting item 2. Compare MIPS before and after.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item

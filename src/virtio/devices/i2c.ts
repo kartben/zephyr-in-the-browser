@@ -168,7 +168,11 @@ export function createI2cModel(name = 'i2c'): I2cModel {
 
   const scheduleLogNotify = () => {
     logDirty = true
-    if (logNotifyTimer !== undefined) return
+    // No subscribers → nothing to wake. The ring still fills so opening the
+    // traffic pane later still has history; transactions() materializes on
+    // read when dirty. Skipping the timer at 1 kHz DAC keeps a setTimeout
+    // off the main thread when the I²C panel is not mounted.
+    if (listeners.size === 0 || logNotifyTimer !== undefined) return
     logNotifyTimer = setTimeout(publishLog, LOG_NOTIFY_MS)
   }
 
