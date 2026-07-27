@@ -46,11 +46,19 @@ today’s monitor).
 
 ## Still later
 
-### Phase D — Zephyr kernel objects
+### Phase D — Zephyr threads (CONFIG_DEBUG_THREAD_INFO)
 
-Walk `struct k_thread` (and friends) via memory reads + ELF symbols / image-build
-offsets. First cut: thread list in the popover. Not shipped yet — needs a
-rebuilt emulator to dogfood memory reads, then a symbol helper.
+Same introspection ABI OpenOCD uses. Guests build with
+`CONFIG_DEBUG_THREAD_INFO=y` (`zephyr-module/conf/debug-threads.conf`), which
+selects `THREAD_MONITOR` + `THREAD_NAME` and emits:
+
+- `_kernel`
+- `_kernel_thread_info_offsets` (and size / count helpers)
+
+Packaged images ship **unstripped** ELFs so the page can resolve those symbols,
+read the offset table, then walk `_kernel.threads` over gdb memory reads.
+**Threads** tab: name, priority, TCB address (click to peek). Semaphores /
+mutexes / object cores can come later.
 
 ### Phase E — Disassembly / DWARF (optional)
 

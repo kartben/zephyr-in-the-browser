@@ -8,6 +8,7 @@
 
 import * as gdb from '@/hostGdb'
 import * as monitor from '@/hostMonitor'
+import type { ZephyrThread } from '@/debug/kernel/threads'
 
 export interface DebugSnapshot {
   /** Either bridge is present. */
@@ -22,6 +23,11 @@ export interface DebugSnapshot {
   canStep: boolean
   breakpoints: { addr: number; addrHex: string }[]
   memory: { addr: number; hex: string } | null
+  /** Guest ELF has CONFIG_DEBUG_THREAD_INFO symbols. */
+  threadInfo: boolean
+  threads: ZephyrThread[]
+  threadsLoading: boolean
+  threadsError: string | null
 }
 
 function snap(): DebugSnapshot {
@@ -39,6 +45,10 @@ function snap(): DebugSnapshot {
       canStep: true,
       breakpoints: g.breakpoints,
       memory: g.memory,
+      threadInfo: g.threadInfo,
+      threads: g.threads,
+      threadsLoading: g.threadsLoading,
+      threadsError: g.threadsError,
     }
   }
   return {
@@ -52,6 +62,10 @@ function snap(): DebugSnapshot {
     canStep: false,
     breakpoints: [],
     memory: null,
+    threadInfo: false,
+    threads: [],
+    threadsLoading: false,
+    threadsError: null,
   }
 }
 
@@ -108,4 +122,9 @@ export async function removeBreakpoint(addr: number): Promise<boolean> {
 export async function readMemory(addr: number, length?: number): Promise<string | null> {
   if (!gdb.sessionActive()) return null
   return gdb.readMemory(addr, length)
+}
+
+/** Feed the guest ELF so CONFIG_DEBUG_THREAD_INFO symbols can be resolved. */
+export function setKernelImage(elf: Uint8Array | null) {
+  gdb.setKernelImage(elf)
 }

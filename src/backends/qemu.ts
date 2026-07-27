@@ -12,6 +12,7 @@ import {
   bind as bindHostGdb,
   attachSession as attachHostGdbSession,
   detach as detachHostGdb,
+  setKernelImage as setHostGdbKernelImage,
 } from '@/hostGdb'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
@@ -252,6 +253,8 @@ export function createQemuBackend(): PtyBackend {
           })),
         )),
       ]
+      // Resolve CONFIG_DEBUG_THREAD_INFO symbols from the (unstripped) guest ELF.
+      setHostGdbKernelImage(preloaded[0]!.bytes)
       if (signal.aborted) return
 
       // ---- commit: from here the document belongs to this instance ----

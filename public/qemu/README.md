@@ -80,11 +80,11 @@ Emscripten names each generated JS loader after its binary. The selected board
 loads that matching JS/Wasm pair, and the app's `locateFile` hook prefixes its
 sibling assets with `/qemu/`.
 
-Note there is **no `load.js` and no `.data`**. A Zephyr image is ~64 KB, so
-rather than repackaging a multi-megabyte file_packager bundle to carry it, the
-backend fetches it over HTTP and writes it into the Emscripten filesystem in
-`preRun` via the exported `FS_createPath` / `FS_createDataFile` helpers. Boards
-that genuinely need a bundle (firmware blobs, a root filesystem) can still set
+Note there is **no `load.js` and no `.data`**. Guest ELFs are fetched over HTTP
+and written into the Emscripten filesystem in `preRun` via the exported
+`FS_createPath` / `FS_createDataFile` helpers (images ship unstripped so the
+debugger can resolve `CONFIG_DEBUG_THREAD_INFO` symbols). Boards that genuinely
+need a bundle (firmware blobs, a root filesystem) can still set
 `usesDataBundle: true` in `src/boards.ts`, and the loader will pull `load.js`.
 
 ## Where the emulator comes from
