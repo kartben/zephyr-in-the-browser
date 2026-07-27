@@ -112,6 +112,56 @@ describe('computeInsights', () => {
     expect(insights.panels.has('gpio')).toBe(true)
   })
 
+  it('discovers a gpio-7-segment on the bridged controller', () => {
+    const insights = insightsOf(`
+      /dts-v1/;
+      / {
+        soc {
+          virtio_gpio0: gpio@0 {
+            compatible = "virtio,gpio";
+            gpio-controller;
+            #gpio-cells = <2>;
+            ngpios = <16>;
+            status = "okay";
+          };
+        };
+        digi_display: digi-display {
+          compatible = "gpio-7-segment";
+          label = "7-segment LED";
+          columns = <3>;
+          rows = <1>;
+          segment-gpios = <&virtio_gpio0 8 1>,
+                          <&virtio_gpio0 9 1>,
+                          <&virtio_gpio0 10 1>,
+                          <&virtio_gpio0 11 1>,
+                          <&virtio_gpio0 12 1>,
+                          <&virtio_gpio0 13 1>,
+                          <&virtio_gpio0 14 1>,
+                          <&virtio_gpio0 15 1>;
+          digit-gpios = <&virtio_gpio0 5 0>,
+                        <&virtio_gpio0 6 0>,
+                        <&virtio_gpio0 7 0>;
+          refresh-period-ms = <1>;
+        };
+      };
+    `)
+    expect(insights.gpioControllers[0].sevenSegs).toEqual([
+      {
+        id: '/digi-display',
+        label: '7-segment LED',
+        columns: 3,
+        rows: 1,
+        refreshPeriodMs: 1,
+        segments: [8, 9, 10, 11, 12, 13, 14, 15].map((id) => ({
+          id,
+          activeHigh: false,
+        })),
+        digits: [5, 6, 7].map((id) => ({ id, activeHigh: true })),
+      },
+    ])
+    expect(insights.panels.has('auxdisplay')).toBe(true)
+  })
+
   it('discovers a gpio step/dir stepper on the bridged controller', () => {
     const insights = insightsOf(`
       /dts-v1/;

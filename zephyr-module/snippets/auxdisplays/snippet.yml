@@ -1,9 +1,10 @@
 name: auxdisplays
 description: >
   Enable every browser-backed auxdisplay the shell can drive: Grove JHD1313 on
-  I²C (node already in virtio-i2c) and PTC PT6314 on SPI CS1 (alongside the
-  JEDEC NOR on CS0 from virtio-spi). Pair with virtio-i2c and virtio-spi; used
-  by the shell sample so `auxdisplay` commands reach both parts.
+  I²C (node already in virtio-i2c), PTC PT6314 on SPI CS1 (alongside the JEDEC
+  NOR on CS0 from virtio-spi), and a gpio-7-segment LED module on virtio_gpio0
+  (pins 5–7 digits, 8–15 segments; ngpios widened to 16). Pair with
+  virtio-i2c, virtio-spi, and virtio-gpio.
 
 boards:
   qemu_cortex_a53/qemu_cortex_a53:

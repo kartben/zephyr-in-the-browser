@@ -8,6 +8,8 @@ export type {
   DtsPin,
   BuzzerPin,
   StepperAxis,
+  SevenSegDisplay,
+  SevenSegPin,
   GpioController,
   I2cBus,
   I2cSlot,

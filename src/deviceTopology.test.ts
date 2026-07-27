@@ -270,6 +270,56 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
   })
 
+  it('emits a seven-seg dock row when gpio-7-segment is on the bridged controller', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(`
+        /dts-v1/;
+        / {
+          model = "QEMU Cortex-A53";
+          soc {
+            virtio_gpio0: gpio@a000400 {
+              compatible = "virtio,gpio";
+              gpio-controller;
+              #gpio-cells = <2>;
+              ngpios = <16>;
+              status = "okay";
+            };
+          };
+          digi_display: digi-display {
+            compatible = "gpio-7-segment";
+            label = "7-segment LED";
+            columns = <3>;
+            rows = <1>;
+            segment-gpios = <&virtio_gpio0 8 1>,
+                            <&virtio_gpio0 9 1>,
+                            <&virtio_gpio0 10 1>,
+                            <&virtio_gpio0 11 1>,
+                            <&virtio_gpio0 12 1>,
+                            <&virtio_gpio0 13 1>,
+                            <&virtio_gpio0 14 1>,
+                            <&virtio_gpio0 15 1>;
+            digit-gpios = <&virtio_gpio0 5 0>,
+                          <&virtio_gpio0 6 0>,
+                          <&virtio_gpio0 7 0>;
+            refresh-period-ms = <1>;
+          };
+        };
+      `),
+      [],
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    const row = inv.nodes.find((n) => n.body === 'seven-seg')
+    expect(row).toBeTruthy()
+    expect(row!.presence).toBe('interactive')
+    expect(row!.deviceClass).toBe('auxdisplay')
+    expect(row!.compatible).toBe('gpio-7-segment')
+    expect(row!.panelKind).toBe('auxdisplay')
+    expect(row!.label).toBe('7-segment LED')
+    expect(row!.crumb).toBe('3-digit · virtio_gpio0')
+  })
+
   it('emits a stepper dock row when gpio step/dir is on the bridged controller', () => {
     const inv = deriveDeviceInventory(
       treeOf(`
