@@ -8,7 +8,8 @@
  * `qemuBinary` selects the matching Emscripten JS/Wasm artifact pair. The
  * Cortex-M3 uses arm-softmmu; the 64-bit `virt` machine needed by qemu,ramfb
  * uses aarch64-softmmu; `qemu_riscv32` uses riscv32-softmmu on the RISC-V
- * `virt` machine (also with virtio-mmio and ramfb).
+ * `virt` machine (also with virtio-mmio and ramfb); `qemu_x86` uses
+ * i386-softmmu on q35 (host-gpio MMIO, ramfb, virtio-tablet-pci, e1000).
  */
 
 /** A peripheral bridge with a floating panel in the UI. */
@@ -232,6 +233,124 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
     // lights led0 (pin 4) — click SW0 in the Keys panel to press it.
+    id: 'basic_button',
+    label: 'Button',
+    description: 'A host GPIO button lights an LED via the input subsystem',
+    zephyrSample: 'samples/basic/button',
+    primaryPanels: ['keys', 'led', 'gpio'],
+  },
+]
+
+/**
+ * qemu_x86 (q35): host-gpio like M3, plus stock ramfb / virtio-tablet-pci /
+ * e1000. No virtio-mmio I²C/SPI samples until a PCI virtio-browser path exists
+ * — see docs/x86-plan.md.
+ */
+const X86_SAMPLES: GuestSample[] = [
+  {
+    id: 'gnss',
+    label: 'GNSS',
+    description: 'Parses browser-fed NMEA fixes over UART',
+    zephyrSample: 'samples/drivers/gnss',
+    primaryPanels: ['gnss'],
+  },
+  {
+    id: 'display',
+    label: 'Display',
+    description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
+    zephyrSample: 'samples/drivers/display',
+    primaryPanels: ['display'],
+  },
+  {
+    id: 'touch',
+    label: 'Touch Events',
+    description: 'Draws a cross wherever you click the display, over virtio-input',
+    zephyrSample: 'samples/subsys/input/draw_touch_events',
+    primaryPanels: ['display'],
+  },
+  {
+    id: 'shell',
+    label: 'Shell',
+    description: 'Interactive Zephyr shell, with `gpio` and `hostaudio`',
+    zephyrSample: 'samples/subsys/shell/shell_module',
+    primaryPanels: ['gpio', 'audio'],
+  },
+  {
+    id: 'hsm',
+    label: 'State Machine',
+    description: 'Hierarchical state machine driven from the shell',
+    zephyrSample: 'samples/subsys/smf/hsm_psicc2',
+  },
+  {
+    id: 'dhcp',
+    label: 'DHCP Client',
+    description: 'Acquires an IPv4 lease from the browser network',
+    zephyrSample: 'samples/net/dhcpv4_client',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'http_server',
+    label: 'HTTP Server',
+    description: 'Serves a page at 192.0.2.1:8080 — fetch it from the Network panel',
+    zephyrSample: 'samples/net/sockets/dumb_http_server',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'echo_server',
+    label: 'Echo Server',
+    description: 'TCP/UDP echo on port 4242 — ping it from the Network panel',
+    zephyrSample: 'samples/net/sockets/echo_server',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'http_get',
+    label: 'HTTP GET',
+    description: 'DNS + TCP fetch of http://google.com through the page proxy',
+    zephyrSample: 'samples/net/sockets/http_get',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'zperf',
+    label: 'zperf',
+    description: 'iperf2-style throughput benchmark against the page',
+    zephyrSample: 'samples/net/zperf',
+    primaryPanels: ['net'],
+  },
+  {
+    id: 'hello_world',
+    label: 'Hello World',
+    description: 'Prints one line and stops',
+    zephyrSample: 'samples/hello_world',
+  },
+  {
+    id: 'blinky',
+    label: 'Blinky',
+    description: 'Blinks LED0 on the host GPIO bridge',
+    zephyrSample: 'samples/basic/blinky',
+    primaryPanels: ['led', 'gpio'],
+  },
+  {
+    id: 'guided',
+    label: 'Guided Blinky',
+    description: 'Blinky, annotated — it stops and explains itself as it runs',
+    zephyrSample: 'zephyr-module/apps/guided_blinky',
+    primaryPanels: ['led', 'gpio'],
+  },
+  {
+    id: 'buzzer',
+    label: 'Buzzer',
+    description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
+    zephyrSample: 'samples/drivers/buzzer/tone',
+    primaryPanels: ['buzzer', 'gpio', 'led'],
+  },
+  {
+    id: 'stepper',
+    label: 'Stepper',
+    description: 'GPIO step/dir stepper; press SW0 to cycle modes, dial in the dock',
+    zephyrSample: 'samples/drivers/stepper/generic',
+    primaryPanels: ['stepper', 'keys', 'gpio'],
+  },
+  {
     id: 'basic_button',
     label: 'Button',
     description: 'A host GPIO button lights an LED via the input subsystem',
@@ -783,6 +902,59 @@ export const BOARDS: Board[] = [
     },
     // Same guest apps as A53, minus tracing (ARM semihosting CTF path).
     samples: CORTEX_A53_SAMPLES.filter((s) => s.id !== 'tracing'),
+    defaultSampleId: 'hello_world',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
+      { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
+    ],
+    usesDataBundle: false,
+  },
+  {
+    id: 'qemu_x86',
+    label: 'QEMU x86',
+    zephyrTarget: 'qemu_x86',
+    arch: 'x86 (Atom)',
+    qemuBinary: 'qemu-system-i386',
+    args: [
+      '-nographic',
+      // Matches Zephyr boards/qemu/x86/board.cmake for the default atom SoC
+      // (CONFIG_ACPI is off in qemu_x86_defconfig → acpi=off).
+      '-machine',
+      'q35,acpi=off',
+      '-cpu',
+      'qemu32,+nx,+pae',
+      '-m',
+      '32',
+      '-device',
+      'isa-debug-exit,iobase=0xf4,iosize=0x04',
+      '-device',
+      'ramfb',
+      '-vga',
+      'none',
+      '-L',
+      '/pack/pc-bios',
+      // Stock Zephyr DTS: intel,e1000 on PCI. Browser netdev implements the LAN.
+      '-nic',
+      'browser,model=e1000',
+      // Stock virtio-tablet-pci (board.cmake / qemu_x86.dts); fed by the
+      // browser input bridge in tools/qemu-x86-patches/.
+      '-device',
+      'virtio-tablet-pci',
+      '-kernel',
+      '/pack/zephyr.elf',
+    ],
+    kernelFsPath: '/pack/zephyr.elf',
+    peripherals: {
+      gnss: true,
+      hostGpio: true,
+      hostAudio: true,
+      hostMic: true,
+      ramfb: true,
+      hostInput: true,
+      hostNet: true,
+      // No virtio-mmio / virtio-browser on q35 in this first cut.
+    },
+    samples: X86_SAMPLES,
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },

@@ -1009,6 +1009,29 @@ const M3_FALLBACK: FallbackNames = {
   display: { nodeName: 'ramfb' },
 }
 
+const X86_FALLBACK: FallbackNames = {
+  console: { nodeName: 'uart@3f8', compatible: 'ns16550', label: 'uart0' },
+  gnssUart: { nodeName: 'uart@2f8', compatible: 'ns16550', label: 'uart1' },
+  audio: { nodeName: 'audio@fea01000' },
+  mic: { nodeName: 'audio@fea02000' },
+  net: { nodeName: 'eth0', compatible: 'intel,e1000', label: 'eth0' },
+  gpio: { nodeName: 'gpio@fea00000', compatible: 'qemu,host-gpio', label: 'host_gpio' },
+  i2c: {
+    nodeName: 'virtio-i2c',
+    compatible: 'virtio,i2c',
+    label: 'virtio_i2c0',
+    parentPath: '/',
+  },
+  spi: {
+    nodeName: 'virtio-spi',
+    compatible: 'virtio,spi',
+    label: 'virtio_spi0',
+    parentPath: '/',
+  },
+  display: { nodeName: 'ramfb' },
+  input: { nodeName: 'virtio-input' },
+}
+
 function deriveFallback(
   boardId: string,
   chips: readonly I2cChip[],
@@ -1020,7 +1043,9 @@ function deriveFallback(
       ? M3_FALLBACK
       : boardId === 'qemu_riscv32'
         ? RISCV32_FALLBACK
-        : A53_FALLBACK
+        : boardId === 'qemu_x86'
+          ? X86_FALLBACK
+          : A53_FALLBACK
   const ids: Ids = { used: new Set() }
   const nodes: DeviceNode[] = []
 

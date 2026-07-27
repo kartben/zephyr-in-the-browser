@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/stepper/generic: step/dir on host_gpio pins 6/7 (qemu_x86).
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		stepper-ctrl = &browser_stepper;
+	};
+
+	browser_stepper: motion-controller {
+		compatible = "zephyr,gpio-step-dir-stepper-ctrl";
+		step-gpios = <&host_gpio 6 GPIO_ACTIVE_HIGH>;
+		dir-gpios = <&host_gpio 7 GPIO_ACTIVE_HIGH>;
+	};
+};

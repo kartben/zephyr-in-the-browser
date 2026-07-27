@@ -4,7 +4,8 @@
 #
 #   tools/build-qemu-wasm.sh [target]        # target defaults to all
 #                                             (arm-softmmu + aarch64-softmmu;
-#                                              pass riscv32-softmmu explicitly)
+#                                              pass riscv32-softmmu or
+#                                              i386-softmmu explicitly)
 #
 # Environment overrides:
 #   QEMU_REPO             upstream git remote      (default: qemu/qemu)
@@ -23,13 +24,14 @@
 # miscompiled Cortex-M timer paths, so it is deliberately limited to the
 # AArch64 display machine. Set QEMU_AARCH64_ACCEL=tci for the slower
 # all-upstream fallback. RISC-V uses tools/qemu-riscv-patches/ (not the ARM
-# Stellaris series) so machine wiring lands in hw/riscv/virt.c.
+# Stellaris series) so machine wiring lands in hw/riscv/virt.c. x86 uses
+# tools/qemu-x86-patches/ on hw/i386/pc.c (q35).
 #
 # The dependency image (glib, pixman, zlib, libffi cross-compiled to Wasm) is
 # built from tools/Dockerfile.deps and is the slow part; it is cached, so
-# re-runs skip it. `all` still builds only arm + aarch64 — riscv32 is opt-in
-# until its artifact size and release packaging are settled (see
-# docs/riscv32-plan.md).
+# re-runs skip it. `all` still builds only arm + aarch64 — riscv32 and i386
+# are opt-in until their artifact size and release packaging are settled (see
+# docs/riscv32-plan.md and docs/x86-plan.md).
 
 set -euo pipefail
 
@@ -200,8 +202,8 @@ build_qemu() {
   docker cp "$CONTAINER:/build/$binary.wasm" "$DEST/$binary.wasm"
   # The standalone ramfb device registers this tiny option ROM even though the
   # browser reads its mapped pixels directly instead of using a QEMU frontend.
-  # Both AArch64 and RISC-V virt boards may use -device ramfb.
-  if [ "$target" = "aarch64-softmmu" ] || [ "$target" = "riscv32-softmmu" ]; then
+  # AArch64 / RISC-V virt and i386 q35 may use -device ramfb.
+  if [ "$target" = "aarch64-softmmu" ] || [ "$target" = "riscv32-softmmu" ] || [ "$target" = "i386-softmmu" ]; then
     cp "$src/pc-bios/vgabios-ramfb.bin" "$DEST/vgabios-ramfb.bin"
     cp "$src/pc-bios/efi-virtio.rom" "$DEST/efi-virtio.rom"
   fi
@@ -259,6 +261,13 @@ build_target() {
     repo_url="$REPO_URL"
     ref="$REF"
     patches="$ROOT/tools/qemu-riscv-patches"
+    accel=tci
+  elif [ "$target" = "i386-softmmu" ]; then
+    # Dedicated series: machine wiring lands in hw/i386/pc.c (q35).
+    src="$TCI_SRC"
+    repo_url="$REPO_URL"
+    ref="$REF"
+    patches="$ROOT/tools/qemu-x86-patches"
     accel=tci
   else
     src="$TCI_SRC"
