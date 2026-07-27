@@ -223,6 +223,9 @@ try {
         roundTripSlowCount: rows.at(-1)?.rtSlowCount ?? null,
         wakeAvgMs: +(avg('wakeAvgNs') / 1e6).toFixed(2),
         wakeMaxMs: +(avg('wakeMaxNs') / 1e6).toFixed(2),
+        // Surfaced in the summary because a zero here means the vCPU-wake
+        // hook is not on this build's accel path, not that wakes are free.
+        wakeCount: rows.at(-1)?.wakeCount ?? null,
         warpOvershootAvgMs: +(avg('warpOvershootAvgNs') / 1e6).toFixed(2),
         warpOvershootMaxMs: +(avg('warpOvershootMaxNs') / 1e6).toFixed(2),
         notifyViaKick: rows.at(-1)?.notifyViaKick ?? null,

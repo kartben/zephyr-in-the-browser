@@ -269,6 +269,13 @@ function rollWindow() {
   // the instrumentation — worth saying, because the alternative reading of a
   // -1 is "the hop is free".
   if (i2cDelta / elapsed > 40 && !rt) notes.push('bridge_roundtrip_unavailable')
+  // Completions delivered but no vCPU wake ever timed: the hook is not on the
+  // path this build's accel actually takes. It read as zero for a while after
+  // -icount came off, because a dead instrument and a fast one both report
+  // nothing. Say so rather than let the next reader infer the second.
+  if (notifySource && notifySource.viaKick + notifySource.viaTimer > 0 && !wake?.count) {
+    notes.push('vcpu_wake_unmeasured')
+  }
 
   lastSnapshot = {
     wallMs: now,

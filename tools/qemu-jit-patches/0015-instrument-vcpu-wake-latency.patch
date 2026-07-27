@@ -1,48 +1,61 @@
-diff --git a/accel/tcg/tcg-accel-ops-rr.c b/accel/tcg/tcg-accel-ops-rr.c
-index 6eec5c9..903b2ac 100644
---- a/accel/tcg/tcg-accel-ops-rr.c
-+++ b/accel/tcg/tcg-accel-ops-rr.c
-@@ -37,6 +37,15 @@
- #include "tcg-accel-ops-rr.h"
- #include "tcg-accel-ops-icount.h"
+diff --git a/system/cpus.c b/system/cpus.c
+index d16b0df..557c64d 100644
+--- a/system/cpus.c
++++ b/system/cpus.c
+@@ -446,8 +446,30 @@ static void qemu_cpu_stop(CPUState *cpu, bool exit)
+     qemu_cond_broadcast(&qemu_pause_cond);
+ }
  
 +/*
-+ * Diagnostic hook (hw/virtio/virtio-browser.c): closes the loop on how long
-+ * a browser-triggered virtio_notify() takes to actually resume this thread,
-+ * versus how long QEMU took to notice the completion in the first place.
-+ * Declared here rather than in a header for the same reason
-+ * virtio-browser.c's own exports are: nothing else in QEMU calls it.
++ * Diagnostic hook (hw/virtio/virtio-browser.c): closes the loop on how long a
++ * browser-triggered virtio_notify() takes to actually resume a vCPU thread,
++ * against how long QEMU took to notice the completion in the first place.
++ *
++ * Hooked here rather than in an accel's thread function because every one of
++ * them funnels through this: rr calls it per-CPU out of rr_wait_io_event(),
++ * mttcg and the hardware accels out of qemu_wait_io_event(). The first
++ * version of this patch hooked rr_cpu_thread_fn and silently stopped
++ * measuring anything the day the A53 dropped -icount, since that made MTTCG
++ * eligible and moved the vCPU onto a thread function the hook was not in --
++ * a dead instrument reads exactly like a fast one.
++ *
++ * Called with the BQL held on every path, which is what lets virtio-browser.c
++ * keep its counters in plain statics. Declared here rather than in a header
++ * for the same reason virtio-browser.c's own exports are: nothing else in
++ * QEMU calls it. It does mean this file needs CONFIG_VIRTIO_BROWSER, which
++ * every configuration this project builds has.
 + */
 +extern void virtio_browser_note_vcpu_wake(void);
 +
- /* Kick all RR vCPUs */
- void rr_kick_vcpu_thread(CPUState *unused)
+ void qemu_wait_io_event_common(CPUState *cpu)
  {
-@@ -299,6 +308,7 @@ static void *rr_cpu_thread_fn(void *arg)
-         }
- 
-         rr_wait_io_event();
-+        virtio_browser_note_vcpu_wake();
-         rr_deal_with_unplugged_cpus();
-     }
- 
++    virtio_browser_note_vcpu_wake();
+     qatomic_set_mb(&cpu->thread_kicked, false);
+     if (cpu->stop) {
+         qemu_cpu_stop(cpu, false);
 diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
-index 7c06366..7231fe6 100644
+index 7e18656..99f4c73 100644
 --- a/hw/virtio/virtio-browser.c
 +++ b/hw/virtio/virtio-browser.c
-@@ -204,6 +204,63 @@ static void virtio_browser_drain(void *opaque);
+@@ -206,6 +206,69 @@ static void virtio_browser_drain(void *opaque);
  static void virtio_browser_kick_bh_cb(void *opaque);
  static void virtio_browser_arm_drain(VirtIOBrowser *b);
  
 +/*
 + * Diagnostic only: how long between virtio_notify() raising the guest's IRQ
-+ * (recorded here, under the BQL, every time a completion is delivered) and
-+ * the RR vCPU thread actually resuming execution (recorded by
-+ * virtio_browser_note_vcpu_wake(), called from accel/tcg/tcg-accel-ops-rr.c
-+ * right after it wakes from halt_cond). Both sides run under the BQL, so
-+ * plain statics are fine -- no atomics needed. wake_pending guards against
-+ * counting a resume that was not preceded by a fresh notify (ordinary RR
-+ * scheduling, multi-cpu kick-timer wakeups, etc).
++ * (recorded here, under the BQL, every time a completion is delivered) and a
++ * vCPU thread actually resuming execution (recorded by
++ * virtio_browser_note_vcpu_wake(), called from qemu_wait_io_event_common() in
++ * system/cpus.c, which every accel's thread function funnels through). Both
++ * sides run under the BQL, so plain statics are fine -- no atomics needed.
++ * wake_pending guards against counting a resume that was not preceded by a
++ * fresh notify (ordinary scheduling, kick-timer wakeups, etc).
++ *
++ * This sits inside what the round-trip counters below have to call guest
++ * time: virtio_browser_note_roundtrip() stops when QEMU drains a completion,
++ * which is before the IRQ and long before the guest's ISR runs. Without this
++ * pair, "guest + TCG" silently includes however long the host took to
++ * reschedule a halted vCPU. See docs/performance.md item 15.
 + */
 +static int64_t wake_notify_ns;
 +static bool wake_pending;
@@ -94,7 +107,7 @@ index 7c06366..7231fe6 100644
  EMSCRIPTEN_KEEPALIVE
  uint32_t qemu_virtio_browser_count(void)
  {
-@@ -575,6 +632,7 @@ static void virtio_browser_drain(void *opaque)
+@@ -575,6 +638,7 @@ static void virtio_browser_drain(void *opaque)
      if (notified) {
          for (uint16_t q = 0; q < b->num_queues; q++) {
              if (notified & (1u << q)) {

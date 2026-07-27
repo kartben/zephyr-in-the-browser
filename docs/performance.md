@@ -113,15 +113,20 @@ second), and `bridgeWaiterActive`. A hot workload on an old emulator gets a
 `bridge_waiter_inactive` note; `tools/probe-timer-clamp.mjs` measures the timer
 fallback in isolation.
 
-**One instrument here is currently lying by omission.** `wakeAvgNs` /
-`wakeCount` (notify→vCPU-resume,
-`0015-instrument-vcpu-wake-latency.patch`) returned `count = 0` across a
-12-second DAC run with 11,979 completions — the exports answer, so they are in
-the build, but nothing increments them. The likely cause is that the patch
-hooks `rr_cpu_thread_fn` and the A53 no longer runs it: removing `-icount`
-(item 6) makes MTTCG eligible, which uses `mttcg_cpu_thread_fn` instead. Treat
-a zero `wakeCount` as "not measured on this build", not as "no wake latency",
-and see item 15 for what that leaves unresolved.
+**One instrument here was lying by omission, and is now fixed pending a
+rebuild.** `wakeAvgNs` / `wakeCount` (notify→vCPU-resume,
+`0015-instrument-vcpu-wake-latency.patch`) returned `count = 0` across two
+12-second DAC runs with ~12,000 completions each — the exports answered, so
+they were in the build, but nothing incremented them. The patch hooked
+`rr_cpu_thread_fn`, and the A53 stopped running it when item 6 removed
+`-icount`: that makes MTTCG eligible, and MTTCG uses `mttcg_cpu_thread_fn`.
+
+The hook has moved to `qemu_wait_io_event_common()` in `system/cpus.c`, which
+rr, MTTCG and the hardware accels all funnel through, so it cannot go stale
+the next time accel selection changes. **Needs a rebuild to read.** Until
+then a zero `wakeCount` means "not measured on this build", never "no wake
+latency" — the profiler now says so itself with a `vcpu_wake_unmeasured` note
+whenever completions are being delivered and no wake was ever timed.
 
 The other half of the round trip — how long QEMU took to notice a completion —
 used to be missing here. Item 15 closes it: QEMU now times each chain from
@@ -576,20 +581,25 @@ own cost, which `tools/bench-dac-i2c.mjs` puts at **8.5 µs** per I²C transfer
 against a round trip three orders of magnitude larger. So the hop is the entire
 upside, and the hop had never been measured.
 
-**Measured**, on a local rebuilt A53 artifact:
+**Measured**, on a local rebuilt A53 artifact, two runs of each workload:
 
 | | DAC sawtooth (1 kHz) | accel_chart (240 Hz) |
 | --- | --- | --- |
 | `periodMs` — one transfer, end to end | 1.000 | 4.167 |
-| `roundTripAvgMs` — QEMU's whole browser hop | 0.049 | 0.064 |
-| `serviceAvgMs` — dispatch + device model | 0.005 | 0.013 |
-| **`hopAvgMs`** — the two cross-thread hops | **0.044** | **0.051** |
-| `guestShareMs` — guest + TCG | 0.951 | 4.103 |
-| samples / over 5 ms | 11,979 / 1 | 2,386 / 0 |
+| `roundTripAvgMs` — QEMU's whole browser hop | 0.049 / 0.058 | 0.064 / 0.084 |
+| `serviceAvgMs` — dispatch + device model | 0.005 / 0.005 | 0.013 / 0.015 |
+| **`hopAvgMs`** — the two cross-thread hops | **0.044 / 0.054** | **0.051 / 0.068** |
+| `guestShareMs` — guest + TCG | 0.951 / 0.942 | 4.103 / 4.083 |
+| samples / over 5 ms | ~12,000 / 0–1 | ~2,390 / 0 |
 
-**The browser is 4.9 % of a DAC transfer and 1.5 % of an accel-chart one**, of
+Run-to-run spread is about 20 % on the hop and nil on the conclusion. Both
+workloads held their rate (1000 Hz, 240 Hz) across both runs, and the two
+`serviceAvgMs` columns barely move, which is what you would expect of a
+main thread that is not contended.
+
+**The browser is 5–6 % of a DAC transfer and 1.5–2 % of an accel-chart one**, of
 which the hop proper — everything a wasm-side device model could delete — is
-4.4 % and 1.2 %. The DAC is already at its intended 1 kHz, so even that 4.4 %
+4.4–5.4 % and 1.2–1.6 %. The DAC is already at its intended 1 kHz, so even that
 is not realizable throughput: the sample is rate-limited by its own loop, not
 by the bus. Nine transfers per SSD1306 frame come to 0.4 ms of hop against a
 ~90 ms frame.
@@ -598,7 +608,7 @@ So the answer to "should peripheral emulation happen in the wasm environment?"
 is no, at least not for latency. It would move 9.4k lines of TypeScript models
 and 2.7k lines of vitest into C behind an hours-long containerised rebuild, add
 a state-sync channel per chip for the ones owning browser state, and buy back
-under 5 % of a transfer. The `serviceAvgMs` of 5–13 µs also lands right on the
+around 5 % of a transfer. The `serviceAvgMs` of 4–15 µs also lands right on the
 8.5 µs `tools/bench-dac-i2c.mjs` measures for the model alone, which says the
 main thread is not contended on these workloads either — item 8's consolidation
 already did its job.
@@ -606,15 +616,18 @@ already did its job.
 One caveat on `guestShareMs`, and it is the honest limit of this measurement:
 the round trip ends when QEMU *drains* the completion, before `virtio_notify`
 and before the vCPU resumes. So `guestShareMs` is guest instructions **plus**
-notify→vCPU-resume. Item 7's `wake_*` counters exist to separate exactly those
-and reported `wakeCount = 0` on this run — the exports answer, so they are
-compiled in, but nothing ever incremented them. Most likely
-`0015-instrument-vcpu-wake-latency.patch` hooks `rr_cpu_thread_fn` and the A53
-stopped using it when item 6 removed `-icount`, since MTTCG becomes eligible as
-soon as icount is off. Unconfirmed, and worth confirming before anyone reads
-0.951 ms as "guest code": if it is MTTCG, the same hook belongs in
-`tcg-accel-ops-mttcg.c`, and until then the split inside `guestShareMs` is
-unknown.
+notify→vCPU-resume, and the DAC's guest blocks with nothing else runnable, so
+Zephyr idles into WFI and QEMU halts the vCPU on essentially every transfer.
+Something has to wake that thread, and how long it takes is not yet known.
+
+`wake_*` exists to measure exactly that and reported `wakeCount = 0` on both
+runs — the hook was on `rr_cpu_thread_fn`, which the A53 stopped using when
+item 6 removed `-icount`. It now hooks `qemu_wait_io_event_common()`, which
+every accel funnels through; that needs one rebuild to read. Until it is read,
+do not quote 0.951 ms as "guest code" — it is guest code *plus* however long
+the host takes to reschedule a halted vCPU, and which of the two dominates
+decides whether the remaining work is raising guest MIPS (items 2, 3, 5) or
+not halting the vCPU at all.
 
 The instrumentation, for reference.
 `tools/qemu-jit-patches/0018-instrument-bridge-roundtrip.patch` stamps
@@ -705,9 +718,10 @@ harness will be re-run against other workloads and other builds.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
 5. ~~Item 15's round-trip read~~ — done: the hop is 4.4 % of a DAC transfer,
-   so no work that moves device models anywhere is worth starting. What it
-   turned up instead is that item 7's `wake_*` counters have gone silent
-   (`wakeCount = 0`), which is now the open question about that 0.951 ms.
+   so no work that moves device models anywhere is worth starting. It also
+   turned up a dead `wake_*` instrument, now re-hooked accel-agnostically;
+   **that read is the next rebuild's job** and is what splits the remaining
+   0.951 ms between guest code and vCPU wake latency.
 6. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
    promotes item 2 to the top of the list or removes it from it.
 7. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
