@@ -1,5 +1,8 @@
 /**
- * HD44780U A00 5×8 CGROM bitmaps for the JHD1313 LCD canvas.
+ * HD44780U A00 5×8 CGROM bitmaps for character auxdisplay canvases.
+ *
+ * Used by the JHD1313 LCD and the PT6314 VFD (PT6314-001 English/Japanese
+ * CGROM matches A00 for ASCII 0x20..0x7f — see PT6314.pdf §12.1).
  *
  * Derived from Display Module 2 BDF
  * (https://github.com/dse/display-module-fonts), SIL OFL 1.1.
