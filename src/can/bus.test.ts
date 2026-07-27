@@ -201,6 +201,59 @@ describe('acknowledgement and error counters', () => {
     bus.recover('can0')
     expect(bus.nodes()[0]).toMatchObject({ state: 'error-active', tec: 0 })
   })
+
+  it('loopback ACKs alone and never reaches other nodes', () => {
+    const { bus, advance } = harness()
+    const seen: number[] = []
+    let peerHits = 0
+    bus.attach({
+      id: 'can0',
+      name: 'can0',
+      local: true,
+      receive: (f) => {
+        seen.push(f.id)
+        return 'accepted'
+      },
+    })
+    bus.attach({
+      id: 'peer',
+      name: 'peer',
+      receive: () => {
+        peerHits++
+        return 'accepted'
+      },
+    })
+    bus.setLoopback('can0', true)
+
+    bus.send('can0', frame(0x100))
+    advance(5)
+
+    expect(bus.nodes().find((n) => n.id === 'can0')).toMatchObject({
+      loopback: true,
+      state: 'error-active',
+      tec: 0,
+    })
+    expect(bus.nodes().find((n) => n.id === 'can0')!.summary).toContain('loopback')
+    expect(bus.log().filter((e) => e.kind === 'frame')).toHaveLength(1)
+    expect(bus.log().some((e) => e.kind === 'no-ack')).toBe(false)
+    // Offered back to can0; peer never saw it.
+    expect(seen).toEqual([0x100])
+    expect(peerHits).toBe(0)
+  })
+
+  it('loopback keeps a lone controller off the bus-off path', () => {
+    const { bus, advance } = harness()
+    bus.attach({ id: 'can0', name: 'can0', local: true })
+    bus.setLoopback('can0', true)
+
+    for (let i = 0; i < 40; i++) {
+      bus.send('can0', frame(0x100))
+      advance(5)
+    }
+
+    expect(bus.nodes()[0]!.state).toBe('error-active')
+    expect(bus.log().some((e) => e.kind === 'no-ack')).toBe(false)
+  })
 })
 
 describe('node presets', () => {

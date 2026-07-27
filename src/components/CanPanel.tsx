@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
   type MutableRefObject,
 } from 'react'
-import { Crosshair, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Crosshair, Repeat, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   CAN_NODE_TYPES,
@@ -18,6 +18,7 @@ import {
   recover,
   removeNode,
   sendAs,
+  setLoopback,
 } from '@/hostCan'
 import { nodeType } from '@/can/nodes'
 import type { CanLogEntry, CanNodeSnapshot, CanState } from '@/can/bus'
@@ -46,7 +47,8 @@ import {
  * - **Roster.** Who is on the bus, with error counters and state. The `×` is
  *   the interesting control: unplug the last node that acknowledges and the
  *   controller counts its way to bus-off, which is a real failure mode with no
- *   equivalent anywhere else in the tree.
+ *   equivalent anywhere else in the tree. can0's matching control is loopback:
+ *   frames stay on the controller and never reach the rest of the bus.
  * - **Add node.** Page-side presets, with the fields each one needs.
  * - **Send.** A composed frame, transmitted *as* a chosen node so the error
  *   counters and arbitration attribute to something real.
@@ -114,7 +116,7 @@ export function CanView({
       {local?.state === 'bus-off' && (
         <button
           onClick={() => recover()}
-          title="Transmission stays stopped until can_recover(). Zephyr's CAN shell: can recover can0"
+          title="Bus-off latches until cleared. Resets TEC and REC so can0 can transmit again. Zephyr: can recover can0"
           className="rounded-md border border-input bg-secondary px-2 py-1 text-[11px] text-foreground hover:bg-background"
         >
           Recover
@@ -462,7 +464,23 @@ function NodeRow({ node, chip }: { node: CanNodeSnapshot; chip?: Mcp2515Chip | n
         </div>
       </div>
       {node.local ? (
-        <span className="size-[18px] shrink-0" />
+        <button
+          type="button"
+          aria-label={node.loopback ? 'Disable loopback on can0' : 'Wire loopback on can0'}
+          aria-pressed={node.loopback}
+          title={
+            node.loopback
+              ? 'Loopback on. Frames stay on can0 and never reach the rest of the bus.'
+              : 'Wire loopback. Frames stay on can0 and never reach the rest of the bus.'
+          }
+          onClick={() => setLoopback(!node.loopback, node.id)}
+          className={cn(
+            'shrink-0 rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground',
+            node.loopback && 'text-primary',
+          )}
+        >
+          <Repeat className="size-3" />
+        </button>
       ) : (
         <button
           aria-label={`Unplug ${node.name}`}

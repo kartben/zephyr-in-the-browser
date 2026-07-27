@@ -65,13 +65,24 @@ describe('CanView', () => {
     expect(out).toContain('Nothing has crossed the bus yet.')
   })
 
-  it('lists the controller and offers no way to unplug it', () => {
+  it('lists the controller and offers loopback instead of unplug', () => {
     const out = html(harness().bus.nodes())
     expect(out).toContain('can0')
     expect(out).toContain('error-active')
     expect(out).toContain("This board&#x27;s controller")
-    // Every other node gets an unplug button; the local one must not.
+    // Every other node gets an unplug button; the local one gets loopback.
     expect(out).not.toContain('Unplug can0')
+    expect(out).toContain('Wire loopback on can0')
+    expect(out).not.toContain('Disable loopback on can0')
+  })
+
+  it('marks the loopback control pressed when enabled', () => {
+    const { bus } = harness()
+    bus.setLoopback('can0', true)
+    const out = html(bus.nodes())
+    expect(out).toContain('Disable loopback on can0')
+    expect(out).toContain('aria-pressed="true"')
+    expect(text(bus.nodes())).toContain('loopback')
   })
 
   it('shows a peer with its behaviour summary and an unplug button', () => {

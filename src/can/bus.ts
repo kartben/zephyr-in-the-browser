@@ -80,6 +80,12 @@ export interface CanNodeSnapshot {
   name: string
   local: boolean
   acks: boolean
+  /**
+   * Page-side loopback (MCP2515 loopback semantics): TX stays on this node,
+   * never reaches the rest of the bus, and is offered back to its own receive
+   * path. Only meaningful on the local controller.
+   */
+  loopback: boolean
   tec: number
   rec: number
   state: CanState
@@ -120,6 +126,8 @@ interface Attached extends CanNodeSpec {
   state: CanState
   nextTxAt: number
   txSeq: number
+  /** Workbench loopback; see {@link CanNodeSnapshot.loopback}. */
+  loopback: boolean
 }
 
 interface Queued {
@@ -155,6 +163,12 @@ export interface CanBus {
   bitrate(): number
   /** Clear a bus-off controller's counters (`can_recover()`). */
   recover(nodeId: string): void
+  /**
+   * Toggle page-side loopback on a node. Frames it transmits never leave it;
+   * they are offered back to its own `receive` instead. Mirrors MCP2515
+   * loopback without writing `CANCTRL` out from under the guest.
+   */
+  setLoopback(nodeId: string, on: boolean): void
   /** Frames that crossed the bus in the last second. */
   frameRate(): number
   start(): void
@@ -191,6 +205,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
       name: n.name,
       local: !!n.local,
       acks: n.acks !== false,
+      loopback: n.loopback,
       tec: n.tec,
       rec: n.rec,
       state: n.state,
@@ -243,6 +258,22 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
   function transmit(q: Queued, at: number) {
     const { node, frame } = q
     busyUntil = at + (frameBits(frame) / bitrate) * 1000
+
+    // Loopback never puts a dominant bit on the medium for anyone else: the
+    // frame is acknowledged internally and offered back to the sender's own
+    // receive path, matching MCP2515 loopback mode.
+    if (node.loopback) {
+      node.tec = Math.max(0, node.tec - 1)
+      updateState(node)
+      let drop: 'filtered' | 'overflow' | undefined
+      if (node.receive) {
+        const receipt = node.receive(frame)
+        if (receipt !== 'accepted') drop = receipt
+      }
+      recent.push(at)
+      push({ kind: 'frame', at, from: node.id, local: !!node.local, frame, drop })
+      return
+    }
 
     const others = [...attached.values()].filter((n) => n.id !== node.id)
     const acked = others.some((n) => n.acks !== false && n.state !== 'bus-off')
@@ -339,6 +370,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
           : `replies 0x${hex(node.respondTo.id)}`,
       )
     }
+    if (node.loopback) parts.push('loopback')
     if (node.acks === false) parts.push('listen-only')
     // "acks only" describes a Listener. The local controller transmits
     // whenever the board asks it to, so claiming that of it would be a lie.
@@ -359,6 +391,7 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
         // tick, which is invisible and untestable.
         nextTxAt: spec.transmit ? now() + spec.transmit.periodMs : 0,
         txSeq: 0,
+        loopback: false,
       }
       attached.set(spec.id, node)
       notify()
@@ -405,6 +438,13 @@ export function createCanBus(now: () => number = () => Date.now()): CanBus {
       node.tec = 0
       node.rec = 0
       node.state = 'error-active'
+      notify()
+    },
+
+    setLoopback(nodeId, on) {
+      const node = attached.get(nodeId)
+      if (!node || node.loopback === on) return
+      node.loopback = on
       notify()
     },
 
