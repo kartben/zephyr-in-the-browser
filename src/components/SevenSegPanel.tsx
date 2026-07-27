@@ -51,11 +51,12 @@ function DigitGlyph({
 
   return (
     <svg
-      // Vertical viewBox pad keeps skew + glow off the panel edge; keep the
-      // horizontal pad tight so digits sit close like a real LED module.
-      viewBox="-4 -12 68 108"
+      // Vertical viewBox pad keeps skew + glow off the panel edge. Crop the
+      // horizontal pad and overlap neighbors so the DP gutter of one digit
+      // sits in the crack before the next — like a real LED module strip.
+      viewBox="-1 -12 59 108"
       className={cn(
-        '-mx-0.5 h-[4.75rem] w-[3.1rem] shrink-0 overflow-visible sm:h-[6.25rem] sm:w-[4rem]',
+        '-mx-2 h-[4.75rem] w-[2.65rem] shrink-0 overflow-visible sm:-mx-2.5 sm:h-[6.25rem] sm:w-[3.45rem]',
         scanning && 'sevenseg-scan',
       )}
       aria-hidden
@@ -121,7 +122,7 @@ export function SevenSegBody() {
               } as CSSProperties
             }
           >
-            <div className="flex flex-wrap items-end justify-center gap-0.5 sm:gap-1">
+            <div className="flex flex-wrap items-end justify-center">
               {disp.digits.map((mask, i) => (
                 <DigitGlyph key={i} mask={mask} scanning={disp.active[i] === true} />
               ))}
