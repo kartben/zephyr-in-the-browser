@@ -1,0 +1,20 @@
+diff --git a/configs/devices/i386-softmmu/browser.mak b/configs/devices/i386-softmmu/browser.mak
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/configs/devices/i386-softmmu/browser.mak
+@@ -0,0 +1,14 @@
++# Device configuration for zephyr-in-the-browser's i386-softmmu artifact.
++#
++# Selected by tools/build-qemu-wasm.sh with --with-devices-i386=browser.
++# Keep Q35 (and the PC/i440FX helpers it pulls in); drop other boards and
++# optional device catalogues to shrink the wasm binary.
++
++# Boards other than Q35. MICROVM needs FDT and is unused here.
++CONFIG_ISAPC=n
++CONFIG_I440FX=n
++CONFIG_MICROVM=n
++CONFIG_NITRO_ENCLAVE=n
++
++# Optional device catalogues.
++CONFIG_TEST_DEVICES=n

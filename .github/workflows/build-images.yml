@@ -62,7 +62,7 @@ jobs:
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: zephyr-in-the-browser
-          toolchains: arm-zephyr-eabi:aarch64-zephyr-elf:riscv64-zephyr-elf
+          toolchains: arm-zephyr-eabi:aarch64-zephyr-elf:riscv64-zephyr-elf:x86-zephyr-elf
 
       - name: Build images
         working-directory: zephyr-in-the-browser

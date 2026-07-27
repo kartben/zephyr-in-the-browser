@@ -13,10 +13,12 @@ toolchain — both run in containers.
 
 ```console
 $ tools/build-qemu-wasm.sh            # emulator (slow: compiles glib etc. to wasm)
-$ tools/build-qemu-wasm.sh riscv32-softmmu  # optional third target (TCI)
+$ tools/build-qemu-wasm.sh riscv32-softmmu  # optional RISC-V target (TCI)
+$ tools/build-qemu-wasm.sh i386-softmmu     # optional x86 q35 target (TCI)
 $ tools/build-zephyr-image.sh         # Cortex-M3 GNSS + shell + hello world
 $ tools/build-zephyr-image.sh qemu_cortex_a53  # GNSS + display + hello world
 $ tools/build-zephyr-image.sh qemu_riscv32     # RISC-V virt samples
+$ tools/build-zephyr-image.sh qemu_x86         # x86 q35 samples
 ```
 
 Then restart the dev server. The `qemuAssetProbe` plugin in `vite.config.ts`
@@ -24,10 +26,11 @@ scans this directory at config time, and Vite's static middleware also caches
 what it finds here at startup, so a running server will not pick up new files.
 
 With no argument the emulator script builds both `arm-softmmu` and
-`aarch64-softmmu`; pass `riscv32-softmmu` for the RISC-V artifact (kept
-opt-in until packaging size is settled — see `docs/riscv32-plan.md`). The
-Zephyr script defaults to `qemu_cortex_m3`. Both scripts honour their
-environment overrides; see the headers.
+`aarch64-softmmu`; pass `riscv32-softmmu` or `i386-softmmu` for the optional
+artifacts (kept opt-in until packaging size is settled — see
+`docs/riscv32-plan.md` and `docs/x86-plan.md`). The Zephyr script defaults to
+`qemu_cortex_m3`. Both scripts honour their environment overrides; see the
+headers.
 
 ## What ends up here
 
@@ -42,6 +45,9 @@ public/qemu/
   qemu-system-riscv32.js      RISC-V 32-bit factory (opt-in build)
   qemu-system-riscv32.wasm    qemu_riscv32 emulator (TCI)
   qemu-system-riscv32.worker.js
+  qemu-system-i386.js         x86 factory (opt-in build)
+  qemu-system-i386.wasm       qemu_x86 emulator (TCI)
+  qemu-system-i386.worker.js
   efi-virtio.rom              default virt-machine option ROM
   vgabios-ramfb.bin           ramfb option ROM
   zephyr/
@@ -68,6 +74,9 @@ public/qemu/
     qemu_riscv32/
       hello_world.elf
       ...                     # same virtio-backed set as A53, minus tracing
+    qemu_x86/
+      hello_world.elf
+      ...                     # host-gpio + ramfb + e1000 first cut (docs/x86-plan.md)
 ```
 
 Each image may carry a `<app>.dts` sibling — the flattened devicetree its build
@@ -89,7 +98,7 @@ that genuinely need a bundle (firmware blobs, a root filesystem) can still set
 
 ## Where the emulator comes from
 
-`tools/build-qemu-wasm.sh` uses three pinned patch series on two QEMU trees:
+`tools/build-qemu-wasm.sh` uses four pinned patch series on two QEMU trees:
 
 - `arm-softmmu` builds **upstream QEMU** (`qemu/qemu` at `v10.1.0`) with TCI
   and `tools/qemu-patches/` (Stellaris / Cortex-M3).
@@ -100,6 +109,9 @@ that genuinely need a bundle (firmware blobs, a root filesystem) can still set
 - `riscv32-softmmu` builds **upstream QEMU** with TCI and
   `tools/qemu-riscv-patches/` (RISC-V `virt` machine wiring). Opt-in: not part
   of the default `all` target yet.
+- `i386-softmmu` builds **upstream QEMU** with TCI and
+  `tools/qemu-x86-patches/` (q35 / `hw/i386/pc.c` wiring). Opt-in: see
+  `docs/x86-plan.md`.
 
 Emscripten support landed upstream in QEMU 10.1, contributed by Kohei Tokunaga,
 who also maintains the experimental JIT branch.
@@ -127,15 +139,17 @@ ARM artifact therefore stays on upstream TCI; only the verified Cortex-A53
 wasm64 experiment so the result does not require WebAssembly Memory64.
 
 Separate targets are intentional: the ARM artifact keeps `lm3s6965evb`
-working, the AArch64 artifact supplies the 64-bit `virt` machine, and the
-optional RISC-V artifact supplies 32-bit `virt` (Zephyr `qemu_riscv32`). ARM
+working, the AArch64 artifact supplies the 64-bit `virt` machine, the
+optional RISC-V artifact supplies 32-bit `virt` (Zephyr `qemu_riscv32`), and
+the optional i386 artifact supplies q35 (Zephyr `qemu_x86`). ARM
 and AArch64 include the browser terminal, the ramfb exports, the GNSS UART,
 and the host-sensor (inert, see below), host-audio, host-mic and browser-netdev
 bridges. The ramfb bridge also exposes an atomic framebuffer-change sequence,
 so the browser renderer can remain idle without checksumming every pixel.
-Cortex-M3 alone gets the host-GPIO device — the LM3S6965 machine has no
+Cortex-M3 and x86 get the host-GPIO device — those machines have no
 virtio-mmio bus to reach the generic bridge — while AArch64 and RISC-V get the input bridge and
-the generic virtio bridge. Guest-icount export remains AArch64-only for now.
+the generic virtio bridge. x86 also gets the input bridge (for stock
+`virtio-tablet-pci`). Guest-icount export remains AArch64-only for now.
 
 ### The link line, and why `-O3` is a patch
 

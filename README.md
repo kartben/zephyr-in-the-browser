@@ -3,7 +3,7 @@
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
 It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten,
-emulating Cortex-M3 and Cortex-A53 boards. Alongside the serial terminal, every
+emulating Cortex-M3, Cortex-A53, RISC-V 32, and x86 (q35) boards. Alongside the serial terminal, every
 browser-backed peripheral lives in the **device dock** — one scrollable sidebar
 with two arrangements of the same controls: a tree that mirrors the running
 build's devicetree (chips under their I²C bus, the GNSS receiver under its
@@ -54,7 +54,7 @@ Both scripts run in containers, so no local Emscripten or Zephyr toolchain is ne
 
 Pick a **Board** (the emulated machine) and an **App** (the program it boots) from the top bar. You can also drop your own ELF onto the window to boot it instead — anything QEMU can run with `-kernel` works, not just Zephyr.
 
-The packaged apps are listed in [`tools/samples.manifest`](tools/samples.manifest). Cortex-M3 lists apps verified against its slower qemu-wasm TCI timing — most run (including single-threaded sleepers like `blinky` and `basic_button`, albeit not at wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 runs the wasm JIT and is unaffected.
+The packaged apps are listed in [`tools/samples.manifest`](tools/samples.manifest). Cortex-M3 lists apps verified against its slower qemu-wasm TCI timing — most run (including single-threaded sleepers like `blinky` and `basic_button`, albeit not at wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 runs the wasm JIT and is unaffected. `qemu_riscv32` and `qemu_x86` are opt-in TCI targets — see [`docs/riscv32-plan.md`](docs/riscv32-plan.md) and [`docs/x86-plan.md`](docs/x86-plan.md).
 
 ---
 

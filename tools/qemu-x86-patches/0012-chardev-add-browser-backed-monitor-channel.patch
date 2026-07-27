@@ -1,0 +1,315 @@
+diff --git a/chardev/char-browser.c b/chardev/char-browser.c
+new file mode 100644
+index 0000000..b563b1f
+--- /dev/null
++++ b/chardev/char-browser.c
+@@ -0,0 +1,241 @@
++/*
++ * Browser-backed character device.
++ *
++ * Exposes a chardev whose two ends live either side of the wasm boundary: page
++ * JavaScript writes bytes into an input ring and reads whatever the frontend
++ * produced out of an output ring. Pointed at the HMP monitor
++ * (`-chardev browser,id=mon0 -monitor chardev:mon0`) it lets the page drive
++ * QEMU the way a person at a terminal would — `stop` and `cont` above all, so
++ * a page can genuinely halt the machine rather than merely stop looking at it.
++ *
++ * Threading follows the browser GNSS backend: JavaScript only ever touches the
++ * rings, and a timer running on QEMU's own thread moves bytes between them and
++ * the character frontend. Nothing calls into chardev state from outside.
++ *
++ * The timer is on QEMU_CLOCK_REALTIME rather than the virtual clock, and that
++ * is load-bearing: the virtual clock stops with the machine, so a `cont` typed
++ * into a paused guest would never be delivered and the pause could not be
++ * undone.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/module.h"
++#include "qemu/timer.h"
++#include "chardev/char.h"
++#include "chardev/char-browser.h"
++#include "qom/object.h"
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#else
++#define EMSCRIPTEN_KEEPALIVE
++#endif
++
++/* Both powers of two: the ring index is free-running and masked on use. */
++#define BROWSER_IN_SIZE   1024
++#define BROWSER_OUT_SIZE  16384
++#define BROWSER_POLL_MS   20
++
++struct BrowserChardev {
++    Chardev parent;
++    QEMUTimer *timer;
++
++    /* Page -> QEMU. Written by JavaScript, read by browser_chr_drain(). */
++    uint8_t in_buf[BROWSER_IN_SIZE];
++    uint32_t in_head;
++    uint32_t in_tail;
++
++    /* QEMU -> page. Written by browser_chr_write(), read by JavaScript. */
++    uint8_t out_buf[BROWSER_OUT_SIZE];
++    uint32_t out_head;
++    uint32_t out_tail;
++};
++typedef struct BrowserChardev BrowserChardev;
++
++#define TYPE_CHARDEV_BROWSER "chardev-browser"
++DECLARE_INSTANCE_CHECKER(BrowserChardev, BROWSER_CHARDEV, TYPE_CHARDEV_BROWSER)
++
++/*
++ * The one instance the page can reach.
++ *
++ * The exported entry points take no handle — JavaScript has no way to hold a
++ * Chardev pointer — so the first browser chardev created claims the channel.
++ * A second one is still a working chardev, just not the one the page talks to.
++ */
++static BrowserChardev *browser_channel;
++
++/* Frontend -> page: monitor output, waiting to be read out of the heap. */
++static int browser_chr_write(Chardev *chr, const uint8_t *buf, int len)
++{
++    BrowserChardev *s = BROWSER_CHARDEV(chr);
++    uint32_t head = s->out_head;
++    uint32_t tail = qatomic_read(&s->out_tail);
++    int i;
++
++    for (i = 0; i < len; i++) {
++        /* Full: drop the byte rather than overwrite one not yet read. The
++         * page polls every few frames and monitor output is tiny, so this
++         * only happens if nobody is listening at all.
++         */
++        if (head - tail >= BROWSER_OUT_SIZE) {
++            break;
++        }
++        s->out_buf[head % BROWSER_OUT_SIZE] = buf[i];
++        head++;
++    }
++
++    /* Publish after the payload, so the reader never sees an index that
++     * outruns the bytes behind it.
++     */
++    smp_wmb();
++    qatomic_set(&s->out_head, head);
++    return len;
++}
++
++/* Page -> frontend, on QEMU's thread. */
++static void browser_chr_drain(void *opaque)
++{
++    BrowserChardev *s = opaque;
++    Chardev *chr = CHARDEV(s);
++    uint32_t head = qatomic_read(&s->in_head);
++    uint32_t tail = s->in_tail;
++
++    smp_rmb();
++
++    while (tail != head) {
++        uint8_t byte;
++        int can = qemu_chr_be_can_write(chr);
++
++        if (can <= 0) {
++            break; /* frontend is busy; the next tick tries again */
++        }
++        byte = s->in_buf[tail % BROWSER_IN_SIZE];
++        qemu_chr_be_write(chr, &byte, 1);
++        tail++;
++    }
++
++    qatomic_set(&s->in_tail, tail);
++    timer_mod(s->timer,
++              qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + BROWSER_POLL_MS);
++}
++
++static void browser_chr_open(Chardev *chr, ChardevBackend *backend,
++                             bool *be_opened, Error **errp)
++{
++    BrowserChardev *s = BROWSER_CHARDEV(chr);
++
++    /* The frontend is always connected — there is no far end to wait for, and
++     * the monitor needs its OPENED event to become ready.
++     */
++    *be_opened = true;
++
++    if (browser_channel == NULL) {
++        browser_channel = s;
++    }
++
++    s->timer = timer_new_ms(QEMU_CLOCK_REALTIME, browser_chr_drain, s);
++    timer_mod(s->timer,
++              qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + BROWSER_POLL_MS);
++}
++
++static void browser_chr_finalize(Object *obj)
++{
++    BrowserChardev *s = BROWSER_CHARDEV(obj);
++
++    if (s->timer) {
++        timer_free(s->timer);
++        s->timer = NULL;
++    }
++    if (browser_channel == s) {
++        browser_channel = NULL;
++    }
++}
++
++/*
++ * Entry points for page JavaScript.
++ *
++ * All of these run on the browser thread and touch nothing but the rings.
++ * Indices are free-running uint32 and wrap naturally; the reader masks them,
++ * which is the same convention as the browser netdev rings.
++ */
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_monitor_feed(int value)
++{
++    BrowserChardev *s = browser_channel;
++    uint32_t head, tail;
++
++    if (s == NULL) {
++        return -1;
++    }
++    head = s->in_head;
++    tail = qatomic_read(&s->in_tail);
++    if (head - tail >= BROWSER_IN_SIZE) {
++        return -1;
++    }
++    s->in_buf[head % BROWSER_IN_SIZE] = (uint8_t)value;
++    smp_wmb();
++    qatomic_set(&s->in_head, head + 1);
++    return 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void *qemu_browser_monitor_ring(void)
++{
++    return browser_channel ? browser_channel->out_buf : NULL;
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_monitor_ring_size(void)
++{
++    return browser_channel ? BROWSER_OUT_SIZE : 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_monitor_write_index(void)
++{
++    if (browser_channel == NULL) {
++        return 0;
++    }
++    return qatomic_read(&browser_channel->out_head);
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_monitor_read_index(void)
++{
++    return browser_channel ? browser_channel->out_tail : 0;
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_monitor_set_read_index(unsigned int value)
++{
++    if (browser_channel != NULL) {
++        qatomic_set(&browser_channel->out_tail, value);
++    }
++}
++
++static void char_browser_class_init(ObjectClass *oc, const void *data)
++{
++    ChardevClass *cc = CHARDEV_CLASS(oc);
++
++    cc->open = browser_chr_open;
++    cc->chr_write = browser_chr_write;
++}
++
++static const TypeInfo char_browser_type_info = {
++    .name = TYPE_CHARDEV_BROWSER,
++    .parent = TYPE_CHARDEV,
++    .instance_size = sizeof(BrowserChardev),
++    .instance_finalize = browser_chr_finalize,
++    .class_init = char_browser_class_init,
++};
++
++static void register_types(void)
++{
++    type_register_static(&char_browser_type_info);
++}
++
++type_init(register_types);
+diff --git a/chardev/meson.build b/chardev/meson.build
+index 56ee39a..3ce1352 100644
+--- a/chardev/meson.build
++++ b/chardev/meson.build
+@@ -1,4 +1,5 @@
+ chardev_ss.add(files(
++  'char-browser.c',
+   'char-fe.c',
+   'char-file.c',
+   'char-io.c',
+diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
+new file mode 100644
+index 0000000..698e069
+--- /dev/null
++++ b/include/chardev/char-browser.h
+@@ -0,0 +1,23 @@
++/*
++ * Browser-backed character device: the entry points page JavaScript calls.
++ *
++ * Declared in a header only because QEMU builds with -Wmissing-prototypes;
++ * nothing inside QEMU calls any of these. See chardev/char-browser.c.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef CHARDEV_CHAR_BROWSER_H
++#define CHARDEV_CHAR_BROWSER_H
++
++/** Queue one byte from the page towards the character frontend. */
++int qemu_browser_monitor_feed(int value);
++
++/** The output ring: base pointer, size, and its free-running indices. */
++void *qemu_browser_monitor_ring(void);
++int qemu_browser_monitor_ring_size(void);
++unsigned int qemu_browser_monitor_write_index(void);
++unsigned int qemu_browser_monitor_read_index(void);
++void qemu_browser_monitor_set_read_index(unsigned int value);
++
++#endif /* CHARDEV_CHAR_BROWSER_H */
+diff --git a/qapi/char.json b/qapi/char.json
+index f0a53f7..801522a 100644
+--- a/qapi/char.json
++++ b/qapi/char.json
+@@ -474,6 +474,8 @@
+ #
+ # @file: regular files
+ #
++# @browser: rings shared with the hosting web page (since 10.1)
++#
+ # @serial: serial host device
+ #
+ # @parallel: parallel host device
+@@ -526,6 +528,7 @@
+ ##
+ { 'enum': 'ChardevBackendKind',
+   'data': [ 'file',
++            'browser',
+             { 'name': 'serial', 'if': 'HAVE_CHARDEV_SERIAL' },
+             { 'name': 'parallel', 'if': 'HAVE_CHARDEV_PARALLEL' },
+             'pipe',
+@@ -717,6 +720,7 @@
+   'base': { 'type': 'ChardevBackendKind' },
+   'discriminator': 'type',
+   'data': { 'file': 'ChardevFileWrapper',
++            'browser': 'ChardevCommonWrapper',
+             'serial': { 'type': 'ChardevHostdevWrapper',
+                         'if': 'HAVE_CHARDEV_SERIAL' },
+             'parallel': { 'type': 'ChardevHostdevWrapper',

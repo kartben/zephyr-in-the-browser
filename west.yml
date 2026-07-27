@@ -2,8 +2,8 @@
 #
 # .github/workflows/build-images.yml points zephyrproject-rtos/action-zephyr-setup
 # at this file: the runner gets a west workspace with zephyr and the few modules
-# the packaged samples need, next to this repository's checkout, plus the two
-# guest toolchains. Local builds do not need it — tools/build-zephyr-image.sh
+# the packaged samples need, next to this repository's checkout, plus the guest
+# toolchains. Local builds do not need it — tools/build-zephyr-image.sh
 # defaults to the containerized flow against your own workspace (ZEPHYR_WS).
 #
 # Zephyr tracks `main` because the browser_bridge module targets current Zephyr

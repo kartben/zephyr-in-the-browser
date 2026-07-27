@@ -37,6 +37,9 @@
 # qemu_riscv32 uses TCI on RISC-V virt with the same virtio bridges as A53
 # (tools/qemu-riscv-patches/); build it with
 # `tools/build-qemu-wasm.sh riscv32-softmmu`.
+# qemu_x86 uses TCI on q35 (tools/qemu-x86-patches/); build it with
+# `tools/build-qemu-wasm.sh i386-softmmu`. First cut is host-gpio + ramfb +
+# virtio-tablet-pci + e1000 — no virtio-mmio I²C/SPI samples yet.
 #
 # Networking samples talk to the browser page, which implements the whole
 # LAN behind the QEMU "browser" netdev: it answers as gateway/DHCP/SNTP
@@ -139,3 +142,22 @@ qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf
 qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf
 qemu_riscv32:zperf:samples/net/zperf:conf/net.conf
 qemu_riscv32:hello_world:samples/hello_world
+
+# x86 q35: host-gpio / audio like M3, plus stock ramfb, virtio-tablet-pci, and
+# e1000. See docs/x86-plan.md. No virtio-i2c/spi sample set yet.
+qemu_x86:gnss:samples/drivers/gnss
+qemu_x86:display:samples/drivers/display
+qemu_x86:touch:samples/subsys/input/draw_touch_events
+qemu_x86:shell:samples/subsys/shell/shell_module:conf/host-gpio.conf,conf/host-audio.conf
+qemu_x86:hsm:samples/subsys/smf/hsm_psicc2
+qemu_x86:dhcp:samples/net/dhcpv4_client:conf/net.conf
+qemu_x86:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
+qemu_x86:echo_server:samples/net/sockets/echo_server:conf/net.conf
+qemu_x86:http_get:samples/net/sockets/http_get:conf/net.conf
+qemu_x86:zperf:samples/net/zperf:conf/net.conf
+qemu_x86:hello_world:samples/hello_world
+qemu_x86:blinky:samples/basic/blinky
+qemu_x86:guided:zephyr-module/apps/guided_blinky
+qemu_x86:basic_button:samples/basic/button
+qemu_x86:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:gpio-buzzer
+qemu_x86:stepper:samples/drivers/stepper/generic:conf/stepper.conf:gpio-step-dir

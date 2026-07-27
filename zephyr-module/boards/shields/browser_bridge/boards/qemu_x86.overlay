@@ -1,0 +1,89 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Browser bridge on the QEMU q35 (qemu_x86) machine: GNSS on COM2 (uart1),
+ * host GPIO/audio/mic in the PCI hole, and a browser-sized ramfb. Stock
+ * virtio-tablet-pci and intel,e1000 stay as Zephyr ships them.
+ *
+ * MMIO holes used by tools/qemu-x86-patches/ against hw/i386/pc.c:
+ *   0xfea00000  qemu-host-gpio
+ *   0xfea01000  qemu-host-audio
+ *   0xfea02000  qemu-host-mic
+ *   COM2 0x2f8  GNSS UART (browser chardev)
+ *
+ * Virtio-mmio I²C/SPI/GPIO are not on this board yet — those need a PCI
+ * virtio-browser wrapper (see docs/x86-plan.md).
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	aliases {
+		gnss = &gnss;
+		dmic0 = &host_mic;
+		led0 = &led0;
+		sw0 = &button0;
+	};
+
+	host_gpio: gpio@fea00000 {
+		compatible = "qemu,host-gpio";
+		reg = <0xfea00000 0x1000>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <8>;
+		status = "okay";
+	};
+
+	host_audio: audio@fea01000 {
+		compatible = "qemu,host-audio";
+		reg = <0xfea01000 0x1000>;
+		status = "okay";
+	};
+
+	host_mic: audio@fea02000 {
+		compatible = "qemu,host-mic";
+		reg = <0xfea02000 0x1000>;
+		status = "okay";
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = <&host_gpio 4 GPIO_ACTIVE_HIGH>;
+			label = "Host LED0";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		polling-mode;
+		debounce-interval-ms = <30>;
+
+		button0: button_0 {
+			gpios = <&host_gpio 0 GPIO_ACTIVE_HIGH>;
+			zephyr,code = <INPUT_KEY_0>;
+			label = "Host SW0";
+		};
+	};
+};
+
+&uart1 {
+	current-speed = <9600>;
+	status = "okay";
+
+	gnss: gnss-nmea-generic {
+		compatible = "gnss-nmea-generic";
+	};
+};
+
+&bt_hci_uart {
+	status = "disabled";
+};
+
+&ramfb0 {
+	width = <600>;
+	height = <400>;
+};

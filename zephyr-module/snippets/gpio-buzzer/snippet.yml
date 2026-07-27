@@ -16,3 +16,6 @@ boards:
   qemu_cortex_m3/ti_lm3s6965:
     append:
       EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay
+  qemu_x86/atom:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_x86.overlay

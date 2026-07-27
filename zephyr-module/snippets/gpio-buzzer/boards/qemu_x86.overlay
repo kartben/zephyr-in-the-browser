@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/buzzer/tone: gpio-buzzer on host_gpio pin 5 (qemu_x86).
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		buzzer0 = &buzzer0;
+	};
+
+	buzzer0: buzzer {
+		compatible = "gpio-buzzer";
+		gpios = <&host_gpio 5 GPIO_ACTIVE_HIGH>;
+		label = "Browser buzzer";
+	};
+};
