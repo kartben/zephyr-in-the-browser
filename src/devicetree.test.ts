@@ -14,7 +14,7 @@ describe('devicetree store', () => {
     expect(state?.source).toBe('user')
     expect(state?.name).toBe('zephyr.dts')
     expect(state?.doc).not.toBeNull()
-    expect(state?.insights?.i2cBuses[0]?.slots).toHaveLength(10)
+    expect(state?.insights?.i2cBuses[0]?.slots).toHaveLength(11)
   })
 
   it('keeps the text but nulls the rest when parsing fails', () => {
