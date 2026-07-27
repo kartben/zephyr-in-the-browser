@@ -1,31 +1,41 @@
 /**
  * Dock body for `gpio-7-segment`: multiplexed LED digit modules with
  * persistence-of-vision latching (see hostSevenSeg.ts).
+ *
+ * Digit geometry follows Brandon White’s sevenSeg.js (MIT) — viewBox 57×80,
+ * shared h-seg / v-seg polylines with mirror transforms — rendered as plain
+ * SVG so we stay off jQuery. https://brandonlwhite.github.io/sevenSeg.js/
  */
 
-import { useSyncExternalStore, type CSSProperties } from 'react'
+import { useId, useSyncExternalStore, type CSSProperties } from 'react'
 import { getSnapshot, subscribe, type SegmentMask } from '@/hostSevenSeg'
 import { cn } from '@/lib/utils'
 
-const SEG_PATHS: Record<string, string> = {
-  // Classic 7-segment layout in a 20×36 viewBox (DP sits outside to the right).
-  A: 'M5 3 H15 L17 5 L15 7 H5 L3 5 Z',
-  B: 'M17 6 L19 8 V16 L17 18 L15 16 V8 Z',
-  C: 'M17 20 L19 22 V30 L17 32 L15 30 V22 Z',
-  D: 'M5 33 H15 L17 35 L15 37 H5 L3 35 Z',
-  E: 'M3 20 L5 22 V30 L3 32 L1 30 V22 Z',
-  F: 'M3 6 L5 8 V16 L3 18 L1 16 V8 Z',
-  G: 'M5 18 H15 L17 20 L15 22 H5 L3 20 Z',
-}
+/** Horizontal segment polyline from sevenSeg.js (`#h-seg`). */
+const H_SEG = 'M11 0 L37 0 L42 5 L37 10 L11 10 L6 5 Z'
+/** Vertical segment polyline from sevenSeg.js (`#v-seg`). */
+const V_SEG = 'M0 11 L5 6 L10 11 L10 34 L5 39 L0 39 Z'
 
-const SEG_BITS: Array<{ key: keyof typeof SEG_PATHS; bit: number }> = [
-  { key: 'A', bit: 0 },
-  { key: 'B', bit: 1 },
-  { key: 'C', bit: 2 },
-  { key: 'D', bit: 3 },
-  { key: 'E', bit: 4 },
-  { key: 'F', bit: 5 },
-  { key: 'G', bit: 6 },
+/**
+ * sevenSeg.js places each segment with `<use>` + scale mirrors. Expanded to
+ * absolute paths so React can toggle fill without xlink.
+ *
+ *   A: h-seg @ (0,0)
+ *   B: v-seg, translate(-48,0) then scale(-1,1)  → right-top
+ *   C: v-seg, translate(-48,-80) then scale(-1,-1) → right-bottom
+ *   D: h-seg @ (0,70)
+ *   E: v-seg, translate(0,-80) then scale(1,-1) → left-bottom
+ *   F: v-seg @ (0,0)
+ *   G: h-seg @ (0,35)
+ */
+const SEG_PATHS: string[] = [
+  /* A */ H_SEG,
+  /* B */ 'M48 11 L43 6 L38 11 L38 34 L43 39 L48 39 Z',
+  /* C */ 'M48 69 L43 74 L38 69 L38 46 L43 41 L48 41 Z',
+  /* D */ 'M11 70 L37 70 L42 75 L37 80 L11 80 L6 75 Z',
+  /* E */ 'M0 69 L5 74 L10 69 L10 46 L5 41 L0 41 Z',
+  /* F */ V_SEG,
+  /* G */ 'M11 35 L37 35 L42 40 L37 45 L11 45 L6 40 Z',
 ]
 
 function DigitGlyph({
@@ -35,42 +45,52 @@ function DigitGlyph({
   mask: SegmentMask
   scanning: boolean
 }) {
+  const reactId = useId().replace(/:/g, '')
+  const glowId = `sevenseg-glow-${reactId}`
   const dpOn = (mask & (1 << 7)) !== 0
+
   return (
     <svg
-      viewBox="0 0 24 40"
-      className={cn('h-16 w-10 shrink-0 sm:h-20 sm:w-12', scanning && 'sevenseg-scan')}
+      // Vertical viewBox pad keeps skew + glow off the panel edge. Crop the
+      // horizontal pad and overlap neighbors so the DP gutter of one digit
+      // sits in the crack before the next — like a real LED module strip.
+      viewBox="-1 -12 59 108"
+      className={cn(
+        '-mx-2 h-[4.75rem] w-[2.65rem] shrink-0 overflow-visible sm:-mx-2.5 sm:h-[6.25rem] sm:w-[3.45rem]',
+        scanning && 'sevenseg-scan',
+      )}
       aria-hidden
     >
       <defs>
-        <filter id="sevenseg-glow" x="-40%" y="-40%" width="180%" height="180%">
-          <feGaussianBlur stdDeviation="1.1" result="blur" />
+        <filter id={glowId} x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="blur" />
           <feMerge>
             <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
-      {/* Digits sit in a smoked bay */}
-      <rect x="0.5" y="0.5" width="23" height="39" rx="2" className="fill-[var(--sevenseg-bay)] stroke-[var(--sevenseg-bay-edge)]" />
-      {SEG_BITS.map(({ key, bit }) => {
-        const on = (mask & (1 << bit)) !== 0
-        return (
-          <path
-            key={key}
-            d={SEG_PATHS[key]}
-            className={on ? 'fill-[var(--sevenseg-on)]' : 'fill-[var(--sevenseg-off)]'}
-            style={on ? { filter: 'url(#sevenseg-glow)' } : undefined}
-          />
-        )
-      })}
-      <circle
-        cx="21"
-        cy="35"
-        r="1.6"
-        className={dpOn ? 'fill-[var(--sevenseg-on)]' : 'fill-[var(--sevenseg-off)]'}
-        style={dpOn ? { filter: 'url(#sevenseg-glow)' } : undefined}
-      />
+      {/* Slight classic LED slant (sevenSeg `slant: 8`). */}
+      <g transform="translate(2,10) skewX(-8)">
+        {SEG_PATHS.map((d, bit) => {
+          const on = (mask & (1 << bit)) !== 0
+          return (
+            <path
+              key={bit}
+              d={d}
+              fill={on ? 'var(--sevenseg-on)' : 'var(--sevenseg-off)'}
+              style={on ? { filter: `url(#${glowId})` } : undefined}
+            />
+          )
+        })}
+        <circle
+          cx="52"
+          cy="75"
+          r="5"
+          fill={dpOn ? 'var(--sevenseg-on)' : 'var(--sevenseg-off)'}
+          style={dpOn ? { filter: `url(#${glowId})` } : undefined}
+        />
+      </g>
     </svg>
   )
 }
@@ -92,17 +112,17 @@ export function SevenSegBody() {
       {snap.displays.map((disp) => (
         <div key={disp.id} className="space-y-2">
           <div
-            className="sevenseg-panel rounded-lg border border-border px-3 py-3"
+            className="sevenseg-panel overflow-visible rounded-md px-6 py-6"
             style={
               {
-                '--sevenseg-bay': '#0c1014',
-                '--sevenseg-bay-edge': '#1a222c',
-                '--sevenseg-on': '#ff6a2a',
-                '--sevenseg-off': '#2a1510',
+                // sevenSeg.js defaults: Red on / #320000 off / Black bay —
+                // punched up slightly so lit digits read on the dark dock.
+                '--sevenseg-on': '#ff2a2a',
+                '--sevenseg-off': '#3a0a0a',
               } as CSSProperties
             }
           >
-            <div className="flex flex-wrap items-end justify-center gap-1.5 sm:gap-2">
+            <div className="flex flex-wrap items-end justify-center">
               {disp.digits.map((mask, i) => (
                 <DigitGlyph key={i} mask={mask} scanning={disp.active[i] === true} />
               ))}
