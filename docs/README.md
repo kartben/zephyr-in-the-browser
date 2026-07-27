@@ -18,6 +18,7 @@ other end of the wire.
 | [sample-annotations.md](sample-annotations.md) | Samples that explain themselves as they run — teaching popups from `@annotate` comments, and stopping the machine to read them |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
+| [debug-gdb-plan.md](debug-gdb-plan.md) | In-page debugging: QMP registers now, gdbstub next |
 
 ## Investigations
 

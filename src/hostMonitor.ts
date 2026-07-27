@@ -20,15 +20,23 @@
  * scrolled past. It is useful on its own too, which is why the top bar gets a
  * Pause button whether or not the running sample is annotated.
  *
+ * Step 1 of in-page debugging reuses this same channel: when the machine is
+ * stopped we ask for `info registers` (via `human-monitor-command`) and offer
+ * HMP `step`. A real gdbstub needs a second browser chardev — today's bridge is
+ * a singleton — and lands later. Until then QMP is enough for a quiet "what is
+ * the PC" view without a QEMU rebuild.
+ *
  * Everything degrades to a no-op on an emulator built before the bridge —
  * `available()` is false, the button hides, annotations still show but stop
  * nothing. Old image tarballs stay bootable.
  */
 
+import { parseRegisters } from '@/debug/parseRegisters'
 import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
 const POLL_ID = 'monitor'
 const POLL_MS = 100
+const REQUEST_TIMEOUT_MS = 3000
 
 interface MonitorExports {
   /** Queue one byte of command text towards the monitor. */
@@ -47,9 +55,30 @@ export interface MonitorState {
   available: boolean
   /** The machine is stopped, as QEMU last reported it. */
   paused: boolean
+  /** Parsed PC from the last register dump, when paused. */
+  pc: string | null
+  /** One-line PC summary for a closed chip. */
+  summary: string | null
+  /** Raw `info registers` text while paused; cleared on resume. */
+  registers: string | null
+  /** True while a register refresh is in flight. */
+  registersLoading: boolean
 }
 
-const EMPTY: MonitorState = { available: false, paused: false }
+const EMPTY: MonitorState = {
+  available: false,
+  paused: false,
+  pc: null,
+  summary: null,
+  registers: null,
+  registersLoading: false,
+}
+
+type Pending = {
+  resolve: (value: unknown) => void
+  reject: (err: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
 
 let exports: MonitorExports | null = null
 let state: MonitorState = EMPTY
@@ -57,6 +86,10 @@ let pending = ''
 let negotiated = false
 /** The mock stand-in, which has no machine and so never sends events. */
 let stub = false
+/** Fake HMP replies for attachStub / tests. */
+let stubRegisters = 'R15=0000abcd\n'
+let nextId = 1
+const pendingCmds = new Map<string, Pending>()
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -65,9 +98,30 @@ function notify() {
 
 function publish(next: Partial<MonitorState>) {
   const merged = { ...state, ...next }
-  if (merged.available === state.available && merged.paused === state.paused) return
+  if (
+    merged.available === state.available &&
+    merged.paused === state.paused &&
+    merged.pc === state.pc &&
+    merged.summary === state.summary &&
+    merged.registers === state.registers &&
+    merged.registersLoading === state.registersLoading
+  ) {
+    return
+  }
   state = merged
   notify()
+}
+
+function clearRegisters() {
+  publish({ pc: null, summary: null, registers: null, registersLoading: false })
+}
+
+function rejectAllPending(reason: string) {
+  for (const [, p] of pendingCmds) {
+    clearTimeout(p.timer)
+    p.reject(new Error(reason))
+  }
+  pendingCmds.clear()
 }
 
 export function subscribe(fn: () => void): () => void {
@@ -91,6 +145,75 @@ function send(command: Record<string, unknown>) {
   for (let i = 0; i < text.length; i++) feed(text.charCodeAt(i))
 }
 
+/**
+ * Send a QMP command and wait for the matching `id` reply.
+ *
+ * Pause / resume stay fire-and-forget: the STOP/RESUME events are the source
+ * of truth for `paused`. Register dumps and `step` need the return value.
+ */
+function request(command: Record<string, unknown>): Promise<unknown> {
+  if (stub) {
+    const line = (command.arguments as { 'command-line'?: string } | undefined)?.['command-line']
+    if (line === 'info registers') return Promise.resolve(stubRegisters)
+    if (line === 'step') return Promise.resolve('')
+    return Promise.resolve({})
+  }
+  if (!available()) return Promise.reject(new Error('monitor unavailable'))
+
+  const id = `m${nextId++}`
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingCmds.delete(id)
+      reject(new Error(`QMP request ${id} timed out`))
+    }, REQUEST_TIMEOUT_MS)
+    pendingCmds.set(id, { resolve, reject, timer })
+    send({ ...command, id })
+  })
+}
+
+function applyRegisterDump(dump: string) {
+  const parsed = parseRegisters(dump)
+  publish({
+    registers: dump.trimEnd(),
+    pc: parsed.pc,
+    summary: parsed.summary,
+    registersLoading: false,
+  })
+}
+
+/** Ask QEMU for a fresh `info registers` dump. No-op unless paused. */
+export async function refreshRegisters(): Promise<void> {
+  if (!available() || !state.paused) return
+  publish({ registersLoading: true })
+  try {
+    const ret = await request({
+      execute: 'human-monitor-command',
+      arguments: { 'command-line': 'info registers' },
+    })
+    if (!state.paused) {
+      clearRegisters()
+      return
+    }
+    if (typeof ret === 'string') applyRegisterDump(ret)
+    else publish({ registersLoading: false })
+  } catch {
+    if (state.paused) publish({ registersLoading: false })
+  }
+}
+
+function onPaused(paused: boolean) {
+  if (paused === state.paused) {
+    if (paused && !state.registers && !state.registersLoading) void refreshRegisters()
+    return
+  }
+  if (paused) {
+    publish({ paused: true })
+    void refreshRegisters()
+  } else {
+    publish({ paused: false, pc: null, summary: null, registers: null, registersLoading: false })
+  }
+}
+
 function handleMessage(message: Record<string, unknown>) {
   // The greeting: QMP stays in capabilities-negotiation mode until answered,
   // and rejects every other command meanwhile.
@@ -101,13 +224,29 @@ function handleMessage(message: Record<string, unknown>) {
     return
   }
 
+  const id = message.id
+  if (typeof id === 'string' || typeof id === 'number') {
+    const key = String(id)
+    const waiter = pendingCmds.get(key)
+    if (waiter) {
+      pendingCmds.delete(key)
+      clearTimeout(waiter.timer)
+      if (message.error) {
+        const err = message.error as { desc?: string }
+        waiter.reject(new Error(err.desc ?? 'QMP error'))
+      } else {
+        waiter.resolve(message.return)
+      }
+    }
+  }
+
   const event = message.event
-  if (event === 'STOP') publish({ paused: true })
-  else if (event === 'RESUME') publish({ paused: false })
+  if (event === 'STOP') onPaused(true)
+  else if (event === 'RESUME') onPaused(false)
 
   const ret = message.return
   if (typeof ret === 'object' && ret !== null && 'running' in ret) {
-    publish({ paused: !(ret as { running: boolean }).running })
+    onPaused(!(ret as { running: boolean }).running)
   }
 }
 
@@ -164,18 +303,42 @@ function drain() {
 export function pause() {
   if (!available() || state.paused) return
   send({ execute: 'stop' })
-  if (stub) publish({ paused: true })
+  if (stub) onPaused(true)
 }
 
 export function resume() {
   if (!available() || !state.paused) return
   send({ execute: 'cont' })
-  if (stub) publish({ paused: false })
+  if (stub) onPaused(false)
 }
 
 export function toggle() {
   if (state.paused) resume()
   else pause()
+}
+
+/**
+ * Single-step one guest instruction, then refresh registers.
+ *
+ * Uses HMP `step` over QMP. The machine stays paused; QEMU may or may not
+ * emit another STOP, so we always re-query registers after the reply.
+ */
+export async function step(): Promise<void> {
+  if (!available() || !state.paused) return
+  try {
+    await request({
+      execute: 'human-monitor-command',
+      arguments: { 'command-line': 'step' },
+    })
+    if (stub) {
+      // Advance the fake PC so the UI has something to show.
+      const cur = Number.parseInt(parseRegisters(stubRegisters).pc ?? '0', 16)
+      stubRegisters = `R15=${(cur + 2).toString(16).padStart(8, '0')}\n`
+    }
+    await refreshRegisters()
+  } catch {
+    // Leave the last dump up; the user can retry.
+  }
 }
 
 export function attach(mod: unknown) {
@@ -191,10 +354,12 @@ export function attach(mod: unknown) {
 
 export function detach() {
   unregisterPoll(POLL_ID)
+  rejectAllPending('monitor detached')
   exports = null
   pending = ''
   negotiated = false
   stub = false
+  nextId = 1
   if (state !== EMPTY) {
     state = EMPTY
     notify()
@@ -204,12 +369,24 @@ export function detach() {
 /**
  * Dev/mock hook: pretend the bridge is there so a walkthrough can be driven
  * without a QEMU build. The mock has no machine to stop, so this only tracks
- * the flag — enough for the UI to show a paused state.
+ * the flag — enough for the UI to show a paused state. Register dumps come
+ * from a canned Cortex-M line so the debug popover can be exercised too.
  */
-export function attachStub() {
+export function attachStub(registers = 'R15=0000abcd\n') {
   detach()
   exports = { _qemu_browser_monitor_feed: () => 0 }
   stub = true
-  state = { available: true, paused: false }
+  stubRegisters = registers
+  state = { ...EMPTY, available: true, paused: false }
   notify()
+}
+
+/** Test helper: push a raw QMP line through the parser. */
+export function injectForTests(line: string) {
+  handleMessage(JSON.parse(line) as Record<string, unknown>)
+}
+
+/** Test helper: reset module state between cases. */
+export function resetForTests() {
+  detach()
 }

@@ -1,5 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
-import { Cpu, FileCode2, Pause, Play, RefreshCw, RotateCcw } from 'lucide-react'
+import { Cpu, FileCode2, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
@@ -7,8 +7,8 @@ import { SampleGallery } from '@/components/SampleGallery'
 import { PartsCatalog } from '@/components/PartsCatalog'
 import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
 import { DtsViewer } from '@/components/DtsViewer'
+import { PauseDebugControl } from '@/components/PauseDebugControl'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
-import { getSnapshot as getMonitor, subscribe as subscribeMonitor, toggle as togglePause } from '@/hostMonitor'
 import type { BackendStatus } from '@/backends'
 
 interface Props {
@@ -71,7 +71,7 @@ export function TopBar({
 
         <RunningDtsButton />
         <PartsCatalog />
-        <PauseButton />
+        <PauseDebugControl />
 
         <PanelsMenu boardId={boardId} />
         <DockToggle />
@@ -84,38 +84,6 @@ export function TopBar({
         </Button>
       </div>
     </header>
-  )
-}
-
-/**
- * Stop and restart the emulated machine.
- *
- * Goes through QEMU's own monitor, so this is a real `stop`, not the page
- * looking away: timers stop, the display stops repainting, and the MIPS readout
- * falls to zero. Self-subscribed, and simply absent on an emulator built
- * without the monitor bridge — every published build before it stays usable.
- */
-function PauseButton() {
-  const monitor = useSyncExternalStore(subscribeMonitor, getMonitor, getMonitor)
-
-  if (!monitor.available) return null
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-8 shrink-0"
-      aria-label={monitor.paused ? 'Resume the machine' : 'Pause the machine'}
-      title={monitor.paused ? 'Resume the machine' : 'Pause the machine'}
-      aria-pressed={monitor.paused}
-      onClick={togglePause}
-    >
-      {monitor.paused ? (
-        <Play className="size-4 text-primary" />
-      ) : (
-        <Pause className="size-4" />
-      )}
-    </Button>
   )
 }
 
