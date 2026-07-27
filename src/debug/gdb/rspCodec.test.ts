@@ -45,4 +45,26 @@ describe('decodeGPacket', () => {
     expect(view.summary).toBe('PC 00001234')
     expect(view.dump).toContain('R15=00001234')
   })
+
+  it('reads AArch64 PC from a g blob', () => {
+    const regs = new Uint8Array(34 * 8)
+    const pcOff = 33 * 8
+    // PC = 0x0000000040081234 LE
+    regs[pcOff] = 0x34
+    regs[pcOff + 1] = 0x12
+    regs[pcOff + 2] = 0x08
+    regs[pcOff + 3] = 0x40
+    const view = decodeGPacket('aarch64', bytesToHex(regs))
+    expect(view.pc).toBe('0000000040081234')
+    expect(view.dump).toContain('PC=0000000040081234')
+  })
+})
+
+describe('archFromBoard', () => {
+  it('maps boards.ts arch strings', async () => {
+    const { archFromBoard } = await import('@/debug/gdb/regs')
+    expect(archFromBoard('ARMv7-M')).toBe('arm')
+    expect(archFromBoard('ARMv8-A')).toBe('aarch64')
+    expect(archFromBoard('RV32IMAFDC')).toBe('riscv32')
+  })
 })
