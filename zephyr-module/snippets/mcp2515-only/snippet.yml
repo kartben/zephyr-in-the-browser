@@ -2,7 +2,8 @@ name: mcp2515-only
 description: >
   Microchip MCP2515 CAN controller alone on the browser SPI bus: enable
   virtio-spi with microchip,mcp2515 on CS0 (no JEDEC NOR) for
-  samples/drivers/can/*. INT is virtio-gpio line 8; chosen zephyr,canbus
+  samples/drivers/can/*. INT is virtio-gpio line 8; led0 on line 4 so
+  can_counter's LED frames have a gpio-leds target; chosen zephyr,canbus
   points at the controller.
 
 boards:

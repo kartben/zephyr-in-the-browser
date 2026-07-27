@@ -87,6 +87,9 @@ requiring the network to be rewritten.
 ```
 
 Pin 8 for `int-gpios`: 4 is LED0, 5 the buzzer, 6/7 are step/dir or LA/OE. The
+`mcp2515-only` snippet also declares `led0` on pin 4 — `can_counter` drives
+`DT_ALIAS(led0)` from its `0x10` LED frames, and without that node the sample
+falls back to `printf` and the dock has no LED to show.
 `#include` is not optional — without it `GPIO_ACTIVE_LOW` reaches dtc as a bare
 token and the property fails to parse.
 
