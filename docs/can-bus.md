@@ -7,9 +7,9 @@ Build contract for the next peripheral class. Source mockup:
 **Iteration 1 has landed and now boots end-to-end** — `can_counter` runs
 clean, exchanges counter frames with a page-side Counter node, and every risk
 §9 called unverified has been checked against a real boot (§14). What shipped
-differs from this spec in three places, each noted inline: no arbitration lane
-view, Counter learns its ids from traffic, and the chip is wired by
-`hostCan.ts` rather than by the attach picker.
+differs from this spec in two places, each noted inline: Counter learns its
+ids from traffic, and the chip is wired by `hostCan.ts` rather than by the
+attach picker. The arbitration lane strip now ships with the panel.
 
 CAN is the one bus class the tree does not model. I²C, SPI, UART and Ethernet
 all have a page-side counterpart; CAN is the one that most rewards it, because
@@ -264,17 +264,15 @@ Body sections, top to bottom, mirroring `I2cBody`'s rhythm:
 | On the bus | Roster. Local node first, accent border, no `×`. |
 | Add node | Catalog select + Add, exactly `AttachRow`'s shape. |
 | Send | Sender select, ID, RTR, eight byte fields, Send. |
+| Arbitration | Lane strip. Live-follow like Trace; drag freezes, ± zooms, Crosshair resumes. |
 | Traffic | Frame trace, newest first, `clear`. |
 
-**The arbitration lane strip is not in iteration 1**, and the reason is worth
-recording rather than rediscovering. The trace already carries every
-arbitration event as a row, so lanes are a second view of data the panel
-already shows. The tree's only Gantt renderer is `renderStateRows` in
-[`src/ctf/reader.ts`](../src/ctf/reader.ts), and it is bound to CTF's
-thread/state model — driving it from CAN would mean inventing fake threads,
-and writing a second one would mean two lane renderers to keep in step. If
-lanes are wanted, lift the row renderer out of `ctf/` first; that refactor is
-the actual prerequisite, not the CAN drawing code.
+The arbitration lane strip is a small canvas of its own, not TracePanel's CTF
+Gantt. That renderer is bound to thread/state; inventing fake threads for CAN
+would be the wrong seam. What it *does* reuse is TracePanel's live-follow
+idiom: pinned to the newest edge until the reader pans, Crosshair jumps back.
+The strip reads the same log the Traffic section already shows — lanes are the
+spatial view of rows the trace already carries.
 
 The composer sends **as the roster's selected node**, so TEC/REC and
 arbitration attribute to something real rather than to an anonymous injector.
@@ -378,7 +376,8 @@ an idle timeline.
 | `src/virtio/devices/chips/mcp2515.ts` | SPI register file, buffers, filters, INT |
 | `src/virtio/devices/chips/maps/mcp2515.json` | register map for the Registers dialog |
 | `src/hostCan.ts` | the only module that knows both sides, plus the INT pin |
-| `src/components/CanPanel.tsx` | roster, add, send, traffic |
+| `src/components/CanPanel.tsx` | roster, add, send, arbitration lanes, traffic |
+| `src/components/CanArbitrationLanes.ts` | lane model + canvas paint for the strip |
 | `zephyr-module/snippets/mcp2515-only/` | overlay: chip on cs0, INT on gpio 8, chosen canbus |
 | `zephyr-module/conf/mcp2515.conf` | `CAN` + `CAN_MCP2515` + SPI/GPIO |
 

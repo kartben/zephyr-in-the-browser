@@ -1,5 +1,13 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
-import { X } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MutableRefObject,
+} from 'react'
+import { Crosshair, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   CAN_NODE_TYPES,
@@ -15,6 +23,21 @@ import { nodeType } from '@/can/nodes'
 import type { CanLogEntry, CanNodeSnapshot, CanState } from '@/can/bus'
 import type { Mcp2515Chip } from '@/virtio/devices/chips/mcp2515'
 import { RegisterMapButton } from './RegisterMap'
+import {
+  LANE_LABEL_W,
+  LANE_WINDOW_MS,
+  PAN_THRESHOLD_PX,
+  ZOOM_IN,
+  ZOOM_OUT,
+  buildLaneModel,
+  clampLaneView,
+  clampWindowMs,
+  livePinnedView,
+  paintArbitrationLanes,
+  panDeltaMs,
+  zoomAround,
+  type LaneView,
+} from './CanArbitrationLanes'
 
 /**
  * The CAN bus, as a workbench — the same three sections as {@link ./I2cPanel},
@@ -27,15 +50,13 @@ import { RegisterMapButton } from './RegisterMap'
  * - **Add node.** Page-side presets, with the fields each one needs.
  * - **Send.** A composed frame, transmitted *as* a chosen node so the error
  *   counters and arbitration attribute to something real.
+ * - **Arbitration.** One lane per node over a short sliding window. Hollow
+ *   ticks are deferrals; a hop marks the retry. Live-follow matches
+ *   TracePanel (drag to freeze, Crosshair to jump back, ± / wheel zoom);
+ *   the canvas itself is not TracePanel's CTF Gantt — that renderer is bound
+ *   to thread/state.
  * - **Traffic.** Every frame, plus the two events nothing in the guest can
  *   show: a frame its filters dropped, and one that lost arbitration.
- *
- * No arbitration lane view here on purpose. The trace already carries those
- * events as rows, and the only Gantt renderer in the tree
- * ({@link ./TracePanel}, over `src/ctf`) is bound to CTF's thread/state model
- * — reusing it would mean inventing fake threads, and duplicating it would
- * mean a second lane renderer. If lanes are wanted later, the honest move is
- * to lift the row renderer out of `ctf/` first.
  */
 export function CanBody() {
   const bus = canBus()
@@ -102,6 +123,7 @@ export function CanView({
 
       <AddNodeRow />
       <SendRow nodes={nodes} />
+      <ArbitrationSection nodes={nodes} log={log} />
 
       <div className="space-y-1.5">
         <div className="flex items-baseline gap-2">
@@ -126,6 +148,274 @@ export function CanView({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Live lane strip. Hidden until something has crossed the bus — an empty
+ * timeline teaches nothing, and the roster already says who is attached.
+ */
+function ArbitrationSection({
+  nodes,
+  log,
+}: {
+  nodes: readonly CanNodeSnapshot[]
+  log: readonly CanLogEntry[]
+}) {
+  const [follow, setFollow] = useState(true)
+  const apiRef = useRef<{ jumpLive: () => void; zoom: (factor: number) => void } | null>(null)
+
+  if (nodes.length === 0 || log.length === 0) return null
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1">
+        <span
+          className="text-[11px] font-medium text-muted-foreground"
+          title="Who transmitted, who deferred. Lower ID wins the bus."
+        >
+          Arbitration
+        </span>
+        <div className="ml-auto flex items-center gap-0.5">
+          <button
+            type="button"
+            title="Zoom in"
+            aria-label="Zoom in"
+            onClick={() => apiRef.current?.zoom(ZOOM_IN)}
+            className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <ZoomIn className="size-3" />
+          </button>
+          <button
+            type="button"
+            title="Zoom out"
+            aria-label="Zoom out"
+            onClick={() => apiRef.current?.zoom(ZOOM_OUT)}
+            className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <ZoomOut className="size-3" />
+          </button>
+          <button
+            type="button"
+            title={follow ? 'Following live edge' : 'Jump to live edge'}
+            aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
+            aria-pressed={follow}
+            onClick={() => {
+              apiRef.current?.jumpLive()
+              setFollow(true)
+            }}
+            className={cn(
+              'rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground',
+              follow && 'text-primary',
+            )}
+          >
+            <Crosshair className="size-3" />
+          </button>
+        </div>
+      </div>
+      <ArbitrationLanes
+        nodes={nodes}
+        log={log}
+        follow={follow}
+        setFollow={setFollow}
+        apiRef={apiRef}
+      />
+    </div>
+  )
+}
+
+function ArbitrationLanes({
+  nodes,
+  log,
+  follow,
+  setFollow,
+  apiRef,
+}: {
+  nodes: readonly CanNodeSnapshot[]
+  log: readonly CanLogEntry[]
+  follow: boolean
+  setFollow: (v: boolean) => void
+  apiRef: MutableRefObject<{ jumpLive: () => void; zoom: (factor: number) => void } | null>
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const gestureRef = useRef<{
+    pointerId: number
+    startX: number
+    origin: LaneView
+    moved: boolean
+  } | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const [liveWindowMs, setLiveWindowMs] = useState(LANE_WINDOW_MS)
+  const [view, setView] = useState<LaneView | null>(null)
+  // Pause freezes the strip against a snapshot: the live log rolls at LOG_CAP
+  // and would otherwise delete the ticks under a frozen window.
+  const [frozen, setFrozen] = useState<{
+    log: readonly CanLogEntry[]
+    nodes: readonly CanNodeSnapshot[]
+  } | null>(null)
+  const followRef = useRef(follow)
+  followRef.current = follow
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const logRef = useRef(log)
+  logRef.current = log
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
+  const frozenRef = useRef(frozen)
+  frozenRef.current = frozen
+
+  // Only tick the clock while following — a frozen view must not drift.
+  useEffect(() => {
+    if (!follow) return
+    const id = setInterval(() => setNow(Date.now()), 50)
+    return () => clearInterval(id)
+  }, [follow])
+
+  useEffect(() => {
+    if (follow) {
+      frozenRef.current = null
+      setFrozen(null)
+    }
+  }, [follow])
+
+  // Prefer the freshest log timestamp so tests (and a paused page) still place
+  // ticks inside the window without waiting on wall clock.
+  const tip = log.length > 0 ? Math.max(log[log.length - 1]!.at, now) : now
+
+  useEffect(() => {
+    if (follow) setView(livePinnedView(tip, liveWindowMs))
+  }, [follow, tip, liveWindowMs])
+
+  const displayLog = !follow && frozen ? frozen.log : log
+  const displayNodes = !follow && frozen ? frozen.nodes : nodes
+
+  const leaveFollow = () => {
+    if (!followRef.current) return
+    const snap = { log: logRef.current.slice(), nodes: nodesRef.current.slice() }
+    frozenRef.current = snap
+    setFrozen(snap)
+    setFollow(false)
+  }
+
+  const sourceLog = () => frozenRef.current?.log ?? logRef.current
+
+  const applyZoom = (factor: number, pivot?: number) => {
+    const current = viewRef.current
+    if (!current) return
+    if (followRef.current) {
+      const next = clampWindowMs((current.t1 - current.t0) * factor)
+      setLiveWindowMs(next)
+      setView(livePinnedView(tip, next))
+      return
+    }
+    const p = pivot ?? (current.t0 + current.t1) / 2
+    setView(zoomAround(sourceLog(), current, factor, p))
+  }
+
+  useEffect(() => {
+    apiRef.current = {
+      jumpLive: () => {
+        const current = viewRef.current
+        if (current) setLiveWindowMs(clampWindowMs(current.t1 - current.t0))
+        setFollow(true)
+      },
+      zoom: (factor) => applyZoom(factor),
+    }
+    return () => {
+      apiRef.current = null
+    }
+  })
+
+  const model = useMemo(() => {
+    if (!view) return null
+    return buildLaneModel(displayNodes, displayLog, view)
+  }, [displayNodes, displayLog, view])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !model) return
+
+    const paint = () => {
+      const styles = getComputedStyle(canvas)
+      paintArbitrationLanes(
+        canvas,
+        model,
+        {
+          bg: '#0c0e12',
+          muted: styles.getPropertyValue('--muted-foreground').trim() || 'rgba(255,255,255,0.45)',
+          faint: 'rgba(255,255,255,0.07)',
+          live: styles.getPropertyValue('--success').trim() || 'rgba(34, 197, 94, 0.95)',
+        },
+        follow,
+      )
+    }
+    paint()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(paint)
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  }, [model, follow])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="block w-full cursor-grab touch-none rounded border border-border active:cursor-grabbing"
+      title="Drag to pause · wheel or ± to zoom. Hollow tick: lost arbitration."
+      aria-label="Arbitration lanes"
+      onWheel={(e) => {
+        if (!view) return
+        e.preventDefault()
+        const factor = e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN
+        if (follow) {
+          applyZoom(factor)
+          return
+        }
+        const rect = e.currentTarget.getBoundingClientRect()
+        const plotW = Math.max(1, rect.width - LANE_LABEL_W)
+        const x = e.clientX - rect.left
+        const frac =
+          x < LANE_LABEL_W ? 0.5 : Math.min(1, Math.max(0, (x - LANE_LABEL_W) / plotW))
+        const pivot = view.t0 + frac * (view.t1 - view.t0)
+        applyZoom(factor, pivot)
+      }}
+      onPointerDown={(e) => {
+        if (!view || !e.isPrimary) return
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId)
+        } catch {
+          /* ignore */
+        }
+        gestureRef.current = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          origin: view,
+          moved: false,
+        }
+      }}
+      onPointerMove={(e) => {
+        const g = gestureRef.current
+        if (!g || g.pointerId !== e.pointerId) return
+        const dx = e.clientX - g.startX
+        if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+        g.moved = true
+        leaveFollow()
+        const plotW = Math.max(1, e.currentTarget.clientWidth - LANE_LABEL_W)
+        const dt = panDeltaMs(dx, plotW, g.origin)
+        setView(clampLaneView(sourceLog(), g.origin.t0 + dt, g.origin.t1 + dt))
+      }}
+      onPointerUp={(e) => {
+        const g = gestureRef.current
+        if (!g || g.pointerId !== e.pointerId) return
+        gestureRef.current = null
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId)
+        } catch {
+          /* ignore */
+        }
+      }}
+      onPointerCancel={() => {
+        gestureRef.current = null
+      }}
+    />
   )
 }
 
