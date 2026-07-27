@@ -24,6 +24,20 @@ import {
   type Pt6314Chip,
 } from '@/virtio/devices/chips/pt6314'
 
+/** HD44780U A00 pixel font (Display Module 2) — matches the JHD1313 CGROM. */
+const LCD_FONT = '"Display Module 2", ui-monospace, monospace'
+
+/**
+ * Map a DDRAM byte to a canvas glyph. Printable ASCII plus the A00 arrows at
+ * 0x7e/0x7f (tilde / DEL slots on Western keyboards).
+ */
+function lcdGlyph(ch: number): string {
+  if (ch === 0x7e) return '\u2192'
+  if (ch === 0x7f) return '\u2190'
+  if (ch >= 0x20 && ch < 0x7f) return String.fromCharCode(ch)
+  return ' '
+}
+
 const UI_MS = 100
 
 /** Common surface both character panels paint and inspect. */
@@ -144,6 +158,7 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
     let painted = -1
     let blinkPhase = false
     let blinkTimer: ReturnType<typeof setInterval> | undefined
+    let cancelled = false
 
     const cellW = vfd ? 10 : 12
     const cellH = vfd ? 16 : 18
@@ -239,7 +254,7 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
         return
       }
 
-      // Grove JHD1313 LCD path (unchanged wash + ink).
+      // Grove JHD1313 LCD: RGB backlight wash + HD44780U A00 pixel glyphs.
       const lcd = chip as Jhd1313LcdChip
       const rgb = lcd.getBacklightRgb()
       const glassR = on ? Math.max(18, Math.round(rgb.r * 0.35 + 12)) : 8
@@ -249,13 +264,16 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       ctx.fillStyle = `rgb(${glassR}, ${glassG}, ${glassB})`
       ctx.fillRect(0, 0, width, height)
 
-      ctx.font = `bold ${cellH - 4}px ui-monospace, SFMono-Regular, Menlo, monospace`
+      // 5×8 CGROM glyphs; size lands near 2× pixel scale inside the cell.
+      ctx.font = `${cellH - 2}px ${LCD_FONT}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'center'
 
+      // TN LCD "black" is charcoal with a bit of backlight bleed — brighter
+      // than a crushed black, still clearly darker than the wash.
       const ink = on
-        ? `rgb(${Math.min(30, glassR - 8)}, ${Math.min(40, glassG - 8)}, ${Math.min(30, glassB - 8)})`
-        : 'rgb(20, 22, 24)'
+        ? `rgb(${Math.round(glassR * 0.25 + 38)}, ${Math.round(glassG * 0.25 + 42)}, ${Math.round(glassB * 0.25 + 38)})`
+        : 'rgb(48, 50, 52)'
 
       for (let row = 0; row < chip.rows; row++) {
         for (let col = 0; col < chip.columns; col++) {
@@ -265,7 +283,7 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
           ctx.fillRect(x, y, cellW, cellH)
 
           const ch = chip.cells[row * chip.columns + col] ?? 0x20
-          const glyph = ch >= 0x20 && ch < 0x7f ? String.fromCharCode(ch) : ' '
+          const glyph = lcdGlyph(ch)
           ctx.fillStyle = ink
           ctx.fillText(glyph, x + cellW / 2, y + cellH / 2 + 1)
 
@@ -282,16 +300,33 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       if (!frame) frame = requestAnimationFrame(paint)
     }
 
-    paint()
+    const start = async () => {
+      // Ensure the HD44780 webfont is ready before the first LCD paint.
+      if (!vfd && typeof document !== 'undefined' && document.fonts?.load) {
+        try {
+          await document.fonts.load(`${cellH - 2}px "Display Module 2"`)
+        } catch {
+          /* fall back to monospace stack */
+        }
+      }
+      if (cancelled) return
+      painted = -1
+      paint()
+      blinkTimer = setInterval(() => {
+        blinkPhase = !blinkPhase
+        schedule()
+      }, 500)
+    }
+
     const unsub = chip.subscribe(schedule)
     const unsubBl =
       isJhd1313Lcd(chip) && chip.backlight ? chip.backlight.subscribe(schedule) : undefined
-    blinkTimer = setInterval(() => {
-      blinkPhase = !blinkPhase
-      schedule()
-    }, 500)
+    // Paint immediately (monospace fallback), then again once the LCD font loads.
+    paint()
+    void start()
 
     return () => {
+      cancelled = true
       unsub()
       unsubBl?.()
       if (frame) cancelAnimationFrame(frame)
@@ -305,7 +340,7 @@ function AuxdisplayCanvas({ chip }: { chip: AuxdisplayChip }) {
       aria-label={vfd ? 'PT6314 character VFD' : 'JHD1313 character LCD'}
       className="w-full rounded border border-border"
       style={{
-        imageRendering: 'auto',
+        imageRendering: vfd ? 'auto' : 'pixelated',
         aspectRatio: `${chip.columns * 3} / ${chip.rows * 4}`,
         ...(vfd ? { background: '#05070a' } : null),
       }}

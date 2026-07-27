@@ -1,6 +1,15 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/jetbrains-mono';
 
+/* HD44780U A00 pixel font for the JHD1313 character LCD canvas. */
+@font-face {
+  font-family: 'Display Module 2';
+  src: url('./assets/fonts/hd44780/DisplayModule2.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+
 /*
  * Dark is the default: this is a terminal, and it is what the app is read on.
  * A light OS preference is respected, but nothing else toggles the theme —
