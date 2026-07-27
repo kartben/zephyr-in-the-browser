@@ -23,13 +23,12 @@ import {
  * policy, the microphone because getUserMedia prompts for permission. Guest
  * flow control never notices either switch — playback drains (and drops)
  * samples while muted, and the DMIC driver reads silence while the mic is
- * off. Reach the speaker from the shell with `hostaudio beep`; the mic feeds
- * the stock dmic sample.
+ * off.
  */
 /**
  * The two halves of the sound device, as standalone bodies: the devicetree
  * gives each its own node (qemu,host-audio / qemu,host-mic), so the dock gives
- * each its own row, and each carries its own shell hint.
+ * each its own row.
  */
 export function SpeakerBody() {
   const audio = useSyncExternalStore(subscribeAudio, getAudioSnapshot, getAudioSnapshot)
@@ -52,12 +51,6 @@ export function SpeakerBody() {
         disabledIcon={<Volume2 className="size-3.5" aria-hidden />}
         onToggle={toggleAudio}
       />
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        In the guest:{' '}
-        <code className="font-mono text-foreground">hostaudio beep 440 500</code>{' '}
-        queues a tone,{' '}
-        <code className="font-mono text-foreground">hostaudio melody</code> a short tune.
-      </p>
     </div>
   )
 }
@@ -78,10 +71,6 @@ export function MicBody() {
         onToggle={toggleMic}
         error={mic.error}
       />
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        In the guest: <code className="font-mono text-foreground">dmic vu dmic0</code>{' '}
-        meters the mic.
-      </p>
     </div>
   )
 }

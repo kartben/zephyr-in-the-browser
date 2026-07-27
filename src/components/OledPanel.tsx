@@ -93,11 +93,6 @@ export function OledBody() {
           aspectRatio: `${ssd1306.width} / ${ssd1306.height}`,
         }}
       />
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Zephyr&apos;s stock{' '}
-        <code className="font-mono text-foreground">solomon,ssd1306-i2c</code> driver,
-        drawing over the browser&apos;s I2C bus — nine transfers per full frame.
-      </p>
       <OledControllerButton chip={ssd1306} />
     </div>
   )

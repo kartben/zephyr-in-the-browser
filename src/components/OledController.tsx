@@ -1,5 +1,5 @@
 /**
- * Collapsed-by-default controller inspector for the SSD1306.
+ * Collapsed-by-default status inspector for the SSD1306.
  *
  * The OLED is a *command stream*, not a pointered register file — so this is
  * not the SVD-style Registers dialog. It still gives the same "open when you
@@ -61,7 +61,7 @@ export function OledControllerButton({ chip }: { chip: Ssd1306Chip }) {
         onClick={() => setOpen(true)}
         className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       >
-        Controller
+        Status
       </button>
       <OledControllerDialog chip={chip} open={open} onOpenChange={setOpen} />
     </>
@@ -98,10 +98,8 @@ function OledControllerDialog({
           <DialogTitle>
             {chip.name} · 0x{hex}
           </DialogTitle>
-          <DialogDescription>
-            Command-derived controller state — the SSD1306 is not a register-file
-            part (control byte 0x00 = commands, 0x40 = GDDRAM). GDDRAM itself is
-            the canvas above.
+          <DialogDescription className="sr-only">
+            Live OLED display state
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-auto border-t border-border px-5 py-3">

@@ -359,29 +359,8 @@ export function RtcBody({ chip }: { chip: RtcChip }) {
         </div>
       </div>
 
-      <Hints chip={chip} />
       <RegisterMapButton chip={chip} />
     </div>
-  )
-}
-
-function Hints({ chip }: { chip: RtcChip }) {
-  const name = chip.decl.shellLabel ?? 'RTC'
-  const fields = chip.decl.alarmFields
-  const mask = fields.reduce((m, f) => m | alarmMask({ [f]: 0 }), 0)
-  const fieldList = fields
-    .map((f) => (f === 'day' ? 'monthday' : f))
-    .join('+')
-  return (
-    <p className="text-[11px] leading-relaxed text-muted-foreground">
-      In the guest:{' '}
-      <code className="font-mono text-foreground">rtc get {name}</code>,{' '}
-      <code className="font-mono text-foreground">
-        rtc set_alarm {name} 0 0x{mask.toString(16)} …
-      </code>{' '}
-      (mask <code className="font-mono">0x{mask.toString(16)}</code> = {fieldList}). Tick the
-      compare fields above; the status line tracks guest register writes too.
-    </p>
   )
 }
 

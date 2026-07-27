@@ -73,7 +73,6 @@ function useChip(chip: SensorChip) {
 
 export function SensorBody({ chip }: { chip: SensorChip }) {
   useChip(chip)
-  const hex = chip.address.toString(16).padStart(2, '0')
   const [motionError, setMotionError] = useState<string | null>(null)
 
   // The source groups this chip can follow, in channel order, deduplicated.
@@ -175,16 +174,6 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
           onChange={(value) => chip.setAttr(attr.key, value)}
         />
       ))}
-
-      {chip.decl.shellLabel && (
-        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-          Read it in the guest with{' '}
-          <code className="font-mono text-foreground">
-            sensor get {chip.decl.shellLabel}@{hex}
-          </code>
-          .
-        </p>
-      )}
 
       <RegisterMapButton chip={chip} />
     </div>

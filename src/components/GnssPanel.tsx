@@ -54,10 +54,6 @@ export function GnssBody() {
           onChange={(value) => setFix({ [field.key]: value })}
         />
       ))}
-
-      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-        GGA and RMC fixes are sent once per second to Zephyr’s generic NMEA GNSS driver.
-      </p>
     </div>
   )
 }

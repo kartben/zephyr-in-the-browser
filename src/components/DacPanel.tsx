@@ -325,12 +325,6 @@ export function DacBody({ chip }: { chip: DacChip }) {
           </span>
         ))}
       </div>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        <code className="font-mono text-foreground">{chip.decl.name}</code>
-        {' — '}
-        {chip.decl.resolutionBits}-bit DAC
-        {chip.address != null ? ` at 0x${chip.address.toString(16)}` : ''}.
-      </p>
       <RegisterMapButton chip={chip} />
     </div>
   )

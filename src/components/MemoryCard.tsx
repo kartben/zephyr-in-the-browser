@@ -1,4 +1,4 @@
-import { useCallback, useState, useSyncExternalStore } from 'react'
+import { useCallback, useState } from 'react'
 import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView, type HexJump, type HexViewRange } from '@/components/HexView'
@@ -66,8 +66,6 @@ export function MemoryBody({
       <MemoryStatsView chip={chip} compact={compact} />
 
       {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
-
-      {!compact && <Hints chip={chip} />}
     </div>
   )
 }
@@ -141,53 +139,6 @@ export function SpiFlashBody({
       ) : (
         <HexView chip={chip} jump={hexJump} onViewChange={onHexViewChange} />
       )}
-
-      {!compact && (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          In the guest:{' '}
-          <code className="font-mono text-foreground">
-            flash read {chip.decl.shellLabel ?? 'w25q80jv@0'} 0 16
-          </code>
-          {' · '}
-          <code className="font-mono text-foreground">fs mount littlefs /lfs</code>
-          {' · '}
-          <code className="font-mono text-foreground">fs ls /lfs</code>
-          {' · click a hex byte to edit · click a sector to jump the dump'}
-        </p>
-      )}
     </div>
-  )
-}
-
-/** What to type in the guest to see the same bytes from the other side. */
-function Hints({ chip }: { chip: MemoryChip }) {
-  const hex = chip.address.toString(16).padStart(2, '0')
-  // Read the pointer through the store so the offset in the hint tracks where
-  // the guest actually is, rather than being a static example.
-  const pointer = useSyncExternalStore(
-    chip.subscribe,
-    useCallback(() => chip.pointer(), [chip]),
-    useCallback(() => 0, []),
-  )
-  const at = pointer.toString(16).padStart(2, '0')
-
-  return (
-    <p className="text-[11px] leading-relaxed text-muted-foreground">
-      In the guest:{' '}
-      <code className="font-mono text-foreground">
-        i2c read virtio_i2c0 {hex} {at} 8
-      </code>{' '}
-      reads eight bytes from 0x{at}
-      {chip.decl.shellLabel && (
-        <>
-          ,{' '}
-          <code className="font-mono text-foreground">
-            eeprom write {chip.decl.shellLabel} 0x{at} de ad
-          </code>{' '}
-          writes through the EEPROM API — either way the bytes above move.
-        </>
-      )}
-      {!chip.decl.shellLabel && '.'}
-    </p>
   )
 }

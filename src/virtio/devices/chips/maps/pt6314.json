@@ -1,6 +1,6 @@
 {
   "name": "PT6314",
-  "description": "Princeton PT6314 Dot Character VFD Controller/Driver (SPI serial). Zephyr's auxdisplay_pt6314.c writes 2-byte frames: a start byte (sync 0xF8 | R/W | RS) then an Instruction or Data byte. Commands match the datasheet HD44780-like set; Function Set bits BR1:BR0 set VFD brightness (100%/75%/50%/25%). Entry_Mode / Display_Control / Function_Set / DDRAM_AC are decoded shadows.",
+  "description": "Princeton PT6314 character VFD (SPI). Each write is a start byte then an Instruction or Data byte (Zephyr auxdisplay_pt6314). Function Set BR1:BR0 sets brightness. Entry_Mode / Display_Control / Function_Set / DDRAM_AC mirror the last decoded commands.",
   "registers": [
     {
       "name": "Start",

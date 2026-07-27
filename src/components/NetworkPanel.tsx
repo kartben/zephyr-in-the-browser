@@ -135,13 +135,6 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
         <Disclosure title="Talk to the guest" {...fold('tools', false)}>
           <ToolsSection guestIp={snapshot.guestIp} />
         </Disclosure>
-
-        <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-          In the guest shell (where present):{' '}
-          <code className="font-mono text-foreground">net iface</code>,{' '}
-          <code className="font-mono text-foreground">net ping 192.0.2.2</code>,{' '}
-          <code className="font-mono text-foreground">zperf udp upload 192.0.2.2 5001 10 1K 1M</code>.
-        </p>
       </div>
   )
 }

@@ -38,8 +38,7 @@ import type { DeviceClass } from '@/deviceTopology'
 /**
  * The bus workbench without the frame — roster, attach row, traffic trace —
  * shared by the dock's controller row and the floating window. `busLabel`
- * names the controller in the shell hint; the roster and trace themselves are
- * the page's one bridged bus.
+ * scopes reveal keys for chips on this bus.
  */
 export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}) {
   const chips = useSyncExternalStore(
@@ -144,11 +143,6 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
         )}
       </div>
 
-      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-        In the guest: <code className="font-mono text-foreground">i2c scan {busLabel}</code>{' '}
-        finds every attached chip; a driver only binds at the addresses the devicetree
-        declares.
-      </p>
     </div>
   )
 }
@@ -278,7 +272,7 @@ function AttachRow({ chips }: { chips: number[] }) {
               : 'Places both endpoints (bus only — no guest driver at the LCD address).'
             : hasDriver(parsed)
               ? 'The devicetree binds a driver here.'
-              : 'Bus only — i2c scan finds it, but no guest driver binds.'}
+              : 'Bus only — no guest driver binds.'}
         </p>
       ) : (
         <p className="text-[10px] text-destructive">Enter an address between 0x03 and 0x77.</p>

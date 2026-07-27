@@ -10,9 +10,9 @@ import type { DeviceNode } from '@/deviceTopology'
  */
 export function UartBody({
   busKey,
-  busLabel = 'uart1',
 }: {
   busKey: string
+  /** Kept for callers; UART roster no longer prints a guest-shell hint. */
   busLabel?: string
 }) {
   const devices = useSyncExternalStore(
@@ -64,12 +64,6 @@ export function UartBody({
           ))}
         </ul>
       </div>
-
-      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-        In the guest: children of <code className="font-mono text-foreground">{busLabel}</code>{' '}
-        are UART peripherals (today: NMEA GNSS). One at a time is normal —
-        the roster stays so the bus looks like I²C and SPI.
-      </p>
     </div>
   )
 }
