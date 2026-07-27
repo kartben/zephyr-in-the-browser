@@ -23,7 +23,7 @@
  */
 
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
-import type { BuzzerPin, StepperAxis } from '@/dts'
+import type { BuzzerPin, SevenSegDisplay, StepperAxis } from '@/dts'
 import {
   HOST_POLL_MS,
   isRegistered,
@@ -40,11 +40,11 @@ export interface Pin {
   flags: number
 }
 
-export type { BuzzerPin, StepperAxis }
+export type { BuzzerPin, SevenSegDisplay, StepperAxis }
 
 export type PinDirection = 'in' | 'out' | 'none'
 
-export type PinConsumerKind = 'keys' | 'leds' | 'buzzer' | 'stepper'
+export type PinConsumerKind = 'keys' | 'leds' | 'buzzer' | 'stepper' | 'seven-seg'
 
 export interface ClaimedPin {
   id: number
@@ -84,6 +84,7 @@ let derived: {
   leds: Pin[]
   buzzers: BuzzerPin[]
   steppers: StepperAxis[]
+  sevenSegs: SevenSegDisplay[]
   node: string | null
   ngpios: number
 } = {
@@ -91,6 +92,7 @@ let derived: {
   leds: FALLBACK_LEDS,
   buzzers: [],
   steppers: [],
+  sevenSegs: [],
   node: null,
   ngpios: 8,
 }
@@ -100,8 +102,17 @@ const POLL_ID = 'gpio-mmio'
 const MMIO_POLL_MS = HOST_POLL_MS
 const MMIO_POLL_STEPPER_MS = 1
 
+function pinMask(ngpios: number): number {
+  if (ngpios >= 32) return 0xffffffff
+  if (ngpios <= 0) return 0
+  return (1 << ngpios) - 1
+}
+
 function mmioPollMs(): number {
-  return derived.steppers.length > 0 ? MMIO_POLL_STEPPER_MS : MMIO_POLL_MS
+  // Seven-seg multiplexes at ~1 ms; catch digit commons with the fast tick.
+  return derived.steppers.length > 0 || derived.sevenSegs.length > 0
+    ? MMIO_POLL_STEPPER_MS
+    : MMIO_POLL_MS
 }
 
 function recomputeDerived() {
@@ -112,6 +123,7 @@ function recomputeDerived() {
         leds: bridged.leds,
         buzzers: bridged.buzzers,
         steppers: bridged.steppers,
+        sevenSegs: bridged.sevenSegs,
         node: bridged.controllerLabel,
         ngpios: bridged.ngpios ?? 8,
       }
@@ -120,6 +132,7 @@ function recomputeDerived() {
         leds: FALLBACK_LEDS,
         buzzers: [],
         steppers: [],
+        sevenSegs: [],
         node: null,
         ngpios: 8,
       }
@@ -146,6 +159,11 @@ export function getSteppers(): StepperAxis[] {
   return derived.steppers
 }
 
+/** gpio-7-segment displays whose digit commons are on the bridged controller. */
+export function getSevenSegs(): SevenSegDisplay[] {
+  return derived.sevenSegs
+}
+
 /** Controller width from DT `ngpios` (fallback 8). */
 export function getNgpios(): number {
   return derived.ngpios
@@ -164,7 +182,11 @@ export function getPinDirection(pin: number): PinDirection {
   if (
     derived.leds.some((p) => p.id === pin) ||
     derived.buzzers.some((p) => p.id === pin) ||
-    derived.steppers.some((s) => s.stepPin === pin || s.dirPin === pin)
+    derived.steppers.some((s) => s.stepPin === pin || s.dirPin === pin) ||
+    derived.sevenSegs.some(
+      (d) =>
+        d.digits.some((p) => p.id === pin) || d.segments.some((p) => p.id === pin),
+    )
   ) {
     return 'out'
   }
@@ -223,6 +245,20 @@ export function getClaimedPins(): ClaimedPin[] {
       axis.dirActiveHigh ? 0 : 1,
       'out',
     )
+  }
+  for (const disp of derived.sevenSegs) {
+    for (const [i, seg] of disp.segments.entries()) {
+      const name = i < 7 ? 'ABCDEFG'[i]! : 'DP'
+      claim(seg.id, { kind: 'seven-seg', label: `${disp.label} ${name}` }, seg.activeHigh ? 0 : 1, 'out')
+    }
+    for (const [i, dig] of disp.digits.entries()) {
+      claim(
+        dig.id,
+        { kind: 'seven-seg', label: `${disp.label} DIG${i + 1}` },
+        dig.activeHigh ? 0 : 1,
+        'out',
+      )
+    }
   }
 
   // Runtime-only claims (guest configured a line with no DT consumer).
@@ -343,7 +379,7 @@ export function attach(mod: unknown) {
   } else {
     unsubscribeBinds = subscribeBinds(notify)
     unsubscribeModel = gpioModel.subscribe(() => {
-      outputs = gpioModel.getOutputs() & 0xff
+      outputs = gpioModel.getOutputs() & pinMask(derived.ngpios)
       notify()
     })
     gpioModel.setInputs(inputs)
@@ -417,9 +453,7 @@ export function subscribe(fn: () => void): () => void {
 
 function pollMmio() {
   const next = mmio?.getOutputs() ?? 0
-  // The device masks to its pin count, but a guest could in principle write
-  // wider; keep only the low 8 so the UI never lights a pin it doesn't show.
-  const masked = next & 0xff
+  const masked = next & pinMask(derived.ngpios)
   if (masked === outputs) return
   outputs = masked
   notify()

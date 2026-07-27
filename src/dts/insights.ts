@@ -117,6 +117,30 @@ export interface StepperAxis {
   invertDirection: boolean
 }
 
+/** One GPIO line of a `gpio-7-segment` (segment or digit select). */
+export interface SevenSegPin {
+  id: number
+  /** True when GPIO_ACTIVE_HIGH (Zephyr flag bit0 clear). */
+  activeHigh: boolean
+}
+
+/**
+ * A `gpio-7-segment` auxdisplay on a bridged GPIO controller.
+ * Segments are A…G[,DP]; digits are the multiplex commons.
+ */
+export interface SevenSegDisplay {
+  /** Stable id: node path. */
+  id: string
+  label: string
+  columns: number
+  rows: number
+  refreshPeriodMs: number
+  /** A, B, C, D, E, F, G[, DP] in order. */
+  segments: SevenSegPin[]
+  /** Digit commons, left → right. */
+  digits: SevenSegPin[]
+}
+
 /** One child of a `pwm-leds` group, wired to a PWM channel. */
 export interface PwmLed {
   /** Channel index on the PWM controller. */
@@ -151,6 +175,8 @@ export interface GpioController {
   buzzers: BuzzerPin[]
   /** gpio step/dir stepper controllers whose STEP pin is on this controller. */
   steppers: StepperAxis[]
+  /** gpio-7-segment auxdisplays whose digit selects are on this controller. */
+  sevenSegs: SevenSegDisplay[]
 }
 
 export interface DtsInsights {
@@ -401,6 +427,7 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
       leds: [],
       buzzers: [],
       steppers: [],
+      sevenSegs: [],
     })
   })
 
@@ -460,11 +487,35 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
     })
   }
 
+  // gpio-7-segment: multiplexed digit commons + shared segment bus.
+  for (const node of doc.compatIndex.get('gpio-7-segment') ?? []) {
+    if (!effectivelyOkay(node)) continue
+    const digitSpecs = gpioSpecs(doc, node, 'digit-gpios')
+    const segmentSpecs = gpioSpecs(doc, node, 'segment-gpios')
+    if (digitSpecs.length === 0 || segmentSpecs.length < 7) continue
+    const controller = controllers.find((c) => c.node === digitSpecs[0]!.controller)
+    if (!controller) continue
+    const toPin = (spec: (typeof digitSpecs)[number]): SevenSegPin => ({
+      id: spec.pin,
+      activeHigh: (spec.flags & 0x1) === 0,
+    })
+    controller.sevenSegs.push({
+      id: pathOf(node),
+      label: stringProp(node, 'label') ?? '7-segment LED',
+      columns: numberProp(node, 'columns') ?? digitSpecs.length,
+      rows: numberProp(node, 'rows') ?? 1,
+      refreshPeriodMs: numberProp(node, 'refresh-period-ms') ?? 1,
+      segments: segmentSpecs.map(toPin),
+      digits: digitSpecs.map(toPin),
+    })
+  }
+
   for (const controller of controllers) {
     controller.buttons.sort((a, b) => a.id - b.id)
     controller.leds.sort((a, b) => a.id - b.id)
     controller.buzzers.sort((a, b) => a.id - b.id)
     controller.steppers.sort((a, b) => a.stepPin - b.stepPin || a.dirPin - b.dirPin)
+    controller.sevenSegs.sort((a, b) => a.id.localeCompare(b.id))
   }
   return controllers.map(({ node: _node, ...controller }) => controller)
 }
@@ -562,7 +613,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (hasOkayCompat(doc, 'adi,tmc50xx')) panels.add('stepper')
   const display = chosenTable['zephyr,display']
   if (display && compatibles(display).includes('solomon,ssd1306')) panels.add('oled')
-  if (hasOkayCompat(doc, 'jhd,jhd1313') || hasOkayCompat(doc, 'ptc,pt6314')) {
+  if (hasOkayCompat(doc, 'jhd,jhd1313') || hasOkayCompat(doc, 'ptc,pt6314') || hasOkayCompat(doc, 'gpio-7-segment')) {
     panels.add('auxdisplay')
   }
   // HT16K33 matrix, pwm-leds, and bridged gpio-leds all earn the LED panel slot.

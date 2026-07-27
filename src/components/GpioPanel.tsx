@@ -24,12 +24,13 @@ import {
 
 const CONSUMER_ROW: Record<
   PinConsumerKind,
-  { key: string; deviceClass: 'keys' | 'led' | 'buzzer' | 'stepper'; kind: string }
+  { key: string; deviceClass: 'keys' | 'led' | 'buzzer' | 'stepper' | 'auxdisplay'; kind: string }
 > = {
   keys: { key: 'gpio-keys', deviceClass: 'keys', kind: 'keys' },
   leds: { key: 'gpio-leds', deviceClass: 'led', kind: 'leds' },
   buzzer: { key: 'buzzer', deviceClass: 'buzzer', kind: 'buzzer' },
   stepper: { key: 'stepper', deviceClass: 'stepper', kind: 'stepper' },
+  'seven-seg': { key: 'seven-seg', deviceClass: 'auxdisplay', kind: '7-seg' },
 }
 
 /** Buttons without the frame — `gpio-keys` dock body. */

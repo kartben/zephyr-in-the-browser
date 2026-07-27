@@ -71,6 +71,7 @@ export type BodyKind =
   | 'memory'
   | 'oled'
   | 'auxdisplay'
+  | 'seven-seg'
   | 'led'
   | 'rgb-led'
   | 'led-bar'
@@ -659,6 +660,30 @@ function deriveFromTree(
       crumb: bridgedLeds.controllerLabel,
       panelKind: 'led',
     })
+  }
+
+  // gpio-7-segment: multiplexed LED digits — own auxdisplay row (not a bus chip).
+  const bridgedSeven = insights.gpioControllers.find(
+    (ctl) => ctl.bridged && ctl.sevenSegs.length > 0,
+  )
+  if (bridgedSeven && avail.gpio) {
+    for (const disp of bridgedSeven.sevenSegs) {
+      const node = nodesByCompatible(doc, 'gpio-7-segment').find(
+        (n) => isEffectivelyOkay(n) && pathOf(n) === disp.id,
+      )
+      push({
+        key: uniqueKey(ids, 'seven-seg'),
+        nodeName: node?.name ?? 'digi-display',
+        label: disp.label,
+        compatible: 'gpio-7-segment',
+        deviceClass: 'auxdisplay',
+        path: disp.id,
+        presence: 'interactive',
+        body: 'seven-seg',
+        crumb: `${disp.digits.length}-digit · ${bridgedSeven.controllerLabel}`,
+        panelKind: 'auxdisplay',
+      })
+    }
   }
 
   // gpio-buzzer leaves: one dock body for every buzzers on the bridged controller.

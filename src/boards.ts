@@ -517,9 +517,9 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     id: 'shell',
     label: 'Shell',
     description:
-      'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `auxdisplay`, `hostaudio` and `dmic`',
+      'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `auxdisplay` (LCD, VFD, 7-segment), `gpio`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
-    primaryPanels: ['i2c', 'spi', 'auxdisplay', 'audio'],
+    primaryPanels: ['i2c', 'spi', 'auxdisplay', 'gpio', 'audio'],
   },
   {
     // The display sample against the browser's SSD1306 instead of ramfb: the
@@ -672,13 +672,13 @@ export const BOARDS: Board[] = [
       // queues; feature bit 0 is VIRTIO_GPIO_F_IRQ, without which the guest
       // driver polls instead of taking interrupts. `config` is the device's
       // config space as hex — struct virtio_gpio_config { le16 ngpio; u8
-      // padding[2]; le32 gpio_names_size; } — so 8 lines and no names. It is a
+      // padding[2]; le32 gpio_names_size; } — so 16 lines and no names. It is a
       // property rather than something the page supplies because the guest can
       // read config space before the page has attached. ngpio must match the
-      // overlay's ngpios.
+      // overlay's ngpios (16 covers gpio-7-segment on pins 5–15 plus keys/LED).
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
-        'queues=2,features=0x1,config=0800000000000000',
+        'queues=2,features=0x1,config=1000000000000000',
       // I2C: a VIRTIO I2C adapter (device id 34) on slot 4, the first free one
       // after net, gpu, gpio and the tablet. One request queue, no feature bits
       // and no config space — the adapter has none. The chips on the bus are
@@ -757,7 +757,7 @@ export const BOARDS: Board[] = [
       'virtio-tablet-device,bus=virtio-mmio-bus.3',
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
-        'queues=2,features=0x1,config=0800000000000000',
+        'queues=2,features=0x1,config=1000000000000000',
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
       // SPI (slot 5, device-id 45) omitted until the published emulator includes

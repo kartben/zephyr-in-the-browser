@@ -10,6 +10,7 @@ import {
   Cable,
   CircuitBoard,
   Clock,
+  Calculator,
   Gauge,
   MapPin,
   MemoryStick,
@@ -32,6 +33,7 @@ import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody, type AuxdisplayChip } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
+import { SevenSegBody } from '@/components/SevenSegPanel'
 import { StepperBody, Tmc50xxStepperBody } from '@/components/StepperPanel'
 import { GnssBody } from '@/components/GnssPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
@@ -135,6 +137,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <OledBody />
     case 'auxdisplay':
       return <AuxdisplayBody chip={node.chip as AuxdisplayChip} />
+    case 'seven-seg':
+      return <SevenSegBody />
     case 'led':
       return <LedMatrixBody chip={node.chip as Ht16k33Chip} />
     case 'rgb-led':
@@ -205,6 +209,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return MonitorDot
     case 'auxdisplay':
       return Monitor
+    case 'seven-seg':
+      return Calculator
     case 'led':
       return Grid3x3
     case 'rgb-led':
@@ -313,6 +319,10 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
           {chip.columns}×{chip.rows}
         </Mono>
       )
+    }
+    case 'seven-seg': {
+      const match = node.crumb?.match(/^(\d+)-digit/)
+      return <Mono>{match ? `${match[1]}-digit` : '7-seg'}</Mono>
     }
     case 'led': {
       const chip = node.chip as Ht16k33Chip
@@ -423,6 +433,11 @@ export function GroupBadge({
           {chip.columns}×{chip.rows}
         </Mono>
       )
+    }
+    const seven = nodes.find((n) => n.presence === 'interactive' && n.body === 'seven-seg')
+    if (seven) {
+      const match = seven.crumb?.match(/^(\d+)-digit/)
+      return <Mono>{match ? `${match[1]}-digit` : '7-seg'}</Mono>
     }
   }
   if (deviceClass === 'led') {
