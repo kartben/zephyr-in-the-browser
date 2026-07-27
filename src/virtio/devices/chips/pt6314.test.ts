@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { hasRegisterMap } from '../registers/types'
+import { formatRegisterMapLocator, hasRegisterMap } from '../registers/types'
 import { createPt6314, isPt6314, pt6314Meta } from './pt6314'
 
 /** Zephyr auxdisplay_pt6314_spi_write(dev, flags, val) shape. */
@@ -35,6 +35,7 @@ describe('PT6314 SPI VFD', () => {
     const chip = createPt6314()
     expect(isPt6314(chip)).toBe(true)
     expect(hasRegisterMap(chip)).toBe(true)
+    expect(formatRegisterMapLocator(chip)).toBe('CS0')
     expect(chip.columns).toBe(20)
     expect(chip.rows).toBe(2)
     expect(chip.registers.map((r) => r.name)).toEqual([

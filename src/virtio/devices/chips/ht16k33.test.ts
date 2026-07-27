@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { hasRegisterMap } from '../registers/types'
+import { formatRegisterMapLocator, hasRegisterMap } from '../registers/types'
 import { createHt16k33, isHt16k33 } from './ht16k33'
 
 describe('HT16K33', () => {
@@ -11,6 +11,7 @@ describe('HT16K33', () => {
     const chip = createHt16k33()
     expect(isHt16k33(chip)).toBe(true)
     expect(hasRegisterMap(chip)).toBe(true)
+    expect(formatRegisterMapLocator(chip)).toBe('0x70')
     expect(chip.address).toBe(0x70)
     expect(chip.rows).toBe(16)
     expect(chip.cols).toBe(8)

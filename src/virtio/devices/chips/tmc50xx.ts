@@ -77,6 +77,7 @@ export interface Tmc50xxMotorSnapshot {
 export interface Tmc50xxChip extends SpiChip {
   /** Chip-select, also used as {@link RegisterMapSource.address}. */
   readonly address: number
+  readonly addressKind: 'spi-cs'
   readonly registers: readonly RegisterDecl[]
   readonly motorCount: 1
   peek(addr: number): number
@@ -366,6 +367,7 @@ export function createTmc50xx({
     cs,
     name,
     address: cs,
+    addressKind: 'spi-cs',
     registers: TMC50XX_REGISTERS,
     motorCount: 1,
     transfer,

@@ -71,6 +71,7 @@ export interface Pt6314Options {
 export interface Pt6314Chip extends SpiChip {
   /** Chip-select, also used as {@link RegisterMapSource.address}. */
   readonly address: number
+  readonly addressKind: 'spi-cs'
   readonly columns: number
   readonly rows: number
   /** Row-major visible cells; space = empty. */
@@ -357,6 +358,7 @@ export function createPt6314({
   return {
     cs,
     address: cs,
+    addressKind: 'spi-cs',
     name,
     columns,
     rows,
