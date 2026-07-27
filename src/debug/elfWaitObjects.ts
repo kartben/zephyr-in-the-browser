@@ -123,6 +123,8 @@ export function buildWaitObjects(elf: Uint8Array): WaitObject[] {
 /**
  * Resolve a `pended_on` wait-queue pointer to a named object.
  * Prefers exact address match (wait_q is often the first field).
+ * Containment matches only count when the symbol looks like a sync primitive
+ * (`kind` set) — bare blobs like `shell_uart_ctx` are not wait objects.
  */
 export function findWaitObject(objects: WaitObject[], pendedOn: number): WaitObject | null {
   if (!pendedOn) return null
@@ -131,9 +133,9 @@ export function findWaitObject(objects: WaitObject[], pendedOn: number): WaitObj
   }
   let best: WaitObject | null = null
   for (const o of objects) {
-    if (pendedOn >= o.addr && pendedOn < o.addr + o.size) {
-      if (!best || o.size < best.size) best = o
-    }
+    if (!o.kind) continue
+    if (pendedOn < o.addr || pendedOn >= o.addr + o.size) continue
+    if (!best || o.size < best.size) best = o
   }
   return best
 }

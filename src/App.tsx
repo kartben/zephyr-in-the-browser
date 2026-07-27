@@ -3,6 +3,7 @@ import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
 import { DisplayPanel } from '@/components/DisplayPanel'
 import { TracePanel } from '@/components/TracePanel'
+import { DebugPanel } from '@/components/DebugPanel'
 import { StagePill } from '@/components/StagePill'
 import { Dock } from '@/components/dock/Dock'
 import { FloatingWindows } from '@/components/dock/FloatingWindows'
@@ -58,11 +59,13 @@ import {
 function StageOverlays({
   displayExpanded,
   traceExpanded,
+  debugExpanded,
   boardId,
   sampleId,
 }: {
   displayExpanded: boolean
   traceExpanded: boolean
+  debugExpanded: boolean
   boardId: string
   sampleId: string
 }) {
@@ -78,6 +81,7 @@ function StageOverlays({
         <div className="self-start">
           <StagePill />
         </div>
+        <DebugPanel defaultExpanded={debugExpanded} />
         <TracePanel defaultExpanded={traceExpanded} />
       </div>
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
@@ -447,6 +451,7 @@ export default function App() {
             key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
             displayExpanded={expandAllPanels || primaryPanels.has('display')}
             traceExpanded={expandAllPanels || primaryPanels.has('trace')}
+            debugExpanded={expandAllPanels || primaryPanels.has('debug')}
             boardId={boardId}
             sampleId={sampleId}
           />

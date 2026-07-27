@@ -23,16 +23,10 @@ So the “must pause to set a BP” feeling is a **UI gate**, not an RSP limit.
 
 ## Proposed UX
 
-### TopBar (always)
+### TopBar
 
-```
-[ Pause | Continue ]  [ Step ]   PC chip when paused (opens panel → CPU)
-                                  · or “2 bps” badge when running
-```
-
-- Pause / Step stay in the TopBar (muscle memory, annotations).
-- PC chip still appears when paused; clicking it **focuses the Debug panel**
-  (CPU section) instead of opening a nested popover.
+- **gdb**: no Pause / Step / PC — those live on the Debug panel.
+- **QMP-only**: Pause + PC chip (register popover) stays in the TopBar.
 
 ### Debug panel (new — dock / stage, like Trace)
 
@@ -95,8 +89,8 @@ Opened from **Panels** menu as `Debug` (gdb-only; hidden when stub unavailable).
 
 | Piece | Role |
 | --- | --- |
-| `PauseDebugControl` | Shrink to Pause + Step + PC chip (no popover) |
-| `DebugPanel` (new) | Breakpoints always; CPU/Mem/Threads when paused |
+| `PauseDebugControl` | QMP-only: Pause + regs popover; hidden when gdb |
+| `DebugPanel` (new) | Pause/Step in header; Breakpoints always; CPU/Mem/Threads when paused |
 | `dockStore` / Panels menu | `stage:debug` (or device-class row) like `stage:trace` |
 | Boards seed | Open Debug expanded when `features.gdb` and sample is shell/blinky? Optional |
 
@@ -106,8 +100,7 @@ ThreadsPane, RegisterGrid) — move, don’t rewrite.
 ### 3. Running vs paused chrome
 
 - Header status: `running` / `paused` + `pcLabel` when known.
-- Step button: TopBar *and/or* panel header when paused (one is enough — prefer
-  TopBar only to avoid duplication).
+- Pause / Step: panel header actions only (not duplicated in TopBar).
 
 ### 4. Out of scope for this pass
 
@@ -118,12 +111,17 @@ ThreadsPane, RegisterGrid) — move, don’t rewrite.
 
 ## Migration / risk
 
-- Popover removal is a behaviour change — document in the panel’s empty state
-  (“Breakpoints live here now”).
+- Popover removal is a behaviour change — Breakpoints live in the Debug panel
+  (Panels menu → Debug); the TopBar keeps Pause / Step / PC.
 - QEMU gdbstub: confirm `Z0` while running on wasm builds (host already allows
   it; if a stub rejects, fall back to “pause → set → continue” with a toast).
 - Panel + Trace + docks: don’t auto-open Debug on every sample — user opens it,
   or seed only for gdb-featured boards.
+
+## Status
+
+Implemented on `cursor/debug-panel-3390`: `DebugPanel`, `stage:debug` in the
+Panels menu; Pause/Step on the panel header; TopBar Pause only for QMP.
 
 ## Mockup
 

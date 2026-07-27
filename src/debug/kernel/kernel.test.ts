@@ -93,6 +93,21 @@ describe('findWaitObject', () => {
     ]
     expect(findWaitObject(objs, 0x20000010)?.name).toBe('uart_sem')
   })
+
+  it('ignores kindless containment blobs like shell_uart_ctx', () => {
+    const objs = [
+      { name: 'shell_uart_ctx', addr: 0x40050000, size: 0x800, kind: null },
+    ]
+    expect(findWaitObject(objs, 0x40050420)).toBeNull()
+  })
+
+  it('allows containment only for classified sync objects', () => {
+    const objs = [
+      { name: 'shell_uart_ctx', addr: 0x40050000, size: 0x800, kind: null },
+      { name: 'nested_sem', addr: 0x40050100, size: 0x40, kind: 'sem' },
+    ]
+    expect(findWaitObject(objs, 0x40050108)?.name).toBe('nested_sem')
+  })
 })
 
 describe('listThreads', () => {

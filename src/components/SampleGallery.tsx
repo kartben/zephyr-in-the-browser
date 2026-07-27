@@ -12,6 +12,7 @@ import {
   GraduationCap,
   Activity,
   BatteryCharging,
+  Bug,
   Grid3x3,
   Gamepad2,
   Monitor,
@@ -79,6 +80,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   'fuel-gauge': BatteryCharging,
   can: Network,
   trace: Activity,
+  debug: Bug,
 }
 
 const PANEL_BADGES: Record<PanelKind, string> = {
@@ -102,6 +104,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   'fuel-gauge': 'battery',
   can: 'CAN',
   trace: 'trace',
+  debug: 'debug',
 }
 
 interface Props {

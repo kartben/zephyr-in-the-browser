@@ -131,14 +131,7 @@ export function describeThreadStatus(
         detailAddr: t.waitingOn.addr,
       }
     }
-    if (t.pendedOn) {
-      return {
-        label: 'waiting',
-        detail: `0x${t.pendedOn.toString(16)}`,
-        detailAddr: t.pendedOn,
-      }
-    }
-    // Pending with no wait queue — often a timed sleep still settling.
+    // Pending with no resolvable wait object — don't invent a label.
     if (state & ST_SLEEPING) {
       return { label: 'sleeping', detail: null, detailAddr: null }
     }

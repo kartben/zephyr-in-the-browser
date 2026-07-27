@@ -7,6 +7,8 @@ import { loadPanelLayout, savePanelLayout, type PanelBox } from '@/lib/panelLayo
 
 /** 1rem in CSS px, matching the Tailwind default so rem widths convert cleanly. */
 const REM = 16
+/** Approx. height of a collapsed floating header (py-2 + controls). */
+const FLOATING_HEADER_H = 40
 
 interface PanelFrameProps {
   /**
@@ -49,6 +51,11 @@ interface PanelFrameProps {
    * the caller (returning the body to its dock row) instead of self-managing.
    */
   windowed?: { onClose: () => void }
+  /**
+   * Show the header close (X) control. Debug keeps run-control visible for the
+   * session — hide via the Panels menu instead of dismissing the card.
+   */
+  dismissible?: boolean
   /** Panel body — rendered only while expanded. */
   children: ReactNode
 }
@@ -63,6 +70,7 @@ interface PanelFrameProps {
  * its header and resized from the corner. Floating position and size persist
  * across reloads (src/lib/panelLayout.ts); collapse and dismissal are
  * session-only so the running sample keeps driving which panels open expanded.
+ * Double-clicking the header collapses or expands the body (docked or floating).
  */
 export function PanelFrame({
   id,
@@ -76,6 +84,7 @@ export function PanelFrame({
   actions,
   fill = false,
   windowed,
+  dismissible = true,
   children,
 }: PanelFrameProps) {
   const [saved] = useState(() => loadPanelLayout(id))
@@ -90,12 +99,27 @@ export function PanelFrame({
     return clampBox(seedBox(dockedWidth, seedHeight, side))
   })
 
-  const { dragHandlers, resizeHandlers } = useDragResize(rect, setRect)
+  // Collapsed floaters are header-tall; clamp Y against that so they can sit
+  // near the bottom. Full rect.h is preserved for expand.
+  const { dragHandlers, resizeHandlers } = useDragResize(
+    rect,
+    setRect,
+    collapsed ? { visibleHeight: FLOATING_HEADER_H } : undefined,
+  )
 
   // Persist only the floating layout; collapse/dismiss stay session-only.
   useEffect(() => {
     savePanelLayout(id, { floating, rect })
   }, [id, floating, rect])
+
+  const setCollapsedSafe = (next: boolean | ((c: boolean) => boolean)) => {
+    const collapsedNext = typeof next === 'function' ? next(collapsed) : next
+    // Expanding after a low drag: push up so the restored body fits.
+    if (collapsed && !collapsedNext && rect) {
+      setRect(clampBox(rect))
+    }
+    setCollapsed(collapsedNext)
+  }
 
   const undock = () => {
     // Seed a box from the docked width, popping out near this panel's own edge
@@ -136,6 +160,11 @@ export function PanelFrame({
         data-dock-focus
         tabIndex={-1}
         {...(floating ? dragHandlers : {})}
+        onDoubleClick={(event) => {
+          // Title-bar double-click toggles collapse (docked or floating).
+          if (event.target instanceof Element && event.target.closest('button')) return
+          setCollapsedSafe((c) => !c)
+        }}
         className={cn(
           'flex items-center gap-2 px-3 py-2 outline-none',
           !collapsed && 'border-b border-border',
@@ -169,19 +198,21 @@ export function PanelFrame({
             className="size-6"
             aria-label={collapsed ? `Expand ${title} panel` : `Collapse ${title} panel`}
             aria-expanded={!collapsed}
-            onClick={() => setCollapsed((c) => !c)}
+            onClick={() => setCollapsedSafe((c) => !c)}
           >
             <ChevronDown className={cn('size-3.5 transition-transform', collapsed && '-rotate-90')} />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label={windowed ? `Close ${title} window` : `Hide ${title} panel`}
-            onClick={close}
-          >
-            <X className="size-3.5" />
-          </Button>
+          {dismissible && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label={windowed ? `Close ${title} window` : `Hide ${title} panel`}
+              onClick={close}
+            >
+              <X className="size-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 

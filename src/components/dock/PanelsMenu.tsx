@@ -10,9 +10,11 @@ import { LayoutGrid, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import * as guestStats from '@/guestStats'
+import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
 import {
+  STAGE_DEBUG_KEY,
   STAGE_DISPLAY_KEY,
   STAGE_PERF_KEY,
   STAGE_TRACE_KEY,
@@ -70,9 +72,17 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
   const inventory = useDeviceTree(boardId)
   const stats = useSyncExternalStore(guestStats.subscribe, guestStats.getSnapshot, guestStats.getSnapshot)
   const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
+  const gdb = useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot)
 
   const devices = inventory.nodes.filter((node) => node.presence === 'interactive')
   const hasDisplay = inventory.nodes.some((node) => node.key === 'display')
+  const hasStage =
+    hasDisplay ||
+    stats.available ||
+    trace.available ||
+    gdb.available ||
+    state.seed.primary.includes('trace') ||
+    state.seed.primary.includes('debug')
 
   return (
     <div
@@ -97,7 +107,7 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
         </>
       )}
 
-      {(hasDisplay || stats.available || trace.available || state.seed.primary.includes('trace')) && (
+      {hasStage && (
         <>
           <MenuHeading>Stage</MenuHeading>
           {hasDisplay && (
@@ -124,10 +134,18 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
               onChange={(shown) => setHidden(STAGE_TRACE_KEY, !shown)}
             />
           )}
+          {(gdb.available || state.seed.primary.includes('debug')) && (
+            <PanelToggle
+              label="Debug"
+              detail="gdb · breakpoints"
+              checked={state.devices[STAGE_DEBUG_KEY]?.hidden !== true}
+              onChange={(shown) => setHidden(STAGE_DEBUG_KEY, !shown)}
+            />
+          )}
         </>
       )}
 
-      {devices.length === 0 && !hasDisplay && !stats.available && !trace.available && (
+      {devices.length === 0 && !hasStage && (
         <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
           Nothing to manage yet — no interactive devices are ready.
         </p>
