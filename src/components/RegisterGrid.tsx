@@ -5,20 +5,45 @@
  * then status/PSR. Falls back to a monospace pre when the dump cannot be parsed.
  */
 
+import { useMemo } from 'react'
 import { compactHex, isInactiveRegValue } from '@/debug/hexFormat'
 import { organizeRegisters, type RegEntry } from '@/debug/registerModel'
+import {
+  functionNameFromLabel,
+  inferArchFromDump,
+  regTooltip,
+  type HintArch,
+  type RegHintContext,
+} from '@/debug/regHints'
 import { cn } from '@/lib/utils'
 
 export function RegisterGrid({
   dump,
   loading,
   onPeek,
+  pcLabel,
+  formals,
+  arch,
 }: {
   dump: string | null
   loading?: boolean
   /** Click a value to peek that address in the Memory tab. */
   onPeek?: (addrHex: string) => void
+  /** e.g. `shell_process+0x14` — enables "in fn" on arg tooltips. */
+  pcLabel?: string | null
+  /** DWARF formal names in declaration order. */
+  formals?: string[]
+  arch?: HintArch | null
 }) {
+  const hintCtx: RegHintContext = useMemo(
+    () => ({
+      arch: arch ?? (dump ? inferArchFromDump(dump) : null),
+      functionName: functionNameFromLabel(pcLabel ?? null),
+      formals: formals ?? [],
+    }),
+    [arch, dump, pcLabel, formals],
+  )
+
   if (loading && !dump) {
     return (
       <p className="px-1 py-3 text-center text-[11px] text-muted-foreground">Reading registers…</p>
@@ -57,7 +82,7 @@ export function RegisterGrid({
           )}
         >
           {layout.featured.map((reg) => (
-            <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} />
+            <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} hintCtx={hintCtx} />
           ))}
         </div>
       )}
@@ -72,7 +97,7 @@ export function RegisterGrid({
             )}
           >
             {layout.general.map((reg) => (
-              <RegRow key={reg.name} reg={reg} onPeek={onPeek} />
+              <RegRow key={reg.name} reg={reg} onPeek={onPeek} hintCtx={hintCtx} />
             ))}
           </div>
         </section>
@@ -88,7 +113,7 @@ export function RegisterGrid({
             )}
           >
             {layout.status.map((reg) => (
-              <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} />
+              <FeaturedReg key={reg.name} reg={reg} onPeek={onPeek} hintCtx={hintCtx} />
             ))}
           </div>
         </section>
@@ -108,12 +133,15 @@ function SectionLabel({ children }: { children: string }) {
 function FeaturedReg({
   reg,
   onPeek,
+  hintCtx,
 }: {
   reg: RegEntry
   onPeek?: (addrHex: string) => void
+  hintCtx: RegHintContext
 }) {
   const isPc = reg.name === 'PC'
   const display = compactHex(reg.value)
+  const tip = regTooltip(reg.name, reg.value, hintCtx, { canPeek: !!onPeek })
   return (
     <button
       type="button"
@@ -122,7 +150,7 @@ function FeaturedReg({
         isPc ? 'bg-primary/10 ring-1 ring-primary/25' : 'bg-muted/45 hover:bg-muted/70',
         onPeek && 'cursor-pointer',
       )}
-      title={`0x${reg.value}${onPeek ? ' — click to peek memory' : ''}`}
+      title={tip}
       onClick={() => onPeek?.(reg.value)}
     >
       <div
@@ -149,13 +177,16 @@ function RegRow({
   reg,
   wide,
   onPeek,
+  hintCtx,
 }: {
   reg: RegEntry
   wide?: boolean
   onPeek?: (addrHex: string) => void
+  hintCtx: RegHintContext
 }) {
   const display = compactHex(reg.value)
   const dim = isInactiveRegValue(reg.value)
+  const tip = regTooltip(reg.name, reg.value, hintCtx, { canPeek: !!onPeek })
   return (
     <button
       type="button"
@@ -165,13 +196,12 @@ function RegRow({
         onPeek && 'hover:bg-muted/50',
         dim && 'opacity-40',
       )}
-      title={`0x${reg.value}${onPeek ? ' — click to peek memory' : ''}`}
+      title={tip}
       onClick={() => onPeek?.(reg.value)}
     >
       <span
         className={cn(
           'shrink-0 overflow-hidden text-ellipsis text-muted-foreground',
-          // Status names (PSTATE, XPSR, …) need more than the GPR column.
           wide ? 'w-[4.5rem]' : 'w-7',
         )}
       >

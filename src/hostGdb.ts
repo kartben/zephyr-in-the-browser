@@ -30,6 +30,11 @@ import {
   type ElfSymbol,
   type SymbolIndex,
 } from '@/debug/elfSymbols'
+import {
+  buildFormalIndex,
+  formalsAt,
+  type FormalIndex,
+} from '@/debug/dwarfFormals'
 import { bytesToHex } from '@/debug/gdb/rspCodec'
 
 const POLL_MS = 20
@@ -61,6 +66,10 @@ export interface GdbState {
   /** Function symbols from an unstripped ELF (for BP picker / labels). */
   hasSymbols: boolean
   symbols: ElfSymbol[]
+  /** DWARF formal parameter names for the function containing PC. */
+  regFormals: string[]
+  /** gdb register layout arch — for ABI tooltips. */
+  regArch: GdbArch | null
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
@@ -80,6 +89,8 @@ const EMPTY: GdbState = {
   threadInfo: false,
   hasSymbols: false,
   symbols: [],
+  regFormals: [],
+  regArch: null,
   threads: [],
   threadsLoading: false,
   threadsError: null,
@@ -91,6 +102,7 @@ let client: RspClient | null = null
 let arch: GdbArch = 'arm'
 let threadInfo: ThreadInfo | null = null
 let symbolIndex: SymbolIndex | null = null
+let formalIndex: FormalIndex | null = null
 let stackRegions: StackRegion[] = []
 let waitObjects: WaitObject[] = []
 let state: GdbState = EMPTY
@@ -99,6 +111,10 @@ const listeners = new Set<() => void>()
 
 function labelFor(addr: number): string | null {
   return formatSymbol(resolveSymbol(symbolIndex, addr))
+}
+
+function formalsForPc(pcNum: number): string[] {
+  return formalsAt(formalIndex, pcNum)
 }
 
 function notify() {
@@ -146,6 +162,7 @@ async function refreshRegs() {
     const pc = view.pc
     const pcNum = pc ? Number.parseInt(pc, 16) : NaN
     const pcLabel = Number.isFinite(pcNum) ? labelFor(pcNum) : null
+    const regFormals = Number.isFinite(pcNum) ? formalsForPc(pcNum) : []
     const summary = pcLabel
       ? `${pcLabel}`
       : pc
@@ -156,6 +173,8 @@ async function refreshRegs() {
       pc,
       pcLabel,
       summary,
+      regFormals,
+      regArch: arch,
       registersLoading: false,
     })
   } catch {
@@ -196,6 +215,7 @@ async function refreshThreads() {
 export function setKernelImage(elf: Uint8Array | null) {
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
   symbolIndex = elf ? buildSymbolIndex(elf) : null
+  formalIndex = elf ? buildFormalIndex(elf) : null
   stackRegions = elf ? buildStackRegions(elf) : []
   waitObjects = elf ? buildWaitObjects(elf) : []
   if (state.available || state.attached) {
@@ -203,6 +223,7 @@ export function setKernelImage(elf: Uint8Array | null) {
       threadInfo: threadInfo !== null,
       hasSymbols: symbolIndex !== null,
       symbols: symbolIndex?.byName ?? [],
+      regFormals: [],
       threads: [],
       threadsError: null,
     })
@@ -216,11 +237,13 @@ export function setKernelImage(elf: Uint8Array | null) {
 export function bind(module: unknown, boardArch: string) {
   const keptInfo = threadInfo
   const keptSyms = symbolIndex
+  const keptFormals = formalIndex
   const keptStacks = stackRegions
   const keptWaits = waitObjects
   detach()
   threadInfo = keptInfo
   symbolIndex = keptSyms
+  formalIndex = keptFormals
   stackRegions = keptStacks
   waitObjects = keptWaits
   mod = module as Record<string, unknown>
@@ -233,6 +256,7 @@ export function bind(module: unknown, boardArch: string) {
     threadInfo: threadInfo !== null,
     hasSymbols: symbolIndex !== null,
     symbols: symbolIndex?.byName ?? [],
+    regArch: arch,
   })
 }
 
@@ -308,6 +332,9 @@ export function detach() {
   mod = null
   threadInfo = null
   symbolIndex = null
+  formalIndex = null
+  stackRegions = []
+  waitObjects = []
   state = EMPTY
   notify()
 }

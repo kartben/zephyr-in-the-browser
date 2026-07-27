@@ -198,6 +198,9 @@ function DebugPopover({ snap }: { snap: debug.DebugSnapshot }) {
           dump={snap.registers}
           loading={snap.registersLoading}
           onPeek={snap.gdb ? onPeek : undefined}
+          pcLabel={snap.pcLabel}
+          formals={snap.regFormals}
+          arch={snap.regArch}
         />
       )}
 
