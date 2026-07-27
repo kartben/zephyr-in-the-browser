@@ -61,11 +61,11 @@ const VFD_PAD_X = 16
 const VFD_PAD_Y = 14
 /** Core anode radius (bitmap pass). */
 const VFD_CORE_R = VFD_DOT_PX * 0.4
-/** Soft halo around each anode (source-over, not additive). */
-const VFD_HALO_R = VFD_DOT_PX * 0.85
+/** Soft falloff radius — kept under pitch so neighbour cores barely overlap. */
+const VFD_HALO_R = VFD_DOT_PX * 0.62
 /** Mild whole-field bloom blur (px) — kept light so dense glyphs don't wash out. */
-const VFD_BLOOM_BLUR = 2
-const VFD_BLOOM_ALPHA = 0.18
+const VFD_BLOOM_BLUR = 2.2
+const VFD_BLOOM_ALPHA = 0.22
 
 /**
  * Paint one HD44780 CGROM glyph flush to the cell — each of the 5×8 dots
@@ -168,9 +168,8 @@ function paintVfdAnodes(
   for (const { x: cx, y: cy } of centers) {
     const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, VFD_HALO_R)
     core.addColorStop(0, `rgba(215, 255, 230, ${0.95 * level})`)
-    core.addColorStop(0.28, `rgba(110, 245, 190, ${0.9 * level})`)
-    core.addColorStop(0.5, `rgba(70, 220, 165, ${0.55 * level})`)
-    core.addColorStop(0.72, `rgba(45, 170, 125, ${0.18 * level})`)
+    core.addColorStop(0.35, `rgba(110, 245, 190, ${0.88 * level})`)
+    core.addColorStop(0.7, `rgba(60, 200, 150, ${0.35 * level})`)
     core.addColorStop(1, 'rgba(25, 100, 70, 0)')
     ctx.fillStyle = core
     ctx.beginPath()
