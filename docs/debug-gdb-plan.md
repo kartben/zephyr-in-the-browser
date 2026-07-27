@@ -63,6 +63,13 @@ TCB. Semaphores / mutexes / object cores can come later.
 
 ### Phase E — Disassembly / DWARF (optional)
 
+### Phase F — Dedicated Debug panel
+
+See [`debug-panel-plan.md`](debug-panel-plan.md) and the interactive mockup
+[`mockups/debug-panel.html`](mockups/debug-panel.html). Move Break / CPU /
+Memory / Threads out of the pause-only TopBar popover into a dockable panel so
+breakpoints can be set while the guest is running.
+
 ---
 
 ## Control plane

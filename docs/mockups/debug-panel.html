@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debug panel mockup — zephyr-in-the-browser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #12141a;
+      --bg-elev: #1a1d26;
+      --bg-soft: #222632;
+      --line: #2e3340;
+      --fg: #e8e6e1;
+      --fg-dim: #9a9aa3;
+      --fg-mute: #6b6e78;
+      --accent: #c4a574;
+      --accent-soft: rgba(196, 165, 116, 0.14);
+      --danger: #c97b7b;
+      --ok: #7aab8a;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      --sans: "IBM Plex Sans", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      background:
+        radial-gradient(900px 500px at 10% -10%, #1c2433 0%, transparent 55%),
+        radial-gradient(700px 400px at 100% 0%, #1a221c 0%, transparent 50%),
+        var(--bg);
+      color: var(--fg);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      padding: 1.25rem 1.5rem 2rem;
+    }
+    header.page {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem 1.5rem;
+    }
+    header.page h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    header.page p {
+      margin: 0.2rem 0 0;
+      color: var(--fg-dim);
+      font-size: 0.85rem;
+      max-width: 36rem;
+      line-height: 1.45;
+    }
+    .mode {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--fg-dim);
+    }
+    .toggle {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg-elev);
+    }
+    .toggle button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg-dim);
+      font: 500 0.75rem/1 var(--sans);
+      padding: 0.45rem 0.85rem;
+      cursor: pointer;
+    }
+    .toggle button[aria-pressed="true"] {
+      background: var(--bg-soft);
+      color: var(--fg);
+    }
+
+    /* Fake app chrome */
+    .stage {
+      display: grid;
+      grid-template-columns: 1fr min(24rem, 100%);
+      gap: 1rem;
+      align-items: start;
+      flex: 1;
+    }
+    @media (max-width: 860px) {
+      .stage { grid-template-columns: 1fr; }
+    }
+
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.65rem;
+      background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+    }
+    .topbar .brand {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--fg-mute);
+      margin-right: 0.5rem;
+    }
+    .icon-btn, .chip-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg);
+      border-radius: 7px;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+    .icon-btn {
+      width: 2rem;
+      height: 2rem;
+      display: grid;
+      place-items: center;
+    }
+    .icon-btn:hover, .chip-btn:hover { background: var(--bg-soft); }
+    .chip-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      height: 2rem;
+      padding: 0 0.55rem;
+      color: var(--fg-dim);
+      max-width: 12rem;
+    }
+    .chip-btn strong { color: var(--fg); font-weight: 500; }
+    .chip-btn .dot {
+      width: 0.4rem;
+      height: 0.4rem;
+      border-radius: 50%;
+      background: var(--ok);
+    }
+    body[data-mode="running"] .chip-btn .dot { background: var(--accent); }
+    body[data-mode="running"] .only-paused { display: none !important; }
+    body[data-mode="paused"] .only-running { display: none !important; }
+    .spacer { flex: 1; }
+    .ghost {
+      font-size: 0.7rem;
+      color: var(--fg-mute);
+      padding: 0 0.4rem;
+    }
+
+    .terminal {
+      min-height: 16rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #0e1014;
+      padding: 0.85rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      line-height: 1.55;
+      color: #b8b6b0;
+    }
+    .terminal .prompt { color: var(--ok); }
+    .terminal .dim { color: var(--fg-mute); }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--bg-elev);
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.28);
+    }
+    .panel-hd {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg-soft) 55%, transparent);
+    }
+    .panel-hd h2 {
+      margin: 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .panel-hd .meta {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--fg-mute);
+    }
+    .panel-hd .grow { flex: 1; }
+    .panel-hd .win {
+      display: flex;
+      gap: 0.15rem;
+    }
+    .panel-hd .win button {
+      width: 1.4rem;
+      height: 1.4rem;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--fg-mute);
+      cursor: pointer;
+      font-size: 0.65rem;
+    }
+    .panel-hd .win button:hover { background: var(--bg-soft); color: var(--fg); }
+
+    .status-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem 0.75rem;
+      padding: 0.55rem 0.75rem 0.35rem;
+      font-size: 0.72rem;
+      color: var(--fg-dim);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--fg);
+    }
+    .pill i {
+      width: 0.4rem;
+      height: 0.4rem;
+      border-radius: 50%;
+      background: var(--ok);
+      display: inline-block;
+    }
+    body[data-mode="running"] .pill i { background: var(--accent); }
+
+    .section {
+      padding: 0.35rem 0.75rem 0.75rem;
+    }
+    .section-label {
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-mute);
+      margin: 0.4rem 0 0.45rem;
+    }
+
+    .bp-add {
+      display: flex;
+      gap: 0.35rem;
+      margin-bottom: 0.5rem;
+    }
+    .bp-add input {
+      flex: 1;
+      min-width: 0;
+      height: 1.85rem;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0 0.55rem;
+      outline: none;
+    }
+    .bp-add input:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+    .bp-add button {
+      height: 1.85rem;
+      padding: 0 0.7rem;
+      border-radius: 7px;
+      border: 0;
+      background: var(--bg-soft);
+      color: var(--fg);
+      font-size: 0.7rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .bp-add button:hover { background: color-mix(in srgb, var(--accent) 25%, var(--bg-soft)); }
+
+    .bp-list { list-style: none; margin: 0; padding: 0; }
+    .bp-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      padding: 0.35rem 0.25rem;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+    .bp-list li:hover { background: var(--bg-soft); }
+    .bp-list .name { flex: 1; min-width: 0; color: var(--fg); }
+    .bp-list .addr { color: var(--fg-mute); }
+    .bp-list .rm {
+      border: 0;
+      background: transparent;
+      color: var(--fg-mute);
+      cursor: pointer;
+      font-size: 0.75rem;
+      padding: 0 0.25rem;
+    }
+    .bp-list .rm:hover { color: var(--danger); }
+    .note {
+      margin: 0.35rem 0 0;
+      font-size: 0.68rem;
+      color: var(--accent);
+      opacity: 0.9;
+    }
+
+    .gate {
+      margin: 0.25rem 0.75rem 0.85rem;
+      padding: 0.7rem 0.8rem;
+      border-radius: 8px;
+      border: 1px dashed var(--line);
+      color: var(--fg-mute);
+      font-size: 0.72rem;
+      line-height: 1.4;
+      background: color-mix(in srgb, var(--bg) 60%, transparent);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.2rem;
+      padding: 0 0.75rem;
+      margin-top: 0.15rem;
+    }
+    .tabs button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg-mute);
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.55rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .tabs button[aria-selected="true"] {
+      background: var(--bg-soft);
+      color: var(--fg);
+    }
+
+    .regs {
+      padding: 0.5rem 0.75rem 0.9rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .feat {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.4rem;
+    }
+    .feat > div {
+      background: var(--accent-soft);
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+      border-radius: 7px;
+      padding: 0.4rem 0.5rem;
+    }
+    .feat > div:not(:first-child) {
+      background: var(--bg-soft);
+      border-color: var(--line);
+    }
+    .feat .k {
+      font-size: 0.58rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .feat > div:not(:first-child) .k { color: var(--fg-mute); }
+    .feat .v {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      margin-top: 0.15rem;
+    }
+    .gpr {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.15rem 0.75rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+    }
+    .gpr span { color: var(--fg-mute); display: inline-block; width: 1.6rem; }
+    .hint {
+      margin: 0;
+      font-size: 0.65rem;
+      color: var(--fg-mute);
+      padding: 0 0.75rem 0.85rem;
+    }
+
+    footer.page {
+      font-size: 0.72rem;
+      color: var(--fg-mute);
+      max-width: 40rem;
+      line-height: 1.45;
+    }
+    footer.page code {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--fg-dim);
+    }
+  </style>
+</head>
+<body data-mode="running">
+  <header class="page">
+    <div>
+      <h1>Debug panel mockup</h1>
+      <p>
+        Breakpoints stay usable while the guest runs. CPU / Memory / Threads
+        only unlock when paused. TopBar keeps Pause · Step · PC chip.
+      </p>
+    </div>
+    <div class="mode">
+      Guest state
+      <div class="toggle" role="group" aria-label="Guest state">
+        <button type="button" id="btn-run" aria-pressed="true">Running</button>
+        <button type="button" id="btn-pause" aria-pressed="false">Paused</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="topbar">
+      <span class="brand">zephyr · a53</span>
+      <button type="button" class="icon-btn only-running" title="Pause" aria-label="Pause">❚❚</button>
+      <button type="button" class="icon-btn only-paused" title="Continue" aria-label="Continue">▶</button>
+      <button type="button" class="icon-btn only-paused" title="Step" aria-label="Step">↷</button>
+      <button type="button" class="chip-btn only-paused" title="Focus Debug → CPU">
+        <span class="dot"></span>
+        <strong>shell_process+0x14</strong>
+      </button>
+      <button type="button" class="chip-btn only-running" title="Open Debug panel">
+        <span class="dot"></span>
+        2 bps
+      </button>
+      <span class="spacer"></span>
+      <span class="ghost">Panels ▾</span>
+    </div>
+
+    <div class="terminal" aria-hidden="true">
+      <div><span class="prompt">uart:~$</span> help</div>
+      <div class="dim">Please press the &lt;Tab&gt; button to see all available commands.</div>
+      <div><span class="prompt">uart:~$</span> <span id="cursor">█</span></div>
+    </div>
+
+    <aside class="panel" aria-label="Debug panel">
+      <div class="panel-hd">
+        <h2>Debug</h2>
+        <span class="meta">gdb</span>
+        <span class="grow"></span>
+        <div class="win">
+          <button type="button" title="Collapse">–</button>
+          <button type="button" title="Undock">↗</button>
+          <button type="button" title="Close">×</button>
+        </div>
+      </div>
+
+      <div class="status-line">
+        <span class="pill"><i></i> <span class="only-running">running</span><span class="only-paused">paused</span></span>
+        <span class="only-paused" style="font-family:var(--mono);font-size:0.65rem;color:var(--fg)">shell_process+0x14</span>
+        <span class="only-running" style="font-family:var(--mono);font-size:0.65rem">idle · main · shell</span>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Breakpoints</div>
+        <div class="bp-add">
+          <input type="text" value="k_sem_take" aria-label="Breakpoint symbol or address" />
+          <button type="button">Add</button>
+        </div>
+        <ul class="bp-list">
+          <li>
+            <span class="name">shell_process</span>
+            <span class="addr">4003b018</span>
+            <button type="button" class="rm" title="Remove">×</button>
+          </li>
+          <li>
+            <span class="name">k_msleep+0x2c</span>
+            <span class="addr">4001a044</span>
+            <button type="button" class="rm" title="Remove">×</button>
+          </li>
+        </ul>
+        <p class="note only-running">Editable while running — no pause required.</p>
+      </div>
+
+      <div class="gate only-running">
+        Pause the machine to inspect CPU registers, memory, and Zephyr threads.
+      </div>
+
+      <div class="only-paused">
+        <div class="tabs" role="tablist">
+          <button type="button" aria-selected="true">CPU</button>
+          <button type="button" aria-selected="false">Memory</button>
+          <button type="button" aria-selected="false">Threads</button>
+        </div>
+        <div class="regs">
+          <div class="feat">
+            <div>
+              <div class="k">PC</div>
+              <div class="v">4003b02c</div>
+            </div>
+            <div>
+              <div class="k">SP</div>
+              <div class="v">4000ff40</div>
+            </div>
+            <div>
+              <div class="k">LR</div>
+              <div class="v">4003a1f8</div>
+            </div>
+          </div>
+          <div class="gpr">
+            <div><span>X00</span> 40001000</div>
+            <div><span>X01</span> 2</div>
+            <div><span>X02</span> 0</div>
+            <div><span>X03</span> aaaaaaaa</div>
+          </div>
+        </div>
+        <p class="hint">Hover X00 → <em>pathname · arg0 / return</em> · in shell_process</p>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="page">
+    Plan: <code>docs/debug-panel-plan.md</code>.
+    This file is a static mockup — toggle Running / Paused above to compare modes.
+  </footer>
+
+  <script>
+    const body = document.body
+    const run = document.getElementById('btn-run')
+    const pause = document.getElementById('btn-pause')
+    function setMode(mode) {
+      body.dataset.mode = mode
+      run.setAttribute('aria-pressed', mode === 'running' ? 'true' : 'false')
+      pause.setAttribute('aria-pressed', mode === 'paused' ? 'true' : 'false')
+    }
+    run.addEventListener('click', () => setMode('running'))
+    pause.addEventListener('click', () => setMode('paused'))
+  </script>
+</body>
+</html>
