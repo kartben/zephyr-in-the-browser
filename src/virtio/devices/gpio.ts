@@ -267,6 +267,14 @@ export function createGpioModel(name = 'gpio'): GpioModel {
       ngpio = Math.min(dv.getUint16(0, true), MAX_LINES)
       lineMask = ngpio >= 32 ? -1 : (1 << ngpio) - 1
       inputs &= lineMask
+      // A caller's setInputs() before this point was masked to 0 by the
+      // then-unknown lineMask (ngpio defaults to 0), silently dropping it —
+      // notify so a subscriber can re-push its real intended word now that
+      // lineMask is meaningful. Without this, a line a consumer means to
+      // idle high (e.g. an active-low interrupt line) stays stuck at its
+      // default low forever, and no transition off that wrong baseline is
+      // ever a real edge.
+      notify()
     },
 
     handle(req) {

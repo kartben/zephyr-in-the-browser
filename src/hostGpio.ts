@@ -391,6 +391,12 @@ export function attach(mod: unknown) {
     unsubscribeModel = gpioModel.subscribe(() => {
       outputs = gpioModel.getOutputs() & pinMask(derived.ngpios)
       notifyOutputs()
+      // The model's config (ngpio) may not have been known yet the moment(s)
+      // this module last called setInputs — attachConfig notifies once it
+      // lands, specifically so the real intended word (kept here, not
+      // reconstructable from inside the model) can be re-applied. A no-op
+      // once the two are already in sync.
+      gpioModel.setInputs(inputs)
     })
     gpioModel.setInputs(inputs)
   }
