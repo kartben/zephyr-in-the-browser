@@ -395,7 +395,8 @@
       <h1>Debug panel mockup</h1>
       <p>
         Breakpoints stay usable while the guest runs. CPU / Memory / Threads
-        only unlock when paused. TopBar keeps Pause · Step · PC chip.
+        only unlock when paused. Pause · Step live on the Debug panel — not
+        the TopBar.
       </p>
     </div>
     <div class="mode">
@@ -410,17 +411,6 @@
   <div class="stage">
     <div class="topbar">
       <span class="brand">zephyr · a53</span>
-      <button type="button" class="icon-btn only-running" title="Pause" aria-label="Pause">❚❚</button>
-      <button type="button" class="icon-btn only-paused" title="Continue" aria-label="Continue">▶</button>
-      <button type="button" class="icon-btn only-paused" title="Step" aria-label="Step">↷</button>
-      <button type="button" class="chip-btn only-paused" title="Focus Debug → CPU">
-        <span class="dot"></span>
-        <strong>shell_process+0x14</strong>
-      </button>
-      <button type="button" class="chip-btn only-running" title="Open Debug panel">
-        <span class="dot"></span>
-        2 bps
-      </button>
       <span class="spacer"></span>
       <span class="ghost">Panels ▾</span>
     </div>
@@ -435,7 +425,11 @@
       <div class="panel-hd">
         <h2>Debug</h2>
         <span class="meta">gdb</span>
+        <span class="pill" style="margin-left:0.35rem"><i></i> <span class="only-running">running</span><span class="only-paused">paused</span></span>
         <span class="grow"></span>
+        <button type="button" class="icon-btn only-running" title="Pause" aria-label="Pause" style="width:1.5rem;height:1.5rem">❚❚</button>
+        <button type="button" class="icon-btn only-paused" title="Continue" aria-label="Continue" style="width:1.5rem;height:1.5rem">▶</button>
+        <button type="button" class="icon-btn only-paused" title="Step" aria-label="Step" style="width:1.5rem;height:1.5rem">↷</button>
         <div class="win">
           <button type="button" title="Collapse">–</button>
           <button type="button" title="Undock">↗</button>
@@ -444,9 +438,8 @@
       </div>
 
       <div class="status-line">
-        <span class="pill"><i></i> <span class="only-running">running</span><span class="only-paused">paused</span></span>
         <span class="only-paused" style="font-family:var(--mono);font-size:0.65rem;color:var(--fg)">shell_process+0x14</span>
-        <span class="only-running" style="font-family:var(--mono);font-size:0.65rem">idle · main · shell</span>
+        <span class="only-running" style="font-family:var(--mono);font-size:0.65rem">2 breakpoints</span>
       </div>
 
       <div class="section">
