@@ -21,6 +21,13 @@ import {
 import { compactHex } from '@/debug/hexFormat'
 import { parseThreadInfoFromElf, type ThreadInfo } from '@/debug/kernel/meta'
 import { listThreads, type ZephyrThread } from '@/debug/kernel/threads'
+import {
+  buildSymbolIndex,
+  formatSymbol,
+  resolveSymbol,
+  type ElfSymbol,
+  type SymbolIndex,
+} from '@/debug/elfSymbols'
 import { bytesToHex } from '@/debug/gdb/rspCodec'
 
 const POLL_MS = 20
@@ -29,6 +36,8 @@ export interface Breakpoint {
   addr: number
   /** Display hex, lowercase, no 0x. */
   addrHex: string
+  /** Resolved function name, if the ELF has symbols. */
+  label: string | null
 }
 
 export interface GdbState {
@@ -37,6 +46,8 @@ export interface GdbState {
   attached: boolean
   paused: boolean
   pc: string | null
+  /** Function+offset for the current PC, when symbols are available. */
+  pcLabel: string | null
   summary: string | null
   registers: string | null
   registersLoading: boolean
@@ -45,6 +56,9 @@ export interface GdbState {
   memory: { addr: number; hex: string } | null
   /** Guest ELF has CONFIG_DEBUG_THREAD_INFO symbols. */
   threadInfo: boolean
+  /** Function symbols from an unstripped ELF (for BP picker / labels). */
+  hasSymbols: boolean
+  symbols: ElfSymbol[]
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
@@ -55,12 +69,15 @@ const EMPTY: GdbState = {
   attached: false,
   paused: false,
   pc: null,
+  pcLabel: null,
   summary: null,
   registers: null,
   registersLoading: false,
   breakpoints: [],
   memory: null,
   threadInfo: false,
+  hasSymbols: false,
+  symbols: [],
   threads: [],
   threadsLoading: false,
   threadsError: null,
@@ -71,9 +88,14 @@ let ch: ChardevExports | null = null
 let client: RspClient | null = null
 let arch: GdbArch = 'arm'
 let threadInfo: ThreadInfo | null = null
+let symbolIndex: SymbolIndex | null = null
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const listeners = new Set<() => void>()
+
+function labelFor(addr: number): string | null {
+  return formatSymbol(resolveSymbol(symbolIndex, addr))
+}
 
 function notify() {
   for (const fn of listeners) fn()
@@ -118,10 +140,18 @@ async function refreshRegs() {
     const hex = await client.readRegisters()
     const view = decodeGPacket(arch, hex)
     const pc = view.pc
+    const pcNum = pc ? Number.parseInt(pc, 16) : NaN
+    const pcLabel = Number.isFinite(pcNum) ? labelFor(pcNum) : null
+    const summary = pcLabel
+      ? `${pcLabel}`
+      : pc
+        ? `PC ${compactHex(pc)}`
+        : view.summary
     publish({
       registers: view.dump,
       pc,
-      summary: pc ? `PC ${compactHex(pc)}` : view.summary,
+      pcLabel,
+      summary,
       registersLoading: false,
     })
   } catch {
@@ -152,14 +182,17 @@ async function refreshThreads() {
 }
 
 /**
- * Parse CONFIG_DEBUG_THREAD_INFO from the guest ELF (needs an unstripped image
- * with symbols). Safe no-op on stripped ELFs.
+ * Parse CONFIG_DEBUG_THREAD_INFO + function symbols from the guest ELF.
+ * Needs an unstripped image; safe no-op on stripped ELFs.
  */
 export function setKernelImage(elf: Uint8Array | null) {
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
+  symbolIndex = elf ? buildSymbolIndex(elf) : null
   if (state.available || state.attached) {
     publish({
       threadInfo: threadInfo !== null,
+      hasSymbols: symbolIndex !== null,
+      symbols: symbolIndex?.byName ?? [],
       threads: [],
       threadsError: null,
     })
@@ -171,9 +204,11 @@ export function setKernelImage(elf: Uint8Array | null) {
  * Does not open the stub yet — call {@link attachSession} after boot.
  */
 export function bind(module: unknown, boardArch: string) {
-  const kept = threadInfo
+  const keptInfo = threadInfo
+  const keptSyms = symbolIndex
   detach()
-  threadInfo = kept
+  threadInfo = keptInfo
+  symbolIndex = keptSyms
   mod = module as Record<string, unknown>
   ch = bindChardev(mod, 'gdb')
   arch = archFromBoard(boardArch)
@@ -182,6 +217,8 @@ export function bind(module: unknown, boardArch: string) {
     ...EMPTY,
     available,
     threadInfo: threadInfo !== null,
+    hasSymbols: symbolIndex !== null,
+    symbols: symbolIndex?.byName ?? [],
   })
 }
 
@@ -256,6 +293,7 @@ export function detach() {
   ch = null
   mod = null
   threadInfo = null
+  symbolIndex = null
   state = EMPTY
   notify()
 }
@@ -279,6 +317,7 @@ export async function resume(): Promise<void> {
     publish({
       paused: false,
       pc: null,
+      pcLabel: null,
       summary: null,
       registers: null,
       registersLoading: false,
@@ -307,7 +346,11 @@ export async function addBreakpoint(addr: number): Promise<boolean> {
   const kind = breakpointKind(arch)
   const ok = await client.insertSwBreakpoint(addr, kind)
   if (ok) {
-    const bp: Breakpoint = { addr, addrHex: addr.toString(16) }
+    const bp: Breakpoint = {
+      addr,
+      addrHex: addr.toString(16),
+      label: labelFor(addr),
+    }
     if (!state.breakpoints.some((b) => b.addr === addr)) {
       publish({ breakpoints: [...state.breakpoints, bp] })
     }
