@@ -20,6 +20,7 @@ import { createSct2024 } from './devices/chips/sct2024'
 import { createWs2812 } from './devices/chips/ws2812'
 import { createPt6314 } from './devices/chips/pt6314'
 import { createTmc50xx } from './devices/chips/tmc50xx'
+import { createMcp2515 } from './devices/chips/mcp2515'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createLm75 } from './devices/sensors/lm75'
 import { createAdxl345 } from './devices/sensors/adxl345'
@@ -146,6 +147,16 @@ export const pt6314 = createPt6314({ cs: 0, columns: 20, rows: 2 })
  */
 export const tmc50xx = createTmc50xx({ cs: 0, clockHz: 10_000_000 })
 
+/**
+ * MCP2515 CAN controller on SPI CS0 — stock samples/drivers/can/counter and
+ * can/babbling with `-S can-mcp2515-only`. Shares CS0 with NOR / SCT2024 /
+ * WS2812 / PT6314 / TMC50xx. Managed the same way the NOR fallback is (see
+ * wantedManagedSpiChips below): without it, the guest's soft-reset at driver
+ * init races an empty bus and probe fails permanently, same as the JEDEC
+ * probe would if nothing answered CS0.
+ */
+export const mcp2515 = createMcp2515({ cs: 0 })
+
 /** Board defaults + optional extras the overlay declares; keyed by address. */
 const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
   [0x14, lp5012],
@@ -181,6 +192,7 @@ const MANAGED_SPI_BY_ID: ReadonlyMap<string, SpiChip> = new Map<string, SpiChip>
   ['ws2812', ws2812],
   ['pt6314', pt6314],
   ['tmc50xx', tmc50xx],
+  ['mcp2515', mcp2515],
 ])
 
 /** (chipId@cs) → instance for selects that are not the stock singleton's CS. */

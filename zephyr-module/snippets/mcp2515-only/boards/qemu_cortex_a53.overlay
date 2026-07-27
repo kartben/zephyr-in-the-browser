@@ -1,0 +1,46 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/can/*: MCP2515 on virtio-spi CS0. Self-contained — does not
+ * compose with the virtio-spi snippet (that one puts a JEDEC NOR on CS0).
+ *
+ * INT rides virtio-gpio line 8: 4 is LED0, 5 the buzzer, 6/7 are step/dir or
+ * the SCT2024's LA/OE, so 8 is the first line nothing else claims. It is
+ * active low, and src/hostCan.ts drives it from the controller's flags.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&virtio_mmio2 {
+	status = "okay";
+};
+
+&virtio_mmio5 {
+	status = "okay";
+};
+
+&virtio_gpio0 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	status = "okay";
+
+	can0: can@0 {
+		compatible = "microchip,mcp2515";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		int-gpios = <&virtio_gpio0 8 GPIO_ACTIVE_LOW>;
+		osc-freq = <16000000>;
+		bitrate = <500000>;
+		sample-point = <875>;
+		status = "okay";
+	};
+};
+
+/ {
+	chosen {
+		zephyr,canbus = &can0;
+	};
+};

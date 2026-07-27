@@ -15,6 +15,7 @@
 #                    i2c-sensors-extra, auxdisplays, eeprom-only,
 #                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
 #                    max17048-only, lp5562-only, lp5012-only, sct2024-only,
+#                    mcp2515-only,
 #                    ws2812-only, tmc50xx-only, pt6314-only, and the *-only
 #                    sensor / RTC snippets; leave the conf field empty
 #                    (a bare "::") to use snippets without fragments.
@@ -72,6 +73,7 @@ qemu_cortex_a53:lp50xx:samples/drivers/led/lp50xx:conf/lp50xx.conf:virtio-i2c,lp
 qemu_cortex_a53:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
 qemu_cortex_a53:led_strip:samples/drivers/led/led_strip:conf/ws2812.conf:ws2812-only
 qemu_cortex_a53:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
+qemu_cortex_a53:can_counter:zephyr-module/apps/can_counter:conf/mcp2515.conf:mcp2515-only
 qemu_cortex_a53:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca9685-only
 qemu_cortex_a53:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c,mcp4725-only
 qemu_cortex_a53:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only
@@ -116,6 +118,7 @@ qemu_riscv32:lp50xx:samples/drivers/led/lp50xx:conf/lp50xx.conf:virtio-i2c,lp501
 qemu_riscv32:sct2024:samples/drivers/led/sct2024:conf/sct2024.conf:sct2024-only
 qemu_riscv32:led_strip:samples/drivers/led/led_strip:conf/ws2812.conf:ws2812-only
 qemu_riscv32:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
+qemu_riscv32:can_counter:zephyr-module/apps/can_counter:conf/mcp2515.conf:mcp2515-only
 qemu_riscv32:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca9685-only
 qemu_riscv32:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c,mcp4725-only
 qemu_riscv32:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only

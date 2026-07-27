@@ -46,6 +46,7 @@ export interface PartIdentity {
     | 'rtc'
     | 'flash'
     | 'stepper'
+    | 'can'
   /** Official datasheet URL when one is publicly linkable. */
   datasheetUrl?: string
   /** Zephyr DT binding documentation URL. */
@@ -386,6 +387,21 @@ export const PARTS: readonly PartIdentity[] = [
     summary:
       'Dual motion controller + driver over SPI; stock Zephyr tmc50xx sample spins motor 0.',
   },
+  {
+    id: 'mcp2515',
+    label: 'MCP2515 CAN',
+    manufacturer: 'Microchip',
+    part: 'MCP2515',
+    bus: 'spi',
+    compatible: 'microchip,mcp2515',
+    defaultAddress: 0,
+    addressKind: 'spi-cs',
+    kind: 'can',
+    datasheetUrl: 'https://ww1.microchip.com/downloads/en/DeviceDoc/MCP2515-Stand-Alone-CAN-Controller-with-SPI-20001801J.pdf',
+    bindingUrl: binding('can/microchip%2Cmcp2515.html'),
+    summary:
+      'Stand-alone CAN controller over SPI; the page plays the rest of the bus.',
+  },
 ]
 
 const BY_ID = new Map(PARTS.map((p) => [p.id, p]))
@@ -417,5 +433,6 @@ export const PART_KIND_LABELS: Record<PartIdentity['kind'], string> = {
   'fuel-gauge': 'Fuel gauge',
   rtc: 'RTC',
   flash: 'Flash',
+  can: 'CAN controller',
   stepper: 'Stepper',
 }
