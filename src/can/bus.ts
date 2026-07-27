@@ -89,7 +89,8 @@ export interface CanNodeSnapshot {
   /**
    * Characteristic **frame** / arbitration ID when the preset has one
    * (Periodic's TX id, Responder's RTR id). `null` when the node has none —
-   * CAN has no node addresses.
+   * CAN has no node addresses. Not used for roster order: a node may transmit
+   * any ID from one frame to the next.
    */
   frameId: number | null
   tec: number
@@ -97,22 +98,6 @@ export interface CanNodeSnapshot {
   state: CanState
   /** One-line behaviour summary for the roster sub-line. */
   summary: string
-}
-
-/**
- * Roster and lane order: local controller first, then by frame ID ascending
- * (lower ID wins arbitration, so the list teaches that), nodes without a
- * frame ID after those, name as a tiebreak. Not an address sort — CAN has
- * none.
- */
-export function compareCanNodes(a: CanNodeSnapshot, b: CanNodeSnapshot): number {
-  if (a.local !== b.local) return a.local ? -1 : 1
-  const ai = a.frameId
-  const bi = b.frameId
-  if (ai != null && bi != null && ai !== bi) return ai - bi
-  if (ai != null && bi == null) return -1
-  if (ai == null && bi != null) return 1
-  return a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
 }
 
 export interface CanLogEntry {

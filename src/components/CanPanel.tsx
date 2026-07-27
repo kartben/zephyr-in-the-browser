@@ -22,7 +22,6 @@ import {
 } from '@/hostCan'
 import { nodeType } from '@/can/nodes'
 import type { CanLogEntry, CanNodeSnapshot, CanState } from '@/can/bus'
-import { compareCanNodes } from '@/can/bus'
 import type { Mcp2515Chip } from '@/virtio/devices/chips/mcp2515'
 import { RegisterMapButton } from './RegisterMap'
 import {
@@ -98,7 +97,12 @@ export function CanView({
   chip?: Mcp2515Chip | null
 }) {
   const local = nodes.find((n) => n.local)
-  const roster = useMemo(() => [...nodes].sort(compareCanNodes), [nodes])
+  // Local first, then attachment order. Not sorted by frame ID: a node may
+  // transmit any ID from one frame to the next.
+  const roster = useMemo(
+    () => [...nodes].sort((a, b) => Number(b.local) - Number(a.local)),
+    [nodes],
+  )
   const recent = log.slice(-8).reverse()
 
   return (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createCanBus, compareCanNodes, frameBits, type CanFrame } from './bus'
+import { createCanBus, frameBits, type CanFrame } from './bus'
 import { nodeType } from './nodes'
 
 /** Frames are short; a clock we drive by hand keeps the tests deterministic. */
@@ -255,28 +255,18 @@ describe('acknowledgement and error counters', () => {
     expect(bus.log().some((e) => e.kind === 'no-ack')).toBe(false)
   })
 
-  it('exposes a frame ID only when the preset has one, and sorts by it', () => {
+  it('exposes a frame ID only when the preset has one', () => {
     const { bus } = harness()
     bus.attach({ id: 'can0', name: 'can0', local: true })
     bus.attach(nodeType('periodic')!.create('hi', { id: 0x200, periodMs: 50 }))
     bus.attach(nodeType('listener')!.create('l', { id: 0, periodMs: 0 }))
-    bus.attach(nodeType('periodic')!.create('lo', { id: 0x0a0, periodMs: 50 }))
     bus.attach(nodeType('responder')!.create('r', { id: 0x100, periodMs: 0 }))
 
     const nodes = bus.nodes()
     expect(nodes.find((n) => n.id === 'can0')!.frameId).toBeNull()
     expect(nodes.find((n) => n.id === 'l')!.frameId).toBeNull()
-    expect(nodes.find((n) => n.id === 'lo')!.frameId).toBe(0x0a0)
     expect(nodes.find((n) => n.id === 'r')!.frameId).toBe(0x100)
     expect(nodes.find((n) => n.id === 'hi')!.frameId).toBe(0x200)
-
-    expect([...nodes].sort(compareCanNodes).map((n) => n.id)).toEqual([
-      'can0',
-      'lo',
-      'r',
-      'hi',
-      'l',
-    ])
   })
 })
 

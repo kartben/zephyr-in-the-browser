@@ -261,10 +261,10 @@ Body sections, top to bottom, mirroring `I2cBody`'s rhythm:
 
 | Section | Contents |
 | --- | --- |
-| On the bus | Roster. Local first, then by frame ID ascending. Accent border on local, no `×`. |
+| On the bus | Roster. Local first, then attachment order. Accent border on local, no `×`. |
 | Add node | Catalog select + Add, exactly `AttachRow`'s shape. Frame ID field when the type needs one. |
 | Send | Sender select, Frame ID, RTR, eight byte fields, Send. |
-| Arbitration | Lane strip. Live-follow like Trace; drag freezes, ± zooms, Crosshair resumes. |
+| Arbitration | Lane strip. Ticks are labeled with the frame ID that crossed. Live-follow like Trace. |
 | Traffic | Frame trace, newest first, `clear`. |
 
 The arbitration lane strip is a small canvas of its own, not TracePanel's CTF
