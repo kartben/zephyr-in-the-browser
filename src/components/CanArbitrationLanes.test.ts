@@ -38,7 +38,7 @@ describe('buildLaneModel', () => {
 
     const model = buildLaneModel(bus.nodes(), bus.log(), livePinnedView(t, 2000))
 
-    expect(model.lanes.map((l) => l.id)).toEqual(['can0', 'hi', 'ack'])
+    expect(model.lanes.map((l) => l.id)).toEqual(['can0', 'ack', 'hi'])
     const lost = model.ticks.filter((tick) => tick.lost)
     expect(lost).toHaveLength(1)
     expect(lost[0]).toMatchObject({ nodeId: 'hi', frameId: 0x200, lostTo: 0x100 })
