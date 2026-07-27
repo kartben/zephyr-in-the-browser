@@ -24,6 +24,12 @@
 
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import type { BuzzerPin, StepperAxis } from '@/dts'
+import {
+  HOST_POLL_MS,
+  isRegistered,
+  register as registerPoll,
+  unregister as unregisterPoll,
+} from '@/hostPoll'
 import { gpioModel, isBound, subscribeBinds } from '@/virtio'
 
 /** Pin roles. Must match the ngpios and wiring the guest overlay declares. */
@@ -90,7 +96,8 @@ let derived: {
 }
 
 /** Default MMIO output poll. Steppers need a faster tick to catch STEP edges. */
-const MMIO_POLL_MS = 100
+const POLL_ID = 'gpio-mmio'
+const MMIO_POLL_MS = HOST_POLL_MS
 const MMIO_POLL_STEPPER_MS = 1
 
 function mmioPollMs(): number {
@@ -274,7 +281,8 @@ function bindMmio(mod: GpioExports | null): MmioBridge | null {
 }
 
 let mmio: MmioBridge | null = null
-let poller: ReturnType<typeof setInterval> | undefined
+/** Dedicated timer for the stepper 1 ms path; slow path uses hostPoll. */
+let fastPoller: ReturnType<typeof setInterval> | undefined
 let pollerMs = 0
 let unsubscribeModel: (() => void) | undefined
 let unsubscribeBinds: (() => void) | undefined
@@ -285,13 +293,29 @@ let inputs = 0
 /** Last output word seen from the guest, one bit per pin. */
 let outputs = 0
 
+function clearMmioPoller() {
+  unregisterPoll(POLL_ID)
+  if (fastPoller !== undefined) clearInterval(fastPoller)
+  fastPoller = undefined
+  pollerMs = 0
+}
+
 function restartMmioPoller() {
-  if (!mmio) return
+  if (!mmio) {
+    clearMmioPoller()
+    return
+  }
   const ms = mmioPollMs()
-  if (poller !== undefined && pollerMs === ms) return
-  if (poller !== undefined) clearInterval(poller)
+  const onShared = isRegistered(POLL_ID)
+  const onFast = fastPoller !== undefined
+  if (pollerMs === ms && ((ms < HOST_POLL_MS && onFast) || (ms >= HOST_POLL_MS && onShared))) {
+    return
+  }
+  clearMmioPoller()
   pollerMs = ms
-  poller = setInterval(pollMmio, ms)
+  // Steppers need sub-beat cadence; everything else rides the shared host poll.
+  if (ms < HOST_POLL_MS) fastPoller = setInterval(pollMmio, ms)
+  else registerPoll(POLL_ID, ms, pollMmio)
 }
 
 /**
@@ -308,10 +332,11 @@ export function attach(mod: unknown) {
 
   if (mmio) {
     // Push the seeded input state so the guest reads something defined, then
-    // start pulling outputs. 100 ms is imperceptible for a blinking LED yet
-    // costs almost nothing — the read is a single shared-memory load. When a
-    // step/dir stepper is in the tree we poll at 1 ms so STEP edges are not
-    // lost on the MMIO path (virtio notifies on every write instead).
+    // start pulling outputs. The shared 100 ms host poll is imperceptible for
+    // a blinking LED yet costs almost nothing — the read is a single
+    // shared-memory load. When a step/dir stepper is in the tree we poll at
+    // 1 ms so STEP edges are not lost on the MMIO path (virtio notifies on
+    // every write instead).
     mmio.setInputs(inputs)
     pollMmio()
     restartMmioPoller()
@@ -327,9 +352,7 @@ export function attach(mod: unknown) {
 }
 
 export function detach() {
-  if (poller !== undefined) clearInterval(poller)
-  poller = undefined
-  pollerMs = 0
+  clearMmioPoller()
   unsubscribeModel?.()
   unsubscribeModel = undefined
   unsubscribeBinds?.()

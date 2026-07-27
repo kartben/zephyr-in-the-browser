@@ -1,7 +1,13 @@
 /** Browser end of the qemu,ramfb bridge exported by our qemu-wasm patch. */
 
+import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
+
 // DRM_FORMAT_ARGB8888 ('A', 'R', '2', '4'), as configured by Zephyr's driver.
 export const FOURCC_AR24 = 0x34325241
+
+/** Guest configures ramfb after boot; poll until its fw_cfg write lands. */
+const POLL_ID = 'display'
+const POLL_MS = 200
 
 interface DisplayExports {
   _qemu_browser_ramfb_get_width?: () => number
@@ -42,7 +48,6 @@ const EMPTY: DisplaySnapshot = {
 
 let exports: DisplayExports | null = null
 let snapshot = EMPTY
-let poll: ReturnType<typeof setInterval> | undefined
 const listeners = new Set<() => void>()
 let frameSeqView: Int32Array | null = null
 let frameSeqBuffer: SharedArrayBuffer | null = null
@@ -114,12 +119,11 @@ export function attach(mod: unknown) {
   detach()
   exports = mod as DisplayExports
   refresh()
-  poll = setInterval(refresh, 200)
+  registerPoll(POLL_ID, POLL_MS, refresh)
 }
 
 export function detach() {
-  if (poll !== undefined) clearInterval(poll)
-  poll = undefined
+  unregisterPoll(POLL_ID)
   exports = null
   frameSeqView = null
   frameSeqBuffer = null

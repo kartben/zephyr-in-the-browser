@@ -13,6 +13,8 @@
  * of hertz costs nothing and never blocks the emulator.
  */
 
+import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
+
 interface StatsExports {
   _qemu_browser_guest_icount?: () => number
   /**
@@ -56,6 +58,7 @@ export interface StatsSnapshot {
 
 /** ~24 s of history at the poll rate below. */
 const HISTORY = 48
+const POLL_ID = 'guest-stats'
 const POLL_MS = 500
 /** EMA weight for the displayed number: smooth, but tracks a real change fast. */
 const EMA_ALPHA = 0.35
@@ -64,7 +67,6 @@ const EMPTY: StatsSnapshot = { available: false, mips: 0, peakMips: 0, history: 
 
 let exports: StatsExports | null = null
 let snapshot = EMPTY
-let poll: ReturnType<typeof setInterval> | undefined
 let lastCount = -1
 let lastTime = 0
 let ema = 0
@@ -144,12 +146,11 @@ export function attach(mod: unknown) {
   // no interval. A present export begins sampling immediately.
   if (typeof exports._qemu_browser_guest_icount !== 'function') return
   sample()
-  poll = setInterval(sample, POLL_MS)
+  registerPoll(POLL_ID, POLL_MS, sample)
 }
 
 export function detach() {
-  if (poll !== undefined) clearInterval(poll)
-  poll = undefined
+  unregisterPoll(POLL_ID)
   exports = null
   lastCount = -1
   lastTime = 0
