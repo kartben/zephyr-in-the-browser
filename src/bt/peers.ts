@@ -38,6 +38,11 @@ export const BT_PEER_TYPES: BtPeerType[] = [
     label: 'Scanner',
     summary: 'Passive LE scan',
   },
+  {
+    id: 'speaker',
+    label: 'Speaker (A2DP sink)',
+    summary: 'Classic A2DP sink · SBC',
+  },
 ]
 
 export function peerType(id: string): BtPeerType | undefined {
@@ -53,6 +58,16 @@ export function defaultPeerParams(typeId: string, name: string): BtPeerParams {
       return { localName: name, advertising: true, connectable: true }
     case 'scanner':
       return { scanning: true, active: false, advCount: 0 }
+    case 'speaker':
+      return {
+        streamState: 'idle',
+        packets: 0,
+        bytes: 0,
+        muted: false,
+        discoverable: true,
+        connectable: true,
+        codec: 'sbc',
+      }
     default:
       return {}
   }
@@ -73,6 +88,16 @@ export function peerDetail(typeId: string, params: BtPeerParams | undefined, fal
     const n = Number(params.advCount ?? 0)
     if (!params.scanning) return `${n} adv reports · paused`
     return params.active ? `${n} adv reports · active` : `${n} adv reports`
+  }
+  if (typeId === 'speaker') {
+    const state = String(params.streamState ?? 'idle')
+    const pkts = Number(params.packets ?? 0)
+    const muted = params.muted ? ' · muted' : ''
+    if (state === 'started' || state === 'suspended' || pkts > 0) {
+      return `${state} · ${pkts} pkts${muted}`
+    }
+    if (!params.discoverable) return `hidden${muted}`
+    return `A2DP sink · discoverable${muted}`
   }
   return fallback
 }

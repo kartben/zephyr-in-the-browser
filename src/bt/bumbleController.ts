@@ -5,7 +5,10 @@
  * (wheel) and the Pyodide CDN pin in {@link PYODIDE_INDEX_URL}.
  *
  * Peers share the controller's LocalLink — the page is the air.
+ * Speaker peers push A2DP SBC payloads to {@link ./speakerAudio}.
  */
+
+import { onSpeakerPacket } from '@/bt/speakerAudio'
 
 export interface BtPeerInfo {
   id: string
@@ -19,9 +22,11 @@ export interface BtControllerHandle {
   /** Deliver one complete H:4 HCI packet (with type byte) from the Zephyr host. */
   onHostPacket: (packet: Uint8Array) => void
   addPeer: (typeId: string) => Promise<BtPeerInfo>
-  setPeerParam: (id: string, key: string, value: string | number | boolean) => Promise<void>
   removePeer: (id: string) => Promise<void>
   listPeers: () => BtPeerInfo[]
+  /** Live params for a peer (speaker stream counters, etc.). */
+  peerParams: (id: string) => Record<string, string | number | boolean> | null
+  setPeerParam: (id: string, key: string, value: string | number | boolean) => Promise<void>
   close: () => void
 }
 
@@ -50,12 +55,24 @@ export const BUMBLE_WHEEL_URL = new URL(
 
 const CONTROLLER_PY = `
 import asyncio
+from bumble.a2dp import (
+    A2DP_SBC_CODEC_TYPE,
+    SbcMediaCodecInformation,
+    make_audio_sink_service_sdp_records,
+)
+from bumble.avdtp import (
+    AVDTP_AUDIO_MEDIA_TYPE,
+    Listener,
+    MediaCodecCapabilities,
+)
 from bumble.controller import Controller
 from bumble.core import AdvertisingData
-from bumble.device import Device
+from bumble.device import Device, DeviceConfiguration
 from bumble.gatt import GATT_HEART_RATE_SERVICE
+from bumble.hci import Address
 from bumble.host import Host
 from bumble.link import LocalLink
+from bumble.pairing import PairingConfig
 from bumble.profiles.heart_rate_service import HeartRateService
 
 class _JsSink:
@@ -76,6 +93,7 @@ _TYPE_NAMES = {
     'hrm': 'Heart rate',
     'advertiser': 'Advertiser',
     'scanner': 'Scanner',
+    'speaker': 'Speaker',
 }
 
 def _flags():
@@ -105,6 +123,53 @@ def _notify_peers():
     except Exception:
         pass
 
+def _speaker_detail(info):
+    state = info.get('stream_state', 'idle')
+    pkts = info.get('packets', 0)
+    muted = ' · muted' if info.get('muted') else ''
+    if state in ('started', 'suspended') or pkts:
+        return f'{state} · {pkts} pkts{muted}'
+    if not info.get('discoverable', True):
+        return f'hidden{muted}'
+    return f'A2DP sink · discoverable{muted}'
+
+def _sbc_capabilities():
+    freqs = (
+        SbcMediaCodecInformation.SamplingFrequency.SF_16000
+        | SbcMediaCodecInformation.SamplingFrequency.SF_32000
+        | SbcMediaCodecInformation.SamplingFrequency.SF_44100
+        | SbcMediaCodecInformation.SamplingFrequency.SF_48000
+    )
+    return MediaCodecCapabilities(
+        media_type=AVDTP_AUDIO_MEDIA_TYPE,
+        media_codec_type=A2DP_SBC_CODEC_TYPE,
+        media_codec_information=SbcMediaCodecInformation(
+            sampling_frequency=freqs,
+            channel_mode=(
+                SbcMediaCodecInformation.ChannelMode.MONO
+                | SbcMediaCodecInformation.ChannelMode.DUAL_CHANNEL
+                | SbcMediaCodecInformation.ChannelMode.STEREO
+                | SbcMediaCodecInformation.ChannelMode.JOINT_STEREO
+            ),
+            block_length=(
+                SbcMediaCodecInformation.BlockLength.BL_4
+                | SbcMediaCodecInformation.BlockLength.BL_8
+                | SbcMediaCodecInformation.BlockLength.BL_12
+                | SbcMediaCodecInformation.BlockLength.BL_16
+            ),
+            subbands=(
+                SbcMediaCodecInformation.Subbands.S_4
+                | SbcMediaCodecInformation.Subbands.S_8
+            ),
+            allocation_method=(
+                SbcMediaCodecInformation.AllocationMethod.LOUDNESS
+                | SbcMediaCodecInformation.AllocationMethod.SNR
+            ),
+            minimum_bitpool_value=2,
+            maximum_bitpool_value=53,
+        ),
+    )
+
 def on_host_packet(data):
     controller.on_packet(bytes(data))
 
@@ -113,6 +178,22 @@ def list_peers():
     for peer_id, info in _peers.items():
         out.append((peer_id, info['type'], info['name'], info['detail']))
     return out
+
+def get_peer_params(peer_id: str):
+    info = _peers.get(peer_id)
+    if info is None:
+        return None
+    if info['type'] == 'speaker':
+        return (
+            info.get('stream_state', 'idle'),
+            int(info.get('packets', 0)),
+            int(info.get('bytes', 0)),
+            bool(info.get('muted', False)),
+            bool(info.get('discoverable', True)),
+            bool(info.get('connectable', True)),
+            'sbc',
+        )
+    return None
 
 async def _publish_heart_rate(peer_id, device, service):
     while True:
@@ -125,30 +206,9 @@ async def _publish_heart_rate(peer_id, device, service):
             HeartRateService.HeartRateMeasurement(heart_rate=info['bpm']),
         )
 
-async def set_peer_param(peer_id: str, key: str, value):
-    info = _peers.get(peer_id)
-    if info is None:
-        raise ValueError(f'unknown peer: {peer_id}')
-    if info['type'] == 'hrm' and key == 'bpm':
-        bpm = int(value)
-        if bpm < 0 or bpm > 0xFFFF:
-            raise ValueError(f'heart rate out of range: {bpm}')
-        info['bpm'] = bpm
-        info['detail'] = f'{bpm} BPM · advertising'
-        _notify_peers()
-
-async def add_peer(type_id: str):
-    global _seq
-    if type_id not in _TYPE_NAMES:
-        raise ValueError(f'unknown peer type: {type_id}')
-    _seq += 1
-    peer_id = f'{type_id}-{_seq}'
-    name = f'{_TYPE_NAMES[type_id]} {_seq}'
-
-    peer_ctl = Controller(peer_id, link=link)
+async def _add_le_peer(type_id, peer_id, name, peer_ctl):
     host = Host(controller_source=peer_ctl, controller_sink=peer_ctl)
     device = Device(name=name, host=host)
-
     detail = {
         'hrm': 'Advertises GATT Heart Rate (0x180D)',
         'advertiser': 'Connectable LE advertisement',
@@ -199,7 +259,149 @@ async def add_peer(type_id: str):
         _peers[peer_id]['notify_task'] = asyncio.create_task(
             _publish_heart_rate(peer_id, device, hr_service)
         )
+
+async def _add_speaker(peer_id, name, peer_ctl):
+    config = DeviceConfiguration()
+    config.name = name
+    config.class_of_device = 0x240414  # Audio / Loudspeaker
+    config.classic_enabled = True
+    config.le_enabled = False
+    config.address = peer_ctl.public_address
+
+    host = Host(controller_source=peer_ctl, controller_sink=peer_ctl)
+    device = Device(config=config, host=host)
+    device.sdp_service_records = {
+        0x00010001: make_audio_sink_service_sdp_records(0x00010001)
+    }
+    device.pairing_config_factory = lambda _connection: PairingConfig(mitm=False)
+
+    info = {
+        'type': 'speaker',
+        'name': name,
+        'detail': 'A2DP sink · discoverable',
+        'device': device,
+        'controller': peer_ctl,
+        'stream_state': 'idle',
+        'packets': 0,
+        'bytes': 0,
+        'muted': False,
+        'discoverable': True,
+        'connectable': True,
+    }
+    _peers[peer_id] = info
+
+    def on_bt_connection(_connection):
+        info['stream_state'] = 'connected'
+        info['detail'] = _speaker_detail(info)
+        _notify_peers()
+
+    def on_bt_disconnection(_reason):
+        info['stream_state'] = 'idle'
+        info['detail'] = _speaker_detail(info)
+        _notify_peers()
+        asyncio.get_running_loop().create_task(device.set_discoverable(True))
+        asyncio.get_running_loop().create_task(device.set_connectable(True))
+
+    def on_avdtp(protocol):
+        sink = protocol.add_sink(_sbc_capabilities())
+
+        def on_start():
+            info['stream_state'] = 'started'
+            info['detail'] = _speaker_detail(info)
+            _notify_peers()
+
+        def on_stop():
+            info['stream_state'] = 'stopped'
+            info['detail'] = _speaker_detail(info)
+            _notify_peers()
+
+        def on_suspend():
+            info['stream_state'] = 'suspended'
+            info['detail'] = _speaker_detail(info)
+            _notify_peers()
+
+        def on_rtp(packet):
+            info['packets'] = info.get('packets', 0) + 1
+            info['bytes'] = info.get('bytes', 0) + len(packet.payload)
+            # Throttle UI updates — every 8th packet is enough for the roster.
+            if info['packets'] == 1 or info['packets'] % 8 == 0:
+                info['detail'] = _speaker_detail(info)
+                _notify_peers()
+            if info.get('muted'):
+                return
+            try:
+                # A2DP media payload (1-byte header + SBC frames).
+                js_speaker_audio(peer_id, packet.payload)
+            except Exception:
+                pass
+
+        sink.on('start', on_start)
+        sink.on('stop', on_stop)
+        sink.on('suspend', on_suspend)
+        sink.on('rtp_packet', on_rtp)
+
+    device.on('connection', on_bt_connection)
+    device.on('disconnection', on_bt_disconnection)
+
+    await device.power_on()
+    listener = Listener.for_device(device)
+    listener.on('connection', on_avdtp)
+    info['listener'] = listener
+    await device.set_discoverable(True)
+    await device.set_connectable(True)
+
+async def add_peer(type_id: str):
+    global _seq
+    if type_id not in _TYPE_NAMES:
+        raise ValueError(f'unknown peer type: {type_id}')
+    _seq += 1
+    peer_id = f'{type_id}-{_seq}'
+    name = f'{_TYPE_NAMES[type_id]} {_seq}'
+    # Unique public address so classic LocalLink routing can find the speaker.
+    addr = Address(
+        bytes([0xF0, 0x42, 0x54, 0x00, (_seq >> 8) & 0xFF, _seq & 0xFF]),
+        Address.PUBLIC_DEVICE_ADDRESS,
+    )
+    peer_ctl = Controller(peer_id, link=link, public_address=addr)
+
+    if type_id == 'speaker':
+        await _add_speaker(peer_id, name, peer_ctl)
+    else:
+        await _add_le_peer(type_id, peer_id, name, peer_ctl)
     return peer_id
+
+async def set_peer_param(peer_id: str, key: str, value):
+    info = _peers.get(peer_id)
+    if info is None:
+        raise ValueError(f'unknown peer: {peer_id}')
+    device = info['device']
+    if info['type'] == 'hrm' and key == 'bpm':
+        bpm = int(value)
+        if bpm < 0 or bpm > 0xFFFF:
+            raise ValueError(f'heart rate out of range: {bpm}')
+        info['bpm'] = bpm
+        info['detail'] = f'{bpm} BPM · advertising'
+        _notify_peers()
+        return
+    if info['type'] == 'speaker':
+        if key == 'muted':
+            info['muted'] = bool(value)
+            info['detail'] = _speaker_detail(info)
+            _notify_peers()
+            return
+        if key == 'discoverable':
+            info['discoverable'] = bool(value)
+            await device.set_discoverable(bool(value))
+            info['detail'] = _speaker_detail(info)
+            _notify_peers()
+            return
+        if key == 'connectable':
+            info['connectable'] = bool(value)
+            await device.set_connectable(bool(value))
+            info['detail'] = _speaker_detail(info)
+            _notify_peers()
+            return
+    # Other peer types: params applied from the JS overlay for now.
 
 async def remove_peer(peer_id: str):
     info = _peers.pop(peer_id, None)
@@ -213,6 +415,9 @@ async def remove_peer(peer_id: str):
     try:
         if info['type'] == 'scanner':
             await device.stop_scanning()
+        elif info['type'] == 'speaker':
+            await device.set_discoverable(False)
+            await device.set_connectable(False)
         else:
             await device.stop_advertising()
     except Exception:
@@ -345,10 +550,23 @@ export async function ensureController(opts: EnsureControllerOpts): Promise<BtCo
   pyodide.globals.set('js_peers_changed', () => {
     peersChangedCb?.()
   })
+  // A2DP SBC frames → WASM decode → Web Audio (enable() required first).
+  pyodide.globals.set(
+    'js_speaker_audio',
+    (peerId: string, payload: ArrayBuffer | Uint8Array | { toJs?: () => Uint8Array }) => {
+      let bytes: Uint8Array
+      if (payload instanceof Uint8Array) bytes = payload
+      else if (payload instanceof ArrayBuffer) bytes = new Uint8Array(payload)
+      else if (payload && typeof payload.toJs === 'function') bytes = payload.toJs()
+      else bytes = new Uint8Array(payload as ArrayBuffer)
+      onSpeakerPacket(String(peerId), bytes)
+    },
+  )
   await pyodide.runPythonAsync(CONTROLLER_PY)
 
   const onHostPacketPy = pyodide.globals.get('on_host_packet') as (data: Uint8Array) => void
   const closePy = pyodide.globals.get('close') as () => void
+  const getPeerParamsPy = pyodide.globals.get('get_peer_params') as (id: string) => unknown
 
   handle = {
     name: 'zephyr-browser',
@@ -363,19 +581,38 @@ export async function ensureController(opts: EnsureControllerOpts): Promise<BtCo
       if (!found) throw new Error(`peer ${peerId} missing after add`)
       return found
     },
-    setPeerParam: async (id, key, value) => {
-      pyodide.globals.set('_set_peer_param_id', id)
-      pyodide.globals.set('_set_peer_param_key', key)
-      pyodide.globals.set('_set_peer_param_value', value)
-      await pyodide.runPythonAsync(
-        'await set_peer_param(_set_peer_param_id, _set_peer_param_key, _set_peer_param_value)',
-      )
-    },
     removePeer: async (id) => {
       pyodide.globals.set('_remove_peer_id', id)
       await pyodide.runPythonAsync('await remove_peer(_remove_peer_id)')
     },
     listPeers: () => (pyodideRef ? readPeerList(pyodideRef) : []),
+    peerParams: (id) => {
+      if (!pyodideRef) return null
+      const raw = getPeerParamsPy(id) as
+        | null
+        | { toJs?: () => unknown[]; length?: number; [i: number]: unknown }
+      if (raw == null) return null
+      const cells =
+        raw && typeof raw.toJs === 'function'
+          ? (raw.toJs() as unknown[])
+          : Array.from(raw as ArrayLike<unknown>)
+      if (!cells.length) return null
+      return {
+        streamState: String(cells[0]),
+        packets: Number(cells[1]),
+        bytes: Number(cells[2]),
+        muted: Boolean(cells[3]),
+        discoverable: Boolean(cells[4]),
+        connectable: Boolean(cells[5]),
+        codec: String(cells[6] ?? 'sbc'),
+      }
+    },
+    setPeerParam: async (id, key, value) => {
+      pyodide.globals.set('_param_peer_id', id)
+      pyodide.globals.set('_param_key', key)
+      pyodide.globals.set('_param_value', value)
+      await pyodide.runPythonAsync('await set_peer_param(_param_peer_id, _param_key, _param_value)')
+    },
     close: () => {
       try {
         closePy()

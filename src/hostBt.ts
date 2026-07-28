@@ -92,17 +92,18 @@ function rosterFromController(): BtPeerSnapshot[] {
   if (!controller) return []
   return [
     localPeer(controller.name),
-    ...controller.listPeers().map((p) =>
-      withDetail({
+    ...controller.listPeers().map((p) => {
+      const fromPy = controller?.peerParams(p.id) ?? null
+      const overlay = mockPeers.find((m) => m.id === p.id)?.params
+      const params = fromPy ?? overlay ?? defaultPeerParams(p.typeId, p.name)
+      return withDetail({
         id: p.id,
         typeId: p.typeId,
         name: p.name,
         detail: p.detail,
-        // The overlay is also the inspector's source of truth for controls
-        // that do not have a live Bumble implementation yet.
-        params: mockPeers.find((m) => m.id === p.id)?.params ?? defaultPeerParams(p.typeId, p.name),
-      }),
-    ),
+        params,
+      })
+    }),
   ]
 }
 
@@ -311,11 +312,22 @@ export async function addPeer(typeId: string): Promise<void> {
   if (mockMode) {
     mockSeq += 1
     const shortName =
-      typeId === 'hrm' ? 'Heart rate' : typeId === 'advertiser' ? 'Advertiser' : 'Scanner'
+      typeId === 'hrm'
+        ? 'Heart rate'
+        : typeId === 'advertiser'
+          ? 'Advertiser'
+          : typeId === 'speaker'
+            ? 'Speaker'
+            : 'Scanner'
     const name = `${shortName} ${mockSeq}`
     const params = defaultPeerParams(typeId, name)
-    // Seed scanner with a few reports so the inspector looks alive in demos.
+    // Seed scanner / speaker so inspectors look alive in demos.
     if (typeId === 'scanner') params.advCount = 3
+    if (typeId === 'speaker') {
+      params.streamState = 'started'
+      params.packets = 128
+      params.bytes = 4096
+    }
     const peer: BtPeerSnapshot = {
       id: `${typeId}-${mockSeq}`,
       typeId,
@@ -332,7 +344,7 @@ export async function addPeer(typeId: string): Promise<void> {
   if (!controller) await startController()
   if (!controller) throw new Error('Bluetooth controller not ready')
   const info = await controller.addPeer(typeId)
-  // Keep a params overlay for rendering the inspector.
+  // Keep a params overlay so the inspector works before Bumble setParam lands.
   mockPeers = [
     ...mockPeers.filter((p) => p.id !== info.id),
     withDetail({
@@ -378,17 +390,30 @@ export async function setPeerParam(
 
   if (mockMode) {
     mockPeers = mockPeers.map(apply)
+    if (key === 'muted') {
+      const { setPeerMuted } = await import('@/bt/speakerAudio')
+      setPeerMuted(id, Boolean(value))
+    }
     refreshPeers()
     return
   }
-
-  await controller?.setPeerParam(id, key, value)
 
   mockPeers = mockPeers.map(apply)
   if (mockPeers.every((p) => p.id !== id)) {
     const existing = snapshot.peers.find((p) => p.id === id)
     if (existing && !existing.local) {
       mockPeers = [...mockPeers, apply(existing)]
+    }
+  }
+  if (key === 'muted') {
+    const { setPeerMuted } = await import('@/bt/speakerAudio')
+    setPeerMuted(id, Boolean(value))
+  }
+  if (controller) {
+    try {
+      await controller.setPeerParam(id, key, value)
+    } catch (err) {
+      console.warn('[bt] setPeerParam failed', err)
     }
   }
   refreshPeers()
