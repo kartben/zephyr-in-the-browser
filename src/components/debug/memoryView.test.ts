@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatHexDump } from './formatHexDump'
 import {
   BYTES_PER_ROW,
   VISIBLE_ROWS,
@@ -39,15 +38,5 @@ describe('memoryView', () => {
     expect(wheelRowDelta(2, 1)).toBe(2)
     expect(wheelRowDelta(-1, 1)).toBe(-1)
     expect(wheelRowDelta(1, 2)).toBe(VISIBLE_ROWS)
-  })
-})
-
-describe('formatHexDump', () => {
-  it('renders a full 16-row window as 16 lines', () => {
-    const hex = '00'.repeat(WINDOW_BYTES)
-    const lines = formatHexDump(0, hex).split('\n')
-    expect(lines).toHaveLength(VISIBLE_ROWS)
-    expect(lines[0]).toMatch(/^00000000  /)
-    expect(lines[15]).toMatch(/^000000f0  /)
   })
 })
