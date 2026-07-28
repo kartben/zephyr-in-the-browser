@@ -90,4 +90,16 @@ describe('BluetoothView', () => {
     selectPeer('advertiser-1')
     expect(getSnapshot().selectedPeerId).toBeNull()
   })
+
+  it('opens a speaker inspector with A2DP sink controls', async () => {
+    attachMockDemo()
+    await addPeer('speaker')
+    const out = text(getSnapshot())
+    expect(out).toContain('Speaker 1')
+    expect(out).toContain('A2DP')
+    expect(out).toContain('SBC')
+    expect(out).toContain('Discoverable')
+    expect(out).toContain('128 pkts')
+    expect(out).toContain('Enable sound')
+  })
 })

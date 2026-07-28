@@ -19,6 +19,12 @@ import {
   type BtPeerSnapshot,
   type BtSnapshot,
 } from '@/hostBt'
+import {
+  disable as disableSpeakerAudio,
+  enable as enableSpeakerAudio,
+  getSnapshot as getSpeakerAudioSnapshot,
+  subscribe as subscribeSpeakerAudio,
+} from '@/bt/speakerAudio'
 
 function phaseLabel(phase: BtSnapshot['phase']): string {
   switch (phase) {
@@ -256,8 +262,83 @@ function PeerInspector({ peer }: { peer: BtPeerSnapshot }) {
           </div>
         </>
       )}
+
+      {peer.typeId === 'speaker' && (
+        <>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px]">
+            <dt className="text-muted-foreground">Stream</dt>
+            <dd className="capitalize">{String(params.streamState ?? 'idle')}</dd>
+            <dt className="text-muted-foreground">Codec</dt>
+            <dd>{String(params.codec ?? 'sbc').toUpperCase()}</dd>
+            <dt className="text-muted-foreground">RTP</dt>
+            <dd>
+              {Number(params.packets ?? 0)} pkts · {formatBytes(Number(params.bytes ?? 0))}
+            </dd>
+          </dl>
+          <SpeakerAudioControls peerId={peer.id} muted={Boolean(params.muted)} />
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <CheckControl
+              label="Muted"
+              checked={Boolean(params.muted)}
+              onChange={(v) => void setPeerParam(peer.id, 'muted', v)}
+            />
+            <CheckControl
+              label="Discoverable"
+              checked={Boolean(params.discoverable)}
+              onChange={(v) => void setPeerParam(peer.id, 'discoverable', v)}
+            />
+            <CheckControl
+              label="Connectable"
+              checked={Boolean(params.connectable)}
+              onChange={(v) => void setPeerParam(peer.id, 'connectable', v)}
+            />
+          </div>
+          <p className="pt-1 text-[10px] text-muted-foreground">
+            Classic A2DP sink (SBC → PCM via vendored libsbc). Needs a BR/EDR source on
+            this LocalLink — BLE peripheral samples will not stream here. Click Enable
+            sound once so the browser allows Web Audio.
+          </p>
+        </>
+      )}
     </div>
   )
+}
+
+function SpeakerAudioControls({ peerId, muted }: { peerId: string; muted: boolean }) {
+  const audio = useSyncExternalStore(
+    subscribeSpeakerAudio,
+    getSpeakerAudioSnapshot,
+    getSpeakerAudioSnapshot,
+  )
+  void peerId
+  void muted
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 py-0.5">
+      <button
+        type="button"
+        className="rounded-md border border-input bg-secondary px-2 py-1 text-[11px] text-foreground hover:bg-background"
+        onClick={() => {
+          if (audio.enabled) disableSpeakerAudio()
+          else void enableSpeakerAudio()
+        }}
+      >
+        {audio.enabled ? 'Disable sound' : 'Enable sound'}
+      </button>
+      <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+        {audio.enabled ? `lvl ${(audio.level * 100).toFixed(0)}% · ${audio.framesDecoded} frm` : 'silent'}
+      </span>
+      {audio.lastError && (
+        <span className="text-[10px] text-destructive">{audio.lastError}</span>
+      )}
+    </div>
+  )
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 function AddPeerRow() {

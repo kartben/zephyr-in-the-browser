@@ -135,6 +135,22 @@ Roster subtitle: `72 BPM · advertising` (live), not the static catalog blurb.
 
 Defer custom AD / manufacturer data to v2.
 
+### Speaker (`speaker`) — classic A2DP sink
+
+Hive’s virtual speaker role: BR/EDR Device with SDP audio sink + AVDTP sink
+(SBC capabilities), discoverable/connectable on the LocalLink.
+
+| Control | Type | Notes |
+| --- | --- | --- |
+| Stream / codec / RTP | readonly | Live from Bumble; mock seeds a started stream |
+| Muted | toggle | Drops RTP delivery to the JS audio sink |
+| Discoverable / Connectable | toggles | `set_discoverable` / `set_connectable` |
+| Enable sound | button | User-gesture `AudioContext.resume`; required for playback |
+
+SBC → PCM uses vendored google/libsbc WASM (`public/vendor/libsbc/sbc.umd.cjs`).
+**Caveat:** packaged Zephyr samples are BLE (`bt_peripheral`). Streaming needs
+a classic A2DP source on the same LocalLink.
+
 ### Scanner (`scanner`)
 
 | Control | Type | Notes |

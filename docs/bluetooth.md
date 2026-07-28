@@ -20,8 +20,9 @@ Per-peer configure/control UI (draft):
 | RISC-V HCI UART @ `0x1000c000` | `tools/qemu-riscv-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch` |
 | Feature bit `"hci"` | `tools/build-qemu-wasm.sh` → `features.json` |
 | Page bridge | `src/hostBt.ts`, `src/bt/h4.ts`, `src/bt/bumbleController.ts` |
-| In-page peers | `src/bt/peers.ts` — HRM / advertiser / scanner on the same LocalLink |
+| In-page peers | `src/bt/peers.ts` — HRM / advertiser / scanner / A2DP speaker on the same LocalLink |
 | Bumble wheel | `public/vendor/bumble/` — see its README; fetch with `tools/vendor-bumble.sh` |
+| SBC → PCM | `public/vendor/libsbc/` — google/libsbc WASM; rebuild with `tools/build-libsbc-wasm.sh` |
 | Guest snippet / conf | `zephyr-module/snippets/bt-hci-uart/`, `zephyr-module/conf/bt-hci.conf` |
 | Persistent settings | `bt-settings-spi` W25Q80 on CS1 + `storage_partition` → Zephyr NVS |
 | Packaged samples | `bt_peripheral` → Zephyr peripheral; `bt_central_hr` → browser variant that decodes the SIG Heart Rate Measurement |
@@ -44,8 +45,9 @@ pipe but controller start fails on a missing wheel.
 2. Wait for the Bluetooth dock row: phase should move to **Controller ready**.
 3. Guest advertises; HCI packet counters in the dock should climb.
 4. Under **On the air**, use **Add peer** for a Scanner (sees adv reports),
-   Heart rate monitor, or plain Advertiser — all on the in-tab LocalLink.
-   No server; same shape as Ethernet/CAN peers in the page.
+   Heart rate monitor, plain Advertiser, or **Speaker (A2DP sink)** — all on
+   the in-tab LocalLink. No server; same shape as Ethernet/CAN peers in the
+   page.
 
 For the opposite role, select **BLE central · Heart Rate**, wait for
 **Controller ready**, then add a **Heart rate monitor** peer. The packaged
@@ -54,6 +56,12 @@ characteristic, subscribes, and prints the decoded measurement, for example
 `[HEART RATE] 72 BPM (flags 0x00)`. Moving the peer's **Heart rate** slider
 updates the live Bumble characteristic; the next notification prints the new
 BPM in Zephyr.
+
+The Speaker is Bumble’s classic A2DP sink (SBC), the same role as Hive’s
+virtual speaker. It needs a **BR/EDR** source on the LocalLink; the packaged
+`bt_peripheral` sample is BLE-only and will not stream to it. SBC frames are
+decoded in-page with vendored [google/libsbc](https://github.com/google/libsbc)
+WASM (`public/vendor/libsbc/`) → PCM → Web Audio (click **Enable sound** once).
 
 The packaged Bluetooth images also compose the `bt-settings-spi` snippet.
 Zephyr's NVS settings backend stores the generated identity, IRK, and GATT
