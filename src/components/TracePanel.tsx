@@ -1,9 +1,9 @@
 /**
- * Live Zephyr CTF Trace panel — Schedule Gantt + Queues depth charts.
+ * Live Zephyr CTF Trace panel — Schedule Gantt + Message Queues.
  *
  * Schedule: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch).
- * Queues: per-msgq depth replayed from put_exit / get_exit alone.
+ * Message Queues: per-msgq flow graph + depth from put/put_front/get exits.
  */
 
 import {
@@ -578,7 +578,7 @@ function TracePanelBody({
             {(
               [
                 ['schedule', 'Schedule'],
-                ['queues', 'Queues'],
+                ['queues', 'Message Queues'],
               ] as const
             ).map(([id, label]) => (
               <button
