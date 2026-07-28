@@ -2,8 +2,8 @@
  * Shared Trace chart helpers — time mapping, canvas axis, playhead stroke.
  *
  * CTF timestamps are monotonic nanoseconds from Zephyr `timing_ns_get()`
- * (not `k_uptime_ticks()`). Relative labels use `t - t0`; “guest” is the raw
- * absolute CTF ns. Kernel uptime ticks are not in the stream unless we learn
+ * (not `k_uptime_ticks()`). Tips and axis labels use that absolute guest
+ * clock only. Kernel uptime ticks are not in the stream unless we learn
  * `CONFIG_SYS_CLOCK_TICKS_PER_SEC` separately.
  */
 
@@ -14,7 +14,7 @@ export type TraceTimeLayout = {
   pad: number
   view0: number
   view1: number
-  /** Trace epoch (first event ts). */
+  /** Trace epoch (first event ts) — layout identity only, not for labels. */
   t0: number
 }
 
@@ -35,19 +35,12 @@ export function tsAt(layout: TraceTimeLayout, cssW: number, x: number): number {
   return layout.view0 + frac * span
 }
 
-/** Relative (from first event) + absolute guest CTF ns, same step-aware units. */
-export function formatTraceTimes(
-  ts: number,
-  t0: number,
-  stepNs: number,
-): { rel: string; guest: string } {
-  return {
-    rel: fmtAxisTime(ts - t0, stepNs),
-    guest: fmtAxisTime(ts, stepNs),
-  }
+/** Absolute guest CTF ns (`timing_ns_get`), step-aware units. */
+export function formatGuestTime(ts: number, stepNs: number): string {
+  return fmtAxisTime(ts, stepNs)
 }
 
-/** Tick step for the current window (shared by Schedule / Queues tips). */
+/** Tick step for the current window (shared by Timeline / Queues tips). */
 export function windowTimeStep(view0: number, view1: number, plotW: number): number {
   return timeTickValues(view0, view1, Math.max(4, Math.floor(plotW / 56))).step
 }
@@ -58,6 +51,7 @@ const AXIS_EDGE = 'rgba(226, 232, 240, 0.95)'
 
 /**
  * Canvas time ruler matching the Queues d3 axis language (fmtAxisTime + denser ticks).
+ * Labels are absolute guest CTF ns.
  */
 export function paintCanvasTimeAxis(
   ctx: CanvasRenderingContext2D,
@@ -112,7 +106,7 @@ export function paintCanvasTimeAxis(
     ctx.moveTo(x, baselineY - 4)
     ctx.lineTo(x, baselineY + 4)
     ctx.stroke()
-    const label = fmtAxisTime(t - t0, step)
+    const label = fmtAxisTime(t, step)
     const tw = ctx.measureText(label).width
     let lx = x - tw / 2
     lx = Math.max(labelW, Math.min(labelW + plotW - tw, lx))
@@ -120,8 +114,8 @@ export function paintCanvasTimeAxis(
   }
 
   ctx.fillStyle = AXIS_EDGE
-  const leftLbl = fmtAxisTime(view0 - t0, step)
-  const rightLbl = fmtAxisTime(view1 - t0, step)
+  const leftLbl = fmtAxisTime(view0, step)
+  const rightLbl = fmtAxisTime(view1, step)
   ctx.fillText(leftLbl, labelW, 26)
   ctx.fillText(rightLbl, labelW + plotW - ctx.measureText(rightLbl).width, 26)
 

@@ -76,7 +76,7 @@ function paint(
     ctx.moveTo(x, 14)
     ctx.lineTo(x, 22)
     ctx.stroke()
-    const label = fmtTime(t - tr.t0)
+    const label = fmtTime(t)
     const tw = ctx.measureText(label).width
     let lx = x - tw / 2
     lx = Math.max(LABEL_W, Math.min(LABEL_W + plotW - tw, lx))
@@ -84,8 +84,8 @@ function paint(
   }
 
   ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
-  const leftLbl = fmtTime(view0 - tr.t0)
-  const rightLbl = fmtTime(view1 - tr.t0)
+  const leftLbl = fmtTime(view0)
+  const rightLbl = fmtTime(view1)
   ctx.fillText(leftLbl, LABEL_W, 26)
   ctx.fillText(rightLbl, LABEL_W + plotW - ctx.measureText(rightLbl).width, 26)
   if (follow) {

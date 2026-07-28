@@ -37,7 +37,7 @@ import {
 } from '@/ctf'
 import { getWaitObjects } from '@/hostGdb'
 import { QueueGraph } from '@/components/QueueGraph'
-import { formatTraceTimes } from '@/components/traceChart'
+import { formatGuestTime } from '@/components/traceChart'
 
 const LABEL_W = 108
 const PAD = 8
@@ -175,7 +175,7 @@ function clearDomSelection(): void {
 
 function renderChart(
   svg: SVGSVGElement,
-  tr: Trace,
+  _tr: Trace,
   queues: QueueSeries[],
   events: QueueChartEvent[],
   view0: number,
@@ -428,7 +428,7 @@ function renderChart(
     .tickSizeOuter(0)
     .tickSizeInner(6)
     .tickPadding(6)
-    .tickFormat((t) => fmtAxisTime(Number(t) - tr.t0, step))
+    .tickFormat((t) => fmtAxisTime(Number(t), step))
   xAxisG.attr('transform', `translate(0,${plotBottom + 4})`).call(xAxis)
   styleAxis(xAxisG)
   // Drop the old edge-left / edge-right clones — ticks already cover the range.
@@ -473,19 +473,17 @@ function renderChart(
   return layouts
 }
 
-/** Two-line tip: time · depth, then op · thread (guest abs when it differs). */
+/** Tip: guest time · depth, then op · thread when snapped to an event. */
 function tipLines(tr: Trace, tip: HoverTip): string[] {
   const depth =
     tip.queue.cap != null ? `d${tip.depth}/${tip.queue.cap}` : `d${tip.depth}`
-  const { rel, guest } = formatTraceTimes(tip.ts, tr.t0, tip.step)
-  const lines = [`${rel} · ${depth}`]
+  const guest = formatGuestTime(tip.ts, tip.step)
+  const lines = [`${guest} · ${depth}`]
   if (tip.event) {
     const who =
       tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : '?'
     const fail = tip.event.ok || tip.event.op === 'purge' ? '' : '!'
     lines.push(`${queueChartOpLabel(tip.event.op)}${fail} · ${who}`)
-  } else if (guest !== rel) {
-    lines.push(`guest ${guest}`)
   }
   return lines
 }

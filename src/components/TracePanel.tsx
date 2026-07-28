@@ -61,7 +61,7 @@ import {
   type Trace,
 } from '@/ctf'
 import {
-  formatTraceTimes,
+  formatGuestTime,
   paintCanvasTimeAxis,
   paintPlayhead,
   plotWidth,
@@ -1146,16 +1146,18 @@ function TracePanelBody({
         lines.push(q.label)
       }
       lines.push(`depth ${depthLabel(q.series, tipTs)}`)
-      lines.push(`${fmtTime(tipTs - tr.t0)} · guest ${fmtTime(tipTs)}`)
+      const cssWQ = canvasRef.current?.clientWidth ?? 480
+      const stepQ = windowTimeStep(view.t0, view.t1, plotWidth(cssWQ, LABEL_W, PAD))
+      lines.push(formatGuestTime(tipTs, stepQ))
       return lines
     }
 
     const cssW = canvasRef.current?.clientWidth ?? 480
     const step = windowTimeStep(view.t0, view.t1, plotWidth(cssW, LABEL_W, PAD))
-    const { rel, guest } = formatTraceTimes(tipTs, tr.t0, step)
+    const guest = formatGuestTime(tipTs, step)
     const runLabel = runningTid != null ? threadLabel(tr, runningTid) : '(idle)'
-    // Absolute CTF ns from timing_ns_get — not k_uptime_ticks (no tick rate in stream).
-    const lines = [`${rel} · ${runLabel}`, `guest ${guest}`]
+    // Absolute guest CTF ns from timing_ns_get (not relative to first event).
+    const lines = [`${guest} · ${runLabel}`]
 
     // When the pointer is over a thread lane label, show that lane’s full name.
     if (playhead.x < LABEL_W) {
