@@ -284,7 +284,7 @@ auto-expands — optional, not load-bearing.
 | `address[46]` desync | Phase 0 first; never ship UI without it |
 | High event rate from zperf floods CTF / UI | Aggregate marks into time buckets when zoomed out; same trick as dense Schedule |
 | fd reuse after close | Key series by `(fd, generation)` — bump generation on `socket_init` for a previously closed fd |
-| IPv4-only builds use 20-byte net strings | zperf A53 applies `conf/tracing-net.conf` after `net.conf` to set `CONFIG_NET_IPV6=y` so guest CTF matches TSDL `address[46]`; plain `net.conf` samples without tracing keep IPv6 off |
+| IPv4-only builds use 20-byte net strings | Decoder **probes** 20 vs 46 on the first `address[46]` event (peek next eid). `tracing-net.conf` still re-enables `NET_IPV6` for zperf so guest layout matches TSDL after image rebuild |
 | Confusing two “network” UIs | Copy: Trace tab = “guest sockets”; Network panel keeps “page LAN” |
 
 ## Demo path

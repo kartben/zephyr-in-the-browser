@@ -15,6 +15,12 @@ import {
   type ThreadState,
 } from './types'
 import { decodeFields, type EventDef } from './metadata'
+import {
+  applyNetAddressWidth,
+  needsNetAddressProbe,
+  probeNetAddressWidth,
+  type NetAddressWidth,
+} from './netAddressWidth'
 
 export interface CtfEvent {
   ts: number
@@ -93,6 +99,8 @@ export class TraceReader {
   readonly hasTs: boolean
   readonly tr: Trace = emptyTrace()
   desync = false
+  /** Locked once the first socket address event is probed (20 if !IPv6, else 46). */
+  netAddressWidth: NetAddressWidth | null = null
 
   private buf = new Uint8Array(0)
   private fakeTs = 0
@@ -278,11 +286,30 @@ export class TraceReader {
         eid = view.getUint16(off, true)
         ts = this.fakeTs++
       }
-      const edef = this.defs.get(eid)
+      let edef = this.defs.get(eid)
       if (!edef) {
         this.desync = true
         break
       }
+
+      // Zephyr TSDL says address[46], but !NET_IPV6 guests emit 20-byte strings.
+      if (this.netAddressWidth == null && needsNetAddressProbe(edef)) {
+        const bodyOff = off + hsz
+        const bodyAvail = n - bodyOff
+        const probed = probeNetAddressWidth(this.defs, edef, bodyOff, bodyAvail, (nextOff) => {
+          if (nextOff + hsz > n) return null
+          return this.hasTs ? view.getUint16(nextOff + 8, true) : view.getUint16(nextOff, true)
+        })
+        if (probed.kind === 'wait') break
+        if (probed.kind === 'desync') {
+          this.desync = true
+          break
+        }
+        this.netAddressWidth = probed.width
+        applyNetAddressWidth(this.defs, probed.width)
+        edef = this.defs.get(eid) ?? probed.def
+      }
+
       const rec = hsz + edef.size
       if (off + rec > n) break
       const { fields } = decodeFields(edef, data, off + hsz, view)
