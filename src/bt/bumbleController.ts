@@ -65,6 +65,7 @@ from bumble.avdtp import (
     Listener,
     MediaCodecCapabilities,
 )
+from bumble import hci, lmp
 from bumble.controller import Controller
 from bumble.core import AdvertisingData
 from bumble.device import Device, DeviceConfiguration
@@ -82,9 +83,232 @@ class _JsSink:
         # packet is already bytes with the HCI type prefix
         self._send(packet)
 
+class _BrowserController(Controller):
+    """Bumble's test controller with the BR/EDR pieces the demo needs.
+
+    Bumble's stock Controller intentionally advertises itself as LE-only and
+    does not emulate inquiry or a few host-configuration commands.  Its
+    LocalLink/LMP/ACL implementations do support Classic connections, so keep
+    those and fill the small HCI control-plane gap here.
+    """
+
+    # Bumble defaults both transports to the 27-byte LE minimum.  That makes a
+    # ~550-byte A2DP media PDU cross the JS/Pyodide boundary in about 21 HCI
+    # fragments.  A normal BR/EDR controller can carry the whole PDU in one ACL
+    # packet, which is essential for real-time audio in the browser.
+    acl_data_packet_length = 1021
+    total_num_acl_data_packets = 64
+
+    lmp_features = (
+        (Controller.lmp_features & ~hci.LmpFeatureMask.BR_EDR_NOT_SUPPORTED)
+        | hci.LmpFeatureMask.LMP_3_SLOT_PACKETS
+        | hci.LmpFeatureMask.LMP_5_SLOT_PACKETS
+        | hci.LmpFeatureMask.ENCRYPTION
+        | hci.LmpFeatureMask.ROLE_SWITCH
+        | hci.LmpFeatureMask.RSSI_WITH_INQUIRY_RESULTS
+        | hci.LmpFeatureMask.EXTENDED_INQUIRY_RESPONSE
+        | hci.LmpFeatureMask.SECURE_SIMPLE_PAIRING_CONTROLLER_SUPPORT
+    )
+    supported_commands = Controller.supported_commands | {
+        hci.HCI_INQUIRY_COMMAND,
+        hci.HCI_INQUIRY_CANCEL_COMMAND,
+        hci.HCI_CREATE_CONNECTION_COMMAND,
+        hci.HCI_ACCEPT_CONNECTION_REQUEST_COMMAND,
+        hci.HCI_AUTHENTICATION_REQUESTED_COMMAND,
+        hci.HCI_SET_CONNECTION_ENCRYPTION_COMMAND,
+        hci.HCI_REMOTE_NAME_REQUEST_COMMAND,
+        hci.HCI_READ_REMOTE_SUPPORTED_FEATURES_COMMAND,
+        hci.HCI_READ_REMOTE_EXTENDED_FEATURES_COMMAND,
+        hci.HCI_READ_DEFAULT_LINK_POLICY_SETTINGS_COMMAND,
+        hci.HCI_WRITE_DEFAULT_LINK_POLICY_SETTINGS_COMMAND,
+        hci.HCI_WRITE_LOCAL_NAME_COMMAND,
+        hci.HCI_READ_LOCAL_NAME_COMMAND,
+        hci.HCI_WRITE_PAGE_TIMEOUT_COMMAND,
+        hci.HCI_WRITE_SCAN_ENABLE_COMMAND,
+        hci.HCI_WRITE_CLASS_OF_DEVICE_COMMAND,
+        hci.HCI_WRITE_INQUIRY_MODE_COMMAND,
+        hci.HCI_WRITE_EXTENDED_INQUIRY_RESPONSE_COMMAND,
+        hci.HCI_WRITE_SIMPLE_PAIRING_MODE_COMMAND,
+        hci.HCI_READ_LOCAL_EXTENDED_FEATURES_COMMAND,
+        hci.HCI_READ_ENCRYPTION_KEY_SIZE_COMMAND,
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_of_device = 0
+        self.extended_inquiry_response = bytes(240)
+        self.default_link_policy_settings = 0
+        self.inquiry_mode = 2
+
+    def _status_ok(self):
+        return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.SUCCESS)
+
+    def on_hci_command_packet(self, command):
+        # Bumble 0.0.233 has the opcode constant but no typed command class for
+        # Read Default Link Policy Settings.  Answer it before the generic
+        # command path (which otherwise never emits Command Complete).
+        if command.op_code == hci.HCI_READ_DEFAULT_LINK_POLICY_SETTINGS_COMMAND:
+            self.send_hci_packet(
+                hci.HCI_Command_Complete_Event(
+                    num_hci_command_packets=1,
+                    command_opcode=command.op_code,
+                    return_parameters=hci.HCI_GenericReturnParameters(
+                        data=bytes([hci.HCI_ErrorCode.SUCCESS])
+                        + int(self.default_link_policy_settings).to_bytes(2, 'little')
+                    ),
+                )
+            )
+            return
+        super().on_hci_command_packet(command)
+
+    def on_hci_write_default_link_policy_settings_command(self, command):
+        self.default_link_policy_settings = command.default_link_policy_settings
+        return self._status_ok()
+
+    def on_hci_write_page_timeout_command(self, _command):
+        return self._status_ok()
+
+    def on_hci_write_inquiry_mode_command(self, command):
+        self.inquiry_mode = command.inquiry_mode
+        return self._status_ok()
+
+    def on_hci_write_class_of_device_command(self, command):
+        self.class_of_device = command.class_of_device
+        return self._status_ok()
+
+    def on_hci_read_class_of_device_command(self, _command):
+        return hci.HCI_Read_Class_Of_Device_ReturnParameters(
+            status=hci.HCI_ErrorCode.SUCCESS,
+            class_of_device=self.class_of_device,
+        )
+
+    def on_hci_write_extended_inquiry_response_command(self, command):
+        self.extended_inquiry_response = bytes(command.extended_inquiry_response)
+        return self._status_ok()
+
+    def on_hci_write_secure_connections_host_support_command(self, command):
+        if command.secure_connections_host_support:
+            self.lmp_features |= hci.LmpFeatureMask.SECURE_CONNECTIONS_HOST_SUPPORT
+        else:
+            self.lmp_features &= ~hci.LmpFeatureMask.SECURE_CONNECTIONS_HOST_SUPPORT
+        return self._status_ok()
+
+    def on_hci_inquiry_command(self, command):
+        self._send_hci_command_status(hci.HCI_COMMAND_STATUS_PENDING, command.op_code)
+        # Let the host consume Command Status and mark inquiry active before
+        # delivering results/complete.  Completing in the same event-loop turn
+        # races Zephyr's synchronous command path and leaves BT_DEV_INQUIRY set.
+        asyncio.get_running_loop().call_later(0.1, self._complete_inquiry, command)
+
+    def _complete_inquiry(self, command):
+        responders = [
+            peer
+            for peer in self.link.controllers
+            if peer is not self and (peer.classic_scan_enable & 0x01)
+        ]
+        if command.num_responses:
+            responders = responders[:command.num_responses]
+        for peer in responders:
+            self.send_hci_packet(
+                hci.HCI_Extended_Inquiry_Result_Event(
+                    num_responses=1,
+                    bd_addr=peer.public_address,
+                    page_scan_repetition_mode=1,
+                    reserved=0,
+                    class_of_device=getattr(peer, 'class_of_device', 0),
+                    clock_offset=0,
+                    rssi=-30,
+                    extended_inquiry_response=getattr(
+                        peer, 'extended_inquiry_response', bytes(240)
+                    ),
+                )
+            )
+        self.send_hci_packet(
+            hci.HCI_Inquiry_Complete_Event(status=hci.HCI_ErrorCode.SUCCESS)
+        )
+
+    def on_hci_inquiry_cancel_command(self, _command):
+        return self._status_ok()
+
+    def on_hci_accept_connection_request_command(self, command):
+        # The Device/Host round-trip reconstructs the HCI address object.  In
+        # Pyodide that can miss the dictionary key Bumble created from the LMP
+        # sender even though there is exactly one pending Classic request.
+        connection = self.classic_connections.get(command.bd_addr)
+        if connection is None and len(self.classic_connections) == 1:
+            connection = next(iter(self.classic_connections.values()))
+        if connection is None:
+            self._send_hci_command_status(
+                hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR,
+                command.op_code,
+            )
+            return
+
+        self._send_hci_command_status(hci.HCI_ErrorCode.SUCCESS, command.op_code)
+        self.send_lmp_packet(
+            connection.peer_address,
+            lmp.LmpAccepted(lmp.Opcode.LMP_HOST_CONNECTION_REQ),
+        )
+        self.on_classic_connection_complete(
+            connection.peer_address, hci.HCI_ErrorCode.SUCCESS
+        )
+
+    def on_hci_authentication_requested_command(self, command):
+        if self.find_classic_connection_by_handle(command.connection_handle) is None:
+            self._send_hci_command_status(
+                hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR,
+                command.op_code,
+            )
+            return
+        self._send_hci_command_status(hci.HCI_COMMAND_STATUS_PENDING, command.op_code)
+        asyncio.get_running_loop().call_later(
+            0.05,
+            self.send_hci_packet,
+            hci.HCI_Authentication_Complete_Event(
+                status=hci.HCI_ErrorCode.SUCCESS,
+                connection_handle=command.connection_handle,
+            ),
+        )
+
+    def on_hci_set_connection_encryption_command(self, command):
+        if self.find_classic_connection_by_handle(command.connection_handle) is None:
+            self._send_hci_command_status(
+                hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR,
+                command.op_code,
+            )
+            return
+        self._send_hci_command_status(hci.HCI_COMMAND_STATUS_PENDING, command.op_code)
+        asyncio.get_running_loop().call_later(
+            0.05,
+            self.send_hci_packet,
+            hci.HCI_Encryption_Change_Event(
+                status=hci.HCI_ErrorCode.SUCCESS,
+                connection_handle=command.connection_handle,
+                encryption_enabled=(
+                    hci.HCI_Encryption_Change_Event.Enabled.E0_OR_AES_CCM
+                    if command.encryption_enable
+                    else hci.HCI_Encryption_Change_Event.Enabled.OFF
+                ),
+            ),
+        )
+
+    def on_hci_read_encryption_key_size_command(self, command):
+        return hci.HCI_Read_Encryption_Key_Size_ReturnParameters(
+            status=hci.HCI_ErrorCode.SUCCESS,
+            connection_handle=command.connection_handle,
+            key_size=16,
+        )
+
 link = LocalLink()
 _sink = _JsSink(js_send_to_host)
-controller = Controller('zephyr-browser', host_sink=_sink, link=link)
+controller = _BrowserController(
+    'zephyr-browser',
+    host_sink=_sink,
+    link=link,
+    # 00:00:00:00:00:00 is Bumble's Address.ANY sentinel.  A real public
+    # address is required so a peer can match and accept Classic requests.
+    public_address=Address('F0:42:54:FF:00:00'),
+)
 
 _peers = {}
 _seq = 0
@@ -364,7 +588,7 @@ async def add_peer(type_id: str):
         bytes([0xF0, 0x42, 0x54, 0x00, (_seq >> 8) & 0xFF, _seq & 0xFF]),
         Address.PUBLIC_DEVICE_ADDRESS,
     )
-    peer_ctl = Controller(peer_id, link=link, public_address=addr)
+    peer_ctl = _BrowserController(peer_id, link=link, public_address=addr)
 
     if type_id == 'speaker':
         await _add_speaker(peer_id, name, peer_ctl)

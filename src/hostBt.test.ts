@@ -52,6 +52,7 @@ describe('host Bluetooth startup', () => {
       close: controllerMocks.close,
       onHostPacket: controllerMocks.onHostPacket,
       setPeerParam: controllerMocks.setPeerParam,
+      peerParams: () => null,
       listPeers: () =>
         controllerMocks.addPeer.mock.calls.length > 0
           ? [
