@@ -49,4 +49,12 @@ describe('HexView', () => {
     chip.poke(0x00, 0x5a)
     expect(render(chip)).toContain('5aff')
   })
+
+  it('shifts gutter labels by addressBase', () => {
+    const chip = createAt24()
+    const html = renderToStaticMarkup(<HexView chip={chip} addressBase={0x20000000} />)
+    const text = html.replace(/<[^>]+>/g, '')
+    expect(text).toContain('20000000')
+    expect(text).toContain('200000f0')
+  })
 })

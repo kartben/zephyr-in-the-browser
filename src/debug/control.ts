@@ -142,6 +142,16 @@ export async function readMemory(addr: number, length?: number): Promise<string 
   return gdb.readMemory(addr, length)
 }
 
+export function patchMemoryCache(addr: number, data: Uint8Array) {
+  if (!gdb.sessionActive()) return
+  gdb.patchMemoryCache(addr, data)
+}
+
+export async function writeMemory(addr: number, data: Uint8Array): Promise<boolean> {
+  if (!gdb.sessionActive()) return false
+  return gdb.writeMemory(addr, data)
+}
+
 /** Feed the guest ELF so thread-info + function symbols can be resolved. */
 export function setKernelImage(elf: Uint8Array | null) {
   gdb.setKernelImage(elf)

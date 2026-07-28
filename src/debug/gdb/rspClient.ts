@@ -2,11 +2,11 @@
  * Minimal GDB RSP client over a byte pipe (browser gdb chardev).
  *
  * Supports: qSupported / no-ack, halt (`\x03` / `?`), continue, step, `g`,
- * software breakpoints (`Z0`/`z0`), and memory read (`m`).
+ * software breakpoints (`Z0`/`z0`), memory read (`m`), and memory write (`M`).
  */
 
 import { drainBytes, feedBytes, type ChardevExports } from '@/debug/browserChardev'
-import { decodeStream, encodePacket, hexToBytes } from '@/debug/gdb/rspCodec'
+import { bytesToHex, decodeStream, encodePacket, hexToBytes } from '@/debug/gdb/rspCodec'
 
 const DEFAULT_TIMEOUT_MS = 3000
 
@@ -143,6 +143,15 @@ export class RspClient {
     const hex = await this.request(`m${addr.toString(16)},${length.toString(16)}`)
     if (hex.startsWith('E')) throw new Error(`memory read error: ${hex}`)
     return hexToBytes(hex)
+  }
+
+  /** Write bytes via the hex `M` packet (`Maddr,length:XX…`). */
+  async writeMemory(addr: number, data: Uint8Array): Promise<void> {
+    if (data.length === 0) return
+    const reply = await this.request(
+      `M${addr.toString(16)},${data.length.toString(16)}:${bytesToHex(data)}`,
+    )
+    if (reply !== 'OK') throw new Error(`memory write error: ${reply}`)
   }
 
   async insertSwBreakpoint(addr: number, kind: number): Promise<boolean> {

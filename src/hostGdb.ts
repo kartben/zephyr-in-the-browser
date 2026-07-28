@@ -35,7 +35,7 @@ import {
   formalsAt,
   type FormalIndex,
 } from '@/debug/dwarfFormals'
-import { bytesToHex } from '@/debug/gdb/rspCodec'
+import { bytesToHex, hexToBytes } from '@/debug/gdb/rspCodec'
 
 const POLL_MS = 20
 
@@ -186,6 +186,24 @@ async function refreshRegs() {
     publish({ registersLoading: false })
   }
   void refreshThreads()
+  void refreshMemory()
+}
+
+/**
+ * Re-read the last peeked window so the hex view can blink bytes that changed
+ * since the previous stop (pause → resume → pause).
+ */
+async function refreshMemory() {
+  if (!client || !state.paused || !state.memory) return
+  const { addr, hex } = state.memory
+  const length = hex.length / 2
+  if (length <= 0) return
+  try {
+    const bytes = await client.readMemory(addr, length)
+    publish({ memory: { addr, hex: bytesToHex(bytes) } })
+  } catch {
+    // keep the previous peek
+  }
 }
 
 async function refreshThreads() {
@@ -360,16 +378,13 @@ export async function resume(): Promise<void> {
   if (!client || !state.attached || !state.paused) return
   try {
     await client.continue()
+    // Keep the last register / memory / thread snapshot so the inspect tabs
+    // can stay visible (grayed) while running — makes the next-pause blink
+    // against a frozen baseline.
     publish({
       paused: false,
-      pc: null,
-      pcLabel: null,
-      summary: null,
-      registers: null,
       registersLoading: false,
-      threads: [],
       threadsLoading: false,
-      threadsError: null,
     })
   } catch {
     // ignore
@@ -423,6 +438,36 @@ export async function readMemory(addr: number, length = 64): Promise<string | nu
     return hex
   } catch {
     return null
+  }
+}
+
+/**
+ * Patch the cached peek window without a round-trip — used when the hex view
+ * edits a byte locally so a remount does not lose the change.
+ */
+export function patchMemoryCache(addr: number, data: Uint8Array) {
+  const peek = state.memory
+  if (!peek || data.length === 0) return
+  const peekLen = peek.hex.length / 2
+  const peekEnd = peek.addr + peekLen
+  const writeEnd = addr + data.length
+  if (addr >= peekEnd || writeEnd <= peek.addr) return
+  const next = hexToBytes(peek.hex)
+  const copyStart = Math.max(0, addr - peek.addr)
+  const dataStart = Math.max(0, peek.addr - addr)
+  const copyLen = Math.min(peekLen - copyStart, data.length - dataStart)
+  next.set(data.subarray(dataStart, dataStart + copyLen), copyStart)
+  publish({ memory: { addr: peek.addr, hex: bytesToHex(next) } })
+}
+
+/** Write guest memory at `addr`. */
+export async function writeMemory(addr: number, data: Uint8Array): Promise<boolean> {
+  if (!client || !state.attached || !state.paused || data.length === 0) return false
+  try {
+    await client.writeMemory(addr, data)
+    return true
+  } catch {
+    return false
   }
 }
 

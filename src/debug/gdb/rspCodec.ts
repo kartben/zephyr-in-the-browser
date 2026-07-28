@@ -18,7 +18,7 @@ export function encodePacket(payload: string): string {
   return `$${payload}#${checksum(payload)}`
 }
 
-/** Escape binary for `X` / binary memory writes (not used yet, but tested). */
+/** Escape binary for `X` / binary memory writes (hex `M` is used instead). */
 export function escapeBinary(data: Uint8Array): string {
   let out = ''
   for (let i = 0; i < data.length; i++) {

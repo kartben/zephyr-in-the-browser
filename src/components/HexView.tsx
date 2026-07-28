@@ -44,15 +44,25 @@ export type HexViewRange = { start: number; end: number }
  * to snap the window to an address (e.g. a sector-map click).
  * {@link onViewChange} reports the visible range so a sector map can highlight
  * matching cells when the window moves.
+ *
+ * {@link addressBase} shifts the gutter labels (debugger peeks at an absolute
+ * guest address while the backing buffer is still 0-based). Pass
+ * {@link dimErased}`={false}` for RAM peeks where 0xff is ordinary data.
  */
 export function HexView({
   chip,
   jump = null,
   onViewChange,
+  addressBase = 0,
+  dimErased = true,
 }: {
   chip: HexBacked
   jump?: HexJump | null
   onViewChange?: (range: HexViewRange) => void
+  /** Absolute address corresponding to offset 0 in {@link chip.memory}. */
+  addressBase?: number
+  /** Dim cells equal to {@link HexBacked.decl.erased} (default 0xff). */
+  dimErased?: boolean
 }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<number | null>(null)
@@ -78,8 +88,11 @@ export function HexView({
 
   const erased = chip.decl.erased ?? 0xff
   const rows = Math.ceil(view.length / BYTES_PER_ROW) || 1
-  // Enough digits for the largest offset, so the gutter does not jitter.
-  const offsetDigits = Math.max(4, Math.max(0, data.length - 1).toString(16).length)
+  // Enough digits for the largest absolute address, so the gutter does not jitter.
+  const offsetDigits = Math.max(
+    4,
+    Math.max(0, addressBase + data.length - 1).toString(16).length,
+  )
 
   return (
     <div className="space-y-1.5">
@@ -97,8 +110,8 @@ export function HexView({
             ←
           </button>
           <span className="font-mono tabular-nums">
-            0x{base.toString(16).padStart(offsetDigits, '0')}–0x
-            {(base + Math.max(viewLen, 1) - 1).toString(16).padStart(offsetDigits, '0')}
+            0x{(addressBase + base).toString(16).padStart(offsetDigits, '0')}–0x
+            {(addressBase + base + Math.max(viewLen, 1) - 1).toString(16).padStart(offsetDigits, '0')}
             <span className="text-muted-foreground/70"> / {data.length.toLocaleString()} B</span>
           </span>
           <button
@@ -133,7 +146,7 @@ export function HexView({
             return (
               <div key={rowBase} className="flex items-center gap-2 whitespace-nowrap">
                 <span className="select-none text-muted-foreground">
-                  {rowBase.toString(16).padStart(offsetDigits, '0')}
+                  {(addressBase + rowBase).toString(16).padStart(offsetDigits, '0')}
                 </span>
 
                 <span className="flex">
@@ -142,9 +155,9 @@ export function HexView({
                     return (
                       <ByteCell
                         key={offset}
-                        offset={offset}
+                        address={addressBase + offset}
                         value={value}
-                        dim={value === erased}
+                        dim={dimErased && value === erased}
                         flash={recent.has(offset)}
                         isPointer={offset === pointer}
                         editing={editing === offset}
@@ -190,7 +203,7 @@ export function HexView({
 }
 
 function ByteCell({
-  offset,
+  address,
   value,
   dim,
   flash,
@@ -201,7 +214,7 @@ function ByteCell({
   onCommit,
   onCancel,
 }: {
-  offset: number
+  address: number
   value: number
   dim: boolean
   flash: boolean
@@ -219,7 +232,7 @@ function ByteCell({
       <input
         autoFocus
         defaultValue={hex2(value)}
-        aria-label={`Byte 0x${offset.toString(16)}`}
+        aria-label={`Byte 0x${address.toString(16)}`}
         onFocus={(e) => {
           cancelled.current = false
           e.currentTarget.select()
@@ -255,7 +268,7 @@ function ByteCell({
     <button
       type="button"
       onClick={onEdit}
-      title={`0x${offset.toString(16).padStart(4, '0')} — click to edit`}
+      title={`0x${address.toString(16).padStart(4, '0')} — click to edit`}
       className={cn(
         'w-[2ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
         flash && 'bg-primary/30 text-foreground',
