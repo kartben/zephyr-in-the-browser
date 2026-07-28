@@ -29,8 +29,13 @@ const WARM_MS = 4200
 const MAX_PACKETS_PER_BURST = 3
 
 const PILL_W = 120
-const PILL_H = 26
+/** Tall enough for up to four side ports without stacking tips. */
+const PILL_H = 32
 const PILL_PAD_X = 10
+/** Fixed attachment slots on each east/west pill edge. */
+const THREAD_SIDE_PORTS = 4
+/** Vertical span used by the outermost side ports. */
+const THREAD_PORT_SPAN = PILL_H - 10
 /** Barrel length between mouth centers. */
 const PIPE_W = 224
 /** Fixed cylinder height — ports attach near the bore centerline. */
@@ -73,7 +78,12 @@ type FlowLink = {
   threadId: number
   queueId: number
   op: QueueFlowOp
+  /** Index into the queue mouth fan (top→bottom). */
   port: number
+  /** Index into the thread pill’s east/west side ports (top→bottom). */
+  threadPort: number
+  /** How many links share this thread’s attachment side (for spacing). */
+  threadPortCount: number
 }
 
 type Pipe = {
@@ -123,6 +133,75 @@ function pipeEndX(pipe: Pipe): number {
 
 function pipeFrontX(pipe: Pipe): number {
   return pipe.x + PIPE_W / 2
+}
+
+/**
+ * Which pill edge an edge uses. Puts leave toward the pipe; gets arrive from it.
+ */
+function threadAttachSide(
+  thread: ThreadNode,
+  pipe: Pipe,
+  op: QueueFlowOp,
+): 'east' | 'west' {
+  if (op === 'get') return thread.x >= pipe.x ? 'west' : 'east'
+  return thread.x <= pipe.x ? 'east' : 'west'
+}
+
+/** Y of side-port `port` among `count` live ports, centered on the pill. */
+function threadPortY(thread: ThreadNode, port: number, count: number): number {
+  const n = Math.max(1, Math.min(THREAD_SIDE_PORTS, count))
+  const slot = Math.max(0, Math.min(n - 1, port))
+  if (n <= 1) return thread.y
+  const step = THREAD_PORT_SPAN / (THREAD_SIDE_PORTS - 1)
+  const span = step * (n - 1)
+  return thread.y - span / 2 + slot * step
+}
+
+function threadEdgePoint(
+  thread: ThreadNode,
+  side: 'east' | 'west',
+  port: number,
+  portCount: number,
+): RoutePoint {
+  return {
+    x: thread.x + (side === 'east' ? PILL_W / 2 : -PILL_W / 2),
+    y: threadPortY(thread, port, portCount),
+  }
+}
+
+/**
+ * Assign threadPort indices per pill side so co-located arrows fan across the
+ * east/west edge instead of sharing one midpoint.
+ */
+function assignThreadPorts(links: FlowLink[], byThread: Map<number, ThreadNode>, byPipe: Map<number, Pipe>) {
+  type Key = string
+  const groups = new Map<Key, FlowLink[]>()
+  for (const link of links) {
+    const thread = byThread.get(link.threadId)
+    const pipe = byPipe.get(link.queueId)
+    if (!thread || !pipe) continue
+    const side = threadAttachSide(thread, pipe, link.op)
+    const key = `${link.threadId}:${side}`
+    const bucket = groups.get(key) ?? []
+    bucket.push(link)
+    groups.set(key, bucket)
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => {
+      const pa = byPipe.get(a.queueId)?.y ?? 0
+      const pb = byPipe.get(b.queueId)?.y ?? 0
+      if (pa !== pb) return pa - pb
+      // Stable: put before put_front before get when same queue.
+      const order = { put: 0, put_front: 1, get: 2 } as const
+      return order[a.op] - order[b.op] || a.id.localeCompare(b.id)
+    })
+    const count = Math.min(THREAD_SIDE_PORTS, group.length)
+    group.forEach((link, i) => {
+      // Overflowing links share the last slot rather than spilling off the pill.
+      link.threadPort = Math.min(i, THREAD_SIDE_PORTS - 1)
+      link.threadPortCount = count
+    })
+  }
 }
 
 /**
@@ -367,29 +446,24 @@ function edgePath(
 ): EdgePath {
   const { op } = link
   const obstacles = pipes.map(pipeObstacle)
-  const threadEdge = (towardX: number) => ({
-    x: thread.x + (towardX >= thread.x ? PILL_W / 2 : -PILL_W / 2),
-    y: thread.y,
-  })
+  const side = threadAttachSide(thread, pipe, op)
+  const tip = threadEdgePoint(thread, side, link.threadPort, link.threadPortCount)
 
   if (op === 'put_front') {
     const ey = frontInsertY(pipe, link.port)
-    const start = threadEdge(pipeFrontX(pipe))
     const end = { x: mouthLipX(pipe, 'front', ey), y: ey }
-    return routeAvoidingTubes(start, end, obstacles, 'east')
+    return routeAvoidingTubes(tip, end, obstacles, 'east')
   }
 
   if (op === 'put') {
-    const ey = clampMouthY(pipe, thread.y)
-    const start = threadEdge(pipeEndX(pipe))
+    const ey = clampMouthY(pipe, tip.y)
     const end = { x: mouthLipX(pipe, 'end', ey), y: ey }
-    return routeAvoidingTubes(start, end, obstacles, start.x <= end.x ? 'hvh' : 'west')
+    return routeAvoidingTubes(tip, end, obstacles, tip.x <= end.x ? 'hvh' : 'west')
   }
 
-  const ey = clampMouthY(pipe, thread.y)
+  const ey = clampMouthY(pipe, tip.y)
   const start = { x: mouthLipX(pipe, 'front', ey), y: ey }
-  const end = threadEdge(pipeFrontX(pipe))
-  return routeAvoidingTubes(start, end, obstacles, end.x >= start.x ? 'hvh' : 'east')
+  return routeAvoidingTubes(start, tip, obstacles, tip.x >= start.x ? 'hvh' : 'east')
 }
 
 function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipes: Pipe[]) {
@@ -398,10 +472,12 @@ function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipe
     const y = nearestChannel(pipe.y - PIPE_H / 2 - ARC_CLEAR, channelYs(pipes.map(pipeObstacle)))
     return { x: pipe.x, y: y - 8 }
   }
-  const attachY = clampMouthY(pipe, thread.y)
-  const fromX = op === 'get' ? pipeFrontX(pipe) : thread.x + PILL_W / 2
-  const toX = op === 'get' ? thread.x - PILL_W / 2 : pipeEndX(pipe)
-  return { x: (fromX + toX) / 2, y: (thread.y + attachY) / 2 - 9 }
+  const side = threadAttachSide(thread, pipe, op)
+  const tip = threadEdgePoint(thread, side, link.threadPort, link.threadPortCount)
+  const attachY = clampMouthY(pipe, tip.y)
+  const fromX = op === 'get' ? pipeFrontX(pipe) : tip.x
+  const toX = op === 'get' ? tip.x : pipeEndX(pipe)
+  return { x: (fromX + toX) / 2, y: (tip.y + attachY) / 2 - 9 }
 }
 
 function strokeFor(op: QueueFlowOp): string {
@@ -443,8 +519,8 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     const id = flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op })
     if (seen.has(id)) continue
     seen.add(id)
-    // Port is filled in after threads are placed so mouth order matches Y order.
-    links.push({ id, threadId: ev.threadId!, queueId: ev.queueId, op: ev.op, port: 0 })
+    // Port indices filled after placement so mouth + thread fans match Y order.
+    links.push({ id, threadId: ev.threadId!, queueId: ev.queueId, op: ev.op, port: 0, threadPort: 0, threadPortCount: 1 })
   }
 
   // Pipe Y follows the caller’s queue order (sortQueuesByPipelineOrder) so the
@@ -553,6 +629,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   }
   assignPorts((link) => isPutOp(link.op))
   assignPorts((link) => link.op === 'get')
+  assignThreadPorts(links, byThread, byPipe)
 
   const maxThreadY = threads.reduce((m, t) => Math.max(m, t.y), 0)
   const maxPipeY = pipes.reduce((m, p) => Math.max(m, p.y), 0)
@@ -698,6 +775,7 @@ export function QueueGraph({
     }
     assignPorts((link) => isPutOp(link.op))
     assignPorts((link) => link.op === 'get')
+    assignThreadPorts(layout.links, layout.byThread, layout.byPipe)
 
     layoutRef.current = layout
     svg.attr('viewBox', `0 0 ${layout.w} ${layout.h}`).attr('height', layout.h)
