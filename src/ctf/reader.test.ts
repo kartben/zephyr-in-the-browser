@@ -199,4 +199,23 @@ describe('time-axis helpers', () => {
     expect(contextSwitchesIn(reader.tr, 4_000, 10_000)).toBe(1)
     expect(contextSwitchesIn(reader.tr, 6_000, 10_000)).toBe(0)
   })
+
+  it('threadRunningAt prefers the latest runner when switched_out is missing', () => {
+    // Async CTF under http_server can drop switched_out; main stays `run` in
+    // the state map while a later switched_in marks rx_q running too.
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const rx = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(rx), ...encName('rx_q')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        // Missing switched_out for main — only switched_in for rx.
+        ...record(200, 0x11, [...encU32(rx), ...encName('rx_q')]),
+      ]),
+    )
+    expect(threadRunningAt(reader.tr, 250)).toBe(rx)
+    expect(threadRunningAt(reader.tr, 150)).toBe(main)
+  })
 })
