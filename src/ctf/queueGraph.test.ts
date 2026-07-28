@@ -4,6 +4,9 @@ import { TraceReader } from './reader'
 import {
   isPutOp,
   mouthForOp,
+  nearestQueueChartEvent,
+  queueChartEvents,
+  queueChartOpLabel,
   queueFlowEvents,
   sortQueuesByPipelineOrder,
   threadFlowScores,
@@ -88,6 +91,49 @@ describe('queueFlowEvents', () => {
     expect(mouthForOp('put')).toBe('end')
     expect(mouthForOp('put_front')).toBe('front')
     expect(mouthForOp('get')).toBe('front')
+  })
+})
+
+describe('queueChartEvents / nearestQueueChartEvent', () => {
+  it('includes purge alongside put/get exits', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thr = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thr), ...encName('producer')]),
+        ...record(100, 0x11, [...encU32(thr), ...encName('producer')]),
+        ...record(200, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+        ...record(300, 0x91, [...encU32(q)]),
+      ]),
+    )
+    const chart = queueChartEvents(reader.tr)
+    expect(chart).toHaveLength(2)
+    expect(chart[0]).toMatchObject({ op: 'put', ok: true, threadId: thr })
+    expect(chart[1]).toMatchObject({ op: 'purge', ok: true, queueId: q, threadId: thr })
+    expect(queueChartOpLabel('purge')).toBe('k_msgq_purge')
+  })
+
+  it('picks the nearest event for a queue within the delta window', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const q = 0x2000
+    const other = 0x2001
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+        ...record(200, 0x8c, [...encU32(other), ...encU32(0), ...encI32(0)]),
+        ...record(400, 0x8f, [...encU32(q), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+    const chart = queueChartEvents(reader.tr)
+    // 150 from put@100 — within 80 → put; other@200 ignored for this queue.
+    expect(nearestQueueChartEvent(chart, q, 150, 80)?.op).toBe('put')
+    expect(nearestQueueChartEvent(chart, q, 150, 80)?.ts).toBe(100)
+    // Closer to get@400.
+    expect(nearestQueueChartEvent(chart, q, 350, 80)?.op).toBe('get')
+    // Midway with a tight window → nothing for q (other's put must not win).
+    expect(nearestQueueChartEvent(chart, q, 250, 40)).toBeNull()
+    expect(nearestQueueChartEvent(chart, other, 200, 10)?.queueId).toBe(other)
   })
 })
 

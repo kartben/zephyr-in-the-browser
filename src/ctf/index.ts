@@ -65,6 +65,9 @@ export {
 } from './netSockets'
 export {
   queueFlowEvents,
+  queueChartEvents,
+  nearestQueueChartEvent,
+  queueChartOpLabel,
   threadFlowScores,
   flowEdgeId,
   flowThreadLabel,
@@ -73,6 +76,8 @@ export {
   queuePipelineRanks,
   sortQueuesByPipelineOrder,
   type QueueFlowEvent,
+  type QueueChartEvent,
+  type QueueChartOp,
   type QueueFlowOp,
   type MsgqMouth,
 } from './queueGraph'

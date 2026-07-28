@@ -1,17 +1,33 @@
 /**
- * Stacked msgq depth charts — depth replayed from put_exit / get_exit alone.
- * Shares the Trace panel's time window (follow / pan / zoom).
+ * Message-queue depth history chart — depth replayed from put/get/purge exits.
+ *
+ * Shares the Trace panel's time window (follow / pan / zoom). Hover shows a
+ * crosshair plus a tip with timestamp, depth, and the nearest msgq CTF event.
  */
 
-import { useEffect, useMemo, useRef, type CanvasHTMLAttributes, type RefObject } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CanvasHTMLAttributes,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from 'react'
 import {
   depthAt,
+  flowThreadLabel,
   fmtTime,
+  nearestQueueChartEvent,
   niceTimeStep,
   queueAxisMax,
+  queueChartEvents,
+  queueChartOpLabel,
   queueLabel,
   reconstructQueues,
   sortQueuesByPipelineOrder,
+  type QueueChartEvent,
   type QueueSeries,
   type Trace,
 } from '@/ctf'
@@ -24,6 +40,19 @@ const AXIS_H = 28
 const ROW_H = 72
 const PLOT_PAD_TOP = 14
 const PLOT_PAD_BOT = 6
+/** Snap hover to an event when it lands within this many plot pixels. */
+const SNAP_PX = 10
+
+type HoverTip = {
+  /** Canvas-relative tip anchor (plot x, row midline). */
+  x: number
+  y: number
+  /** Absolute CTF timestamp under the cursor (after snap). */
+  ts: number
+  queue: QueueSeries
+  depth: number
+  event: QueueChartEvent | null
+}
 
 function msgqNameMap(): Map<number, string> {
   const map = new Map<number, string>()
@@ -46,6 +75,7 @@ function paint(
   view0: number,
   view1: number,
   follow: boolean,
+  hover: HoverTip | null,
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
@@ -198,11 +228,60 @@ function paint(
     ctx.moveTo(LABEL_W, plotTop + plotH)
     ctx.lineTo(LABEL_W + plotW, plotTop + plotH)
     ctx.stroke()
+
+    // Hover depth marker on the active row.
+    if (hover && hover.queue.id === q.id) {
+      const dy = plotTop + (1 - hover.depth / yMax) * plotH
+      ctx.fillStyle = 'rgba(250, 250, 250, 0.95)'
+      ctx.beginPath()
+      ctx.arc(hover.x, dy, 3.5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.95)'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    }
   })
+
+  // Shared vertical crosshair across all rows.
+  if (hover && hover.x >= LABEL_W && hover.x <= LABEL_W + plotW) {
+    ctx.strokeStyle = 'rgba(226, 232, 240, 0.55)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    ctx.moveTo(hover.x, AXIS_H)
+    ctx.lineTo(hover.x, AXIS_H + queues.length * ROW_H)
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
 
   canvas.style.height = `${cssH}px`
 }
 
+function tipLines(tr: Trace, tip: HoverTip): string[] {
+  const lines = [
+    queueLabel(tip.queue),
+    `t = ${fmtTime(tip.ts - tr.t0)}`,
+    tip.queue.cap != null
+      ? `depth ${tip.depth} / cap ${tip.queue.cap}`
+      : `depth ${tip.depth}`,
+  ]
+  if (tip.event) {
+    const who =
+      tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : 'unknown thread'
+    const outcome = tip.event.op === 'purge' ? '' : tip.event.ok ? ' · ok' : ' · failed'
+    lines.push(`${queueChartOpLabel(tip.event.op)}${outcome}`)
+    lines.push(`by ${who}`)
+    if (tip.event.ts !== tip.ts) {
+      lines.push(`event @ ${fmtTime(tip.event.ts - tr.t0)}`)
+    }
+  }
+  return lines
+}
+
+/**
+ * Interactive msgq depth-over-time chart. Canvas paint stays fast for live
+ * follow; hover tip is an HTML overlay so timestamps stay selectable/readable.
+ */
 export function QueuesView({
   tr,
   view0,
@@ -226,33 +305,139 @@ export function QueuesView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, eventCount],
   )
+  const chartEvents = useMemo(
+    () => queueChartEvents(tr),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tr, eventCount],
+  )
   const queuesRef = useRef(queues)
   queuesRef.current = queues
+  const eventsRef = useRef(chartEvents)
+  eventsRef.current = chartEvents
+  const viewRef = useRef({ view0, view1 })
+  viewRef.current = { view0, view1 }
+
+  const [hover, setHover] = useState<HoverTip | null>(null)
+  const hoverRef = useRef<HoverTip | null>(null)
+  hoverRef.current = hover
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, tr, queues, view0, view1, follow)
-  }, [tr, queues, view0, view1, follow, canvasRef])
+    paint(canvas, tr, queues, view0, view1, follow, hover)
+  }, [tr, queues, view0, view1, follow, canvasRef, hover])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      paint(canvas, tr, queuesRef.current, view0, view1, follow)
+      paint(canvas, tr, queuesRef.current, view0, view1, follow, hoverRef.current)
     })
     ro.observe(canvas)
     return () => ro.disconnect()
   }, [tr, view0, view1, follow, canvasRef])
 
+  const resolveHover = useCallback(
+    (clientX: number, clientY: number, target: HTMLCanvasElement): HoverTip | null => {
+      const rect = target.getBoundingClientRect()
+      const x = clientX - rect.left
+      const y = clientY - rect.top
+      const qs = queuesRef.current
+      if (qs.length === 0) return null
+      const { view0: v0, view1: v1 } = viewRef.current
+      const plotW = Math.max(1, target.clientWidth - LABEL_W - PAD)
+      if (x < LABEL_W || x > LABEL_W + plotW || y < AXIS_H) return null
+      const row = Math.floor((y - AXIS_H) / ROW_H)
+      if (row < 0 || row >= qs.length) return null
+      const q = qs[row]!
+      const span = Math.max(1, v1 - v0)
+      let ts = v0 + ((x - LABEL_W) / plotW) * span
+      const snapDelta = (SNAP_PX / plotW) * span
+      // Wider window for tip copy so sparse traces still name an event.
+      const infoDelta = Math.max(snapDelta, span * 0.03)
+      const snapEvent = nearestQueueChartEvent(eventsRef.current, q.id, ts, snapDelta)
+      const event =
+        snapEvent ?? nearestQueueChartEvent(eventsRef.current, q.id, ts, infoDelta)
+      if (snapEvent) ts = snapEvent.ts
+      const plotX = LABEL_W + ((ts - v0) / span) * plotW
+      return {
+        x: plotX,
+        y: AXIS_H + row * ROW_H + ROW_H / 2,
+        ts,
+        queue: q,
+        depth: depthAt(q.samples, ts),
+        event,
+      }
+    },
+    [],
+  )
+
+  const onPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLCanvasElement>) => {
+      canvasProps?.onPointerMove?.(e)
+      // Skip tip while dragging (pan) — buttons !== 0.
+      if (e.buttons !== 0) {
+        if (hoverRef.current) setHover(null)
+        return
+      }
+      setHover(resolveHover(e.clientX, e.clientY, e.currentTarget))
+    },
+    [canvasProps, resolveHover],
+  )
+
+  const onPointerLeave = useCallback(
+    (e: ReactPointerEvent<HTMLCanvasElement>) => {
+      canvasProps?.onPointerLeave?.(e)
+      setHover(null)
+    },
+    [canvasProps],
+  )
+
+  const tip = hover ? tipLines(tr, hover) : null
+  // Keep the HTML tip inside the chart; flip left of the crosshair near the right edge.
+  const tipStyle =
+    hover && tip
+      ? {
+          left: hover.x > LABEL_W + 180 ? hover.x - 12 : hover.x + 12,
+          top: Math.max(AXIS_H + 4, hover.y - 28),
+          transform: hover.x > LABEL_W + 180 ? 'translateX(-100%)' : undefined,
+        }
+      : undefined
+
   return (
     <>
       {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
-      <canvas
-        ref={canvasRef}
-        className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-        {...canvasProps}
-      />
+      <div className="relative">
+        <canvas
+          ref={canvasRef}
+          className="w-full cursor-crosshair touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+          {...canvasProps}
+          onPointerMove={onPointerMove}
+          onPointerLeave={onPointerLeave}
+        />
+        {tip && tipStyle && (
+          <div
+            role="tooltip"
+            className="pointer-events-none absolute z-10 max-w-[16rem] rounded border border-border/70 bg-background/95 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground shadow-md backdrop-blur-sm"
+            style={tipStyle}
+          >
+            {tip.map((line, i) => (
+              <div
+                key={i}
+                className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {queues.length > 0 && (
+        <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+          Hover a depth trace for timestamp and nearest msgq event · drag to pan · pinch or ± to
+          zoom
+        </p>
+      )}
     </>
   )
 }

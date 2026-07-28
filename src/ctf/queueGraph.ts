@@ -13,12 +13,16 @@
 
 import {
   MSGQ_GET_EXIT,
+  MSGQ_PURGE,
   MSGQ_PUT_EXIT,
   MSGQ_PUT_FRONT_EXIT,
 } from './types'
 import { threadLabel, threadRunningAt, type Trace } from './reader'
 
 export type QueueFlowOp = 'put' | 'put_front' | 'get'
+
+/** Depth-chart ops: flow exits plus purge (empties the ring). */
+export type QueueChartOp = QueueFlowOp | 'purge'
 
 /** Which end of the msgq ring an op touches. */
 export type MsgqMouth = 'end' | 'front'
@@ -42,6 +46,16 @@ export interface QueueFlowEvent {
   op: QueueFlowOp
   queueId: number
   /** Running thread at ts, or null if unknown / ISR. */
+  threadId: number | null
+  ok: boolean
+}
+
+/** Msgq event surfaced on the depth-chart hover tip (includes purge). */
+export interface QueueChartEvent {
+  index: number
+  ts: number
+  op: QueueChartOp
+  queueId: number
   threadId: number | null
   ok: boolean
 }
@@ -70,6 +84,89 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
     })
   }
   return out
+}
+
+/**
+ * Put / put_front / get / purge exits for the depth chart — same attribution
+ * as {@link queueFlowEvents}, plus purge (no ret; always ok).
+ */
+export function queueChartEvents(tr: Trace): QueueChartEvent[] {
+  const out: QueueChartEvent[] = []
+  for (let i = 0; i < tr.events.length; i++) {
+    const ev = tr.events[i]!
+    const eid = ev.eid
+    let op: QueueChartOp | null = null
+    if (eid === MSGQ_PUT_EXIT) op = 'put'
+    else if (eid === MSGQ_PUT_FRONT_EXIT) op = 'put_front'
+    else if (eid === MSGQ_GET_EXIT) op = 'get'
+    else if (eid === MSGQ_PURGE) op = 'purge'
+    if (!op) continue
+    const queueId = ev.fields.id
+    if (typeof queueId !== 'number') continue
+    const ret = typeof ev.fields.ret === 'number' ? ev.fields.ret : 0
+    out.push({
+      index: i,
+      ts: ev.ts,
+      op,
+      queueId,
+      threadId: threadRunningAt(tr, ev.ts),
+      ok: op === 'purge' ? true : ret === 0,
+    })
+  }
+  return out
+}
+
+/**
+ * Nearest chart event for `queueId` within `maxDeltaNs` of `ts`.
+ * Events are assumed sorted by timestamp (as produced by {@link queueChartEvents}).
+ */
+export function nearestQueueChartEvent(
+  events: QueueChartEvent[],
+  queueId: number,
+  ts: number,
+  maxDeltaNs: number,
+): QueueChartEvent | null {
+  if (events.length === 0 || maxDeltaNs < 0) return null
+  let lo = 0
+  let hi = events.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (events[mid]!.ts < ts) lo = mid + 1
+    else hi = mid
+  }
+  let best: QueueChartEvent | null = null
+  let bestDelta = maxDeltaNs
+  for (let i = lo; i < events.length; i++) {
+    const ev = events[i]!
+    const d = ev.ts - ts
+    if (d > bestDelta) break
+    if (ev.queueId !== queueId) continue
+    best = ev
+    bestDelta = d
+  }
+  for (let i = lo - 1; i >= 0; i--) {
+    const ev = events[i]!
+    const d = ts - ev.ts
+    if (d > bestDelta) break
+    if (ev.queueId !== queueId) continue
+    best = ev
+    bestDelta = d
+  }
+  return best
+}
+
+/** Short label for depth-chart / tooltip copy. */
+export function queueChartOpLabel(op: QueueChartOp): string {
+  switch (op) {
+    case 'put':
+      return 'k_msgq_put'
+    case 'put_front':
+      return 'k_msgq_put_front'
+    case 'get':
+      return 'k_msgq_get'
+    case 'purge':
+      return 'k_msgq_purge'
+  }
 }
 
 export interface FlowEdgeKey {
