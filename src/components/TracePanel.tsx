@@ -33,7 +33,7 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
-import { QueuesView, QUEUES_LABEL_W } from '@/components/QueuesView'
+import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
 import { Button } from '@/components/ui/button'
 import {
@@ -71,16 +71,23 @@ import {
   type Trace,
 } from '@/ctf'
 import {
+  applyYZoomTransform,
   clampPlotX,
+  clampPlotY,
   formatGuestTime,
+  isIdentityYZoom,
   paintCanvasTimeAxis,
   paintPlayhead,
+  panYZoom,
   plotWidth,
+  screenYToBase,
   tsAt,
   viewFromBoxSelection,
   wantsBoxZoom,
   windowTimeStep,
   xAt,
+  yZoomFromScreenSelection,
+  type YZoom,
 } from '@/components/traceChart'
 import { getSnapshot, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
@@ -516,6 +523,7 @@ function paint(
   snapTs: number | null,
   /** Sticky click-selected msgq edge (event index). */
   selectedEdge: number | null,
+  yZoom: YZoom | null,
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
@@ -551,6 +559,13 @@ function paint(
     t0: tr.t0,
     follow,
   })
+
+  // Vertical box-zoom magnifies the lane stack below the time axis.
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(0, AXIS_H, cssW, Math.max(1, cssH - AXIS_H))
+  ctx.clip()
+  applyYZoomTransform(ctx, AXIS_H, cssH, yZoom)
 
   for (const section of geom.sections) {
     paintSectionHeader(ctx, section.title, section.headerTop, cssW)
@@ -757,6 +772,8 @@ function paint(
     }
   }
 
+  ctx.restore()
+
   canvas.style.height = `${cssH}px`
 }
 
@@ -840,15 +857,19 @@ type Gesture =
       kind: 'pan'
       pointerId: number
       startX: number
+      startY: number
       origin: { t0: number; t1: number }
+      originYZoom: YZoom | null
       moved: boolean
     }
   | {
       kind: 'boxZoom'
       pointerId: number
-      /** Local X within the surface (CSS px). */
+      /** Local coords within the surface (CSS px). */
       startX: number
+      startY: number
       origin: { t0: number; t1: number }
+      originYZoom: YZoom | null
       moved: boolean
     }
   | {
@@ -860,7 +881,15 @@ type Gesture =
     }
 
 /** Rubber-band preview while Shift-drag / box-zoom mode is active. */
-type BoxZoomPreview = { x0: number; x1: number; cssW: number }
+type BoxZoomPreview = {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  cssW: number
+  cssH: number
+  plotTop: number
+}
 
 function BoxZoomOverlay({
   preview,
@@ -873,31 +902,65 @@ function BoxZoomOverlay({
 }): ReactNode {
   const plotLeft = gutterW
   const plotRight = Math.max(plotLeft + 1, preview.cssW - PAD)
-  const a = clampPlotX(preview.x0, preview.cssW, gutterW, PAD)
-  const b = clampPlotX(preview.x1, preview.cssW, gutterW, PAD)
-  const left = Math.min(a, b)
-  const right = Math.max(a, b)
+  const plotTop = preview.plotTop
+  const plotBottom = Math.max(plotTop + 1, preview.cssH)
+  const left = Math.min(
+    clampPlotX(preview.x0, preview.cssW, gutterW, PAD),
+    clampPlotX(preview.x1, preview.cssW, gutterW, PAD),
+  )
+  const right = Math.max(
+    clampPlotX(preview.x0, preview.cssW, gutterW, PAD),
+    clampPlotX(preview.x1, preview.cssW, gutterW, PAD),
+  )
+  const top = Math.min(
+    clampPlotY(preview.y0, plotTop, plotBottom),
+    clampPlotY(preview.y1, plotTop, plotBottom),
+  )
+  const bottom = Math.max(
+    clampPlotY(preview.y0, plotTop, plotBottom),
+    clampPlotY(preview.y1, plotTop, plotBottom),
+  )
   const width = Math.max(1, right - left)
+  const height = Math.max(1, bottom - top)
   return (
     <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden rounded">
+      {/* Dim outside the selection, inside the plot band. */}
       <div
-        className="absolute inset-y-0 bg-slate-950/50"
-        style={{ left: plotLeft, width: Math.max(0, left - plotLeft) }}
+        className="absolute bg-slate-950/50"
+        style={{ left: plotLeft, top: plotTop, width: Math.max(0, plotRight - plotLeft), height: Math.max(0, top - plotTop) }}
       />
       <div
-        className="absolute inset-y-0 border-x-2 border-sky-400/85 bg-sky-400/20"
-        style={{ left, width }}
+        className="absolute bg-slate-950/50"
+        style={{ left: plotLeft, top: bottom, width: Math.max(0, plotRight - plotLeft), height: Math.max(0, plotBottom - bottom) }}
+      />
+      <div
+        className="absolute bg-slate-950/50"
+        style={{ left: plotLeft, top, width: Math.max(0, left - plotLeft), height }}
+      />
+      <div
+        className="absolute bg-slate-950/50"
+        style={{ left: right, top, width: Math.max(0, plotRight - right), height }}
+      />
+      <div
+        className="absolute border-2 border-sky-400/85 bg-sky-400/20"
+        style={{ left, top, width, height }}
       >
         <div className="absolute left-1/2 top-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-sky-400 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-slate-950 shadow-sm">
           {label}
         </div>
       </div>
-      <div
-        className="absolute inset-y-0 bg-slate-950/50"
-        style={{ left: right, width: Math.max(0, plotRight - right) }}
-      />
     </div>
   )
+}
+
+/** Plot band below the time axis for the active Trace tab. */
+function plotBandForTab(tab: TraceTab, cssH: number): { plotTop: number; plotBottom: number } {
+  if (tab === 'queues') {
+    // Queues keeps a bottom time axis — zoom the row band only.
+    const rowBottom = Math.max(QUEUES_TOP_H + 72, cssH - QUEUES_BOTTOM_AXIS_H)
+    return { plotTop: QUEUES_TOP_H, plotBottom: rowBottom }
+  }
+  return { plotTop: AXIS_H, plotBottom: Math.max(AXIS_H + 1, cssH) }
 }
 
 export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
@@ -1000,12 +1063,14 @@ function TracePanelBody({
   /** Timeline playhead — hover ts; null when not scrubbing. */
   const [playhead, setPlayhead] = useState<{ ts: number; x: number; y: number } | null>(null)
   /**
-   * Sticky box-zoom mode: drag selects a time range (Shift temporarily pans).
+   * Sticky box-zoom mode: drag selects a time×vertical range (Shift temporarily pans).
    * When off, plain drag pans and Shift-drag box-zooms.
    */
   const [boxZoomMode, setBoxZoomMode] = useState(false)
   const [shiftHeld, setShiftHeld] = useState(false)
   const [boxZoomPreview, setBoxZoomPreview] = useState<BoxZoomPreview | null>(null)
+  /** Per-tab vertical viewport from rectangle zoom (wheel / ± leave this alone). */
+  const [yZoomByTab, setYZoomByTab] = useState<Partial<Record<TraceTab, YZoom>>>({})
   const playheadRef = useRef(playhead)
   playheadRef.current = playhead
   const showMsgqRef = useRef(showMsgq)
@@ -1022,7 +1087,24 @@ function TracePanelBody({
   followRef.current = follow
   viewRef.current = view
   const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
+  const yZoom = yZoomByTab[tab] ?? null
+  const yZoomRef = useRef(yZoom)
+  yZoomRef.current = yZoom
   const boxZoomArmed = boxZoomMode || shiftHeld || boxZoomPreview != null
+
+  const setYZoom = useCallback(
+    (next: YZoom | null) => {
+      setYZoomByTab((prev) => {
+        if (!next || isIdentityYZoom(next)) {
+          if (!(tab in prev)) return prev
+          const { [tab]: _removed, ...rest } = prev
+          return rest
+        }
+        return { ...prev, [tab]: next }
+      })
+    },
+    [tab],
+  )
 
   const tr = snap.trace
   const msgqEvents = useMemo(
@@ -1045,11 +1127,14 @@ function TracePanelBody({
   const msgqHover = useMemo(() => {
     if (!tr || !view || !playhead) return null
     const cssW = canvasRef.current?.clientWidth ?? 480
+    const cssH = canvasRef.current?.clientHeight ?? 120
     const plotW = plotWidth(cssW, LABEL_W, PAD)
     // ~8px in raw ns — keeps tip/snap tight to the mark under the cursor.
     const maxDeltaNs = Math.max(50_000, ((view.t1 - view.t0) * 8) / Math.max(1, plotW))
+    const { plotTop, plotBottom } = plotBandForTab('schedule', cssH)
+    const baseY = screenYToBase(playhead.y, plotTop, plotBottom, yZoom)
     return resolveMsgqHover(
-      playhead,
+      { ts: playhead.ts, y: baseY },
       tr,
       view.t0,
       view.t1,
@@ -1059,7 +1144,7 @@ function TracePanelBody({
       laneMetrics,
       maxDeltaNs,
     )
-  }, [playhead, tr, view, showMsgq, queueLanes, msgqEvents, laneMetrics])
+  }, [playhead, tr, view, showMsgq, queueLanes, msgqEvents, laneMetrics, yZoom])
   const msgqHoverRef = useRef(msgqHover)
   msgqHoverRef.current = msgqHover
   const snapTs = useMemo(() => {
@@ -1102,6 +1187,7 @@ function TracePanelBody({
       msgqHover,
       snapTs,
       selectedEdge,
+      yZoom,
     )
   }, [
     tr,
@@ -1118,6 +1204,7 @@ function TracePanelBody({
     msgqHover,
     snapTs,
     selectedEdge,
+    yZoom,
   ])
 
   useEffect(() => {
@@ -1141,6 +1228,7 @@ function TracePanelBody({
         msgqHoverRef.current,
         snapTsRef.current,
         selectedEdgeRef.current,
+        yZoomRef.current,
       )
     })
     ro.observe(canvas)
@@ -1203,8 +1291,9 @@ function TracePanelBody({
   const fitAll = useCallback(() => {
     if (!tr || tr.events.length === 0) return
     setFollow(false)
+    setYZoom(null)
     setView({ t0: tr.t0, t1: Math.max(tr.t0 + MIN_WINDOW_NS, tr.t1) })
-  }, [tr, setFollow])
+  }, [tr, setFollow, setYZoom])
 
   const jumpLive = useCallback(() => {
     if (view) setLiveWindowNs(view.t1 - view.t0)
@@ -1302,8 +1391,11 @@ function TracePanelBody({
 
     // When the pointer is over a thread lane label, show that lane’s full name.
     if (playhead.x < LABEL_W) {
+      const cssH = canvasRef.current?.clientHeight ?? 120
+      const { plotTop, plotBottom } = plotBandForTab('schedule', cssH)
+      const baseY = screenYToBase(playhead.y, plotTop, plotBottom, yZoom)
       const geom = timelineGeom(tr, showMsgq, queueLanes.length, laneMetrics)
-      const row = Math.floor((playhead.y - geom.lanesTop) / geom.laneH)
+      const row = Math.floor((baseY - geom.lanesTop) / geom.laneH)
       if (row >= 0 && row < geom.lanes.length) {
         const tid = geom.lanes[row]!
         const full = threadLabel(tr, tid)
@@ -1360,18 +1452,29 @@ function TracePanelBody({
     }
     const rect = e.currentTarget.getBoundingClientRect()
     const localX = e.clientX - rect.left
+    const localY = e.clientY - rect.top
+    const cssW = e.currentTarget.clientWidth
+    const cssH = e.currentTarget.clientHeight
+    const { plotTop } = plotBandForTab(tab, cssH)
+    const originYZoom = yZoomRef.current
     if (wantsBoxZoom(e.shiftKey, boxZoomModeRef.current)) {
       setPlayhead(null)
       setBoxZoomPreview({
         x0: localX,
         x1: localX,
-        cssW: e.currentTarget.clientWidth,
+        y0: localY,
+        y1: localY,
+        cssW,
+        cssH,
+        plotTop,
       })
       gestureRef.current = {
         kind: 'boxZoom',
         pointerId: e.pointerId,
         startX: localX,
+        startY: localY,
         origin: view,
+        originYZoom,
         moved: false,
       }
       return
@@ -1380,7 +1483,9 @@ function TracePanelBody({
       kind: 'pan',
       pointerId: e.pointerId,
       startX: e.clientX,
+      startY: e.clientY,
       origin: view,
+      originYZoom,
       moved: false,
     }
   }
@@ -1391,20 +1496,30 @@ function TracePanelBody({
     if (g.kind === 'boxZoom') {
       const rect = e.currentTarget.getBoundingClientRect()
       const localX = e.clientX - rect.left
+      const localY = e.clientY - rect.top
       const dx = localX - g.startX
-      if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+      const dy = localY - g.startY
+      if (!g.moved && Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return
       g.moved = true
       window.getSelection()?.removeAllRanges()
       setPlayhead(null)
+      const cssW = e.currentTarget.clientWidth
+      const cssH = e.currentTarget.clientHeight
+      const { plotTop } = plotBandForTab(tab, cssH)
       setBoxZoomPreview({
         x0: g.startX,
         x1: localX,
-        cssW: e.currentTarget.clientWidth,
+        y0: g.startY,
+        y1: localY,
+        cssW,
+        cssH,
+        plotTop,
       })
       return
     }
     const dx = e.clientX - g.startX
-    if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+    const dy = e.clientY - g.startY
+    if (!g.moved && Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return
     g.moved = true
     window.getSelection()?.removeAllRanges()
     setFollow(false)
@@ -1413,6 +1528,12 @@ function TracePanelBody({
     const span = g.origin.t1 - g.origin.t0
     const dt = (-dx / plotW) * span
     setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
+    // When vertically zoomed, drag also pans the Y viewport.
+    if (g.originYZoom && !isIdentityYZoom(g.originYZoom)) {
+      const cssH = e.currentTarget.clientHeight
+      const { plotTop, plotBottom } = plotBandForTab(tab, cssH)
+      setYZoom(panYZoom(g.originYZoom, plotBottom - plotTop, dy))
+    }
   }
 
   const onPointerUp: PointerEventHandler<TraceSurface> = (e) => {
@@ -1430,27 +1551,44 @@ function TracePanelBody({
       if (!g.moved || !tr) return
       const rect = e.currentTarget.getBoundingClientRect()
       const endX = e.clientX - rect.left
-      const next = viewFromBoxSelection(
+      const endY = e.clientY - rect.top
+      const cssW = e.currentTarget.clientWidth
+      const cssH = e.currentTarget.clientHeight
+      const { plotTop, plotBottom } = plotBandForTab(tab, cssH)
+      const nextT = viewFromBoxSelection(
         g.origin,
-        e.currentTarget.clientWidth,
+        cssW,
         gutterW,
         PAD,
         g.startX,
         endX,
         PAN_THRESHOLD_PX,
       )
-      if (!next) return
+      const nextY = yZoomFromScreenSelection(
+        plotTop,
+        plotBottom,
+        g.startY,
+        endY,
+        g.originYZoom,
+        PAN_THRESHOLD_PX,
+      )
+      // Need a meaningful X span; Y can optionally join for 2D zoom.
+      if (!nextT) return
       setFollow(false)
       setPlayhead(null)
-      setLiveWindowNs(clampWindowNs(tr, next.t1 - next.t0))
-      setView(clampView(tr, next.t0, next.t1))
+      setLiveWindowNs(clampWindowNs(tr, nextT.t1 - nextT.t0))
+      setView(clampView(tr, nextT.t0, nextT.t1))
+      if (nextY) setYZoom(nextY)
       return
     }
 
     if (g.moved || !view || !tr || tab !== 'schedule') return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const screenY = e.clientY - rect.top
+    const cssH = e.currentTarget.clientHeight
+    const { plotTop, plotBottom } = plotBandForTab('schedule', cssH)
+    const y = screenYToBase(screenY, plotTop, plotBottom, yZoomRef.current)
     // Tap a msgq edge to pin/unpin its highlight.
     if (showMsgq && x >= LABEL_W) {
       const hit = hitTestMsgqEdge(
@@ -1563,7 +1701,12 @@ function TracePanelBody({
       1,
     )
     if (!next) return 'zoom'
-    return fmtTime(next.t1 - next.t0)
+    const { plotTop, plotBottom } = plotBandForTab(tab, boxZoomPreview.cssH)
+    const ySpan = Math.abs(
+      clampPlotY(boxZoomPreview.y1, plotTop, plotBottom) -
+        clampPlotY(boxZoomPreview.y0, plotTop, plotBottom),
+    )
+    return ySpan >= PAN_THRESHOLD_PX ? `${fmtTime(next.t1 - next.t0)} · 2D` : fmtTime(next.t1 - next.t0)
   })()
 
   const boxZoomOverlay = boxZoomPreview ? (
@@ -1575,8 +1718,8 @@ function TracePanelBody({
       type="button"
       title={
         boxZoomMode
-          ? 'Box zoom on — drag to zoom, Shift-drag to pan (Esc cancels)'
-          : 'Box zoom — drag a time range (or hold Shift while dragging)'
+          ? 'Box zoom on — drag a rectangle to zoom time+vertical, Shift-drag to pan (Esc cancels)'
+          : 'Box zoom — drag a rectangle to zoom time+vertical (or hold Shift while dragging)'
       }
       aria-label="Box zoom"
       aria-pressed={boxZoomMode}
@@ -1617,7 +1760,7 @@ function TracePanelBody({
       {boxZoomToggle}
       <button
         type="button"
-        title="Fit entire trace"
+        title="Fit entire trace (resets time + vertical zoom)"
         aria-label="Fit entire trace"
         onClick={fitAll}
         className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
@@ -1685,6 +1828,7 @@ function TracePanelBody({
           toolbar={chartToolbar}
           overlay={boxZoomOverlay}
           boxZoomArmed={boxZoomArmed}
+          yZoom={yZoom}
         />
       ) : tab === 'net' && view ? (
         <div className="flex flex-col gap-1">
@@ -1699,6 +1843,7 @@ function TracePanelBody({
             canvasProps={canvasHandlers}
             overlay={boxZoomOverlay}
             boxZoomArmed={boxZoomArmed}
+            yZoom={yZoom}
           />
         </div>
       ) : (
@@ -1726,7 +1871,7 @@ function TracePanelBody({
               {boxZoomToggle}
               <button
                 type="button"
-                title="Fit entire trace"
+                title="Fit entire trace (resets time + vertical zoom)"
                 aria-label="Fit entire trace"
                 onClick={fitAll}
                 className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
@@ -1857,8 +2002,8 @@ function TracePanelBody({
           </div>
 
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-            Hover for playhead · drag to pan · Shift-drag (or box-zoom tool) to zoom a range ·
-            pinch or ± to zoom (keeps LIVE) · tap a lane name to select
+            Hover for playhead · drag to pan · Shift-drag a rectangle to zoom time+lanes · pinch or ±
+            for time zoom (keeps LIVE) · Fit resets · tap a lane name to select
             {showMsgq
               ? ' · click a msgq edge to pin it'
               : ''}

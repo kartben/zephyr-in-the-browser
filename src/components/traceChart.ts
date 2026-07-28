@@ -152,6 +152,142 @@ export function clampPlotX(x: number, cssW: number, labelW: number, pad: number)
   return Math.min(right, Math.max(left, x))
 }
 
+/** Clamp a local Y into `[plotTop, plotBottom]`. */
+export function clampPlotY(y: number, plotTop: number, plotBottom: number): number {
+  const bottom = Math.max(plotTop + 1, plotBottom)
+  return Math.min(bottom, Math.max(plotTop, y))
+}
+
+/**
+ * Vertical viewport as fractions of the plot band below the time axis.
+ * `{ f0: 0, f1: 1 }` is fully zoomed out.
+ */
+export type YZoom = { f0: number; f1: number }
+
+export function isIdentityYZoom(z: YZoom | null | undefined): boolean {
+  return !z || (z.f0 <= 1e-9 && z.f1 >= 1 - 1e-9)
+}
+
+export function clampYZoom(z: YZoom, minFrac = 0.04): YZoom {
+  let f0 = Math.min(1, Math.max(0, z.f0))
+  let f1 = Math.min(1, Math.max(0, z.f1))
+  if (f1 < f0) {
+    const tmp = f0
+    f0 = f1
+    f1 = tmp
+  }
+  if (f1 - f0 < minFrac) {
+    const mid = (f0 + f1) / 2
+    f0 = Math.max(0, mid - minFrac / 2)
+    f1 = Math.min(1, f0 + minFrac)
+    f0 = Math.max(0, f1 - minFrac)
+  }
+  return { f0, f1 }
+}
+
+/** Map a screen Y through the current vertical zoom into base (unzoomed) Y. */
+export function screenYToBase(
+  screenY: number,
+  plotTop: number,
+  plotBottom: number,
+  yZoom: YZoom | null,
+): number {
+  const plotH = Math.max(1, plotBottom - plotTop)
+  const z = yZoom && !isIdentityYZoom(yZoom) ? yZoom : { f0: 0, f1: 1 }
+  const baseY0 = plotTop + z.f0 * plotH
+  const baseY1 = plotTop + z.f1 * plotH
+  const t = (screenY - plotTop) / plotH
+  return baseY0 + t * (baseY1 - baseY0)
+}
+
+/** Inverse of {@link screenYToBase}. */
+export function baseYToScreen(
+  baseY: number,
+  plotTop: number,
+  plotBottom: number,
+  yZoom: YZoom | null,
+): number {
+  const plotH = Math.max(1, plotBottom - plotTop)
+  const z = yZoom && !isIdentityYZoom(yZoom) ? yZoom : { f0: 0, f1: 1 }
+  const baseY0 = plotTop + z.f0 * plotH
+  const baseY1 = plotTop + z.f1 * plotH
+  const span = Math.max(1e-9, baseY1 - baseY0)
+  return plotTop + ((baseY - baseY0) / span) * plotH
+}
+
+/**
+ * Compose a nested vertical zoom from a screen-space strip selection.
+ * Returns `null` when the drag is too short.
+ */
+export function yZoomFromScreenSelection(
+  plotTop: number,
+  plotBottom: number,
+  yA: number,
+  yB: number,
+  current: YZoom | null,
+  minPx = 8,
+): YZoom | null {
+  const a = clampPlotY(Math.min(yA, yB), plotTop, plotBottom)
+  const b = clampPlotY(Math.max(yA, yB), plotTop, plotBottom)
+  if (b - a < minPx) return null
+  const plotH = Math.max(1, plotBottom - plotTop)
+  const base0 = screenYToBase(a, plotTop, plotBottom, current)
+  const base1 = screenYToBase(b, plotTop, plotBottom, current)
+  return clampYZoom({
+    f0: (base0 - plotTop) / plotH,
+    f1: (base1 - plotTop) / plotH,
+  })
+}
+
+/** Pan a vertical zoom by a screen-space delta (drag down → reveal content above). */
+export function panYZoom(current: YZoom, plotH: number, dyScreen: number): YZoom {
+  const span = Math.max(1e-9, current.f1 - current.f0)
+  const dFrac = (-dyScreen / Math.max(1, plotH)) * span
+  let f0 = current.f0 + dFrac
+  let f1 = current.f1 + dFrac
+  if (f0 < 0) {
+    f0 = 0
+    f1 = span
+  }
+  if (f1 > 1) {
+    f1 = 1
+    f0 = 1 - span
+  }
+  return { f0, f1 }
+}
+
+/**
+ * Canvas transform so base Y in `[plotTop, plotBottom]` fills that band under
+ * `yZoom`. Call after clipping to the plot band.
+ */
+export function applyYZoomTransform(
+  ctx: CanvasRenderingContext2D,
+  plotTop: number,
+  plotBottom: number,
+  yZoom: YZoom | null,
+): void {
+  if (!yZoom || isIdentityYZoom(yZoom)) return
+  const plotH = Math.max(1, plotBottom - plotTop)
+  const baseY0 = plotTop + yZoom.f0 * plotH
+  const scale = 1 / Math.max(1e-9, yZoom.f1 - yZoom.f0)
+  ctx.translate(0, plotTop - baseY0 * scale)
+  ctx.scale(1, scale)
+}
+
+/** SVG transform matrix string matching {@link applyYZoomTransform}. */
+export function yZoomSvgTransform(
+  plotTop: number,
+  plotBottom: number,
+  yZoom: YZoom | null,
+): string | null {
+  if (!yZoom || isIdentityYZoom(yZoom)) return null
+  const plotH = Math.max(1, plotBottom - plotTop)
+  const baseY0 = plotTop + yZoom.f0 * plotH
+  const scale = 1 / Math.max(1e-9, yZoom.f1 - yZoom.f0)
+  const ty = plotTop - baseY0 * scale
+  return `translate(0 ${ty}) scale(1 ${scale})`
+}
+
 /**
  * Map a horizontal box selection to a time window. Returns `null` when the
  * drag is too short to count as a zoom (keeps accidental Shift-clicks inert).

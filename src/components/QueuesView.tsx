@@ -37,7 +37,7 @@ import {
 } from '@/ctf'
 import { getWaitObjects } from '@/hostGdb'
 import { QueueGraph } from '@/components/QueueGraph'
-import { formatGuestTime } from '@/components/traceChart'
+import { formatGuestTime, screenYToBase, yZoomSvgTransform, type YZoom } from '@/components/traceChart'
 
 const LABEL_W = 108
 const PAD = 8
@@ -48,6 +48,11 @@ const PLOT_PAD_TOP = 14
 const PLOT_PAD_BOT = 6
 /** Only tip when the pointer is this close to a transition dot. */
 const SNAP_PX = 10
+
+/** Shared with TracePanel box-zoom plot-band math. */
+export const QUEUES_TOP_H = TOP_H
+export const QUEUES_BOTTOM_AXIS_H = BOTTOM_AXIS_H
+export const QUEUES_ROW_H = ROW_H
 
 const AXIS_STROKE = 'rgba(148, 163, 184, 0.55)'
 const AXIS_FILL = 'rgba(203, 213, 225, 0.95)'
@@ -182,6 +187,7 @@ function renderChart(
   view1: number,
   follow: boolean,
   hover: HoverTip | null,
+  yZoom: YZoom | null,
 ): RowLayout[] {
   const cssW = Math.max(1, svg.clientWidth || (svg.parentElement?.clientWidth ?? 320))
   const plotBottom = TOP_H + (queues.length === 0 ? ROW_H : queues.length * ROW_H)
@@ -210,6 +216,20 @@ function renderChart(
     bg = frame.append('rect').attr('class', 'chart-bg').attr('fill', 'rgba(2, 6, 23, 0.35)')
   }
   bg.attr('width', cssW).attr('height', cssH)
+
+  let defs = frame.select<SVGDefsElement>('defs')
+  if (defs.empty()) defs = frame.append('defs')
+  let clip = defs.select<SVGClipPathElement>('clipPath.y-zoom-clip')
+  if (clip.empty()) {
+    clip = defs.append('clipPath').attr('class', 'y-zoom-clip').attr('id', 'queues-y-zoom-clip')
+    clip.append('rect')
+  }
+  clip
+    .select('rect')
+    .attr('x', 0)
+    .attr('y', TOP_H)
+    .attr('width', cssW)
+    .attr('height', Math.max(1, plotBottom - TOP_H))
 
   let badge = frame.select<SVGTextElement>('text.live-badge')
   if (badge.empty()) {
@@ -245,8 +265,14 @@ function renderChart(
     empty.remove()
   }
 
-  let grid = frame.select<SVGGElement>('g.grid')
-  if (grid.empty()) grid = frame.append('g').attr('class', 'grid')
+  let zoomG = frame.select<SVGGElement>('g.y-zoom')
+  if (zoomG.empty()) zoomG = frame.append('g').attr('class', 'y-zoom')
+  zoomG.attr('clip-path', 'url(#queues-y-zoom-clip)')
+  const yxf = yZoomSvgTransform(TOP_H, plotBottom, yZoom)
+  zoomG.attr('transform', yxf ?? null)
+
+  let grid = zoomG.select<SVGGElement>('g.grid')
+  if (grid.empty()) grid = zoomG.append('g').attr('class', 'grid')
   grid
     .selectAll<SVGLineElement, number>('line')
     .data(queues.length === 0 ? [] : tickValues, (d) => String(d))
@@ -276,8 +302,12 @@ function renderChart(
     }
   })
 
-  let rowsG = frame.select<SVGGElement>('g.rows')
-  if (rowsG.empty()) rowsG = frame.append('g').attr('class', 'rows')
+  let rowsG = zoomG.select<SVGGElement>('g.rows')
+  if (rowsG.empty()) rowsG = zoomG.append('g').attr('class', 'rows')
+
+  // Drop legacy unclipped groups if a previous render left them on `frame`.
+  frame.select(':scope > g.grid').remove()
+  frame.select(':scope > g.rows').remove()
 
   const rowSel = rowsG
     .selectAll<SVGGElement, RowLayout>('g.row')
@@ -420,6 +450,11 @@ function renderChart(
       .attr('stroke-width', 0.75)
   })
 
+  // Drop legacy unclipped groups if a previous render left them on `frame`.
+  frame.select(':scope > g.grid').remove()
+  frame.select(':scope > g.rows').remove()
+  frame.select(':scope > g.hover').remove()
+
   let xAxisG = frame.select<SVGGElement>('g.x-axis')
   if (xAxisG.empty()) xAxisG = frame.append('g').attr('class', 'x-axis')
   const xAxis = d3
@@ -434,9 +469,9 @@ function renderChart(
   // Drop the old edge-left / edge-right clones — ticks already cover the range.
   frame.selectAll('text.edge-left, text.edge-right').remove()
 
-  let hoverG = frame.select<SVGGElement>('g.hover')
+  let hoverG = zoomG.select<SVGGElement>('g.hover')
   if (hoverG.empty()) {
-    hoverG = frame.append('g').attr('class', 'hover').style('pointer-events', 'none')
+    hoverG = zoomG.append('g').attr('class', 'hover').style('pointer-events', 'none')
     hoverG.append('line').attr('class', 'crosshair')
     hoverG.append('circle').attr('class', 'marker')
   }
@@ -503,6 +538,7 @@ export function QueuesView({
   toolbar,
   overlay,
   boxZoomArmed = false,
+  yZoom = null,
 }: {
   tr: Trace
   view0: number
@@ -517,9 +553,13 @@ export function QueuesView({
   overlay?: ReactNode
   /** When true, drag selects a zoom range instead of panning. */
   boxZoomArmed?: boolean
+  /** Vertical viewport from rectangle zoom. */
+  yZoom?: YZoom | null
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const layoutsRef = useRef<RowLayout[]>([])
+  const yZoomRef = useRef(yZoom)
+  yZoomRef.current = yZoom
 
   const queues = useMemo(
     () => sortQueuesByPipelineOrder(tr, reconstructQueues(tr, msgqNameMap())),
@@ -555,8 +595,9 @@ export function QueuesView({
       view1,
       follow,
       hover,
+      yZoom,
     )
-  }, [tr, queues, chartEvents, view0, view1, follow, svgRef, hover])
+  }, [tr, queues, chartEvents, view0, view1, follow, svgRef, hover, yZoom])
 
   useEffect(() => {
     const host = hostRef.current
@@ -572,6 +613,7 @@ export function QueuesView({
         view1,
         follow,
         hoverRef.current,
+        yZoomRef.current,
       )
     })
     ro.observe(host)
@@ -582,13 +624,14 @@ export function QueuesView({
     (clientX: number, clientY: number, target: SVGSVGElement): HoverTip | null => {
       const rect = target.getBoundingClientRect()
       const x = clientX - rect.left
-      const y = clientY - rect.top
+      const screenY = clientY - rect.top
       const qs = queuesRef.current
       if (qs.length === 0) return null
       const { view0: v0, view1: v1 } = viewRef.current
       const plotW = Math.max(1, target.clientWidth - LABEL_W - PAD)
       const xScale = d3.scaleLinear().domain([v0, v1]).range([LABEL_W, LABEL_W + plotW])
       const plotBottom = TOP_H + qs.length * ROW_H
+      const y = screenYToBase(screenY, TOP_H, plotBottom, yZoomRef.current)
       if (x < LABEL_W || x > LABEL_W + plotW || y < TOP_H || y >= plotBottom) return null
       const row = Math.floor((y - TOP_H) / ROW_H)
       if (row < 0 || row >= qs.length) return null
@@ -696,8 +739,8 @@ export function QueuesView({
       </div>
       {queues.length > 0 && (
         <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-          Hover a transition · drag to pan · Shift-drag (or box-zoom tool) to zoom a range · pinch
-          or ± to zoom
+          Hover a transition · drag to pan · Shift-drag a rectangle to zoom · pinch or ± for time
+          zoom
         </p>
       )}
     </div>

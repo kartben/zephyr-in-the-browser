@@ -11,6 +11,7 @@ import {
   type RefObject,
 } from 'react'
 import { cn } from '@/lib/utils'
+import { applyYZoomTransform, type YZoom } from '@/components/traceChart'
 import {
   formatByteCount,
   fmtTime,
@@ -44,6 +45,7 @@ function paint(
   view0: number,
   view1: number,
   follow: boolean,
+  yZoom: YZoom | null,
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
@@ -126,6 +128,12 @@ function paint(
       }
     }
   }
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(0, AXIS_H, cssW, Math.max(1, cssH - AXIS_H))
+  ctx.clip()
+  applyYZoomTransform(ctx, AXIS_H, cssH, yZoom)
 
   sockets.forEach((s, row) => {
     const y0 = AXIS_H + row * ROW_H
@@ -234,6 +242,7 @@ function paint(
     }
   }
 
+  ctx.restore()
   canvas.style.height = `${cssH}px`
 }
 
@@ -247,6 +256,7 @@ export function NetView({
   canvasProps,
   overlay,
   boxZoomArmed = false,
+  yZoom = null,
 }: {
   tr: Trace
   view0: number
@@ -259,6 +269,8 @@ export function NetView({
   overlay?: ReactNode
   /** When true, drag selects a zoom range instead of panning. */
   boxZoomArmed?: boolean
+  /** Vertical viewport from rectangle zoom. */
+  yZoom?: YZoom | null
 }) {
   const sockets = useMemo(
     () => reconstructSockets(tr),
@@ -276,20 +288,31 @@ export function NetView({
   )
   const socketsRef = useRef(sockets)
   const netRef = useRef(net)
+  const yZoomRef = useRef(yZoom)
   socketsRef.current = sockets
   netRef.current = net
+  yZoomRef.current = yZoom
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, tr, sockets, net, view0, view1, follow)
-  }, [tr, sockets, net, view0, view1, follow, canvasRef])
+    paint(canvas, tr, sockets, net, view0, view1, follow, yZoom)
+  }, [tr, sockets, net, view0, view1, follow, canvasRef, yZoom])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      paint(canvas, tr, socketsRef.current, netRef.current, view0, view1, follow)
+      paint(
+        canvas,
+        tr,
+        socketsRef.current,
+        netRef.current,
+        view0,
+        view1,
+        follow,
+        yZoomRef.current,
+      )
     })
     ro.observe(canvas)
     return () => ro.disconnect()
