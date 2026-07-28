@@ -607,7 +607,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'zperf',
     description: 'iperf2-style throughput benchmark against the page',
     zephyrSample: 'samples/net/zperf',
-    primaryPanels: ['net'],
+    primaryPanels: ['net', 'trace'],
   },
   {
     id: 'hello_world',
@@ -818,10 +818,12 @@ export const BOARDS: Board[] = [
       virtio: true,
       // No -icount / guest-icount export on the TCI riscv32 build yet.
     },
-    // Same guest apps as A53, minus tracing samples (ARM semihosting CTF path).
+    // Same guest apps as A53, minus tracing samples (ARM semihosting CTF path,
+    // and this board has no hostTrace peripheral to feed it). zperf keeps its
+    // net panel but loses the auto-expanded trace one for the same reason.
     samples: CORTEX_A53_SAMPLES.filter(
       (s) => s.id !== 'tracing' && s.id !== 'tracing_pipeline' && s.id !== 'msg_queue',
-    ),
+    ).map((s) => (s.id === 'zperf' ? { ...s, primaryPanels: ['net'] } : s)),
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
