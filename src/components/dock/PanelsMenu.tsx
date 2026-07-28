@@ -129,7 +129,7 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
           {(trace.available || state.seed.primary.includes('trace')) && (
             <PanelToggle
               label="Trace"
-              detail="CTF schedule Gantt"
+              detail="CTF thread timeline"
               checked={state.devices[STAGE_TRACE_KEY]?.hidden !== true}
               onChange={(shown) => setHidden(STAGE_TRACE_KEY, !shown)}
             />
