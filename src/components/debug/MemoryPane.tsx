@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type WheelEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { HexView } from '@/components/HexView'
 import { compactHex } from '@/debug/hexFormat'
@@ -130,6 +130,10 @@ export function MemoryPane({
   }
   const chip = chipRef.current
 
+  const shellRef = useRef<HTMLDivElement>(null)
+  const pausedRef = useRef(snap.paused)
+  pausedRef.current = snap.paused
+
   const load = async () => {
     const addr = parseAddr(addrText)
     if (addr === null) return
@@ -137,14 +141,24 @@ export function MemoryPane({
   }
 
   const moveByRows = (rowDelta: number) => {
-    if (rowDelta === 0 || !snap.paused) return
+    if (rowDelta === 0 || !pausedRef.current) return
     void loadAt(scrollMemoryAddr(viewAddr.current, rowDelta))
   }
 
-  const onWheel = (e: WheelEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    moveByRows(wheelRowDelta(e.deltaY, e.deltaMode))
-  }
+  // React's onWheel is passive — preventDefault is ignored and the page scrolls.
+  useEffect(() => {
+    const el = shellRef.current
+    if (!el) return
+    const onWheel = (e: globalThis.WheelEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      moveByRows(wheelRowDelta(e.deltaY, e.deltaMode))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+    // loadAt / viewAddr live in refs; only rebind when the shell mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chip])
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ArrowDown') {
@@ -186,9 +200,9 @@ export function MemoryPane({
       </div>
       {chip ? (
         <div
-          className="outline-none focus:ring-1 focus:ring-ring"
+          ref={shellRef}
+          className="overscroll-contain outline-none focus:ring-1 focus:ring-ring"
           tabIndex={0}
-          onWheel={onWheel}
           onKeyDown={onKeyDown}
           aria-label="Memory dump. Scroll or use arrow keys to move."
         >
