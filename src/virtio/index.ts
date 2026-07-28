@@ -254,7 +254,14 @@ function managedSpiFor(chipId: string, cs: number): SpiChip | undefined {
   const key = `${chipId}@${cs}`
   let chip = managedSpiAltCs.get(key)
   if (!chip) {
-    chip = type.create(cs)
+    // Devicetree-managed NORs model soldered NVM, including alternate CS
+    // instances such as Bluetooth settings on CS1. Give each physical chip
+    // its own browser-storage image; user-attached breadboard parts remain
+    // ephemeral unless they are one of the explicit board singletons.
+    chip =
+      chipId === 'w25q'
+        ? createW25q({ cs, persistKey: `zephyr.w25q.${cs}` })
+        : type.create(cs)
     managedSpiAltCs.set(key, chip)
   }
   return chip

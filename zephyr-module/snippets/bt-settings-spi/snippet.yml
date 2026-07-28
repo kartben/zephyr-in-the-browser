@@ -1,0 +1,16 @@
+name: bt-settings-spi
+description: >
+  Dedicated browser-persisted W25Q on virtio-spi CS1 for Zephyr Bluetooth
+  settings. Keeps identity/NVS data separate from the general SPI flash and
+  LittleFS chip on CS0.
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_virt.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_virt.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_virt.overlay

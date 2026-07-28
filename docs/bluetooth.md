@@ -23,6 +23,7 @@ Per-peer configure/control UI (draft):
 | In-page peers | `src/bt/peers.ts` — HRM / advertiser / scanner on the same LocalLink |
 | Bumble wheel | `public/vendor/bumble/` — see its README; fetch with `tools/vendor-bumble.sh` |
 | Guest snippet / conf | `zephyr-module/snippets/bt-hci-uart/`, `zephyr-module/conf/bt-hci.conf` |
+| Persistent settings | `bt-settings-spi` W25Q80 on CS1 + `storage_partition` → Zephyr NVS |
 | Packaged sample | `bt_peripheral` → `samples/bluetooth/peripheral` |
 
 ## Rebuild checklist
@@ -44,6 +45,13 @@ pipe but controller start fails on a missing wheel.
 4. Under **On the air**, use **Add peer** for a Scanner (sees adv reports),
    Heart rate monitor, or plain Advertiser — all on the in-tab LocalLink.
    No server; same shape as Ethernet/CAN peers in the page.
+
+The packaged Bluetooth images also compose the `bt-settings-spi` snippet.
+Zephyr's NVS settings backend stores the generated identity, IRK, and GATT
+database hash in its `storage_partition`; the simulated W25Q on CS1 persists
+those sectors in browser storage across reloads. It is a separate physical
+model and persistence key from the general SPI flash / LittleFS chip on CS0, so
+switching samples cannot make NVS and LittleFS overwrite each other's formats.
 
 External Hive over WebSocket (or a real dongle) remains an optional follow-up
 once someone wants peers outside this tab.

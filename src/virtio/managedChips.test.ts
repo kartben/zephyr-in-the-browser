@@ -7,7 +7,7 @@ import a53Ws2812 from '@/dts/fixtures/qemu_cortex_a53_ws2812.dts?raw'
 import a53Pt6314 from '@/dts/fixtures/qemu_cortex_a53_pt6314.dts?raw'
 import a53Tmc50xx from '@/dts/fixtures/qemu_cortex_a53_tmc50xx.dts?raw'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
-import { createW25q } from './devices/chips/w25q'
+import { createW25q, isSpiFlashChip } from './devices/chips/w25q'
 import type { I2cChip } from './devices/i2c'
 import {
   adxl345,
@@ -117,6 +117,39 @@ describe('syncManagedChips', () => {
     expect(vfd).toBeDefined()
     expect(isPt6314(vfd)).toBe(true)
     expect(vfd).not.toBe(pt6314) // CS0 singleton; shell uses a CS1 instance
+  })
+
+  it('persists a devicetree-managed NOR on an alternate CS independently', async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+    vi.useFakeTimers()
+
+    try {
+      const btSettingsDts = a53Shell.replace(
+        'compatible = "ptc,pt6314";',
+        'compatible = "jedec,spi-nor";',
+      )
+      setUserDts('bt-settings.dts', btSettingsDts)
+
+      const settingsFlash = spiModel.chips().find((chip) => chip.cs === 1)
+      if (!settingsFlash || !isSpiFlashChip(settingsFlash)) {
+        throw new Error('missing CS1 settings flash')
+      }
+      expect(isSpiFlashChip(settingsFlash)).toBe(true)
+
+      settingsFlash.poke(0, 0xab)
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(store.has('zephyr.w25q.1')).toBe(true)
+      expect(store.has('zephyr.w25q.0')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
   })
 
   it('drops managed chips when the tree has no bridged I2C bus', () => {
