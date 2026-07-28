@@ -4,11 +4,9 @@ import { cn } from '@/lib/utils'
 import {
   CheckControl,
   ControlRow,
-  SelectControl,
   SliderControl,
 } from '@/components/controls/ControlRow'
 import {
-  BODY_SENSOR_LOCATIONS,
   BT_PEER_TYPES,
   addPeer,
   available,
@@ -194,12 +192,6 @@ function PeerInspector({ peer }: { peer: BtPeerSnapshot }) {
             value={Number(params.bpm ?? 72)}
             format={(v) => String(Math.round(v))}
             onChange={(v) => void setPeerParam(peer.id, 'bpm', v)}
-          />
-          <SelectControl
-            label="Body location"
-            value={Number(params.bodyLocation ?? 1)}
-            options={BODY_SENSOR_LOCATIONS}
-            onChange={(v) => void setPeerParam(peer.id, 'bodyLocation', v)}
           />
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             <CheckControl

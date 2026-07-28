@@ -60,7 +60,7 @@ describe('BluetoothView', () => {
     await addPeer('hrm')
     const out = text(getSnapshot())
     expect(out).toContain('72 BPM')
-    expect(out).toContain('Body location')
+    expect(out).not.toContain('Body location')
     expect(out).toContain('Advertising')
     expect(getSnapshot().selectedPeerId).toBe('hrm-1')
   })

@@ -61,7 +61,6 @@ body:
 │                                        │
 │ Heart rate 1                     [×]   │  ← inspector header
 │  Heart rate          ====72=== BPM     │
-│  Body location       [ Chest     ▾ ]   │
 │  Advertising         [ on ]            │
 │                                        │
 │ Add peer  [ Heart rate monitor ▾ ] Add │
@@ -105,7 +104,6 @@ Each peer type declares a small **control schema** next to the catalog
 // Illustrative — not landed
 type PeerControl =
   | { kind: 'slider'; key: 'bpm'; label: string; min: number; max: number; step?: number; unit?: string }
-  | { kind: 'select'; key: 'bodyLocation'; label: string; options: { value: string; label: string }[] }
   | { kind: 'toggle'; key: 'advertising'; label: string }
   | { kind: 'toggle'; key: 'scanning'; label: string }
   | { kind: 'readonly'; key: 'advCount'; label: string } // or live meta in header
@@ -123,7 +121,6 @@ Keep v1 to knobs that already map cleanly onto Bumble Device APIs we use.
 | Control | Type | Notes |
 | --- | --- | --- |
 | Heart rate | slider 40–200 BPM | Drives measurement + notifications if connected |
-| Body sensor location | select | Maps to `HeartRateService.BodySensorLocation` |
 | Advertising | toggle | `start_advertising` / `stop_advertising` |
 
 Roster subtitle: `72 BPM · advertising` (live), not the static catalog blurb.

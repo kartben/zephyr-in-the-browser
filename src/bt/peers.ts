@@ -40,16 +40,6 @@ export const BT_PEER_TYPES: BtPeerType[] = [
   },
 ]
 
-export const BODY_SENSOR_LOCATIONS: Array<{ label: string; value: number }> = [
-  { label: 'Other', value: 0 },
-  { label: 'Chest', value: 1 },
-  { label: 'Wrist', value: 2 },
-  { label: 'Finger', value: 3 },
-  { label: 'Hand', value: 4 },
-  { label: 'Ear lobe', value: 5 },
-  { label: 'Foot', value: 6 },
-]
-
 export function peerType(id: string): BtPeerType | undefined {
   return BT_PEER_TYPES.find((t) => t.id === id)
 }
@@ -58,7 +48,7 @@ export function peerType(id: string): BtPeerType | undefined {
 export function defaultPeerParams(typeId: string, name: string): BtPeerParams {
   switch (typeId) {
     case 'hrm':
-      return { bpm: 72, bodyLocation: 1, advertising: true }
+      return { bpm: 72, advertising: true }
     case 'advertiser':
       return { localName: name, advertising: true, connectable: true }
     case 'scanner':

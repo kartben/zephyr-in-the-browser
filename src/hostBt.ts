@@ -143,7 +143,7 @@ export function available(): boolean {
   return snapshot.available
 }
 
-export { BT_PEER_TYPES, peerType, BODY_SENSOR_LOCATIONS } from '@/bt/peers'
+export { BT_PEER_TYPES, peerType } from '@/bt/peers'
 export type { BtPeerParams, BtPeerParamValue } from '@/bt/peers'
 
 /** Bind the hci0 chardev exports from an Emscripten Module. */
