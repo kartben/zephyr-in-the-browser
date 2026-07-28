@@ -1,14 +1,17 @@
 /**
  * Byte-pattern search over guest memory (debugger Mem tab).
  *
- * Chunk size is {@link SEARCH_CHUNK_BYTES} — keep it shared with the visible
- * window for now; bump later without touching the UI.
+ * Chunk size is independent of the visible Mem window — bump here only.
  */
 
-import { WINDOW_BYTES } from '@/components/debug/memoryView'
-
-/** Bytes per RSP peek while scanning. Same as the Mem window today. */
-export const SEARCH_CHUNK_BYTES = WINDOW_BYTES
+/**
+ * Bytes per RSP peek while scanning.
+ *
+ * Upper bound is the gdb0 browser out-ring (16 KiB): `m` replies are hex, so
+ * payload is 2× guest bytes plus `$…#CS`. 4 KiB → ~8 KiB on the wire — highest
+ * power-of-two that still leaves comfortable drain headroom.
+ */
+export const SEARCH_CHUNK_BYTES = 4096
 
 export type SearchDirection = 'forward' | 'backward'
 
