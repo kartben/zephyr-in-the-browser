@@ -348,14 +348,14 @@ function TracePanelBody({
     if (follow) {
       setView(livePinnedView(tr, liveWindowNs))
     }
-  }, [tr, follow, liveWindowNs, snap.eventCount])
+  }, [tr, follow, liveWindowNs, snap.revision])
 
   useEffect(() => {
     if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
     paint(canvas, tr, view.t0, view.t1, follow, selectedLane)
-  }, [tr, view, follow, snap.eventCount, selectedLane, tab])
+  }, [tr, view, follow, snap.revision, selectedLane, tab])
 
   useEffect(() => {
     if (tab !== 'schedule') return
@@ -672,7 +672,7 @@ function TracePanelBody({
               view0={view.t0}
               view1={view.t1}
               follow={follow}
-              eventCount={snap.eventCount}
+              eventCount={snap.revision}
               canvasRef={queuesCanvasRef}
               canvasProps={canvasHandlers}
             />
@@ -682,7 +682,7 @@ function TracePanelBody({
               view0={view.t0}
               view1={view.t1}
               follow={follow}
-              eventCount={snap.eventCount}
+              eventCount={snap.revision}
               canvasRef={netCanvasRef}
               canvasProps={canvasHandlers}
             />

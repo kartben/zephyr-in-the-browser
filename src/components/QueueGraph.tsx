@@ -24,17 +24,18 @@ import { fitEllipsis, GRAPH_FONT } from '@/components/queueGraphText'
 
 const HOT_MS = 1200
 const WARM_MS = 4200
-const MAX_ANIM_PER_TICK = 12
+/** Representative moving dots per route; the burst badge accounts for the rest. */
+const MAX_PACKETS_PER_BURST = 3
 
 const PILL_W = 120
 const PILL_H = 26
 const PILL_PAD_X = 10
 /** Barrel length between mouth centers. */
-const PIPE_W = 200
+const PIPE_W = 224
 /** Fixed cylinder height — ports attach near the bore centerline. */
-const PIPE_H = 36
+const PIPE_H = 44
 /** Horizontal radius of the mouth ellipses (perspective end-caps). */
-const MOUTH_RX = 7
+const MOUTH_RX = 10
 const MOUTH_RY = PIPE_H / 2 - 1
 /** Vertical gap between thread pills on the same side. */
 const PORT_GAP = 44
@@ -43,9 +44,11 @@ const COL_GAP = 56
 const PAD_X = 16
 const PAD_Y = 8
 /** Extra top clearance for put_front arcs over the barrel. */
-const ARC_CLEAR = 22
-const ARROW_LEN = 8
-const ARROW_W = 6
+const ARC_CLEAR = 28
+/** Keeps the highest detour clear of the column labels. */
+const DETOUR_HEADROOM = 76
+const ARROW_LEN = 11
+const ARROW_W = 10
 
 const PILL_TEXT_MAX = PILL_W - PILL_PAD_X * 2
 const PIPE_TEXT_MAX = PIPE_W - MOUTH_RX * 4 - 12
@@ -78,6 +81,8 @@ type Pipe = {
 
 type EdgeState = {
   op: QueueFlowOp
+  /** Successful operations represented by this UI update. */
+  count: number
   untilHot: number
   untilWarm: number
   queueId: number
@@ -129,6 +134,17 @@ function mouthY(pipe: Pipe, mouth: 'end' | 'front', port: number): number {
   return pipe.y - span / 2 + port * inner
 }
 
+/**
+ * put_front shares the physical front mouth with get. Give inserts their own
+ * entry lanes so their arrows do not sit directly on top of outgoing gets.
+ */
+function frontInsertY(pipe: Pipe, port: number): number {
+  const count = pipe.putPorts
+  if (count <= 1) return pipe.y - Math.min(8, MOUTH_RY * 0.45)
+  const usable = Math.min(10, MOUTH_RY - 5)
+  return pipe.y + ((port + 0.5) / count - 0.5) * usable * 2
+}
+
 function pillY(pipe: Pipe, port: number, count: number): number {
   const span = Math.max(0, (count - 1) * PORT_GAP)
   return pipe.y - span / 2 + port * PORT_GAP
@@ -148,59 +164,90 @@ function edgeEndpoints(
   return { x1, y1, x2: x1 + dx * t, y2: y1 + dy * t }
 }
 
+type EdgePath = {
+  sx: number
+  sy: number
+  ex: number
+  ey: number
+  d: string
+}
+
+type RoutePoint = { x: number; y: number }
+
+/**
+ * D3 owns the curve geometry. We provide semantic waypoints only; the
+ * basis spline rounds the supplied routing rail without the large overshoot
+ * Catmull–Rom produces when a source is far from the pipe.
+ */
+function smoothRoute(points: RoutePoint[]): EdgePath {
+  const d = d3
+    .line<RoutePoint>()
+    .x((point) => point.x)
+    .y((point) => point.y)
+    .curve(d3.curveBasis)(points)
+  return {
+    sx: points[0]!.x,
+    sy: points[0]!.y,
+    ex: points.at(-1)!.x,
+    ey: points.at(-1)!.y,
+    d: d ?? '',
+  }
+}
+
 function edgePath(
   pill: ThreadPill,
   pipe: Pipe,
   op: QueueFlowOp,
-): { sx: number; sy: number; ex: number; ey: number; mx: number; my: number; d: string } {
+): EdgePath {
   const sy = pill.y
 
   if (op === 'put_front') {
-    // Insert at front/head — arc *above* the barrel, land on front mouth.
-    const ey = mouthY(pipe, 'front', Math.min(pill.port, Math.max(0, pipe.getPorts - 1)))
-    const tipX = pipeFrontX(pipe)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, tipX, ey, ARROW_LEN)
-    const over = pipe.y - PIPE_H / 2 - ARC_CLEAR
-    const c1x = raw.x1 + (pipeEndX(pipe) - raw.x1) * 0.55
-    const c2x = tipX - COL_GAP * 0.35
-    return {
-      sx: raw.x1,
-      sy: raw.y1,
-      ex: raw.x2,
-      ey: raw.y2,
-      mx: (raw.x1 + raw.x2) / 2,
-      my: over,
-      d: `M${raw.x1},${raw.y1} C${c1x},${over} ${c2x},${over} ${raw.x2},${raw.y2}`,
-    }
+    // Insert at front/head: go over the barrel, past its east end, then make a
+    // deliberate U-turn so the arrow enters the front port from the east.
+    const ey = frontInsertY(pipe, pill.port)
+    const start = { x: pill.x + PILL_W / 2, y: sy }
+    const end = { x: pipeFrontX(pipe) + ARROW_LEN, y: ey }
+    const rise = ARC_CLEAR + 12 + Math.max(0, pipe.putPorts - pill.port - 1) * 10
+    const railY = pipe.y - PIPE_H / 2 - rise
+    const eastTurnX = pipeFrontX(pipe) + 30
+    // A compact raised rail plus a small east-side turn: the route visibly
+    // detours, but never dominates the whole graph.
+    return smoothRoute([
+      start,
+      { x: pipeEndX(pipe) - 12, y: railY },
+      { x: eastTurnX, y: railY },
+      { x: eastTurnX + 12, y: ey },
+      { x: end.x + 34, y: ey },
+      end,
+    ])
   }
 
   if (op === 'put') {
     const ey = mouthY(pipe, 'end', pill.port)
     const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipeEndX(pipe), ey, ARROW_LEN)
-    const mx = (raw.x1 + raw.x2) / 2
-    return {
-      sx: raw.x1,
-      sy: raw.y1,
-      ex: raw.x2,
-      ey: raw.y2,
-      mx,
-      my: (raw.y1 + raw.y2) / 2,
-      d: `M${raw.x1},${raw.y1} C${mx},${raw.y1} ${mx},${raw.y2} ${raw.x2},${raw.y2}`,
-    }
+    return smoothRoute([
+      { x: raw.x1, y: raw.y1 },
+      { x: (raw.x1 + raw.x2) / 2, y: raw.y1 },
+      { x: raw.x2, y: raw.y2 },
+    ])
   }
 
   const ey = mouthY(pipe, 'front', pill.port)
   const raw = edgeEndpoints(pipeFrontX(pipe), ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
-  const mx = (raw.x1 + raw.x2) / 2
-  return {
-    sx: raw.x1,
-    sy: raw.y1,
-    ex: raw.x2,
-    ey: raw.y2,
-    mx,
-    my: (raw.y1 + raw.y2) / 2,
-    d: `M${raw.x1},${raw.y1} C${mx},${raw.y1} ${mx},${raw.y2} ${raw.x2},${raw.y2}`,
+  return smoothRoute([
+    { x: raw.x1, y: raw.y1 },
+    { x: (raw.x1 + raw.x2) / 2, y: raw.y1 },
+    { x: raw.x2, y: raw.y2 },
+  ])
+}
+
+function burstBadgePosition(pill: ThreadPill, pipe: Pipe, op: QueueFlowOp) {
+  if (op === 'put_front') {
+    return { x: pipe.x, y: pipe.y - PIPE_H / 2 - ARC_CLEAR - 12 }
   }
+  const from = op === 'get' ? pipeFrontX(pipe) : pill.x + PILL_W / 2
+  const to = op === 'get' ? pill.x - PILL_W / 2 : pipeEndX(pipe)
+  return { x: (from + to) / 2, y: (pill.y + mouthY(pipe, op === 'get' ? 'front' : 'end', pill.port)) / 2 - 9 }
 }
 
 function strokeFor(op: QueueFlowOp): string {
@@ -213,6 +260,10 @@ function packetFill(op: QueueFlowOp): string {
   if (op === 'put_front') return '#5eead4'
   if (op === 'put') return '#93c5fd'
   return '#fcd34d'
+}
+
+function markerFor(op: QueueFlowOp): string {
+  return `url(#qg-arrow-${op})`
 }
 
 function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
@@ -254,7 +305,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   const pipes: Pipe[] = []
   const pills: ThreadPill[] = []
   // Room for column headers + put_front arc above the first pipe.
-  let yCursor = PAD_Y + 18 + ARC_CLEAR
+  let yCursor = PAD_Y + 18 + DETOUR_HEADROOM
 
   for (const q of queues) {
     const puts = putters.get(q.id) ?? []
@@ -346,53 +397,21 @@ export function QueueGraph({
     const svg = d3.select(host).append('svg').attr('class', 'block w-full')
     const defs = svg.append('defs')
 
-    // Soft metal gradient for the barrel.
-    const grad = defs
-      .append('linearGradient')
-      .attr('id', 'qg-pipe-metal')
-      .attr('x1', '0%')
-      .attr('y1', '0%')
-      .attr('x2', '0%')
-      .attr('y2', '100%')
-    grad.append('stop').attr('offset', '0%').attr('stop-color', '#6b7280')
-    grad.append('stop').attr('offset', '35%').attr('stop-color', '#4b5563')
-    grad.append('stop').attr('offset', '70%').attr('stop-color', '#374151')
-    grad.append('stop').attr('offset', '100%').attr('stop-color', '#1f2937')
-
-    const fillGrad = defs
-      .append('linearGradient')
-      .attr('id', 'qg-pipe-liquid')
-      .attr('x1', '0%')
-      .attr('y1', '0%')
-      .attr('x2', '0%')
-      .attr('y2', '100%')
-    fillGrad.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(125,211,252,0.75)')
-    fillGrad.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(14,165,233,0.55)')
-
-    const fillHot = defs
-      .append('linearGradient')
-      .attr('id', 'qg-pipe-liquid-drop')
-      .attr('x1', '0%')
-      .attr('y1', '0%')
-      .attr('x2', '0%')
-      .attr('y2', '100%')
-    fillHot.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(252,165,165,0.75)')
-    fillHot.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(239,68,68,0.5)')
-
-    const marker = defs
-      .append('marker')
-      .attr('id', 'qg-arrow')
-      .attr('viewBox', `0 0 ${ARROW_LEN} ${ARROW_W}`)
-      .attr('refX', ARROW_LEN)
-      .attr('refY', ARROW_W / 2)
-      .attr('markerWidth', ARROW_LEN)
-      .attr('markerHeight', ARROW_W)
-      .attr('markerUnits', 'userSpaceOnUse')
-      .attr('orient', 'auto')
-    marker
-      .append('path')
-      .attr('d', `M0,0.5 L${ARROW_LEN},${ARROW_W / 2} L0,${ARROW_W - 0.5} Z`)
-      .attr('fill', 'context-stroke')
+    for (const op of ['put', 'put_front', 'get'] as const) {
+      defs
+        .append('marker')
+        .attr('id', `qg-arrow-${op}`)
+        .attr('viewBox', `0 0 ${ARROW_LEN} ${ARROW_W}`)
+        .attr('refX', ARROW_LEN)
+        .attr('refY', ARROW_W / 2)
+        .attr('markerWidth', ARROW_LEN)
+        .attr('markerHeight', ARROW_W)
+        .attr('markerUnits', 'userSpaceOnUse')
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', `M0,0 L${ARROW_LEN},${ARROW_W / 2} L0,${ARROW_W} Z`)
+        .attr('fill', strokeFor(op))
+    }
 
     defs
       .append('clipPath')
@@ -480,8 +499,13 @@ export function QueueGraph({
     const firstPaint = lastIndexRef.current < 0
     if (newest.length) {
       lastIndexRef.current = flow[flow.length - 1]!.index
-      const toAnim = newest.filter((ev) => ev.ok && ev.threadId != null).slice(-MAX_ANIM_PER_TICK)
-      for (const ev of toAnim) firePacket(ev, layout, layers.packets, edgeStateRef.current)
+      const bursts = d3.group(
+        newest.filter((ev) => ev.ok && ev.threadId != null),
+        (ev) => flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }),
+      )
+      for (const events of bursts.values()) {
+        fireBurst(events, layout, layers.packets, edgeStateRef.current)
+      }
     } else if (firstPaint) {
       lastIndexRef.current = flow.length ? flow[flow.length - 1]!.index : -1
       const recent = flow.filter((ev) => ev.ok && ev.threadId != null).slice(-10)
@@ -491,6 +515,7 @@ export function QueueGraph({
           flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }),
           {
             op: ev.op,
+            count: 1,
             untilHot: now + 350,
             untilWarm: now + WARM_MS,
             queueId: ev.queueId,
@@ -517,12 +542,14 @@ export function QueueGraph({
   )
 }
 
-function firePacket(
-  ev: QueueFlowEvent,
+function fireBurst(
+  events: QueueFlowEvent[],
   layout: Layout,
   packets: d3.Selection<SVGGElement, unknown, null, undefined>,
   edgeState: Map<string, EdgeState>,
 ) {
+  const ev = events.at(-1)
+  if (!ev) return
   if (ev.threadId == null) return
   const pipe = layout.byPipe.get(ev.queueId)
   const pill = layout.byPill.get(pillKey(ev.queueId, ev.threadId, sideForOp(ev.op)))
@@ -532,6 +559,7 @@ function firePacket(
   const now = performance.now()
   edgeState.set(key, {
     op: ev.op,
+    count: events.length,
     untilHot: now + HOT_MS,
     untilWarm: now + WARM_MS,
     queueId: ev.queueId,
@@ -539,25 +567,42 @@ function firePacket(
   })
 
   const p = edgePath(pill, pipe, ev.op)
+  // The badge below represents every event. Limit moving dots only so a busy
+  // slice remains readable rather than becoming a solid line.
+  for (let index = 0; index < Math.min(events.length, MAX_PACKETS_PER_BURST); index++) {
+    firePacket(p, ev.op, packets, index / Math.min(events.length, MAX_PACKETS_PER_BURST))
+  }
+}
+
+function firePacket(
+  p: EdgePath,
+  op: QueueFlowOp,
+  packets: d3.Selection<SVGGElement, unknown, null, undefined>,
+  delay: number,
+) {
+  // Use the browser's path metrics so the packet travels on the same D3 spline
+  // that is drawn, including the front-insert turn.
+  const travelPath = packets.append('path').attr('d', p.d).attr('fill', 'none').attr('stroke', 'none')
+  const pathNode = travelPath.node()
+  const pathLength = pathNode?.getTotalLength() ?? 0
   const pkt = packets
     .append('circle')
-    .attr('r', 3)
-    .attr('fill', packetFill(ev.op))
+    .attr('r', 4)
+    .attr('fill', packetFill(op))
+    .attr('stroke', 'rgba(248,250,252,0.8)')
+    .attr('stroke-width', 0.75)
     .attr('cx', p.sx)
     .attr('cy', p.sy)
   pkt
     .transition()
-    .duration(480)
-    .ease(d3.easeCubicOut)
-    .attrTween('cx', () => (t) => {
-      const u = 1 - t
-      return String(u * u * p.sx + 2 * u * t * p.mx + t * t * p.ex)
-    })
-    .attrTween('cy', () => (t) => {
-      const u = 1 - t
-      return String(u * u * p.sy + 2 * u * t * p.my + t * t * p.ey)
-    })
-    .attr('opacity', 0.12)
+    .delay(delay * 90)
+    .duration(820)
+    .ease(d3.easeCubicInOut)
+    .attrTween('cx', () => (t) => String(pathNode?.getPointAtLength(pathLength * t).x ?? p.ex))
+    .attrTween('cy', () => (t) => String(pathNode?.getPointAtLength(pathLength * t).y ?? p.ey))
+    .attr('r', 2.5)
+    .attr('opacity', 0.2)
+    .on('end', () => travelPath.remove())
     .remove()
 }
 
@@ -568,6 +613,7 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     pill: ThreadPill
     pipe: Pipe
     op: QueueFlowOp
+    count: number
     hot: boolean
   }> = []
 
@@ -579,19 +625,20 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     const pipe = layout.byPipe.get(st.queueId)
     const pill = layout.byPill.get(pillKey(st.queueId, st.threadId, sideForOp(st.op)))
     if (!pipe || !pill) continue
-    active.push({ key, pill, pipe, op: st.op, hot: now < st.untilHot })
+    active.push({ key, pill, pipe, op: st.op, count: st.count, hot: now < st.untilHot })
   }
 
-  const activeByPillOp = new Set(active.map((a) => `${a.pill.id}|${a.op}`))
+  const activePills = new Set(active.map((a) => a.pill.id))
   const structural: typeof active = []
   for (const pill of layout.pills) {
     const pipe = layout.byPipe.get(pill.queueId)
     if (!pipe) continue
     const op: QueueFlowOp = pill.side === 'put' ? 'put' : 'get'
-    if (activeByPillOp.has(`${pill.id}|${op}`)) continue
-    // Keep a faint structural put even when put_front is glowing.
+    // An active operation owns its lane; do not leave a second, structural
+    // arrow underneath it just because that thread also uses normal put.
+    if (activePills.has(pill.id)) continue
     const key = flowEdgeId({ threadId: pill.tid, queueId: pill.queueId, op })
-    structural.push({ key: `struct:${key}`, pill, pipe, op, hot: false })
+    structural.push({ key: `struct:${key}`, pill, pipe, op, count: 0, hot: false })
   }
 
   const allLinks = [...structural, ...active]
@@ -603,14 +650,36 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     .enter()
     .append('path')
     .attr('fill', 'none')
-    .attr('stroke-linecap', 'butt')
+    .attr('stroke-linecap', 'round')
     .attr('stroke-linejoin', 'round')
     .merge(link)
-    .attr('marker-end', (d) => (d.key.startsWith('struct:') ? null : 'url(#qg-arrow)'))
+    // Direction must remain legible even between the short-lived event pulses.
+    .attr('marker-end', (d) => markerFor(d.op))
     .attr('stroke', (d) => strokeFor(d.op))
-    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.1 : d.hot ? 2.2 : 1.6))
-    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.2 : d.hot ? 0.95 : 0.5))
+    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.35 : d.hot ? 2.3 : 1.7))
+    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.52 : d.hot ? 0.96 : 0.68))
     .attr('d', (d) => edgePath(d.pill, d.pipe, d.op).d)
+
+  const burstBadge = layers.packets
+    .selectAll<SVGTextElement, (typeof active)[0]>('text.burst-count')
+    .data(active.filter((entry) => entry.count > 1), (entry) => entry.key)
+  burstBadge.exit().remove()
+  burstBadge
+    .enter()
+    .append('text')
+    .attr('class', 'burst-count')
+    .attr('text-anchor', 'middle')
+    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+    .attr('font-size', 9)
+    .attr('font-weight', 700)
+    .attr('paint-order', 'stroke')
+    .attr('stroke', '#020617')
+    .attr('stroke-width', 3)
+    .merge(burstBadge)
+    .attr('x', (entry) => burstBadgePosition(entry.pill, entry.pipe, entry.op).x)
+    .attr('y', (entry) => burstBadgePosition(entry.pill, entry.pipe, entry.op).y)
+    .attr('fill', (entry) => packetFill(entry.op))
+    .text((entry) => `×${entry.count}`)
 
   const hotQueues = new Set(active.filter((a) => a.hot).map((a) => a.pipe.id))
   layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').each(function (d) {
@@ -681,40 +750,23 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
   const y0 = -PIPE_H / 2
   const y1 = PIPE_H / 2
 
-  // Drop shadow
-  g.append('ellipse')
-    .attr('cx', 0)
-    .attr('cy', y1 + 4)
-    .attr('rx', PIPE_W / 2 - 4)
-    .attr('ry', 5)
-    .attr('fill', 'rgba(0,0,0,0.35)')
-
-  // Barrel body (between mouth centers), clipped by nothing — mouths drawn on top.
-  g.append('rect')
+  // Flat tube: one quiet silhouette, not a stack of shiny rounded rectangles.
+  // The slight bow gives the cylinder its form without a gradient or a heavy rim.
+  g.append('path')
     .attr('class', 'barrel')
-    .attr('x', x0)
-    .attr('y', y0)
-    .attr('width', PIPE_W)
-    .attr('height', PIPE_H)
-    .attr('rx', MOUTH_RY)
-    .attr('fill', 'url(#qg-pipe-metal)')
-    .attr('stroke', '#9ca3af')
-    .attr('stroke-width', 1.1)
+    .attr(
+      'd',
+      `M${x0},${y0 + 3} Q0,${y0 - 3} ${x1},${y0 + 3} L${x1},${y1 - 3} Q0,${y1 + 3} ${x0},${y1 - 3} Z`,
+    )
+    .attr('fill', '#151f30')
+    .attr('stroke', 'rgba(203,213,225,0.72)')
+    .attr('stroke-width', 0.85)
 
-  // Top specular stripe
-  g.append('rect')
-    .attr('x', x0 + MOUTH_RX + 4)
-    .attr('y', y0 + 3)
-    .attr('width', PIPE_W - MOUTH_RX * 2 - 8)
-    .attr('height', 5)
-    .attr('rx', 2.5)
-    .attr('fill', 'rgba(255,255,255,0.14)')
-
-  // Bore (inner dark channel)
-  const boreX = x0 + MOUTH_RX + 2
-  const boreY = y0 + 8
-  const boreW = PIPE_W - MOUTH_RX * 2 - 4
-  const boreH = PIPE_H - 16
+  // Flat inner channel; it carries queue occupancy without adding another rim.
+  const boreX = x0 + MOUTH_RX + 3
+  const boreY = y0 + 10
+  const boreW = PIPE_W - MOUTH_RX * 2 - 6
+  const boreH = PIPE_H - 20
   g.append('rect')
     .attr('class', 'bore')
     .attr('x', boreX)
@@ -732,7 +784,8 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
     .attr('height', boreH - 4)
     .attr('rx', (boreH - 4) / 2)
     .attr('width', 0)
-    .attr('fill', 'url(#qg-pipe-liquid)')
+    .attr('fill', '#38bdf8')
+    .attr('fill-opacity', 0.56)
 
   // Left mouth (end) — outer ring + dark aperture
   g.append('ellipse')
@@ -740,18 +793,18 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
     .attr('cy', 0)
     .attr('rx', MOUTH_RX)
     .attr('ry', MOUTH_RY)
-    .attr('fill', '#4b5563')
-    .attr('stroke', '#d1d5db')
-    .attr('stroke-width', 1.2)
+    .attr('fill', '#151f30')
+    .attr('stroke', 'rgba(203,213,225,0.72)')
+    .attr('stroke-width', 0.85)
   g.append('ellipse')
     .attr('class', 'mouth-end')
     .attr('cx', x0)
     .attr('cy', 0)
     .attr('rx', MOUTH_RX - 2.5)
     .attr('ry', MOUTH_RY - 4)
-    .attr('fill', '#020617')
-    .attr('stroke', '#64748b')
-    .attr('stroke-width', 0.8)
+    .attr('fill', '#0b1220')
+    .attr('stroke', 'rgba(148,163,184,0.45)')
+    .attr('stroke-width', 0.55)
 
   // Right mouth (front)
   g.append('ellipse')
@@ -759,18 +812,18 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
     .attr('cy', 0)
     .attr('rx', MOUTH_RX)
     .attr('ry', MOUTH_RY)
-    .attr('fill', '#4b5563')
-    .attr('stroke', '#d1d5db')
-    .attr('stroke-width', 1.2)
+    .attr('fill', '#151f30')
+    .attr('stroke', 'rgba(203,213,225,0.72)')
+    .attr('stroke-width', 0.85)
   g.append('ellipse')
     .attr('class', 'mouth-front')
     .attr('cx', x1)
     .attr('cy', 0)
     .attr('rx', MOUTH_RX - 2.5)
     .attr('ry', MOUTH_RY - 4)
-    .attr('fill', '#020617')
-    .attr('stroke', '#64748b')
-    .attr('stroke-width', 0.8)
+    .attr('fill', '#0b1220')
+    .attr('stroke', 'rgba(148,163,184,0.45)')
+    .attr('stroke-width', 0.55)
 
   // Tiny end / front captions under mouths
   g.append('text')
@@ -832,10 +885,10 @@ function updatePipeFill(
   const fillFrac = pipe.cap > 0 ? Math.min(1, pipe.depth / pipe.cap) : 0
   const fillW = Math.max(0, (boreW - 4) * fillFrac)
 
-  g.select('rect.barrel').attr('stroke', hot ? '#e2e8f0' : '#9ca3af').attr('stroke-width', hot ? 1.5 : 1.1)
+  g.select('path.barrel').attr('stroke', hot ? '#e2e8f0' : 'rgba(203,213,225,0.72)').attr('stroke-width', hot ? 1.1 : 0.85)
   g.select('rect.fill')
     .attr('width', fillW)
-    .attr('fill', pipe.drops > 0 ? 'url(#qg-pipe-liquid-drop)' : 'url(#qg-pipe-liquid)')
+    .attr('fill', pipe.drops > 0 ? '#fb7185' : '#38bdf8')
 
   const name = fitEllipsis(pipe.label, PIPE_TEXT_MAX, GRAPH_FONT.tubeName)
   const meta = fitEllipsis(
