@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type RefObject,
   type SVGAttributes,
 } from 'react'
@@ -501,6 +502,7 @@ export function QueuesView({
   eventCount,
   svgRef,
   surfaceProps,
+  toolbar,
 }: {
   tr: Trace
   view0: number
@@ -509,6 +511,8 @@ export function QueuesView({
   eventCount: number
   svgRef: RefObject<SVGSVGElement | null>
   surfaceProps?: SVGAttributes<SVGSVGElement>
+  /** Compact pan/zoom chrome — sits between the flow graph and the depth chart. */
+  toolbar?: ReactNode
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const layoutsRef = useRef<RowLayout[]>([])
@@ -648,42 +652,45 @@ export function QueuesView({
       : undefined
 
   return (
-    <>
+    <div className="flex flex-col gap-2">
       {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
-      <div ref={hostRef} className="relative w-full select-none">
-        <svg
-          ref={svgRef}
-          className="block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-          style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
-          {...surfaceProps}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerLeave={onPointerLeave}
-          onDragStart={(e) => e.preventDefault()}
-        />
-        {tip && tipStyle && (
-          <div
-            role="tooltip"
-            className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
-            style={tipStyle}
-          >
-            {tip.map((line, i) => (
-              <div
-                key={i}
-                className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}
-              >
-                {line}
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="flex flex-col gap-1">
+        {toolbar}
+        <div ref={hostRef} className="relative w-full select-none">
+          <svg
+            ref={svgRef}
+            className="block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+            style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+            {...surfaceProps}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerLeave={onPointerLeave}
+            onDragStart={(e) => e.preventDefault()}
+          />
+          {tip && tipStyle && (
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
+              style={tipStyle}
+            >
+              {tip.map((line, i) => (
+                <div
+                  key={i}
+                  className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       {queues.length > 0 && (
         <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
           Hover a transition · drag to pan · pinch or ± to zoom
         </p>
       )}
-    </>
+    </div>
   )
 }
 

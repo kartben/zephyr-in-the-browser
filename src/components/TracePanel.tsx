@@ -606,6 +606,60 @@ function TracePanelBody({
 
   if (!tr) return null
 
+  // Compact chrome sits immediately above the time chart (Schedule / Net canvas,
+  // or between the msgq flow graph and depth chart) — same idiom as CAN lanes.
+  const chartToolbar = (
+    <div className="flex items-center gap-0.5 px-0.5">
+      <button
+        type="button"
+        title="Zoom in"
+        aria-label="Zoom in"
+        onClick={() => applyZoom(ZOOM_IN)}
+        className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+      >
+        <ZoomIn className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        title="Zoom out"
+        aria-label="Zoom out"
+        onClick={() => applyZoom(ZOOM_OUT)}
+        className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+      >
+        <ZoomOut className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        title="Fit entire trace"
+        aria-label="Fit entire trace"
+        onClick={fitAll}
+        className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+      >
+        <Maximize2 className="size-3.5" />
+      </button>
+      <div className="ml-auto flex items-center gap-0.5">
+        <button
+          type="button"
+          title="Pan earlier"
+          aria-label="Pan earlier"
+          onClick={() => panByFraction(-0.6)}
+          className="rounded px-1 py-0.5 font-mono text-xs leading-none text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          title="Pan later"
+          aria-label="Pan later"
+          onClick={() => panByFraction(0.6)}
+          className="rounded px-1 py-0.5 font-mono text-xs leading-none text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
       <div className="flex gap-0.5 px-0.5">
@@ -632,66 +686,6 @@ function TracePanelBody({
         ))}
       </div>
 
-      <div className="flex items-center gap-1 px-0.5">
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="size-9 touch-manipulation"
-          title="Zoom in"
-          aria-label="Zoom in"
-          onClick={() => applyZoom(ZOOM_IN)}
-        >
-          <ZoomIn className="size-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="size-9 touch-manipulation"
-          title="Zoom out"
-          aria-label="Zoom out"
-          onClick={() => applyZoom(ZOOM_OUT)}
-        >
-          <ZoomOut className="size-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="size-9 touch-manipulation"
-          title="Fit entire trace"
-          aria-label="Fit entire trace"
-          onClick={fitAll}
-        >
-          <Maximize2 className="size-4" />
-        </Button>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
-            title="Pan earlier"
-            aria-label="Pan earlier"
-            onClick={() => panByFraction(-0.6)}
-          >
-            ‹
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
-            title="Pan later"
-            aria-label="Pan later"
-            onClick={() => panByFraction(0.6)}
-          >
-            ›
-          </Button>
-        </div>
-      </div>
-
       {tab === 'queues' && view ? (
         <QueuesView
           tr={tr}
@@ -701,65 +695,72 @@ function TracePanelBody({
           eventCount={snap.revision}
           svgRef={queuesSvgRef}
           surfaceProps={canvasHandlers}
+          toolbar={chartToolbar}
         />
       ) : tab === 'net' && view ? (
-        <NetView
-          tr={tr}
-          view0={view.t0}
-          view1={view.t1}
-          follow={follow}
-          eventCount={snap.revision}
-          canvasRef={netCanvasRef}
-          canvasProps={canvasHandlers}
-        />
+        <div className="flex flex-col gap-1">
+          {chartToolbar}
+          <NetView
+            tr={tr}
+            view0={view.t0}
+            view1={view.t1}
+            follow={follow}
+            eventCount={snap.revision}
+            canvasRef={netCanvasRef}
+            canvasProps={canvasHandlers}
+          />
+        </div>
       ) : (
         <>
-          <div className="relative w-full select-none">
-            <canvas
-              ref={canvasRef}
-              className="w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-              {...canvasHandlers}
-              onPointerMove={(e) => {
-                canvasHandlers.onPointerMove(e)
-                if (!view || !tr || e.buttons !== 0) {
-                  if (playheadRef.current) setPlayhead(null)
-                  return
-                }
-                const rect = e.currentTarget.getBoundingClientRect()
-                const x = e.clientX - rect.left
-                if (x < LABEL_W || x > e.currentTarget.clientWidth - PAD) {
-                  setPlayhead(null)
-                  return
-                }
-                const ts = tsAt(
-                  { labelW: LABEL_W, pad: PAD, view0: view.t0, view1: view.t1, t0: tr.t0 },
-                  e.currentTarget.clientWidth,
-                  x,
-                )
-                setPlayhead({ ts, x })
-              }}
-              onPointerLeave={() => setPlayhead(null)}
-            />
-            {scheduleTip && playhead && (
-              <div
-                role="tooltip"
-                className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
-                style={{
-                  left: playhead.x > LABEL_W + 160 ? playhead.x - 10 : playhead.x + 10,
-                  top: AXIS_H + 4,
-                  transform: playhead.x > LABEL_W + 160 ? 'translateX(-100%)' : undefined,
+          <div className="flex flex-col gap-1">
+            {chartToolbar}
+            <div className="relative w-full select-none">
+              <canvas
+                ref={canvasRef}
+                className="w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+                {...canvasHandlers}
+                onPointerMove={(e) => {
+                  canvasHandlers.onPointerMove(e)
+                  if (!view || !tr || e.buttons !== 0) {
+                    if (playheadRef.current) setPlayhead(null)
+                    return
+                  }
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const x = e.clientX - rect.left
+                  if (x < LABEL_W || x > e.currentTarget.clientWidth - PAD) {
+                    setPlayhead(null)
+                    return
+                  }
+                  const ts = tsAt(
+                    { labelW: LABEL_W, pad: PAD, view0: view.t0, view1: view.t1, t0: tr.t0 },
+                    e.currentTarget.clientWidth,
+                    x,
+                  )
+                  setPlayhead({ ts, x })
                 }}
-              >
-                {scheduleTip.map((line, i) => (
-                  <div
-                    key={i}
-                    className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}
-                  >
-                    {line}
-                  </div>
-                ))}
-              </div>
-            )}
+                onPointerLeave={() => setPlayhead(null)}
+              />
+              {scheduleTip && playhead && (
+                <div
+                  role="tooltip"
+                  className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
+                  style={{
+                    left: playhead.x > LABEL_W + 160 ? playhead.x - 10 : playhead.x + 10,
+                    top: AXIS_H + 4,
+                    transform: playhead.x > LABEL_W + 160 ? 'translateX(-100%)' : undefined,
+                  }}
+                >
+                  {scheduleTip.map((line, i) => (
+                    <div
+                      key={i}
+                      className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}
+                    >
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
