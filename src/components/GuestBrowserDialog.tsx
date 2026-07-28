@@ -101,8 +101,22 @@ export function GuestBrowserDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(90vh,44rem)] max-w-4xl gap-0 p-0">
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+      <DialogContent
+        data-guest-browser
+        showOverlay={false}
+        className="h-[min(90vh,44rem)] max-w-4xl gap-0 p-0"
+        // Keep this as a floating browser rather than a light-dismiss popover:
+        // the simulator remains interactive behind it, and only its close
+        // button or Escape while focus is inside the browser closes it.
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          const active = document.activeElement
+          if (!(active instanceof Element) || !active.closest('[data-guest-browser]')) {
+            event.preventDefault()
+          }
+        }}
+      >
         <DialogHeader className="border-b border-border px-4 pb-3 pr-12 pt-4">
           <DialogTitle className="flex items-center gap-2">
             <Globe className="size-4 text-muted-foreground" aria-hidden />
