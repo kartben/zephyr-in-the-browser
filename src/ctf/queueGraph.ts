@@ -201,11 +201,12 @@ export function queueChartOpLabel(op: QueueChartOp): string {
 
 /** Timeline / graph stroke colors for msgq ops (failed → soft red). */
 export function msgqOpColor(op: QueueFlowOp | QueueChartOp, ok = true): string {
-  if (!ok) return 'rgba(248, 113, 113, 0.9)'
-  if (op === 'put_front') return '#2dd4bf'
-  if (op === 'put') return '#60a5fa'
+  if (!ok) return 'rgba(248, 113, 113, 0.95)'
+  // Keep distinct from thread-state greens / reds / cyan / yellow ready bars.
+  if (op === 'put_front') return '#f472b6'
+  if (op === 'put') return '#38bdf8'
   if (op === 'purge') return 'rgba(244, 63, 94, 0.85)'
-  return '#fbbf24'
+  return '#f97316'
 }
 
 export interface FlowEdgeKey {

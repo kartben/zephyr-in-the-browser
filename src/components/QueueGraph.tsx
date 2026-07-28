@@ -553,9 +553,9 @@ function strokeFor(op: QueueFlowOp): string {
 }
 
 function packetFill(op: QueueFlowOp): string {
-  if (op === 'put_front') return '#5eead4'
-  if (op === 'put') return '#93c5fd'
-  return '#fcd34d'
+  if (op === 'put_front') return '#f9a8d4'
+  if (op === 'put') return '#7dd3fc'
+  return '#fdba74'
 }
 
 function markerFor(op: QueueFlowOp): string {
@@ -1029,8 +1029,8 @@ function paintFrame(
     // Direction must remain legible even between the short-lived event pulses.
     .attr('marker-end', (d) => markerFor(d.link.op))
     .attr('stroke', (d) => strokeFor(d.link.op))
-    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.35 : d.hot ? 2.3 : 1.7))
-    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.52 : d.hot ? 0.96 : 0.68))
+    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.75 : d.hot ? 2.8 : 2.2))
+    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.55 : d.hot ? 0.98 : 0.72))
     .attr('d', (d) => edgePath(d.thread, d.pipe, d.link, layout.pipes).d)
 
   const burstBadge = layers.packets

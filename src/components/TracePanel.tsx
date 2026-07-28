@@ -437,8 +437,8 @@ function paint(
   if (showMsgq && msgqEvents.length > 0) {
     const threadRowOf = new Map(lanes.map((tid, row) => [tid, row]))
     const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
-    const MARK_R = 2.5
-    const ARROW_H = 5
+    const MARK_R = 3
+    const ARROW_H = 6
 
     if (showQueues) {
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)'
@@ -542,8 +542,8 @@ function paint(
       ctx.globalAlpha = dim ? 0.14 : hot ? 1 : 0.9
 
       if (hot) {
-        ctx.strokeStyle = selected ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.35)'
-        ctx.lineWidth = selected ? 5 : 4
+        ctx.strokeStyle = selected ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.4)'
+        ctx.lineWidth = selected ? 6 : 5
         ctx.beginPath()
         if (queueY != null) {
           ctx.moveTo(x, Math.min(threadY, queueY))
@@ -565,8 +565,8 @@ function paint(
         const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
 
         ctx.strokeStyle = color
-        ctx.lineWidth = hot ? 1.75 : 1
-        ctx.setLineDash(hot ? [2, 2] : [1.5, 2.5])
+        ctx.lineWidth = selected ? 3 : hot ? 2.5 : 2
+        ctx.setLineDash(hot ? [3, 1.5] : [2.5, 2])
         ctx.beginPath()
         ctx.moveTo(x, edgeStart)
         ctx.lineTo(x, edgeBeforeTip)
@@ -579,8 +579,8 @@ function paint(
         ctx.arc(x, startY, markR, 0, Math.PI * 2)
         ctx.fill()
         if (hot) {
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
-          ctx.lineWidth = 1.25
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+          ctx.lineWidth = 1.5
           ctx.stroke()
         }
 
@@ -588,8 +588,8 @@ function paint(
         paintVArrow(ctx, x, tipY, dir, color, scale)
         if (hot) {
           const s = arrowH
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
-          ctx.lineWidth = 1
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+          ctx.lineWidth = 1.25
           ctx.beginPath()
           if (dir === 'down') {
             ctx.moveTo(x, tipY)
@@ -605,7 +605,7 @@ function paint(
         }
       } else {
         ctx.strokeStyle = color
-        ctx.lineWidth = hot ? 2 : 1.5
+        ctx.lineWidth = hot ? 2.5 : 2
         ctx.beginPath()
         ctx.moveTo(x, threadY - laneH / 2 + 2)
         ctx.lineTo(x, threadY + laneH / 2 - 2)
