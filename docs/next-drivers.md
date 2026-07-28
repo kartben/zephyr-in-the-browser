@@ -539,6 +539,17 @@ consumes; needs a bespoke `video` driver + host buffer →
 the pixel path is still a new bridge — park it behind the remaining I²C class
 work.
 
+#### 4g. Bluetooth — Bumble controller, Hive as peers
+
+Not an I²C chip and not webcam-heavy, but the next *radio* after Ethernet/CAN:
+Zephyr's host stack over H:4 into an in-page [Bumble](https://google.github.io/bumble/)
+virtual controller, with [Hive](https://google.github.io/bumble/hive/index.html)
+virtual devices as optional peers on the same LocalLink. Feasibility and the
+`chardev-browser` / `hci0` plan live in
+[`bluetooth-bumble-feasibility.md`](bluetooth-bumble-feasibility.md). Cost is a
+QEMU slot + Pyodide, not a new bridge shape. Ranked beside webcam because of
+download weight and HCI timing under TCI — not because the shape is unclear.
+
 ## The input gap — ✅ closed, the clean way
 
 **Implemented** as a virtio tablet, exactly the route this section used to say
@@ -641,6 +652,12 @@ shell is a UX problem before it is a driver problem.
    `maxim,max17048` with `samples/drivers/fuel_gauge`, SoC / voltage card.
    Charger remains the same-class follow-up.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
+8. **Bluetooth (Bumble)** — not started; feasibility in
+   [`bluetooth-bumble-feasibility.md`](bluetooth-bumble-feasibility.md).
+   Zephyr host + in-page Bumble virtual controller over a third
+   `chardev-browser` slot (`hci0` / H:4). Hive is a follow-up peer UI, not
+   the primary integration. Ship A53/RISC-V first; Pyodide load is the main
+   weight.
 
 ## Sources
 
