@@ -1,12 +1,10 @@
 /**
  * Per-queue pipe graph for the Trace Queues tab.
  *
- * Pipe orientation follows the Zephyr msgq ring-buffer contract:
- *   left  = end   — k_msgq_put writes here (write_ptr / back)
- *   right = front — k_msgq_get reads here; k_msgq_put_front inserts here
- *                   (read_ptr / head; delivered before older messages)
- *
- * @see https://docs.zephyrproject.org/latest/doxygen/html/group__msgq__apis.html
+ * Pipe orientation follows put/get mouth mapping shared across msgq / fifo /
+ * lifo / k_queue:
+ *   left  = end   — put / append writes here
+ *   right = front — get reads here; put_front / prepend / lifo put inserts here
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -92,6 +90,7 @@ type Pipe = {
   id: string
   queueId: number
   label: string
+  kind: string
   cap: number
   depth: number
   drops: number
@@ -610,6 +609,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
       id: `q:${q.id}`,
       queueId: q.id,
       label: queueLabel(q),
+      kind: q.kind,
       cap: q.cap ?? Math.max(1, q.peak),
       depth: q.samples.length ? q.samples[q.samples.length - 1]!.depth : 0,
       drops: q.drops,
@@ -1269,11 +1269,11 @@ function updatePipeFill(
 
   const name = fitEllipsis(pipe.label, PIPE_TEXT_MAX, GRAPH_FONT.tubeName)
   const meta = fitEllipsis(
-    `${pipe.depth}/${pipe.cap}${pipe.drops ? ` · ${pipe.drops} drop${pipe.drops === 1 ? '' : 's'}` : ''}`,
+    `${pipe.kind} · ${pipe.depth}/${pipe.cap}${pipe.drops ? ` · ${pipe.drops} drop${pipe.drops === 1 ? '' : 's'}` : ''}`,
     PIPE_TEXT_MAX,
     GRAPH_FONT.tubeMeta,
   )
   g.select('text.name').text(name)
   g.select('text.meta').text(meta)
-  g.select('title').text(`${pipe.label} — ${pipe.depth}/${pipe.cap}, ${pipe.drops} drops`)
+  g.select('title').text(`${pipe.kind} ${pipe.label} — ${pipe.depth}/${pipe.cap}, ${pipe.drops} drops`)
 }

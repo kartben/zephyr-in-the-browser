@@ -1,30 +1,32 @@
 /**
- * Derive thread↔msgq put/get/put_front flow from CTF exits.
+ * Derive thread↔queue put/get/put_front flow from CTF exits.
  *
- * Msgq exit events do not carry a thread id — the running thread at `ts`
+ * Exit events do not carry a thread id — the running thread at `ts`
  * (from the Schedule reconstruction) is the actor.
  *
- * Mouth mapping mirrors the Zephyr msgq ring-buffer contract
- * (k_msgq_put / k_msgq_put_front / k_msgq_get):
- *   - put        → end   (write_ptr / back of the queue)
- *   - put_front  → front (read_ptr / head — retrieved before older messages)
- *   - get        → front (FIFO read from the head)
+ * Mouth mapping (unified across msgq / fifo / lifo / k_queue):
+ *   - put        → end   (append / msgq put / fifo put)
+ *   - put_front  → front (prepend / msgq put_front / lifo put)
+ *   - get        → front (FIFO/LIFO/msgq/queue get from the head)
+ *
+ * Nested queue_* under fifo/lifo ids are suppressed — same policy as depth.
  */
 
 import {
-  MSGQ_GET_EXIT,
-  MSGQ_PURGE,
-  MSGQ_PUT_EXIT,
-  MSGQ_PUT_FRONT_EXIT,
-} from './types'
+  classifyQueueEnter,
+  classifyQueueEvent,
+  classifyQueueKinds,
+  isNestedQueueEvent,
+  type QueueFlowOp,
+} from './queueKinds'
 import { threadLabel, threadRunningAt, type Trace } from './reader'
 
-export type QueueFlowOp = 'put' | 'put_front' | 'get'
+export type { QueueFlowOp }
 
 /** Depth-chart ops: flow exits plus purge (empties the ring). */
 export type QueueChartOp = QueueFlowOp | 'purge'
 
-/** Which end of the msgq ring an op touches. */
+/** Which end of the pipe an op touches. */
 export type MsgqMouth = 'end' | 'front'
 
 export function isPutOp(op: QueueFlowOp): boolean {
@@ -32,8 +34,7 @@ export function isPutOp(op: QueueFlowOp): boolean {
 }
 
 /**
- * Zephyr contract: put writes the end; put_front and get use the front/head.
- * @see https://docs.zephyrproject.org/latest/doxygen/html/group__msgq__apis.html
+ * put writes the end; put_front and get use the front/head.
  */
 export function mouthForOp(op: QueueFlowOp): MsgqMouth {
   return op === 'put' ? 'end' : 'front'
@@ -42,15 +43,22 @@ export function mouthForOp(op: QueueFlowOp): MsgqMouth {
 export interface QueueFlowEvent {
   /** Index into tr.events — stable identity for “what’s new”. */
   index: number
+  /**
+   * Mark timestamp: matching put/get *enter* when present, else a concurrent
+   * waiter `sched_ready`, else exit. Zephyr wakes waiters inside put/get
+   * *before* the exit tracepoint, so exit-only marks look causality-inverted.
+   */
   ts: number
+  /** Exit timestamp (ret / depth clock). */
+  exitTs?: number
   op: QueueFlowOp
   queueId: number
-  /** Running thread at ts, or null if unknown / ISR. */
+  /** Running thread at {@link ts}, or null if unknown / ISR. */
   threadId: number | null
   ok: boolean
 }
 
-/** Msgq event surfaced on the depth-chart hover tip (includes purge). */
+/** Queue event surfaced on the depth-chart hover tip (includes purge). */
 export interface QueueChartEvent {
   index: number
   ts: number
@@ -60,27 +68,88 @@ export interface QueueChartEvent {
   ok: boolean
 }
 
+function enterKey(op: QueueFlowOp, queueId: number): string {
+  return `${op}|${queueId}`
+}
+
+/** Lookback when falling back from exit to a concurrent waiter ready. */
+const WAKE_LOOKBACK_NS = 1_000_000 // 1 ms
+
+type EnterMark = { ts: number; threadId: number | null }
+
 /** All successful/failed put / put_front / get exits in timestamp order. */
 export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
+  const kinds = classifyQueueKinds(tr.events)
   const out: QueueFlowEvent[] = []
+  /** Unmatched enter marks per op|queue (stack — single-CPU nest-safe). */
+  const enters = new Map<string, EnterMark[]>()
+  /** Latest waiter ready in the open window (for exit-only fallback). */
+  let lastWakeTs: number | null = null
+  let lastWakeTid: number | null = null
+
   for (let i = 0; i < tr.events.length; i++) {
     const ev = tr.events[i]!
-    const eid = ev.eid
-    let op: QueueFlowOp | null = null
-    if (eid === MSGQ_PUT_EXIT) op = 'put'
-    else if (eid === MSGQ_PUT_FRONT_EXIT) op = 'put_front'
-    else if (eid === MSGQ_GET_EXIT) op = 'get'
-    if (!op) continue
-    const queueId = ev.fields.id
-    if (typeof queueId !== 'number') continue
-    const ret = typeof ev.fields.ret === 'number' ? ev.fields.ret : 0
+
+    if (ev.name === 'thread_sched_ready' || ev.name === 'thread_ready') {
+      const tid = ev.fields.thread_id
+      if (typeof tid === 'number') {
+        lastWakeTs = ev.ts
+        lastWakeTid = tid
+      }
+      continue
+    }
+
+    const enter = classifyQueueEnter(ev.name, ev.fields)
+    if (enter) {
+      if (isNestedQueueEvent(enter, kinds)) continue
+      const key = enterKey(enter.flowOp, enter.id)
+      const stack = enters.get(key) ?? []
+      // Record who was running at enter — used later to reject stale pairs
+      // (e.g. main's leftover enter claimed by a worker's exit).
+      stack.push({ ts: ev.ts, threadId: threadRunningAt(tr, ev.ts) })
+      enters.set(key, stack)
+      continue
+    }
+
+    const classified = classifyQueueEvent(ev.name, ev.fields)
+    if (!classified || !classified.flowOp) continue
+    if (isNestedQueueEvent(classified, kinds)) continue
+
+    const stack = enters.get(enterKey(classified.flowOp, classified.id))
+    const enterMark = stack?.length ? stack.pop()! : null
+    const exitTs = ev.ts
+    // Actor is always who ran the exit (the thread that called put/get).
+    // Mark X may snap back to enter/wake for causality; never reattribute.
+    const actorAtExit = threadRunningAt(tr, exitTs)
+    let ts = exitTs
+    if (
+      enterMark != null &&
+      (enterMark.threadId == null ||
+        actorAtExit == null ||
+        enterMark.threadId === actorAtExit)
+    ) {
+      ts = enterMark.ts
+    } else if (
+      enterMark == null &&
+      lastWakeTs != null &&
+      lastWakeTid != null &&
+      lastWakeTid !== actorAtExit &&
+      lastWakeTs <= exitTs &&
+      exitTs - lastWakeTs <= WAKE_LOOKBACK_NS
+    ) {
+      // No enter in the stream: snap the mark back to the wake so ready does
+      // not appear *before* the put/get edge.
+      ts = lastWakeTs
+    }
+
     out.push({
       index: i,
-      ts: ev.ts,
-      op,
-      queueId,
-      threadId: threadRunningAt(tr, ev.ts),
-      ok: ret === 0,
+      ts,
+      exitTs,
+      op: classified.flowOp,
+      queueId: classified.id,
+      threadId: actorAtExit,
+      ok: classified.ok,
     })
   }
   return out
@@ -118,29 +187,26 @@ export function advanceFlowCursor(
 
 /**
  * Put / put_front / get / purge exits for the depth chart — same attribution
- * as {@link queueFlowEvents}, plus purge (no ret; always ok).
+ * as {@link queueFlowEvents}, plus purge (no flow mouth; always ok).
  */
 export function queueChartEvents(tr: Trace): QueueChartEvent[] {
+  const kinds = classifyQueueKinds(tr.events)
   const out: QueueChartEvent[] = []
   for (let i = 0; i < tr.events.length; i++) {
     const ev = tr.events[i]!
-    const eid = ev.eid
-    let op: QueueChartOp | null = null
-    if (eid === MSGQ_PUT_EXIT) op = 'put'
-    else if (eid === MSGQ_PUT_FRONT_EXIT) op = 'put_front'
-    else if (eid === MSGQ_GET_EXIT) op = 'get'
-    else if (eid === MSGQ_PURGE) op = 'purge'
-    if (!op) continue
-    const queueId = ev.fields.id
-    if (typeof queueId !== 'number') continue
-    const ret = typeof ev.fields.ret === 'number' ? ev.fields.ret : 0
+    const classified = classifyQueueEvent(ev.name, ev.fields)
+    if (!classified) continue
+    if (isNestedQueueEvent(classified, kinds)) continue
+    // queue_remove is depth-only (get without a flow mouth) — still tip as get.
+    const chartOp: QueueChartOp =
+      classified.flowOp ?? (classified.depthAction === 'purge' ? 'purge' : classified.depthAction)
     out.push({
       index: i,
       ts: ev.ts,
-      op,
-      queueId,
+      op: chartOp,
+      queueId: classified.id,
       threadId: threadRunningAt(tr, ev.ts),
-      ok: op === 'purge' ? true : ret === 0,
+      ok: classified.ok,
     })
   }
   return out
@@ -199,7 +265,7 @@ export function queueChartOpLabel(op: QueueChartOp): string {
   }
 }
 
-/** Timeline / graph stroke colors for msgq ops (failed → soft red). */
+/** Timeline / graph stroke colors for queue ops (failed → soft red). */
 export function msgqOpColor(op: QueueFlowOp | QueueChartOp, ok = true): string {
   if (!ok) return 'rgba(248, 113, 113, 0.95)'
   // Bright on dark thread bars; distinct from ready yellow / sleep cyan.

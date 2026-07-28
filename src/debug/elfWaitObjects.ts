@@ -28,6 +28,7 @@ const KIND_HINTS: [string, string][] = [
   ['mbox', 'mbox'],
   ['fifo', 'fifo'],
   ['lifo', 'lifo'],
+  ['k_stack', 'stack'],
   ['pipe', 'pipe'],
   ['poll', 'poll'],
   ['event', 'event'],

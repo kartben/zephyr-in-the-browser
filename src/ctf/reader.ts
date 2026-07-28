@@ -73,6 +73,10 @@ function blockReason(nm: string, f: Record<string, string | number>): string {
   if (nm.startsWith('semaphore')) return `sem 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('mutex')) return `mutex 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('msgq')) return `msgq 0x${Number(f.id ?? 0).toString(16)}`
+  if (nm.startsWith('fifo')) return `fifo 0x${Number(f.id ?? 0).toString(16)}`
+  if (nm.startsWith('lifo')) return `lifo 0x${Number(f.id ?? 0).toString(16)}`
+  if (nm.startsWith('stack')) return `stack 0x${Number(f.id ?? 0).toString(16)}`
+  if (nm.startsWith('queue')) return `queue 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('condvar')) return `condvar 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('event_wait')) return `event 0x${Number(f.event_id ?? 0).toString(16)}`
   if (nm.startsWith('thread_join')) return `join 0x${Number(f.thread_id ?? 0).toString(16)}`
@@ -158,7 +162,11 @@ export class TraceReader {
     const last = this.tr.t1
     for (const [tid, st] of this.stCur) {
       const [state, since, reason] = st
-      if (last > since && state !== 'dead') {
+      // Include since == last so a switch on the final event is visible to
+      // stateAt/threadRunningAt (open-ended last segment). `last > since`
+      // left that run only in stCur and let the previous closed segment
+      // falsely extend forever — under async CTF that pinned edges on main.
+      if (last >= since && state !== 'dead') {
         const segs = this.tr.states.get(tid) ?? []
         segs.push([since, last, state, reason])
         this.tr.states.set(tid, segs)
@@ -172,6 +180,18 @@ export class TraceReader {
 
   private stateMachine(ts: number, nm: string, fields: Record<string, string | number>, tid: number | null) {
     if (nm === 'thread_switched_in') {
+      // Async CTF / lost events can skip switched_out. Demote the previous
+      // runner so we never leave two threads marked `run` (threadRunningAt
+      // used to return Map-insertion order — usually `main`).
+      if (this.running !== null && this.running !== tid) {
+        const prev = this.running
+        if (this.stCur.get(prev)?.[0] === 'run') {
+          const h = this.stHint.get(prev)
+          if (h) this.stSet(prev, ts, h[0], h[1])
+          else this.stSet(prev, ts, 'rdy')
+          this.stHint.delete(prev)
+        }
+      }
       this.running = tid
       if (tid !== null) {
         this.stSet(tid, ts, 'run')
@@ -488,6 +508,33 @@ export function renderStateRows(
   return out
 }
 
+/**
+ * Visit clipped state segments in [view0, view1] in timestamp order.
+ * Prefer this over {@link renderStateRows} when marks must share the same
+ * ns→x map (queue edges, playhead) — column rasterisation smears transitions
+ * left of their true start by up to one column.
+ */
+export function forEachStateInView(
+  tr: Trace,
+  tid: number,
+  view0: number,
+  view1: number,
+  visit: (s: number, e: number, state: ThreadState) => void,
+): void {
+  const segs = tr.states.get(tid)
+  const starts = tr.stateStarts.get(tid)
+  if (!segs || !starts?.length) return
+  let i = bisectRight(starts, view0) - 1
+  if (i < 0) i = 0
+  while (i < segs.length) {
+    const [s, e, state] = segs[i]!
+    i++
+    if (s >= view1) break
+    if (e <= view0 || state === 'dead') continue
+    visit(Math.max(s, view0), Math.min(e, view1), state)
+  }
+}
+
 const STATE_PREC_LOCAL: Record<ThreadState, number> = {
   run: 5,
   blk: 4,
@@ -522,11 +569,38 @@ export function stateAt(tr: Trace, tid: number, ts: number): [ThreadState | null
 
 /** Running thread at ts (single-CPU), or null. */
 export function threadRunningAt(tr: Trace, ts: number): number | null {
-  for (const tid of tr.threads.keys()) {
-    const [st] = stateAt(tr, tid, ts)
-    if (st === 'run') return tid
+  // Prefer closed schedule segments — they survive a missing switched_out in
+  // the per-thread state machine (common under async CTF drop).
+  const segs = tr.segments
+  let lo = 0
+  let hi = segs.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    const [s, e] = segs[mid]!
+    if (e <= ts) lo = mid + 1
+    else if (s > ts) hi = mid
+    else return segs[mid]![2]
   }
-  return null
+
+  // Open tail (last switched_in not yet closed) or duplicate `run` rows: pick
+  // the run segment with the latest start, never Map insertion order (`main`).
+  let best: number | null = null
+  let bestSince = -Infinity
+  for (const tid of tr.threads.keys()) {
+    const starts = tr.stateStarts.get(tid)
+    const states = tr.states.get(tid)
+    if (!starts?.length || !states?.length) continue
+    const i = bisectRight(starts, ts) - 1
+    if (i < 0) continue
+    const [s, e, state] = states[i]!
+    if (state !== 'run') continue
+    if (!(s <= ts && (ts < e || i === starts.length - 1))) continue
+    if (s >= bestSince) {
+      bestSince = s
+      best = tid
+    }
+  }
+  return best
 }
 
 /**

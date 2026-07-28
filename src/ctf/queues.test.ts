@@ -22,19 +22,19 @@ function encU64(n: number): number[] {
   return out
 }
 
-function record(ts: number, eid: number, body: number[]): Uint8Array {
-  return Uint8Array.from([...encU64(ts), ...encU16(eid), ...body])
+function record(ts: number, eid: number, body: number[]): number[] {
+  return [...encU64(ts), ...encU16(eid), ...body]
 }
 
 /** msgq_put_exit / get_exit body: id, timeout, ret */
 function putExit(ts: number, id: number, ret: number): number[] {
-  return [...record(ts, 0x8c, [...encU32(id), ...encU32(0), ...encI32(ret)])]
+  return record(ts, 0x8c, [...encU32(id), ...encU32(0), ...encI32(ret)])
 }
 function getExit(ts: number, id: number, ret: number): number[] {
-  return [...record(ts, 0x8f, [...encU32(id), ...encU32(0), ...encI32(ret)])]
+  return record(ts, 0x8f, [...encU32(id), ...encU32(0), ...encI32(ret)])
 }
 function purge(ts: number, id: number): number[] {
-  return [...record(ts, 0x91, [...encU32(id)])]
+  return record(ts, 0x91, [...encU32(id)])
 }
 
 describe('reconstructQueues', () => {
@@ -52,6 +52,7 @@ describe('reconstructQueues', () => {
     const series = reconstructQueues(reader.tr)
     expect(series).toHaveLength(1)
     expect(series[0]!.id).toBe(q)
+    expect(series[0]!.kind).toBe('msgq')
     expect(depthAt(series[0]!.samples, 1500)).toBe(1)
     expect(depthAt(series[0]!.samples, 2500)).toBe(2)
     expect(depthAt(series[0]!.samples, 3500)).toBe(1)
@@ -116,5 +117,89 @@ describe('reconstructQueues', () => {
     expect(series.map((s) => s.name)).toEqual(['q_events', 'q_shell'])
     expect(depthAt(series[0]!.samples, 10)).toBe(2)
     expect(depthAt(series[1]!.samples, 10)).toBe(0)
+  })
+
+  it('counts fifo put/get once and hides nested queue_* for the same id', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const id = 0x3000
+    // Zephyr dual-layer: fifo_put → queue_append → fifo_put_exit, then get.
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x128, [...encU32(id), ...encU32(0xaa)]), // fifo_put_exit
+        ...record(110, 0x10c, [...encU32(id)]), // nested queue_append_exit (ignored)
+        ...record(200, 0x130, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // fifo_get_exit ok
+        ...record(210, 0x11c, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // nested queue_get
+      ]),
+    )
+    const series = reconstructQueues(reader.tr)
+    expect(series).toHaveLength(1)
+    expect(series[0]!.kind).toBe('fifo')
+    expect(depthAt(series[0]!.samples, 150)).toBe(1)
+    expect(depthAt(series[0]!.samples, 250)).toBe(0)
+    expect(series[0]!.peak).toBe(1)
+    expect(series[0]!.cap).toBeNull()
+  })
+
+  it('does not decrease depth on failed pointer get (ret=0)', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const id = 0x4000
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x128, [...encU32(id), ...encU32(1)]),
+        ...record(200, 0x130, [...encU32(id), ...encU32(0), ...encU32(0)]), // timeout / empty
+      ]),
+    )
+    const [s] = reconstructQueues(reader.tr)
+    expect(depthAt(s!.samples, 250)).toBe(1)
+  })
+
+  it('reconstructs bare k_queue append/get', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const id = 0x5000
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x10c, [...encU32(id)]), // queue_append_exit
+        ...record(200, 0x110, [...encU32(id)]), // queue_prepend_exit
+        ...record(300, 0x11c, [...encU32(id), ...encU32(0), ...encU32(0x11)]), // get
+      ]),
+    )
+    const [s] = reconstructQueues(reader.tr)
+    expect(s!.kind).toBe('queue')
+    expect(depthAt(s!.samples, 150)).toBe(1)
+    expect(depthAt(s!.samples, 250)).toBe(2)
+    expect(depthAt(s!.samples, 350)).toBe(1)
+  })
+
+  it('treats lifo put as depth +1', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const id = 0x6000
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x138, [...encU32(id), ...encU32(1)]), // lifo_put_exit
+        ...record(110, 0x110, [...encU32(id)]), // nested queue_prepend (ignored)
+        ...record(200, 0x13c, [...encU32(id), ...encU32(0), ...encU32(0x22)]),
+      ]),
+    )
+    const [s] = reconstructQueues(reader.tr)
+    expect(s!.kind).toBe('lifo')
+    expect(depthAt(s!.samples, 150)).toBe(1)
+    expect(depthAt(s!.samples, 250)).toBe(0)
+  })
+
+  it('tracks k_stack push/pop depth', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const id = 0x7000
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x143, [...encU32(id), ...encI32(0)]), // stack_push_exit
+        ...record(200, 0x143, [...encU32(id), ...encI32(0)]),
+        ...record(300, 0x146, [...encU32(id), ...encU32(0), ...encI32(0)]), // stack_pop_exit
+      ]),
+    )
+    const [s] = reconstructQueues(reader.tr)
+    expect(s!.kind).toBe('stack')
+    expect(depthAt(s!.samples, 150)).toBe(1)
+    expect(depthAt(s!.samples, 250)).toBe(2)
+    expect(depthAt(s!.samples, 350)).toBe(1)
   })
 })

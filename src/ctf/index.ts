@@ -24,6 +24,7 @@ export {
   niceTimeStep,
   timeTickValues,
   renderStateRows,
+  forEachStateInView,
   stateAt,
   threadRunningAt,
   windowStats,
@@ -44,6 +45,15 @@ export {
   MSGQ_PURGE,
   MSGQ_PUT_FRONT_EXIT,
 } from './types'
+export {
+  classifyQueueEvent,
+  classifyQueueEnter,
+  classifyQueueKinds,
+  isNestedQueueEvent,
+  queueKindLabel,
+  type QueueKind,
+  type ClassifiedQueueEvent,
+} from './queueKinds'
 export {
   reconstructQueues,
   depthAt,

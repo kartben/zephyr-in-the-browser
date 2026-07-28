@@ -24,6 +24,21 @@ import {
   setLink,
   subscribe,
 } from '@/hostNet'
+import { getBoard, getSample } from '@/boards'
+
+const DEFAULT_GUEST_HTTP_URL = 'http://192.0.2.1/'
+
+/** Resolve the Network GET default from the dock's current board:sample seed. */
+function guestHttpUrlFromDock(): string {
+  const seededFor = getDockState().seededFor
+  const [boardId, sampleId] = seededFor.split(':')
+  if (!boardId || !sampleId || boardId === 'custom') return DEFAULT_GUEST_HTTP_URL
+  try {
+    return getSample(getBoard(boardId), sampleId).guestHttpUrl ?? DEFAULT_GUEST_HTTP_URL
+  } catch {
+    return DEFAULT_GUEST_HTTP_URL
+  }
+}
 
 /**
  * The cockpit without the frame, shared by the dock row and the floating
@@ -134,7 +149,7 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
         </Disclosure>
 
         <Disclosure title="Talk to the guest" {...fold('tools', false)}>
-          <ToolsSection guestIp={snapshot.guestIp} />
+          <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
         </Disclosure>
       </div>
   )
@@ -294,12 +309,29 @@ function CaptureSection({ count, version, paused }: { count: number; version: nu
   )
 }
 
-function ToolsSection({ guestIp }: { guestIp: string | null }) {
-  const [url, setUrl] = useState('http://192.0.2.1:8080/')
+function ToolsSection({
+  guestIp,
+  defaultUrl,
+}: {
+  guestIp: string | null
+  defaultUrl: string
+}) {
+  // Re-seed when the running sample changes (dumb_http_server :8080 vs
+  // http_server :80). subscribeDock keeps us honest if the panel stays mounted.
+  const seededUrl = useSyncExternalStore(
+    subscribeDock,
+    guestHttpUrlFromDock,
+    () => defaultUrl,
+  )
+  const [url, setUrl] = useState(seededUrl)
   const [httpBusy, setHttpBusy] = useState(false)
   const [httpResult, setHttpResult] = useState<string | null>(null)
   const [httpError, setHttpError] = useState<string | null>(null)
   const [browserOpen, setBrowserOpen] = useState(false)
+
+  useEffect(() => {
+    setUrl(seededUrl)
+  }, [seededUrl])
 
   const [echoText, setEchoText] = useState('Hello Zephyr!')
   const [echoResult, setEchoResult] = useState<string | null>(null)

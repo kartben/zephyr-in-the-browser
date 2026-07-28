@@ -64,6 +64,130 @@ describe('queueFlowEvents', () => {
     expect(scores.get(thr)).toBe(0)
   })
 
+  it('anchors flow marks on put enter so ready is not before the edge', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const producer = 0x1000
+    const waiter = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(producer), ...encName('prod')]),
+        ...record(10, 0x13, [...encU32(waiter), ...encName('wait')]),
+        ...record(100, 0x11, [...encU32(producer), ...encName('prod')]),
+        ...record(200, 0x8a, [...encU32(q), ...encU32(0)]), // put_enter
+        ...record(220, 0xea, [...encU32(waiter), ...encName('wait')]), // sched_ready
+        ...record(250, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]), // put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({
+      op: 'put',
+      queueId: q,
+      threadId: producer,
+      ok: true,
+      ts: 200,
+      exitTs: 250,
+    })
+    expect(flow[0]!.ts).toBeLessThanOrEqual(220)
+  })
+
+  it('falls back to concurrent sched_ready when put enter is missing', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const producer = 0x1000
+    const waiter = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(producer), ...encName('prod')]),
+        ...record(10, 0x13, [...encU32(waiter), ...encName('wait')]),
+        ...record(100, 0x11, [...encU32(producer), ...encName('prod')]),
+        ...record(220, 0xea, [...encU32(waiter), ...encName('wait')]),
+        ...record(250, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({
+      ts: 220,
+      exitTs: 250,
+      op: 'put',
+      threadId: producer,
+    })
+  })
+
+  it('keeps the exit actor when a stale enter belonged to another thread', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const worker = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(worker), ...encName('worker')]),
+        // Orphan put_enter while main runs (matching exit never arrives).
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        ...record(110, 0x8a, [...encU32(q), ...encU32(0)]), // put_enter
+        ...record(120, 0x10, [...encU32(main), ...encName('main')]),
+        // Worker put_exit with no enter of its own — must not inherit main.
+        ...record(200, 0x11, [...encU32(worker), ...encName('worker')]),
+        ...record(250, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]), // put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({
+      op: 'put',
+      queueId: q,
+      threadId: worker,
+      // Rejected stale enter → mark stays on exit.
+      ts: 250,
+      exitTs: 250,
+    })
+  })
+
+  it('sync CTF: fifo put edge follows switched_out then switched_in', () => {
+    // msg_queue path: clean out→in, put attributed to the runner at exit.
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const worker = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(worker), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        ...record(150, 0x10, [...encU32(main), ...encName('main')]),
+        ...record(150, 0x11, [...encU32(worker), ...encName('worker')]),
+        ...record(200, 0x128, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({ op: 'put', queueId: q, threadId: worker, ts: 200 })
+  })
+
+  it('async CTF: fifo put edge survives a dropped switched_out', () => {
+    // http_server path: missing out must not leave the put hanging off main.
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const rx = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(rx), ...encName('rx_q')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        // Dropped switched_out — only switched_in for rx, then put.
+        ...record(200, 0x11, [...encU32(rx), ...encName('rx_q')]),
+        ...record(250, 0x128, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({ op: 'put', queueId: q, threadId: rx, ts: 250 })
+  })
+
   it('treats msgq_put_front_exit as a distinct producer-side put_front op', () => {
     const reader = new TraceReader(fallbackDefs())
     const thr = 0x1000
@@ -92,6 +216,45 @@ describe('queueFlowEvents', () => {
     expect(mouthForOp('put')).toBe('end')
     expect(mouthForOp('put_front')).toBe('front')
     expect(mouthForOp('get')).toBe('front')
+  })
+
+  it('maps lifo put to put_front and hides nested queue prepend', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thr = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thr), ...encName('producer')]),
+        ...record(100, 0x11, [...encU32(thr), ...encName('producer')]),
+        ...record(200, 0x138, [...encU32(q), ...encU32(1)]), // lifo_put_exit
+        ...record(210, 0x110, [...encU32(q)]), // nested queue_prepend_exit
+        ...record(300, 0x13c, [...encU32(q), ...encU32(0), ...encU32(0x55)]), // lifo_get
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ op: 'put_front', queueId: q, threadId: thr, ok: true })
+    expect(flow[1]).toMatchObject({ op: 'get', queueId: q, threadId: thr, ok: true })
+    expect(mouthForOp('put_front')).toBe('front')
+  })
+
+  it('maps fifo put to put and ignores nested queue_append', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thr = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thr), ...encName('blink')]),
+        ...record(100, 0x11, [...encU32(thr), ...encName('blink')]),
+        ...record(200, 0x128, [...encU32(q), ...encU32(1)]),
+        ...record(205, 0x10c, [...encU32(q)]),
+        ...record(300, 0x130, [...encU32(q), ...encU32(0), ...encU32(0x10)]),
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ op: 'put', ok: true })
+    expect(flow[1]).toMatchObject({ op: 'get', ok: true })
   })
 })
 
