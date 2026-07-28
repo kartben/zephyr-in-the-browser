@@ -53,8 +53,18 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
   }, [focus.nonce, focus.section])
 
   useEffect(() => {
-    if (!snap.paused && (tab === 'memory' || tab === 'threads')) setTab('cpu')
-  }, [snap.paused, tab])
+    if (!snap.paused && (tab === 'memory' || tab === 'threads')) {
+      // Keep Threads selected while a Trace→Debug handoff pause is in flight.
+      if (
+        tab === 'threads' &&
+        focus.section === 'threads' &&
+        (focus.threadAddr != null || focus.threadName != null)
+      ) {
+        return
+      }
+      setTab('cpu')
+    }
+  }, [snap.paused, tab, focus.section, focus.threadAddr, focus.threadName])
 
   if (!gdb.available || dock.devices[STAGE_DEBUG_KEY]?.hidden) return null
 

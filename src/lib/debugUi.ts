@@ -1,5 +1,5 @@
 /**
- * Focus handoff for the Debug stage panel (PC chip → CPU, etc.).
+ * Focus handoff for the Debug stage panel (PC chip → CPU, Trace lane → Threads).
  * Tiny module-level store — same idiom as dockStore / hostGnss.
  */
 
@@ -9,6 +9,7 @@ import {
   setHidden,
 } from '@/lib/dockStore'
 import { revealStagePanel } from '@/lib/dockReveal'
+import * as debug from '@/debug/control'
 
 export type DebugSection = 'breakpoints' | 'cpu' | 'memory' | 'threads'
 
@@ -16,9 +17,18 @@ export interface DebugUiState {
   /** Bumped on every focus request so subscribers re-render even for the same tab. */
   nonce: number
   section: DebugSection
+  /** Thread TCB address to highlight in the Threads tab (CTF thread_id). */
+  threadAddr: number | null
+  /** Name fallback when the live list has not caught up yet. */
+  threadName: string | null
 }
 
-let state: DebugUiState = { nonce: 0, section: 'breakpoints' }
+let state: DebugUiState = {
+  nonce: 0,
+  section: 'breakpoints',
+  threadAddr: null,
+  threadName: null,
+}
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -38,7 +48,31 @@ export function getSnapshot(): DebugUiState {
 export function focusDebug(section: DebugSection = 'breakpoints'): void {
   setHidden(STAGE_DEBUG_KEY, false)
   setExpanded(STAGE_DEBUG_KEY, true)
-  state = { nonce: state.nonce + 1, section }
+  state = {
+    nonce: state.nonce + 1,
+    section,
+    threadAddr: null,
+    threadName: null,
+  }
+  notify()
+  revealStagePanel(STAGE_DEBUG_KEY)
+}
+
+/**
+ * Open Debug → Threads and blink the matching row.
+ * Pauses the target when needed so the Threads tab is available.
+ * `addr` is the Zephyr TCB pointer (same as CTF `thread_id`).
+ */
+export function focusDebugThread(addr: number, name?: string | null): void {
+  setHidden(STAGE_DEBUG_KEY, false)
+  setExpanded(STAGE_DEBUG_KEY, true)
+  if (!debug.getSnapshot().paused) debug.pause()
+  state = {
+    nonce: state.nonce + 1,
+    section: 'threads',
+    threadAddr: addr,
+    threadName: name ?? null,
+  }
   notify()
   revealStagePanel(STAGE_DEBUG_KEY)
 }

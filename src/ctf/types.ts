@@ -36,6 +36,12 @@ export const ISR_EXIT_TO_SCHEDULER = 0x1d
 export const IDLE = 0x1e
 export const THREAD_SCHED_PRIO_SET = 0xe9
 
+/** Message-queue CTF ids (Zephyr TSDL). Depth is reconstructed from exits alone. */
+export const MSGQ_PUT_EXIT = 0x8c
+export const MSGQ_GET_EXIT = 0x8f
+export const MSGQ_PURGE = 0x91
+export const MSGQ_PUT_FRONT_EXIT = 0x93
+
 export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[] }> = {
   0x10: { name: 'thread_switched_out', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
   0x11: { name: 'thread_switched_in', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
@@ -67,6 +73,31 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
   0x80: {
     name: 'thread_sleep_exit',
     fields: [
+      ['timeout', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x8c: {
+    name: 'msgq_put_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x8f: {
+    name: 'msgq_get_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x91: { name: 'msgq_purge', fields: [['id', 'uint32_t']] },
+  0x93: {
+    name: 'msgq_put_front_exit',
+    fields: [
+      ['id', 'uint32_t'],
       ['timeout', 'uint32_t'],
       ['ret', 'int32_t'],
     ],

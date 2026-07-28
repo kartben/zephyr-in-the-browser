@@ -9,7 +9,9 @@ export {
 export {
   TraceReader,
   laneOrder,
+  visibleLanes,
   threadLabel,
+  threadPrio,
   fmtTime,
   niceTimeStep,
   renderStateRows,
@@ -28,4 +30,16 @@ export {
   STATE_PREC,
   type ThreadState,
   FALLBACK_EVENTS,
+  MSGQ_PUT_EXIT,
+  MSGQ_GET_EXIT,
+  MSGQ_PURGE,
+  MSGQ_PUT_FRONT_EXIT,
 } from './types'
+export {
+  reconstructQueues,
+  depthAt,
+  queueAxisMax,
+  queueLabel,
+  type QueueSample,
+  type QueueSeries,
+} from './queues'
