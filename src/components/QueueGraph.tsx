@@ -16,21 +16,33 @@ import {
   type QueueFlowOp,
 } from '@/ctf/queueGraph'
 import { queueLabel, type QueueSeries, type Trace } from '@/ctf'
+import { fitEllipsis, GRAPH_FONT } from '@/components/queueGraphText'
 
 const HOT_MS = 1200
 const WARM_MS = 4200
 const MAX_ANIM_PER_TICK = 12
 
-const PILL_W = 104
-const PILL_H = 22
-const TUBE_W = 168
+const PILL_W = 112
+const PILL_H = 24
+/** Horizontal inset so text clears the rounded corners / stroke. */
+const PILL_PAD_X = 10
+const TUBE_W = 176
 /** Capsule height stays fixed so wide tubes never read as circles. */
-const TUBE_H = 40
-const PORT_GAP = 24
+const TUBE_H = 44
+/** Capsule ends are semicircles — keep text inside the straight mid-section. */
+const TUBE_PAD_X = TUBE_H / 2 + 4
+const TUBE_PAD_Y = 6
+const PORT_GAP = 26
 const ROW_GAP = 18
 const COL_GAP = 40
 const PAD_X = 12
 const PAD_Y = 10
+
+const PILL_TEXT_MAX = PILL_W - PILL_PAD_X * 2
+const TUBE_TEXT_MAX = TUBE_W - TUBE_PAD_X * 2
+
+const CLIP_PILL = 'qg-clip-pill'
+const CLIP_TUBE = 'qg-clip-tube'
 
 type ThreadPill = {
   id: string
@@ -273,6 +285,24 @@ export function QueueGraph({
         .attr('d', 'M0,-3.2L7,0L0,3.2')
         .attr('fill', color)
     }
+    defs
+      .append('clipPath')
+      .attr('id', CLIP_PILL)
+      .append('rect')
+      .attr('x', -PILL_W / 2 + 1)
+      .attr('y', -PILL_H / 2 + 1)
+      .attr('width', PILL_W - 2)
+      .attr('height', PILL_H - 2)
+      .attr('rx', 5)
+    defs
+      .append('clipPath')
+      .attr('id', CLIP_TUBE)
+      .append('rect')
+      .attr('x', -TUBE_W / 2 + TUBE_PAD_X - 2)
+      .attr('y', -TUBE_H / 2 + TUBE_PAD_Y - 1)
+      .attr('width', TUBE_W - (TUBE_PAD_X - 2) * 2)
+      .attr('height', TUBE_H - (TUBE_PAD_Y - 1) * 2)
+      .attr('rx', 4)
     layersRef.current = {
       labels: svg.append('g'),
       links: svg.append('g'),
@@ -492,18 +522,21 @@ function paintFrame(
     .attr('class', 'depth')
     .attr('rx', 999)
     .attr('fill', 'rgba(96, 165, 250, 0.45)')
-  tubeEnter
+  const tubeLabel = tubeEnter.append('g').attr('class', 'label').attr('clip-path', `url(#${CLIP_TUBE})`)
+  tubeLabel
     .append('text')
     .attr('class', 'name')
     .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
     .attr('fill', 'rgba(248,250,252,0.95)')
     .attr('font-size', 11)
     .attr('font-weight', 600)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-  tubeEnter
+  tubeLabel
     .append('text')
     .attr('class', 'meta')
     .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
     .attr('fill', 'rgba(148,163,184,0.9)')
     .attr('font-size', 9)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
@@ -516,8 +549,8 @@ function paintFrame(
     const hot = hotQueues.has(d.id)
     const halfW = TUBE_W / 2
     const halfH = TUBE_H / 2
-    const innerPad = 6
-    const fillW = Math.max(0, (d.depth / Math.max(1, d.cap)) * (TUBE_W - innerPad * 2))
+    const barPad = 8
+    const fillW = Math.max(0, (d.depth / Math.max(1, d.cap)) * (TUBE_W - barPad * 2))
     g.select('rect.shell')
       .attr('x', -halfW)
       .attr('y', -halfH)
@@ -525,17 +558,22 @@ function paintFrame(
       .attr('height', TUBE_H)
       .attr('stroke-width', hot ? 2.2 : 1.5)
       .attr('fill', hot ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.12)')
+    // Depth bar along the bottom inside edge — clear of the two text lines.
     g.select('rect.depth')
-      .attr('x', -halfW + innerPad)
-      .attr('y', halfH - 11)
-      .attr('height', 6)
+      .attr('x', -halfW + barPad)
+      .attr('y', halfH - 6)
+      .attr('height', 3)
       .attr('width', fillW)
-    g.select('text.name')
-      .attr('y', -3)
-      .text(d.label.length > 16 ? `${d.label.slice(0, 15)}…` : d.label)
-    g.select('text.meta')
-      .attr('y', 11)
-      .text(`${d.depth}/${d.cap} · ${d.drops} drop${d.drops === 1 ? '' : 's'}`)
+    const name = fitEllipsis(d.label, TUBE_TEXT_MAX, GRAPH_FONT.tubeName)
+    const meta = fitEllipsis(
+      `${d.depth}/${d.cap} · ${d.drops} drop${d.drops === 1 ? '' : 's'}`,
+      TUBE_TEXT_MAX,
+      GRAPH_FONT.tubeMeta,
+    )
+    g.select('text.name').attr('y', -8).text(name)
+    g.select('text.meta').attr('y', 5).text(meta)
+    g.selectAll('title').remove()
+    g.append('title').text(`${d.label} — ${d.depth}/${d.cap}, ${d.drops} drops`)
   })
 
   // Thread pills
@@ -556,9 +594,11 @@ function paintFrame(
     .attr('rx', 6)
   pillEnter
     .append('text')
+    .attr('clip-path', `url(#${CLIP_PILL})`)
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'central')
     .attr('font-size', 10)
+    .attr('font-weight', 500)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
 
   const pillMerged = pillEnter.merge(pillSel)
@@ -568,16 +608,22 @@ function paintFrame(
     const hot = hotPills.has(d.id)
     const put = d.side === 'put'
     g.select('rect')
-      .attr('fill', hot
-        ? put
-          ? 'rgba(96, 165, 250, 0.28)'
-          : 'rgba(251, 191, 36, 0.28)'
-        : put
-          ? 'rgba(96, 165, 250, 0.1)'
-          : 'rgba(251, 191, 36, 0.1)')
+      .attr(
+        'fill',
+        hot
+          ? put
+            ? 'rgba(96, 165, 250, 0.28)'
+            : 'rgba(251, 191, 36, 0.28)'
+          : put
+            ? 'rgba(96, 165, 250, 0.1)'
+            : 'rgba(251, 191, 36, 0.1)',
+      )
       .attr('stroke', put ? '#60a5fa' : '#fbbf24')
       .attr('stroke-width', hot ? 1.8 : 1.2)
-    const label = d.label.length > 12 ? `${d.label.slice(0, 11)}…` : d.label
+    const label = fitEllipsis(d.label, PILL_TEXT_MAX, GRAPH_FONT.pill)
     g.select('text').attr('fill', 'rgba(248,250,252,0.95)').text(label)
+    g.attr('aria-label', d.label)
+    g.selectAll('title').remove()
+    g.append('title').text(d.label)
   })
 }
