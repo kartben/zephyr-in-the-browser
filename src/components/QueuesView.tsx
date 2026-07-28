@@ -1,9 +1,9 @@
 /**
  * Message-queue depth history chart — depth replayed from put/get/purge exits.
  *
- * Shares the Trace panel's time window (follow / pan / zoom). Uses d3 scales
- * for time/depth mapping and a bottom d3 axisBottom for a precise time ruler.
- * Hover shows a crosshair plus a tip with timestamp, depth, and nearest event.
+ * Full d3 SVG chart (scales, area/line series, axes). Shares the Trace panel's
+ * time window (follow / pan / zoom). Hover shows timestamp, depth, and the
+ * nearest msgq CTF event.
  */
 
 import * as d3 from 'd3'
@@ -13,9 +13,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type CanvasHTMLAttributes,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
+  type SVGAttributes,
 } from 'react'
 import {
   depthAt,
@@ -30,6 +30,7 @@ import {
   sortQueuesByPipelineOrder,
   timeTickValues,
   type QueueChartEvent,
+  type QueueSample,
   type QueueSeries,
   type Trace,
 } from '@/ctf'
@@ -38,30 +39,38 @@ import { QueueGraph } from '@/components/QueueGraph'
 
 const LABEL_W = 108
 const PAD = 8
-/** Slim top strip for the LIVE badge — time ticks live on the bottom axis. */
 const TOP_H = 16
 const BOTTOM_AXIS_H = 36
 const ROW_H = 72
 const PLOT_PAD_TOP = 14
 const PLOT_PAD_BOT = 6
-/** Snap hover to an event when it lands within this many plot pixels. */
 const SNAP_PX = 10
 
 const AXIS_STROKE = 'rgba(148, 163, 184, 0.55)'
 const AXIS_FILL = 'rgba(203, 213, 225, 0.95)'
-const GRID_STROKE = 'rgba(148, 163, 184, 0.12)'
+const GRID_STROKE = 'rgba(148, 163, 184, 0.14)'
+const AREA_FILL = 'rgba(96, 165, 250, 0.35)'
+const LINE_STROKE = 'rgba(147, 197, 253, 0.95)'
+const CAP_STROKE = 'rgba(244, 63, 94, 0.75)'
 
 type HoverTip = {
-  /** Canvas-relative tip anchor (plot x, row midline). */
   x: number
   y: number
-  /** Absolute CTF timestamp under the cursor (after snap). */
   ts: number
-  /** Tick step used for precise time formatting. */
   step: number
   queue: QueueSeries
   depth: number
   event: QueueChartEvent | null
+}
+
+type RowLayout = {
+  queue: QueueSeries
+  y0: number
+  plotTop: number
+  plotH: number
+  yMax: number
+  yScale: d3.ScaleLinear<number, number>
+  points: QueueSample[]
 }
 
 function msgqNameMap(): Map<number, string> {
@@ -84,242 +93,329 @@ function depthTicks(yMax: number): number[] {
   return [...new Set([0, ...ticks, yMax])].sort((a, b) => a - b)
 }
 
-function chartHeight(rows: number): number {
-  return Math.max(TOP_H + ROW_H + BOTTOM_AXIS_H, TOP_H + rows * ROW_H + BOTTOM_AXIS_H)
+/** Step series clipped to the visible window for d3.curveStepAfter. */
+function windowPoints(q: QueueSeries, view0: number, view1: number): QueueSample[] {
+  const pts: QueueSample[] = [{ ts: view0, depth: depthAt(q.samples, view0) }]
+  for (const s of q.samples) {
+    if (s.ts <= view0 || s.ts > view1) continue
+    pts.push(s)
+  }
+  const last = pts[pts.length - 1]!
+  if (last.ts < view1) pts.push({ ts: view1, depth: last.depth })
+  return pts
 }
 
-function paint(
-  canvas: HTMLCanvasElement,
-  queues: QueueSeries[],
-  view0: number,
-  view1: number,
-  follow: boolean,
-  hover: HoverTip | null,
-  tickValues: number[],
-) {
-  const dpr = window.devicePixelRatio || 1
-  const cssW = Math.max(1, canvas.clientWidth)
-  const rows = Math.max(1, queues.length)
-  const cssH = chartHeight(rows)
-  if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
-    canvas.width = Math.floor(cssW * dpr)
-    canvas.height = Math.floor(cssH * dpr)
-  }
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.clearRect(0, 0, cssW, cssH)
-
-  const plotW = Math.max(1, cssW - LABEL_W - PAD)
-  const xScale = d3.scaleLinear().domain([view0, view1]).range([LABEL_W, LABEL_W + plotW])
-  const plotBottom = TOP_H + rows * ROW_H
-
-  // LIVE badge only — precise ticks are on the bottom d3 axis.
-  if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
-    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textBaseline = 'alphabetic'
-    ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
-  } else {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.7)'
-    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textBaseline = 'alphabetic'
-    ctx.fillText('t →', 4, 12)
-  }
-
-  // Axis gutter background (SVG ticks draw on top).
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
-  ctx.fillRect(0, plotBottom, cssW, BOTTOM_AXIS_H)
-
-  if (queues.length === 0) {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
-    ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
-    ctx.fillText('No msgq put/get exits in this trace yet.', LABEL_W, TOP_H + 28)
-    canvas.style.height = `${cssH}px`
-    return
-  }
-
-  // Vertical grid at major time ticks (shared across rows).
-  ctx.strokeStyle = GRID_STROKE
-  ctx.lineWidth = 1
-  for (const t of tickValues) {
-    const x = xScale(t)
-    if (x < LABEL_W - 0.5 || x > LABEL_W + plotW + 0.5) continue
-    ctx.beginPath()
-    ctx.moveTo(x, TOP_H)
-    ctx.lineTo(x, plotBottom)
-    ctx.stroke()
-  }
-
-  const cols = Math.max(64, Math.floor(plotW))
-  const colW = plotW / cols
-  const span = Math.max(1, view1 - view0)
-
-  queues.forEach((q, row) => {
-    const y0 = TOP_H + row * ROW_H
-    const plotTop = y0 + PLOT_PAD_TOP
-    const plotH = ROW_H - PLOT_PAD_TOP - PLOT_PAD_BOT
-    const yMax = queueAxisMax(q)
-    const yScale = d3.scaleLinear().domain([0, yMax]).range([plotTop + plotH, plotTop])
-
-    ctx.fillStyle = row % 2 === 0 ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.2)'
-    ctx.fillRect(0, y0, cssW, ROW_H)
-
-    const name = queueLabel(q)
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
-    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textBaseline = 'alphabetic'
-    const trimmed = name.length > 12 ? `${name.slice(0, 11)}…` : name
-    ctx.fillText(trimmed, 4, y0 + 14)
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.85)'
-    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.fillText(`${q.drops} drop${q.drops === 1 ? '' : 's'}`, 4, y0 + 28)
-
-    ctx.fillStyle = 'rgba(100, 116, 139, 0.9)'
-    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textBaseline = 'middle'
-    for (const d of depthTicks(yMax)) {
-      ctx.fillText(String(d), 4, yScale(d))
-    }
-
-    if (q.cap != null && q.cap > 0) {
-      const cy = yScale(q.cap)
-      ctx.strokeStyle = 'rgba(244, 63, 94, 0.75)'
-      ctx.setLineDash([4, 3])
-      ctx.beginPath()
-      ctx.moveTo(LABEL_W, cy)
-      ctx.lineTo(LABEL_W + plotW, cy)
-      ctx.stroke()
-      ctx.setLineDash([])
-      ctx.fillStyle = 'rgba(244, 63, 94, 0.85)'
-      ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-      ctx.textBaseline = 'bottom'
-      const capLbl = `cap=${q.cap}`
-      ctx.fillText(capLbl, LABEL_W + plotW - ctx.measureText(capLbl).width - 2, cy - 1)
-    }
-
-    ctx.beginPath()
-    let started = false
-    for (let c = 0; c < cols; c++) {
-      const t = view0 + ((c + 0.5) / cols) * span
-      const d = depthAt(q.samples, t)
-      const x = LABEL_W + c * colW
-      const y = yScale(d)
-      if (!started) {
-        ctx.moveTo(x, plotTop + plotH)
-        ctx.lineTo(x, y)
-        started = true
-      } else {
-        ctx.lineTo(x, y)
-      }
-    }
-    ctx.lineTo(LABEL_W + plotW, plotTop + plotH)
-    ctx.closePath()
-    ctx.fillStyle = 'rgba(96, 165, 250, 0.35)'
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(147, 197, 253, 0.9)'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    for (let c = 0; c < cols; c++) {
-      const t = view0 + ((c + 0.5) / cols) * span
-      const d = depthAt(q.samples, t)
-      const x = LABEL_W + c * colW + colW / 2
-      const y = yScale(d)
-      if (c === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    }
-    ctx.stroke()
-
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)'
-    ctx.beginPath()
-    ctx.moveTo(LABEL_W, plotTop + plotH)
-    ctx.lineTo(LABEL_W + plotW, plotTop + plotH)
-    ctx.stroke()
-
-    if (hover && hover.queue.id === q.id) {
-      const dy = yScale(hover.depth)
-      ctx.fillStyle = 'rgba(250, 250, 250, 0.95)'
-      ctx.beginPath()
-      ctx.arc(hover.x, dy, 3.5, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.strokeStyle = 'rgba(59, 130, 246, 0.95)'
-      ctx.lineWidth = 1.5
-      ctx.stroke()
-    }
-  })
-
-  if (hover && hover.x >= LABEL_W && hover.x <= LABEL_W + plotW) {
-    ctx.strokeStyle = 'rgba(226, 232, 240, 0.55)'
-    ctx.lineWidth = 1
-    ctx.setLineDash([3, 3])
-    ctx.beginPath()
-    ctx.moveTo(hover.x, TOP_H)
-    ctx.lineTo(hover.x, plotBottom)
-    ctx.stroke()
-    ctx.setLineDash([])
-  }
-
-  canvas.style.height = `${cssH}px`
-}
-
-function paintTimeAxis(
-  svg: SVGSVGElement,
-  tr: Trace,
-  view0: number,
-  view1: number,
-  cssW: number,
-  plotBottom: number,
-  tickValues: number[],
-  step: number,
-) {
-  const plotW = Math.max(1, cssW - LABEL_W - PAD)
-  const xScale = d3.scaleLinear().domain([view0, view1]).range([LABEL_W, LABEL_W + plotW])
-
-  const root = d3.select(svg)
-  root.selectAll('*').remove()
-  root
-    .attr('width', cssW)
-    .attr('height', BOTTOM_AXIS_H)
-    .attr('viewBox', `0 0 ${cssW} ${BOTTOM_AXIS_H}`)
-    .style('top', `${plotBottom}px`)
-
-  const axis = d3
-    .axisBottom(xScale)
-    .tickValues(tickValues)
-    .tickSizeOuter(0)
-    .tickSizeInner(6)
-    .tickPadding(6)
-    .tickFormat((d) => fmtAxisTime(Number(d) - tr.t0, step))
-
-  const g = root.append('g').attr('transform', 'translate(0,4)').call(axis)
-
+function styleAxis(g: d3.Selection<SVGGElement, unknown, null, undefined>): void {
   g.select('.domain').attr('stroke', AXIS_STROKE).attr('stroke-width', 1)
   g.selectAll('.tick line').attr('stroke', AXIS_STROKE)
   g.selectAll('.tick text')
     .attr('fill', AXIS_FILL)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
     .attr('font-size', '10px')
+}
 
-  // Exact window edges under the tick row.
+function renderChart(
+  svg: SVGSVGElement,
+  tr: Trace,
+  queues: QueueSeries[],
+  view0: number,
+  view1: number,
+  follow: boolean,
+  hover: HoverTip | null,
+): RowLayout[] {
+  const cssW = Math.max(1, svg.clientWidth || (svg.parentElement?.clientWidth ?? 320))
+  const plotBottom = TOP_H + (queues.length === 0 ? ROW_H : queues.length * ROW_H)
+  const cssH = plotBottom + BOTTOM_AXIS_H
+  const plotW = Math.max(1, cssW - LABEL_W - PAD)
+  const xScale = d3.scaleLinear().domain([view0, view1]).range([LABEL_W, LABEL_W + plotW])
+  const { values: tickValues, step } = timeTickValues(
+    view0,
+    view1,
+    Math.max(4, Math.floor(plotW / 56)),
+  )
+
+  const root = d3.select(svg)
   root
-    .append('text')
+    .attr('width', cssW)
+    .attr('height', cssH)
+    .attr('viewBox', `0 0 ${cssW} ${cssH}`)
+    .attr('role', 'img')
+    .attr('aria-label', 'Message queue depth over time')
+
+  let frame = root.select<SVGGElement>('g.frame')
+  if (frame.empty()) frame = root.append('g').attr('class', 'frame')
+
+  // Background
+  let bg = frame.select<SVGRectElement>('rect.chart-bg')
+  if (bg.empty()) {
+    bg = frame.append('rect').attr('class', 'chart-bg').attr('fill', 'rgba(2, 6, 23, 0.35)')
+  }
+  bg.attr('width', cssW).attr('height', cssH)
+
+  // LIVE / t→ badge
+  let badge = frame.select<SVGTextElement>('text.live-badge')
+  if (badge.empty()) {
+    badge = frame
+      .append('text')
+      .attr('class', 'live-badge')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '10px')
+      .attr('y', 12)
+  }
+  if (follow) {
+    badge
+      .attr('x', Math.max(LABEL_W, cssW - 32))
+      .attr('fill', 'rgba(34, 197, 94, 0.95)')
+      .attr('text-anchor', 'start')
+      .text('LIVE')
+  } else {
+    badge.attr('x', 4).attr('fill', 'rgba(148, 163, 184, 0.7)').attr('text-anchor', 'start').text('t →')
+  }
+
+  // Empty state
+  let empty = frame.select<SVGTextElement>('text.empty')
+  if (queues.length === 0) {
+    if (empty.empty()) {
+      empty = frame
+        .append('text')
+        .attr('class', 'empty')
+        .attr('fill', 'rgba(148, 163, 184, 0.8)')
+        .attr('font-size', '11px')
+        .attr('font-family', 'ui-sans-serif, system-ui, sans-serif')
+    }
+    empty.attr('x', LABEL_W).attr('y', TOP_H + 28).text('No msgq put/get exits in this trace yet.')
+  } else if (!empty.empty()) {
+    empty.remove()
+  }
+
+  // Vertical grid
+  let grid = frame.select<SVGGElement>('g.grid')
+  if (grid.empty()) grid = frame.append('g').attr('class', 'grid')
+  grid
+    .selectAll<SVGLineElement, number>('line')
+    .data(queues.length === 0 ? [] : tickValues, (d) => String(d))
+    .join('line')
+    .attr('x1', (t) => xScale(t))
+    .attr('x2', (t) => xScale(t))
+    .attr('y1', TOP_H)
+    .attr('y2', plotBottom)
+    .attr('stroke', GRID_STROKE)
+    .attr('stroke-width', 1)
+
+  const layouts: RowLayout[] = queues.map((queue, row) => {
+    const y0 = TOP_H + row * ROW_H
+    const plotTop = y0 + PLOT_PAD_TOP
+    const plotH = ROW_H - PLOT_PAD_TOP - PLOT_PAD_BOT
+    const yMax = queueAxisMax(queue)
+    const yScale = d3.scaleLinear().domain([0, yMax]).range([plotTop + plotH, plotTop])
+    return {
+      queue,
+      y0,
+      plotTop,
+      plotH,
+      yMax,
+      yScale,
+      points: windowPoints(queue, view0, view1),
+    }
+  })
+
+  let rowsG = frame.select<SVGGElement>('g.rows')
+  if (rowsG.empty()) rowsG = frame.append('g').attr('class', 'rows')
+
+  const rowSel = rowsG
+    .selectAll<SVGGElement, RowLayout>('g.row')
+    .data(layouts, (d) => String(d.queue.id))
+    .join((enter) => {
+      const g = enter.append('g').attr('class', 'row')
+      g.append('rect').attr('class', 'row-bg')
+      g.append('text').attr('class', 'row-name')
+      g.append('text').attr('class', 'row-drops')
+      g.append('g').attr('class', 'y-axis')
+      g.append('line').attr('class', 'cap-line')
+      g.append('text').attr('class', 'cap-label')
+      g.append('path').attr('class', 'depth-area')
+      g.append('path').attr('class', 'depth-line')
+      g.append('line').attr('class', 'baseline')
+      return g
+    })
+
+  rowSel.each(function (d, i) {
+    const g = d3.select(this)
+    const area = d3
+      .area<QueueSample>()
+      .x((p) => xScale(p.ts))
+      .y0(d.plotTop + d.plotH)
+      .y1((p) => d.yScale(p.depth))
+      .curve(d3.curveStepAfter)
+    const line = d3
+      .line<QueueSample>()
+      .x((p) => xScale(p.ts))
+      .y((p) => d.yScale(p.depth))
+      .curve(d3.curveStepAfter)
+
+    g.select<SVGRectElement>('rect.row-bg')
+      .attr('x', 0)
+      .attr('y', d.y0)
+      .attr('width', cssW)
+      .attr('height', ROW_H)
+      .attr('fill', i % 2 === 0 ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.2)')
+
+    const name = queueLabel(d.queue)
+    const trimmed = name.length > 12 ? `${name.slice(0, 11)}…` : name
+    g.select<SVGTextElement>('text.row-name')
+      .attr('x', 4)
+      .attr('y', d.y0 + 14)
+      .attr('fill', 'rgba(226, 232, 240, 0.95)')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '11px')
+      .text(trimmed)
+
+    g.select<SVGTextElement>('text.row-drops')
+      .attr('x', 4)
+      .attr('y', d.y0 + 28)
+      .attr('fill', 'rgba(148, 163, 184, 0.85)')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '9px')
+      .text(`${d.queue.drops} drop${d.queue.drops === 1 ? '' : 's'}`)
+
+    const yAxis = d3
+      .axisLeft(d.yScale)
+      .tickValues(depthTicks(d.yMax))
+      .tickSize(0)
+      .tickPadding(4)
+    const yG = g.select<SVGGElement>('g.y-axis')
+    yG.attr('transform', `translate(${LABEL_W},0)`).call(yAxis)
+    yG.select('.domain').attr('stroke', 'none')
+    yG.selectAll('.tick line').attr('stroke', 'none')
+    yG
+      .selectAll('.tick text')
+      .attr('fill', 'rgba(100, 116, 139, 0.9)')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '9px')
+      .attr('text-anchor', 'start')
+      .attr('x', -LABEL_W + 4)
+
+    const hasCap = d.queue.cap != null && d.queue.cap > 0
+    g.select<SVGLineElement>('line.cap-line')
+      .attr('x1', LABEL_W)
+      .attr('x2', LABEL_W + plotW)
+      .attr('y1', hasCap ? d.yScale(d.queue.cap!) : 0)
+      .attr('y2', hasCap ? d.yScale(d.queue.cap!) : 0)
+      .attr('stroke', hasCap ? CAP_STROKE : 'none')
+      .attr('stroke-dasharray', '4 3')
+      .attr('stroke-width', 1)
+
+    g.select<SVGTextElement>('text.cap-label')
+      .attr('x', LABEL_W + plotW - 2)
+      .attr('y', hasCap ? d.yScale(d.queue.cap!) - 2 : 0)
+      .attr('text-anchor', 'end')
+      .attr('fill', hasCap ? 'rgba(244, 63, 94, 0.85)' : 'none')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '9px')
+      .text(hasCap ? `cap=${d.queue.cap}` : '')
+
+    g.select<SVGPathElement>('path.depth-area')
+      .attr('d', area(d.points) ?? '')
+      .attr('fill', AREA_FILL)
+      .attr('stroke', 'none')
+
+    g.select<SVGPathElement>('path.depth-line')
+      .attr('d', line(d.points) ?? '')
+      .attr('fill', 'none')
+      .attr('stroke', LINE_STROKE)
+      .attr('stroke-width', 1.5)
+      .attr('stroke-linejoin', 'round')
+
+    g.select<SVGLineElement>('line.baseline')
+      .attr('x1', LABEL_W)
+      .attr('x2', LABEL_W + plotW)
+      .attr('y1', d.plotTop + d.plotH)
+      .attr('y2', d.plotTop + d.plotH)
+      .attr('stroke', 'rgba(148, 163, 184, 0.25)')
+      .attr('stroke-width', 1)
+  })
+
+  // Bottom time axis
+  let xAxisG = frame.select<SVGGElement>('g.x-axis')
+  if (xAxisG.empty()) xAxisG = frame.append('g').attr('class', 'x-axis')
+  const xAxis = d3
+    .axisBottom(xScale)
+    .tickValues(tickValues)
+    .tickSizeOuter(0)
+    .tickSizeInner(6)
+    .tickPadding(6)
+    .tickFormat((t) => fmtAxisTime(Number(t) - tr.t0, step))
+  xAxisG.attr('transform', `translate(0,${plotBottom + 4})`).call(xAxis)
+  styleAxis(xAxisG)
+
+  let edgeL = frame.select<SVGTextElement>('text.edge-left')
+  if (edgeL.empty()) {
+    edgeL = frame
+      .append('text')
+      .attr('class', 'edge-left')
+      .attr('fill', 'rgba(148, 163, 184, 0.85)')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '9px')
+      .attr('text-anchor', 'start')
+  }
+  edgeL
     .attr('x', LABEL_W)
-    .attr('y', BOTTOM_AXIS_H - 2)
-    .attr('fill', 'rgba(148, 163, 184, 0.85)')
-    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-    .attr('font-size', '9px')
-    .attr('text-anchor', 'start')
+    .attr('y', plotBottom + BOTTOM_AXIS_H - 2)
     .text(fmtAxisTime(view0 - tr.t0, step))
 
-  root
-    .append('text')
+  let edgeR = frame.select<SVGTextElement>('text.edge-right')
+  if (edgeR.empty()) {
+    edgeR = frame
+      .append('text')
+      .attr('class', 'edge-right')
+      .attr('fill', 'rgba(148, 163, 184, 0.85)')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '9px')
+      .attr('text-anchor', 'end')
+  }
+  edgeR
     .attr('x', LABEL_W + plotW)
-    .attr('y', BOTTOM_AXIS_H - 2)
-    .attr('fill', 'rgba(148, 163, 184, 0.85)')
-    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-    .attr('font-size', '9px')
-    .attr('text-anchor', 'end')
+    .attr('y', plotBottom + BOTTOM_AXIS_H - 2)
     .text(fmtAxisTime(view1 - tr.t0, step))
+
+  // Hover crosshair + marker
+  let hoverG = frame.select<SVGGElement>('g.hover')
+  if (hoverG.empty()) {
+    hoverG = frame.append('g').attr('class', 'hover').style('pointer-events', 'none')
+    hoverG.append('line').attr('class', 'crosshair')
+    hoverG.append('circle').attr('class', 'marker')
+  }
+  if (hover && queues.length > 0) {
+    const row = layouts.find((r) => r.queue.id === hover.queue.id)
+    hoverG.style('display', null)
+    hoverG
+      .select('line.crosshair')
+      .attr('x1', hover.x)
+      .attr('x2', hover.x)
+      .attr('y1', TOP_H)
+      .attr('y2', plotBottom)
+      .attr('stroke', 'rgba(226, 232, 240, 0.55)')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '3 3')
+    if (row) {
+      hoverG
+        .select('circle.marker')
+        .attr('cx', hover.x)
+        .attr('cy', row.yScale(hover.depth))
+        .attr('r', 3.5)
+        .attr('fill', 'rgba(250, 250, 250, 0.95)')
+        .attr('stroke', 'rgba(59, 130, 246, 0.95)')
+        .attr('stroke-width', 1.5)
+        .style('display', null)
+    } else {
+      hoverG.select('circle.marker').style('display', 'none')
+    }
+  } else {
+    hoverG.style('display', 'none')
+  }
+
+  svg.style.height = `${cssH}px`
+  return layouts
 }
 
 function tipLines(tr: Trace, tip: HoverTip): string[] {
@@ -344,8 +440,8 @@ function tipLines(tr: Trace, tip: HoverTip): string[] {
 }
 
 /**
- * Interactive msgq depth-over-time chart. Canvas paints the series; d3 owns the
- * bottom time axis and the x/y scales used for grid + hover mapping.
+ * Interactive msgq depth-over-time chart drawn entirely with d3 (scales, step
+ * area/line, axes). Trace pan/zoom handlers attach to the SVG surface.
  */
 export function QueuesView({
   tr,
@@ -353,18 +449,20 @@ export function QueuesView({
   view1,
   follow,
   eventCount,
-  canvasRef,
-  canvasProps,
+  svgRef,
+  surfaceProps,
 }: {
   tr: Trace
   view0: number
   view1: number
   follow: boolean
   eventCount: number
-  canvasRef: RefObject<HTMLCanvasElement | null>
-  canvasProps?: CanvasHTMLAttributes<HTMLCanvasElement>
+  svgRef: RefObject<SVGSVGElement | null>
+  surfaceProps?: SVGAttributes<SVGSVGElement>
 }) {
-  const axisRef = useRef<SVGSVGElement | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const layoutsRef = useRef<RowLayout[]>([])
+
   const queues = useMemo(
     () => sortQueuesByPipelineOrder(tr, reconstructQueues(tr, msgqNameMap())),
     // eventCount bumps when CTF grows; wait-object names are read live inside.
@@ -387,45 +485,33 @@ export function QueuesView({
   const hoverRef = useRef<HoverTip | null>(null)
   hoverRef.current = hover
 
-  const ticksForWidth = useCallback(
-    (plotW: number) => {
-      // Denser than Schedule (~72px) so the bottom axis reads as a precise ruler.
-      return timeTickValues(view0, view1, Math.max(4, Math.floor(plotW / 56)))
-    },
-    [view0, view1],
-  )
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    layoutsRef.current = renderChart(svg, tr, queues, view0, view1, follow, hover)
+  }, [tr, queues, view0, view1, follow, svgRef, hover])
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    const axis = axisRef.current
-    if (!canvas) return
-    const cssW = Math.max(1, canvas.clientWidth)
-    const plotW = Math.max(1, cssW - LABEL_W - PAD)
-    const { values, step } = ticksForWidth(plotW)
-    const rows = Math.max(1, queues.length)
-    paint(canvas, queues, view0, view1, follow, hover, values)
-    if (axis) paintTimeAxis(axis, tr, view0, view1, cssW, TOP_H + rows * ROW_H, values, step)
-  }, [tr, queues, view0, view1, follow, canvasRef, hover, ticksForWidth])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || typeof ResizeObserver === 'undefined') return
+    const host = hostRef.current
+    const svg = svgRef.current
+    if (!host || !svg || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      const cssW = Math.max(1, canvas.clientWidth)
-      const plotW = Math.max(1, cssW - LABEL_W - PAD)
-      const { values, step } = ticksForWidth(plotW)
-      const rows = Math.max(1, queuesRef.current.length)
-      paint(canvas, queuesRef.current, view0, view1, follow, hoverRef.current, values)
-      if (axisRef.current) {
-        paintTimeAxis(axisRef.current, tr, view0, view1, cssW, TOP_H + rows * ROW_H, values, step)
-      }
+      layoutsRef.current = renderChart(
+        svg,
+        tr,
+        queuesRef.current,
+        view0,
+        view1,
+        follow,
+        hoverRef.current,
+      )
     })
-    ro.observe(canvas)
+    ro.observe(host)
     return () => ro.disconnect()
-  }, [tr, view0, view1, follow, canvasRef, ticksForWidth])
+  }, [tr, view0, view1, follow, svgRef])
 
   const resolveHover = useCallback(
-    (clientX: number, clientY: number, target: HTMLCanvasElement): HoverTip | null => {
+    (clientX: number, clientY: number, target: SVGSVGElement): HoverTip | null => {
       const rect = target.getBoundingClientRect()
       const x = clientX - rect.left
       const y = clientY - rect.top
@@ -462,23 +548,23 @@ export function QueuesView({
   )
 
   const onPointerMove = useCallback(
-    (e: ReactPointerEvent<HTMLCanvasElement>) => {
-      canvasProps?.onPointerMove?.(e)
+    (e: ReactPointerEvent<SVGSVGElement>) => {
+      surfaceProps?.onPointerMove?.(e)
       if (e.buttons !== 0) {
         if (hoverRef.current) setHover(null)
         return
       }
       setHover(resolveHover(e.clientX, e.clientY, e.currentTarget))
     },
-    [canvasProps, resolveHover],
+    [surfaceProps, resolveHover],
   )
 
   const onPointerLeave = useCallback(
-    (e: ReactPointerEvent<HTMLCanvasElement>) => {
-      canvasProps?.onPointerLeave?.(e)
+    (e: ReactPointerEvent<SVGSVGElement>) => {
+      surfaceProps?.onPointerLeave?.(e)
       setHover(null)
     },
-    [canvasProps],
+    [surfaceProps],
   )
 
   const tip = hover ? tipLines(tr, hover) : null
@@ -494,18 +580,13 @@ export function QueuesView({
   return (
     <>
       {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
-      <div className="relative">
-        <canvas
-          ref={canvasRef}
-          className="w-full cursor-crosshair touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-          {...canvasProps}
+      <div ref={hostRef} className="relative w-full">
+        <svg
+          ref={svgRef}
+          className="block w-full cursor-crosshair touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+          {...surfaceProps}
           onPointerMove={onPointerMove}
           onPointerLeave={onPointerLeave}
-        />
-        <svg
-          ref={axisRef}
-          className="pointer-events-none absolute left-0 w-full"
-          aria-hidden
         />
         {tip && tipStyle && (
           <div

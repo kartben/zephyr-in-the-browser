@@ -238,6 +238,8 @@ function paint(
   canvas.style.height = `${cssH}px`
 }
 
+type TraceSurface = HTMLCanvasElement | SVGSVGElement
+
 type Gesture =
   | {
       kind: 'pan'
@@ -338,7 +340,7 @@ function TracePanelBody({
   apiRef: MutableRefObject<{ jumpLive: () => void } | null>
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const queuesCanvasRef = useRef<HTMLCanvasElement>(null)
+  const queuesSvgRef = useRef<SVGSVGElement>(null)
   const netCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
@@ -458,7 +460,7 @@ function TracePanelBody({
     }
   }
 
-  const onWheel: WheelEventHandler<HTMLCanvasElement> = (e) => {
+  const onWheel: WheelEventHandler<TraceSurface> = (e) => {
     if (!view || !tr) return
     e.preventDefault()
     const factor = e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN
@@ -476,7 +478,7 @@ function TracePanelBody({
     setView(zoomAround(tr, view, factor, pivot))
   }
 
-  const onPointerDown: PointerEventHandler<HTMLCanvasElement> = (e) => {
+  const onPointerDown: PointerEventHandler<TraceSurface> = (e) => {
     if (!view || !tr || !e.isPrimary) return
     try {
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -492,7 +494,7 @@ function TracePanelBody({
     }
   }
 
-  const onPointerMove: PointerEventHandler<HTMLCanvasElement> = (e) => {
+  const onPointerMove: PointerEventHandler<TraceSurface> = (e) => {
     const g = gestureRef.current
     if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId || !tr) return
     const dx = e.clientX - g.startX
@@ -505,7 +507,7 @@ function TracePanelBody({
     setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
   }
 
-  const onPointerUp: PointerEventHandler<HTMLCanvasElement> = (e) => {
+  const onPointerUp: PointerEventHandler<TraceSurface> = (e) => {
     const g = gestureRef.current
     if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId) return
     gestureRef.current = null
@@ -530,7 +532,7 @@ function TracePanelBody({
     gestureRef.current = null
   }
 
-  const onTouchStart: TouchEventHandler<HTMLCanvasElement> = (e) => {
+  const onTouchStart: TouchEventHandler<TraceSurface> = (e) => {
     if (!view || !tr || e.touches.length !== 2) return
     const a = e.touches[0]!
     const b = e.touches[1]!
@@ -548,7 +550,7 @@ function TracePanelBody({
     }
   }
 
-  const onTouchMove: TouchEventHandler<HTMLCanvasElement> = (e) => {
+  const onTouchMove: TouchEventHandler<TraceSurface> = (e) => {
     const g = gestureRef.current
     if (!g || g.kind !== 'pinch' || !tr || e.touches.length !== 2) return
     e.preventDefault()
@@ -568,7 +570,7 @@ function TracePanelBody({
     setView(clampView(tr, t0, t0 + nextSpan))
   }
 
-  const onTouchEnd: TouchEventHandler<HTMLCanvasElement> = (e) => {
+  const onTouchEnd: TouchEventHandler<TraceSurface> = (e) => {
     if (e.touches.length < 2 && gestureRef.current?.kind === 'pinch') {
       gestureRef.current = null
     }
@@ -680,8 +682,8 @@ function TracePanelBody({
           view1={view.t1}
           follow={follow}
           eventCount={snap.revision}
-          canvasRef={queuesCanvasRef}
-          canvasProps={canvasHandlers}
+          svgRef={queuesSvgRef}
+          surfaceProps={canvasHandlers}
         />
       ) : tab === 'net' && view ? (
         <NetView
