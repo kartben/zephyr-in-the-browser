@@ -34,7 +34,7 @@ export interface EnsureControllerOpts {
 /** Pinned Pyodide release. Override at build time with VITE_PYODIDE_INDEX_URL. */
 export const PYODIDE_INDEX_URL =
   (import.meta.env.VITE_PYODIDE_INDEX_URL as string | undefined) ??
-  'https://cdn.jsdelivr.net/pyodide/v0.27.5/full/'
+  'https://cdn.jsdelivr.net/pyodide/v314.0.3/full/'
 
 /**
  * Served from public/; produced by tools/vendor-bumble.sh.

@@ -43,8 +43,8 @@ manifest = {
     "wheelUrl": wheel_url,
     "license": "Apache-2.0",
     "pyodide": {
-        "version": "0.27.5",
-        "indexURL": "https://cdn.jsdelivr.net/pyodide/v0.27.5/full/",
+        "version": "314.0.3",
+        "indexURL": "https://cdn.jsdelivr.net/pyodide/v314.0.3/full/",
     },
     "notes": "Fetched by tools/vendor-bumble.sh. Wheel is gitignored; this manifest is the pin.",
 }

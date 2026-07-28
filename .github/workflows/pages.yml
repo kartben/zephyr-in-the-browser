@@ -126,6 +126,11 @@ jobs:
       - name: Fetch sample docs
         run: npm run docs:fetch
 
+      # The Bumble wheel is pinned but intentionally not committed. Fetch it
+      # into public/ before Vite copies static assets into the Pages bundle.
+      - name: Fetch Bumble runtime
+        run: ./tools/vendor-bumble.sh
+
       - name: Build
         env:
           # GitHub Pages project sites are served from /<repo>/.
@@ -140,6 +145,8 @@ jobs:
         run: |
           test -f dist/coi-serviceworker.js \
             || { echo "::error::coi-serviceworker.js missing — the deploy would not be cross-origin isolated"; exit 1; }
+          test -n "$(find dist/vendor/bumble -name 'bumble-*.whl' -print -quit 2>/dev/null)" \
+            || { echo "::error::Bumble wheel missing — Bluetooth controller cannot start"; exit 1; }
           if [ -n "$EMULATOR_TAG" ]; then
             test -f dist/qemu/qemu-system-arm.js \
               && test -f dist/qemu/qemu-system-aarch64.js \
