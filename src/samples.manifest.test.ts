@@ -1,15 +1,20 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BOARDS } from './boards'
+import { BOARDS, withA53TraceVariants } from './boards'
+import type { GuestSample } from './boards'
 
 /**
  * Every gallery entry needs a packaged ELF. The build only emits what
- * tools/samples.manifest lists, so boards.ts and the manifest must stay in
- * lockstep — otherwise the UI offers samples the release never ships
- * (see the tracing commit that dropped oled and the A53 net samples).
+ * tools/samples.manifest lists (plus A53 `_trace` twins from the same
+ * expansion as withA53TraceVariants), so boards.ts and the manifest must stay
+ * in lockstep — otherwise the UI offers samples the release never ships.
  */
-function parseManifest(): Map<string, Set<string>> {
+
+/** Same set as BUILTIN_TRACE_IDS in tools/build-zephyr-image.sh. */
+const BUILTIN_TRACE_IDS = new Set(['tracing', 'tracing_pipeline'])
+
+function parseManifestBase(): Map<string, Set<string>> {
   const text = readFileSync(resolve(process.cwd(), 'tools/samples.manifest'), 'utf8')
   const byBoard = new Map<string, Set<string>>()
   for (const line of text.split('\n')) {
@@ -27,8 +32,24 @@ function parseManifest(): Map<string, Set<string>> {
   return byBoard
 }
 
+/** Mirror expand_trace_variants in tools/build-zephyr-image.sh. */
+function expandManifest(base: Map<string, Set<string>>): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  for (const [board, apps] of base) {
+    const expanded = new Set(apps)
+    if (board === 'qemu_cortex_a53') {
+      for (const id of apps) {
+        if (BUILTIN_TRACE_IDS.has(id) || id.endsWith('_trace')) continue
+        expanded.add(`${id}_trace`)
+      }
+    }
+    out.set(board, expanded)
+  }
+  return out
+}
+
 describe('samples.manifest ↔ boards.ts', () => {
-  const manifest = parseManifest()
+  const manifest = expandManifest(parseManifestBase())
 
   it('packages every sample the UI lists', () => {
     const missing: string[] = []
@@ -53,5 +74,37 @@ describe('samples.manifest ↔ boards.ts', () => {
       }
     }
     expect(extra, 'drop these from tools/samples.manifest, or add them to boards.ts').toEqual([])
+  })
+})
+
+describe('withA53TraceVariants', () => {
+  const base: GuestSample[] = [
+    {
+      id: 'blinky',
+      label: 'Blinky',
+      description: 'Blinks',
+      zephyrSample: 'samples/basic/blinky',
+      primaryPanels: ['led'],
+    },
+    {
+      id: 'tracing',
+      label: 'Tracing',
+      description: 'CTF',
+      zephyrSample: 'samples/subsys/tracing/basic',
+      primaryPanels: ['trace'],
+    },
+  ]
+
+  it('adds a _trace twin with Trace + Debug panels', () => {
+    const expanded = withA53TraceVariants(base)
+    expect(expanded.map((s) => s.id)).toEqual(['blinky', 'blinky_trace', 'tracing'])
+    const twin = expanded.find((s) => s.id === 'blinky_trace')!
+    expect(twin.tracedFrom).toBe('blinky')
+    expect(twin.primaryPanels).toEqual(['led', 'trace', 'debug'])
+  })
+
+  it('skips samples that already embed CTF in prj.conf', () => {
+    const expanded = withA53TraceVariants(base)
+    expect(expanded.some((s) => s.id === 'tracing_trace')).toBe(false)
   })
 })

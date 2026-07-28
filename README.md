@@ -3,7 +3,9 @@
 **[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
 
 It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten,
-emulating Cortex-M3 and Cortex-A53 boards. Alongside the serial terminal, every
+emulating Cortex-M3 and Cortex-A53 boards. **Cortex-A53 is the focus for the
+foreseeable future** — JIT, virtio bridges, and live CTF tracing all land there
+first ([docs/focus.md](docs/focus.md)). Alongside the serial terminal, every
 browser-backed peripheral lives in the **device dock** — one scrollable sidebar
 with two arrangements of the same controls: a tree that mirrors the running
 build's devicetree (chips under their I²C bus, the GNSS receiver under its
@@ -44,17 +46,29 @@ To boot real Zephyr, build the emulator and a guest image, then restart the dev 
 
 ```console
 tools/build-qemu-wasm.sh     # builds the emulator -> public/qemu/ (slow, containerised)
-tools/build-zephyr-image.sh  # builds every sample in tools/samples.manifest, both boards
+tools/build-zephyr-image.sh  # builds every sample in tools/samples.manifest
 npm run dev
 ```
 
-Both scripts run in containers, so no local Emscripten or Zephyr toolchain is needed. The app switches to QEMU automatically once it finds a build. See [public/qemu/README.md](public/qemu/README.md) for details.
+`build-qemu-wasm.sh` runs in a container (Emscripten). `build-zephyr-image.sh`
+prefers your **local Zephyr** workspace (`ZEPHYR_WS`, default `~/zephyrproject`)
+and builds samples in parallel so you can rebuild many apps at once — set
+`ZEPHYR_DOCKER=1` to force the container path, or `ZEPHYR_NATIVE=1` to force
+native. The app switches to QEMU automatically once it finds a build. See
+[public/qemu/README.md](public/qemu/README.md) for details.
 
 ## Choosing what runs
 
-Pick a **Board** (the emulated machine) and an **App** (the program it boots) from the top bar. You can also drop your own ELF onto the window to boot it instead — anything QEMU can run with `-kernel` works, not just Zephyr.
+Pick a **Board** (the emulated machine) and an **App** (the program it boots) from the top bar. You can also drop your own ELF onto the window to boot it instead — anything QEMU can run with `-kernel` works, not just Zephyr. Dropped ELFs assume tracing may be enabled, so the Trace panel opens by default.
 
-The packaged apps are listed in [`tools/samples.manifest`](tools/samples.manifest). Cortex-M3 lists apps verified against its slower qemu-wasm TCI timing — most run (including single-threaded sleepers like `blinky` and `basic_button`, albeit not at wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 runs the wasm JIT and is unaffected.
+On Cortex-A53 every sample ships **with and without CTF tracing** (gallery rows
+marked **traced**). The packaged apps are listed in
+[`tools/samples.manifest`](tools/samples.manifest); the build script expands
+each A53 entry into a `_trace` twin via the `browser-tracing` snippet. Cortex-M3
+lists apps verified against its slower qemu-wasm TCI timing — most run
+(including single-threaded sleepers like `blinky` and `basic_button`, albeit not
+at wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 runs the
+wasm JIT and is unaffected.
 
 ---
 

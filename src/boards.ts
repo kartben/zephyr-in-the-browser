@@ -77,6 +77,44 @@ export interface GuestSample {
    * dumb_http_server listens on :8080; the full http_server sample on :80.
    */
   guestHttpUrl?: string
+  /**
+   * When set, this entry is the CTF-traced twin of the base sample with that
+   * id (`<id>_trace` artifact from `browser-tracing`). Gallery UI badges it.
+   */
+  tracedFrom?: string
+}
+
+/**
+ * A53 samples whose own prj.conf already enables CTF + semihost — no `_trace`
+ * twin. Keep in lockstep with BUILTIN_TRACE_IDS in tools/build-zephyr-image.sh.
+ */
+const A53_BUILTIN_TRACE_IDS = new Set(['tracing', 'tracing_pipeline'])
+
+function uniquePanels(kinds: PanelKind[]): PanelKind[] {
+  return [...new Set(kinds)]
+}
+
+/**
+ * Every A53 sample ships with and without CTF tracing (docs/focus.md). The
+ * traced twin opens Trace + Debug on boot. Mirror of expand_trace_variants in
+ * tools/build-zephyr-image.sh.
+ */
+export function withA53TraceVariants(samples: GuestSample[]): GuestSample[] {
+  const out: GuestSample[] = []
+  for (const sample of samples) {
+    out.push(sample)
+    if (A53_BUILTIN_TRACE_IDS.has(sample.id)) continue
+    if (sample.tracedFrom || sample.id.endsWith('_trace')) continue
+    out.push({
+      ...sample,
+      id: `${sample.id}_trace`,
+      label: `${sample.label} · traced`,
+      description: `${sample.description} — CTF tracing + thread debug`,
+      primaryPanels: uniquePanels([...(sample.primaryPanels ?? []), 'trace', 'debug']),
+      tracedFrom: sample.id,
+    })
+  }
+  return out
 }
 
 export interface Board {
@@ -255,7 +293,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   },
 ]
 
-const CORTEX_A53_SAMPLES: GuestSample[] = [
+const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'gnss',
     label: 'GNSS',
@@ -503,14 +541,13 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['trace'],
   },
   {
-    // Stock msgq sample (put + put_front urgent) with CTF overlay so the
-    // Queues pipe graph can show producer/consumer and put_front traffic.
+    // Stock msgq sample (put + put_front urgent). The `_trace` twin adds CTF
+    // so the Queues pipe graph can show producer/consumer and put_front traffic.
     // https://docs.zephyrproject.org/latest/samples/kernel/msg_queue/README.html
     id: 'msg_queue',
     label: 'Message Queue',
-    description: 'Producer/consumer msgq with urgent put_front — live CTF queue view',
+    description: 'Producer/consumer msgq with urgent put_front',
     zephyrSample: 'samples/kernel/msg_queue',
-    primaryPanels: ['trace'],
   },
   {
     // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
@@ -615,7 +652,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     label: 'zperf',
     description: 'iperf2-style throughput benchmark against the page',
     zephyrSample: 'samples/net/zperf',
-    primaryPanels: ['net', 'trace'],
+    primaryPanels: ['net'],
   },
   {
     id: 'hello_world',
@@ -624,6 +661,9 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     zephyrSample: 'samples/hello_world',
   },
 ]
+
+/** A53 gallery + artifacts, including `<id>_trace` twins (docs/focus.md). */
+const CORTEX_A53_SAMPLES: GuestSample[] = withA53TraceVariants(CORTEX_A53_SAMPLES_BASE)
 
 export const BOARDS: Board[] = [
   {
@@ -826,12 +866,12 @@ export const BOARDS: Board[] = [
       virtio: true,
       // No -icount / guest-icount export on the TCI riscv32 build yet.
     },
-    // Same guest apps as A53, minus tracing samples (ARM semihosting CTF path,
-    // and this board has no hostTrace peripheral to feed it). zperf keeps its
-    // net panel but loses the auto-expanded trace one for the same reason.
-    samples: CORTEX_A53_SAMPLES.filter(
+    // Same guest apps as A53 base (no `_trace` twins — ARM semihosting CTF path,
+    // and this board has no hostTrace peripheral to feed it). Drop dedicated
+    // tracing demos; zperf is already net-only in the base list.
+    samples: CORTEX_A53_SAMPLES_BASE.filter(
       (s) => s.id !== 'tracing' && s.id !== 'tracing_pipeline' && s.id !== 'msg_queue',
-    ).map((s) => (s.id === 'zperf' ? { ...s, primaryPanels: ['net'] } : s)),
+    ),
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
@@ -841,7 +881,9 @@ export const BOARDS: Board[] = [
   },
 ]
 
-/** Landing board: A53 (wasm JIT) with the shell sample — see defaultSampleId. */
+/** Landing board: A53 (wasm JIT) with the shell sample — see defaultSampleId.
+ * Cortex-A53 is the development focus for the foreseeable future (docs/focus.md).
+ */
 export const DEFAULT_BOARD_ID = 'qemu_cortex_a53'
 
 export function getBoard(id: string): Board {

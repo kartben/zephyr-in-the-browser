@@ -125,7 +125,22 @@ interface CatalogEntry {
 function buildCatalog(samples: GuestSample[], manifest: DocsManifest | null): CatalogEntry[] {
   return samples
     .map((sample) => ({ sample, docs: sampleDocs(sample, manifest) }))
-    .sort((a, b) => a.docs.title.localeCompare(b.docs.title, undefined, { sensitivity: 'base' }))
+    .sort((a, b) => {
+      // Keep base + traced twins adjacent: sort by base id, then untraced first.
+      const aBase = a.sample.tracedFrom ?? a.sample.id
+      const bBase = b.sample.tracedFrom ?? b.sample.id
+      const aTitle = sampleDocs(
+        samples.find((s) => s.id === aBase) ?? a.sample,
+        manifest,
+      ).title
+      const bTitle = sampleDocs(
+        samples.find((s) => s.id === bBase) ?? b.sample,
+        manifest,
+      ).title
+      const byTitle = aTitle.localeCompare(bTitle, undefined, { sensitivity: 'base' })
+      if (byTitle !== 0) return byTitle
+      return (a.sample.tracedFrom ? 1 : 0) - (b.sample.tracedFrom ? 1 : 0)
+    })
 }
 
 function matchesQuery(entry: CatalogEntry, query: string): boolean {
@@ -137,6 +152,7 @@ function matchesQuery(entry: CatalogEntry, query: string): boolean {
     entry.sample.description,
     entry.sample.id,
     entry.sample.zephyrSample,
+    ...(entry.sample.tracedFrom ? ['traced', 'tracing', 'ctf'] : []),
     ...(entry.sample.primaryPanels ?? []).map((kind) => PANEL_BADGES[kind]),
   ]
     .join(' ')
@@ -366,6 +382,19 @@ function SampleRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium leading-5">{docs.title}</span>
+          {(sample.tracedFrom || (sample.primaryPanels?.includes('trace') ?? false)) && (
+            <span
+              className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+              title={
+                sample.tracedFrom
+                  ? 'Built with CTF tracing (browser-tracing) and thread debug info'
+                  : 'This sample embeds CTF tracing in its own configuration'
+              }
+            >
+              <Activity className="size-2.5" aria-hidden />
+              traced
+            </span>
+          )}
           {isGuided(sample) && (
             <span
               className="flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"

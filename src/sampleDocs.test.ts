@@ -54,4 +54,17 @@ describe('sampleDocs', () => {
     expect(docs.canonicalHref).toBeUndefined()
     expect(docs.sourceHref).toBeUndefined()
   })
+
+  it('keeps a clean title for traced twins without a docs mirror', () => {
+    const traced: GuestSample = {
+      id: 'hello_trace',
+      label: 'Hello World · traced',
+      description: 'Prints one line and stops — CTF tracing + thread debug',
+      zephyrSample: 'samples/hello_world',
+      tracedFrom: 'hello',
+      primaryPanels: ['trace', 'debug'],
+    }
+    const docs = sampleDocs(traced, null)
+    expect(docs.title).toBe('Hello World')
+  })
 })

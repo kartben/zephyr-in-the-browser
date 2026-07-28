@@ -1,0 +1,8 @@
+name: browser-tracing
+description: >
+  CTF tracing over ARM semihosting for the browser Trace panel.
+  Guest appends to ./tracing.bin; hostTrace.ts polls Emscripten FS.
+  Pair with -semihosting on QEMU (already on qemu_cortex_a53).
+
+append:
+  EXTRA_CONF_FILE: browser-tracing.conf
