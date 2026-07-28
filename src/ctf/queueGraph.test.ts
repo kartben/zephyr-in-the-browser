@@ -146,6 +146,48 @@ describe('queueFlowEvents', () => {
     })
   })
 
+  it('sync CTF: fifo put edge follows switched_out then switched_in', () => {
+    // msg_queue path: clean out→in, put attributed to the runner at exit.
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const worker = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(worker), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        ...record(150, 0x10, [...encU32(main), ...encName('main')]),
+        ...record(150, 0x11, [...encU32(worker), ...encName('worker')]),
+        ...record(200, 0x128, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({ op: 'put', queueId: q, threadId: worker, ts: 200 })
+  })
+
+  it('async CTF: fifo put edge survives a dropped switched_out', () => {
+    // http_server path: missing out must not leave the put hanging off main.
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const rx = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(rx), ...encName('rx_q')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        // Dropped switched_out — only switched_in for rx, then put.
+        ...record(200, 0x11, [...encU32(rx), ...encName('rx_q')]),
+        ...record(250, 0x128, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({ op: 'put', queueId: q, threadId: rx, ts: 250 })
+  })
+
   it('treats msgq_put_front_exit as a distinct producer-side put_front op', () => {
     const reader = new TraceReader(fallbackDefs())
     const thr = 0x1000

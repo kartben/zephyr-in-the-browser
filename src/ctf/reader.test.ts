@@ -11,6 +11,7 @@ import {
   niceTimeStep,
   timeTickValues,
   threadRunningAt,
+  stateAt,
   windowStats,
   contextSwitchesIn,
 } from './reader'
@@ -200,9 +201,30 @@ describe('time-axis helpers', () => {
     expect(contextSwitchesIn(reader.tr, 6_000, 10_000)).toBe(0)
   })
 
-  it('threadRunningAt prefers the latest runner when switched_out is missing', () => {
-    // Async CTF under http_server can drop switched_out; main stays `run` in
-    // the state map while a later switched_in marks rx_q running too.
+  it('sync CTF: threadRunningAt follows switched_out then switched_in', () => {
+    // msg_queue / SYNC semihost: Zephyr emits a clean out→in pair.
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const worker = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(worker), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        ...record(200, 0x10, [...encU32(main), ...encName('main')]),
+        ...record(200, 0x11, [...encU32(worker), ...encName('worker')]),
+        ...record(300, 0x10, [...encU32(worker), ...encName('worker')]),
+      ]),
+    )
+    expect(threadRunningAt(reader.tr, 150)).toBe(main)
+    expect(threadRunningAt(reader.tr, 250)).toBe(worker)
+    expect(threadRunningAt(reader.tr, 350)).toBeNull()
+    // Only one runner at the switch instant — out closes main before in.
+    expect(stateAt(reader.tr, main, 200)[0]).not.toBe('run')
+  })
+
+  it('async CTF: threadRunningAt recovers when switched_out is missing', () => {
+    // http_server / ASYNC: ring drops can skip switched_out; demote on in.
     const reader = new TraceReader(fallbackDefs())
     const main = 0x1000
     const rx = 0x2000
@@ -217,5 +239,7 @@ describe('time-axis helpers', () => {
     )
     expect(threadRunningAt(reader.tr, 250)).toBe(rx)
     expect(threadRunningAt(reader.tr, 150)).toBe(main)
+    // Demote must clear main so Map-order scan cannot pin edges on it.
+    expect(stateAt(reader.tr, main, 250)[0]).not.toBe('run')
   })
 })
