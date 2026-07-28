@@ -699,7 +699,7 @@ function paint(
       const markR = MARK_R * scale
       const arrowH = ARROW_H * scale
 
-      ctx.globalAlpha = dim ? 0.12 : hot ? 1 : 0.88
+      ctx.globalAlpha = dim ? 0.1 : hot ? 1 : 0.42
 
       if (queueY != null && Math.abs(queueY - threadY) > markR * 2 + arrowH) {
         // put: thread ○ →↓ queue    get: queue ○ →↑ thread
