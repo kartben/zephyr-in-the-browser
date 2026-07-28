@@ -61,8 +61,21 @@ fetch_source() {
   local src="$1" repo_url="$2" ref="$3"
 
   if [ -d "$src/.git" ]; then
-    log "Reusing source at $src"
-    return
+    # A previous run can leave a .git with an incomplete working tree (interrupted
+    # clone, manual cleanup, sparse checkout). subprojects/ is required before
+    # we can pre-fetch meson wraps — restore tracked files if it is gone.
+    if [ ! -d "$src/subprojects" ]; then
+      log "Repairing incomplete source at $src (missing subprojects/)"
+      if git -C "$src" rev-parse --verify HEAD >/dev/null 2>&1; then
+        git -C "$src" checkout -q --force -- . || true
+      fi
+    fi
+    if [ -d "$src/subprojects" ]; then
+      log "Reusing source at $src"
+      return
+    fi
+    log "Could not repair $src — removing and re-cloning"
+    rm -rf "$src"
   fi
   log "Cloning $repo_url ($ref)"
   mkdir -p "$WORK"
@@ -70,6 +83,10 @@ fetch_source() {
   git -C "$src" remote add origin "$repo_url"
   git -C "$src" fetch -q --depth 1 origin "$ref"
   git -C "$src" checkout -q --detach FETCH_HEAD
+  if [ ! -d "$src/subprojects" ]; then
+    echo "error: cloned $repo_url@$ref but subprojects/ is still missing." >&2
+    exit 1
+  fi
 }
 
 # The QEMU source is mounted read-only into the build container, so meson cannot
@@ -80,8 +97,22 @@ fetch_source() {
 fetch_subprojects() {
   local src="$1"
   log "Pre-fetching meson subprojects"
+  if [ ! -d "$src/subprojects" ]; then
+    echo "error: $src/subprojects missing — QEMU checkout is incomplete." >&2
+    echo "Remove $src and re-run, or: git -C \"$src\" checkout --force -- ." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC2164
   cd "$src/subprojects"
-  for wrap in *.wrap; do
+  shopt -s nullglob
+  local wraps=(*.wrap)
+  shopt -u nullglob
+  if [ ${#wraps[@]} -eq 0 ]; then
+    echo "error: no *.wrap files in $src/subprojects" >&2
+    exit 1
+  fi
+  local wrap name url rev patchdir
+  for wrap in "${wraps[@]}"; do
     name="${wrap%.wrap}"
     [ "$(head -1 "$wrap" | tr -d '[]')" = "wrap-git" ] || continue
     if [ ! -d "$name/.git" ]; then
