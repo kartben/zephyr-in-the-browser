@@ -28,6 +28,7 @@ import {
   BoxSelect,
   Crosshair,
   Maximize2,
+  UnfoldVertical,
   Waypoints,
   ZoomIn,
   ZoomOut,
@@ -1735,6 +1736,25 @@ function TracePanelBody({
     </button>
   )
 
+  const yZoomActive = yZoom != null && !isIdentityYZoom(yZoom)
+  const resetYZoomButton = (
+    <button
+      type="button"
+      title={yZoomActive ? 'Reset vertical zoom' : 'Vertical zoom is at full height'}
+      aria-label="Reset vertical zoom"
+      disabled={!yZoomActive}
+      onClick={() => setYZoom(null)}
+      className={cn(
+        'rounded p-0.5 touch-manipulation',
+        yZoomActive
+          ? 'text-foreground hover:bg-secondary'
+          : 'text-muted-foreground/40',
+      )}
+    >
+      <UnfoldVertical className="size-3.5" />
+    </button>
+  )
+
   // Compact chrome sits immediately above the time chart (Timeline / Net canvas,
   // or between the msgq flow graph and depth chart) — same idiom as CAN lanes.
   const chartToolbar = (
@@ -1758,6 +1778,7 @@ function TracePanelBody({
         <ZoomOut className="size-3.5" />
       </button>
       {boxZoomToggle}
+      {resetYZoomButton}
       <button
         type="button"
         title="Fit entire trace (resets time + vertical zoom)"
@@ -1869,6 +1890,7 @@ function TracePanelBody({
                 <ZoomOut className="size-3.5" />
               </button>
               {boxZoomToggle}
+              {resetYZoomButton}
               <button
                 type="button"
                 title="Fit entire trace (resets time + vertical zoom)"
@@ -2003,7 +2025,8 @@ function TracePanelBody({
 
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
             Hover for playhead · drag to pan · Shift-drag a rectangle to zoom time+lanes · pinch or ±
-            for time zoom (keeps LIVE) · Fit resets · tap a lane name to select
+            for time zoom (keeps LIVE) · unfold resets vertical · Fit resets both · tap a lane name to
+            select
             {showMsgq
               ? ' · click a msgq edge to pin it'
               : ''}

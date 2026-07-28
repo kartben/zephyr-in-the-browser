@@ -739,8 +739,8 @@ export function QueuesView({
       </div>
       {queues.length > 0 && (
         <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-          Hover a transition · drag to pan · Shift-drag a rectangle to zoom · pinch or ± for time
-          zoom
+          Hover a transition · drag to pan · Shift-drag a rectangle to zoom · unfold resets vertical ·
+          pinch or ± for time zoom
         </p>
       )}
     </div>
