@@ -81,7 +81,33 @@ export class RspClient {
     this.sendRaw(encodePacket(payload))
   }
 
+  /**
+   * Serialize RSP round-trips. The stub only answers one packet at a time;
+   * callers (regs / threads / Mem pane) otherwise race and lose with
+   * "already in flight".
+   */
+  private tail: Promise<unknown> = Promise.resolve()
+  /** Bumped by interrupt/continue so queued work can bail. */
+  private epoch = 0
+
   private request(payload: string, opts?: { wantStop?: boolean; timeoutMs?: number }): Promise<string> {
+    const epoch = this.epoch
+    const run = () => {
+      if (epoch !== this.epoch) return Promise.reject(new Error('RSP request superseded'))
+      return this.requestExclusive(payload, opts)
+    }
+    const next = this.tail.then(run, run)
+    this.tail = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
+
+  private requestExclusive(
+    payload: string,
+    opts?: { wantStop?: boolean; timeoutMs?: number },
+  ): Promise<string> {
     if (this.waiting) {
       return Promise.reject(new Error('RSP request already in flight'))
     }
@@ -111,6 +137,7 @@ export class RspClient {
 
   async interrupt(): Promise<StopInfo> {
     // Break must reach the stub even if a prior request is wedged.
+    this.epoch++
     if (this.waiting) {
       clearTimeout(this.waiting.timer)
       this.waiting.reject(new Error('superseded by interrupt'))
@@ -122,6 +149,7 @@ export class RspClient {
 
   async continue(): Promise<void> {
     // Fire-and-forget until a later stop; do not block the UI on continue.
+    this.epoch++
     if (this.waiting) {
       clearTimeout(this.waiting.timer)
       this.waiting.reject(new Error('superseded'))

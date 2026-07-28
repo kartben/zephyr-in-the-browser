@@ -71,7 +71,13 @@ export function MemoryPane({
         queuedAddr.current = null
         viewAddr.current = target
         setAddrText(compactHex(target.toString(16)))
-        await debug.readMemory(target, WINDOW_BYTES)
+        // Retry: pause also walks threads over the same RSP pipe; a single
+        // failed peek used to leave the address field filled and the dump empty.
+        let hex: string | null = null
+        for (let attempt = 0; attempt < 8 && !hex; attempt++) {
+          hex = await debug.readMemory(target, WINDOW_BYTES)
+          if (!hex) await new Promise((r) => setTimeout(r, 40 * (attempt + 1)))
+        }
         if (queuedAddr.current === null) break
       }
     } finally {
