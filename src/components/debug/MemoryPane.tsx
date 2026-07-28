@@ -20,6 +20,8 @@ import {
 } from '@/components/debug/memoryView'
 import {
   SEARCH_CHUNK_BYTES,
+  findBytesBackward,
+  findBytesForward,
   parseSearchPattern,
   scanMemory,
   type SearchDirection,
@@ -274,8 +276,42 @@ export function MemoryPane({
           ? viewAddr.current >>> 0
           : ((viewAddr.current + viewLen - 1) >>> 0)
 
+    // Fast path: search the bytes already on screen before any RSP traffic.
+    const peek = snap.memory
+    if (peek && peek.hex.length >= pattern.length * 2) {
+      const local = hexToBytes(peek.hex)
+      const base = peek.addr >>> 0
+      const end = base + local.length
+      if (direction === 'forward' && origin < end && origin + pattern.length > base) {
+        const from = Math.max(0, origin - base)
+        const off = findBytesForward(local, pattern, from)
+        if (off >= 0) {
+          const hit = (base + off) >>> 0
+          lastHit.current = hit
+          setSearchStatus(`hit ${compactHex(hit.toString(16))}`)
+          setSearching(false)
+          searchAbort.current = null
+          await loadAt(windowTopForHit(hit))
+          return
+        }
+      }
+      if (direction === 'backward' && origin >= base && origin < end) {
+        const from = Math.min(origin - base, local.length - pattern.length)
+        const off = findBytesBackward(local, pattern, from)
+        if (off >= 0) {
+          const hit = (base + off) >>> 0
+          lastHit.current = hit
+          setSearchStatus(`hit ${compactHex(hit.toString(16))}`)
+          setSearching(false)
+          searchAbort.current = null
+          await loadAt(windowTopForHit(hit))
+          return
+        }
+      }
+    }
+
     try {
-      const hit = await scanMemory({
+      const result = await scanMemory({
         pattern,
         origin,
         direction,
@@ -286,15 +322,23 @@ export function MemoryPane({
           setSearchStatus(compactHex(addr.toString(16)))
         },
       })
-      if (ac.signal.aborted) return
-      if (hit === null) {
+      if (ac.signal.aborted || result.status === 'cancelled') {
+        setSearchStatus('cancelled')
+        return
+      }
+      if (result.status === 'error') {
+        lastHit.current = null
+        setSearchStatus(result.message)
+        return
+      }
+      if (result.status === 'not_found') {
         lastHit.current = null
         setSearchStatus('not found')
         return
       }
-      lastHit.current = hit
-      setSearchStatus(`hit ${compactHex(hit.toString(16))}`)
-      await loadAt(windowTopForHit(hit))
+      lastHit.current = result.addr
+      setSearchStatus(`hit ${compactHex(result.addr.toString(16))}`)
+      await loadAt(windowTopForHit(result.addr))
     } finally {
       if (searchAbort.current === ac) searchAbort.current = null
       setSearching(false)

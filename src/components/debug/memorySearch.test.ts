@@ -45,7 +45,6 @@ describe('findBytes', () => {
 
 describe('scanMemory', () => {
   it('scans forward across chunk boundaries with overlap', async () => {
-    // Pattern straddles 4|5 — chunk size 4 needs overlap to catch it.
     const mem = Uint8Array.of(0, 1, 2, 3, 0xaa, 0xbb, 6, 7)
     const read = async (addr: number, len: number) => mem.subarray(addr, addr + len)
     const hit = await scanMemory({
@@ -56,7 +55,7 @@ describe('scanMemory', () => {
       read,
       signal: new AbortController().signal,
     })
-    expect(hit).toBe(4)
+    expect(hit).toEqual({ status: 'hit', addr: 4 })
   })
 
   it('scans backward', async () => {
@@ -70,7 +69,7 @@ describe('scanMemory', () => {
       read,
       signal: new AbortController().signal,
     })
-    expect(hit).toBe(4)
+    expect(hit).toEqual({ status: 'hit', addr: 4 })
   })
 
   it('stops when aborted', async () => {
@@ -89,7 +88,42 @@ describe('scanMemory', () => {
       read,
       signal: ac.signal,
     })
-    expect(hit).toBeNull()
+    expect(hit.status).toBe('cancelled')
     expect(reads).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reports an error when the first peek fails', async () => {
+    const hit = await scanMemory({
+      pattern: Uint8Array.of(0xaa),
+      origin: 0,
+      direction: 'forward',
+      chunkSize: 4,
+      read: async () => null,
+      signal: new AbortController().signal,
+    })
+    expect(hit).toEqual({ status: 'error', message: 'memory read failed' })
+  })
+
+  it('halves oversized peeks then finds the pattern', async () => {
+    const mem = new Uint8Array(32).fill(0)
+    mem[20] = 0xaa
+    let sawLarge = false
+    const read = async (addr: number, len: number) => {
+      if (len > 8) {
+        sawLarge = true
+        return null
+      }
+      return mem.subarray(addr, addr + len)
+    }
+    const hit = await scanMemory({
+      pattern: Uint8Array.of(0xaa),
+      origin: 0,
+      direction: 'forward',
+      chunkSize: 32,
+      read,
+      signal: new AbortController().signal,
+    })
+    expect(sawLarge).toBe(true)
+    expect(hit).toEqual({ status: 'hit', addr: 20 })
   })
 })
