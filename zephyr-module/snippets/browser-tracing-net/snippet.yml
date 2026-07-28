@@ -1,8 +1,7 @@
 name: browser-tracing-net
 description: >
-  Net-object CTF width fix for traced networking samples. Apply *after*
-  browser-tracing (and after conf/net.conf) so NET_IPV6 can override the
-  IPv4-sandbox default — see conf/tracing-net.conf.
+  Net-object CTF pins for traced networking samples, and keeps IPv6 off
+  (browser LAN is IPv4-only). Apply after browser-tracing / conf/net.conf.
 
 append:
   EXTRA_CONF_FILE: browser-tracing-net.conf

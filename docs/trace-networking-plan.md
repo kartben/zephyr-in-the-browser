@@ -35,8 +35,8 @@ This document is the **spec only**. No product UI yet.
 | --- | --- |
 | CTF hooks (`socket_*`, `net_*`) | Implemented in Zephyr CTF backend |
 | TSDL metadata | Present in `public/tracing/metadata` |
-| Kconfig | Pin `CONFIG_TRACING_NETWORKING` / `NET_SOCKETS` / `NET_CORE` in `tracing.conf`; zperf also pulls `tracing-net.conf` (re-enables `NET_IPV6` so CTF address width matches TSDL `[46]`) |
-| Demo sample | A53 `zperf` already ships with `conf/tracing.conf` + auto-expanded Trace |
+| Kconfig | Pin `CONFIG_TRACING_NETWORKING` / `NET_SOCKETS` / `NET_CORE` in `tracing.conf`; traced net samples also pull `browser-tracing-net` / `tracing-net.conf` (keeps `NET_IPV6=n` — decoder probes 20-byte address strings vs TSDL `[46]`) |
+| Demo sample | A53 `zperf_trace` ships with `browser-tracing` + auto-expanded Trace |
 | App decoder | Loads full metadata, but **mishandles `address[46]`** (see below) |
 | App UI | Tabs are `schedule \| queues` only today |
 
