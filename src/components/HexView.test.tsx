@@ -50,6 +50,18 @@ describe('HexView', () => {
     expect(render(chip)).toContain('5aff')
   })
 
+  it('offers every ASCII glyph as an edit target, not just the hex column', () => {
+    const chip = createAt24()
+    chip.write(Uint8Array.of(0x00, 0x48, 0x69))
+    const html = renderToStaticMarkup(<HexView chip={chip} addressBase={0x20000000} />)
+
+    // Both columns address the same byte, so either can be typed into.
+    expect(html).toContain('title="0x20000001 — click to edit"')
+    expect(html).toContain('title="0x20000001 — click to type a character"')
+    // The glyph is still what it was; only the affordance is new.
+    expect(html.replace(/<[^>]+>/g, '')).toContain('Hi·')
+  })
+
   it('shifts gutter labels by addressBase', () => {
     const chip = createAt24()
     const html = renderToStaticMarkup(<HexView chip={chip} addressBase={0x20000000} />)
