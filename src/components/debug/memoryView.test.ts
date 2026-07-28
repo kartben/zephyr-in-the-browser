@@ -76,4 +76,14 @@ describe('memoryView', () => {
     const next = applyWindowSlide(cur, plan, Uint8Array.of(0x80, 0x81))
     expect([...next]).toEqual([2, 3, 4, 5, 6, 7, 0x80, 0x81])
   })
+
+  it('applies a backward slide keeping the leading overlap', () => {
+    const cur = Uint8Array.from({ length: 8 }, (_, i) => i + 0x10)
+    const plan = planWindowSlide(0x10, 8, 0x0e, 8)
+    expect(plan.kind).toBe('backward')
+    if (plan.kind !== 'backward') return
+    // Window was [10..18); sliding to [0e..16) keeps [10..16) = 10..15.
+    const next = applyWindowSlide(cur, plan, Uint8Array.of(0x0e, 0x0f))
+    expect([...next]).toEqual([0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15])
+  })
 })
