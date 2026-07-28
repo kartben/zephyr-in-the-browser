@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackDefs } from './metadata'
 import { TraceReader } from './reader'
-import { queueFlowEvents, threadFlowScores } from './queueGraph'
+import { isPutOp, queueFlowEvents, threadFlowScores } from './queueGraph'
 
 function encU16(n: number): number[] {
   return [n & 0xff, (n >> 8) & 0xff]
@@ -52,5 +52,28 @@ describe('queueFlowEvents', () => {
     const scores = threadFlowScores(flow)
     // One put + one get (failed put ignored) ⇒ score 0.
     expect(scores.get(thr)).toBe(0)
+  })
+
+  it('treats msgq_put_front_exit as a distinct producer-side put_front op', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thr = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thr), ...encName('producer')]),
+        ...record(100, 0x11, [...encU32(thr), ...encName('producer')]),
+        ...record(200, 0x93, [...encU32(q), ...encU32(0), ...encI32(0)]),
+        ...record(300, 0x8f, [...encU32(q), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ op: 'put_front', queueId: q, threadId: thr, ok: true })
+    expect(flow[1]).toMatchObject({ op: 'get', queueId: q, threadId: thr, ok: true })
+    expect(isPutOp('put_front')).toBe(true)
+    expect(isPutOp('put')).toBe(true)
+    expect(isPutOp('get')).toBe(false)
+    // put_front scores like put (+1), then get (−1) ⇒ 0.
+    expect(threadFlowScores(flow).get(thr)).toBe(0)
   })
 })
