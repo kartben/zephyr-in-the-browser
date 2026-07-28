@@ -8,7 +8,6 @@ import {
   type DebugMemoryChip,
 } from '@/debug/debugMemoryChip'
 import {
-  BYTES_PER_ROW,
   VISIBLE_ROWS,
   WINDOW_BYTES,
   pcWindowTop,
