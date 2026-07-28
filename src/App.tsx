@@ -67,8 +67,9 @@ import {
  * can shrink and keep the shell prompt clear of the cards.
  *
  * The Trace card goes nearly full-bleed on a phone (drag-pan needs width); on
- * wider viewports it caps so it does not cover the whole terminal. Stack height
- * is also capped to the reserved bottom band — undock for a taller floating card.
+ * wider viewports it caps so it does not cover the whole terminal. The left
+ * stack is also height-capped to the reserved bottom band — undock for a
+ * taller floating card. The Display stays free to size itself.
  */
 function StageOverlays({
   displayExpanded,
@@ -141,8 +142,7 @@ function StageOverlays({
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
         <div
           ref={rightRef}
-          className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end overflow-y-auto"
-          style={stackMaxH != null ? { maxHeight: stackMaxH } : undefined}
+          className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end"
         >
           <DisplayPanel defaultExpanded={displayExpanded} />
         </div>
