@@ -322,6 +322,7 @@ function paintVArrow(
 /**
  * Hairline dashed msgq connector with a soft white underglow.
  * Idle stays thin; hot/selected pick up a bit more glow, not fat cores.
+ * `zw` scales weight with zoom (1 ≈ default 200 ms live window).
  */
 function strokeMsgqConnector(
   ctx: CanvasRenderingContext2D,
@@ -330,13 +331,17 @@ function strokeMsgqConnector(
   y1: number,
   color: string,
   kind: 'idle' | 'hot' | 'selected',
+  zw = 1,
 ) {
-  const dash = kind === 'idle' ? ([2, 2.5] as const) : ([3, 1.5] as const)
-  const core = kind === 'selected' ? 1.35 : kind === 'hot' ? 1.15 : 0.85
-  const glow = kind === 'selected' ? 2.75 : kind === 'hot' ? 2.25 : 1.55
+  const dash =
+    kind === 'idle'
+      ? ([2 * zw, 2.5 * zw] as [number, number])
+      : ([3 * zw, 1.5 * zw] as [number, number])
+  const core = (kind === 'selected' ? 1.35 : kind === 'hot' ? 1.15 : 0.85) * zw
+  const glow = (kind === 'selected' ? 2.75 : kind === 'hot' ? 2.25 : 1.55) * zw
   const glowA = kind === 'selected' ? 0.5 : kind === 'hot' ? 0.38 : 0.22
 
-  ctx.setLineDash([...dash])
+  ctx.setLineDash(dash)
   ctx.strokeStyle = `rgba(248, 250, 252, ${glowA})`
   ctx.lineWidth = glow
   ctx.beginPath()
@@ -376,6 +381,15 @@ function paintMsgqMark(
   ctx.arc(x, y, r, 0, Math.PI * 2)
   ctx.fillStyle = color
   ctx.fill()
+}
+
+/**
+ * Mild stroke scale from the time window: zoomed in → a bit thicker,
+ * zoomed out → a bit thinner. Anchored at the default 200 ms live window.
+ */
+function msgqZoomWeight(spanNs: number): number {
+  const raw = Math.sqrt(DEFAULT_LIVE_WINDOW_NS / Math.max(MIN_WINDOW_NS, spanNs))
+  return Math.min(1.45, Math.max(0.7, raw))
 }
 
 /** Pixel hit slop for clicking a msgq edge connector. */
@@ -590,8 +604,9 @@ function paint(
   if (showMsgq && msgqEvents.length > 0) {
     const threadRowOf = new Map(lanes.map((tid, row) => [tid, row]))
     const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
-    const MARK_R = 2
-    const ARROW_H = 4.5
+    const zw = msgqZoomWeight(span)
+    const MARK_R = 2 * (0.85 + 0.15 * zw)
+    const ARROW_H = 4.5 * (0.85 + 0.15 * zw)
 
     if (showQueues) {
       ctx.fillStyle = 'rgba(8, 47, 73, 0.35)'
@@ -695,7 +710,7 @@ function paint(
         const edgeStart = dir === 'down' ? startY + markR : startY - markR
         const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
 
-        strokeMsgqConnector(ctx, x, edgeStart, edgeBeforeTip, color, kind)
+        strokeMsgqConnector(ctx, x, edgeStart, edgeBeforeTip, color, kind, zw)
         paintMsgqMark(ctx, x, startY, markR, color, kind)
         paintVArrow(ctx, x, tipY, dir, color, scale, kind)
       } else {
@@ -706,6 +721,7 @@ function paint(
           threadY + laneH / 2 - 2,
           color,
           kind,
+          zw,
         )
         paintMsgqMark(ctx, x, threadY, markR, color, kind)
       }
