@@ -87,6 +87,36 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
 }
 
 /**
+ * Advance a “last seen event index” cursor over {@link queueFlowEvents}.
+ *
+ * `index` is the offset into the *current* `tr.events` array. When hostTrace
+ * trims the ring (`MAX_EVENTS`), those indices restart near 0 — a stale high
+ * watermark would then never see `index > last` again and pipe packets stall.
+ * Detect that rewind and skip retained history instead of replaying it.
+ */
+export function advanceFlowCursor(
+  flow: QueueFlowEvent[],
+  lastIndex: number,
+): {
+  kind: 'first' | 'trimmed' | 'delta'
+  newest: QueueFlowEvent[]
+  nextIndex: number
+} {
+  const tip = flow.length ? flow[flow.length - 1]!.index : -1
+  if (lastIndex < 0) {
+    return { kind: 'first', newest: [], nextIndex: tip }
+  }
+  if (tip < lastIndex) {
+    return { kind: 'trimmed', newest: [], nextIndex: tip }
+  }
+  return {
+    kind: 'delta',
+    newest: flow.filter((ev) => ev.index > lastIndex),
+    nextIndex: tip,
+  }
+}
+
+/**
  * Put / put_front / get / purge exits for the depth chart — same attribution
  * as {@link queueFlowEvents}, plus purge (no ret; always ok).
  */

@@ -8,6 +8,7 @@ import {
   queueChartEvents,
   queueChartOpLabel,
   queueFlowEvents,
+  advanceFlowCursor,
   sortQueuesByPipelineOrder,
   threadFlowScores,
 } from './queueGraph'
@@ -134,6 +135,38 @@ describe('queueChartEvents / nearestQueueChartEvent', () => {
     // Midway with a tight window → nothing for q (other's put must not win).
     expect(nearestQueueChartEvent(chart, q, 250, 40)).toBeNull()
     expect(nearestQueueChartEvent(chart, other, 200, 10)?.queueId).toBe(other)
+  })
+})
+
+describe('advanceFlowCursor', () => {
+  it('returns first/delta normally and recovers after an index rewind (trim)', () => {
+    const flow = [
+      { index: 10, ts: 1, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 11, ts: 2, op: 'get' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 20, ts: 3, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+    ]
+    expect(advanceFlowCursor(flow, -1)).toMatchObject({ kind: 'first', nextIndex: 20, newest: [] })
+    const delta = advanceFlowCursor(flow, 10)
+    expect(delta.kind).toBe('delta')
+    expect(delta.newest.map((e) => e.index)).toEqual([11, 20])
+    expect(delta.nextIndex).toBe(20)
+
+    // After hostTrace trims the ring, indices restart — must not stall.
+    const trimmed = [
+      { index: 0, ts: 100, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 1, ts: 101, op: 'get' as const, queueId: 1, threadId: 1, ok: true },
+    ]
+    const rewind = advanceFlowCursor(trimmed, 20)
+    expect(rewind).toMatchObject({ kind: 'trimmed', nextIndex: 1, newest: [] })
+    const after = advanceFlowCursor(
+      [
+        ...trimmed,
+        { index: 2, ts: 102, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+      ],
+      rewind.nextIndex,
+    )
+    expect(after.kind).toBe('delta')
+    expect(after.newest.map((e) => e.index)).toEqual([2])
   })
 })
 

@@ -54,8 +54,10 @@ const GRID_STROKE = 'rgba(148, 163, 184, 0.14)'
 const AREA_FILL = 'rgba(96, 165, 250, 0.35)'
 const LINE_STROKE = 'rgba(147, 197, 253, 0.95)'
 const CAP_STROKE = 'rgba(244, 63, 94, 0.75)'
-const DOT_FILL = 'rgba(226, 232, 240, 0.95)'
-const DOT_STROKE = 'rgba(59, 130, 246, 0.95)'
+const DOT_FILL = 'rgba(147, 197, 253, 0.55)'
+const DOT_STROKE = 'rgba(147, 197, 253, 0.35)'
+/** Skip a mark if it lands within this many CSS pixels of the previous drawn one. */
+const MARK_MIN_GAP_PX = 6
 
 type TransitionMark = {
   ts: number
@@ -392,14 +394,29 @@ function renderChart(
 
     g.select<SVGGElement>('g.marks')
       .selectAll<SVGCircleElement, TransitionMark>('circle')
-      .data(d.marks, (m) => String(m.ts))
+      .data(
+        (() => {
+          // Quiet the series when transitions are dense — keep hit-testing marks
+          // in layout.marks; only thin what we paint.
+          const drawn: TransitionMark[] = []
+          let lastX = -Infinity
+          for (const m of d.marks) {
+            const x = xScale(m.ts)
+            if (x - lastX < MARK_MIN_GAP_PX) continue
+            drawn.push(m)
+            lastX = x
+          }
+          return drawn
+        })(),
+        (m) => String(m.ts),
+      )
       .join('circle')
       .attr('cx', (m) => xScale(m.ts))
       .attr('cy', (m) => d.yScale(m.depth))
-      .attr('r', 2.75)
+      .attr('r', 1.6)
       .attr('fill', DOT_FILL)
       .attr('stroke', DOT_STROKE)
-      .attr('stroke-width', 1.25)
+      .attr('stroke-width', 0.75)
   })
 
   let xAxisG = frame.select<SVGGElement>('g.x-axis')
@@ -439,10 +456,10 @@ function renderChart(
         .select('circle.marker')
         .attr('cx', hover.x)
         .attr('cy', row.yScale(hover.depth))
-        .attr('r', 4.5)
-        .attr('fill', 'rgba(250, 250, 250, 0.98)')
-        .attr('stroke', 'rgba(59, 130, 246, 1)')
-        .attr('stroke-width', 1.75)
+        .attr('r', 3)
+        .attr('fill', 'rgba(250, 250, 250, 0.9)')
+        .attr('stroke', 'rgba(59, 130, 246, 0.85)')
+        .attr('stroke-width', 1.25)
         .style('display', null)
     } else {
       hoverG.select('circle.marker').style('display', 'none')
