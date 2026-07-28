@@ -5,6 +5,7 @@ import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
 import { SampleGallery } from '@/components/SampleGallery'
 import { PartsCatalog } from '@/components/PartsCatalog'
+import { ClearPeripheralsControl } from '@/components/ClearPeripheralsControl'
 import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
 import { DtsViewer } from '@/components/DtsViewer'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
@@ -71,6 +72,7 @@ export function TopBar({
 
         <RunningDtsButton />
         <PartsCatalog />
+        <ClearPeripheralsControl />
         <PauseDebugControl />
 
         <PanelsMenu boardId={boardId} />
@@ -78,9 +80,17 @@ export function TopBar({
 
         <StatusPill status={status} detail={detail} />
 
-        <Button onClick={onRestart} disabled={status === 'loading'}>
+        <Button
+          onClick={onRestart}
+          disabled={status === 'loading'}
+          title={
+            hardRestart
+              ? 'Reset the MCU — guest reboots; wiring and flash stay'
+              : 'Restart the guest'
+          }
+        >
           {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
-          {hardRestart ? 'Reload' : 'Restart'}
+          {hardRestart ? 'Reset' : 'Restart'}
         </Button>
       </div>
     </header>

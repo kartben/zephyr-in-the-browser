@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clear, setUserDts } from '@/devicetree'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
@@ -8,17 +8,28 @@ import a53Pt6314 from '@/dts/fixtures/qemu_cortex_a53_pt6314.dts?raw'
 import a53Tmc50xx from '@/dts/fixtures/qemu_cortex_a53_tmc50xx.dts?raw'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
 import { createW25q } from './devices/chips/w25q'
+import type { I2cChip } from './devices/i2c'
 import {
   adxl345,
+  attachUserI2c,
+  attachUserSpi,
+  clearUserPeripherals,
   eeprom,
+  hasUserPeripherals,
+  ht16k33,
   i2cModel,
   ina219,
   isl29035,
   jhd1313,
   jhd1313Backlight,
   lm75,
+  lp5012,
+  lp5562,
   lps22hh,
   lsm6dso,
+  max17048,
+  mcp4725,
+  pca9685,
   pcf8523,
   pt6314,
   sct2024,
@@ -30,10 +41,33 @@ import {
   w25q,
   ws2812,
 } from './index'
+import { clearBusRoster } from './busRoster'
 import { isPt6314 } from './devices/chips/pt6314'
 
-afterEach(() => {
-  clear()
+const MANAGED_I2C: ReadonlySet<I2cChip> = new Set([
+  tmp112,
+  lm75,
+  adxl345,
+  eeprom,
+  ssd1306,
+  lsm6dso,
+  lps22hh,
+  ina219,
+  isl29035,
+  jhd1313,
+  jhd1313Backlight,
+  pcf8523,
+  ht16k33,
+  lp5562,
+  lp5012,
+  pca9685,
+  mcp4725,
+  max17048,
+])
+
+afterEach(async () => {
+  await clear()
+  clearBusRoster()
   // Drop any user-attached SPI strangers left by a test (including CS1
   // PT6314 minted for the shell tree).
   for (const chip of [...spiModel.chips()]) {
@@ -46,6 +80,9 @@ afterEach(() => {
     ) {
       spiModel.detachChip(chip.cs)
     }
+  }
+  for (const chip of [...i2cModel.chips()]) {
+    if (!MANAGED_I2C.has(chip)) i2cModel.detachChip(chip.address)
   }
   syncManagedChips()
 })
@@ -90,13 +127,13 @@ describe('syncManagedChips', () => {
     expect(addresses()).toEqual([])
   })
 
-  it('keeps EEPROM contents across a detach/reattach cycle', () => {
+  it('keeps EEPROM contents across a detach/reattach cycle', async () => {
     eeprom.poke(0, 0xab)
 
     setUserDts('blinky.dts', a53Blinky)
     expect(i2cModel.chips()).not.toContain(eeprom)
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(i2cModel.chips()).toContain(eeprom)
     expect(eeprom.memory[0]).toBe(0xab)
@@ -153,38 +190,38 @@ describe('syncManagedChips', () => {
     expect(spiModel.chips()).not.toContain(w25q)
   })
 
-  it('restores the NOR after clearing the SCT2024 tree', () => {
+  it('restores the NOR after clearing the SCT2024 tree', async () => {
     setUserDts('sct2024.dts', a53Sct2024)
     expect(spiModel.chips()).toEqual([sct2024])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('restores the NOR after clearing the WS2812 tree', () => {
+  it('restores the NOR after clearing the WS2812 tree', async () => {
     setUserDts('ws2812.dts', a53Ws2812)
     expect(spiModel.chips()).toEqual([ws2812])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('restores the NOR after clearing the PT6314 tree', () => {
+  it('restores the NOR after clearing the PT6314 tree', async () => {
     setUserDts('pt6314.dts', a53Pt6314)
     expect(spiModel.chips()).toEqual([pt6314])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('restores the NOR after clearing the TMC50xx tree', () => {
+  it('restores the NOR after clearing the TMC50xx tree', async () => {
     setUserDts('tmc50xx.dts', a53Tmc50xx)
     expect(spiModel.chips()).toEqual([tmc50xx])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
@@ -202,5 +239,73 @@ describe('syncManagedChips', () => {
     spiModel.detachChip(0)
     syncManagedChips()
     expect(spiModel.chips()).toEqual([sct2024])
+  })
+
+  it('rehydrates a user I²C Attach after the bus is cleared (MCU reset)', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+
+    setUserDts('blinky.dts', a53Blinky)
+    expect(addresses()).toEqual([])
+
+    attachUserI2c('tmp112', 0x4a)
+    expect(addresses()).toEqual([0x4a])
+
+    // Simulate a document reload: empty the bus, keep localStorage.
+    for (const chip of [...i2cModel.chips()]) i2cModel.detachChip(chip.address)
+    expect(addresses()).toEqual([])
+
+    syncManagedChips()
+    expect(addresses()).toEqual([0x4a])
+    expect(i2cModel.chips()[0]?.name).toMatch(/TMP112/i)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('rehydrates a user SPI Attach on a free CS after reload', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+
+    attachUserSpi('loopback', 1)
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(true)
+
+    for (const chip of [...spiModel.chips()]) {
+      if (chip.cs === 1) spiModel.detachChip(1)
+    }
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(false)
+
+    syncManagedChips()
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(true)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('clearUserPeripherals drops breadboard parts and restores the board', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+
+    setUserDts('blinky.dts', a53Blinky)
+    attachUserI2c('tmp112', 0x4a)
+    attachUserSpi('loopback', 1)
+    expect(hasUserPeripherals()).toBe(true)
+
+    clearUserPeripherals()
+    expect(hasUserPeripherals()).toBe(false)
+    expect(addresses()).toEqual([])
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(false)
+
+    vi.unstubAllGlobals()
   })
 })

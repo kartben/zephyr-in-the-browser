@@ -8,9 +8,9 @@
  *   supported state (older image tarballs have no .dts), so that path never
  *   throws and never delays a boot.
  * - **User ELF** — the drop/pick flow offers an optional zephyr.dts; it comes
- *   in through `setUserDts`, and survives the reload a committed QEMU document
- *   forces via the same IndexedDB handoff the guest image uses (its own key,
- *   same store).
+ *   in through `setUserDts`, and survives Reload / refresh for the rest of the
+ *   session via the same IndexedDB store the guest image uses (its own key).
+ *   An explicit clear (or picking a bundled sample) drops it.
  *
  * Parse or insight failures degrade by stages: `doc: null` still shows raw
  * text in the viewer, `insights: null` sends every consumer to its hardcoded
@@ -70,14 +70,20 @@ export function setUserDts(name: string, text: string) {
   fetchEpoch++ // a stale sample fetch must not clobber this
   current = build('user', name, text)
   notify()
+  // Persist so Reload keeps the tree with the custom ELF (same contract as
+  // guestImage.set). Sample trees are never written here.
+  void stashUserDts(name, text).catch(() => {
+    /* private mode, blocked storage — memory still holds this document's tree */
+  })
 }
 
 /** Forget the devicetree — e.g. when the guest changes under it. */
-export function clear() {
+export async function clear(): Promise<void> {
   fetchEpoch++ // ...nor resurrect what was just cleared
-  if (current === null) return
+  const had = current !== null
   current = null
-  notify()
+  if (had) notify()
+  await clearStashedDts()
 }
 
 /*
@@ -152,14 +158,13 @@ export async function clearStashedDts(): Promise<void> {
 }
 
 /**
- * Reads and clears the stashed devicetree. Called once at startup, before any
- * backend runs — the same one-shot contract as guestImage.claimStashed.
+ * Reads the persisted user devicetree into this document. Leaves the IndexedDB
+ * copy in place so Reload keeps it with the custom ELF; clear() drops both.
  */
 export async function claimStashedDts(): Promise<void> {
   let record: { name: string; text: string } | undefined
   try {
     record = await handoffTx('readonly', (s) => s.get(DTS_KEY))
-    if (record) await handoffTx('readwrite', (s) => s.delete(DTS_KEY))
   } catch {
     return // private mode, blocked storage — fall back to no devicetree
   }

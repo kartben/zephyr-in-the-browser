@@ -37,9 +37,17 @@ import { createMax17048 } from './devices/chips/max17048'
 import { createMcp4725 } from './devices/chips/mcp4725'
 import { createPca9685 } from './devices/chips/pca9685'
 import { createPcf8523 } from './devices/rtc/pcf8523'
-import { FALLBACK_DT_SLOTS } from './devices/registry'
+import { FALLBACK_DT_SLOTS, chipType } from './devices/registry'
 import { spiChipType } from './devices/spiRegistry'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
+import {
+  clearBusRoster,
+  forgetI2cAddress,
+  forgetSpiCs,
+  getBusRoster,
+  rememberI2cAttach,
+  rememberSpiAttach,
+} from './busRoster'
 
 /** VIRTIO GPIO controller, name=gpio on the Cortex-A53 command line. */
 export const gpioModel = createGpioModel('gpio')
@@ -55,8 +63,9 @@ export const spiModel = createSpiModel('spi')
  * EEPROM contents (and sensor slider state) survive attach/detach within a
  * session — which is what a real board does. The AT24 also persists its
  * backing store in localStorage across page reloads ("MCU resets"), so the
- * stock EEPROM boot-counter sample keeps counting. Which of them are *on* the
- * bus follows the running build's devicetree: extra sensors stay off until a
+ * stock EEPROM boot-counter sample keeps counting. User Attach wiring is
+ * remembered in busRoster.ts the same way. Which of them are *on* the bus
+ * follows the running build's devicetree: extra sensors stay off until a
  * snippet enables their nodes, and dedicated samples drop the default sensors
  * so the dock is not cluttered. See syncManagedChips below.
  */
@@ -180,6 +189,45 @@ const MANAGED_CHIPS: ReadonlyMap<number, I2cChip> = new Map<number, I2cChip>([
 ])
 
 /**
+ * typeId → board singleton(s). Used when the breadboard roster asks for a part
+ * at the singleton's address so NVM-backed chips keep their persistKey object.
+ */
+const MANAGED_I2C_BY_TYPE: ReadonlyMap<string, I2cChip | readonly I2cChip[]> = new Map<
+  string,
+  I2cChip | readonly I2cChip[]
+>([
+  ['tmp112', tmp112],
+  ['lm75', lm75],
+  ['adxl345', adxl345],
+  ['lsm6dso', lsm6dso],
+  ['lps22hh', lps22hh],
+  ['ina219', ina219],
+  ['isl29035', isl29035],
+  ['at24', eeprom],
+  ['ssd1306', ssd1306],
+  ['jhd1313', [jhd1313, jhd1313Backlight]],
+  ['ht16k33', ht16k33],
+  ['lp5562', lp5562],
+  ['lp5012', lp5012],
+  ['pca9685', pca9685],
+  ['mcp4725', mcp4725],
+  ['max17048', max17048],
+  ['pcf8523', pcf8523],
+])
+
+function resolveI2cChips(typeId: string, address: number, secondary?: number): I2cChip[] {
+  const managed = MANAGED_I2C_BY_TYPE.get(typeId)
+  if (managed) {
+    const list = (Array.isArray(managed) ? managed : [managed]) as I2cChip[]
+    if (list[0]!.address === address) return list
+  }
+  const type = chipType(typeId)
+  if (!type) throw new Error(`Unknown I²C chip type: ${typeId}`)
+  const created = type.create(address, secondary)
+  return (Array.isArray(created) ? created : [created]) as I2cChip[]
+}
+
+/**
  * Managed SPI parts by Zephyr compatible chip id. CS can be shared across
  * samples (NOR vs SCT2024 vs WS2812 vs PT6314 vs TMC50xx all use CS0);
  * selection is by DT `chipId`. When the tree wants the same chipId on a
@@ -240,9 +288,15 @@ function wantedManagedAddresses(): Set<number> {
 /**
  * Attach or detach each managed chip so the bus matches the guest DT (or the
  * fallback table). Leaves a non-managed chip the user attached alone — only
- * our singletons are steered.
+ * our singletons are steered. After the PCB is settled, re-apply the breadboard
+ * roster so Reload keeps user Attach wiring.
  */
 export function syncManagedChips() {
+  // Breadboard first onto free slots, then the PCB (DT) fills what's left.
+  // That way a user Attach at an address the tree also wants still wins across
+  // Reload, instead of being permanently shadowed by the singleton.
+  rehydrateBusRoster()
+
   const wanted = wantedManagedAddresses()
   const onBus = new Map(i2cModel.chips().map((chip) => [chip.address, chip]))
 
@@ -258,6 +312,117 @@ export function syncManagedChips() {
   }
 
   syncManagedSpiChips()
+}
+
+/**
+ * Put user-attached parts back on free slots. Prefers board singletons when the
+ * roster asks for a type at that singleton's address, so EEPROM/NOR persistKey
+ * wiring stays intact. Skips addresses/CS lines already occupied (DT wins).
+ */
+function rehydrateBusRoster() {
+  const roster = getBusRoster()
+  const i2cTaken = new Set(i2cModel.chips().map((c) => c.address))
+
+  for (const entry of roster.i2c) {
+    if (i2cTaken.has(entry.address)) continue
+    if (entry.secondary !== undefined && i2cTaken.has(entry.secondary)) continue
+    try {
+      const list = resolveI2cChips(entry.typeId, entry.address, entry.secondary)
+      for (const chip of list) {
+        if (i2cTaken.has(chip.address)) continue
+        i2cModel.attachChip(chip)
+        i2cTaken.add(chip.address)
+      }
+    } catch {
+      // Unknown type or slot race — leave the roster; next sync retries.
+    }
+  }
+
+  const spiTaken = new Set(spiModel.chips().map((c) => c.cs))
+  for (const entry of roster.spi) {
+    if (spiTaken.has(entry.cs)) continue
+    const type = spiChipType(entry.typeId)
+    if (!type) continue
+    const singleton = MANAGED_SPI_BY_ID.get(entry.typeId)
+    try {
+      const chip = singleton && singleton.cs === entry.cs ? singleton : type.create(entry.cs)
+      spiModel.attachChip(chip)
+      spiTaken.add(chip.cs)
+    } catch {
+      // Same as I²C: keep the roster entry for a later attempt.
+    }
+  }
+}
+
+/** Attach UI helpers — persist the breadboard roster alongside the live bus. */
+export function attachUserI2c(typeId: string, address: number, secondary?: number): void {
+  const list = resolveI2cChips(typeId, address, secondary)
+  const attached: number[] = []
+  try {
+    for (const chip of list) {
+      i2cModel.attachChip(chip)
+      attached.push(chip.address)
+    }
+    rememberI2cAttach(typeId, address, secondary)
+  } catch (err) {
+    for (const addr of attached) i2cModel.detachChip(addr)
+    throw err
+  }
+}
+
+export function detachUserI2c(...addresses: number[]): void {
+  for (const address of addresses) forgetI2cAddress(address)
+  for (const address of addresses) i2cModel.detachChip(address)
+}
+
+export function attachUserSpi(typeId: string, cs: number): void {
+  const type = spiChipType(typeId)
+  if (!type) throw new Error(`Unknown SPI chip type: ${typeId}`)
+  const singleton = MANAGED_SPI_BY_ID.get(typeId)
+  const chip = singleton && singleton.cs === cs ? singleton : type.create(cs)
+  spiModel.attachChip(chip)
+  rememberSpiAttach(typeId, cs)
+}
+
+export function detachUserSpi(cs: number): void {
+  forgetSpiCs(cs)
+  spiModel.detachChip(cs)
+}
+
+function managedI2cSet(): Set<I2cChip> {
+  return new Set(MANAGED_CHIPS.values())
+}
+
+function managedSpiSet(): Set<SpiChip> {
+  return new Set([...MANAGED_SPI_BY_ID.values(), ...managedSpiAltCs.values()])
+}
+
+/** True when the breadboard has anything beyond the DT/fallback board. */
+export function hasUserPeripherals(): boolean {
+  const roster = getBusRoster()
+  if (roster.i2c.length > 0 || roster.spi.length > 0) return true
+  const managedI2c = managedI2cSet()
+  if (i2cModel.chips().some((chip) => !managedI2c.has(chip))) return true
+  const managedSpi = managedSpiSet()
+  return spiModel.chips().some((chip) => !managedSpi.has(chip))
+}
+
+/**
+ * Unsold the breadboard: drop every user Attach (and its persisted roster),
+ * then re-apply the DT/fallback board parts. One click from either bus panel.
+ */
+export function clearUserPeripherals(): void {
+  clearBusRoster()
+  const managedI2c = managedI2cSet()
+  for (const chip of [...i2cModel.chips()]) {
+    if (!managedI2c.has(chip)) i2cModel.detachChip(chip.address)
+  }
+  const managedSpi = managedSpiSet()
+  for (const chip of [...spiModel.chips()]) {
+    if (!managedSpi.has(chip)) spiModel.detachChip(chip.cs)
+  }
+  // Restores any DT-managed parts the user had detached for a bus-error demo.
+  syncManagedChips()
 }
 
 /** CS → managed chip the current DT (or fallback) wants on that select. */
