@@ -1,14 +1,16 @@
 /**
- * Live Zephyr CTF Trace panel — Schedule Gantt + Message Queues.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + Message Queues + Networking.
  *
- * Schedule: thread lanes coloured by run / ready / blocked / sleep / suspended,
- * with a shared live-follow time window (pan / zoom / pinch).
+ * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
+ * with a shared live-follow time window (pan / zoom / pinch). Optional msgq
+ * put/get/put_front marks line those data-passing events up on the same lanes.
  * Message Queues: per-msgq flow graph + depth from put/put_front/get exits.
  */
 
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -28,6 +30,9 @@ import {
   STATE_LABEL,
   contextSwitchesIn,
   fmtTime,
+  msgqOpColor,
+  queueChartOpLabel,
+  queueFlowEvents,
   renderStateRows,
   stateAt,
   threadLabel,
@@ -35,6 +40,7 @@ import {
   threadRunningAt,
   visibleLanes,
   windowStats,
+  type QueueFlowEvent,
   type ThreadState,
   type Trace,
 } from '@/ctf'
@@ -72,6 +78,8 @@ const MIN_WINDOW_NS = 1_000_000 // 1 ms
 const ZOOM_IN = 0.7
 const ZOOM_OUT = 1.4
 const PAN_THRESHOLD_PX = 8
+/** Pixel thinning for msgq marks on a single thread lane. */
+const MSGQ_MARK_MIN_GAP_PX = 5
 
 type TraceTab = 'schedule' | 'queues' | 'net'
 
@@ -127,6 +135,8 @@ function paint(
   follow: boolean,
   selectedLane: number | null,
   playheadTs: number | null,
+  showMsgq: boolean,
+  msgqEvents: QueueFlowEvent[],
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
@@ -198,6 +208,35 @@ function paint(
     ctx.globalAlpha = 1
   })
 
+  if (showMsgq && msgqEvents.length > 0) {
+    const rowOf = new Map(lanes.map((tid, row) => [tid, row]))
+    const lastXByThread = new Map<number, number>()
+    for (const ev of msgqEvents) {
+      if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
+      const row = rowOf.get(ev.threadId)
+      if (row == null) continue
+      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
+      const prev = lastXByThread.get(ev.threadId)
+      if (prev != null && x - prev < MSGQ_MARK_MIN_GAP_PX) continue
+      lastXByThread.set(ev.threadId, x)
+      const y = lanesTop + row * LANE_H
+      const color = msgqOpColor(ev.op, ev.ok)
+      ctx.strokeStyle = color
+      ctx.globalAlpha = 0.88
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(x, y + 2)
+      ctx.lineTo(x, y + LANE_H - 2)
+      ctx.stroke()
+      ctx.fillStyle = color
+      ctx.globalAlpha = 0.95
+      ctx.beginPath()
+      ctx.arc(x, y + LANE_H / 2, 2.2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.globalAlpha = 1
+    }
+  }
+
   if (tr.isrSpans.length) {
     const y = lanesTop + lanes.length * LANE_H
     ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
@@ -221,6 +260,28 @@ function paint(
   }
 
   canvas.style.height = `${cssH}px`
+}
+
+/** Nearest msgq flow event near `ts` within the visible window (or null). */
+function nearestMsgqNear(
+  events: QueueFlowEvent[],
+  ts: number,
+  view0: number,
+  view1: number,
+): QueueFlowEvent | null {
+  let best: QueueFlowEvent | null = null
+  let bestDist = Infinity
+  for (const ev of events) {
+    if (ev.ts < view0 || ev.ts > view1) continue
+    const d = Math.abs(ev.ts - ts)
+    if (d < bestDist) {
+      bestDist = d
+      best = ev
+    }
+  }
+  if (!best) return null
+  const maxDist = Math.max(2_000_000, (view1 - view0) * 0.04)
+  return bestDist <= maxDist ? best : null
 }
 
 type TraceSurface = HTMLCanvasElement | SVGSVGElement
@@ -333,10 +394,14 @@ function TracePanelBody({
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
-  /** Schedule playhead — hover ts; null when not scrubbing. */
+  /** Line msgq put/get/put_front marks onto thread lanes. */
+  const [showMsgq, setShowMsgq] = useState(true)
+  /** Timeline playhead — hover ts; null when not scrubbing. */
   const [playhead, setPlayhead] = useState<{ ts: number; x: number } | null>(null)
   const playheadRef = useRef(playhead)
   playheadRef.current = playhead
+  const showMsgqRef = useRef(showMsgq)
+  showMsgqRef.current = showMsgq
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
@@ -346,6 +411,15 @@ function TracePanelBody({
   const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
 
   const tr = snap.trace
+  const msgqEvents = useMemo(
+    () => (tr ? queueFlowEvents(tr) : []),
+    // revision bumps whenever the event ring changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tr, snap.revision],
+  )
+  const msgqEventsRef = useRef(msgqEvents)
+  msgqEventsRef.current = msgqEvents
+
   useEffect(() => {
     if (!tr || tr.events.length === 0) return
     if (follow) {
@@ -357,8 +431,18 @@ function TracePanelBody({
     if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
-    paint(canvas, tr, view.t0, view.t1, follow, selectedLane, playhead?.ts ?? null)
-  }, [tr, view, follow, snap.revision, selectedLane, tab, playhead])
+    paint(
+      canvas,
+      tr,
+      view.t0,
+      view.t1,
+      follow,
+      selectedLane,
+      playhead?.ts ?? null,
+      showMsgq,
+      msgqEvents,
+    )
+  }, [tr, view, follow, snap.revision, selectedLane, tab, playhead, showMsgq, msgqEvents])
 
   useEffect(() => {
     if (tab !== 'schedule') return
@@ -374,6 +458,8 @@ function TracePanelBody({
         follow,
         selectedLane,
         playheadRef.current?.ts ?? null,
+        showMsgqRef.current,
+        msgqEventsRef.current,
       )
     })
     ro.observe(canvas)
@@ -460,7 +546,18 @@ function TracePanelBody({
     const { rel, guest } = formatTraceTimes(playhead.ts, tr.t0, step)
     const runLabel = runningTid != null ? threadLabel(tr, runningTid) : '(idle)'
     // Absolute CTF ns from timing_ns_get — not k_uptime_ticks (no tick rate in stream).
-    return [`${rel} · ${runLabel}`, `guest ${guest}`]
+    const lines = [`${rel} · ${runLabel}`, `guest ${guest}`]
+    if (showMsgq) {
+      const msgq = nearestMsgqNear(msgqEvents, playhead.ts, view.t0, view.t1)
+      if (msgq) {
+        const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+        const named = hostGdb.getWaitObjects().find((o) => o.addr === msgq.queueId)?.name
+        const q = named || `0x${msgq.queueId.toString(16)}`
+        const fail = msgq.ok ? '' : ' fail'
+        lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} · ${q}`)
+      }
+    }
+    return lines
   })()
 
   const selectLane = (tid: number) => {
@@ -611,7 +708,7 @@ function TracePanelBody({
       <div className="flex gap-0.5 px-0.5">
         {(
           [
-            ['schedule', 'Schedule'],
+            ['schedule', 'Timeline'],
             ['queues', 'Message Queues'],
             ['net', 'Networking'],
           ] as const
@@ -666,6 +763,19 @@ function TracePanelBody({
         >
           <Maximize2 className="size-4" />
         </Button>
+        {tab === 'schedule' && (
+          <Button
+            type="button"
+            variant={showMsgq ? 'default' : 'secondary'}
+            size="sm"
+            className="h-9 touch-manipulation px-2.5 text-[11px]"
+            title="Line up message-queue put/get on thread lanes"
+            aria-pressed={showMsgq}
+            onClick={() => setShowMsgq((v) => !v)}
+          >
+            Line up msgq
+          </Button>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <Button
             type="button"
@@ -767,7 +877,7 @@ function TracePanelBody({
             select
           </p>
 
-          {/* Colour legend — same states as the terminal viewer. */}
+          {/* Colour legend — thread states + optional msgq marks. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
             <span className="text-foreground/80">states:</span>
             {(Object.keys(STATE_LABEL) as ThreadState[])
@@ -781,6 +891,27 @@ function TracePanelBody({
                   {STATE_LABEL[s]}
                 </span>
               ))}
+            {showMsgq && (
+              <>
+                <span className="text-border">|</span>
+                <span className="text-foreground/80">msgq:</span>
+                {(
+                  [
+                    ['put', 'put'],
+                    ['put_front', 'front'],
+                    ['get', 'get'],
+                  ] as const
+                ).map(([op, label]) => (
+                  <span key={op} className="inline-flex items-center gap-1">
+                    <span
+                      className="inline-block h-2.5 w-1 rounded-sm"
+                      style={{ background: msgqOpColor(op) }}
+                    />
+                    {label}
+                  </span>
+                ))}
+              </>
+            )}
           </div>
 
           {/* Metrics line — CPU busy + ctxsw over the visible window. */}

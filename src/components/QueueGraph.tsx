@@ -16,6 +16,7 @@ import {
   flowEdgeId,
   flowThreadLabel,
   isPutOp,
+  msgqOpColor,
   queueFlowEvents,
   threadFlowScores,
   type QueueFlowEvent,
@@ -482,9 +483,7 @@ function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipe
 }
 
 function strokeFor(op: QueueFlowOp): string {
-  if (op === 'put_front') return '#2dd4bf'
-  if (op === 'put') return '#60a5fa'
-  return '#fbbf24'
+  return msgqOpColor(op)
 }
 
 function packetFill(op: QueueFlowOp): string {
