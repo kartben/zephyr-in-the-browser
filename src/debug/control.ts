@@ -148,6 +148,12 @@ export async function readMemoryRaw(addr: number, length: number): Promise<Uint8
   return gdb.readMemoryRaw(addr, length)
 }
 
+/** Publish a full Mem window from bytes already in hand (scroll slide). */
+export function setMemoryWindow(addr: number, data: Uint8Array) {
+  if (!gdb.sessionActive()) return
+  gdb.setMemoryWindow(addr, data)
+}
+
 export function patchMemoryCache(addr: number, data: Uint8Array) {
   if (!gdb.sessionActive()) return
   gdb.patchMemoryCache(addr, data)

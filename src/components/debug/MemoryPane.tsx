@@ -12,7 +12,9 @@ import {
   BYTES_PER_ROW,
   VISIBLE_ROWS,
   WINDOW_BYTES,
+  applyWindowSlide,
   pcWindowTop,
+  planWindowSlide,
   scrollMemoryAddr,
   wheelRowDelta,
 } from '@/components/debug/memoryView'
@@ -22,6 +24,7 @@ import {
   scanMemory,
   type SearchDirection,
 } from '@/components/debug/memorySearch'
+import { hexToBytes } from '@/debug/gdb/rspCodec'
 
 function parseAddr(text: string): number | null {
   const raw = text.trim().replace(/^0x/i, '')
@@ -90,8 +93,35 @@ export function MemoryPane({
         queuedAddr.current = null
         viewAddr.current = target
         setAddrText(compactHex(target.toString(16)))
-        // Retry: pause also walks threads over the same RSP pipe; a single
-        // failed peek used to leave the address field filled and the dump empty.
+
+        const peek = debug.getSnapshot().memory
+        const plan = peek
+          ? planWindowSlide(peek.addr, peek.hex.length / 2, target, WINDOW_BYTES)
+          : ({ kind: 'full', addr: target, length: WINDOW_BYTES } as const)
+
+        if (plan.kind === 'noop') {
+          if (queuedAddr.current === null) break
+          continue
+        }
+
+        if (plan.kind === 'forward' || plan.kind === 'backward') {
+          let edge: Uint8Array | null = null
+          for (let attempt = 0; attempt < 8 && !edge; attempt++) {
+            edge = await debug.readMemoryRaw(plan.fetchAddr, plan.fetchLen)
+            if (!edge || edge.length < plan.fetchLen) {
+              edge = null
+              await new Promise((r) => setTimeout(r, 40 * (attempt + 1)))
+            }
+          }
+          if (edge && peek) {
+            const next = applyWindowSlide(hexToBytes(peek.hex), plan, edge)
+            debug.setMemoryWindow(plan.addr, next)
+            if (queuedAddr.current === null) break
+            continue
+          }
+          // Fall through to a full window read if the edge peek failed.
+        }
+
         let hex: string | null = null
         for (let attempt = 0; attempt < 8 && !hex; attempt++) {
           hex = await debug.readMemory(target, WINDOW_BYTES)

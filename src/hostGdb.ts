@@ -468,6 +468,13 @@ export async function readMemoryRaw(addr: number, length: number): Promise<Uint8
 }
 
 /**
+ * Replace the cached peek window (Mem slide / search hit) without an RSP round-trip.
+ */
+export function setMemoryWindow(addr: number, data: Uint8Array) {
+  publish({ memory: { addr: addr >>> 0, hex: bytesToHex(data) } })
+}
+
+/**
  * Patch the cached peek window without a round-trip — used when the hex view
  * edits a byte locally so a remount does not lose the change.
  */

@@ -46,3 +46,78 @@ export function pcWindowTop(pc: number, arch: 'arm' | 'aarch64' | 'riscv32' | nu
   if (arch === 'arm') addr &= ~1
   return Math.floor(addr / BYTES_PER_ROW) * BYTES_PER_ROW
 }
+
+/**
+ * How to move the visible window from `currentAddr` → `targetAddr` without
+ * re-fetching bytes we already hold. Small wheel steps only need the new edge.
+ */
+export type WindowSlidePlan =
+  | { kind: 'noop'; addr: number }
+  | { kind: 'full'; addr: number; length: number }
+  | {
+      kind: 'forward'
+      addr: number
+      /** Drop this many leading bytes from the current buffer. */
+      drop: number
+      fetchAddr: number
+      fetchLen: number
+    }
+  | {
+      kind: 'backward'
+      addr: number
+      /** Keep this many trailing bytes from the current buffer. */
+      keep: number
+      fetchAddr: number
+      fetchLen: number
+    }
+
+export function planWindowSlide(
+  currentAddr: number,
+  currentLen: number,
+  targetAddr: number,
+  windowLen = WINDOW_BYTES,
+): WindowSlidePlan {
+  const cur = currentAddr >>> 0
+  const target = targetAddr >>> 0
+  if (target === cur && currentLen === windowLen) return { kind: 'noop', addr: target }
+  if (currentLen !== windowLen) return { kind: 'full', addr: target, length: windowLen }
+
+  const delta = (target - cur) | 0 // signed distance; ok within 32-bit window slides
+  if (delta > 0 && delta < windowLen) {
+    return {
+      kind: 'forward',
+      addr: target,
+      drop: delta,
+      fetchAddr: (cur + windowLen) >>> 0,
+      fetchLen: delta,
+    }
+  }
+  if (delta < 0 && -delta < windowLen) {
+    const fetchLen = -delta
+    return {
+      kind: 'backward',
+      addr: target,
+      keep: windowLen - fetchLen,
+      fetchAddr: target,
+      fetchLen,
+    }
+  }
+  return { kind: 'full', addr: target, length: windowLen }
+}
+
+/** Build the next window from the previous buffer plus a freshly fetched edge. */
+export function applyWindowSlide(
+  current: Uint8Array,
+  plan: Extract<WindowSlidePlan, { kind: 'forward' | 'backward' }>,
+  fetched: Uint8Array,
+): Uint8Array {
+  const out = new Uint8Array(current.length)
+  if (plan.kind === 'forward') {
+    out.set(current.subarray(plan.drop), 0)
+    out.set(fetched.subarray(0, plan.fetchLen), current.length - plan.fetchLen)
+  } else {
+    out.set(fetched.subarray(0, plan.fetchLen), 0)
+    out.set(current.subarray(current.length - plan.keep), plan.fetchLen)
+  }
+  return out
+}

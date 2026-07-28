@@ -4,7 +4,9 @@ import {
   BYTES_PER_ROW,
   VISIBLE_ROWS,
   WINDOW_BYTES,
+  applyWindowSlide,
   pcWindowTop,
+  planWindowSlide,
   scrollMemoryAddr,
   wheelRowDelta,
 } from './memoryView'
@@ -45,5 +47,33 @@ describe('memoryView', () => {
     expect(pcWindowTop(0x8000125, 'arm')).toBe(0x8000120)
     expect(pcWindowTop(0x8000124, 'arm')).toBe(0x8000120)
     expect(pcWindowTop(0x8000125, 'aarch64')).toBe(0x8000120)
+  })
+
+  it('plans edge-only fetches for small window slides', () => {
+    expect(planWindowSlide(0x100, 256, 0x110, 256)).toEqual({
+      kind: 'forward',
+      addr: 0x110,
+      drop: 0x10,
+      fetchAddr: 0x200,
+      fetchLen: 0x10,
+    })
+    expect(planWindowSlide(0x100, 256, 0xf0, 256)).toEqual({
+      kind: 'backward',
+      addr: 0xf0,
+      keep: 0xf0,
+      fetchAddr: 0xf0,
+      fetchLen: 0x10,
+    })
+    expect(planWindowSlide(0x100, 256, 0x100, 256).kind).toBe('noop')
+    expect(planWindowSlide(0x100, 256, 0x300, 256).kind).toBe('full')
+  })
+
+  it('applies a forward slide without rewriting the overlap', () => {
+    const cur = Uint8Array.from({ length: 8 }, (_, i) => i)
+    const plan = planWindowSlide(0, 8, 2, 8)
+    expect(plan.kind).toBe('forward')
+    if (plan.kind !== 'forward') return
+    const next = applyWindowSlide(cur, plan, Uint8Array.of(0x80, 0x81))
+    expect([...next]).toEqual([2, 3, 4, 5, 6, 7, 0x80, 0x81])
   })
 })
