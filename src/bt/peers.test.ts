@@ -3,11 +3,17 @@ import { BT_PEER_TYPES, defaultPeerParams, peerDetail, peerType } from '@/bt/pee
 
 describe('BT_PEER_TYPES', () => {
   it('lists the in-page LocalLink presets', () => {
-    expect(BT_PEER_TYPES.map((t) => t.id)).toEqual(['hrm', 'advertiser', 'scanner'])
+    expect(BT_PEER_TYPES.map((t) => t.id)).toEqual([
+      'hrm',
+      'advertiser',
+      'scanner',
+      'speaker',
+    ])
   })
 
   it('resolves presets by id', () => {
     expect(peerType('hrm')?.label).toContain('Heart rate')
+    expect(peerType('speaker')?.label).toContain('Speaker')
     expect(peerType('missing')).toBeUndefined()
   })
 
@@ -18,5 +24,12 @@ describe('BT_PEER_TYPES', () => {
     expect(peerDetail('scanner', { scanning: true, active: false, advCount: 3 }, '')).toBe(
       '3 adv reports',
     )
+    expect(
+      peerDetail(
+        'speaker',
+        { streamState: 'started', packets: 128, muted: false, discoverable: true },
+        '',
+      ),
+    ).toBe('started · 128 pkts')
   })
 })
