@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
 import { DisplayPanel } from '@/components/DisplayPanel'
@@ -18,6 +25,11 @@ import {
   seedForSelection,
   subscribe as subscribeDock,
 } from '@/lib/dockStore'
+import {
+  stageBottomInset,
+  stageOverlayEdgePx,
+  stageOverlayStackMaxH,
+} from '@/lib/stageLayout'
 import {
   clear as clearGuestImage,
   get as getGuestImage,
@@ -50,11 +62,14 @@ import {
 
 /**
  * The floating widgets over the stage: the display (with its Panels-menu
- * visibility flag) bottom-right, the MIPS pill and CTF trace bottom-left. Both
- * keep out of the terminal's way and below the z-50 overlays.
+ * visibility flag) bottom-right, the MIPS pill / Debug / Trace bottom-left.
+ * Both sit below the z-50 overlays. Their height is reported so the UART host
+ * can shrink and keep the shell prompt clear of the cards.
  *
  * The Trace card goes nearly full-bleed on a phone (drag-pan needs width); on
- * wider viewports it caps so it does not cover the whole terminal.
+ * wider viewports it caps so it does not cover the whole terminal. The left
+ * stack is also height-capped to the reserved bottom band — undock for a
+ * taller floating card. The Display stays free to size itself.
  */
 function StageOverlays({
   displayExpanded,
@@ -62,14 +77,50 @@ function StageOverlays({
   debugExpanded,
   boardId,
   sampleId,
+  onBottomInset,
 }: {
   displayExpanded: boolean
   traceExpanded: boolean
   debugExpanded: boolean
   boardId: string
   sampleId: string
+  onBottomInset: (px: number) => void
 }) {
   const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
+  const leftRef = useRef<HTMLDivElement>(null)
+  const rightRef = useRef<HTMLDivElement>(null)
+  const [stackMaxH, setStackMaxH] = useState<number | undefined>(undefined)
+
+  useLayoutEffect(() => {
+    const left = leftRef.current
+    const right = rightRef.current
+    const stage = left?.offsetParent instanceof HTMLElement ? left.offsetParent : null
+    if (!stage) {
+      onBottomInset(0)
+      return
+    }
+
+    const measure = () => {
+      const md = window.matchMedia('(min-width: 768px)').matches
+      const edge = stageOverlayEdgePx(md)
+      const leftH = left?.offsetHeight ?? 0
+      const rightH = right?.offsetHeight ?? 0
+      const stackH = Math.max(leftH, rightH)
+      setStackMaxH(stageOverlayStackMaxH(stage.clientHeight, edge))
+      onBottomInset(stageBottomInset(stackH, stage.clientHeight, edge))
+    }
+
+    const ro = new ResizeObserver(measure)
+    ro.observe(stage)
+    if (left) ro.observe(left)
+    if (right) ro.observe(right)
+    measure()
+    return () => {
+      ro.disconnect()
+      onBottomInset(0)
+    }
+  }, [onBottomInset, dock.devices[STAGE_DISPLAY_KEY]?.hidden])
+
   return (
     <>
       {/* Above the stage panels, below the z-50 modals: an annotation may have
@@ -77,7 +128,11 @@ function StageOverlays({
       <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
         <AnnotationCard board={getBoard(boardId)} sampleId={sampleId} />
       </div>
-      <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 sm:right-auto sm:max-w-[min(34rem,calc(100%-1.5rem))] md:bottom-4 md:left-4">
+      <div
+        ref={leftRef}
+        className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 overflow-y-auto sm:right-auto sm:max-w-[min(34rem,calc(100%-1.5rem))] md:bottom-4 md:left-4"
+        style={stackMaxH != null ? { maxHeight: stackMaxH } : undefined}
+      >
         <div className="self-start">
           <StagePill />
         </div>
@@ -85,7 +140,10 @@ function StageOverlays({
         <TracePanel defaultExpanded={traceExpanded} />
       </div>
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
-        <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end">
+        <div
+          ref={rightRef}
+          className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end"
+        >
           <DisplayPanel defaultExpanded={displayExpanded} />
         </div>
       )}
@@ -118,6 +176,10 @@ export default function App() {
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
+  const [bottomInset, setBottomInset] = useState(0)
+  const handleBottomInset = useCallback((px: number) => {
+    setBottomInset((prev) => (prev === px ? prev : px))
+  }, [])
   const [nonce, setNonce] = useState(0)
   const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
@@ -435,12 +497,24 @@ export default function App() {
           changes, which the FitAddon's ResizeObserver absorbs.
         */}
         <div className="relative min-w-0 flex-1 p-4">
-          {/* Changing board or backend remounts the session, same as Restart. */}
-          <XTerminal
-            key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
-            onSession={handleSession}
-            onTeardown={handleTeardown}
-          />
+          {/*
+            Bottom overlays (Debug / Trace / Display) paint over the stage.
+            Leave a measured band under the UART so FitAddon shrinks rows and
+            the shell prompt stays readable; the overlays sit in that band.
+          */}
+          <div className="flex h-full flex-col">
+            <div className="min-h-0 flex-1">
+              {/* Changing board or backend remounts the session, same as Restart. */}
+              <XTerminal
+                key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
+                onSession={handleSession}
+                onTeardown={handleTeardown}
+              />
+            </div>
+            {bottomInset > 0 && (
+              <div className="shrink-0" style={{ height: bottomInset }} aria-hidden />
+            )}
+          </div>
           {/*
             The display is output, not controls — it stays a floating stage
             panel (its render worker dislikes remounts; the dock is for
@@ -454,6 +528,7 @@ export default function App() {
             debugExpanded={expandAllPanels || primaryPanels.has('debug')}
             boardId={boardId}
             sampleId={sampleId}
+            onBottomInset={handleBottomInset}
           />
         </div>
 
