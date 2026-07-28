@@ -12,7 +12,7 @@
 		uart2: uart@1000c000 {
 			compatible = "ns16550";
 			reg = <0x1000c000 0x1000>;
-			interrupts = <13>;
+			interrupts = <13 1>;
 			interrupt-parent = <&plic>;
 			clock-frequency = <3686400>;
 			current-speed = <1000000>;
