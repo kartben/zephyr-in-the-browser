@@ -43,3 +43,11 @@ export {
   type QueueSample,
   type QueueSeries,
 } from './queues'
+export {
+  queueFlowEvents,
+  threadFlowScores,
+  flowEdgeId,
+  flowThreadLabel,
+  type QueueFlowEvent,
+  type QueueFlowOp,
+} from './queueGraph'
