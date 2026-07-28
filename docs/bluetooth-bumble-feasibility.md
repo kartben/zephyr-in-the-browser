@@ -13,10 +13,11 @@ shape.
 
 **Status (implementation started):** `hci0` chardev patches, A53/RISC-V UART
 wiring, `bt-hci-uart` snippet, `bt_peripheral` sample packaging, page bridge +
-Bumble vendor layout, and dock row are in tree. See [`bluetooth.md`](bluetooth.md).
+Bumble vendor layout, dock row, and **in-page LocalLink peers** (HRM /
+advertiser / scanner) are in tree. See [`bluetooth.md`](bluetooth.md).
 A qemu-wasm rebuild (feature `"hci"`) and `tools/vendor-bumble.sh` are still
-required before the end-to-end demo runs. Hive WebSocket peers remain a
-follow-up.
+required before the end-to-end demo runs. External Hive WebSocket peers remain
+optional.
 
 ## What Hive actually is
 

@@ -539,14 +539,15 @@ consumes; needs a bespoke `video` driver + host buffer →
 the pixel path is still a new bridge — park it behind the remaining I²C class
 work.
 
-#### 4g. Bluetooth — Bumble controller, Hive as peers — 🚧 started
+#### 4g. Bluetooth — Bumble controller, in-page peers — 🚧 started
 
 Scaffolding is in tree: `hci0` chardev + A53/RISC-V UART patches, snippet
 `bt-hci-uart`, sample `bt_peripheral`, page bridge (`src/hostBt.ts` /
 `src/bt/`), Bumble vendor layout (`public/vendor/bumble/`,
-`tools/vendor-bumble.sh`), and a dock row. End-to-end still needs a qemu-wasm
-rebuild (feature `"hci"`) and the fetched wheel. Hive peers remain a follow-up.
-See [`bluetooth.md`](bluetooth.md) and
+`tools/vendor-bumble.sh`), dock row, and in-page LocalLink peers (HRM /
+advertiser / scanner via **Add peer**). End-to-end still needs a qemu-wasm
+rebuild (feature `"hci"`) and the fetched wheel. External Hive WebSocket peers
+remain optional. See [`bluetooth.md`](bluetooth.md) and
 [`bluetooth-bumble-feasibility.md`](bluetooth-bumble-feasibility.md).
 
 
@@ -654,8 +655,9 @@ shell is a UX problem before it is a driver problem.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
 8. **Bluetooth (Bumble)** — 🚧 started; see
    [`bluetooth.md`](bluetooth.md). Zephyr host + in-page Bumble virtual
-   controller over `hci0` / H:4. Needs qemu-wasm rebuild +
-   `tools/vendor-bumble.sh`. Hive peers remain a follow-up.
+   controller over `hci0` / H:4, with LocalLink peers in the dock. Needs
+   qemu-wasm rebuild + `tools/vendor-bumble.sh`. External Hive remains
+   optional.
 
 ## Sources
 

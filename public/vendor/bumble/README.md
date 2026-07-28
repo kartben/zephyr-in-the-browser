@@ -2,9 +2,10 @@
 
 The page runs a [Bumble](https://github.com/google/bumble) **virtual
 controller** under [Pyodide](https://pyodide.org/), speaking HCI H:4 to the
-Zephyr guest over the `hci0` browser chardev. Hive apps are optional peers on
-the same LocalLink — see
-[`docs/bluetooth-bumble-feasibility.md`](../../../docs/bluetooth-bumble-feasibility.md).
+Zephyr guest over the `hci0` browser chardev. Extra Bumble Devices (HRM,
+advertiser, scanner) join the same `LocalLink` from the dock — see
+[`docs/bluetooth.md`](../../../docs/bluetooth.md). External Hive apps remain
+optional WebSocket peers.
 
 ## Layout
 

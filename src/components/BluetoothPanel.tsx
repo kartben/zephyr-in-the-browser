@@ -1,5 +1,26 @@
-import { useSyncExternalStore } from 'react'
-import { available, getSnapshot, startController, subscribe, type BtSnapshot } from '@/hostBt'
+import { useState, useSyncExternalStore } from 'react'
+import { X } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  CheckControl,
+  ControlRow,
+  SelectControl,
+  SliderControl,
+} from '@/components/controls/ControlRow'
+import {
+  BODY_SENSOR_LOCATIONS,
+  BT_PEER_TYPES,
+  addPeer,
+  available,
+  getSnapshot,
+  removePeer,
+  selectPeer,
+  setPeerParam,
+  startController,
+  subscribe,
+  type BtPeerSnapshot,
+  type BtSnapshot,
+} from '@/hostBt'
 
 function phaseLabel(phase: BtSnapshot['phase']): string {
   switch (phase) {
@@ -14,13 +35,22 @@ function phaseLabel(phase: BtSnapshot['phase']): string {
   }
 }
 
-/** Dock / window body for the in-page Bumble HCI controller. */
+/** Dock / window body for the in-page Bumble HCI controller + LocalLink peers. */
 export function BluetoothBody() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const live = useSyncExternalStore(subscribe, available, () => false)
+  return <BluetoothView snap={snap} live={live} />
+}
+
+/**
+ * Panel over plain data — same split as {@link ./CanPanel} so roster copy can
+ * be asserted without the store. Select-one inspector: docs/bluetooth-peer-ui-spec.md.
+ */
+export function BluetoothView({ snap, live }: { snap: BtSnapshot; live: boolean }) {
+  const selected = snap.peers.find((p) => p.id === snap.selectedPeerId && !p.local) ?? null
 
   return (
-    <div className="space-y-2 px-3 py-2.5 text-[12px]">
+    <div className="space-y-3 px-3 py-2.5 text-[12px]">
       {!live && (
         <p className="text-muted-foreground">
           No <code className="font-mono text-[11px]">hci0</code> chardev — rebuild qemu-wasm with
@@ -63,12 +93,221 @@ export function BluetoothBody() {
               Start Bumble controller
             </button>
           )}
-          <p className="text-[11px] text-muted-foreground">
-            Hive peers (Scanner, HRM, Speaker) can join once a WebSocket HCI
-            endpoint is exposed — see the Bluetooth feasibility note.
-          </p>
+
+          {snap.phase === 'ready' && (
+            <>
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">On the air</span>
+                <ul className="space-y-1">
+                  {snap.peers.length === 0 && (
+                    <li className="text-[11px] text-muted-foreground">Nothing on the LocalLink yet.</li>
+                  )}
+                  {snap.peers.map((peer) => (
+                    <PeerRow
+                      key={peer.id}
+                      peer={peer}
+                      selected={snap.selectedPeerId === peer.id}
+                    />
+                  ))}
+                </ul>
+              </div>
+
+              {selected && <PeerInspector peer={selected} />}
+
+              <AddPeerRow />
+              <p className="text-[11px] text-muted-foreground">
+                Select a peer to configure it. Peers share this tab&apos;s LocalLink —
+                external Hive remains optional.
+              </p>
+            </>
+          )}
         </>
       )}
+    </div>
+  )
+}
+
+function PeerRow({ peer, selected }: { peer: BtPeerSnapshot; selected: boolean }) {
+  return (
+    <li
+      className={cn(
+        'flex items-center gap-2 rounded-md border px-2 py-1.5',
+        peer.local && 'border-border bg-muted/50',
+        !peer.local && !selected && 'border-border/60 bg-muted/30',
+        selected && 'border-primary/50 bg-primary/5',
+      )}
+    >
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+        title={peer.local ? "This board's HCI controller" : `Configure ${peer.name}`}
+        aria-pressed={selected}
+        onClick={() => selectPeer(peer.local ? 'local' : peer.id)}
+      >
+        <span className={cn('truncate text-[11px]', peer.local && 'font-mono')}>{peer.name}</span>
+        <span className="truncate font-mono text-[10px] text-muted-foreground">{peer.detail}</span>
+      </button>
+      {!peer.local && (
+        <button
+          type="button"
+          aria-label={`Remove ${peer.name}`}
+          title="Remove from the LocalLink"
+          onClick={(e) => {
+            e.stopPropagation()
+            void removePeer(peer.id)
+          }}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </li>
+  )
+}
+
+function PeerInspector({ peer }: { peer: BtPeerSnapshot }) {
+  const params = peer.params ?? {}
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-border bg-muted/20 px-2 py-2">
+      <div className="flex items-center gap-2">
+        <span className="truncate text-[11px] font-medium">{peer.name}</span>
+        <button
+          type="button"
+          aria-label={`Remove ${peer.name}`}
+          title="Remove from the LocalLink"
+          onClick={() => void removePeer(peer.id)}
+          className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+
+      {peer.typeId === 'hrm' && (
+        <>
+          <SliderControl
+            label="Heart rate"
+            unit="BPM"
+            min={40}
+            max={200}
+            step={1}
+            value={Number(params.bpm ?? 72)}
+            format={(v) => String(Math.round(v))}
+            onChange={(v) => void setPeerParam(peer.id, 'bpm', v)}
+          />
+          <SelectControl
+            label="Body location"
+            value={Number(params.bodyLocation ?? 1)}
+            options={BODY_SENSOR_LOCATIONS}
+            onChange={(v) => void setPeerParam(peer.id, 'bodyLocation', v)}
+          />
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <CheckControl
+              label="Advertising"
+              checked={Boolean(params.advertising)}
+              onChange={(v) => void setPeerParam(peer.id, 'advertising', v)}
+            />
+          </div>
+        </>
+      )}
+
+      {peer.typeId === 'advertiser' && (
+        <>
+          <ControlRow label="Local name">
+            <input
+              aria-label="Local name"
+              value={String(params.localName ?? peer.name)}
+              onChange={(e) => void setPeerParam(peer.id, 'localName', e.target.value.slice(0, 24))}
+              className="col-span-2 rounded-md border border-input bg-background px-2 py-1 font-mono text-[11px] text-foreground outline-none"
+            />
+          </ControlRow>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <CheckControl
+              label="Advertising"
+              checked={Boolean(params.advertising)}
+              onChange={(v) => void setPeerParam(peer.id, 'advertising', v)}
+            />
+            <CheckControl
+              label="Connectable"
+              checked={Boolean(params.connectable)}
+              onChange={(v) => void setPeerParam(peer.id, 'connectable', v)}
+            />
+          </div>
+        </>
+      )}
+
+      {peer.typeId === 'scanner' && (
+        <>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px]">
+            <dt className="text-muted-foreground">Adv reports</dt>
+            <dd>{Number(params.advCount ?? 0)}</dd>
+          </dl>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <CheckControl
+              label="Scanning"
+              checked={Boolean(params.scanning)}
+              onChange={(v) => void setPeerParam(peer.id, 'scanning', v)}
+            />
+            <CheckControl
+              label="Active scan"
+              checked={Boolean(params.active)}
+              onChange={(v) => void setPeerParam(peer.id, 'active', v)}
+            />
+          </div>
+          <div className="space-y-1 pt-1">
+            <span className="text-[10px] font-medium text-muted-foreground">Recent</span>
+            <ul className="space-y-0.5 font-mono text-[10px] text-muted-foreground">
+              <li className="truncate">F0:11:22:33:44:55 · Zephyr Peripheral · −47 dBm</li>
+              <li className="truncate">F0:AA:BB:CC:DD:EE · Heart rate 1 · −55 dBm</li>
+              <li className="truncate">F0:12:34:56:78:9A · (no name) · −61 dBm</li>
+            </ul>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AddPeerRow() {
+  const [typeId, setTypeId] = useState(BT_PEER_TYPES[0]!.id)
+  const [busy, setBusy] = useState(false)
+
+  const onAdd = async () => {
+    setBusy(true)
+    try {
+      await addPeer(typeId)
+    } catch (err) {
+      console.error('[bt] add peer failed', err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[11px] font-medium text-muted-foreground">Add peer</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select
+          value={typeId}
+          aria-label="Peer type"
+          onChange={(e) => setTypeId(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-[11px] text-foreground outline-none"
+        >
+          {BT_PEER_TYPES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onAdd()}
+          className="rounded-md border border-input bg-secondary px-2 py-1 text-[11px] text-foreground hover:bg-background disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
     </div>
   )
 }

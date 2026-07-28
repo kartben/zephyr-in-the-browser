@@ -3,6 +3,7 @@ import { sampleAnnotationsAsset, sampleDtsAsset } from '@/boards'
 import { loadSampleDts } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
+import { attachMockDemo as attachHostBtDemo, detach as detachHostBt } from '@/hostBt'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { createFakeNetModule } from '@/net/testing/fakeModule'
 import { FakeGuest } from '@/net/testing/fakeGuest'
@@ -154,8 +155,11 @@ export function createMockBackend(): PtyBackend {
         disposers.push(() => detachHostGnss())
       }
 
-      // Bluetooth needs the real hci0 rings + Pyodide; mock leaves the dock
-      // row inert (no false "controller ready").
+      // Demo the Bluetooth dock row without qemu-wasm / Pyodide.
+      if (board.peripherals?.hostBt) {
+        attachHostBtDemo()
+        disposers.push(() => detachHostBt())
+      }
 
       // A guided sample replays its walkthrough here too. The records are the
       // real ones, off the real catalog — only the guest producing them is

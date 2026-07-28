@@ -8,6 +8,8 @@ shape as Ethernet and CAN.
 
 Feasibility and role split:
 [`bluetooth-bumble-feasibility.md`](bluetooth-bumble-feasibility.md).
+Per-peer configure/control UI (draft):
+[`bluetooth-peer-ui-spec.md`](bluetooth-peer-ui-spec.md).
 
 ## Layout
 
@@ -18,6 +20,7 @@ Feasibility and role split:
 | RISC-V HCI UART @ `0x1000c000` | `tools/qemu-riscv-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch` |
 | Feature bit `"hci"` | `tools/build-qemu-wasm.sh` → `features.json` |
 | Page bridge | `src/hostBt.ts`, `src/bt/h4.ts`, `src/bt/bumbleController.ts` |
+| In-page peers | `src/bt/peers.ts` — HRM / advertiser / scanner on the same LocalLink |
 | Bumble wheel | `public/vendor/bumble/` — see its README; fetch with `tools/vendor-bumble.sh` |
 | Guest snippet / conf | `zephyr-module/snippets/bt-hci-uart/`, `zephyr-module/conf/bt-hci.conf` |
 | Packaged sample | `bt_peripheral` → `samples/bluetooth/peripheral` |
@@ -38,7 +41,9 @@ pipe but controller start fails on a missing wheel.
 1. Select **QEMU Cortex-A53** → **BLE peripheral**.
 2. Wait for the Bluetooth dock row: phase should move to **Controller ready**.
 3. Guest advertises; HCI packet counters in the dock should climb.
+4. Under **On the air**, use **Add peer** for a Scanner (sees adv reports),
+   Heart rate monitor, or plain Advertiser — all on the in-tab LocalLink.
+   No server; same shape as Ethernet/CAN peers in the page.
 
-Hive (Scanner / HRM / Speaker) is **not** wired yet — that needs a WebSocket
-HCI endpoint on the same LocalLink. Tracked as a follow-up in the feasibility
-note.
+External Hive over WebSocket (or a real dongle) remains an optional follow-up
+once someone wants peers outside this tab.

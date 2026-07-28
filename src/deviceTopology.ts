@@ -1171,6 +1171,39 @@ function deriveFallback(
     })
   }
 
+  // HCI UART — A53/RISC-V only in the real machine; shown in fallback whenever
+  // the page has an hci0 bridge so the mock backend can demo the dock row.
+  if (avail.bluetooth && boardId !== 'qemu_cortex_m3') {
+    const hciUart =
+      boardId === 'qemu_riscv32'
+        ? { nodeName: 'uart@1000c000', compatible: 'ns16550', label: 'uart2' }
+        : { nodeName: 'uart@90f0000', compatible: 'arm,pl011', label: 'uart2' }
+    const uartKey = uniqueKey(ids, hciUart.label)
+    nodes.push({
+      key: uartKey,
+      nodeName: hciUart.nodeName,
+      label: hciUart.label,
+      compatible: hciUart.compatible,
+      deviceClass: 'uart-bus',
+      path: `/soc/${hciUart.nodeName}`,
+      presence: 'interactive',
+      busLabel: hciUart.label,
+    })
+    nodes.push({
+      key: uniqueKey(ids, 'bluetooth'),
+      nodeName: 'bt_hci_uart',
+      label: 'Bluetooth HCI',
+      compatible: 'zephyr,bt-hci-uart',
+      deviceClass: 'bluetooth',
+      path: `/soc/${hciUart.nodeName}/bt_hci_uart`,
+      parentKey: uartKey,
+      presence: 'interactive',
+      body: 'bluetooth',
+      crumb: hciUart.label,
+      panelKind: 'bluetooth',
+    })
+  }
+
   {
     const live = avail.audio
     nodes.push({
