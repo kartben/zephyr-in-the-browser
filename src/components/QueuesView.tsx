@@ -15,6 +15,7 @@ import {
   type Trace,
 } from '@/ctf'
 import { getWaitObjects } from '@/hostGdb'
+import { QueueGraph } from '@/components/QueueGraph'
 
 const LABEL_W = 108
 const PAD = 8
@@ -246,11 +247,23 @@ export function QueuesView({
   return (
     <>
       <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-        Queue depth from <span className="font-mono text-foreground/80">put_exit</span> /{' '}
+        Thread ↔ msgq flow from <span className="font-mono text-foreground/80">put_exit</span> /{' '}
         <span className="font-mono text-foreground/80">get_exit</span>
         {queues.length > 0 ? ` · ${queues.length} msgq` : ''}
-        . Cap inferred when a put fails full.
+        . Packets animate on new traffic; depth charts share the Schedule window below.
       </p>
+      {queues.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 font-mono text-[10px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-0.5 w-3 bg-sky-400" /> put →
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-0.5 w-3 bg-amber-400" /> ← get
+          </span>
+          <span>depth fill · dashed cap</span>
+        </div>
+      )}
+      {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
       <canvas
         ref={canvasRef}
         className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
