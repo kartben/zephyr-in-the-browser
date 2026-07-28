@@ -575,6 +575,10 @@ function hasOkayCompat(doc: DtsDocument, compat: string): boolean {
  * custom ELF with a dropped zephyr.dts): availability minus the bridges the
  * shield wires into nearly every image, whose presence says nothing about
  * what the program is about.
+ *
+ * Callers that boot a user ELF should also seed `trace` and `debug` — CTF
+ * semihosting and DEBUG_THREAD_INFO are invisible in the tree but common on
+ * A53 builds (see App.tsx).
  */
 export function emphasisPanels(insights: DtsInsights): Set<PanelKind> {
   const ubiquitous = new Set<PanelKind>(['gnss', 'audio', 'net'])

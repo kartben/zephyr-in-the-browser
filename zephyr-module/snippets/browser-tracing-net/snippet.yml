@@ -1,0 +1,7 @@
+name: browser-tracing-net
+description: >
+  Net-object CTF pins for traced networking samples, and keeps IPv6 off
+  (browser LAN is IPv4-only). Apply after browser-tracing / conf/net.conf.
+
+append:
+  EXTRA_CONF_FILE: browser-tracing-net.conf

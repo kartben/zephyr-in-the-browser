@@ -10,11 +10,14 @@
 #
 #   tools/build-zephyr-image.sh [board|all] [app|all]
 #     board  a board from tools/samples.manifest, or "all" (the default)
-#     app    an app id from the manifest, or "all" (the default)
+#     app    an app id from the manifest (or a <id>_trace twin), or "all"
 #
 # So a bare `tools/build-zephyr-image.sh` rebuilds every packaged sample for
 # every board. The board/app list lives in tools/samples.manifest — adding a
 # sample is one manifest line plus its entry in src/boards.ts, then a rerun.
+# On qemu_cortex_a53 each entry also yields a <id>_trace twin (browser-tracing
+# snippet) unless the sample already embeds CTF in its own prj.conf — see
+# docs/focus.md.
 #
 # Images land at public/qemu/zephyr/<board>/<app>.elf, named after the *program*
 # rather than the board — several apps run on one board, so a board-named file
@@ -29,14 +32,18 @@
 #   ZEPHYR_WS      west workspace   (default: ~/zephyrproject)
 #   ZEPHYR_IMAGE   container image  (default: ghcr.io/zephyrproject-rtos/zephyr-build:main)
 #   ZEPHYR_NATIVE  if non-empty, run west and the SDK tools directly instead of
-#                  in the container — for environments that already carry a
-#                  workspace, toolchains and west on PATH, like the CI runner
-#                  that .github/workflows/build-images.yml prepares with
-#                  zephyrproject-rtos/action-zephyr-setup.
+#                  in the container. Default when `west` is on PATH and ZEPHYR_WS
+#                  looks like a west workspace — preferred for local machines so
+#                  several apps can build in parallel without Docker overhead.
+#   ZEPHYR_DOCKER  if non-empty, force the container path even when native would
+#                  work (CI that wants Docker, or a broken local SDK).
+#   JOBS           max parallel builds (default: nproc on native, 1 in Docker —
+#                  each Docker invocation is already a full container; stacking
+#                  them thrashes disk. Native is the parallel path.)
 #
-# In the default (container) mode this needs no local Zephyr toolchain —
-# everything runs in the container. Build directories are per-app, so
-# independent invocations can run concurrently.
+# In container mode this needs no local Zephyr toolchain — everything runs in
+# the container. Build directories are per-app, so independent invocations can
+# run concurrently either way.
 #
 # To ship the result, run tools/release.sh images — it packages these into their
 # own release asset, separate from the emulator's, and points IMAGES_RELEASE at
@@ -54,6 +61,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="$ROOT/tools/samples.manifest"
 SHIELD=browser_bridge
 
+# Samples whose own prj.conf already enables CTF + semihost — no _trace twin.
+BUILTIN_TRACE_IDS='tracing tracing_pipeline'
+
 log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
 [ -d "$ZEPHYR_WS/zephyr" ] || {
@@ -61,22 +71,75 @@ log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
   exit 1
 }
 
+# Prefer a local west + SDK on the developer's machine. Docker remains available
+# via ZEPHYR_DOCKER=1, and CI that prepares a workspace sets ZEPHYR_NATIVE=1.
+if [ -n "${ZEPHYR_DOCKER:-}" ]; then
+  ZEPHYR_NATIVE=""
+elif [ -z "${ZEPHYR_NATIVE:-}" ]; then
+  if command -v west >/dev/null 2>&1; then
+    ZEPHYR_NATIVE=1
+    log "Using local Zephyr at $ZEPHYR_WS (set ZEPHYR_DOCKER=1 to force Docker)"
+  else
+    log "west not on PATH — falling back to Docker ($ZEPHYR_IMAGE)"
+  fi
+fi
+
+if [ -n "${ZEPHYR_NATIVE:-}" ]; then
+  JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+else
+  JOBS="${JOBS:-1}"
+fi
+
 # Manifest lines, comments and blanks stripped.
 ENTRIES="$(grep -Ev '^[[:space:]]*(#|$)' "$MANIFEST")"
 
 known_boards() { echo "$ENTRIES" | cut -d: -f1 | sort -u | tr '\n' ' '; }
 known_apps()   { echo "$ENTRIES" | awk -F: -v b="$1" '$1 == b {print $2}' | tr '\n' ' '; }
 
-if [ "$BOARD_FILTER" != "all" ] && ! echo "$ENTRIES" | grep -q "^$BOARD_FILTER:"; then
+is_builtin_trace() {
+  case " $BUILTIN_TRACE_IDS " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Expand each qemu_cortex_a53 row into a <id>_trace twin (browser-tracing snippet).
+# Keep in lockstep with withA53TraceVariants() in src/boards.ts.
+expand_trace_variants() {
+  local board id sample confs snippets t_snippets
+  while IFS=: read -r board id sample confs snippets; do
+    printf '%s:%s:%s:%s:%s\n' "$board" "$id" "$sample" "${confs:-}" "${snippets:-}"
+    [ "$board" = "qemu_cortex_a53" ] || continue
+    is_builtin_trace "$id" && continue
+    case "$id" in *_trace) continue ;; esac
+    case ",${confs:-}," in *,conf/tracing.conf,*|*,conf/tracing-net.conf,*) continue ;; esac
+
+    t_snippets="${snippets:-}"
+    if [ -n "$t_snippets" ]; then
+      t_snippets="$t_snippets,browser-tracing"
+    else
+      t_snippets="browser-tracing"
+    fi
+    case ",${confs:-}," in
+      *,conf/net.conf,*) t_snippets="$t_snippets,browser-tracing-net" ;;
+    esac
+    printf '%s:%s_trace:%s:%s:%s\n' "$board" "$id" "$sample" "${confs:-}" "$t_snippets"
+  done
+}
+
+EXPANDED="$(echo "$ENTRIES" | expand_trace_variants)"
+
+if [ "$BOARD_FILTER" != "all" ] && ! echo "$EXPANDED" | grep -q "^$BOARD_FILTER:"; then
   echo "Unknown board '$BOARD_FILTER'. Known: $(known_boards)" >&2
   exit 1
 fi
 
-SELECTED="$(echo "$ENTRIES" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
-  '(b == "all" || $1 == b) && (a == "all" || $2 == a)')"
+SELECTED="$(echo "$EXPANDED" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
+  '(b == "all" || $1 == b) && (a == "all" || $2 == a || $2 == a "_trace")')"
 [ -n "$SELECTED" ] || {
   echo "Unknown app '$APP_FILTER' for board '$BOARD_FILTER'." >&2
-  echo "Known apps for $BOARD_FILTER: $(known_apps "$BOARD_FILTER")" >&2
+  echo "Known base apps for $BOARD_FILTER: $(known_apps "$BOARD_FILTER")" >&2
+  echo "(A53 also accepts <app>_trace twins — see docs/focus.md.)" >&2
   exit 1
 }
 
@@ -84,7 +147,7 @@ SELECTED="$(echo "$ENTRIES" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
 # binding, plus the browser_bridge shield the module's board_root exposes and
 # the snippets its snippet_root exposes. Everything is passed as CMake args;
 # note that current Zephyr *rejects* -DCONFIG_* on the command line, so Kconfig
-# tweaks travel in .conf fragments listed per app in the manifest.
+# tweaks travel in .conf fragments listed per app in the manifest / snippets.
 #
 # The path depends on the mode: the container sees this repo mounted at /repo,
 # a native build uses it in place.
@@ -126,8 +189,8 @@ build_one() {
   fi
 
   # Stock samples live in the zephyr tree; a sample path starting with
-  # "zephyr-module/" is one of this repo's own apps under zephyr-module/apps/
-  # (none packaged right now), resolved from the repo instead.
+  # "zephyr-module/" is one of this repo's own apps under zephyr-module/apps/,
+  # resolved from the repo instead.
   local src="zephyr/$sample"
   case "$sample" in
     zephyr-module/*) src="$REPO_MOUNT/$sample" ;;
@@ -194,14 +257,43 @@ build_one() {
       "$(find "$dest/src/$id" -type f | command wc -l | xargs)"
   fi
 
-  # The picker in the UI only shows ids it knows about.
-  grep -q "id: '$id'" "$ROOT/src/boards.ts" \
-    || echo "    WARNING: '$id' is not listed in src/boards.ts — the UI cannot offer it." >&2
+  # The picker in the UI only shows ids it knows about. Traced twins are
+  # synthesised in boards.ts (withA53TraceVariants), not listed as literals.
+  local base_id="${id%_trace}"
+  if ! grep -q "id: '$base_id'" "$ROOT/src/boards.ts"; then
+    echo "    WARNING: '$base_id' is not listed in src/boards.ts — the UI cannot offer it." >&2
+  fi
 }
 
-while IFS=: read -r board id sample confs snippets; do
-  build_one "$board" "$id" "$sample" "${confs:-}" "${snippets:-}"
-done <<< "$SELECTED"
+# Parallel job pool. Each build_one has its own workdir; failures fail the script.
+run_pool() {
+  local -a pids=()
+  local -a specs=()
+  local line board id sample confs snippets rc=0 pid
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    specs+=("$line")
+  done <<< "$SELECTED"
+
+  log "Building ${#specs[@]} image(s) with up to $JOBS parallel job(s)"
+
+  for line in "${specs[@]}"; do
+    IFS=: read -r board id sample confs snippets <<< "$line"
+    build_one "$board" "$id" "$sample" "${confs:-}" "${snippets:-}" &
+    pids+=("$!")
+    if [ "${#pids[@]}" -ge "$JOBS" ]; then
+      pid="${pids[0]}"
+      pids=("${pids[@]:1}")
+      wait "$pid" || rc=1
+    fi
+  done
+  for pid in "${pids[@]}"; do
+    wait "$pid" || rc=1
+  done
+  return "$rc"
+}
+
+run_pool
 
 log "Done"
 for board_dir in $(echo "$SELECTED" | cut -d: -f1 | tr '/' '_' | sort -u); do
@@ -210,7 +302,8 @@ for board_dir in $(echo "$SELECTED" | cut -d: -f1 | tr '/' '_' | sort -u); do
 done
 cat <<EOF
 
-App ids must match the samples listed per board in src/boards.ts.
+App ids must match the samples listed per board in src/boards.ts
+(including A53 <id>_trace twins from withA53TraceVariants).
 Board argv comes from Zephyr's own boards/qemu/<board>/board.cmake.
 Ship it: tools/release.sh images --deploy   (no QEMU rebuild needed)
 EOF

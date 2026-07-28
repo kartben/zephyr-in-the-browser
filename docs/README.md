@@ -6,6 +6,7 @@ other end of the wire.
 
 | Document | What it covers |
 | --- | --- |
+| [focus.md](focus.md) | Cortex-A53 is the primary board; with/without tracing sample variants |
 | [peripherals.md](peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the vendored drivers behind snippets, and touch input |
 | [pwm-leds.md](pwm-leds.md) | Spec: `pwm-leds` dock strip beside the PWM duty chart |
 | [gpio-controller.md](gpio-controller.md) | Spec (Proposal B): claimed-pin GPIO table + `used by` reveal |

@@ -79,7 +79,11 @@ export function sampleDocs(sample: GuestSample, manifest: DocsManifest | null): 
   const path = sample.zephyrSample
   const entry = manifest?.samples[path]
   const docs: SampleDocs = {
-    title: entry?.title?.trim() || sample.label,
+    // Traced twins share the upstream docs page with the base sample; keep the
+    // title clean and let the gallery's "traced" badge carry the distinction.
+    title:
+      entry?.title?.trim() ||
+      (sample.tracedFrom ? sample.label.replace(/\s*·\s*traced$/, '') : sample.label),
     description: entry?.description?.trim() || sample.description,
   }
   if (!path.startsWith('zephyr-module/')) {

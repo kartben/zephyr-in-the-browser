@@ -58,6 +58,7 @@ import {
   getSample,
   sampleAnnotationsAsset,
   samplePrimaryPanels,
+  type PanelKind,
 } from '@/boards'
 
 /**
@@ -189,15 +190,23 @@ export default function App() {
 
   /*
    * What opens expanded: the sample's primaryPanels, a DTS-grounded custom
-   * ELF's emphasis set, or everything for an ELF whose peripherals are
-   * unknowable. These feed the dock's per-selection seed — user expansion
-   * choices override the seed and survive a same-selection reload, and a new
-   * selection reseeds (dockStore's contract).
+   * ELF's emphasis set (always including Trace + Debug — dropped ELFs may
+   * have CTF semihosting / DEBUG_THREAD_INFO), or everything for an ELF whose
+   * peripherals are unknowable. These feed the dock's per-selection seed —
+   * user expansion choices override the seed and survive a same-selection
+   * reload, and a new selection reseeds (dockStore's contract).
    */
-  const primaryPanels =
-    customImage !== null && deviceTree?.insights
-      ? emphasisPanels(deviceTree.insights)
-      : samplePrimaryPanels(getBoard(boardId), sampleId)
+  const primaryPanels = (() => {
+    if (customImage !== null && deviceTree?.insights) {
+      return new Set<PanelKind>([...emphasisPanels(deviceTree.insights), 'trace', 'debug'])
+    }
+    if (customImage !== null) {
+      // expandAll covers interactive dock rows; still seed Trace + Debug so
+      // the stage panels open even before anything is discovered.
+      return new Set<PanelKind>(['trace', 'debug'])
+    }
+    return samplePrimaryPanels(getBoard(boardId), sampleId)
+  })()
   const expandAllPanels = customImage !== null && !deviceTree?.insights
   useEffect(() => {
     seedForSelection(
