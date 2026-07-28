@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as d3 from 'd3'
 import {
+  advanceFlowCursor,
   flowEdgeId,
   flowThreadLabel,
   isPutOp,
@@ -796,19 +797,17 @@ export function QueueGraph({
     if (pipeDragRef.current) pipeMerged.call(pipeDragRef.current)
 
     const flow = queueFlowEvents(tr)
-    const newest = flow.filter((ev) => ev.index > lastIndexRef.current)
-    const firstPaint = lastIndexRef.current < 0
-    if (newest.length) {
-      lastIndexRef.current = flow[flow.length - 1]!.index
+    const adv = advanceFlowCursor(flow, lastIndexRef.current)
+    lastIndexRef.current = adv.nextIndex
+    if (adv.kind === 'delta' && adv.newest.length) {
       const bursts = d3.group(
-        newest.filter((ev) => ev.ok && ev.threadId != null),
+        adv.newest.filter((ev) => ev.ok && ev.threadId != null),
         (ev) => flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }),
       )
       for (const events of bursts.values()) {
         fireBurst(events, layout, layers.packets, edgeStateRef.current)
       }
-    } else if (firstPaint) {
-      lastIndexRef.current = flow.length ? flow[flow.length - 1]!.index : -1
+    } else if (adv.kind === 'first') {
       const recent = flow.filter((ev) => ev.ok && ev.threadId != null).slice(-10)
       const now = performance.now()
       for (const ev of recent) {
@@ -825,6 +824,7 @@ export function QueueGraph({
         )
       }
     }
+    // adv.kind === 'trimmed': cursor rewound with the ring; wait for new appends.
 
     paintFrame(layers, layout, edgeStateRef.current, threadDragRef.current)
 

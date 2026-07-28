@@ -378,6 +378,23 @@ export function fmtTime(ns: number): string {
 }
 
 /**
+ * Axis / hover label for a relative timestamp. Unit follows `stepNs` so adjacent
+ * ticks stay distinguishable; past 1s the label switches to seconds so zoomed
+ * windows don't read as `5776.375ms`.
+ */
+export function fmtAxisTime(relNs: number, stepNs: number): string {
+  const step = Math.max(1, Math.abs(stepNs))
+  const abs = Math.abs(relNs)
+  if (abs >= 1_000_000_000 || step >= 100_000_000) {
+    const decimals = step >= 1_000_000 ? 3 : step >= 100_000 ? 4 : 6
+    return `${(relNs / 1_000_000_000).toFixed(decimals)}s`
+  }
+  if (step >= 100_000) return `${(relNs / 1_000_000).toFixed(3)}ms`
+  if (step >= 100) return `${(relNs / 1_000).toFixed(3)}µs`
+  return `${Math.round(relNs)}ns`
+}
+
+/**
  * Nice tick spacing for a time-axis spanning `spanNs`, aiming for ~target ticks.
  * Returns a step in nanoseconds from a 1/2/5×10^n ladder.
  */
@@ -389,6 +406,20 @@ export function niceTimeStep(spanNs: number, targetTicks = 5): number {
   const norm = raw / mag
   const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10
   return nice * mag
+}
+
+/** Major tick timestamps for [view0, view1], inclusive of edges when they land on-step. */
+export function timeTickValues(
+  view0: number,
+  view1: number,
+  targetTicks = 5,
+): { values: number[]; step: number } {
+  const span = Math.max(1, view1 - view0)
+  const step = niceTimeStep(span, targetTicks)
+  const values: number[] = []
+  const first = Math.ceil(view0 / step) * step
+  for (let t = first; t <= view1 + step * 0.01; t += step) values.push(t)
+  return { values, step }
 }
 
 /**
