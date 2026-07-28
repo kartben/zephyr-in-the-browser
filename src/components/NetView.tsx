@@ -96,13 +96,18 @@ function paint(
   if (sockets.length === 0) {
     ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
-    ctx.fillText('No socket CTF events in this window yet.', LABEL_W, AXIS_H + 28)
+    ctx.fillText('No socket CTF events in this trace yet.', LABEL_W, AXIS_H + 28)
     ctx.fillStyle = 'rgba(100, 116, 139, 0.9)'
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif'
     ctx.fillText(
-      'Needs CONFIG_TRACING_NET_SOCKETS (on by default for net samples like zperf).',
+      'Run a socket workload (e.g. zperf udp upload 192.0.2.2 5001 …).',
       LABEL_W,
-      AXIS_H + 48,
+      AXIS_H + 46,
+    )
+    ctx.fillText(
+      'Guest needs CONFIG_TRACING_NET_SOCKETS (+ matching CTF address width).',
+      LABEL_W,
+      AXIS_H + 62,
     )
     canvas.style.height = `${cssH}px`
     return
