@@ -96,3 +96,72 @@ export function threadFlowScores(events: QueueFlowEvent[]): Map<number, number> 
 export function flowThreadLabel(tr: Trace, tid: number): string {
   return threadLabel(tr, tid)
 }
+
+type PipelineQueue = { id: number; name?: string | null }
+
+/**
+ * Longest-path ranks on the thread↔queue flow DAG (Sugiyama layer assignment).
+ * Producer→queue→consumer→queue pipelines read top-to-bottom / early-to-late.
+ */
+export function queuePipelineRanks(tr: Trace, queueIds: Iterable<number>): Map<number, number> {
+  const qids = [...new Set(queueIds)]
+  const ranks = new Map(qids.map((id) => [id, 0]))
+  if (qids.length === 0) return ranks
+
+  const flow = queueFlowEvents(tr)
+  const valid = flow.filter((ev) => ev.ok && ev.threadId != null && ranks.has(ev.queueId))
+  const threadIds = [...new Set(valid.map((ev) => ev.threadId!))]
+
+  const nodeIds = [...threadIds.map((tid) => `t:${tid}`), ...qids.map((id) => `q:${id}`)]
+  const outgoing = new Map(nodeIds.map((id) => [id, new Set<string>()]))
+  const indegree = new Map(nodeIds.map((id) => [id, 0]))
+  const seen = new Set<string>()
+  for (const ev of valid) {
+    const edge = `${ev.threadId}|${ev.queueId}|${ev.op}`
+    if (seen.has(edge)) continue
+    seen.add(edge)
+    const from = ev.op === 'get' ? `q:${ev.queueId}` : `t:${ev.threadId}`
+    const to = ev.op === 'get' ? `t:${ev.threadId}` : `q:${ev.queueId}`
+    if (!outgoing.get(from)!.has(to)) {
+      outgoing.get(from)!.add(to)
+      indegree.set(to, (indegree.get(to) ?? 0) + 1)
+    }
+  }
+
+  const nodeRank = new Map(nodeIds.map((id) => [id, 0]))
+  const ready = nodeIds.filter((id) => indegree.get(id) === 0)
+  for (let i = 0; i < ready.length; i++) {
+    const id = ready[i]!
+    for (const next of outgoing.get(id)!) {
+      nodeRank.set(next, Math.max(nodeRank.get(next) ?? 0, (nodeRank.get(id) ?? 0) + 1))
+      indegree.set(next, indegree.get(next)! - 1)
+      if (indegree.get(next) === 0) ready.push(next)
+    }
+  }
+
+  for (const id of qids) ranks.set(id, nodeRank.get(`q:${id}`) ?? 0)
+  return ranks
+}
+
+/**
+ * Order queues for the depth chart and topology graph: longest-path pipeline
+ * rank first, then name / id. Matches the Sugiyama layering used for layout.
+ */
+export function sortQueuesByPipelineOrder<T extends PipelineQueue>(tr: Trace, queues: T[]): T[] {
+  if (queues.length <= 1) return queues
+  const ranks = queuePipelineRanks(
+    tr,
+    queues.map((q) => q.id),
+  )
+  return [...queues].sort((a, b) => {
+    const ra = ranks.get(a.id) ?? 0
+    const rb = ranks.get(b.id) ?? 0
+    if (ra !== rb) return ra - rb
+    const an = a.name ?? null
+    const bn = b.name ?? null
+    if (an && bn && an !== bn) return an.localeCompare(bn)
+    if (an && !bn) return -1
+    if (!an && bn) return 1
+    return a.id - b.id
+  })
+}

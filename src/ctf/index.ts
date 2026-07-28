@@ -70,6 +70,8 @@ export {
   flowThreadLabel,
   isPutOp,
   mouthForOp,
+  queuePipelineRanks,
+  sortQueuesByPipelineOrder,
   type QueueFlowEvent,
   type QueueFlowOp,
   type MsgqMouth,
