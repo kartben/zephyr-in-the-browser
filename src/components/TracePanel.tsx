@@ -4,7 +4,8 @@
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch). Optional msgq
  * swim lanes line data-passing objects under the threads, with dotted
- * put/get connectors from the actor thread to each queue rail.
+ * put/get connectors from the actor thread to each queue rail. Lane groups
+ * (THREADS, MESSAGE QUEUES, …) carry small uppercase section headers.
  * Message Queues: per-msgq flow graph + depth from put/put_front/get exits.
  */
 
@@ -94,10 +95,26 @@ const ZOOM_OUT = 1.4
 const PAN_THRESHOLD_PX = 8
 /** Pixel thinning for msgq marks / connectors on a single lane. */
 const MSGQ_MARK_MIN_GAP_PX = 5
-/** Gap between thread/ISR block and msgq swim lanes. */
-const MSGQ_SECTION_GAP = 10
+/** Small-caps group title row above each lane block (threads, msgq, …). */
+const SECTION_HEADER_H = 15
+/** Breath between consecutive Timeline groups. */
+const SECTION_GAP = 4
 
 type LaneSize = 's' | 'm' | 'l'
+
+/** Known Timeline lane groups — extend as FIFO / LIFO / pipes land. */
+type TimelineSectionId = 'threads' | 'msgq'
+
+type TimelineSection = {
+  id: TimelineSectionId
+  /** Uppercase group label painted in the section header. */
+  title: string
+  headerTop: number
+  lanesTop: number
+  laneH: number
+  rowCount: number
+  bottom: number
+}
 
 const LANE_SIZES: Record<LaneSize, { thread: number; label: string }> = {
   s: { thread: 16, label: 'Compact' },
@@ -121,12 +138,17 @@ type LaneMetrics = { laneH: number; msgqLaneH: number }
 type TimelineGeom = {
   lanes: number[]
   hasIsr: boolean
+  /** All painted groups in top→bottom order (headers + lanes). */
+  sections: TimelineSection[]
   lanesTop: number
   threadBlockRows: number
   threadsBottom: number
   showQueues: boolean
+  queueHeaderTop: number
   queueTop: number
   queueBlockH: number
+  /** Bottom of the last section (playhead / canvas height). */
+  contentBottom: number
   laneH: number
   msgqLaneH: number
 }
@@ -179,22 +201,79 @@ function timelineGeom(
   const hasIsr = tr.isrSpans.length > 0
   const showQueues = showMsgq && queueCount > 0
   const threadBlockRows = lanes.length + (hasIsr ? 1 : 0)
-  const lanesTop = AXIS_H
+
+  const threadsHeaderTop = AXIS_H
+  const lanesTop = threadsHeaderTop + SECTION_HEADER_H
   const threadsBottom = lanesTop + threadBlockRows * metrics.laneH
-  const queueBlockH = showQueues ? MSGQ_SECTION_GAP + queueCount * metrics.msgqLaneH : 0
-  const queueTop = threadsBottom + (showQueues ? MSGQ_SECTION_GAP : 0)
+  const threads: TimelineSection = {
+    id: 'threads',
+    title: 'THREADS',
+    headerTop: threadsHeaderTop,
+    lanesTop,
+    laneH: metrics.laneH,
+    rowCount: threadBlockRows,
+    bottom: threadsBottom,
+  }
+
+  const sections: TimelineSection[] = [threads]
+  let queueHeaderTop = threadsBottom
+  let queueTop = threadsBottom
+  let queueBlockH = 0
+  let contentBottom = threadsBottom
+
+  if (showQueues) {
+    queueHeaderTop = threadsBottom + SECTION_GAP
+    queueTop = queueHeaderTop + SECTION_HEADER_H
+    const queuesBottom = queueTop + queueCount * metrics.msgqLaneH
+    queueBlockH = queuesBottom - threadsBottom
+    contentBottom = queuesBottom
+    sections.push({
+      id: 'msgq',
+      title: 'MESSAGE QUEUES',
+      headerTop: queueHeaderTop,
+      lanesTop: queueTop,
+      laneH: metrics.msgqLaneH,
+      rowCount: queueCount,
+      bottom: queuesBottom,
+    })
+  }
+
   return {
     lanes,
     hasIsr,
+    sections,
     lanesTop,
     threadBlockRows,
     threadsBottom,
     showQueues,
+    queueHeaderTop,
     queueTop,
     queueBlockH,
+    contentBottom,
     laneH: metrics.laneH,
     msgqLaneH: metrics.msgqLaneH,
   }
+}
+
+/** Small uppercase group title above a lane block. */
+function paintSectionHeader(
+  ctx: CanvasRenderingContext2D,
+  title: string,
+  y: number,
+  cssW: number,
+) {
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.65)'
+  ctx.fillRect(0, y, cssW - PAD, SECTION_HEADER_H)
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(4, y + SECTION_HEADER_H - 0.5)
+  ctx.lineTo(cssW - PAD, y + SECTION_HEADER_H - 0.5)
+  ctx.stroke()
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.72)'
+  ctx.font = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(title, 4, y + SECTION_HEADER_H / 2)
 }
 
 function depthLabel(series: QueueSeries, ts: number): string {
@@ -342,8 +421,8 @@ function paint(
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
   const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
-  const { lanes, hasIsr, lanesTop, laneH, msgqLaneH, showQueues, queueTop, queueBlockH } = geom
-  const cssH = Math.max(120, geom.threadsBottom + queueBlockH + 8)
+  const { lanes, hasIsr, lanesTop, laneH, msgqLaneH, showQueues, queueTop, contentBottom } = geom
+  const cssH = Math.max(120, contentBottom + 8)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width = Math.floor(cssW * dpr)
     canvas.height = Math.floor(cssH * dpr)
@@ -373,6 +452,10 @@ function paint(
     t0: tr.t0,
     follow,
   })
+
+  for (const section of geom.sections) {
+    paintSectionHeader(ctx, section.title, section.headerTop, cssW)
+  }
 
   // --- Thread lanes ------------------------------------------------------
   ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
@@ -416,9 +499,8 @@ function paint(
     ctx.globalAlpha = 1
   })
 
-  let isrTop = lanesTop + lanes.length * laneH
   if (hasIsr) {
-    const y = isrTop
+    const y = lanesTop + lanes.length * laneH
     ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
@@ -430,7 +512,6 @@ function paint(
       ctx.fillStyle = 'rgba(168, 85, 247, 0.8)'
       ctx.fillRect(x0, y + 3, Math.max(2, x1 - x0), laneH - 6)
     }
-    isrTop += laneH
   }
 
   // --- Msgq swim lanes + dotted connectors -------------------------------
@@ -441,15 +522,6 @@ function paint(
     const ARROW_H = 6
 
     if (showQueues) {
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)'
-      ctx.lineWidth = 1
-      ctx.setLineDash([3, 3])
-      ctx.beginPath()
-      ctx.moveTo(4, isrTop + MSGQ_SECTION_GAP / 2)
-      ctx.lineTo(cssW - PAD, isrTop + MSGQ_SECTION_GAP / 2)
-      ctx.stroke()
-      ctx.setLineDash([])
-
       ctx.fillStyle = 'rgba(8, 47, 73, 0.35)'
       ctx.fillRect(LABEL_W, queueTop, plotW, queueLanes.length * msgqLaneH)
 
@@ -629,7 +701,7 @@ function paint(
       paintPlayhead(ctx, {
         x,
         y0: AXIS_H,
-        y1: geom.threadsBottom + queueBlockH,
+        y1: contentBottom,
       })
     }
   }
@@ -1205,9 +1277,9 @@ function TracePanelBody({
     }
     // Tap on a lane label selects it and opens Debug → Threads.
     if (x < LABEL_W && y >= AXIS_H) {
-      const row = Math.floor((y - AXIS_H) / laneMetrics.laneH)
-      const order = visibleLanes(tr)
-      if (row >= 0 && row < order.length) selectLane(order[row]!)
+      const geom = timelineGeom(tr, showMsgq, queueLanes.length, laneMetrics)
+      const row = Math.floor((y - geom.lanesTop) / geom.laneH)
+      if (row >= 0 && row < geom.lanes.length) selectLane(geom.lanes[row]!)
     }
   }
 
