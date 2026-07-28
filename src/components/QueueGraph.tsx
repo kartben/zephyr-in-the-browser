@@ -748,14 +748,11 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
   const y0 = -PIPE_H / 2
   const y1 = PIPE_H / 2
 
-  // Flat tube: one quiet silhouette, not a stack of shiny rounded rectangles.
-  // The slight bow gives the cylinder its form without a gradient or a heavy rim.
+  // A constant-height barrel keeps its top and bottom edges genuinely parallel.
+  // Perspective comes only from the end caps, not from a tapered silhouette.
   g.append('path')
     .attr('class', 'barrel')
-    .attr(
-      'd',
-      `M${x0},${y0 + 3} Q0,${y0 - 3} ${x1},${y0 + 3} L${x1},${y1 - 3} Q0,${y1 + 3} ${x0},${y1 - 3} Z`,
-    )
+    .attr('d', `M${x0},${y0} H${x1} V${y1} H${x0} Z`)
     .attr('fill', '#151f30')
     .attr('stroke', 'rgba(203,213,225,0.72)')
     .attr('stroke-width', 0.85)
