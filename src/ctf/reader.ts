@@ -379,12 +379,16 @@ export function fmtTime(ns: number): string {
 
 /**
  * Axis / hover label for a relative timestamp. Unit follows `stepNs` so adjacent
- * ticks stay distinguishable (e.g. 200 µs steps → `12.400ms`, not `0.012s`).
+ * ticks stay distinguishable; past 1s the label switches to seconds so zoomed
+ * windows don't read as `5776.375ms`.
  */
 export function fmtAxisTime(relNs: number, stepNs: number): string {
   const step = Math.max(1, Math.abs(stepNs))
-  // Coarsest unit where the step still carries ≥0.1 of that unit.
-  if (step >= 100_000_000) return `${(relNs / 1_000_000_000).toFixed(3)}s`
+  const abs = Math.abs(relNs)
+  if (abs >= 1_000_000_000 || step >= 100_000_000) {
+    const decimals = step >= 1_000_000 ? 3 : step >= 100_000 ? 4 : 6
+    return `${(relNs / 1_000_000_000).toFixed(decimals)}s`
+  }
   if (step >= 100_000) return `${(relNs / 1_000_000).toFixed(3)}ms`
   if (step >= 100) return `${(relNs / 1_000).toFixed(3)}µs`
   return `${Math.round(relNs)}ns`

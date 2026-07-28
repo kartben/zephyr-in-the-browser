@@ -111,7 +111,7 @@ describe('queueChartEvents / nearestQueueChartEvent', () => {
     expect(chart).toHaveLength(2)
     expect(chart[0]).toMatchObject({ op: 'put', ok: true, threadId: thr })
     expect(chart[1]).toMatchObject({ op: 'purge', ok: true, queueId: q, threadId: thr })
-    expect(queueChartOpLabel('purge')).toBe('k_msgq_purge')
+    expect(queueChartOpLabel('purge')).toBe('purge')
   })
 
   it('picks the nearest event for a queue within the delta window', () => {

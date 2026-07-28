@@ -2,8 +2,8 @@
  * Message-queue depth history chart — depth replayed from put/get/purge exits.
  *
  * Full d3 SVG chart (scales, area/line series, axes). Shares the Trace panel's
- * time window (follow / pan / zoom). Hover shows timestamp, depth, and the
- * nearest msgq CTF event.
+ * time window (follow / pan / zoom). Transition dots mark depth changes; hover
+ * a dot for a short tip (time, depth, op, thread).
  */
 
 import * as d3 from 'd3'
@@ -44,6 +44,7 @@ const BOTTOM_AXIS_H = 36
 const ROW_H = 72
 const PLOT_PAD_TOP = 14
 const PLOT_PAD_BOT = 6
+/** Only tip when the pointer is this close to a transition dot. */
 const SNAP_PX = 10
 
 const AXIS_STROKE = 'rgba(148, 163, 184, 0.55)'
@@ -52,6 +53,14 @@ const GRID_STROKE = 'rgba(148, 163, 184, 0.14)'
 const AREA_FILL = 'rgba(96, 165, 250, 0.35)'
 const LINE_STROKE = 'rgba(147, 197, 253, 0.95)'
 const CAP_STROKE = 'rgba(244, 63, 94, 0.75)'
+const DOT_FILL = 'rgba(226, 232, 240, 0.95)'
+const DOT_STROKE = 'rgba(59, 130, 246, 0.95)'
+
+type TransitionMark = {
+  ts: number
+  depth: number
+  event: QueueChartEvent | null
+}
 
 type HoverTip = {
   x: number
@@ -71,6 +80,7 @@ type RowLayout = {
   yMax: number
   yScale: d3.ScaleLinear<number, number>
   points: QueueSample[]
+  marks: TransitionMark[]
 }
 
 function msgqNameMap(): Map<number, string> {
@@ -105,6 +115,46 @@ function windowPoints(q: QueueSeries, view0: number, view1: number): QueueSample
   return pts
 }
 
+/** Real depth-change samples inside the window (not synthetic edges). */
+function transitionMarks(
+  q: QueueSeries,
+  events: QueueChartEvent[],
+  view0: number,
+  view1: number,
+): TransitionMark[] {
+  const marks: TransitionMark[] = []
+  for (const s of q.samples) {
+    if (s.ts < view0 || s.ts > view1) continue
+    // Exact CTF exit at this sample, else null (still a depth transition).
+    const event = nearestQueueChartEvent(events, q.id, s.ts, 0)
+    marks.push({ ts: s.ts, depth: s.depth, event })
+  }
+  return marks
+}
+
+function nearestMark(marks: TransitionMark[], ts: number, maxDeltaNs: number): TransitionMark | null {
+  if (marks.length === 0 || maxDeltaNs < 0) return null
+  let lo = 0
+  let hi = marks.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (marks[mid]!.ts < ts) lo = mid + 1
+    else hi = mid
+  }
+  let best: TransitionMark | null = null
+  let bestDelta = maxDeltaNs
+  for (const i of [lo, lo - 1]) {
+    const m = marks[i]
+    if (!m) continue
+    const d = Math.abs(m.ts - ts)
+    if (d <= bestDelta) {
+      best = m
+      bestDelta = d
+    }
+  }
+  return best
+}
+
 function styleAxis(g: d3.Selection<SVGGElement, unknown, null, undefined>): void {
   g.select('.domain').attr('stroke', AXIS_STROKE).attr('stroke-width', 1)
   g.selectAll('.tick line').attr('stroke', AXIS_STROKE)
@@ -114,10 +164,16 @@ function styleAxis(g: d3.Selection<SVGGElement, unknown, null, undefined>): void
     .attr('font-size', '10px')
 }
 
+function clearDomSelection(): void {
+  const sel = typeof window !== 'undefined' ? window.getSelection?.() : null
+  sel?.removeAllRanges()
+}
+
 function renderChart(
   svg: SVGSVGElement,
   tr: Trace,
   queues: QueueSeries[],
+  events: QueueChartEvent[],
   view0: number,
   view1: number,
   follow: boolean,
@@ -145,14 +201,12 @@ function renderChart(
   let frame = root.select<SVGGElement>('g.frame')
   if (frame.empty()) frame = root.append('g').attr('class', 'frame')
 
-  // Background
   let bg = frame.select<SVGRectElement>('rect.chart-bg')
   if (bg.empty()) {
     bg = frame.append('rect').attr('class', 'chart-bg').attr('fill', 'rgba(2, 6, 23, 0.35)')
   }
   bg.attr('width', cssW).attr('height', cssH)
 
-  // LIVE / t→ badge
   let badge = frame.select<SVGTextElement>('text.live-badge')
   if (badge.empty()) {
     badge = frame
@@ -172,7 +226,6 @@ function renderChart(
     badge.attr('x', 4).attr('fill', 'rgba(148, 163, 184, 0.7)').attr('text-anchor', 'start').text('t →')
   }
 
-  // Empty state
   let empty = frame.select<SVGTextElement>('text.empty')
   if (queues.length === 0) {
     if (empty.empty()) {
@@ -188,7 +241,6 @@ function renderChart(
     empty.remove()
   }
 
-  // Vertical grid
   let grid = frame.select<SVGGElement>('g.grid')
   if (grid.empty()) grid = frame.append('g').attr('class', 'grid')
   grid
@@ -216,6 +268,7 @@ function renderChart(
       yMax,
       yScale,
       points: windowPoints(queue, view0, view1),
+      marks: transitionMarks(queue, events, view0, view1),
     }
   })
 
@@ -236,6 +289,7 @@ function renderChart(
       g.append('path').attr('class', 'depth-area')
       g.append('path').attr('class', 'depth-line')
       g.append('line').attr('class', 'baseline')
+      g.append('g').attr('class', 'marks')
       return g
     })
 
@@ -283,6 +337,7 @@ function renderChart(
       .tickValues(depthTicks(d.yMax))
       .tickSize(0)
       .tickPadding(4)
+      .tickFormat((v) => String(v))
     const yG = g.select<SVGGElement>('g.y-axis')
     yG.attr('transform', `translate(${LABEL_W},0)`).call(yAxis)
     yG.select('.domain').attr('stroke', 'none')
@@ -333,9 +388,19 @@ function renderChart(
       .attr('y2', d.plotTop + d.plotH)
       .attr('stroke', 'rgba(148, 163, 184, 0.25)')
       .attr('stroke-width', 1)
+
+    g.select<SVGGElement>('g.marks')
+      .selectAll<SVGCircleElement, TransitionMark>('circle')
+      .data(d.marks, (m) => String(m.ts))
+      .join('circle')
+      .attr('cx', (m) => xScale(m.ts))
+      .attr('cy', (m) => d.yScale(m.depth))
+      .attr('r', 2.75)
+      .attr('fill', DOT_FILL)
+      .attr('stroke', DOT_STROKE)
+      .attr('stroke-width', 1.25)
   })
 
-  // Bottom time axis
   let xAxisG = frame.select<SVGGElement>('g.x-axis')
   if (xAxisG.empty()) xAxisG = frame.append('g').attr('class', 'x-axis')
   const xAxis = d3
@@ -347,38 +412,9 @@ function renderChart(
     .tickFormat((t) => fmtAxisTime(Number(t) - tr.t0, step))
   xAxisG.attr('transform', `translate(0,${plotBottom + 4})`).call(xAxis)
   styleAxis(xAxisG)
+  // Drop the old edge-left / edge-right clones — ticks already cover the range.
+  frame.selectAll('text.edge-left, text.edge-right').remove()
 
-  let edgeL = frame.select<SVGTextElement>('text.edge-left')
-  if (edgeL.empty()) {
-    edgeL = frame
-      .append('text')
-      .attr('class', 'edge-left')
-      .attr('fill', 'rgba(148, 163, 184, 0.85)')
-      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-      .attr('font-size', '9px')
-      .attr('text-anchor', 'start')
-  }
-  edgeL
-    .attr('x', LABEL_W)
-    .attr('y', plotBottom + BOTTOM_AXIS_H - 2)
-    .text(fmtAxisTime(view0 - tr.t0, step))
-
-  let edgeR = frame.select<SVGTextElement>('text.edge-right')
-  if (edgeR.empty()) {
-    edgeR = frame
-      .append('text')
-      .attr('class', 'edge-right')
-      .attr('fill', 'rgba(148, 163, 184, 0.85)')
-      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-      .attr('font-size', '9px')
-      .attr('text-anchor', 'end')
-  }
-  edgeR
-    .attr('x', LABEL_W + plotW)
-    .attr('y', plotBottom + BOTTOM_AXIS_H - 2)
-    .text(fmtAxisTime(view1 - tr.t0, step))
-
-  // Hover crosshair + marker
   let hoverG = frame.select<SVGGElement>('g.hover')
   if (hoverG.empty()) {
     hoverG = frame.append('g').attr('class', 'hover').style('pointer-events', 'none')
@@ -402,10 +438,10 @@ function renderChart(
         .select('circle.marker')
         .attr('cx', hover.x)
         .attr('cy', row.yScale(hover.depth))
-        .attr('r', 3.5)
-        .attr('fill', 'rgba(250, 250, 250, 0.95)')
-        .attr('stroke', 'rgba(59, 130, 246, 0.95)')
-        .attr('stroke-width', 1.5)
+        .attr('r', 4.5)
+        .attr('fill', 'rgba(250, 250, 250, 0.98)')
+        .attr('stroke', 'rgba(59, 130, 246, 1)')
+        .attr('stroke-width', 1.75)
         .style('display', null)
     } else {
       hoverG.select('circle.marker').style('display', 'none')
@@ -418,23 +454,16 @@ function renderChart(
   return layouts
 }
 
+/** Two-line tip: time · depth, then op · thread when on a transition. */
 function tipLines(tr: Trace, tip: HoverTip): string[] {
-  const lines = [
-    queueLabel(tip.queue),
-    `t = ${fmtAxisTime(tip.ts - tr.t0, Math.max(1, tip.step / 10))}`,
-    tip.queue.cap != null
-      ? `depth ${tip.depth} / cap ${tip.queue.cap}`
-      : `depth ${tip.depth}`,
-  ]
+  const depth =
+    tip.queue.cap != null ? `d${tip.depth}/${tip.queue.cap}` : `d${tip.depth}`
+  const lines = [`${fmtAxisTime(tip.ts - tr.t0, tip.step)} · ${depth}`]
   if (tip.event) {
     const who =
-      tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : 'unknown thread'
-    const outcome = tip.event.op === 'purge' ? '' : tip.event.ok ? ' · ok' : ' · failed'
-    lines.push(`${queueChartOpLabel(tip.event.op)}${outcome}`)
-    lines.push(`by ${who}`)
-    if (tip.event.ts !== tip.ts) {
-      lines.push(`event @ ${fmtAxisTime(tip.event.ts - tr.t0, Math.max(1, tip.step / 10))}`)
-    }
+      tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : '?'
+    const fail = tip.event.ok || tip.event.op === 'purge' ? '' : '!'
+    lines.push(`${queueChartOpLabel(tip.event.op)}${fail} · ${who}`)
   }
   return lines
 }
@@ -488,8 +517,17 @@ export function QueuesView({
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
-    layoutsRef.current = renderChart(svg, tr, queues, view0, view1, follow, hover)
-  }, [tr, queues, view0, view1, follow, svgRef, hover])
+    layoutsRef.current = renderChart(
+      svg,
+      tr,
+      queues,
+      chartEvents,
+      view0,
+      view1,
+      follow,
+      hover,
+    )
+  }, [tr, queues, chartEvents, view0, view1, follow, svgRef, hover])
 
   useEffect(() => {
     const host = hostRef.current
@@ -500,6 +538,7 @@ export function QueuesView({
         svg,
         tr,
         queuesRef.current,
+        eventsRef.current,
         view0,
         view1,
         follow,
@@ -524,31 +563,41 @@ export function QueuesView({
       if (x < LABEL_W || x > LABEL_W + plotW || y < TOP_H || y >= plotBottom) return null
       const row = Math.floor((y - TOP_H) / ROW_H)
       if (row < 0 || row >= qs.length) return null
+      const layout = layoutsRef.current[row]
       const q = qs[row]!
       const span = Math.max(1, v1 - v0)
       const { step } = timeTickValues(v0, v1, Math.max(4, Math.floor(plotW / 56)))
-      let ts = xScale.invert(x)
+      const ts = xScale.invert(x)
+      const marks =
+        layout?.marks ?? transitionMarks(q, eventsRef.current, v0, v1)
       const snapDelta = (SNAP_PX / plotW) * span
-      const infoDelta = Math.max(snapDelta, span * 0.03)
-      const snapEvent = nearestQueueChartEvent(eventsRef.current, q.id, ts, snapDelta)
-      const event =
-        snapEvent ?? nearestQueueChartEvent(eventsRef.current, q.id, ts, infoDelta)
-      if (snapEvent) ts = snapEvent.ts
+      const mark = nearestMark(marks, ts, snapDelta)
+      // Tips only on transition dots — no “nearest event” while scrubbing flats.
+      if (!mark) return null
       return {
-        x: xScale(ts),
+        x: xScale(mark.ts),
         y: TOP_H + row * ROW_H + ROW_H / 2,
-        ts,
+        ts: mark.ts,
         step,
         queue: q,
-        depth: depthAt(q.samples, ts),
-        event,
+        depth: mark.depth,
+        event: mark.event,
       }
     },
     [],
   )
 
+  const onPointerDown = useCallback(
+    (e: ReactPointerEvent<SVGSVGElement>) => {
+      clearDomSelection()
+      surfaceProps?.onPointerDown?.(e)
+    },
+    [surfaceProps],
+  )
+
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<SVGSVGElement>) => {
+      if (e.buttons !== 0) clearDomSelection()
       surfaceProps?.onPointerMove?.(e)
       if (e.buttons !== 0) {
         if (hoverRef.current) setHover(null)
@@ -571,27 +620,30 @@ export function QueuesView({
   const tipStyle =
     hover && tip
       ? {
-          left: hover.x > LABEL_W + 180 ? hover.x - 12 : hover.x + 12,
-          top: Math.max(TOP_H + 4, hover.y - 28),
-          transform: hover.x > LABEL_W + 180 ? 'translateX(-100%)' : undefined,
+          left: hover.x > LABEL_W + 160 ? hover.x - 10 : hover.x + 10,
+          top: Math.max(TOP_H + 4, hover.y - 20),
+          transform: hover.x > LABEL_W + 160 ? 'translateX(-100%)' : undefined,
         }
       : undefined
 
   return (
     <>
       {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
-      <div ref={hostRef} className="relative w-full">
+      <div ref={hostRef} className="relative w-full select-none">
         <svg
           ref={svgRef}
-          className="block w-full cursor-crosshair touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+          className="block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+          style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
           {...surfaceProps}
+          onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerLeave={onPointerLeave}
+          onDragStart={(e) => e.preventDefault()}
         />
         {tip && tipStyle && (
           <div
             role="tooltip"
-            className="pointer-events-none absolute z-10 max-w-[16rem] rounded border border-border/70 bg-background/95 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground shadow-md backdrop-blur-sm"
+            className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
             style={tipStyle}
           >
             {tip.map((line, i) => (
@@ -607,8 +659,7 @@ export function QueuesView({
       </div>
       {queues.length > 0 && (
         <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-          Hover a depth trace for timestamp and nearest msgq event · drag to pan · pinch or ± to
-          zoom
+          Hover a transition · drag to pan · pinch or ± to zoom
         </p>
       )}
     </>

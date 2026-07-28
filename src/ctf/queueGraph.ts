@@ -159,13 +159,13 @@ export function nearestQueueChartEvent(
 export function queueChartOpLabel(op: QueueChartOp): string {
   switch (op) {
     case 'put':
-      return 'k_msgq_put'
+      return 'put'
     case 'put_front':
-      return 'k_msgq_put_front'
+      return 'put_front'
     case 'get':
-      return 'k_msgq_get'
+      return 'get'
     case 'purge':
-      return 'k_msgq_purge'
+      return 'purge'
   }
 }
 

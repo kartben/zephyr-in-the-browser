@@ -314,7 +314,7 @@ export function NetView({
       </div>
       <canvas
         ref={canvasRef}
-        className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+        className="w-full cursor-grab touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
         {...canvasProps}
       />
     </>

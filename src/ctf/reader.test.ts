@@ -163,6 +163,8 @@ describe('time-axis helpers', () => {
     expect(fmtAxisTime(12_400_000, 200_000)).toBe('12.400ms')
     expect(fmtAxisTime(1_500, 500)).toBe('1.500µs')
     expect(fmtAxisTime(2_500_000_000, 1_000_000_000)).toBe('2.500s')
+    // Past 1s → seconds even when the step is still in the ms ladder.
+    expect(fmtAxisTime(5_776_375_000, 100_000)).toBe('5.7764s')
   })
 
   it('timeTickValues walks the nice step across the window', () => {

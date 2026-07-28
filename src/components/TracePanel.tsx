@@ -480,6 +480,8 @@ function TracePanelBody({
 
   const onPointerDown: PointerEventHandler<TraceSurface> = (e) => {
     if (!view || !tr || !e.isPrimary) return
+    // Keep pan/drag from selecting axis labels and nearby UI text.
+    window.getSelection()?.removeAllRanges()
     try {
       e.currentTarget.setPointerCapture(e.pointerId)
     } catch {
@@ -500,6 +502,7 @@ function TracePanelBody({
     const dx = e.clientX - g.startX
     if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
     g.moved = true
+    window.getSelection()?.removeAllRanges()
     setFollow(false)
     const plotW = Math.max(1, e.currentTarget.clientWidth - gutterW - PAD)
     const span = g.origin.t1 - g.origin.t0
@@ -699,7 +702,7 @@ function TracePanelBody({
         <>
           <canvas
             ref={canvasRef}
-            className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+            className="w-full cursor-grab touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
             {...canvasHandlers}
           />
 
