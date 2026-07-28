@@ -93,6 +93,45 @@ describe('queueFlowEvents', () => {
     expect(mouthForOp('put_front')).toBe('front')
     expect(mouthForOp('get')).toBe('front')
   })
+
+  it('maps lifo put to put_front and hides nested queue prepend', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thr = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thr), ...encName('producer')]),
+        ...record(100, 0x11, [...encU32(thr), ...encName('producer')]),
+        ...record(200, 0x138, [...encU32(q), ...encU32(1)]), // lifo_put_exit
+        ...record(210, 0x110, [...encU32(q)]), // nested queue_prepend_exit
+        ...record(300, 0x13c, [...encU32(q), ...encU32(0), ...encU32(0x55)]), // lifo_get
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ op: 'put_front', queueId: q, threadId: thr, ok: true })
+    expect(flow[1]).toMatchObject({ op: 'get', queueId: q, threadId: thr, ok: true })
+    expect(mouthForOp('put_front')).toBe('front')
+  })
+
+  it('maps fifo put to put and ignores nested queue_append', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thr = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thr), ...encName('blink')]),
+        ...record(100, 0x11, [...encU32(thr), ...encName('blink')]),
+        ...record(200, 0x128, [...encU32(q), ...encU32(1)]),
+        ...record(205, 0x10c, [...encU32(q)]),
+        ...record(300, 0x130, [...encU32(q), ...encU32(0), ...encU32(0x10)]),
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ op: 'put', ok: true })
+    expect(flow[1]).toMatchObject({ op: 'get', ok: true })
+  })
 })
 
 describe('queueChartEvents / nearestQueueChartEvent', () => {
