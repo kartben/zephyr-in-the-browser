@@ -30,7 +30,7 @@ const COL_LISTEN = 'rgba(167, 139, 250, 0.55)'
 
 function paint(
   canvas: HTMLCanvasElement,
-  tr: Trace,
+  _tr: Trace,
   sockets: SocketSeries[],
   net: NetCoreSeries[],
   view0: number,
