@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { HexView } from '@/components/HexView'
 import { compactHex } from '@/debug/hexFormat'
 import * as debug from '@/debug/control'
-import { formatHexDump } from '@/components/debug/formatHexDump'
+import {
+  createDebugMemoryChip,
+  type DebugMemoryChip,
+} from '@/debug/debugMemoryChip'
 
 export function MemoryPane({
   snap,
@@ -20,6 +24,7 @@ export function MemoryPane({
     snap.memory ? compactHex(snap.memory.addr.toString(16)) : defaultAddr,
   )
   const [busy, setBusy] = useState(false)
+  const chipRef = useRef<DebugMemoryChip | null>(null)
 
   useEffect(() => {
     if (!seedAddr) return
@@ -29,6 +34,20 @@ export function MemoryPane({
     if (Number.isFinite(addr)) void debug.readMemory(addr, seedLen)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr])
+
+  const memory = snap.memory
+  if (!memory) {
+    chipRef.current = null
+  } else {
+    const len = memory.hex.length / 2
+    const cur = chipRef.current
+    if (!cur || cur.baseAddr !== memory.addr || cur.decl.size !== len) {
+      chipRef.current = createDebugMemoryChip(memory.addr, memory.hex)
+    } else {
+      cur.apply(memory.hex)
+    }
+  }
+  const chip = chipRef.current
 
   const load = async () => {
     const raw = addrText.trim().replace(/^0x/i, '')
@@ -41,8 +60,6 @@ export function MemoryPane({
       setBusy(false)
     }
   }
-
-  const formatted = formatHexDump(snap.memory?.addr ?? 0, snap.memory?.hex ?? '')
 
   return (
     <div className="space-y-2 px-1">
@@ -60,18 +77,19 @@ export function MemoryPane({
           variant="secondary"
           size="sm"
           className="h-7 px-2 text-xs"
-          disabled={busy}
+          disabled={busy || !snap.paused}
           onClick={() => void load()}
         >
           Read
         </Button>
       </div>
-      <pre
-        className="max-h-48 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-relaxed tabular-nums text-foreground/75"
-        tabIndex={0}
-      >
-        {formatted || 'Enter an address and Read — or click a register.'}
-      </pre>
+      {chip ? (
+        <HexView chip={chip} addressBase={chip.baseAddr} dimErased={false} />
+      ) : (
+        <p className="rounded-md bg-muted/40 px-2 py-3 font-mono text-[10px] text-muted-foreground">
+          Enter an address and Read — or click a register.
+        </p>
+      )}
     </div>
   )
 }
