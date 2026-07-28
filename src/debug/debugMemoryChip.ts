@@ -68,6 +68,7 @@ export function createDebugMemoryChip(baseAddr: number, hex: string): DebugMemor
     },
     poke(offset, value) {
       if (offset < 0 || offset >= memory.length) return
+      if (!debug.getSnapshot().paused) return
       const next = value & 0xff
       if (memory[offset] === next) return
       memory[offset] = next
