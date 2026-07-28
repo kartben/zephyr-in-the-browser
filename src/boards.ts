@@ -509,6 +509,17 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['bluetooth'],
   },
   {
+    // Stock classic A2DP source: BR inquiry for an AV headset CoD, then SDP +
+    // AVDTP + SBC stream. Pair with an in-page Speaker peer (Enable sound).
+    // https://docs.zephyrproject.org/latest/samples/bluetooth/classic/a2dp_source/README.html
+    id: 'bt_a2dp_source',
+    label: 'A2DP source',
+    description:
+      'Classic A2DP source streams SBC to an in-page Speaker peer over LocalLink',
+    zephyrSample: 'samples/bluetooth/classic/a2dp_source',
+    primaryPanels: ['bluetooth'],
+  },
+  {
     id: 'tmc50xx',
     label: 'TMC50xx stepper',
     description:

@@ -25,14 +25,13 @@ Per-peer configure/control UI (draft):
 | SBC → PCM | `public/vendor/libsbc/` — google/libsbc WASM; rebuild with `tools/build-libsbc-wasm.sh` |
 | Guest snippet / conf | `zephyr-module/snippets/bt-hci-uart/`, `zephyr-module/conf/bt-hci.conf` |
 | Persistent settings | `bt-settings-spi` W25Q80 on CS1 + `storage_partition` → Zephyr NVS |
-| Packaged samples | `bt_peripheral` → Zephyr peripheral; `bt_central_hr` → browser variant that decodes the SIG Heart Rate Measurement |
-
+| Packaged samples | `bt_peripheral` → Zephyr peripheral; `bt_central_hr` → browser variant that decodes SIG HRM; `bt_a2dp_source` → classic A2DP source |
 ## Rebuild checklist
 
 1. **Emulator** (once): `tools/build-qemu-wasm.sh` so `features.json` lists `"hci"`.
 2. **Wheel** (once / on bump): `tools/vendor-bumble.sh`.
-3. **Guest image**: `tools/build-zephyr-image.sh qemu_cortex_a53 bt_peripheral`
-   or `tools/build-zephyr-image.sh qemu_cortex_a53 bt_central_hr`
+3. **Guest image**: `tools/build-zephyr-image.sh qemu_cortex_a53 bt_peripheral`,
+   `… bt_central_hr`, or `… bt_a2dp_source`
    (or rebuild all A53 images).
 
 Without step 1 the page never passes `-chardev browser,id=hci0` (older
@@ -57,11 +56,19 @@ characteristic, subscribes, and prints the decoded measurement, for example
 updates the live Bumble characteristic; the next notification prints the new
 BPM in Zephyr.
 
+For classic audio, select **A2DP source**, add a **Speaker** peer, click
+**Enable sound**, then start the guest. The stock
+[A2DP Source](https://docs.zephyrproject.org/latest/samples/bluetooth/classic/a2dp_source/README.html#bluetooth_a2dp_source)
+sample inquiries for an AV wearable-headset CoD (the in-page Speaker advertises
+that class), connects over BR/EDR, and streams SBC. Conf extras live in
+`zephyr-module/conf/bt-a2dp-source.conf` (ACL/L2CAP MTU, encode work-queue
+stack, heap).
+
 The Speaker is Bumble’s classic A2DP sink (SBC), the same role as Hive’s
-virtual speaker. It needs a **BR/EDR** source on the LocalLink; the packaged
-`bt_peripheral` sample is BLE-only and will not stream to it. SBC frames are
-decoded in-page with vendored [google/libsbc](https://github.com/google/libsbc)
-WASM (`public/vendor/libsbc/`) → PCM → Web Audio (click **Enable sound** once).
+virtual speaker. The BLE-only `bt_peripheral` / `bt_central_hr` samples will
+not stream to it. SBC frames are decoded in-page with vendored
+[google/libsbc](https://github.com/google/libsbc) WASM (`public/vendor/libsbc/`)
+→ PCM → Web Audio.
 
 The packaged Bluetooth images also compose the `bt-settings-spi` snippet.
 Zephyr's NVS settings backend stores the generated identity, IRK, and GATT

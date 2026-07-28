@@ -93,7 +93,7 @@ function rosterFromController(): BtPeerSnapshot[] {
   return [
     localPeer(controller.name),
     ...controller.listPeers().map((p) => {
-      const fromPy = controller?.peerParams(p.id) ?? null
+      const fromPy = controller?.peerParams?.(p.id) ?? null
       const overlay = mockPeers.find((m) => m.id === p.id)?.params
       const params = fromPy ?? overlay ?? defaultPeerParams(p.typeId, p.name)
       return withDetail({

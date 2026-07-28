@@ -151,8 +151,11 @@ Hive’s virtual speaker role: BR/EDR Device with SDP audio sink + AVDTP sink
 | Enable sound | button | User-gesture `AudioContext.resume`; required for playback |
 
 SBC → PCM uses vendored google/libsbc WASM (`public/vendor/libsbc/sbc.umd.cjs`).
-**Caveat:** packaged Zephyr samples are BLE (`bt_peripheral`). Streaming needs
-a classic A2DP source on the same LocalLink.
+**Demo path:** packaged `bt_a2dp_source`
+([Zephyr A2DP Source](https://docs.zephyrproject.org/latest/samples/bluetooth/classic/a2dp_source/README.html#bluetooth_a2dp_source))
+inquiries for an AV wearable-headset CoD, then streams SBC. Add the Speaker
+peer before the guest starts discovery. BLE samples (`bt_peripheral`,
+`bt_central_hr`) will not stream to it.
 
 ### Scanner (`scanner`)
 
