@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackDefs } from './metadata'
 import { TraceReader } from './reader'
-import { isPutOp, queueFlowEvents, threadFlowScores } from './queueGraph'
+import { isPutOp, mouthForOp, queueFlowEvents, threadFlowScores } from './queueGraph'
 
 function encU16(n: number): number[] {
   return [n & 0xff, (n >> 8) & 0xff]
@@ -75,5 +75,12 @@ describe('queueFlowEvents', () => {
     expect(isPutOp('get')).toBe(false)
     // put_front scores like put (+1), then get (−1) ⇒ 0.
     expect(threadFlowScores(flow).get(thr)).toBe(0)
+  })
+
+  it('maps ops to Zephyr msgq end/front mouths', () => {
+    // k_msgq_put → end; k_msgq_put_front + k_msgq_get → front (head).
+    expect(mouthForOp('put')).toBe('end')
+    expect(mouthForOp('put_front')).toBe('front')
+    expect(mouthForOp('get')).toBe('front')
   })
 })

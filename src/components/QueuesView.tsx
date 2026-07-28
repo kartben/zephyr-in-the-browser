@@ -247,23 +247,24 @@ export function QueuesView({
   return (
     <>
       <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-        Each msgq is a pipe — puts enter left, gets leave right. Packets animate on new{' '}
-        <span className="font-mono text-foreground/80">put_exit</span> /{' '}
-        <span className="font-mono text-foreground/80">put_front_exit</span> /{' '}
-        <span className="font-mono text-foreground/80">get_exit</span>
+        Each msgq is a pipe oriented like Zephyr’s ring:{' '}
+        <span className="font-mono text-foreground/80">put</span> → end (left),{' '}
+        <span className="font-mono text-foreground/80">get</span> ← front (right),{' '}
+        <span className="font-mono text-foreground/80">put_front</span> → front (head,
+        retrieved next). Packets animate on CTF exits
         {queues.length > 0 ? ` · ${queues.length} msgq` : ''}. Depth charts share the Schedule
         window below.
       </p>
       {queues.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 font-mono text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-0.5 w-3 bg-sky-400" /> put →
+            <span className="inline-block h-0.5 w-3 bg-sky-400" /> put → end
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-0.5 w-3 bg-teal-400" /> put_front → get end
+            <span className="inline-block h-0.5 w-3 bg-teal-400" /> put_front → front
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-0.5 w-3 bg-amber-400" /> → get
+            <span className="inline-block h-0.5 w-3 bg-amber-400" /> front → get
           </span>
           <span>pipe fill = depth</span>
         </div>

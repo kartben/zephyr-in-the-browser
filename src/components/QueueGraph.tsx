@@ -1,13 +1,15 @@
 /**
  * Per-queue pipe graph for the Trace Queues tab.
  *
- * Each msgq is a horizontal pipe (flanges + barrel + bore fill). Putters sit
- * on the left as name pills, getters on the right. Edges attach to vertically
- * spaced ports on each flange; paths are shortened so arrowheads sit on the
- * mouth without the stroke overshooting the tip.
+ * Pipe orientation follows the Zephyr msgq ring-buffer contract:
+ *   left  = end   — k_msgq_put writes here (write_ptr / back)
+ *   right = front — k_msgq_get reads here; k_msgq_put_front inserts here
+ *                   (read_ptr / head; delivered before older messages)
  *
- * put_front still originates from a putter pill, but the arrow aims at the
- * consumer-side flange (front of the queue), arcing over the pipe.
+ * Putters sit on the left, getters on the right. put_front still starts at a
+ * putter pill, but the arrow aims at the front flange (not the end).
+ *
+ * @see https://docs.zephyrproject.org/latest/doxygen/html/group__msgq__apis.html
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -16,6 +18,7 @@ import {
   flowEdgeId,
   flowThreadLabel,
   isPutOp,
+  mouthForOp,
   queueFlowEvents,
   type QueueFlowEvent,
   type QueueFlowOp,
@@ -55,7 +58,7 @@ type ThreadPill = {
   label: string
   x: number
   y: number
-  /** Side of its pipe. put_front shares the put side. */
+  /** Thread column: putters at the end mouth, getters at the front mouth. */
   side: 'put' | 'get'
   queueId: number
   port: number
@@ -97,7 +100,18 @@ function pillKey(queueId: number, tid: number, side: 'put' | 'get') {
 }
 
 function sideForOp(op: QueueFlowOp): 'put' | 'get' {
+  // Thread column follows the actor, not the mouth: put_front is still a putter.
   return isPutOp(op) ? 'put' : 'get'
+}
+
+/** Left flange X — msgq end (k_msgq_put). */
+function pipeEndX(pipe: Pipe): number {
+  return pipe.x - PIPE_W / 2
+}
+
+/** Right flange X — msgq front/head (k_msgq_get, k_msgq_put_front). */
+function pipeFrontX(pipe: Pipe): number {
+  return pipe.x + PIPE_W / 2
 }
 
 function pipeHeight(putPorts: number, getPorts: number): number {
@@ -105,8 +119,9 @@ function pipeHeight(putPorts: number, getPorts: number): number {
   return Math.max(PIPE_H_MIN, Math.min(72, 28 + n * 8))
 }
 
-function pipePortY(pipe: Pipe, side: 'put' | 'get', port: number): number {
-  const n = side === 'put' ? pipe.putPorts : pipe.getPorts
+/** Attachment Y on a pipe mouth. put_front shares the front mouth with gets. */
+function pipePortY(pipe: Pipe, mouth: 'end' | 'front', port: number): number {
+  const n = mouth === 'end' ? pipe.putPorts : pipe.getPorts
   const inner = Math.min(14, (pipe.h - 14) / Math.max(1, n - 1 || 1))
   const span = Math.max(0, (n - 1) * inner)
   return pipe.y - span / 2 + port * inner
@@ -138,12 +153,15 @@ function edgePath(
   op: QueueFlowOp,
 ): { sx: number; sy: number; ex: number; ey: number; mx: number; my: number; d: string } {
   const sy = pill.y
+  const mouth = mouthForOp(op)
 
-  // put_front inserts at the front of the queue — aim at the consumer flange.
+  // put_front → front (head): same mouth get reads from; arc over the barrel
+  // so it is distinct from put → end.
   if (op === 'put_front') {
-    const ey = pipePortY(pipe, 'put', pill.port)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipe.x + PIPE_W / 2, ey, ARROW_LEN)
-    // Arc over the barrel so the stroke is distinct from a normal put.
+    // Attach on the front flange (head), lightly spread by putter port index.
+    const spread = Math.min(10, (pipe.h - 16) / Math.max(1, pipe.putPorts))
+    const ey = pipe.y - ((pipe.putPorts - 1) * spread) / 2 + pill.port * spread
+    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipeFrontX(pipe), ey, ARROW_LEN)
     const over = Math.min(raw.y1, raw.y2, pipe.y) - pipe.h / 2 - 14
     const c1x = raw.x1 + (pipe.x - raw.x1) * 0.35
     const c2x = raw.x2 - (raw.x2 - pipe.x) * 0.25
@@ -160,8 +178,9 @@ function edgePath(
   }
 
   if (op === 'put') {
-    const ey = pipePortY(pipe, 'put', pill.port)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipe.x - PIPE_W / 2, ey, ARROW_LEN)
+    // put → end (back of the queue).
+    const ey = pipePortY(pipe, mouth, pill.port)
+    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipeEndX(pipe), ey, ARROW_LEN)
     const mx = (raw.x1 + raw.x2) / 2
     return {
       sx: raw.x1,
@@ -174,8 +193,9 @@ function edgePath(
     }
   }
 
-  const ey = pipePortY(pipe, 'get', pill.port)
-  const raw = edgeEndpoints(pipe.x + PIPE_W / 2, ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
+  // get ← front (FIFO from the head).
+  const ey = pipePortY(pipe, mouth, pill.port)
+  const raw = edgeEndpoints(pipeFrontX(pipe), ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
   const mx = (raw.x1 + raw.x2) / 2
   return {
     sx: raw.x1,
@@ -253,7 +273,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     const getIds = sortT(gets)
     const ports = Math.max(1, putIds.length, getIds.length)
     const h = pipeHeight(putIds.length, getIds.length)
-    const bandH = Math.max(h + 8, ports * PORT_GAP + 8)
+    const bandH = Math.max(h + 8, ports * PORT_GAP + 8) + 14
     const cy = yCursor + bandH / 2
 
     const pipe: Pipe = {
@@ -404,9 +424,9 @@ export function QueueGraph({
 
     layers.labels.selectAll('*').remove()
     const headers = [
-      { x: PAD_X + PILL_W / 2, t: 'Put' },
-      { x: layout.pipes[0]?.x ?? layout.w / 2, t: 'Queue' },
-      { x: layout.w - PAD_X - PILL_W / 2, t: 'Get' },
+      { x: PAD_X + PILL_W / 2, t: 'put · end' },
+      { x: layout.pipes[0]?.x ?? layout.w / 2, t: 'msgq' },
+      { x: layout.w - PAD_X - PILL_W / 2, t: 'front · get' },
     ]
     layers.labels
       .selectAll('text')
@@ -719,6 +739,24 @@ function drawPipe(g: d3.Selection<SVGGElement, unknown, null, undefined>, pipe: 
       .attr('stroke', '#64748b')
       .attr('stroke-width', 1)
   }
+
+  // Mouth captions — Zephyr end (put) vs front (get / put_front).
+  g.append('text')
+    .attr('x', x + FLANGE_W / 2)
+    .attr('y', y + h + 12)
+    .attr('text-anchor', 'middle')
+    .attr('fill', 'rgba(148,163,184,0.75)')
+    .attr('font-size', 8)
+    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+    .text('end')
+  g.append('text')
+    .attr('x', x + w - FLANGE_W / 2)
+    .attr('y', y + h + 12)
+    .attr('text-anchor', 'middle')
+    .attr('fill', 'rgba(148,163,184,0.75)')
+    .attr('font-size', 8)
+    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+    .text('front')
 
   const clipId = `qg-clip-pipe-${pipe.queueId}`
   g.append('clipPath')

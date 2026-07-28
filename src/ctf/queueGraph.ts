@@ -4,8 +4,11 @@
  * Msgq exit events do not carry a thread id — the running thread at `ts`
  * (from the Schedule reconstruction) is the actor.
  *
- * put_front is a distinct producer-side op; the graph aims its arrow at the
- * consumer flange (front of the queue).
+ * Mouth mapping mirrors the Zephyr msgq ring-buffer contract
+ * (k_msgq_put / k_msgq_put_front / k_msgq_get):
+ *   - put        → end   (write_ptr / back of the queue)
+ *   - put_front  → front (read_ptr / head — retrieved before older messages)
+ *   - get        → front (FIFO read from the head)
  */
 
 import {
@@ -17,8 +20,19 @@ import { threadLabel, threadRunningAt, type Trace } from './reader'
 
 export type QueueFlowOp = 'put' | 'put_front' | 'get'
 
+/** Which end of the msgq ring an op touches. */
+export type MsgqMouth = 'end' | 'front'
+
 export function isPutOp(op: QueueFlowOp): boolean {
   return op === 'put' || op === 'put_front'
+}
+
+/**
+ * Zephyr contract: put writes the end; put_front and get use the front/head.
+ * @see https://docs.zephyrproject.org/latest/doxygen/html/group__msgq__apis.html
+ */
+export function mouthForOp(op: QueueFlowOp): MsgqMouth {
+  return op === 'put' ? 'end' : 'front'
 }
 
 export interface QueueFlowEvent {
