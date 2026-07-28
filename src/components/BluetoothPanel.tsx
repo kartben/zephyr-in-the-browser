@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { HeartRatePulse } from '@/components/HeartRatePulse'
 import {
   CheckControl,
   ControlRow,
@@ -185,6 +186,11 @@ function PeerInspector({ peer }: { peer: BtPeerSnapshot }) {
 
       {peer.typeId === 'hrm' && (
         <>
+          <HeartRatePulse
+            bpm={Number(params.bpm ?? 72)}
+            muted={!Boolean(params.advertising)}
+            className="px-0.5 py-0.5"
+          />
           <SliderControl
             label="Heart rate"
             unit="BPM"

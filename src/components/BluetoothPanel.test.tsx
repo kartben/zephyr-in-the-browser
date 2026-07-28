@@ -63,6 +63,9 @@ describe('BluetoothView', () => {
     expect(out).toContain('Body location')
     expect(out).toContain('Advertising')
     expect(getSnapshot().selectedPeerId).toBe('hrm-1')
+    // Canvas/SVG pulse strip is present for the HRM inspector.
+    expect(html(getSnapshot())).toContain('aria-hidden')
+    expect(html(getSnapshot())).toMatch(/hrm-heart-fill/)
   })
 
   it('updates the roster subtitle when inspector params change', async () => {
