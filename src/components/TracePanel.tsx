@@ -1,20 +1,9 @@
 /**
- * Live Zephyr CTF schedule view — the browser cousin of
- * scripts/tracing/trace_viewer.py.
+ * Live Zephyr CTF Trace panel — Schedule Gantt + Queues depth charts.
  *
- * Same core concepts as the terminal viewer:
- * - Gantt lanes coloured by run / ready / blocked / sleep / suspended
- * - A time-axis ruler labelled from t0 of the trace (not "0" at the left edge)
- * - Live follow pinned to the newest events until the user pans
- * - Zoom (± / wheel / pinch) changes the live window size without leaving
- *   follow — still anchored on the newest edge
- * - A compact info strip (legend + running thread + selected lane) and a
- *   CPU / context-switch metrics line for the visible window
- *
- * Deliberately no playhead: the Python viewer's cursor is useful with a
- * keyboard; here the window *is* the selection, and the info strip reports
- * state at the live edge of that window. Interaction is touch-first — drag
- * to pan, pinch or ± to zoom.
+ * Schedule: thread lanes coloured by run / ready / blocked / sleep / suspended,
+ * with a shared live-follow time window (pan / zoom / pinch).
+ * Queues: per-msgq depth replayed from put_exit / get_exit alone.
  */
 
 import {
@@ -24,9 +13,13 @@ import {
   useState,
   useSyncExternalStore,
   type MutableRefObject,
+  type PointerEventHandler,
+  type TouchEventHandler,
+  type WheelEventHandler,
 } from 'react'
 import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
+import { QueuesView, QUEUES_LABEL_W } from '@/components/QueuesView'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -68,6 +61,8 @@ const MIN_WINDOW_NS = 1_000_000 // 1 ms
 const ZOOM_IN = 0.7
 const ZOOM_OUT = 1.4
 const PAN_THRESHOLD_PX = 8
+
+type TraceTab = 'schedule' | 'queues'
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -326,15 +321,18 @@ function TracePanelBody({
   apiRef: MutableRefObject<{ jumpLive: () => void } | null>
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const queuesCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
+  const [tab, setTab] = useState<TraceTab>('schedule')
   const followRef = useRef(follow)
   followRef.current = follow
   viewRef.current = view
+  const gutterW = tab === 'queues' ? QUEUES_LABEL_W : LABEL_W
 
   const tr = snap.trace
   useEffect(() => {
@@ -345,12 +343,14 @@ function TracePanelBody({
   }, [tr, follow, liveWindowNs, snap.eventCount])
 
   useEffect(() => {
+    if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
     paint(canvas, tr, view.t0, view.t1, follow, selectedLane)
-  }, [tr, view, follow, snap.eventCount, selectedLane])
+  }, [tr, view, follow, snap.eventCount, selectedLane, tab])
 
   useEffect(() => {
+    if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
@@ -359,7 +359,7 @@ function TracePanelBody({
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [tr, follow, selectedLane])
+  }, [tr, follow, selectedLane, tab])
 
   const applyZoom = useCallback(
     (factor: number) => {
@@ -438,6 +438,133 @@ function TracePanelBody({
     }
   }
 
+  const onWheel: WheelEventHandler<HTMLCanvasElement> = (e) => {
+    if (!view || !tr) return
+    e.preventDefault()
+    const factor = e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN
+    if (follow) {
+      const next = clampWindowNs(tr, (view.t1 - view.t0) * factor)
+      setLiveWindowNs(next)
+      setView(livePinnedView(tr, next))
+      return
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    const plotW = Math.max(1, rect.width - gutterW - PAD)
+    const x = e.clientX - rect.left
+    const frac = x < gutterW ? 0.5 : Math.min(1, Math.max(0, (x - gutterW) / plotW))
+    const pivot = view.t0 + frac * (view.t1 - view.t0)
+    setView(zoomAround(tr, view, factor, pivot))
+  }
+
+  const onPointerDown: PointerEventHandler<HTMLCanvasElement> = (e) => {
+    if (!view || !tr || !e.isPrimary) return
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    gestureRef.current = {
+      kind: 'pan',
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      origin: view,
+      moved: false,
+    }
+  }
+
+  const onPointerMove: PointerEventHandler<HTMLCanvasElement> = (e) => {
+    const g = gestureRef.current
+    if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId || !tr) return
+    const dx = e.clientX - g.startX
+    if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+    g.moved = true
+    setFollow(false)
+    const plotW = Math.max(1, e.currentTarget.clientWidth - gutterW - PAD)
+    const span = g.origin.t1 - g.origin.t0
+    const dt = (-dx / plotW) * span
+    setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
+  }
+
+  const onPointerUp: PointerEventHandler<HTMLCanvasElement> = (e) => {
+    const g = gestureRef.current
+    if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId) return
+    gestureRef.current = null
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    if (g.moved || !view || !tr || tab !== 'schedule') return
+    // Tap on a lane label selects it and opens Debug → Threads.
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    if (x < LABEL_W && y >= AXIS_H) {
+      const row = Math.floor((y - AXIS_H) / LANE_H)
+      const order = visibleLanes(tr)
+      if (row >= 0 && row < order.length) selectLane(order[row]!)
+    }
+  }
+
+  const onPointerCancel = () => {
+    gestureRef.current = null
+  }
+
+  const onTouchStart: TouchEventHandler<HTMLCanvasElement> = (e) => {
+    if (!view || !tr || e.touches.length !== 2) return
+    const a = e.touches[0]!
+    const b = e.touches[1]!
+    const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    const midX = (a.clientX + b.clientX) / 2
+    const rect = e.currentTarget.getBoundingClientRect()
+    const plotW = Math.max(1, rect.width - gutterW - PAD)
+    const frac = Math.min(1, Math.max(0, (midX - rect.left - gutterW) / plotW))
+    gestureRef.current = {
+      kind: 'pinch',
+      startDist: Math.max(1, dist),
+      startSpan: view.t1 - view.t0,
+      pivot: view.t0 + frac * (view.t1 - view.t0),
+      origin: view,
+    }
+  }
+
+  const onTouchMove: TouchEventHandler<HTMLCanvasElement> = (e) => {
+    const g = gestureRef.current
+    if (!g || g.kind !== 'pinch' || !tr || e.touches.length !== 2) return
+    e.preventDefault()
+    const a = e.touches[0]!
+    const b = e.touches[1]!
+    const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    const factor = g.startDist / Math.max(1, dist)
+    const nextSpan = clampWindowNs(tr, g.startSpan * factor)
+    if (followRef.current) {
+      setLiveWindowNs(nextSpan)
+      setView(livePinnedView(tr, nextSpan))
+      return
+    }
+    const frac =
+      g.origin.t1 > g.origin.t0 ? (g.pivot - g.origin.t0) / (g.origin.t1 - g.origin.t0) : 0.5
+    const t0 = g.pivot - nextSpan * frac
+    setView(clampView(tr, t0, t0 + nextSpan))
+  }
+
+  const onTouchEnd: TouchEventHandler<HTMLCanvasElement> = (e) => {
+    if (e.touches.length < 2 && gestureRef.current?.kind === 'pinch') {
+      gestureRef.current = null
+    }
+  }
+
+  const canvasHandlers = {
+    onWheel,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+  }
+
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
       {!tr || tr.events.length === 0 ? (
@@ -447,6 +574,29 @@ function TracePanelBody({
         </p>
       ) : (
         <>
+          <div className="flex gap-0.5 px-0.5">
+            {(
+              [
+                ['schedule', 'Schedule'],
+                ['queues', 'Queues'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={cn(
+                  'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
+                  tab === id
+                    ? 'bg-secondary text-foreground'
+                    : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
+                )}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-1 px-0.5">
             <Button
               type="button"
@@ -507,200 +657,103 @@ function TracePanelBody({
             </div>
           </div>
 
-          <canvas
-            ref={canvasRef}
-            className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-            onWheel={(e) => {
-              if (!view || !tr) return
-              e.preventDefault()
-              const factor = e.deltaY > 0 ? ZOOM_OUT : ZOOM_IN
-              if (follow) {
-                const next = clampWindowNs(tr, (view.t1 - view.t0) * factor)
-                setLiveWindowNs(next)
-                setView(livePinnedView(tr, next))
-                return
-              }
-              const rect = e.currentTarget.getBoundingClientRect()
-              const plotW = Math.max(1, rect.width - LABEL_W - PAD)
-              const x = e.clientX - rect.left
-              const frac =
-                x < LABEL_W ? 0.5 : Math.min(1, Math.max(0, (x - LABEL_W) / plotW))
-              const pivot = view.t0 + frac * (view.t1 - view.t0)
-              setView(zoomAround(tr, view, factor, pivot))
-            }}
-            onPointerDown={(e) => {
-              if (!view || !tr || !e.isPrimary) return
-              try {
-                e.currentTarget.setPointerCapture(e.pointerId)
-              } catch {
-                /* ignore */
-              }
-              gestureRef.current = {
-                kind: 'pan',
-                pointerId: e.pointerId,
-                startX: e.clientX,
-                origin: view,
-                moved: false,
-              }
-            }}
-            onPointerMove={(e) => {
-              const g = gestureRef.current
-              if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId || !tr) return
-              const dx = e.clientX - g.startX
-              if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
-              g.moved = true
-              setFollow(false)
-              const plotW = Math.max(1, e.currentTarget.clientWidth - LABEL_W - PAD)
-              const span = g.origin.t1 - g.origin.t0
-              const dt = (-dx / plotW) * span
-              setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
-            }}
-            onPointerUp={(e) => {
-              const g = gestureRef.current
-              if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId) return
-              gestureRef.current = null
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId)
-              } catch {
-                /* ignore */
-              }
-              if (g.moved || !view || !tr) return
-              // Tap on a lane label selects it and opens Debug → Threads.
-              const rect = e.currentTarget.getBoundingClientRect()
-              const x = e.clientX - rect.left
-              const y = e.clientY - rect.top
-              if (x < LABEL_W && y >= AXIS_H) {
-                const row = Math.floor((y - AXIS_H) / LANE_H)
-                const order = visibleLanes(tr)
-                if (row >= 0 && row < order.length) selectLane(order[row]!)
-              }
-            }}
-            onPointerCancel={() => {
-              gestureRef.current = null
-            }}
-            onTouchStart={(e) => {
-              if (!view || !tr || e.touches.length !== 2) return
-              const a = e.touches[0]!
-              const b = e.touches[1]!
-              const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
-              const midX = (a.clientX + b.clientX) / 2
-              const rect = e.currentTarget.getBoundingClientRect()
-              const plotW = Math.max(1, rect.width - LABEL_W - PAD)
-              const frac = Math.min(1, Math.max(0, (midX - rect.left - LABEL_W) / plotW))
-              gestureRef.current = {
-                kind: 'pinch',
-                startDist: Math.max(1, dist),
-                startSpan: view.t1 - view.t0,
-                pivot: view.t0 + frac * (view.t1 - view.t0),
-                origin: view,
-              }
-              // Pinch zoom stays in LIVE when already following.
-            }}
-            onTouchMove={(e) => {
-              const g = gestureRef.current
-              if (!g || g.kind !== 'pinch' || !tr || e.touches.length !== 2) return
-              e.preventDefault()
-              const a = e.touches[0]!
-              const b = e.touches[1]!
-              const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
-              const factor = g.startDist / Math.max(1, dist)
-              const nextSpan = clampWindowNs(tr, g.startSpan * factor)
-              if (followRef.current) {
-                setLiveWindowNs(nextSpan)
-                setView(livePinnedView(tr, nextSpan))
-                return
-              }
-              const frac =
-                g.origin.t1 > g.origin.t0
-                  ? (g.pivot - g.origin.t0) / (g.origin.t1 - g.origin.t0)
-                  : 0.5
-              const t0 = g.pivot - nextSpan * frac
-              setView(clampView(tr, t0, t0 + nextSpan))
-            }}
-            onTouchEnd={(e) => {
-              if (e.touches.length < 2 && gestureRef.current?.kind === 'pinch') {
-                gestureRef.current = null
-              }
-            }}
-          />
+          {tab === 'queues' && view ? (
+            <QueuesView
+              tr={tr}
+              view0={view.t0}
+              view1={view.t1}
+              follow={follow}
+              eventCount={snap.eventCount}
+              canvasRef={queuesCanvasRef}
+              canvasProps={canvasHandlers}
+            />
+          ) : (
+            <>
+              <canvas
+                ref={canvasRef}
+                className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+                {...canvasHandlers}
+              />
 
-          <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-            Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select (opens Debug
-            Threads when gdb is live)
-          </p>
+              <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+                Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select (opens Debug
+                Threads when gdb is live)
+              </p>
 
-          {/* Colour legend — same states as the terminal viewer. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
-            <span className="text-foreground/80">states:</span>
-            {(Object.keys(STATE_LABEL) as ThreadState[])
-              .filter((s) => s !== 'dead')
-              .map((s) => (
-                <span key={s} className="inline-flex items-center gap-1">
-                  <span
-                    className="inline-block size-2.5 rounded-sm"
-                    style={{ background: STATE_COLOR[s] }}
-                  />
-                  {STATE_LABEL[s]}
-                </span>
-              ))}
-          </div>
-
-          {/* Metrics line — CPU busy + ctxsw over the visible window. */}
-          {stats && (
-            <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
-              <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
-              {' · '}
-              <span>
-                ctxsw {switches}
-                {secs > 0 ? ` (${(switches / secs).toFixed(0)}/s)` : ''}
-              </span>
-              {' · '}
-              <span className="text-foreground">window {fmtTime(stats.spanNs)}</span>
-              {snap.desync && (
-                <span className="ml-2 text-amber-500">desync — unknown CTF id</span>
-              )}
-            </div>
-          )}
-
-          {/* Info strip — running thread + selected lane at the window's right edge. */}
-          <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-            <div>
-              <span className="text-muted-foreground">running: </span>
-              <span className="font-mono text-foreground">
-                {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
-              </span>
-              {runningTid !== null && (
-                <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
-              )}
-            </div>
-            {lane !== null && (
-              <div className="mt-0.5">
-                <span className="text-muted-foreground">lane: </span>
-                <span className="font-mono text-foreground">{threadLabel(tr, lane)}</span>
-                {lanePrio != null && (
-                  <span
-                    className="ml-1.5 font-mono tabular-nums text-foreground/70"
-                    title="Scheduler priority (negative = cooperative)"
-                  >
-                    <span className="text-muted-foreground">prio </span>
-                    {lanePrio}
-                  </span>
-                )}
-                {st && (
-                  <>
-                    {' → '}
-                    <span style={{ color: STATE_COLOR[st] }}>
-                      {st === 'blk' && reason
-                        ? `blocked on ${reason}`
-                        : st === 'slp' && reason
-                          ? reason
-                          : STATE_LABEL[st]}
+              {/* Colour legend — same states as the terminal viewer. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
+                <span className="text-foreground/80">states:</span>
+                {(Object.keys(STATE_LABEL) as ThreadState[])
+                  .filter((s) => s !== 'dead')
+                  .map((s) => (
+                    <span key={s} className="inline-flex items-center gap-1">
+                      <span
+                        className="inline-block size-2.5 rounded-sm"
+                        style={{ background: STATE_COLOR[s] }}
+                      />
+                      {STATE_LABEL[s]}
                     </span>
-                  </>
+                  ))}
+              </div>
+
+              {/* Metrics line — CPU busy + ctxsw over the visible window. */}
+              {stats && (
+                <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                  <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
+                  {' · '}
+                  <span>
+                    ctxsw {switches}
+                    {secs > 0 ? ` (${(switches / secs).toFixed(0)}/s)` : ''}
+                  </span>
+                  {' · '}
+                  <span className="text-foreground">window {fmtTime(stats.spanNs)}</span>
+                  {snap.desync && (
+                    <span className="ml-2 text-amber-500">desync — unknown CTF id</span>
+                  )}
+                </div>
+              )}
+
+              {/* Info strip — running thread + selected lane at the window's right edge. */}
+              <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+                <div>
+                  <span className="text-muted-foreground">running: </span>
+                  <span className="font-mono text-foreground">
+                    {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
+                  </span>
+                  {runningTid !== null && (
+                    <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
+                  )}
+                </div>
+                {lane !== null && (
+                  <div className="mt-0.5">
+                    <span className="text-muted-foreground">lane: </span>
+                    <span className="font-mono text-foreground">{threadLabel(tr, lane)}</span>
+                    {lanePrio != null && (
+                      <span
+                        className="ml-1.5 font-mono tabular-nums text-foreground/70"
+                        title="Scheduler priority (negative = cooperative)"
+                      >
+                        <span className="text-muted-foreground">prio </span>
+                        {lanePrio}
+                      </span>
+                    )}
+                    {st && (
+                      <>
+                        {' → '}
+                        <span style={{ color: STATE_COLOR[st] }}>
+                          {st === 'blk' && reason
+                            ? `blocked on ${reason}`
+                            : st === 'slp' && reason
+                              ? reason
+                              : STATE_LABEL[st]}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </>
       )}
     </div>

@@ -135,6 +135,11 @@ export function getSnapshot(): GdbState {
   return state
 }
 
+/** ELF wait-queue objects (msgq/sem/…) for resolving CTF object ids to names. */
+export function getWaitObjects(): WaitObject[] {
+  return waitObjects
+}
+
 export function sessionActive(): boolean {
   return state.attached && client !== null
 }
