@@ -256,6 +256,11 @@ type Obstacle = {
 
 /** Corner radius for orthogonal rails. */
 const RAIL_RADIUS = 12
+/**
+ * Straight run into / out of a mouth after the last elbow. Must clear the
+ * arrowhead length so the tip stays horizontal when it meets the aperture.
+ */
+const MOUTH_APPROACH = Math.max(RAIL_RADIUS + ARROW_LEN, 28)
 /** Padding around a tube that edges must not enter. */
 const OBSTACLE_PAD = 4
 
@@ -374,68 +379,128 @@ function roundedOrtho(points: RoutePoint[]): EdgePath {
 }
 
 /**
- * Short orthogonal routes that skip tubes. Tries the fewest bends first:
- *   1) single L (3 points)
- *   2) one channel wrap (4–5 points) on the preferred side
- * D3 only strokes the result — it is not involved in choosing waypoints.
+ * Outside standoff just before a mouth so the final (or first) stroke is a
+ * straight horizontal stub long enough for the arrowhead.
+ * `fromSide` is the side the wire occupies relative to the lip (west of an
+ * end mouth, east of a front mouth).
+ */
+function mouthApproachPoint(mouth: RoutePoint, fromSide: 'east' | 'west'): RoutePoint {
+  const dx = fromSide === 'east' ? MOUTH_APPROACH : -MOUTH_APPROACH
+  return { x: mouth.x + dx, y: mouth.y }
+}
+
+/**
+ * Short orthogonal routes that skip tubes. Tries the fewest bends first.
+ * `mouthAt` forces a horizontal stub at the tube aperture: puts enter into
+ * `end`, gets leave from `start`. Vertical dives into / out of a mouth are
+ * never chosen — that is what made arrows look like they stabbed the tube.
+ * `mouthSide` is which side of the lip the stub lives on.
  */
 function routeAvoidingTubes(
   start: RoutePoint,
   end: RoutePoint,
   obstacles: Obstacle[],
   prefer: 'hvh' | 'east' | 'west',
+  mouthAt: 'start' | 'end',
+  mouthSide: 'east' | 'west',
 ): EdgePath {
   const tryPath = (points: RoutePoint[]) =>
     pathHitsObstacles(points, obstacles) ? null : roundedOrtho(points)
 
-  // 1. Single L-bends (one corner).
-  const l1 = tryPath([start, { x: end.x, y: start.y }, end])
-  if (l1) return l1
-  const l2 = tryPath([start, { x: start.x, y: end.y }, end])
-  if (l2) return l2
-
-  // 2. One wrap via the nearest clear channel + side corridor.
   const eastX = eastCorridorX(obstacles)
   const westX = westCorridorX(obstacles)
   const ch = nearestChannel((start.y + end.y) / 2, channelYs(obstacles))
-  const sideX = prefer === 'west' ? westX : eastX
+  // Rails hug the mouth's outside — end mouths use west, front mouths east.
+  const sideX = mouthSide === 'west' ? westX : eastX
+
+  if (mouthAt === 'end') {
+    const approach = mouthApproachPoint(end, mouthSide)
+    // Prefer the shared side corridor when it is farther out than the stub.
+    if (mouthSide === 'east') approach.x = Math.max(approach.x, eastX)
+    else approach.x = Math.min(approach.x, westX)
+
+    // 1. Horizontal into mouth: rise/drop at start, then run to the lip.
+    const flat = tryPath([start, { x: start.x, y: end.y }, approach, end])
+    if (flat) return flat
+
+    // 2. Side corridor at start height, then drop/rise to mouth height.
+    const elbow = tryPath([start, { x: approach.x, y: start.y }, approach, end])
+    if (elbow) return elbow
+
+    // 3. Channel wrap, always finishing on the horizontal approach stub.
+    const wrap = tryPath([
+      start,
+      { x: sideX, y: start.y },
+      { x: sideX, y: ch },
+      { x: approach.x, y: ch },
+      approach,
+      end,
+    ])
+    if (wrap) return wrap
+
+    // Cross-side (right-column thread → left/end mouth).
+    if (prefer === 'west' || mouthSide === 'west') {
+      const cross = tryPath([
+        start,
+        { x: eastX, y: start.y },
+        { x: eastX, y: ch },
+        { x: westX, y: ch },
+        { x: approach.x, y: ch },
+        approach,
+        end,
+      ])
+      if (cross) return cross
+    }
+
+    // put_front from the left: over the barrels, then east corridor → lip.
+    if (prefer === 'east' || mouthSide === 'east') {
+      const over = tryPath([
+        start,
+        { x: start.x, y: ch },
+        { x: approach.x, y: ch },
+        approach,
+        end,
+      ])
+      if (over) return over
+    }
+
+    return roundedOrtho([start, { x: approach.x, y: start.y }, approach, end])
+  }
+
+  // mouthAt === 'start' (get): leave the front mouth horizontally first.
+  const leave = mouthApproachPoint(start, mouthSide)
+  if (mouthSide === 'east') leave.x = Math.max(leave.x, eastX)
+  else leave.x = Math.min(leave.x, westX)
+
+  // 1. Horizontal exit, then bend toward the thread.
+  const flat = tryPath([start, leave, { x: end.x, y: start.y }, end])
+  if (flat) return flat
+
+  const elbow = tryPath([start, leave, { x: leave.x, y: end.y }, end])
+  if (elbow) return elbow
 
   const wrap = tryPath([
     start,
-    { x: sideX, y: start.y },
+    leave,
+    { x: leave.x, y: ch },
     { x: sideX, y: ch },
-    { x: prefer === 'west' ? Math.min(end.x, sideX) : Math.max(end.x, sideX), y: ch },
-    { x: end.x, y: ch },
+    { x: sideX, y: end.y },
     end,
   ])
   if (wrap) return wrap
 
-  // Cross-side wrap (right-column thread → left mouth): east → channel → west → end.
-  if (prefer === 'west') {
-    const cross = tryPath([
-      start,
-      { x: eastX, y: start.y },
-      { x: eastX, y: ch },
-      { x: westX, y: ch },
-      { x: westX, y: end.y },
-      end,
-    ])
-    if (cross) return cross
-  }
-
-  // put_front from the left: channel above, then east corridor into the mouth.
-  if (prefer === 'east') {
+  if (prefer === 'east' || mouthSide === 'east') {
     const over = tryPath([
       start,
-      { x: start.x, y: ch },
-      { x: eastX, y: ch },
-      { x: eastX, y: end.y },
+      leave,
+      { x: leave.x, y: ch },
+      { x: end.x, y: ch },
       end,
     ])
     if (over) return over
   }
 
-  return roundedOrtho([start, { x: sideX, y: start.y }, { x: sideX, y: end.y }, end])
+  return roundedOrtho([start, leave, { x: leave.x, y: end.y }, end])
 }
 
 function edgePath(
@@ -452,18 +517,19 @@ function edgePath(
   if (op === 'put_front') {
     const ey = frontInsertY(pipe, link.port)
     const end = { x: mouthLipX(pipe, 'front', ey), y: ey }
-    return routeAvoidingTubes(tip, end, obstacles, 'east')
+    return routeAvoidingTubes(tip, end, obstacles, 'east', 'end', 'east')
   }
 
   if (op === 'put') {
     const ey = clampMouthY(pipe, tip.y)
     const end = { x: mouthLipX(pipe, 'end', ey), y: ey }
-    return routeAvoidingTubes(tip, end, obstacles, tip.x <= end.x ? 'hvh' : 'west')
+    return routeAvoidingTubes(tip, end, obstacles, tip.x <= end.x ? 'hvh' : 'west', 'end', 'west')
   }
 
   const ey = clampMouthY(pipe, tip.y)
   const start = { x: mouthLipX(pipe, 'front', ey), y: ey }
-  return routeAvoidingTubes(start, tip, obstacles, tip.x >= start.x ? 'hvh' : 'east')
+  const leaveSide: 'east' | 'west' = tip.x >= start.x ? 'east' : 'west'
+  return routeAvoidingTubes(start, tip, obstacles, leaveSide === 'east' ? 'hvh' : 'east', 'start', leaveSide)
 }
 
 function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipes: Pipe[]) {
