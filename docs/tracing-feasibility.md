@@ -116,6 +116,10 @@ Deferred (easy later, not load-bearing): curses-style keyboard map, raw CTF
 log table (`v` in the Python viewer), playback speed controls. The decoder
 keeps every event, so a log view is a panel tab away whenever someone wants it.
 
+A dedicated **Networking** Trace tab (socket / `net_*` CTF) is specified in
+[`trace-networking-plan.md`](trace-networking-plan.md) — CTF events already
+exist upstream; the app does not visualize them yet.
+
 ## Recommended path
 
 1. Land the page-side stack and the A53 sample (this change).
