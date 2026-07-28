@@ -37,14 +37,13 @@ const PIPE_H = 44
 /** Horizontal radius of the mouth ellipses (perspective end-caps). */
 const MOUTH_RX = 10
 const MOUTH_RY = PIPE_H / 2 - 1
-const ROW_GAP = 36
 const COL_GAP = 56
 const PAD_X = 16
 const PAD_Y = 8
 /** Extra top clearance for put_front arcs over the barrel. */
 const ARC_CLEAR = 28
 /** Keeps the highest detour clear of the column labels. */
-const DETOUR_HEADROOM = 76
+const DETOUR_HEADROOM = 28
 const ARROW_LEN = 11
 const ARROW_W = 10
 
@@ -103,6 +102,7 @@ type Layout = {
 }
 
 type Layers = {
+  scene: d3.Selection<SVGGElement, unknown, null, undefined>
   labels: d3.Selection<SVGGElement, unknown, null, undefined>
   links: d3.Selection<SVGGElement, unknown, null, undefined>
   packets: d3.Selection<SVGGElement, unknown, null, undefined>
@@ -321,15 +321,18 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   }
 
   const byRank = d3.group(nodeIds, (id) => rank.get(id) ?? 0)
-  const columnGap = PIPE_W + COL_GAP * 2
-  const laneGap = Math.max(PILL_H, PIPE_H) + ROW_GAP
+  // Directed ranks run vertically. Concurrent nodes occupy horizontal lanes,
+  // which keeps long pipelines compact instead of making them a wide strip.
+  const laneGap = PIPE_W + COL_GAP
+  const rankGap = PIPE_H + 20
   const positions = new Map<string, { x: number; y: number }>()
   const ranks = [...byRank.keys()].sort((a, b) => a - b)
   let maxLanes = 1
   for (const value of byRank.values()) maxLanes = Math.max(maxLanes, value.length)
   for (const r of ranks) {
     const ids = byRank.get(r)!.sort((a, b) => a.localeCompare(b))
-    ids.forEach((id, lane) => positions.set(id, { x: PAD_X + Math.max(PIPE_W, PILL_W) / 2 + r * columnGap, y: PAD_Y + 34 + DETOUR_HEADROOM + lane * laneGap }))
+    const laneOffset = ((maxLanes - ids.length) * laneGap) / 2
+    ids.forEach((id, lane) => positions.set(id, { x: PAD_X + Math.max(PIPE_W, PILL_W) / 2 + laneOffset + lane * laneGap, y: PAD_Y + 34 + DETOUR_HEADROOM + r * rankGap }))
   }
   const pipes = queues.map((q) => {
     const pos = positions.get(`q:${q.id}`)!
@@ -339,8 +342,8 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     const pos = positions.get(`t:${tid}`)!
     return { id: `t:${tid}`, tid, label: flowThreadLabel(tr, tid), x: pos.x, y: pos.y }
   })
-  const contentW = Math.max(hostW, PAD_X * 2 + Math.max(PIPE_W, PILL_W) + Math.max(0, ranks.length - 1) * columnGap)
-  const contentH = Math.max(120, PAD_Y * 2 + 34 + DETOUR_HEADROOM + maxLanes * laneGap)
+  const contentW = Math.max(hostW, PAD_X * 2 + Math.max(PIPE_W, PILL_W) + Math.max(0, maxLanes - 1) * laneGap)
+  const contentH = Math.max(120, PAD_Y * 2 + 34 + DETOUR_HEADROOM + Math.max(0, ranks.length - 1) * rankGap + PIPE_H)
   return { w: contentW, h: contentH, pipes, threads, links, byPipe: new Map(pipes.map((p) => [p.queueId, p])), byThread: new Map(threads.map((t) => [t.tid, t])) }
 }
 
@@ -359,6 +362,9 @@ export function QueueGraph({
   const layoutRef = useRef<Layout | null>(null)
   const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
   const layersRef = useRef<Layers | null>(null)
+  const positionOverridesRef = useRef(new Map<string, { x: number; y: number }>())
+  const threadDragRef = useRef<d3.DragBehavior<SVGGElement, ThreadNode, ThreadNode | d3.SubjectPosition> | null>(null)
+  const pipeDragRef = useRef<d3.DragBehavior<SVGGElement, Pipe, Pipe | d3.SubjectPosition> | null>(null)
   const [layoutTick, setLayoutTick] = useState(0)
 
   useEffect(() => {
@@ -393,13 +399,39 @@ export function QueueGraph({
       .attr('height', PILL_H - 2)
       .attr('rx', 6)
 
-    layersRef.current = {
-      labels: svg.append('g'),
-      links: svg.append('g'),
-      packets: svg.append('g'),
-      pipes: svg.append('g'),
-      pills: svg.append('g'),
+    const scene = svg.append('g').attr('class', 'queue-graph-scene')
+    const layers: Layers = {
+      scene,
+      labels: scene.append('g'),
+      links: scene.append('g'),
+      packets: scene.append('g'),
+      pipes: scene.append('g'),
+      pills: scene.append('g'),
     }
+    layersRef.current = layers
+    svg.call(
+      d3
+        .zoom<SVGSVGElement, unknown>()
+        .scaleExtent([0.35, 3])
+        .on('zoom', (event) => scene.attr('transform', event.transform.toString())),
+    )
+
+    const move = (event: d3.D3DragEvent<SVGGElement, ThreadNode | Pipe, unknown>, d: ThreadNode | Pipe) => {
+      const svgNode = svg.node()
+      if (!svgNode) return
+      const [screenX, screenY] = d3.pointer(event.sourceEvent, svgNode)
+      const transform = d3.zoomTransform(svgNode)
+      d.x = transform.invertX(screenX)
+      d.y = transform.invertY(screenY)
+      positionOverridesRef.current.set(d.id, { x: d.x, y: d.y })
+      layers.pipes
+        .selectAll<SVGGElement, Pipe>('g.pipe')
+        .filter((candidate) => candidate.id === d.id)
+        .attr('transform', `translate(${d.x},${d.y})`)
+      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current, threadDragRef.current)
+    }
+    threadDragRef.current = d3.drag<SVGGElement, ThreadNode>().on('drag', function (event, d) { move(event, d) })
+    pipeDragRef.current = d3.drag<SVGGElement, Pipe>().on('drag', function (event, d) { move(event, d) })
     svgRef.current = svg
     const ro = new ResizeObserver(() => setLayoutTick((n) => n + 1))
     ro.observe(host)
@@ -427,6 +459,10 @@ export function QueueGraph({
     }
 
     const layout = buildLayout(tr, queues, host.clientWidth || 320)
+    for (const node of [...layout.pipes, ...layout.threads]) {
+      const position = positionOverridesRef.current.get(node.id)
+      if (position) Object.assign(node, position)
+    }
     layoutRef.current = layout
     svg.attr('viewBox', `0 0 ${layout.w} ${layout.h}`).attr('height', layout.h)
 
@@ -453,12 +489,13 @@ export function QueueGraph({
     pipeEnter.each(function (d) {
       buildPipeShell(d3.select(this), d)
     })
-    pipeEnter
+    const pipeMerged = pipeEnter
       .merge(pipeSel)
       .attr('transform', (d) => `translate(${d.x},${d.y})`)
       .each(function (d) {
         updatePipeFill(d3.select(this), d, false)
       })
+    if (pipeDragRef.current) pipeMerged.call(pipeDragRef.current)
 
     const flow = queueFlowEvents(tr)
     const newest = flow.filter((ev) => ev.index > lastIndexRef.current)
@@ -491,10 +528,10 @@ export function QueueGraph({
       }
     }
 
-    paintFrame(layers, layout, edgeStateRef.current)
+    paintFrame(layers, layout, edgeStateRef.current, threadDragRef.current)
 
     const interval = window.setInterval(() => {
-      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current)
+      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current, threadDragRef.current)
     }, 180)
     return () => window.clearInterval(interval)
   }, [tr, queues, eventCount, layoutTick])
@@ -573,7 +610,12 @@ function firePacket(
     .remove()
 }
 
-function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeState>) {
+function paintFrame(
+  layers: Layers,
+  layout: Layout,
+  edgeState: Map<string, EdgeState>,
+  threadDrag?: d3.DragBehavior<SVGGElement, ThreadNode, ThreadNode | d3.SubjectPosition> | null,
+) {
   const now = performance.now()
   const active: Array<{
     key: string
@@ -677,6 +719,7 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
 
   const pillMerged = pillEnter.merge(pillSel)
   pillMerged.attr('transform', (d) => `translate(${d.x},${d.y})`)
+  if (threadDrag) pillMerged.call(threadDrag)
   pillMerged.each(function (d) {
     const g = d3.select(this)
     const hot = hotThreads.has(d.id)
