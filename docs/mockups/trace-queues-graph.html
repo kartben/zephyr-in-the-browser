@@ -3,495 +3,246 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Trace Queues graph mockup — zephyr-in-the-browser</title>
+  <title>Trace Queues tube graph mockup</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0f1419;
-      --bg-elev: #171d26;
-      --bg-soft: #1e2633;
-      --line: #2a3342;
-      --fg: #e7e4de;
-      --fg-dim: #9aa3b0;
-      --fg-mute: #6a7382;
-      --thread: #7dd3c0;
-      --thread-fill: rgba(125, 211, 192, 0.14);
-      --queue: #93c5fd;
-      --queue-fill: rgba(96, 165, 250, 0.16);
-      --put: #60a5fa;
-      --get: #fbbf24;
-      --drop: #fb7185;
-      --cap: #f43f5e;
+      --bg: #0f1419; --elev: #171d26; --soft: #1e2633; --line: #2a3342;
+      --fg: #e7e4de; --dim: #9aa3b0; --mute: #6a7382;
+      --put: #60a5fa; --get: #fbbf24;
       --mono: "IBM Plex Mono", ui-monospace, monospace;
       --sans: "IBM Plex Sans", system-ui, sans-serif;
     }
-    * { box-boxing: border-box; box-sizing: border-box; }
+    * { box-sizing: border-box; }
     body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: var(--sans);
-      color: var(--fg);
-      background:
-        radial-gradient(900px 480px at 8% -8%, #1a2834 0%, transparent 55%),
-        radial-gradient(700px 420px at 100% 0%, #1a2420 0%, transparent 48%),
-        var(--bg);
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      padding: 1.25rem 1.5rem 2rem;
+      margin: 0; min-height: 100vh; font-family: var(--sans); color: var(--fg);
+      background: radial-gradient(800px 420px at 10% -10%, #1a2834, transparent 55%), var(--bg);
+      padding: 1.25rem 1.5rem 2rem; display: flex; flex-direction: column; gap: 1rem;
     }
-    header.page h1 {
-      margin: 0;
-      font-size: 1.05rem;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-    header.page p {
-      margin: 0.3rem 0 0;
-      color: var(--fg-dim);
-      font-size: 0.85rem;
-      max-width: 44rem;
-      line-height: 1.45;
-    }
-    .panel {
-      background: var(--bg-elev);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-    .panel-bar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.5rem 0.75rem;
-      padding: 0.55rem 0.75rem;
-      border-bottom: 1px solid var(--line);
-      background: var(--bg-soft);
-    }
-    .tabs { display: inline-flex; gap: 0.25rem; }
-    .tabs span {
-      font: 600 0.65rem/1 var(--sans);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 0.35rem 0.55rem;
-      border-radius: 6px;
-      color: var(--fg-mute);
-    }
+    h1 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .sub { margin: 0.3rem 0 0; color: var(--dim); font-size: 0.85rem; max-width: 44rem; line-height: 1.45; }
+    .panel { background: var(--elev); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.55rem 0.75rem; background: var(--soft); border-bottom: 1px solid var(--line); }
+    .tabs span { font: 600 0.65rem/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.35rem 0.55rem; border-radius: 6px; color: var(--mute); }
     .tabs span.on { background: #2a3344; color: var(--fg); }
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem 1rem;
-      margin-left: auto;
-      font: 500 0.7rem/1 var(--mono);
-      color: var(--fg-dim);
-    }
-    .legend i {
-      display: inline-block;
-      width: 1.1rem;
-      height: 2px;
-      vertical-align: middle;
-      margin-right: 0.3rem;
-      border-radius: 1px;
-    }
-    .legend .put { background: var(--put); }
-    .legend .get { background: var(--get); }
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid var(--line);
-    }
-    button {
-      appearance: none;
-      border: 1px solid var(--line);
-      background: var(--bg);
-      color: var(--fg-dim);
-      font: 500 0.72rem/1 var(--sans);
-      padding: 0.4rem 0.65rem;
-      border-radius: 7px;
-      cursor: pointer;
-    }
-    button:hover { color: var(--fg); border-color: #3d4758; }
-    button.primary {
-      background: rgba(125, 211, 192, 0.12);
-      border-color: rgba(125, 211, 192, 0.35);
-      color: var(--thread);
-    }
-    button.primary[aria-pressed="true"] {
-      background: rgba(125, 211, 192, 0.22);
-    }
-    #stage { height: 520px; position: relative; background: #121821; }
-    #stage svg { width: 100%; height: 100%; display: block; }
-    .note {
-      font-size: 0.78rem;
-      color: var(--fg-mute);
-      line-height: 1.5;
-      max-width: 52rem;
-    }
-    .note code {
-      font-family: var(--mono);
-      font-size: 0.74rem;
-      color: var(--fg-dim);
-    }
-    .col-label {
-      fill: var(--fg-mute);
-      font: 600 9px var(--sans);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .link { fill: none; stroke-width: 1.5; opacity: 0; pointer-events: none; }
-    .link.put { stroke: var(--put); }
-    .link.get { stroke: var(--get); }
-    .link.hot { opacity: 0.95; stroke-width: 2.4; }
-    .link.warm { opacity: 0.4; }
-    .link.cool { opacity: 0.14; }
-    .thread circle {
-      fill: var(--thread-fill);
-      stroke: var(--thread);
-      stroke-width: 1.6;
-    }
-    .thread.hot circle { fill: rgba(125, 211, 192, 0.32); stroke-width: 2.4; }
-    .thread text {
-      fill: var(--fg);
-      font: 500 11px var(--mono);
-      text-anchor: middle;
-      dominant-baseline: central;
-      pointer-events: none;
-    }
-    .queue rect.shell {
-      fill: var(--queue-fill);
-      stroke: var(--queue);
-      stroke-width: 1.6;
-      rx: 8; ry: 8;
-    }
-    .queue.hot rect.shell {
-      stroke-width: 2.4;
-      fill: rgba(96, 165, 250, 0.28);
-    }
-    .queue rect.depth { fill: rgba(96, 165, 250, 0.55); rx: 3; ry: 3; }
-    .queue line.cap {
-      stroke: var(--cap);
-      stroke-dasharray: 4 3;
-      stroke-width: 1;
-      opacity: 0.75;
-    }
-    .queue text.name {
-      fill: var(--fg);
-      font: 600 11px var(--mono);
-      dominant-baseline: hanging;
-    }
-    .queue text.meta {
-      fill: var(--fg-dim);
-      font: 500 9px var(--mono);
-      dominant-baseline: hanging;
-    }
-    .drop-flash { fill: var(--drop); opacity: 0; pointer-events: none; }
+    .legend { margin-left: auto; display: flex; gap: 1rem; font: 500 0.7rem/1 var(--mono); color: var(--dim); }
+    .legend i { display: inline-block; width: 1rem; height: 2px; vertical-align: middle; margin-right: 0.3rem; }
+    .legend .put { background: var(--put); } .legend .get { background: var(--get); }
+    .controls { display: flex; gap: 0.4rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+    button { appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--dim); font: 500 0.72rem/1 var(--sans); padding: 0.4rem 0.65rem; border-radius: 7px; cursor: pointer; }
+    button.primary { background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.35); color: var(--put); }
+    #stage { background: #121821; }
+    #stage svg { display: block; width: 100%; }
+    .note { font-size: 0.78rem; color: var(--mute); line-height: 1.5; max-width: 48rem; }
   </style>
 </head>
 <body>
-  <header class="page">
-    <h1>Trace → Queues · flow graph mockup</h1>
-    <p>
-      Producers left, msgqs center, consumers right. Each
-      <code>put_exit</code> / <code>get_exit</code> animates a packet along an arrow
-      (thread from the schedule at that timestamp) and leaves a warm edge for a few seconds.
+  <header>
+    <h1>Trace → Queues · tube layout mockup</h1>
+    <p class="sub">
+      Each queue is a capsule tube. Putters are name pills on the left, getters on the right.
+      Edges attach to vertically spaced ports so arrows stay parallel and never pile up.
     </p>
   </header>
-
-  <section class="panel" aria-label="Queues graph mockup">
-    <div class="panel-bar">
-      <div class="tabs" aria-hidden="true">
-        <span>Schedule</span>
-        <span class="on">Queues</span>
-      </div>
+  <section class="panel">
+    <div class="bar">
+      <div class="tabs"><span>Schedule</span><span class="on">Queues</span></div>
       <div class="legend">
         <span><i class="put"></i>put →</span>
-        <span><i class="get"></i>← get</span>
-        <span>depth fill · dashed = cap</span>
+        <span><i class="get"></i>→ get</span>
+        <span>tube fill = depth</span>
       </div>
     </div>
     <div class="controls">
-      <button type="button" class="primary" id="btn-live" aria-pressed="true">Live traffic</button>
-      <button type="button" id="btn-put">Fire put</button>
-      <button type="button" id="btn-get">Fire get</button>
-      <button type="button" id="btn-burst">Burst</button>
-      <button type="button" id="btn-reset">Reset depths</button>
+      <button type="button" class="primary" id="live" aria-pressed="true">Live traffic</button>
+      <button type="button" id="burst">Burst</button>
+      <button type="button" id="reset">Reset</button>
     </div>
     <div id="stage"></div>
   </section>
-
-  <p class="note">
-    Production: mount above the depth charts in the Queues tab. Prefer a fixed bipartite
-    layout (this mock) over a free force graph — readable at a glance, and d3 is only
-    needed for SVG joins + packet tweens. Persist ~1.2s hot + ~4s warm fade.
-  </p>
+  <p class="note">Same layout as the in-app QueueGraph — one band per msgq, orthogonal connectors, pill threads (not circles).</p>
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
   <script>
-    const HOT_MS = 1200
-    const WARM_MS = 4200
-
-    const threads = [
-      { id: 't:sensor0', label: 'sensor0' },
-      { id: 't:sensor1', label: 'sensor1' },
-      { id: 't:logger', label: 'logger' },
-      { id: 't:agg', label: 'aggregator' },
-      { id: 't:flush', label: 'flush' },
-      { id: 't:shell', label: 'shell' },
-    ]
+    const PILL_W = 104, PILL_H = 22, TUBE_W = 168, TUBE_H = 40, PORT_GAP = 24, ROW_GAP = 20
+    const HOT = 1200, WARM = 4000
     const queues = [
-      { id: 'q:samples', label: 'q_samples', cap: 8, depth: 2, drops: 0 },
-      { id: 'q:log', label: 'q_log', cap: 16, depth: 5, drops: 12 },
-      { id: 'q:events', label: 'q_events', cap: 4, depth: 1, drops: 2 },
-      { id: 'q:shell', label: 'q_shell', cap: 4, depth: 0, drops: 0 },
+      { id: 'samples', label: 'sensor_q', cap: 16, depth: 4, drops: 0,
+        puts: ['sensor_0', 'sensor_1', 'sensor_2'], gets: ['aggregator'] },
+      { id: 'log', label: 'q_log', cap: 16, depth: 9, drops: 12,
+        puts: ['logger'], gets: ['flush'] },
+      { id: 'events', label: 'q_events', cap: 4, depth: 1, drops: 2,
+        puts: ['aggregator'], gets: ['shell'] },
     ]
-    const routes = [
-      { thread: 't:sensor0', queue: 'q:samples', op: 'put' },
-      { thread: 't:sensor1', queue: 'q:samples', op: 'put' },
-      { thread: 't:agg', queue: 'q:samples', op: 'get' },
-      { thread: 't:logger', queue: 'q:log', op: 'put' },
-      { thread: 't:flush', queue: 'q:log', op: 'get' },
-      { thread: 't:agg', queue: 'q:events', op: 'put' },
-      { thread: 't:shell', queue: 'q:events', op: 'get' },
-      { thread: 't:shell', queue: 'q:shell', op: 'put' },
-      { thread: 't:logger', queue: 'q:shell', op: 'get' },
-    ]
-
-    const byId = new Map([...threads, ...queues].map(n => [n.id, n]))
-    /** @type {Map<string, {op:string, untilHot:number, untilWarm:number}>} */
-    const edgeState = new Map()
-
+    const edges = new Map()
     const stage = document.getElementById('stage')
     const svg = d3.select('#stage').append('svg')
     const defs = svg.append('defs')
-    for (const [id, color] of [['arrow-put', '#60a5fa'], ['arrow-get', '#fbbf24']]) {
-      defs.append('marker')
-        .attr('id', id)
-        .attr('viewBox', '0 -4 8 8')
-        .attr('refX', 7)
-        .attr('refY', 0)
-        .attr('markerWidth', 7)
-        .attr('markerHeight', 7)
-        .attr('orient', 'auto')
-        .append('path')
-        .attr('d', 'M0,-3.5L8,0L0,3.5')
-        .attr('fill', color)
+    for (const [id, c] of [['a-put','#60a5fa'],['a-get','#fbbf24']]) {
+      defs.append('marker').attr('id', id).attr('viewBox','0 -4 8 8').attr('refX',7).attr('refY',0)
+        .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+        .append('path').attr('d','M0,-3.2L7,0L0,3.2').attr('fill', c)
     }
-
-    const gLabels = svg.append('g')
-    const gLinks = svg.append('g')
-    const gPackets = svg.append('g')
-    const gNodes = svg.append('g')
-
-    function size() {
-      return { w: stage.clientWidth || 900, h: stage.clientHeight || 520 }
-    }
+    const gL = svg.append('g'), gE = svg.append('g'), gP = svg.append('g'), gT = svg.append('g'), gN = svg.append('g')
 
     function layout() {
-      const { w, h } = size()
-      const top = 36, bottom = 24
-      const usable = h - top - bottom
-      // Role score: puts pull left, gets pull right.
-      const score = new Map(threads.map(t => [t.id, 0]))
-      for (const r of routes) score.set(r.thread, (score.get(r.thread) ?? 0) + (r.op === 'put' ? 1 : -1))
-      const left = threads.filter(t => (score.get(t.id) ?? 0) >= 0)
-      const right = threads.filter(t => (score.get(t.id) ?? 0) < 0)
-      left.forEach((t, i) => {
-        t.x = w * 0.16
-        t.y = top + (i + 0.5) * (usable / left.length)
-        t.side = 'left'
-      })
-      right.forEach((t, i) => {
-        t.x = w * 0.84
-        t.y = top + (i + 0.5) * (usable / Math.max(1, right.length))
-        t.side = 'right'
-      })
-      queues.forEach((q, i) => {
-        q.x = w * 0.5
-        q.y = top + (i + 0.5) * (usable / queues.length)
-      })
-      gLabels.selectAll('*').remove()
-      gLabels.append('text').attr('class', 'col-label').attr('x', w * 0.16).attr('y', 16).attr('text-anchor', 'middle').text('Producers')
-      gLabels.append('text').attr('class', 'col-label').attr('x', w * 0.5).attr('y', 16).attr('text-anchor', 'middle').text('Queues')
-      gLabels.append('text').attr('class', 'col-label').attr('x', w * 0.84).attr('y', 16).attr('text-anchor', 'middle').text('Consumers')
+      const leftX = 12 + PILL_W/2
+      const tubeX = leftX + PILL_W/2 + 44 + TUBE_W/2
+      const rightX = tubeX + TUBE_W/2 + 44 + PILL_W/2
+      const w = Math.max(stage.clientWidth || 900, rightX + PILL_W/2 + 12)
+      let y = 28
+      const tubes = [], pills = []
+      for (const q of queues) {
+        const n = Math.max(1, q.puts.length, q.gets.length)
+        const band = Math.max(TUBE_H + 8, n*PORT_GAP + 8)
+        const cy = y + band/2
+        const tube = { ...q, x: tubeX, y: cy, putN: Math.max(1,q.puts.length), getN: Math.max(1,q.gets.length) }
+        tubes.push(tube)
+        const pillY = (count, i) => {
+          const span = Math.max(0, (count-1)*PORT_GAP)
+          return cy - span/2 + i*PORT_GAP
+        }
+        q.puts.forEach((name, i) => pills.push({ id: `${q.id}:p:${name}`, name, side:'put', qid:q.id, port:i, x:leftX, y:pillY(q.puts.length,i) }))
+        q.gets.forEach((name, i) => pills.push({ id: `${q.id}:g:${name}`, name, side:'get', qid:q.id, port:i, x:rightX, y:pillY(q.gets.length,i) }))
+        y += band + ROW_GAP
+      }
+      return { w, h: y + 8, tubes, pills, leftX, tubeX, rightX }
     }
 
-    function linkPath(a, b, op) {
-      const dx = b.x - a.x, dy = b.y - a.y
-      const dist = Math.hypot(dx, dy) || 1
-      const startPad = a.cap != null ? 50 : 22
-      const endPad = b.cap != null ? 50 : 22
-      const sx = a.x + (dx / dist) * startPad
-      const sy = a.y + (dy / dist) * startPad
-      const ex = b.x - (dx / dist) * endPad
-      const ey = b.y - (dy / dist) * endPad
-      const mx = (sx + ex) / 2, my = (sy + ey) / 2
-      const nx = -dy / dist, ny = dx / dist
-      const bend = op === 'put' ? 20 : -20
-      return { sx, sy, ex, ey, cx: mx + nx * bend, cy: my + ny * bend }
-    }
-
-    function renderNodes() {
-      const all = [...threads, ...queues]
-      const sel = gNodes.selectAll('g.node').data(all, d => d.id)
-      const enter = sel.enter().append('g').attr('class', d => `node ${d.cap != null ? 'queue' : 'thread'}`)
-
-      const th = enter.filter(d => d.cap == null)
-      th.append('circle').attr('r', 20)
-      th.append('text')
-
-      const qn = enter.filter(d => d.cap != null)
-      qn.append('rect').attr('class', 'shell').attr('width', 100).attr('height', 48).attr('x', -50).attr('y', -24)
-      qn.append('rect').attr('class', 'depth').attr('x', -42).attr('y', 6).attr('height', 9)
-      qn.append('line').attr('class', 'cap').attr('y1', 6).attr('y2', 15)
-      qn.append('text').attr('class', 'name').attr('x', -42).attr('y', -16)
-      qn.append('text').attr('class', 'meta').attr('x', -42).attr('y', -2)
-      qn.append('circle').attr('class', 'drop-flash').attr('r', 26)
-
-      const merged = enter.merge(sel)
-      merged.attr('transform', d => `translate(${d.x},${d.y})`)
-      merged.filter(d => d.cap == null).select('text').text(d => d.label.slice(0, 8))
-      merged.filter(d => d.cap != null).each(function (d) {
-        const g = d3.select(this)
-        g.select('rect.depth').attr('width', Math.max(0, (d.depth / d.cap) * 84))
-        g.select('line.cap').attr('x1', 42).attr('x2', 42)
-        g.select('text.name').text(d.label)
-        g.select('text.meta').text(`${d.depth}/${d.cap} · ${d.drops} drops`)
-      })
-      return merged
+    function path(pill, tube) {
+      const n = pill.side === 'put' ? tube.putN : tube.getN
+      const inner = Math.min(PORT_GAP, (TUBE_H - 12) / Math.max(1, n - 1 || 1))
+      const span = Math.max(0, (n-1)*inner)
+      const ey = tube.y - span/2 + pill.port*inner
+      const sy = pill.y
+      if (pill.side === 'put') {
+        const sx = pill.x + PILL_W/2, ex = tube.x - TUBE_W/2, mx = (sx+ex)/2
+        return { sx, sy, ex, ey, mx, my:(sy+ey)/2, d:`M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}` }
+      }
+      const sx = tube.x + TUBE_W/2, ex = pill.x - PILL_W/2, mx = (sx+ex)/2
+      return { sx, sy, ex, ey, mx, my:(sy+ey)/2, d:`M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}` }
     }
 
     function render() {
+      const L = layout()
+      svg.attr('viewBox', `0 0 ${L.w} ${L.h}`).attr('height', L.h)
+      gL.selectAll('*').remove()
+      ;[['Put', L.leftX],['Queue', L.tubeX],['Get', L.rightX]].forEach(([t,x]) => {
+        gL.append('text').attr('x',x).attr('y',14).attr('text-anchor','middle')
+          .attr('fill','rgba(148,163,184,0.7)').attr('font-size',9).attr('font-weight',600)
+          .attr('letter-spacing','0.08em').text(t.toUpperCase())
+      })
+
       const now = performance.now()
       const active = []
-      for (const [key, st] of edgeState) {
-        if (now > st.untilWarm) { edgeState.delete(key); continue }
-        const [aId, bId, op] = key.split('|')
-        const a = byId.get(aId), b = byId.get(bId)
-        if (!a || !b) continue
-        active.push({ key, a, b, op, st, now })
+      for (const [k, st] of edges) {
+        if (now > st.untilWarm) { edges.delete(k); continue }
+        const pill = L.pills.find(p => p.id === st.pillId)
+        const tube = L.tubes.find(t => t.id === st.qid)
+        if (!pill || !tube) continue
+        active.push({ k, pill, tube, op: st.op, hot: now < st.untilHot })
       }
+      const struct = L.pills.map(pill => {
+        const tube = L.tubes.find(t => t.id === pill.qid)
+        return { k: 's:'+pill.id, pill, tube, op: pill.side === 'put' ? 'put' : 'get', hot: false, struct: true }
+      }).filter(d => d.tube)
 
-      const link = gLinks.selectAll('path.link').data(active, d => d.key)
+      const all = [...struct, ...active]
+      const link = gE.selectAll('path').data(all, d => d.k)
       link.exit().remove()
-      link.enter().append('path')
-        .attr('marker-end', d => d.op === 'put' ? 'url(#arrow-put)' : 'url(#arrow-get)')
+      link.enter().append('path').attr('fill','none').attr('stroke-linecap','round')
         .merge(link)
-        .attr('class', d => {
-          const hot = d.now < d.st.untilHot
-          return `link ${d.op} ${hot ? 'hot' : 'warm'}`
-        })
-        .attr('d', d => {
-          const p = linkPath(d.a, d.b, d.op)
-          return `M${p.sx},${p.sy} Q${p.cx},${p.cy} ${p.ex},${p.ey}`
-        })
+        .attr('stroke', d => d.op === 'put' ? '#60a5fa' : '#fbbf24')
+        .attr('stroke-width', d => d.struct ? 1 : d.hot ? 2.2 : 1.6)
+        .attr('opacity', d => d.struct ? 0.16 : d.hot ? 0.95 : 0.45)
+        .attr('marker-end', d => d.struct ? null : d.op === 'put' ? 'url(#a-put)' : 'url(#a-get)')
+        .attr('d', d => path(d.pill, d.tube).d)
 
-      const merged = renderNodes()
-      const hotIds = new Set()
-      for (const d of active) {
-        if (d.now < d.st.untilHot) { hotIds.add(d.a.id); hotIds.add(d.b.id) }
-      }
-      merged.classed('hot', d => hotIds.has(d.id))
+      const hotQ = new Set(active.filter(a => a.hot).map(a => a.tube.id))
+      const tsel = gT.selectAll('g').data(L.tubes, d => d.id)
+      tsel.exit().remove()
+      const te = tsel.enter().append('g')
+      te.append('rect').attr('class','shell').attr('rx',999).attr('stroke','#93c5fd')
+      te.append('rect').attr('class','depth').attr('rx',999).attr('fill','rgba(96,165,250,0.45)')
+      te.append('text').attr('class','name').attr('text-anchor','middle').attr('fill','#f8fafc').attr('font-size',11).attr('font-weight',600).attr('font-family', 'var(--mono)')
+      te.append('text').attr('class','meta').attr('text-anchor','middle').attr('fill','#94a3b8').attr('font-size',9).attr('font-family', 'var(--mono)')
+      te.merge(tsel).attr('transform', d => `translate(${d.x},${d.y})`).each(function(d) {
+        const g = d3.select(this), hot = hotQ.has(d.id)
+        g.select('.shell').attr('x',-TUBE_W/2).attr('y',-TUBE_H/2).attr('width',TUBE_W).attr('height',TUBE_H)
+          .attr('fill', hot ? 'rgba(96,165,250,0.22)' : 'rgba(96,165,250,0.12)').attr('stroke-width', hot ? 2.2 : 1.5)
+        g.select('.depth').attr('x', -TUBE_W/2+6).attr('y', TUBE_H/2-11).attr('height',6)
+          .attr('width', Math.max(0, d.depth/d.cap*(TUBE_W-12)))
+        g.select('.name').attr('y',-3).text(d.label)
+        g.select('.meta').attr('y',11).text(`${d.depth}/${d.cap} · ${d.drops} drops`)
+      })
+
+      const hotP = new Set(active.filter(a => a.hot).map(a => a.pill.id))
+      const psel = gN.selectAll('g').data(L.pills, d => d.id)
+      psel.exit().remove()
+      const pe = psel.enter().append('g')
+      pe.append('rect').attr('x',-PILL_W/2).attr('y',-PILL_H/2).attr('width',PILL_W).attr('height',PILL_H).attr('rx',6)
+      pe.append('text').attr('text-anchor','middle').attr('dominant-baseline','central').attr('font-size',10).attr('fill','#f8fafc').attr('font-family','var(--mono)')
+      pe.merge(psel).attr('transform', d => `translate(${d.x},${d.y})`).each(function(d) {
+        const g = d3.select(this), hot = hotP.has(d.id), put = d.side === 'put'
+        g.select('rect').attr('stroke', put ? '#60a5fa' : '#fbbf24').attr('stroke-width', hot ? 1.8 : 1.2)
+          .attr('fill', hot ? (put ? 'rgba(96,165,250,0.28)' : 'rgba(251,191,36,0.28)') : (put ? 'rgba(96,165,250,0.1)' : 'rgba(251,191,36,0.1)'))
+        g.select('text').text(d.name)
+      })
     }
 
-    function fire(route) {
-      const thread = byId.get(route.thread)
-      const queue = byId.get(route.queue)
-      if (!thread || !queue) return
-
-      let ok = true
-      if (route.op === 'put') {
-        if (queue.depth >= queue.cap) {
-          queue.drops += 1
-          ok = false
-          gNodes.selectAll('g.node').filter(d => d.id === queue.id)
-            .select('.drop-flash')
-            .attr('opacity', 0.5)
-            .transition().duration(450).attr('opacity', 0)
-        } else {
-          queue.depth += 1
-        }
-      } else {
-        if (queue.depth <= 0) return
-        queue.depth -= 1
-      }
-
-      const a = route.op === 'put' ? thread : queue
-      const b = route.op === 'put' ? queue : thread
-      const key = `${a.id}|${b.id}|${route.op}`
+    function fire(qid, side) {
+      const q = queues.find(x => x.id === qid); if (!q) return
+      const names = side === 'put' ? q.puts : q.gets
+      const name = names[Math.floor(Math.random()*names.length)]
+      if (side === 'put') {
+        if (q.depth >= q.cap) q.drops++; else q.depth++
+      } else if (q.depth > 0) q.depth--
+      else return
+      const pillId = `${qid}:${side === 'put' ? 'p' : 'g'}:${name}`
       const now = performance.now()
-      edgeState.set(key, { op: route.op, untilHot: now + HOT_MS, untilWarm: now + WARM_MS })
-
-      if (ok || route.op === 'put') {
-        const p = linkPath(a, b, route.op)
-        const pkt = gPackets.append('circle')
-          .attr('r', 3.5)
-          .attr('fill', route.op === 'put' ? '#93c5fd' : '#fcd34d')
-          .attr('cx', p.sx).attr('cy', p.sy)
-        pkt.transition().duration(520).ease(d3.easeCubicOut)
-          .attrTween('cx', () => t => {
-            const u = 1 - t
-            return u * u * p.sx + 2 * u * t * p.cx + t * t * p.ex
-          })
-          .attrTween('cy', () => t => {
-            const u = 1 - t
-            return u * u * p.sy + 2 * u * t * p.cy + t * t * p.ey
-          })
-          .attr('opacity', 0.1)
-          .remove()
+      edges.set(pillId+side, { pillId, qid, op: side === 'put' ? 'put' : 'get', untilHot: now+HOT, untilWarm: now+WARM })
+      const L = layout()
+      const pill = L.pills.find(p => p.id === pillId)
+      const tube = L.tubes.find(t => t.id === qid)
+      if (pill && tube) {
+        const p = path(pill, tube)
+        const c = gP.append('circle').attr('r',3.2).attr('fill', side==='put'?'#93c5fd':'#fcd34d').attr('cx',p.sx).attr('cy',p.sy)
+        c.transition().duration(480).ease(d3.easeCubicOut)
+          .attrTween('cx', () => t => { const u=1-t; return u*u*p.sx + 2*u*t*p.mx + t*t*p.ex })
+          .attrTween('cy', () => t => { const u=1-t; return u*u*p.sy + 2*u*t*p.my + t*t*p.ey })
+          .attr('opacity', 0.1).remove()
       }
       render()
     }
 
-    function randomRoute(op) {
-      const pool = routes.filter(r => !op || r.op === op)
-      return pool[Math.floor(Math.random() * pool.length)]
-    }
-
-    let live = true, timer = null
-    function scheduleLive() {
+    let live = true, timer
+    function tick() {
       clearTimeout(timer)
       if (!live) return
       timer = setTimeout(() => {
-        const r = randomRoute()
-        if (r.queue === 'q:log' && r.op === 'put' && Math.random() < 0.22) {
-          const q = byId.get('q:log'); if (q) q.depth = q.cap
-        }
-        fire(r)
-        scheduleLive()
-      }, 260 + Math.random() * 640)
+        const q = queues[Math.floor(Math.random()*queues.length)]
+        fire(q.id, Math.random() < 0.55 ? 'put' : 'get')
+        tick()
+      }, 280 + Math.random()*600)
     }
-
-    document.getElementById('btn-live').addEventListener('click', (e) => {
-      live = !live
-      e.currentTarget.setAttribute('aria-pressed', String(live))
+    document.getElementById('live').onclick = (e) => {
+      live = !live; e.currentTarget.setAttribute('aria-pressed', live)
       e.currentTarget.textContent = live ? 'Live traffic' : 'Paused'
-      if (live) scheduleLive(); else clearTimeout(timer)
-    })
-    document.getElementById('btn-put').addEventListener('click', () => fire(randomRoute('put')))
-    document.getElementById('btn-get').addEventListener('click', () => fire(randomRoute('get')))
-    document.getElementById('btn-burst').addEventListener('click', () => {
-      for (let i = 0; i < 10; i++) setTimeout(() => fire(randomRoute()), i * 70)
-    })
-    document.getElementById('btn-reset').addEventListener('click', () => {
-      queues.forEach(q => { q.depth = 0 })
-      edgeState.clear()
-      gPackets.selectAll('*').remove()
-      render()
-    })
-
-    window.addEventListener('resize', () => { layout(); render() })
-    layout()
-    for (let i = 0; i < 12; i++) setTimeout(() => fire(randomRoute()), 40 + i * 60)
+      if (live) tick(); else clearTimeout(timer)
+    }
+    document.getElementById('burst').onclick = () => {
+      for (let i=0;i<10;i++) setTimeout(() => {
+        const q = queues[Math.floor(Math.random()*queues.length)]
+        fire(q.id, Math.random()<0.55?'put':'get')
+      }, i*70)
+    }
+    document.getElementById('reset').onclick = () => { queues.forEach(q => q.depth = 0); edges.clear(); gP.selectAll('*').remove(); render() }
+    window.addEventListener('resize', render)
+    for (let i=0;i<8;i++) setTimeout(() => fire(queues[i%queues.length].id, i%3===0?'get':'put'), 50+i*60)
     setInterval(render, 180)
-    scheduleLive()
-    render()
+    tick(); render()
   </script>
 </body>
 </html>
