@@ -113,11 +113,13 @@ export function applyWindowSlide(
 ): Uint8Array {
   const out = new Uint8Array(current.length)
   if (plan.kind === 'forward') {
+    // Drop leading bytes; append the new high edge.
     out.set(current.subarray(plan.drop), 0)
     out.set(fetched.subarray(0, plan.fetchLen), current.length - plan.fetchLen)
   } else {
+    // Prefetch the new low edge; keep the leading overlap (not the tail).
     out.set(fetched.subarray(0, plan.fetchLen), 0)
-    out.set(current.subarray(current.length - plan.keep), plan.fetchLen)
+    out.set(current.subarray(0, plan.keep), plan.fetchLen)
   }
   return out
 }
