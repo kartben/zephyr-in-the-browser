@@ -93,14 +93,14 @@ type RowLayout = {
   marks: TransitionMark[]
 }
 
-const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue'])
+const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue', 'stack'])
 
 function ipcNameMap(): Map<number, string> {
   const map = new Map<number, string>()
   for (const o of getWaitObjects()) {
     if (
       (o.kind && IPC_KINDS.has(o.kind)) ||
-      /msgq|fifo|lifo/.test(o.name.toLowerCase()) ||
+      /msgq|fifo|lifo|k_stack/.test(o.name.toLowerCase()) ||
       o.name.startsWith('q_')
     ) {
       map.set(o.addr, o.name)

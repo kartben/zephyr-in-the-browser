@@ -75,6 +75,7 @@ function blockReason(nm: string, f: Record<string, string | number>): string {
   if (nm.startsWith('msgq')) return `msgq 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('fifo')) return `fifo 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('lifo')) return `lifo 0x${Number(f.id ?? 0).toString(16)}`
+  if (nm.startsWith('stack')) return `stack 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('queue')) return `queue 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('condvar')) return `condvar 0x${Number(f.id ?? 0).toString(16)}`
   if (nm.startsWith('event_wait')) return `event 0x${Number(f.event_id ?? 0).toString(16)}`

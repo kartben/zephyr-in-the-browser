@@ -57,6 +57,31 @@ describe('classifyQueueEvent', () => {
     })
   })
 
+  it('maps stack push/pop with errno success', () => {
+    expect(classifyQueueEvent('stack_push_exit', { id: 4, ret: 0 })).toMatchObject({
+      kind: 'stack',
+      flowOp: 'put',
+      depthAction: 'put',
+      ok: true,
+    })
+    expect(classifyQueueEvent('stack_pop_exit', { id: 4, timeout: 0, ret: 0 })).toMatchObject({
+      kind: 'stack',
+      flowOp: 'get',
+      depthAction: 'get',
+      ok: true,
+    })
+    expect(classifyQueueEvent('stack_pop_exit', { id: 4, timeout: 0, ret: -11 })).toMatchObject({
+      ok: false,
+    })
+    expect(classifyQueueEnter('stack_push_enter', { id: 4 })).toMatchObject({
+      kind: 'stack',
+      flowOp: 'put',
+    })
+    expect(classifyQueueEnter('stack_pop_enter', { id: 4, timeout: 0 })).toMatchObject({
+      flowOp: 'get',
+    })
+  })
+
   it('skips bulk list ops', () => {
     expect(classifyQueueEvent('fifo_put_list_exit', { id: 1, head: 0, tail: 0 })).toBeNull()
     expect(classifyQueueEvent('queue_append_list_exit', { id: 1, ret: 0 })).toBeNull()

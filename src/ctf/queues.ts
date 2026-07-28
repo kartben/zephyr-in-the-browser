@@ -1,7 +1,7 @@
 /**
  * Reconstruct per-object depth timelines from CTF put/get exits.
  *
- * Covers msgq, fifo, lifo, and bare k_queue. Zephyr events carry object
+ * Covers msgq, fifo, lifo, bare k_queue, and k_stack. Zephyr events carry object
  * address + ret — not used count. Counting successful puts (+1) and gets (−1)
  * recovers depth when the stream starts empty (or after a msgq purge).
  *

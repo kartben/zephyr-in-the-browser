@@ -1,12 +1,15 @@
 /**
- * Classify Zephyr CTF data-passing events (msgq / queue / fifo / lifo).
+ * Classify Zephyr CTF data-passing events (msgq / queue / fifo / lifo / stack).
  *
  * FIFO/LIFO wrap k_queue with `_queue` at offset 0, so nested queue_* events
  * share the same object `id`. Prefer the outer kind and ignore nested queue_*
  * for those addresses when reconstructing depth / flow.
+ *
+ * k_stack is independent (push/pop with errno-style ret); treat push as put and
+ * pop as get for depth and pipe mouths.
  */
 
-export type QueueKind = 'msgq' | 'queue' | 'fifo' | 'lifo'
+export type QueueKind = 'msgq' | 'queue' | 'fifo' | 'lifo' | 'stack'
 
 /** Unified flow ops used by the pipe graph mouths. */
 export type QueueFlowOp = 'put' | 'put_front' | 'get'
@@ -34,6 +37,7 @@ function prefixKind(name: string): QueueKind | null {
   if (name.startsWith('msgq_')) return 'msgq'
   if (name.startsWith('fifo_')) return 'fifo'
   if (name.startsWith('lifo_')) return 'lifo'
+  if (name.startsWith('stack_')) return 'stack'
   if (name.startsWith('queue_')) return 'queue'
   return null
 }
@@ -64,6 +68,8 @@ const FLOW_ENTER_OP: Record<string, QueueFlowOp> = {
   lifo_put_enter: 'put_front',
   lifo_alloc_put_enter: 'put_front',
   lifo_get_enter: 'get',
+  stack_push_enter: 'put',
+  stack_pop_enter: 'get',
   queue_append_enter: 'put',
   queue_alloc_append_enter: 'put',
   queue_prepend_enter: 'put_front',
@@ -146,6 +152,16 @@ export function classifyQueueEvent(
     return null
   }
 
+  if (kind === 'stack') {
+    if (name === 'stack_push_exit') {
+      return { kind, id, flowOp: 'put', depthAction: 'put', ok: errnoOk(ret) }
+    }
+    if (name === 'stack_pop_exit') {
+      return { kind, id, flowOp: 'get', depthAction: 'get', ok: errnoOk(ret) }
+    }
+    return null
+  }
+
   // bare k_queue — skip bulk list/merge (no item count in CTF).
   if (name === 'queue_append_exit') {
     return { kind, id, flowOp: 'put', depthAction: 'put', ok: true }
@@ -191,8 +207,8 @@ export function classifyQueueKinds(
     const id = num(ev.fields, 'id')
     if (id == null) continue
     const prev = kinds.get(id)
-    if (prev === 'fifo' || prev === 'lifo') continue
-    if (kind === 'fifo' || kind === 'lifo') {
+    if (prev === 'fifo' || prev === 'lifo' || prev === 'stack') continue
+    if (kind === 'fifo' || kind === 'lifo' || kind === 'stack') {
       kinds.set(id, kind)
       continue
     }

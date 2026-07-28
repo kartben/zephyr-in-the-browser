@@ -185,4 +185,21 @@ describe('reconstructQueues', () => {
     expect(depthAt(s!.samples, 150)).toBe(1)
     expect(depthAt(s!.samples, 250)).toBe(0)
   })
+
+  it('tracks k_stack push/pop depth', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const id = 0x7000
+    reader.feed(
+      Uint8Array.from([
+        ...record(100, 0x143, [...encU32(id), ...encI32(0)]), // stack_push_exit
+        ...record(200, 0x143, [...encU32(id), ...encI32(0)]),
+        ...record(300, 0x146, [...encU32(id), ...encU32(0), ...encI32(0)]), // stack_pop_exit
+      ]),
+    )
+    const [s] = reconstructQueues(reader.tr)
+    expect(s!.kind).toBe('stack')
+    expect(depthAt(s!.samples, 150)).toBe(1)
+    expect(depthAt(s!.samples, 250)).toBe(2)
+    expect(depthAt(s!.samples, 350)).toBe(1)
+  })
 })

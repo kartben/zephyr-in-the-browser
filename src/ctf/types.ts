@@ -227,6 +227,21 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'uint32_t'],
     ],
   },
+  0x143: {
+    name: 'stack_push_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x146: {
+    name: 'stack_pop_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
 }
 
 /** Thread state codes — darker/solid == closer to running. */

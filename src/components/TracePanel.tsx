@@ -4,10 +4,10 @@
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
  * zoom). Optional queue swim lanes line data-passing objects (msgq / fifo /
- * lifo / k_queue) under the threads, with dotted put/get connectors from the
- * actor thread to each queue rail. Lane groups (THREADS, QUEUES, …) carry small
- * uppercase section headers. Queues: per-object flow graph + depth from
- * put/put_front/get exits.
+ * lifo / k_queue / k_stack) under the threads, with dotted put/get connectors
+ * from the actor thread to each queue rail. Lane groups (THREADS, QUEUES, …)
+ * carry small uppercase section headers. Queues: per-object flow graph + depth
+ * from put/put_front/get exits.
  */
 
 import {
@@ -189,14 +189,14 @@ function fitLabel(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
   return lo > 0 ? `${text.slice(0, lo)}…` : '…'
 }
 
-const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue'])
+const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue', 'stack'])
 
 function ipcNameMap(): Map<number, string> {
   const map = new Map<number, string>()
   for (const o of hostGdb.getWaitObjects()) {
     if (
       (o.kind && IPC_KINDS.has(o.kind)) ||
-      /msgq|fifo|lifo/.test(o.name.toLowerCase()) ||
+      /msgq|fifo|lifo|k_stack/.test(o.name.toLowerCase()) ||
       o.name.startsWith('q_')
     ) {
       map.set(o.addr, o.name)
