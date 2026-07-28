@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { revealDockRow } from '@/lib/dockReveal'
-import { attachUserSpi, clearUserPeripherals, detachUserSpi, hasUserPeripherals, spiModel } from '@/virtio'
+import { attachUserSpi, detachUserSpi, spiModel } from '@/virtio'
 import type { SpiChip, SpiTransaction } from '@/virtio/devices/spi'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
@@ -36,19 +36,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
   return (
     <div className="space-y-3 px-3 py-3">
       <div className="space-y-1.5">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground">On the bus</span>
-          {hasUserPeripherals() && (
-            <button
-              type="button"
-              className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-              title="Remove breadboard attachments; restore the board's parts"
-              onClick={() => clearUserPeripherals()}
-            >
-              clear
-            </button>
-          )}
-        </div>
+        <span className="text-[11px] font-medium text-muted-foreground">On the bus</span>
         <ul className="space-y-1">
           {chips.length === 0 && (
             <li className="text-[11px] text-muted-foreground">Nothing attached.</li>

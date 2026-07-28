@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { revealDockRow } from '@/lib/dockReveal'
-import { attachUserI2c, clearUserPeripherals, detachUserI2c, hasUserPeripherals, i2cModel } from '@/virtio'
+import { attachUserI2c, detachUserI2c, i2cModel } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
 import type { I2cChip, I2cTransaction } from '@/virtio/devices/i2c'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
@@ -62,19 +62,7 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
   return (
     <div className="space-y-3 px-3 py-3">
       <div className="space-y-1.5">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground">On the bus</span>
-          {hasUserPeripherals() && (
-            <button
-              type="button"
-              className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-              title="Remove breadboard attachments; restore the board's parts"
-              onClick={() => clearUserPeripherals()}
-            >
-              clear
-            </button>
-          )}
-        </div>
+        <span className="text-[11px] font-medium text-muted-foreground">On the bus</span>
         <ul className="space-y-1">
           {chips.length === 0 && (
             <li className="text-[11px] text-muted-foreground">Nothing attached.</li>

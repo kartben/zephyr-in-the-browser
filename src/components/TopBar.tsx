@@ -5,6 +5,7 @@ import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
 import { SampleGallery } from '@/components/SampleGallery'
 import { PartsCatalog } from '@/components/PartsCatalog'
+import { ClearPeripheralsControl } from '@/components/ClearPeripheralsControl'
 import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
 import { DtsViewer } from '@/components/DtsViewer'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
@@ -71,6 +72,7 @@ export function TopBar({
 
         <RunningDtsButton />
         <PartsCatalog />
+        <ClearPeripheralsControl />
         <PauseDebugControl />
 
         <PanelsMenu boardId={boardId} />
