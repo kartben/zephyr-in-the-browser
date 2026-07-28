@@ -23,9 +23,10 @@ export function makeEventDef(eid: number, name: string, fields: FieldDecl[]): Ev
   const parsed: EventDef['fields'] = []
   let size = 0
   for (const [fname, ftype] of fields) {
-    if (ftype === 'str20') {
-      parsed.push({ name: fname, kind: { str: 20 } })
-      size += 20
+    if (ftype === 'str20' || (typeof ftype === 'object' && 'str' in ftype)) {
+      const n = ftype === 'str20' ? 20 : ftype.str
+      parsed.push({ name: fname, kind: { str: n } })
+      size += n
     } else {
       parsed.push({ name: fname, kind: ftype })
       size += SCALAR_TYPES[ftype].size
@@ -127,19 +128,14 @@ export function parseMetadata(text: string): Map<number, EventDef> {
         const fname = fm[2]!
         const arr = fm[3]
         if (ftype === 'ctf_bounded_string_t') {
-          fields.push([fname, 'str20'])
-          // Honour the declared length when it is not the usual 20.
-          if (arr && Number(arr) !== 20) {
-            fields[fields.length - 1] = [fname, 'str20']
-          }
-          void arr
+          // Thread names are [20]; socket addresses are [46] (INET6_ADDRSTRLEN).
+          const n = arr ? Number(arr) : 20
+          fields.push([fname, n === 20 ? 'str20' : { str: n }])
         } else if (ftype in SCALAR_TYPES || ftype === 'str20') {
           fields.push([fname, ftype as FieldType])
         }
       }
     }
-    // Bounded strings keep their declared width via a post-pass on makeEventDef
-    // — for Zephyr metadata every ctf_bounded_string_t is [20], which str20 covers.
     defs.set(eid, makeEventDef(eid, name, fields))
   }
   return defs

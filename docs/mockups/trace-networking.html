@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trace · Networking tab mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1419; --elev: #171d26; --soft: #1e2633; --line: #2a3342;
+      --fg: #e7e4de; --dim: #9aa3b0; --mute: #6a7382;
+      --tx: #34d399; --rx: #60a5fa; --err: #f87171; --listen: #a78bfa;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      --sans: "IBM Plex Sans", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; font-family: var(--sans); color: var(--fg);
+      background:
+        radial-gradient(900px 480px at 85% -15%, #152433, transparent 55%),
+        radial-gradient(700px 400px at 0% 100%, #1a2218, transparent 50%),
+        var(--bg);
+      padding: 1.25rem 1.5rem 2rem; display: flex; flex-direction: column; gap: 1rem;
+    }
+    h1 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .sub { margin: 0.35rem 0 0; color: var(--dim); font-size: 0.85rem; max-width: 46rem; line-height: 1.45; }
+    .panel { background: var(--elev); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .bar {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+      padding: 0.55rem 0.75rem; background: var(--soft); border-bottom: 1px solid var(--line);
+    }
+    .tabs { display: flex; gap: 0.25rem; }
+    .tabs span {
+      font: 600 0.65rem/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 0.35rem 0.55rem; border-radius: 6px; color: var(--mute);
+    }
+    .tabs span.on { background: #2a3344; color: var(--fg); }
+    .metrics {
+      margin-left: auto; display: flex; flex-wrap: wrap; gap: 0.85rem;
+      font: 500 0.7rem/1 var(--mono); color: var(--dim);
+    }
+    .metrics b { color: var(--fg); font-weight: 600; }
+    .metrics .tx { color: var(--tx); }
+    .metrics .rx { color: var(--rx); }
+    .metrics .err { color: var(--err); }
+    .controls {
+      display: flex; gap: 0.4rem; padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: center;
+    }
+    button {
+      appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--dim);
+      font: 500 0.72rem/1 var(--sans); padding: 0.4rem 0.65rem; border-radius: 7px; cursor: pointer;
+    }
+    button.primary { background: rgba(52,211,153,0.12); border-color: rgba(52,211,153,0.35); color: var(--tx); }
+    .legend { margin-left: auto; display: flex; gap: 0.9rem; font: 500 0.68rem/1 var(--mono); color: var(--dim); }
+    .legend i { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; vertical-align: -1px; margin-right: 0.28rem; }
+    .legend .tx { background: var(--tx); }
+    .legend .rx { background: var(--rx); }
+    .legend .err { background: var(--err); }
+    .legend .listen { background: var(--listen); }
+    #stage { background: #121821; position: relative; }
+    #stage svg { display: block; width: 100%; height: auto; }
+    .lane-label { font: 500 0.68rem/1.2 var(--mono); fill: var(--dim); }
+    .lane-label strong { fill: var(--fg); font-weight: 600; }
+    .peer { font: 500 0.62rem/1 var(--mono); fill: var(--mute); }
+    .axis { font: 500 0.6rem/1 var(--mono); fill: var(--mute); }
+    .strip-label { font: 600 0.6rem/1 var(--sans); letter-spacing: 0.05em; text-transform: uppercase; fill: var(--mute); }
+    .detail {
+      display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 1rem;
+      padding: 0.65rem 0.85rem; border-top: 1px solid var(--line);
+      font: 500 0.72rem/1.35 var(--mono); color: var(--dim); background: #141a22;
+    }
+    .detail strong { color: var(--fg); }
+    .note { font-size: 0.78rem; color: var(--mute); line-height: 1.5; max-width: 46rem; }
+    .note code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
+    @keyframes bloom {
+      from { opacity: 0; transform: scaleY(0.2); }
+      to { opacity: 1; transform: scaleY(1); }
+    }
+    .mark { transform-box: fill-box; transform-origin: center bottom; animation: bloom 0.45s ease-out both; }
+    .mark:nth-child(3n) { animation-delay: 0.05s; }
+    .mark:nth-child(3n+1) { animation-delay: 0.12s; }
+    .mark:nth-child(3n+2) { animation-delay: 0.18s; }
+    @media (prefers-reduced-motion: reduce) {
+      .mark { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Trace · Networking</h1>
+    <p class="sub">
+      Spec mockup for a third Trace tab: guest BSD-socket CTF (and optional net-core latency),
+      sharing Schedule’s time window — not a second Network panel.
+    </p>
+  </header>
+
+  <div class="panel">
+    <div class="bar">
+      <div class="tabs">
+        <span>Schedule</span>
+        <span>Message Queues</span>
+        <span class="on">Networking</span>
+      </div>
+      <div class="metrics">
+        <span>sockets <b>3</b></span>
+        <span class="tx">tx <b>1.24 MB</b></span>
+        <span class="rx">rx <b>986 KB</b></span>
+        <span class="err">err <b>2</b></span>
+      </div>
+    </div>
+    <div class="controls">
+      <button type="button">−</button>
+      <button type="button">+</button>
+      <button type="button" class="primary">Live</button>
+      <button type="button">Fit</button>
+      <div class="legend">
+        <span><i class="tx"></i>send</span>
+        <span><i class="rx"></i>recv</span>
+        <span><i class="err"></i>error</span>
+        <span><i class="listen"></i>listen</span>
+      </div>
+    </div>
+    <div id="stage">
+      <svg viewBox="0 0 920 340" role="img" aria-label="Networking swimlanes mockup">
+        <defs>
+          <linearGradient id="heat" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#34d399" stop-opacity="0.05" />
+            <stop offset="70%" stop-color="#34d399" stop-opacity="0.18" />
+            <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.22" />
+          </linearGradient>
+        </defs>
+
+        <!-- time grid -->
+        <g stroke="#1e2633" stroke-width="1">
+          <line x1="168" y1="28" x2="168" y2="248" />
+          <line x1="320" y1="28" x2="320" y2="248" />
+          <line x1="480" y1="28" x2="480" y2="248" />
+          <line x1="640" y1="28" x2="640" y2="248" />
+          <line x1="800" y1="28" x2="800" y2="248" />
+        </g>
+        <g class="axis">
+          <text x="168" y="18">0.0s</text>
+          <text x="320" y="18">0.5s</text>
+          <text x="480" y="18">1.0s</text>
+          <text x="640" y="18">1.5s</text>
+          <text x="800" y="18">2.0s</text>
+        </g>
+
+        <!-- connection ribbon -->
+        <path d="M 520 52 C 620 52, 700 78, 860 78" fill="none" stroke="#34d399" stroke-width="2" opacity="0.55" />
+        <path d="M 520 108 C 640 108, 720 132, 860 132" fill="none" stroke="#60a5fa" stroke-width="2.5" opacity="0.7" />
+        <circle cx="860" cy="78" r="3.5" fill="#34d399" />
+        <circle cx="860" cy="132" r="3.5" fill="#60a5fa" />
+        <text class="peer" x="872" y="81">192.0.2.2:5001</text>
+        <text class="peer" x="872" y="135">192.0.2.2:80</text>
+
+        <!-- lane 1 UDP -->
+        <rect x="168" y="40" width="680" height="36" fill="url(#heat)" opacity="0.9" />
+        <text class="lane-label" x="12" y="54"><tspan font-weight="600" fill="#e7e4de">fd 3</tspan>  UDP4</text>
+        <text class="lane-label" x="12" y="70">*:5001</text>
+        <g fill="#34d399">
+          <rect class="mark" x="210" y="52" width="5" height="14" rx="1" />
+          <rect class="mark" x="240" y="48" width="6" height="18" rx="1" />
+          <rect class="mark" x="275" y="50" width="4" height="16" rx="1" />
+          <rect class="mark" x="410" y="46" width="8" height="20" rx="1" />
+          <rect class="mark" x="445" y="49" width="5" height="17" rx="1" />
+          <rect class="mark" x="520" y="44" width="10" height="22" rx="1" />
+          <rect class="mark" x="560" y="48" width="6" height="18" rx="1" />
+          <rect class="mark" x="610" y="47" width="7" height="19" rx="1" />
+          <rect class="mark" x="700" y="45" width="9" height="21" rx="1" />
+          <rect class="mark" x="760" y="50" width="5" height="16" rx="1" />
+        </g>
+        <rect class="mark" x="500" y="55" width="4" height="10" rx="1" fill="#f87171" />
+
+        <!-- lane 2 TCP -->
+        <rect x="168" y="92" width="680" height="36" fill="#1a2230" />
+        <text class="lane-label" x="12" y="106"><tspan font-weight="600" fill="#e7e4de">fd 4</tspan>  TCP4</text>
+        <text class="lane-label" x="12" y="122">192.0.2.1:49152</text>
+        <g>
+          <rect class="mark" x="300" y="104" width="6" height="14" rx="1" fill="#34d399" />
+          <rect class="mark" x="330" y="100" width="5" height="18" rx="1" fill="#60a5fa" />
+          <rect class="mark" x="355" y="102" width="7" height="16" rx="1" fill="#34d399" />
+          <rect class="mark" x="390" y="98" width="8" height="20" rx="1" fill="#60a5fa" />
+          <rect class="mark" x="470" y="101" width="6" height="17" rx="1" fill="#34d399" />
+          <rect class="mark" x="500" y="96" width="10" height="22" rx="1" fill="#60a5fa" />
+          <rect class="mark" x="545" y="100" width="5" height="18" rx="1" fill="#34d399" />
+          <rect class="mark" x="620" y="98" width="9" height="20" rx="1" fill="#60a5fa" />
+          <rect class="mark" x="680" y="102" width="6" height="16" rx="1" fill="#34d399" />
+          <rect class="mark" x="730" y="97" width="11" height="21" rx="1" fill="#60a5fa" />
+        </g>
+        <rect class="mark" x="580" y="108" width="4" height="10" rx="1" fill="#f87171" />
+
+        <!-- lane 3 listen -->
+        <rect x="168" y="144" width="680" height="36" fill="#1a2230" />
+        <text class="lane-label" x="12" y="158"><tspan font-weight="600" fill="#e7e4de">fd 5</tspan>  TCP6</text>
+        <text class="lane-label" x="12" y="174">[::]:4242</text>
+        <rect x="200" y="158" width="520" height="8" rx="2" fill="#a78bfa" opacity="0.35" />
+        <text class="peer" x="210" y="165" fill="#c4b5fd">listen · backlog 5</text>
+        <rect class="mark" x="420" y="154" width="4" height="16" rx="1" fill="#a78bfa" />
+        <rect class="mark" x="610" y="154" width="4" height="16" rx="1" fill="#a78bfa" />
+        <text class="peer" x="428" y="150">accept</text>
+        <text class="peer" x="618" y="150">accept</text>
+
+        <!-- net-core strip -->
+        <line x1="12" y1="204" x2="908" y2="204" stroke="#2a3342" />
+        <text class="strip-label" x="12" y="222">iface 1 · net_rx/tx_time</text>
+        <path d="M168 236 C 220 236, 240 228, 280 230 S 340 248, 400 242 S 480 220, 540 226 S 620 250, 700 238 S 780 222, 848 228"
+              fill="none" stroke="#60a5fa" stroke-width="1.5" opacity="0.85" />
+        <path d="M168 250 C 230 248, 260 252, 310 246 S 400 255, 470 250 S 560 244, 640 248 S 740 252, 848 249"
+              fill="none" stroke="#34d399" stroke-width="1.5" opacity="0.7" />
+        <text class="axis" x="860" y="230">rx µs</text>
+        <text class="axis" x="860" y="252">tx µs</text>
+
+        <!-- live edge -->
+        <line x1="848" y1="28" x2="848" y2="260" stroke="#e7e4de" stroke-width="1" stroke-dasharray="3 4" opacity="0.35" />
+      </svg>
+    </div>
+    <div class="detail">
+      <div>
+        <strong>fd 4</strong> · TCP · AF_INET · IPPROTO_TCP<br />
+        local 192.0.2.1:49152 → peer 192.0.2.2:80 · actor <strong>zperf_tx</strong>
+      </div>
+      <div style="text-align:right">
+        tx <strong class="tx" style="color:var(--tx)">412 KB</strong>
+        · rx <strong style="color:var(--rx)">901 KB</strong><br />
+        last recvfrom +1280 · 0.12 ms ago
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    Spec: <code>docs/trace-networking-plan.md</code>.
+    Events already exist in Zephyr CTF (<code>socket_*</code> <code>0x36–0x5B</code>,
+    <code>net_*</code> <code>0x5C–0x61</code>). Phase 0 must fix metadata parsing of
+    <code>address[46]</code> before this tab can read live <code>zperf</code> traces.
+  </p>
+</body>
+</html>
