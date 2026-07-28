@@ -29,6 +29,10 @@ import {
   httpGetFromHost as httpGetService,
   type HttpGetResult,
 } from '@/net/services/guestClient'
+import {
+  loadGuestBrowserPage as loadGuestBrowserPageService,
+  type GuestBrowserPage,
+} from '@/net/services/guestBrowser'
 
 interface NetExports {
   _qemu_browser_net_ready?: () => number
@@ -290,11 +294,19 @@ export function httpGetFromHost(url: string): Promise<HttpGetResult> {
   return httpGetService(stack, url)
 }
 
+/** Mini-browser: GET + rewrite guest assets into a srcdoc page. */
+export function loadGuestBrowserPage(url: string): Promise<GuestBrowserPage> {
+  if (!stack) return Promise.reject(new Error('Network bridge not attached'))
+  return loadGuestBrowserPageService(stack, url)
+}
+
 /** Panel tool: TCP/UDP echo against the guest's echo server. */
 export function echoToGuest(payload: string, proto: 'tcp' | 'udp'): Promise<string> {
   if (!stack) return Promise.reject(new Error('Network bridge not attached'))
   return echoService(stack, payload, proto)
 }
+
+export type { GuestBrowserPage, HttpGetResult }
 
 /* ------------------------------------------------------------ data path */
 

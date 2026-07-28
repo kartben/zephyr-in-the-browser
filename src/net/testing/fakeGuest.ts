@@ -227,6 +227,48 @@ export class FakeGuest {
     })
   }
 
+  /**
+   * Path-aware HTTP server for multi-asset pages (mini-browser tests).
+   * Unknown paths get 404. Query strings are stripped from the request path.
+   */
+  serveHttpRoutes(
+    port: number,
+    routes: Record<string, { body: string | Uint8Array; contentType?: string }>,
+  ): void {
+    this.tcp.listen({ port }, (socket) => {
+      let got: Uint8Array = new Uint8Array(0)
+      socket.handlers = {
+        onData: (s, data) => {
+          got = concat([got, data])
+          if (indexOf(got, '\r\n\r\n') < 0) return
+          const head = decoder.decode(got.subarray(0, indexOf(got, '\r\n\r\n')))
+          const path = /^[A-Z]+\s+(\S+)/.exec(head)?.[1]?.split('?')[0] ?? '/'
+          const route = routes[path]
+          if (!route) {
+            const missing = encoder.encode('not found')
+            s.send(
+              encoder.encode(
+                `HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: ${missing.length}\r\nconnection: close\r\n\r\n`,
+              ),
+            )
+            s.send(missing)
+            s.close()
+            return
+          }
+          const payload = typeof route.body === 'string' ? encoder.encode(route.body) : route.body
+          const type = route.contentType ?? 'text/html'
+          s.send(
+            encoder.encode(
+              `HTTP/1.1 200 OK\r\ncontent-type: ${type}\r\ncontent-length: ${payload.length}\r\nconnection: close\r\n\r\n`,
+            ),
+          )
+          s.send(payload)
+          s.close()
+        },
+      }
+    })
+  }
+
   /** TCP + UDP echo on one port, echo_server style. */
   echoServer(port: number): void {
     this.tcp.listen({ port }, (socket) => {

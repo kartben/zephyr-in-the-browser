@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Download, Info, Pause, Play, Trash2 } from 'lucide-react'
+import { Download, Globe, Info, Pause, Play, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SliderControl } from '@/components/controls/ControlRow'
 import { Disclosure } from '@/components/dock/Disclosure'
+import { GuestBrowserDialog } from '@/components/GuestBrowserDialog'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
 import {
@@ -165,7 +166,7 @@ function AboutThisNetwork() {
       <p>
         <span className="font-medium text-destructive">Impossible:</span> HTTPS or raw TCP/UDP to
         real hosts — browser pages have no sockets. Servers the guest runs are reachable only
-        through the tools below.
+        through the GET and Browser tools below.
       </p>
       <p className="text-muted-foreground">
         Roadmap: an opt-in uplink to a local passt gateway, for real network access when a helper
@@ -298,6 +299,7 @@ function ToolsSection({ guestIp }: { guestIp: string | null }) {
   const [httpBusy, setHttpBusy] = useState(false)
   const [httpResult, setHttpResult] = useState<string | null>(null)
   const [httpError, setHttpError] = useState<string | null>(null)
+  const [browserOpen, setBrowserOpen] = useState(false)
 
   const [echoText, setEchoText] = useState('Hello Zephyr!')
   const [echoResult, setEchoResult] = useState<string | null>(null)
@@ -352,6 +354,16 @@ function ToolsSection({ guestIp }: { guestIp: string | null }) {
         <Button size="sm" className="h-7 text-xs" disabled={!getReady || httpBusy} onClick={() => void runHttpGet()}>
           GET
         </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-7 gap-1 text-xs"
+          disabled={!getReady}
+          onClick={() => setBrowserOpen(true)}
+        >
+          <Globe className="size-3" aria-hidden />
+          Browser
+        </Button>
       </div>
       {(httpResult || httpError) && (
         <pre
@@ -363,6 +375,8 @@ function ToolsSection({ guestIp }: { guestIp: string | null }) {
           {httpError ?? httpResult}
         </pre>
       )}
+
+      <GuestBrowserDialog open={browserOpen} onOpenChange={setBrowserOpen} initialUrl={url} />
 
       <div className="flex items-center gap-1.5">
         <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
