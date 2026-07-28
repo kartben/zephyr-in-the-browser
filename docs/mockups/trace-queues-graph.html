@@ -46,7 +46,8 @@
     <p class="sub">
       Each queue is a horizontal pipe (flanges + barrel + bore fill). Putters on the left,
       getters on the right. Edges are shortened so arrowheads sit on the flange — stroke
-      does not run past the tip. put_front shares the put side with a distinct stroke.
+      does not run past the tip. put_front arcs from the putter to the <em>consumer</em>
+      flange (front of the queue).
     </p>
   </header>
   <section class="panel">
@@ -54,7 +55,7 @@
       <div class="tabs"><span>Schedule</span><span class="on">Queues</span></div>
       <div class="legend">
         <span><i class="put"></i>put →</span>
-        <span><i class="put-front"></i>put_front →</span>
+        <span><i class="put-front"></i>put_front → get end</span>
         <span><i class="get"></i>→ get</span>
         <span>pipe fill = depth</span>
       </div>
@@ -105,7 +106,7 @@
       const pipeX = leftX + PILL_W / 2 + COL_GAP + PIPE_W / 2
       const rightX = pipeX + PIPE_W / 2 + COL_GAP + PILL_W / 2
       const w = Math.max(stage.clientWidth || 900, rightX + PILL_W / 2 + 12)
-      let y = 28
+      let y = 40
       const pipes = [], pills = []
       for (const q of queues) {
         const n = Math.max(1, q.puts.length, q.gets.length)
@@ -125,22 +126,31 @@
       return { w, h: y + 8, pipes, pills, leftX, pipeX, rightX }
     }
 
-    function path(pill, pipe) {
+    function path(pill, pipe, op) {
       const n = pill.side === 'put' ? pipe.putN : pipe.getN
       const inner = Math.min(14, (pipe.h - 14) / Math.max(1, n - 1 || 1))
       const span = Math.max(0, (n - 1) * inner)
-      const ey = pipe.y - span / 2 + pill.port * inner
+      const portY = pipe.y - span / 2 + pill.port * inner
       const sy = pill.y
-      if (pill.side === 'put') {
-        const sx = pill.x + PILL_W / 2, ex = pipe.x - PIPE_W / 2
+      if (op === 'put_front') {
+        const sx = pill.x + PILL_W / 2, ex = pipe.x + PIPE_W / 2, ey = portY
+        const e = shorten(sx, sy, ex, ey, ARROW_LEN)
+        const over = Math.min(e.y1, e.y2, pipe.y) - pipe.h / 2 - 14
+        const c1x = e.x1 + (pipe.x - e.x1) * 0.35
+        const c2x = e.x2 - (e.x2 - pipe.x) * 0.25
+        const mx = (e.x1 + e.x2) / 2
+        return { sx: e.x1, sy: e.y1, ex: e.x2, ey: e.y2, mx, my: over, d: `M${e.x1},${e.y1} C${c1x},${over} ${c2x},${over} ${e.x2},${e.y2}` }
+      }
+      if (op === 'put' || pill.side === 'put') {
+        const sx = pill.x + PILL_W / 2, ex = pipe.x - PIPE_W / 2, ey = portY
         const e = shorten(sx, sy, ex, ey, ARROW_LEN)
         const mx = (e.x1 + e.x2) / 2
-        return { sx: e.x1, sy: e.y1, ex: e.x2, ey: e.y2, mx, my: (e.y1 + e.y2) / 2, tipX: ex, tipY: ey, d: `M${e.x1},${e.y1} C${mx},${e.y1} ${mx},${e.y2} ${e.x2},${e.y2}` }
+        return { sx: e.x1, sy: e.y1, ex: e.x2, ey: e.y2, mx, my: (e.y1 + e.y2) / 2, d: `M${e.x1},${e.y1} C${mx},${e.y1} ${mx},${e.y2} ${e.x2},${e.y2}` }
       }
-      const sx = pipe.x + PIPE_W / 2, ex = pill.x - PILL_W / 2
+      const sx = pipe.x + PIPE_W / 2, ex = pill.x - PILL_W / 2, ey = portY
       const e = shorten(sx, ey, ex, sy, ARROW_LEN)
       const mx = (e.x1 + e.x2) / 2
-      return { sx: e.x1, sy: e.y1, ex: e.x2, ey: e.y2, mx, my: (e.y1 + e.y2) / 2, tipX: ex, tipY: sy, d: `M${e.x1},${e.y1} C${mx},${e.y1} ${mx},${e.y2} ${e.x2},${e.y2}` }
+      return { sx: e.x1, sy: e.y1, ex: e.x2, ey: e.y2, mx, my: (e.y1 + e.y2) / 2, d: `M${e.x1},${e.y1} C${mx},${e.y1} ${mx},${e.y2} ${e.x2},${e.y2}` }
     }
 
     function drawPipe(g, d, hot) {
@@ -203,7 +213,7 @@
         .merge(link)
         .attr('stroke', d => strokeFor(d.op, d.struct, d.hot))
         .attr('stroke-width', d => d.struct ? 1.15 : d.hot ? 2.4 : 1.7)
-        .attr('d', d => path(d.pill, d.pipe).d)
+        .attr('d', d => path(d.pill, d.pipe, d.op).d)
 
       const hotQ = new Set(active.filter(a => a.hot).map(a => a.pipe.id))
       const tsel = gT.selectAll('g').data(L.pipes, d => d.id)
@@ -244,7 +254,7 @@
       const pill = L.pills.find(p => p.id === pillId)
       const pipe = L.pipes.find(t => t.id === qid)
       if (pill && pipe) {
-        const p = path(pill, pipe)
+        const p = path(pill, pipe, op)
         const c = gP.append('circle').attr('r', 3.2)
           .attr('fill', op === 'get' ? '#93c5fd' : op === 'put_front' ? '#5eead4' : '#6ee7b7')
           .attr('cx', p.sx).attr('cy', p.sy)

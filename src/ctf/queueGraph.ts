@@ -4,7 +4,8 @@
  * Msgq exit events do not carry a thread id — the running thread at `ts`
  * (from the Schedule reconstruction) is the actor.
  *
- * put_front is a distinct producer-side op (same side as put in the graph).
+ * put_front is a distinct producer-side op; the graph aims its arrow at the
+ * consumer flange (front of the queue).
  */
 
 import {

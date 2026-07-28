@@ -260,7 +260,7 @@ export function QueuesView({
             <span className="inline-block h-0.5 w-3 bg-sky-400" /> put →
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-0.5 w-3 bg-teal-400" /> put_front →
+            <span className="inline-block h-0.5 w-3 bg-teal-400" /> put_front → get end
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-0.5 w-3 bg-amber-400" /> → get

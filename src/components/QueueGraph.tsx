@@ -6,7 +6,8 @@
  * spaced ports on each flange; paths are shortened so arrowheads sit on the
  * mouth without the stroke overshooting the tip.
  *
- * put_front is producer-side (same pills as put), drawn with a distinct stroke.
+ * put_front still originates from a putter pill, but the arrow aims at the
+ * consumer-side flange (front of the queue), arcing over the pipe.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -135,22 +136,56 @@ function edgePath(
   pill: ThreadPill,
   pipe: Pipe,
   op: QueueFlowOp,
-): { sx: number; sy: number; ex: number; ey: number; mx: number; my: number } {
-  const side = sideForOp(op)
-  const ey = pipePortY(pipe, side, pill.port)
+): { sx: number; sy: number; ex: number; ey: number; mx: number; my: number; d: string } {
   const sy = pill.y
-  if (isPutOp(op)) {
+
+  // put_front inserts at the front of the queue — aim at the consumer flange.
+  if (op === 'put_front') {
+    const ey = pipePortY(pipe, 'put', pill.port)
+    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipe.x + PIPE_W / 2, ey, ARROW_LEN)
+    // Arc over the barrel so the stroke is distinct from a normal put.
+    const over = Math.min(raw.y1, raw.y2, pipe.y) - pipe.h / 2 - 14
+    const c1x = raw.x1 + (pipe.x - raw.x1) * 0.35
+    const c2x = raw.x2 - (raw.x2 - pipe.x) * 0.25
+    const mx = (raw.x1 + raw.x2) / 2
+    return {
+      sx: raw.x1,
+      sy: raw.y1,
+      ex: raw.x2,
+      ey: raw.y2,
+      mx,
+      my: over,
+      d: `M${raw.x1},${raw.y1} C${c1x},${over} ${c2x},${over} ${raw.x2},${raw.y2}`,
+    }
+  }
+
+  if (op === 'put') {
+    const ey = pipePortY(pipe, 'put', pill.port)
     const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipe.x - PIPE_W / 2, ey, ARROW_LEN)
     const mx = (raw.x1 + raw.x2) / 2
-    return { sx: raw.x1, sy: raw.y1, ex: raw.x2, ey: raw.y2, mx, my: (raw.y1 + raw.y2) / 2 }
+    return {
+      sx: raw.x1,
+      sy: raw.y1,
+      ex: raw.x2,
+      ey: raw.y2,
+      mx,
+      my: (raw.y1 + raw.y2) / 2,
+      d: `M${raw.x1},${raw.y1} C${mx},${raw.y1} ${mx},${raw.y2} ${raw.x2},${raw.y2}`,
+    }
   }
+
+  const ey = pipePortY(pipe, 'get', pill.port)
   const raw = edgeEndpoints(pipe.x + PIPE_W / 2, ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
   const mx = (raw.x1 + raw.x2) / 2
-  return { sx: raw.x1, sy: raw.y1, ex: raw.x2, ey: raw.y2, mx, my: (raw.y1 + raw.y2) / 2 }
-}
-
-function pathD(p: { sx: number; sy: number; ex: number; ey: number; mx: number }): string {
-  return `M${p.sx},${p.sy} C${p.mx},${p.sy} ${p.mx},${p.ey} ${p.ex},${p.ey}`
+  return {
+    sx: raw.x1,
+    sy: raw.y1,
+    ex: raw.x2,
+    ey: raw.y2,
+    mx,
+    my: (raw.y1 + raw.y2) / 2,
+    d: `M${raw.x1},${raw.y1} C${mx},${raw.y1} ${mx},${raw.y2} ${raw.x2},${raw.y2}`,
+  }
 }
 
 function strokeFor(op: QueueFlowOp): string {
@@ -203,7 +238,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
 
   const pipes: Pipe[] = []
   const pills: ThreadPill[] = []
-  let yCursor = PAD_Y + 16
+  let yCursor = PAD_Y + 28
 
   for (const q of queues) {
     const puts = putters.get(q.id) ?? []
@@ -529,7 +564,7 @@ function paintFrame(
     .attr('stroke', (d) => strokeFor(d.op))
     .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1 : d.hot ? 2.4 : 1.7))
     .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.18 : d.hot ? 0.95 : 0.45))
-    .attr('d', (d) => pathD(edgePath(d.pill, d.pipe, d.op)))
+    .attr('d', (d) => edgePath(d.pill, d.pipe, d.op).d)
 
   const hotQueues = new Set(active.filter((a) => a.hot).map((a) => a.pipe.id))
   const pipeSel = layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').data(layout.pipes, (d) => d.id)
