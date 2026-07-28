@@ -8,12 +8,13 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Bug, Pause, Play, Redo2 } from 'lucide-react'
+import { Bug, CornerDownRight, CornerUpLeft, Pause, Play, Redo2 } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { Button } from '@/components/ui/button'
 import { RegisterGrid } from '@/components/RegisterGrid'
 import { BreakpointsPane } from '@/components/debug/BreakpointsPane'
 import { MemoryPane } from '@/components/debug/MemoryPane'
+import { StackPane } from '@/components/debug/StackPane'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
 import { compactHex } from '@/debug/hexFormat'
 import { cn } from '@/lib/utils'
@@ -30,9 +31,9 @@ import {
   tabIn,
 } from '@/lib/dockStore'
 
-type InspectTab = 'cpu' | 'memory' | 'threads'
+type InspectTab = 'cpu' | 'stack' | 'memory' | 'threads'
 
-const INSPECT_TABS = ['cpu', 'memory', 'threads'] as const satisfies readonly InspectTab[]
+const INSPECT_TABS = ['cpu', 'stack', 'memory', 'threads'] as const satisfies readonly InspectTab[]
 
 export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
@@ -43,6 +44,7 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const tab = tabIn(dock, STAGE_DEBUG_KEY, INSPECT_TABS, 'cpu') as InspectTab
   const setTab = (id: InspectTab) => setStoredTab(STAGE_DEBUG_KEY, id)
   const [peekAddr, setPeekAddr] = useState<string | null>(null)
+  const [stackThread, setStackThread] = useState<number | null>(null)
   const [stepping, setStepping] = useState(false)
 
   useEffect(() => {
@@ -52,8 +54,8 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
 
   useEffect(() => {
     if (focus.nonce === 0) return
-    if (focus.section === 'cpu' || focus.section === 'memory' || focus.section === 'threads') {
-      setTab(focus.section)
+    if ((INSPECT_TABS as readonly string[]).includes(focus.section)) {
+      setTab(focus.section as InspectTab)
     }
     // setTab writes dock storage; nonce is the intentional trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,15 +72,19 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
     setTab('memory')
   }
 
-  const onStep = async () => {
+  /** One run-control action at a time — RSP answers a single packet at a time. */
+  const runStep = async (action: () => Promise<unknown>) => {
     if (stepping || !snap.canStep || !snap.paused) return
     setStepping(true)
     try {
-      await debug.step()
+      await action()
     } finally {
       setStepping(false)
     }
   }
+
+  /** Frame #0 is the PC itself, so a caller frame is what Step out needs. */
+  const canStepOut = snap.stack.length > 1
 
   const statusLabel = !live ? 'gdb' : snap.paused ? 'paused' : 'running'
   const statusDetail = !live
@@ -141,17 +147,45 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
               )}
             </Button>
             {snap.paused && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6"
-                disabled={stepping || snap.registersLoading}
-                onClick={() => void onStep()}
-                title="Step one instruction"
-                aria-label="Step one instruction"
-              >
-                <Redo2 className="size-3.5" aria-hidden />
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  disabled={stepping || snap.registersLoading}
+                  onClick={() => void runStep(debug.step)}
+                  title="Step into — one instruction, calls included"
+                  aria-label="Step into"
+                >
+                  <CornerDownRight className="size-3.5" aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  disabled={stepping || snap.registersLoading}
+                  onClick={() => void runStep(debug.stepOver)}
+                  title="Step over — run any call to completion"
+                  aria-label="Step over"
+                >
+                  <Redo2 className="size-3.5" aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  disabled={stepping || snap.registersLoading || !canStepOut}
+                  onClick={() => void runStep(debug.stepOut)}
+                  title={
+                    canStepOut
+                      ? `Step out — continue to ${snap.stack[1]?.label ?? 'the caller'}`
+                      : 'Step out — no caller frame recovered'
+                  }
+                  aria-label="Step out"
+                >
+                  <CornerUpLeft className="size-3.5" aria-hidden />
+                </Button>
+              </>
             )}
           </span>
         ) : undefined
@@ -173,6 +207,7 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
               {(
                 [
                   ['cpu', 'CPU'],
+                  ['stack', 'Stack'],
                   ['memory', 'Mem'],
                   ['threads', 'Threads'],
                 ] as const
@@ -210,6 +245,14 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   arch={snap.regArch}
                 />
               )}
+              {tab === 'stack' && (
+                <StackPane
+                  snap={snap}
+                  onPeek={onPeek}
+                  seedThread={stackThread}
+                  onSeedConsumed={() => setStackThread(null)}
+                />
+              )}
               {tab === 'memory' && (
                 <MemoryPane
                   snap={snap}
@@ -217,7 +260,17 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   onSeedConsumed={() => setPeekAddr(null)}
                 />
               )}
-              {tab === 'threads' && <ThreadsPane snap={snap} onPeek={onPeek} />}
+              {tab === 'threads' && (
+                <ThreadsPane
+                  snap={snap}
+                  onPeek={onPeek}
+                  onStack={(addr) => {
+                    if (!snap.paused) return
+                    setStackThread(addr)
+                    setTab('stack')
+                  }}
+                />
+              )}
             </div>
           </section>
         </div>

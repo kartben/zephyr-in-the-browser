@@ -171,7 +171,8 @@ build_one() {
   mkdir -p "$dest" "$work"
 
   # debug-threads.conf → CONFIG_DEBUG_THREAD_INFO (OpenOCD-compatible thread
-  # awareness). Manifest fragments (relative to zephyr-module/) follow it.
+  # awareness) + CONFIG_FRAME_POINTER (exact call stacks in the Debug panel).
+  # Manifest fragments (relative to zephyr-module/) follow it.
   local conf_list="$MODULE/conf/debug-threads.conf"
   if [ -n "$confs" ]; then
     conf_list="$conf_list;$(echo "$confs" | tr ',' '\n' | sed "s|^|$MODULE/|" | paste -sd';' -)"

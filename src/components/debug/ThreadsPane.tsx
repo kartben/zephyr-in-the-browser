@@ -26,9 +26,12 @@ function pulseAttention(el: HTMLElement) {
 export function ThreadsPane({
   snap,
   onPeek,
+  onStack,
 }: {
   snap: debug.DebugSnapshot
   onPeek: (addrHex: string, length?: number) => void
+  /** Open the Stack tab unwound for this thread (TCB address). */
+  onStack?: (tcbAddr: number) => void
 }) {
   const focus = useSyncExternalStore(debugUi.subscribe, debugUi.getSnapshot, debugUi.getSnapshot)
   const listRef = useRef<HTMLUListElement>(null)
@@ -178,6 +181,20 @@ export function ThreadsPane({
                   >
                     tcb {compactHex(t.addr.toString(16))}
                   </button>
+                  {onStack && (t.current || t.sp != null) && (
+                    <button
+                      type="button"
+                      className="text-primary/90 underline-offset-2 hover:underline"
+                      title={
+                        t.current
+                          ? 'Call stack for the running context'
+                          : `Unwind ${t.name}'s stack`
+                      }
+                      onClick={() => onStack(t.addr)}
+                    >
+                      stack
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

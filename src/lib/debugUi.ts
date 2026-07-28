@@ -11,7 +11,7 @@ import {
 import { revealStagePanel } from '@/lib/dockReveal'
 import * as debug from '@/debug/control'
 
-export type DebugSection = 'breakpoints' | 'cpu' | 'memory' | 'threads'
+export type DebugSection = 'breakpoints' | 'cpu' | 'stack' | 'memory' | 'threads'
 
 export interface DebugUiState {
   /** Bumped on every focus request so subscribers re-render even for the same tab. */

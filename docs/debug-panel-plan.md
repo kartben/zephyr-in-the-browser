@@ -123,6 +123,20 @@ ThreadsPane, RegisterGrid) — move, don’t rewrite.
 Implemented on `cursor/debug-panel-3390`: `DebugPanel`, `stage:debug` in the
 Panels menu; Pause/Step on the panel header; TopBar Pause only for QMP.
 
+### Since
+
+- Inspect tabs are **CPU · Stack · Mem · Threads**. Stack is the call stack —
+  see Phase E in [`debug-gdb-plan.md`](debug-gdb-plan.md) for how frames are
+  recovered and why some are labelled guesses.
+- Panel header carries **Step into · Step over · Step out** (Step out is
+  disabled until a caller frame exists).
+- Threads rows link to **stack**, which unwinds that thread in the Stack tab.
+- The Mem hex dump takes edits in **either column** — hex or ASCII; typing in
+  the ASCII gutter walks along so a string goes in as a string.
+- `tools/screenshot-debug.mjs` shoots the panel against a synthetic stopped
+  session (dev-only `__zephyrGdbForceSession`), so the paused surfaces can be
+  reviewed without a ~100 MB emulator build.
+
 ## Mockup
 
 Interactive HTML (toggle Running / Paused):
