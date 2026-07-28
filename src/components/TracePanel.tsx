@@ -548,8 +548,6 @@ function paint(
 
   const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
-  const cols = Math.max(64, Math.floor(plotW))
-  const colW = plotW / cols
   const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
   const depthProbeTs = playheadTs ?? view1
   const hoverActive =
@@ -660,14 +658,19 @@ function paint(
         const yMax = queueAxisMax(q.series)
         const innerPad = 3
         const innerH = Math.max(2, msgqLaneH - innerPad * 2)
+        const samples = q.series.samples
 
-        for (let c = 0; c < cols; c++) {
-          const ts = view0 + ((c + 0.5) / cols) * span
-          const d = depthAt(q.series.samples, ts)
-          if (d <= 0) continue
-          const h = Math.max(1.5, (d / yMax) * innerH)
+        // Exact ns→x ranges (same as thread states). Column rasterisation
+        // smeared depth steps relative to enter-anchored edges.
+        for (let i = 0; i < samples.length; i++) {
+          const s = samples[i]!
+          const e = i + 1 < samples.length ? samples[i + 1]!.ts : view1
+          if (e <= view0 || s.ts >= view1 || s.depth <= 0) continue
+          const x0 = LABEL_W + ((Math.max(s.ts, view0) - view0) / span) * plotW
+          const x1 = LABEL_W + ((Math.min(e, view1) - view0) / span) * plotW
+          const h = Math.max(1.5, (s.depth / yMax) * innerH)
           ctx.fillStyle = laneHot ? 'rgba(56, 189, 248, 0.45)' : 'rgba(56, 189, 248, 0.28)'
-          ctx.fillRect(LABEL_W + c * colW, y + msgqLaneH - innerPad - h, Math.max(1, colW + 0.5), h)
+          ctx.fillRect(x0, y + msgqLaneH - innerPad - h, Math.max(1, x1 - x0), h)
         }
 
         ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 1)' : 'rgba(125, 211, 252, 0.9)'
