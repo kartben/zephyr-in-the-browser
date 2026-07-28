@@ -7,6 +7,13 @@ export {
   type EventDef,
 } from './metadata'
 export {
+  applyNetAddressWidth,
+  hasNetAddressField,
+  needsNetAddressProbe,
+  withNetAddressWidth,
+  type NetAddressWidth,
+} from './netAddressWidth'
+export {
   TraceReader,
   laneOrder,
   visibleLanes,
