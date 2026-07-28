@@ -1,6 +1,7 @@
 /**
  * Stage Debug panel — run control + breakpoints while running;
- * CPU / Mem / Threads when paused. gdb only (Panels menu).
+ * CPU / Mem / Threads inspect the last stop (live when paused, grayed while
+ * running). gdb only (Panels menu).
  *
  * Pause / Continue / Step live in the panel header (not the TopBar) so a
  * debug session stays in one place.
@@ -65,6 +66,7 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const live = snap.gdb
 
   const onPeek = (addrHex: string, length = 64) => {
+    if (!snap.paused) return
     setPeekAddr(compactHex(addrHex))
     setPeekLen(length)
     setTab('memory')
@@ -168,32 +170,38 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
             <BreakpointsPane snap={snap} />
           </section>
 
-          {snap.paused && (
-            <section>
-              <div className="mb-1.5 flex gap-0.5 px-1">
-                {(
-                  [
-                    ['cpu', 'CPU'],
-                    ['memory', 'Mem'],
-                    ['threads', 'Threads'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={cn(
-                      'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
-                      tab === id
-                        ? 'bg-secondary text-foreground'
-                        : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
-                    )}
-                    onClick={() => setTab(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+          <section>
+            <div className="mb-1.5 flex gap-0.5 px-1">
+              {(
+                [
+                  ['cpu', 'CPU'],
+                  ['memory', 'Mem'],
+                  ['threads', 'Threads'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={cn(
+                    'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
+                    tab === id
+                      ? 'bg-secondary text-foreground'
+                      : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
+                  )}
+                  onClick={() => setTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
+            <div
+              className={cn(
+                'transition-opacity',
+                !snap.paused && 'pointer-events-none select-none opacity-45',
+              )}
+              aria-disabled={!snap.paused}
+            >
               {tab === 'cpu' && (
                 <RegisterGrid
                   dump={snap.registers}
@@ -213,8 +221,8 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
                 />
               )}
               {tab === 'threads' && <ThreadsPane snap={snap} onPeek={onPeek} />}
-            </section>
-          )}
+            </div>
+          </section>
         </div>
       )}
     </PanelFrame>

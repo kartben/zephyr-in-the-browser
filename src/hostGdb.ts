@@ -378,16 +378,13 @@ export async function resume(): Promise<void> {
   if (!client || !state.attached || !state.paused) return
   try {
     await client.continue()
+    // Keep the last register / memory / thread snapshot so the inspect tabs
+    // can stay visible (grayed) while running — makes the next-pause blink
+    // against a frozen baseline.
     publish({
       paused: false,
-      pc: null,
-      pcLabel: null,
-      summary: null,
-      registers: null,
       registersLoading: false,
-      threads: [],
       threadsLoading: false,
-      threadsError: null,
     })
   } catch {
     // ignore
