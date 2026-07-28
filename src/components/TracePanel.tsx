@@ -291,18 +291,84 @@ function paintVArrow(
   scale = 1,
 ) {
   const s = 5 * scale
-  ctx.fillStyle = color
-  ctx.beginPath()
-  if (dir === 'down') {
-    ctx.moveTo(x, y)
-    ctx.lineTo(x - s * 0.75, y - s)
-    ctx.lineTo(x + s * 0.75, y - s)
-  } else {
-    ctx.moveTo(x, y)
-    ctx.lineTo(x - s * 0.75, y + s)
-    ctx.lineTo(x + s * 0.75, y + s)
+  const path = () => {
+    ctx.beginPath()
+    if (dir === 'down') {
+      ctx.moveTo(x, y)
+      ctx.lineTo(x - s * 0.75, y - s)
+      ctx.lineTo(x + s * 0.75, y - s)
+    } else {
+      ctx.moveTo(x, y)
+      ctx.lineTo(x - s * 0.75, y + s)
+      ctx.lineTo(x + s * 0.75, y + s)
+    }
+    ctx.closePath()
   }
-  ctx.closePath()
+  // Tiny white halo so thin arrows stay readable on busy state bars.
+  path()
+  ctx.fillStyle = 'rgba(248, 250, 252, 0.55)'
+  ctx.fill()
+  path()
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
+/**
+ * Thin dashed msgq connector with a soft white underglow for contrast.
+ * Core stays ~1px; glow carries visibility instead of fat strokes.
+ */
+function strokeMsgqConnector(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y0: number,
+  y1: number,
+  color: string,
+  kind: 'idle' | 'hot' | 'selected',
+) {
+  const dash = kind === 'idle' ? ([2.5, 2] as const) : ([3, 1.5] as const)
+  const core = kind === 'selected' ? 1.6 : kind === 'hot' ? 1.35 : 1.1
+  const glow = kind === 'selected' ? 3.25 : kind === 'hot' ? 2.75 : 2.35
+  const glowA = kind === 'selected' ? 0.55 : kind === 'hot' ? 0.42 : 0.32
+
+  ctx.setLineDash([...dash])
+  ctx.strokeStyle = `rgba(248, 250, 252, ${glowA})`
+  ctx.lineWidth = glow
+  ctx.beginPath()
+  ctx.moveTo(x, y0)
+  ctx.lineTo(x, y1)
+  ctx.stroke()
+
+  ctx.strokeStyle = color
+  ctx.lineWidth = core
+  ctx.beginPath()
+  ctx.moveTo(x, y0)
+  ctx.lineTo(x, y1)
+  ctx.stroke()
+  ctx.setLineDash([])
+}
+
+/** Origin mark with a soft white halo. */
+function paintMsgqMark(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  kind: 'idle' | 'hot' | 'selected',
+) {
+  const halo = kind === 'idle' ? r + 1.1 : r + 1.4
+  ctx.beginPath()
+  ctx.arc(x, y, halo, 0, Math.PI * 2)
+  ctx.fillStyle =
+    kind === 'selected'
+      ? 'rgba(248, 250, 252, 0.7)'
+      : kind === 'hot'
+        ? 'rgba(248, 250, 252, 0.55)'
+        : 'rgba(248, 250, 252, 0.4)'
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fillStyle = color
   ctx.fill()
 }
 
@@ -518,8 +584,8 @@ function paint(
   if (showMsgq && msgqEvents.length > 0) {
     const threadRowOf = new Map(lanes.map((tid, row) => [tid, row]))
     const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
-    const MARK_R = 3
-    const ARROW_H = 6
+    const MARK_R = 2.5
+    const ARROW_H = 5
 
     if (showQueues) {
       ctx.fillStyle = 'rgba(8, 47, 73, 0.35)'
@@ -607,25 +673,12 @@ function paint(
       const hot = selected || hovered
       const dim = hoverActive && !hot
       const put = isPutOp(ev.op)
-      const scale = selected ? 1.35 : hot ? 1.25 : 1
+      const kind = selected ? 'selected' : hot ? 'hot' : 'idle'
+      const scale = selected ? 1.25 : hot ? 1.15 : 1
       const markR = MARK_R * scale
       const arrowH = ARROW_H * scale
 
-      ctx.globalAlpha = dim ? 0.14 : hot ? 1 : 0.9
-
-      if (hot) {
-        ctx.strokeStyle = selected ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.4)'
-        ctx.lineWidth = selected ? 6 : 5
-        ctx.beginPath()
-        if (queueY != null) {
-          ctx.moveTo(x, Math.min(threadY, queueY))
-          ctx.lineTo(x, Math.max(threadY, queueY))
-        } else {
-          ctx.moveTo(x, threadY - laneH / 2 + 2)
-          ctx.lineTo(x, threadY + laneH / 2 - 2)
-        }
-        ctx.stroke()
-      }
+      ctx.globalAlpha = dim ? 0.14 : hot ? 1 : 0.95
 
       if (queueY != null && Math.abs(queueY - threadY) > markR * 2 + arrowH) {
         // put: thread ○ →↓ queue    get: queue ○ →↑ thread
@@ -636,56 +689,19 @@ function paint(
         const edgeStart = dir === 'down' ? startY + markR : startY - markR
         const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
 
-        ctx.strokeStyle = color
-        ctx.lineWidth = selected ? 3 : hot ? 2.5 : 2
-        ctx.setLineDash(hot ? [3, 1.5] : [2.5, 2])
-        ctx.beginPath()
-        ctx.moveTo(x, edgeStart)
-        ctx.lineTo(x, edgeBeforeTip)
-        ctx.stroke()
-        ctx.setLineDash([])
-
-        // Origin transition mark.
-        ctx.fillStyle = color
-        ctx.beginPath()
-        ctx.arc(x, startY, markR, 0, Math.PI * 2)
-        ctx.fill()
-        if (hot) {
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
-          ctx.lineWidth = 1.5
-          ctx.stroke()
-        }
-
-        // Destination: vertical arrow tip lands on the impacted transition.
+        strokeMsgqConnector(ctx, x, edgeStart, edgeBeforeTip, color, kind)
+        paintMsgqMark(ctx, x, startY, markR, color, kind)
         paintVArrow(ctx, x, tipY, dir, color, scale)
-        if (hot) {
-          const s = arrowH
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
-          ctx.lineWidth = 1.25
-          ctx.beginPath()
-          if (dir === 'down') {
-            ctx.moveTo(x, tipY)
-            ctx.lineTo(x - s * 0.75, tipY - s)
-            ctx.lineTo(x + s * 0.75, tipY - s)
-          } else {
-            ctx.moveTo(x, tipY)
-            ctx.lineTo(x - s * 0.75, tipY + s)
-            ctx.lineTo(x + s * 0.75, tipY + s)
-          }
-          ctx.closePath()
-          ctx.stroke()
-        }
       } else {
-        ctx.strokeStyle = color
-        ctx.lineWidth = hot ? 2.5 : 2
-        ctx.beginPath()
-        ctx.moveTo(x, threadY - laneH / 2 + 2)
-        ctx.lineTo(x, threadY + laneH / 2 - 2)
-        ctx.stroke()
-        ctx.fillStyle = color
-        ctx.beginPath()
-        ctx.arc(x, threadY, markR, 0, Math.PI * 2)
-        ctx.fill()
+        strokeMsgqConnector(
+          ctx,
+          x,
+          threadY - laneH / 2 + 2,
+          threadY + laneH / 2 - 2,
+          color,
+          kind,
+        )
+        paintMsgqMark(ctx, x, threadY, markR, color, kind)
       }
 
       ctx.globalAlpha = 1
