@@ -36,6 +36,7 @@ import {
 } from '@/ctf'
 import { getWaitObjects } from '@/hostGdb'
 import { QueueGraph } from '@/components/QueueGraph'
+import { formatTraceTimes } from '@/components/traceChart'
 
 const LABEL_W = 108
 const PAD = 8
@@ -454,16 +455,19 @@ function renderChart(
   return layouts
 }
 
-/** Two-line tip: time · depth, then op · thread when on a transition. */
+/** Two-line tip: time · depth, then op · thread (guest abs when it differs). */
 function tipLines(tr: Trace, tip: HoverTip): string[] {
   const depth =
     tip.queue.cap != null ? `d${tip.depth}/${tip.queue.cap}` : `d${tip.depth}`
-  const lines = [`${fmtAxisTime(tip.ts - tr.t0, tip.step)} · ${depth}`]
+  const { rel, guest } = formatTraceTimes(tip.ts, tr.t0, tip.step)
+  const lines = [`${rel} · ${depth}`]
   if (tip.event) {
     const who =
       tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : '?'
     const fail = tip.event.ok || tip.event.op === 'purge' ? '' : '!'
     lines.push(`${queueChartOpLabel(tip.event.op)}${fail} · ${who}`)
+  } else if (guest !== rel) {
+    lines.push(`guest ${guest}`)
   }
   return lines
 }

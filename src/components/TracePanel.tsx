@@ -28,7 +28,6 @@ import {
   STATE_LABEL,
   contextSwitchesIn,
   fmtTime,
-  niceTimeStep,
   renderStateRows,
   stateAt,
   threadLabel,
@@ -39,6 +38,15 @@ import {
   type ThreadState,
   type Trace,
 } from '@/ctf'
+import {
+  formatTraceTimes,
+  paintCanvasTimeAxis,
+  paintPlayhead,
+  plotWidth,
+  tsAt,
+  windowTimeStep,
+  xAt,
+} from '@/components/traceChart'
 import { getSnapshot, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
@@ -118,6 +126,7 @@ function paint(
   view1: number,
   follow: boolean,
   selectedLane: number | null,
+  playheadTs: number | null,
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
@@ -133,54 +142,23 @@ function paint(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, cssW, cssH)
 
-  const plotW = Math.max(1, cssW - LABEL_W - PAD)
+  const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
   const cols = Math.max(64, Math.floor(plotW))
   const rows = renderStateRows(tr, lanes, view0, view1, cols)
   const colW = plotW / cols
   const lanesTop = AXIS_H
+  const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
 
-  // --- Time-axis ruler (trace_viewer.py lines 1192–1198) -----------------
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
-  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-  ctx.textBaseline = 'alphabetic'
-  ctx.fillText('t', 4, 12)
-
-  const step = niceTimeStep(span, Math.max(3, Math.floor(plotW / 72)))
-  const firstTick = Math.ceil(view0 / step) * step
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
-  ctx.lineWidth = 1
-  // Baseline.
-  ctx.beginPath()
-  ctx.moveTo(LABEL_W, 18)
-  ctx.lineTo(LABEL_W + plotW, 18)
-  ctx.stroke()
-
-  for (let t = firstTick; t <= view1 + step * 0.01; t += step) {
-    const x = LABEL_W + ((t - view0) / span) * plotW
-    if (x < LABEL_W - 0.5 || x > LABEL_W + plotW + 0.5) continue
-    ctx.beginPath()
-    ctx.moveTo(x, 14)
-    ctx.lineTo(x, 22)
-    ctx.stroke()
-    const label = fmtTime(t - tr.t0)
-    const tw = ctx.measureText(label).width
-    let lx = x - tw / 2
-    lx = Math.max(LABEL_W, Math.min(LABEL_W + plotW - tw, lx))
-    ctx.fillText(label, lx, 12)
-  }
-
-  // End labels always visible (absolute from t0), like the Python viewer.
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
-  const leftLbl = fmtTime(view0 - tr.t0)
-  const rightLbl = fmtTime(view1 - tr.t0)
-  ctx.fillText(leftLbl, LABEL_W, 26)
-  ctx.fillText(rightLbl, LABEL_W + plotW - ctx.measureText(rightLbl).width, 26)
-  if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
-    ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
-  }
+  paintCanvasTimeAxis(ctx, {
+    cssW,
+    labelW: LABEL_W,
+    pad: PAD,
+    view0,
+    view1,
+    t0: tr.t0,
+    follow,
+  })
 
   // --- Lanes -------------------------------------------------------------
   ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
@@ -232,6 +210,13 @@ function paint(
       const x1 = LABEL_W + ((Math.min(e, view1) - view0) / span) * plotW
       ctx.fillStyle = 'rgba(168, 85, 247, 0.8)'
       ctx.fillRect(x0, y + 3, Math.max(2, x1 - x0), LANE_H - 6)
+    }
+  }
+
+  if (playheadTs != null) {
+    const x = xAt(layout, cssW, playheadTs)
+    if (x >= LABEL_W && x <= LABEL_W + plotW) {
+      paintPlayhead(ctx, { x, y0: AXIS_H, y1: AXIS_H + plotRows * LANE_H })
     }
   }
 
@@ -348,6 +333,10 @@ function TracePanelBody({
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
+  /** Schedule playhead — hover ts; null when not scrubbing. */
+  const [playhead, setPlayhead] = useState<{ ts: number; x: number } | null>(null)
+  const playheadRef = useRef(playhead)
+  playheadRef.current = playhead
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
@@ -368,8 +357,8 @@ function TracePanelBody({
     if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
-    paint(canvas, tr, view.t0, view.t1, follow, selectedLane)
-  }, [tr, view, follow, snap.revision, selectedLane, tab])
+    paint(canvas, tr, view.t0, view.t1, follow, selectedLane, playhead?.ts ?? null)
+  }, [tr, view, follow, snap.revision, selectedLane, tab, playhead])
 
   useEffect(() => {
     if (tab !== 'schedule') return
@@ -377,11 +366,23 @@ function TracePanelBody({
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
       if (!tr || !viewRef.current) return
-      paint(canvas, tr, viewRef.current.t0, viewRef.current.t1, follow, selectedLane)
+      paint(
+        canvas,
+        tr,
+        viewRef.current.t0,
+        viewRef.current.t1,
+        follow,
+        selectedLane,
+        playheadRef.current?.ts ?? null,
+      )
     })
     ro.observe(canvas)
     return () => ro.disconnect()
   }, [tr, follow, selectedLane, tab])
+
+  useEffect(() => {
+    if (tab !== 'schedule') setPlayhead(null)
+  }, [tab])
 
   const applyZoom = useCallback(
     (factor: number) => {
@@ -429,9 +430,9 @@ function TracePanelBody({
   const lanes = tr ? visibleLanes(tr) : []
   const lane = selectedLane ?? lanes[0] ?? null
   const lanePrio = tr && lane !== null ? threadPrio(tr, lane) : null
-  // Info strip reports state at the right edge of the window (live edge when
-  // following) — same role as the Python viewer\'s cursor, without a movable one.
-  const probeTs = view?.t1 ?? tr?.t1 ?? 0
+  // Info strip follows the playhead when scrubbing; otherwise the right edge
+  // (live edge when following) — same role as the Python viewer's cursor.
+  const probeTs = playhead?.ts ?? view?.t1 ?? tr?.t1 ?? 0
   const runningTid = tr ? threadRunningAt(tr, probeTs) : null
   const [st, reason] =
     tr && lane !== null ? stateAt(tr, lane, probeTs) : ([null, ''] as [ThreadState | null, string])
@@ -451,6 +452,16 @@ function TracePanelBody({
     cpuBusy = Math.max(0, Math.min(1, (runTotal - idleRun) / stats.spanNs))
   }
   const secs = stats ? stats.spanNs / 1e9 : 0
+
+  const scheduleTip = (() => {
+    if (!playhead || !tr || !view) return null
+    const cssW = canvasRef.current?.clientWidth ?? 480
+    const step = windowTimeStep(view.t0, view.t1, plotWidth(cssW, LABEL_W, PAD))
+    const { rel, guest } = formatTraceTimes(playhead.ts, tr.t0, step)
+    const runLabel = runningTid != null ? threadLabel(tr, runningTid) : '(idle)'
+    // Absolute CTF ns from timing_ns_get — not k_uptime_ticks (no tick rate in stream).
+    return [`${rel} · ${runLabel}`, `guest ${guest}`]
+  })()
 
   const selectLane = (tid: number) => {
     setSelectedLane(tid)
@@ -498,16 +509,19 @@ function TracePanelBody({
 
   const onPointerMove: PointerEventHandler<TraceSurface> = (e) => {
     const g = gestureRef.current
-    if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId || !tr) return
-    const dx = e.clientX - g.startX
-    if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
-    g.moved = true
-    window.getSelection()?.removeAllRanges()
-    setFollow(false)
-    const plotW = Math.max(1, e.currentTarget.clientWidth - gutterW - PAD)
-    const span = g.origin.t1 - g.origin.t0
-    const dt = (-dx / plotW) * span
-    setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
+    if (g && g.kind === 'pan' && g.pointerId === e.pointerId && tr) {
+      const dx = e.clientX - g.startX
+      if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+      g.moved = true
+      window.getSelection()?.removeAllRanges()
+      setFollow(false)
+      setPlayhead(null)
+      const plotW = Math.max(1, e.currentTarget.clientWidth - gutterW - PAD)
+      const span = g.origin.t1 - g.origin.t0
+      const dt = (-dx / plotW) * span
+      setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
+      return
+    }
   }
 
   const onPointerUp: PointerEventHandler<TraceSurface> = (e) => {
@@ -700,15 +714,57 @@ function TracePanelBody({
         />
       ) : (
         <>
-          <canvas
-            ref={canvasRef}
-            className="w-full cursor-grab touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-            {...canvasHandlers}
-          />
+          <div className="relative w-full select-none">
+            <canvas
+              ref={canvasRef}
+              className="w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+              {...canvasHandlers}
+              onPointerMove={(e) => {
+                canvasHandlers.onPointerMove(e)
+                if (!view || !tr || e.buttons !== 0) {
+                  if (playheadRef.current) setPlayhead(null)
+                  return
+                }
+                const rect = e.currentTarget.getBoundingClientRect()
+                const x = e.clientX - rect.left
+                if (x < LABEL_W || x > e.currentTarget.clientWidth - PAD) {
+                  setPlayhead(null)
+                  return
+                }
+                const ts = tsAt(
+                  { labelW: LABEL_W, pad: PAD, view0: view.t0, view1: view.t1, t0: tr.t0 },
+                  e.currentTarget.clientWidth,
+                  x,
+                )
+                setPlayhead({ ts, x })
+              }}
+              onPointerLeave={() => setPlayhead(null)}
+            />
+            {scheduleTip && playhead && (
+              <div
+                role="tooltip"
+                className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
+                style={{
+                  left: playhead.x > LABEL_W + 160 ? playhead.x - 10 : playhead.x + 10,
+                  top: AXIS_H + 4,
+                  transform: playhead.x > LABEL_W + 160 ? 'translateX(-100%)' : undefined,
+                }}
+              >
+                {scheduleTip.map((line, i) => (
+                  <div
+                    key={i}
+                    className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-            Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select (opens Debug
-            Threads when gdb is live)
+            Hover for playhead · drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to
+            select
           </p>
 
           {/* Colour legend — same states as the terminal viewer. */}
@@ -744,7 +800,7 @@ function TracePanelBody({
             </div>
           )}
 
-          {/* Info strip — running thread + selected lane at the window's right edge. */}
+          {/* Info strip — running thread + selected lane at playhead (or right edge). */}
           <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
             <div>
               <span className="text-muted-foreground">running: </span>
