@@ -539,6 +539,23 @@ consumes; needs a bespoke `video` driver + host buffer →
 the pixel path is still a new bridge — park it behind the remaining I²C class
 work.
 
+#### 4g. Real USB dongles — not a USB bus; a `liveSource`
+
+WebUSB looks like the natural "plug in a peripheral" answer. It is not, if the
+goal is Zephyr's USB host stack seeing the device: neither browser machine has
+a HC, qemu-wasm has no libusb-shaped backend, and Chromium won't claim HID /
+mass-storage / video interfaces anyway. **virtio-usb** (device ID 49) does not
+change that yet — the ID is reserved in virtio 1.4 with no protocol chapter,
+no QEMU model, and no Zephyr driver, so the generic bridge cannot usefully
+carry it. The fuller analysis is
+[`webusb-feasibility.md`](webusb-feasibility.md).
+
+What *does* fit is the same shape as device tilt: a browser API pushing
+engineering units into an existing simulated chip. Prefer **WebHID** for
+HID-class sensors (WebUSB cannot claim them), **Web Serial** for GPS/UART
+pucks on the GNSS path we already have, and WebUSB only for vendor-class
+bridges. No qemu rebuild; guest stays on stock I²C/SPI drivers.
+
 ## The input gap — ✅ closed, the clean way
 
 **Implemented** as a virtio tablet, exactly the route this section used to say
@@ -641,6 +658,8 @@ shell is a UX problem before it is a driver problem.
    `maxim,max17048` with `samples/drivers/fuel_gauge`, SoC / voltage card.
    Charger remains the same-class follow-up.
 7. **Webcam** — stretch; needs a new Zephyr video driver, most uncertain.
+7½. **USB dongles as `liveSource`** — WebHID (not WebUSB-first) onto ADXL345
+   axes; see [`webusb-feasibility.md`](webusb-feasibility.md). Page-side only.
 
 ## Sources
 
