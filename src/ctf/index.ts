@@ -44,6 +44,19 @@ export {
   type QueueSeries,
 } from './queues'
 export {
+  reconstructSockets,
+  reconstructNetCore,
+  socketWindowStats,
+  socketLabel,
+  socketKindLabel,
+  formatByteCount,
+  type SocketSeries,
+  type SocketSample,
+  type SocketOp,
+  type NetCoreSeries,
+  type NetCoreSample,
+} from './netSockets'
+export {
   queueFlowEvents,
   threadFlowScores,
   flowEdgeId,

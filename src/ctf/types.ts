@@ -12,7 +12,8 @@ export type FieldType =
   | 'uint64_t'
   | 'str20'
 
-export type FieldDecl = [name: string, type: FieldType]
+/** Scalar typedef or fixed-width CTF string (`str20` or `{ str: N }`). */
+export type FieldDecl = [name: string, type: FieldType | { str: number }]
 
 /** Built-in struct format character and byte size for each scalar typedef. */
 export const SCALAR_TYPES: Record<Exclude<FieldType, 'str20'>, { code: string; size: number }> = {

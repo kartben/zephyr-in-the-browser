@@ -303,4 +303,13 @@ Visual target (static HTML, no build):
 
 ## Status
 
-**Spec only** — no Trace Networking tab implementation yet.
+**Phase 0 + Phase 1 landed** on `cursor/trace-networking-spec-0424`:
+
+- Metadata parse honours `ctf_bounded_string_t …[N]` (socket `address[46]`).
+- `reconstructSockets` / `reconstructNetCore` + vitest coverage.
+- Trace tab **Networking** with swimlanes, metrics strip, and net-core latency
+  sparkline (`NetView`).
+
+Still open from the original phases: connection ribbon (Phase 2), cross-panel
+timestamp linking (Phase 3).
+

@@ -20,6 +20,7 @@ import {
 import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { QueuesView, QUEUES_LABEL_W } from '@/components/QueuesView'
+import { NetView, NET_LABEL_W } from '@/components/NetView'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -62,7 +63,7 @@ const ZOOM_IN = 0.7
 const ZOOM_OUT = 1.4
 const PAN_THRESHOLD_PX = 8
 
-type TraceTab = 'schedule' | 'queues'
+type TraceTab = 'schedule' | 'queues' | 'net'
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -322,6 +323,7 @@ function TracePanelBody({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const queuesCanvasRef = useRef<HTMLCanvasElement>(null)
+  const netCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
@@ -332,7 +334,7 @@ function TracePanelBody({
   const followRef = useRef(follow)
   followRef.current = follow
   viewRef.current = view
-  const gutterW = tab === 'queues' ? QUEUES_LABEL_W : LABEL_W
+  const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
 
   const tr = snap.trace
   useEffect(() => {
@@ -579,6 +581,7 @@ function TracePanelBody({
               [
                 ['schedule', 'Schedule'],
                 ['queues', 'Message Queues'],
+                ['net', 'Networking'],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -665,6 +668,16 @@ function TracePanelBody({
               follow={follow}
               eventCount={snap.eventCount}
               canvasRef={queuesCanvasRef}
+              canvasProps={canvasHandlers}
+            />
+          ) : tab === 'net' && view ? (
+            <NetView
+              tr={tr}
+              view0={view.t0}
+              view1={view.t1}
+              follow={follow}
+              eventCount={snap.eventCount}
+              canvasRef={netCanvasRef}
               canvasProps={canvasHandlers}
             />
           ) : (
