@@ -78,9 +78,17 @@ export function TopBar({
 
         <StatusPill status={status} detail={detail} />
 
-        <Button onClick={onRestart} disabled={status === 'loading'}>
+        <Button
+          onClick={onRestart}
+          disabled={status === 'loading'}
+          title={
+            hardRestart
+              ? 'Reset the MCU — guest reboots; wiring and flash stay'
+              : 'Restart the guest'
+          }
+        >
           {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
-          {hardRestart ? 'Reload' : 'Restart'}
+          {hardRestart ? 'Reset' : 'Restart'}
         </Button>
       </div>
     </header>

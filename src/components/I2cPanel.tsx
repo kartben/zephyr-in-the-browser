@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { revealDockRow } from '@/lib/dockReveal'
-import { i2cModel } from '@/virtio'
+import { attachUserI2c, detachUserI2c, i2cModel } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
 import type { I2cChip, I2cTransaction } from '@/virtio/devices/i2c'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
@@ -103,9 +103,7 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
                 aria-label={`Detach ${chip.name}`}
                 title="Detach — the guest driver will start to NAK"
                 onClick={() => {
-                  for (const addr of detachAddresses(chip, chips)) {
-                    i2cModel.detachChip(addr)
-                  }
+                  detachUserI2c(...detachAddresses(chip, chips))
                 }}
                 className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
               >
@@ -189,20 +187,8 @@ function AttachRow({ chips }: { chips: number[] }) {
   const attach = () => {
     if (!type || !valid) return
     try {
-      const created = type.create(parsed, parsedSecondary)
-      const list = Array.isArray(created) ? created : [created]
-      // Attach all-or-nothing: if a later address collides, roll back earlier ones.
-      const attached: number[] = []
-      try {
-        for (const chip of list) {
-          i2cModel.attachChip(chip)
-          attached.push(chip.address)
-        }
-        setError(null)
-      } catch (err) {
-        for (const address of attached) i2cModel.detachChip(address)
-        throw err
-      }
+      attachUserI2c(type.id, parsed, parsedSecondary)
+      setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clear, setUserDts } from '@/devicetree'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
@@ -8,17 +8,26 @@ import a53Pt6314 from '@/dts/fixtures/qemu_cortex_a53_pt6314.dts?raw'
 import a53Tmc50xx from '@/dts/fixtures/qemu_cortex_a53_tmc50xx.dts?raw'
 import { createLsm6dso } from './devices/sensors/lsm6dso'
 import { createW25q } from './devices/chips/w25q'
+import type { I2cChip } from './devices/i2c'
 import {
   adxl345,
+  attachUserI2c,
+  attachUserSpi,
   eeprom,
+  ht16k33,
   i2cModel,
   ina219,
   isl29035,
   jhd1313,
   jhd1313Backlight,
   lm75,
+  lp5012,
+  lp5562,
   lps22hh,
   lsm6dso,
+  max17048,
+  mcp4725,
+  pca9685,
   pcf8523,
   pt6314,
   sct2024,
@@ -30,10 +39,33 @@ import {
   w25q,
   ws2812,
 } from './index'
+import { clearBusRoster } from './busRoster'
 import { isPt6314 } from './devices/chips/pt6314'
+
+const MANAGED_I2C: ReadonlySet<I2cChip> = new Set([
+  tmp112,
+  lm75,
+  adxl345,
+  eeprom,
+  ssd1306,
+  lsm6dso,
+  lps22hh,
+  ina219,
+  isl29035,
+  jhd1313,
+  jhd1313Backlight,
+  pcf8523,
+  ht16k33,
+  lp5562,
+  lp5012,
+  pca9685,
+  mcp4725,
+  max17048,
+])
 
 afterEach(async () => {
   await clear()
+  clearBusRoster()
   // Drop any user-attached SPI strangers left by a test (including CS1
   // PT6314 minted for the shell tree).
   for (const chip of [...spiModel.chips()]) {
@@ -46,6 +78,9 @@ afterEach(async () => {
     ) {
       spiModel.detachChip(chip.cs)
     }
+  }
+  for (const chip of [...i2cModel.chips()]) {
+    if (!MANAGED_I2C.has(chip)) i2cModel.detachChip(chip.address)
   }
   syncManagedChips()
 })
@@ -202,5 +237,52 @@ describe('syncManagedChips', () => {
     spiModel.detachChip(0)
     syncManagedChips()
     expect(spiModel.chips()).toEqual([sct2024])
+  })
+
+  it('rehydrates a user I²C Attach after the bus is cleared (MCU reset)', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+
+    setUserDts('blinky.dts', a53Blinky)
+    expect(addresses()).toEqual([])
+
+    attachUserI2c('tmp112', 0x4a)
+    expect(addresses()).toEqual([0x4a])
+
+    // Simulate a document reload: empty the bus, keep localStorage.
+    for (const chip of [...i2cModel.chips()]) i2cModel.detachChip(chip.address)
+    expect(addresses()).toEqual([])
+
+    syncManagedChips()
+    expect(addresses()).toEqual([0x4a])
+    expect(i2cModel.chips()[0]?.name).toMatch(/TMP112/i)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('rehydrates a user SPI Attach on a free CS after reload', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+
+    attachUserSpi('loopback', 1)
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(true)
+
+    for (const chip of [...spiModel.chips()]) {
+      if (chip.cs === 1) spiModel.detachChip(1)
+    }
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(false)
+
+    syncManagedChips()
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(true)
+
+    vi.unstubAllGlobals()
   })
 })

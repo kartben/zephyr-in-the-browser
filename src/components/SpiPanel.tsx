@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { revealDockRow } from '@/lib/dockReveal'
-import { spiModel } from '@/virtio'
+import { attachUserSpi, detachUserSpi, spiModel } from '@/virtio'
 import type { SpiChip, SpiTransaction } from '@/virtio/devices/spi'
 import { isSpiFlashChip } from '@/virtio/devices/chips/w25q'
 import { isSct2024 } from '@/virtio/devices/chips/sct2024'
@@ -77,7 +77,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
               <button
                 aria-label={`Detach ${chip.name}`}
                 title="Detach — the guest driver will start to fail transfers"
-                onClick={() => spiModel.detachChip(chip.cs)}
+                onClick={() => detachUserSpi(chip.cs)}
                 className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
               >
                 <X className="size-3" />
@@ -160,7 +160,7 @@ function AttachRow({ chips }: { chips: number[] }) {
   const attach = () => {
     if (!valid) return
     try {
-      spiModel.attachChip(type.create(parsed))
+      attachUserSpi(type.id, parsed)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

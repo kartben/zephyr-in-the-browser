@@ -408,7 +408,8 @@ export default function App() {
     const backend = backendRef.current
     if (backend?.resetRequiresReload) {
       // Custom ELF/DTS stay in IndexedDB across this navigation (claim leaves
-      // them in place); stock samples have nothing persisted to reclaim.
+      // them in place); stock samples have nothing persisted to reclaim. User
+      // Attach wiring and NVM survive the same way — this is an MCU reset.
       void backend.reset() // navigates; nothing after this runs
       return
     }
