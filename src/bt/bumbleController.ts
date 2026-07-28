@@ -19,6 +19,7 @@ export interface BtControllerHandle {
   /** Deliver one complete H:4 HCI packet (with type byte) from the Zephyr host. */
   onHostPacket: (packet: Uint8Array) => void
   addPeer: (typeId: string) => Promise<BtPeerInfo>
+  setPeerParam: (id: string, key: string, value: string | number | boolean) => Promise<void>
   removePeer: (id: string) => Promise<void>
   listPeers: () => BtPeerInfo[]
   close: () => void
@@ -114,12 +115,27 @@ def list_peers():
     return out
 
 async def _publish_heart_rate(peer_id, device, service):
-    while peer_id in _peers:
+    while True:
         await asyncio.sleep(1)
+        info = _peers.get(peer_id)
+        if info is None:
+            return
         await device.notify_subscribers(
             service.heart_rate_measurement_characteristic,
-            HeartRateService.HeartRateMeasurement(heart_rate=72),
+            HeartRateService.HeartRateMeasurement(heart_rate=info['bpm']),
         )
+
+async def set_peer_param(peer_id: str, key: str, value):
+    info = _peers.get(peer_id)
+    if info is None:
+        raise ValueError(f'unknown peer: {peer_id}')
+    if info['type'] == 'hrm' and key == 'bpm':
+        bpm = int(value)
+        if bpm < 0 or bpm > 0xFFFF:
+            raise ValueError(f'heart rate out of range: {bpm}')
+        info['bpm'] = bpm
+        info['detail'] = f'{bpm} BPM · advertising'
+        _notify_peers()
 
 async def add_peer(type_id: str):
     global _seq
@@ -142,7 +158,10 @@ async def add_peer(type_id: str):
     hr_service = None
     if type_id == 'hrm':
         def read_hr(_connection):
-            return HeartRateService.HeartRateMeasurement(heart_rate=72)
+            info = _peers.get(peer_id)
+            return HeartRateService.HeartRateMeasurement(
+                heart_rate=info['bpm'] if info is not None else 72
+            )
         hr_service = HeartRateService(
             read_heart_rate_measurement=read_hr,
             body_sensor_location=HeartRateService.BodySensorLocation.CHEST,
@@ -174,6 +193,7 @@ async def add_peer(type_id: str):
         'device': device,
         'controller': peer_ctl,
         'adv_count': 0,
+        'bpm': 72,
     }
     if hr_service is not None:
         _peers[peer_id]['notify_task'] = asyncio.create_task(
@@ -342,6 +362,14 @@ export async function ensureController(opts: EnsureControllerOpts): Promise<BtCo
       const found = peers.find((p) => p.id === peerId)
       if (!found) throw new Error(`peer ${peerId} missing after add`)
       return found
+    },
+    setPeerParam: async (id, key, value) => {
+      pyodide.globals.set('_set_peer_param_id', id)
+      pyodide.globals.set('_set_peer_param_key', key)
+      pyodide.globals.set('_set_peer_param_value', value)
+      await pyodide.runPythonAsync(
+        'await set_peer_param(_set_peer_param_id, _set_peer_param_key, _set_peer_param_value)',
+      )
     },
     removePeer: async (id) => {
       pyodide.globals.set('_remove_peer_id', id)

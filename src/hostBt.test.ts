@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const controllerMocks = vi.hoisted(() => ({
+  addPeer: vi.fn(),
   close: vi.fn(),
   onHostPacket: vi.fn(),
+  setPeerParam: vi.fn(),
   ensureController: vi.fn(),
 }))
 
@@ -10,7 +12,7 @@ vi.mock('@/bt/bumbleController', () => ({
   ensureController: controllerMocks.ensureController,
 }))
 
-import { attach, detach, getSnapshot, startController } from '@/hostBt'
+import { addPeer, attach, detach, getSnapshot, setPeerParam, startController } from '@/hostBt'
 
 function fakeHciModule(packet: Uint8Array) {
   const heap = new Uint8Array(64)
@@ -34,13 +36,33 @@ describe('host Bluetooth startup', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     controllerMocks.close.mockReset()
+    controllerMocks.addPeer.mockReset()
     controllerMocks.onHostPacket.mockReset()
+    controllerMocks.setPeerParam.mockReset()
     controllerMocks.ensureController.mockReset()
+    controllerMocks.addPeer.mockResolvedValue({
+      id: 'hrm-1',
+      typeId: 'hrm',
+      name: 'Heart rate 1',
+      detail: '72 BPM · advertising',
+    })
     controllerMocks.ensureController.mockResolvedValue({
       name: 'test-controller',
+      addPeer: controllerMocks.addPeer,
       close: controllerMocks.close,
       onHostPacket: controllerMocks.onHostPacket,
-      listPeers: () => [],
+      setPeerParam: controllerMocks.setPeerParam,
+      listPeers: () =>
+        controllerMocks.addPeer.mock.calls.length > 0
+          ? [
+              {
+                id: 'hrm-1',
+                typeId: 'hrm',
+                name: 'Heart rate 1',
+                detail: '72 BPM · advertising',
+              },
+            ]
+          : [],
     })
   })
 
@@ -71,5 +93,14 @@ describe('host Bluetooth startup', () => {
       phase: 'ready',
       rxPackets: 1,
     })
+  })
+
+  it('applies heart-rate changes to the live Bumble peer', async () => {
+    await startController()
+    await addPeer('hrm')
+    await setPeerParam('hrm-1', 'bpm', 96)
+
+    expect(controllerMocks.setPeerParam).toHaveBeenCalledWith('hrm-1', 'bpm', 96)
+    expect(getSnapshot().peers.find((peer) => peer.id === 'hrm-1')?.params?.bpm).toBe(96)
   })
 })

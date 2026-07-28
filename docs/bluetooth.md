@@ -51,7 +51,9 @@ For the opposite role, select **BLE central · Heart Rate**, wait for
 **Controller ready**, then add a **Heart rate monitor** peer. The packaged
 central scans for service `0x180D`, connects, discovers the measurement
 characteristic, subscribes, and prints the decoded measurement, for example
-`[HEART RATE] 72 BPM (flags 0x00)`.
+`[HEART RATE] 72 BPM (flags 0x00)`. Moving the peer's **Heart rate** slider
+updates the live Bumble characteristic; the next notification prints the new
+BPM in Zephyr.
 
 The packaged Bluetooth images also compose the `bt-settings-spi` snippet.
 Zephyr's NVS settings backend stores the generated identity, IRK, and GATT

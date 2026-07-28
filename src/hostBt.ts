@@ -98,7 +98,8 @@ function rosterFromController(): BtPeerSnapshot[] {
         typeId: p.typeId,
         name: p.name,
         detail: p.detail,
-        // Real path: params overlay until Bumble setParam lands.
+        // The overlay is also the inspector's source of truth for controls
+        // that do not have a live Bumble implementation yet.
         params: mockPeers.find((m) => m.id === p.id)?.params ?? defaultPeerParams(p.typeId, p.name),
       }),
     ),
@@ -331,7 +332,7 @@ export async function addPeer(typeId: string): Promise<void> {
   if (!controller) await startController()
   if (!controller) throw new Error('Bluetooth controller not ready')
   const info = await controller.addPeer(typeId)
-  // Keep a params overlay so the inspector works before Bumble setParam lands.
+  // Keep a params overlay for rendering the inspector.
   mockPeers = [
     ...mockPeers.filter((p) => p.id !== info.id),
     withDetail({
@@ -363,7 +364,7 @@ export async function removePeer(id: string): Promise<void> {
   refreshPeers()
 }
 
-/** Update a live inspector param (mock applies immediately; real path TBD). */
+/** Update an inspector param and apply supported values to the live peer. */
 export async function setPeerParam(
   id: string,
   key: string,
@@ -381,7 +382,8 @@ export async function setPeerParam(
     return
   }
 
-  // Overlay until Pyodide setParam is wired.
+  await controller?.setPeerParam(id, key, value)
+
   mockPeers = mockPeers.map(apply)
   if (mockPeers.every((p) => p.id !== id)) {
     const existing = snapshot.peers.find((p) => p.id === id)
