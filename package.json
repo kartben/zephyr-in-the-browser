@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "docs:fetch": "node tools/fetch-docs.mjs",
-    "vendor:bumble": "tools/vendor-bumble.sh"
+    "vendor:bumble": "tools/vendor-bumble.sh",
+    "build:libsbc": "bash tools/build-libsbc-wasm.sh"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
