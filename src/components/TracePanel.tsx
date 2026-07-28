@@ -2,11 +2,12 @@
  * Live Zephyr CTF Trace panel — Timeline Gantt + Message Queues + Networking.
  *
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
- * with a shared live-follow time window (pan / zoom / pinch). Optional msgq
- * swim lanes line data-passing objects under the threads, with dotted
- * put/get connectors from the actor thread to each queue rail. Lane groups
- * (THREADS, MESSAGE QUEUES, …) carry small uppercase section headers.
- * Message Queues: per-msgq flow graph + depth from put/put_front/get exits.
+ * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
+ * zoom). Optional msgq swim lanes line data-passing objects under the threads,
+ * with dotted put/get connectors from the actor thread to each queue rail.
+ * Lane groups (THREADS, MESSAGE QUEUES, …) carry small uppercase section
+ * headers. Message Queues: per-msgq flow graph + depth from put/put_front/get
+ * exits.
  */
 
 import {
@@ -18,10 +19,19 @@ import {
   useSyncExternalStore,
   type MutableRefObject,
   type PointerEventHandler,
+  type ReactNode,
   type TouchEventHandler,
   type WheelEventHandler,
 } from 'react'
-import { Activity, Crosshair, Maximize2, Waypoints, ZoomIn, ZoomOut } from 'lucide-react'
+import {
+  Activity,
+  BoxSelect,
+  Crosshair,
+  Maximize2,
+  Waypoints,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { QueuesView, QUEUES_LABEL_W } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
@@ -61,11 +71,14 @@ import {
   type Trace,
 } from '@/ctf'
 import {
+  clampPlotX,
   formatGuestTime,
   paintCanvasTimeAxis,
   paintPlayhead,
   plotWidth,
   tsAt,
+  viewFromBoxSelection,
+  wantsBoxZoom,
   windowTimeStep,
   xAt,
 } from '@/components/traceChart'
@@ -831,12 +844,61 @@ type Gesture =
       moved: boolean
     }
   | {
+      kind: 'boxZoom'
+      pointerId: number
+      /** Local X within the surface (CSS px). */
+      startX: number
+      origin: { t0: number; t1: number }
+      moved: boolean
+    }
+  | {
       kind: 'pinch'
       startDist: number
       startSpan: number
       pivot: number
       origin: { t0: number; t1: number }
     }
+
+/** Rubber-band preview while Shift-drag / box-zoom mode is active. */
+type BoxZoomPreview = { x0: number; x1: number; cssW: number }
+
+function BoxZoomOverlay({
+  preview,
+  gutterW,
+  label,
+}: {
+  preview: BoxZoomPreview
+  gutterW: number
+  label: string
+}): ReactNode {
+  const plotLeft = gutterW
+  const plotRight = Math.max(plotLeft + 1, preview.cssW - PAD)
+  const a = clampPlotX(preview.x0, preview.cssW, gutterW, PAD)
+  const b = clampPlotX(preview.x1, preview.cssW, gutterW, PAD)
+  const left = Math.min(a, b)
+  const right = Math.max(a, b)
+  const width = Math.max(1, right - left)
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden rounded">
+      <div
+        className="absolute inset-y-0 bg-slate-950/50"
+        style={{ left: plotLeft, width: Math.max(0, left - plotLeft) }}
+      />
+      <div
+        className="absolute inset-y-0 border-x-2 border-sky-400/85 bg-sky-400/20"
+        style={{ left, width }}
+      >
+        <div className="absolute left-1/2 top-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-sky-400 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-slate-950 shadow-sm">
+          {label}
+        </div>
+      </div>
+      <div
+        className="absolute inset-y-0 bg-slate-950/50"
+        style={{ left: right, width: Math.max(0, plotRight - right) }}
+      />
+    </div>
+  )
+}
 
 export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
@@ -937,10 +999,19 @@ function TracePanelBody({
   const [selectedEdge, setSelectedEdge] = useState<number | null>(null)
   /** Timeline playhead — hover ts; null when not scrubbing. */
   const [playhead, setPlayhead] = useState<{ ts: number; x: number; y: number } | null>(null)
+  /**
+   * Sticky box-zoom mode: drag selects a time range (Shift temporarily pans).
+   * When off, plain drag pans and Shift-drag box-zooms.
+   */
+  const [boxZoomMode, setBoxZoomMode] = useState(false)
+  const [shiftHeld, setShiftHeld] = useState(false)
+  const [boxZoomPreview, setBoxZoomPreview] = useState<BoxZoomPreview | null>(null)
   const playheadRef = useRef(playhead)
   playheadRef.current = playhead
   const showMsgqRef = useRef(showMsgq)
   showMsgqRef.current = showMsgq
+  const boxZoomModeRef = useRef(boxZoomMode)
+  boxZoomModeRef.current = boxZoomMode
   const laneMetrics = useMemo(() => laneMetricsFor(laneSize), [laneSize])
   const laneMetricsRef = useRef(laneMetrics)
   laneMetricsRef.current = laneMetrics
@@ -951,6 +1022,7 @@ function TracePanelBody({
   followRef.current = follow
   viewRef.current = view
   const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
+  const boxZoomArmed = boxZoomMode || shiftHeld || boxZoomPreview != null
 
   const tr = snap.trace
   const msgqEvents = useMemo(
@@ -1080,7 +1152,38 @@ function TracePanelBody({
       setPlayhead(null)
       setSelectedEdge(null)
     }
+    setBoxZoomPreview(null)
+    if (gestureRef.current?.kind === 'boxZoom') gestureRef.current = null
   }, [tab])
+
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(true)
+    }
+    const onUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(false)
+    }
+    const clear = () => setShiftHeld(false)
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+      window.removeEventListener('blur', clear)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!boxZoomPreview) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      gestureRef.current = null
+      setBoxZoomPreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [boxZoomPreview])
 
   const applyZoom = useCallback(
     (factor: number) => {
@@ -1255,6 +1358,24 @@ function TracePanelBody({
     } catch {
       /* ignore */
     }
+    const rect = e.currentTarget.getBoundingClientRect()
+    const localX = e.clientX - rect.left
+    if (wantsBoxZoom(e.shiftKey, boxZoomModeRef.current)) {
+      setPlayhead(null)
+      setBoxZoomPreview({
+        x0: localX,
+        x1: localX,
+        cssW: e.currentTarget.clientWidth,
+      })
+      gestureRef.current = {
+        kind: 'boxZoom',
+        pointerId: e.pointerId,
+        startX: localX,
+        origin: view,
+        moved: false,
+      }
+      return
+    }
     gestureRef.current = {
       kind: 'pan',
       pointerId: e.pointerId,
@@ -1266,30 +1387,66 @@ function TracePanelBody({
 
   const onPointerMove: PointerEventHandler<TraceSurface> = (e) => {
     const g = gestureRef.current
-    if (g && g.kind === 'pan' && g.pointerId === e.pointerId && tr) {
-      const dx = e.clientX - g.startX
+    if (!g || g.kind === 'pinch' || g.pointerId !== e.pointerId || !tr) return
+    if (g.kind === 'boxZoom') {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const localX = e.clientX - rect.left
+      const dx = localX - g.startX
       if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
       g.moved = true
       window.getSelection()?.removeAllRanges()
-      setFollow(false)
       setPlayhead(null)
-      const plotW = Math.max(1, e.currentTarget.clientWidth - gutterW - PAD)
-      const span = g.origin.t1 - g.origin.t0
-      const dt = (-dx / plotW) * span
-      setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
+      setBoxZoomPreview({
+        x0: g.startX,
+        x1: localX,
+        cssW: e.currentTarget.clientWidth,
+      })
       return
     }
+    const dx = e.clientX - g.startX
+    if (!g.moved && Math.abs(dx) < PAN_THRESHOLD_PX) return
+    g.moved = true
+    window.getSelection()?.removeAllRanges()
+    setFollow(false)
+    setPlayhead(null)
+    const plotW = Math.max(1, e.currentTarget.clientWidth - gutterW - PAD)
+    const span = g.origin.t1 - g.origin.t0
+    const dt = (-dx / plotW) * span
+    setView(clampView(tr, g.origin.t0 + dt, g.origin.t1 + dt))
   }
 
   const onPointerUp: PointerEventHandler<TraceSurface> = (e) => {
     const g = gestureRef.current
-    if (!g || g.kind !== 'pan' || g.pointerId !== e.pointerId) return
+    if (!g || g.kind === 'pinch' || g.pointerId !== e.pointerId) return
     gestureRef.current = null
     try {
       e.currentTarget.releasePointerCapture(e.pointerId)
     } catch {
       /* ignore */
     }
+
+    if (g.kind === 'boxZoom') {
+      setBoxZoomPreview(null)
+      if (!g.moved || !tr) return
+      const rect = e.currentTarget.getBoundingClientRect()
+      const endX = e.clientX - rect.left
+      const next = viewFromBoxSelection(
+        g.origin,
+        e.currentTarget.clientWidth,
+        gutterW,
+        PAD,
+        g.startX,
+        endX,
+        PAN_THRESHOLD_PX,
+      )
+      if (!next) return
+      setFollow(false)
+      setPlayhead(null)
+      setLiveWindowNs(clampWindowNs(tr, next.t1 - next.t0))
+      setView(clampView(tr, next.t0, next.t1))
+      return
+    }
+
     if (g.moved || !view || !tr || tab !== 'schedule') return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
@@ -1325,6 +1482,7 @@ function TracePanelBody({
 
   const onPointerCancel = () => {
     gestureRef.current = null
+    setBoxZoomPreview(null)
   }
 
   const onTouchStart: TouchEventHandler<TraceSurface> = (e) => {
@@ -1393,6 +1551,47 @@ function TracePanelBody({
         )
       : (playhead?.x ?? 0)
 
+  const boxZoomLabel = (() => {
+    if (!boxZoomPreview || !view) return ''
+    const next = viewFromBoxSelection(
+      view,
+      boxZoomPreview.cssW,
+      gutterW,
+      PAD,
+      boxZoomPreview.x0,
+      boxZoomPreview.x1,
+      1,
+    )
+    if (!next) return 'zoom'
+    return fmtTime(next.t1 - next.t0)
+  })()
+
+  const boxZoomOverlay = boxZoomPreview ? (
+    <BoxZoomOverlay preview={boxZoomPreview} gutterW={gutterW} label={boxZoomLabel} />
+  ) : null
+
+  const boxZoomToggle = (
+    <button
+      type="button"
+      title={
+        boxZoomMode
+          ? 'Box zoom on — drag to zoom, Shift-drag to pan (Esc cancels)'
+          : 'Box zoom — drag a time range (or hold Shift while dragging)'
+      }
+      aria-label="Box zoom"
+      aria-pressed={boxZoomMode}
+      onClick={() => setBoxZoomMode((v) => !v)}
+      className={cn(
+        'rounded p-0.5 touch-manipulation',
+        boxZoomMode
+          ? 'bg-secondary text-foreground'
+          : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+      )}
+    >
+      <BoxSelect className="size-3.5" />
+    </button>
+  )
+
   // Compact chrome sits immediately above the time chart (Timeline / Net canvas,
   // or between the msgq flow graph and depth chart) — same idiom as CAN lanes.
   const chartToolbar = (
@@ -1415,6 +1614,7 @@ function TracePanelBody({
       >
         <ZoomOut className="size-3.5" />
       </button>
+      {boxZoomToggle}
       <button
         type="button"
         title="Fit entire trace"
@@ -1483,6 +1683,8 @@ function TracePanelBody({
           svgRef={queuesSvgRef}
           surfaceProps={canvasHandlers}
           toolbar={chartToolbar}
+          overlay={boxZoomOverlay}
+          boxZoomArmed={boxZoomArmed}
         />
       ) : tab === 'net' && view ? (
         <div className="flex flex-col gap-1">
@@ -1495,6 +1697,8 @@ function TracePanelBody({
             eventCount={snap.revision}
             canvasRef={netCanvasRef}
             canvasProps={canvasHandlers}
+            overlay={boxZoomOverlay}
+            boxZoomArmed={boxZoomArmed}
           />
         </div>
       ) : (
@@ -1519,6 +1723,7 @@ function TracePanelBody({
               >
                 <ZoomOut className="size-3.5" />
               </button>
+              {boxZoomToggle}
               <button
                 type="button"
                 title="Fit entire trace"
@@ -1583,7 +1788,10 @@ function TracePanelBody({
             <div className="relative w-full select-none">
               <canvas
                 ref={canvasRef}
-                className="w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+                className={cn(
+                  'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40',
+                  boxZoomArmed ? 'cursor-crosshair' : 'cursor-crosshair active:cursor-grabbing',
+                )}
                 {...canvasHandlers}
                 onPointerMove={(e) => {
                   canvasHandlers.onPointerMove(e)
@@ -1614,6 +1822,7 @@ function TracePanelBody({
                 }}
                 onPointerLeave={() => setPlayhead(null)}
               />
+              {boxZoomOverlay}
               {scheduleTip && playhead && (
                 <div
                   role="tooltip"
@@ -1648,8 +1857,8 @@ function TracePanelBody({
           </div>
 
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-            Hover for playhead · drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to
-            select
+            Hover for playhead · drag to pan · Shift-drag (or box-zoom tool) to zoom a range ·
+            pinch or ± to zoom (keeps LIVE) · tap a lane name to select
             {showMsgq
               ? ' · click a msgq edge to pin it'
               : ''}

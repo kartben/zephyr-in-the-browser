@@ -136,3 +136,46 @@ export function paintPlayhead(
   ctx.stroke()
   ctx.setLineDash([])
 }
+
+/**
+ * Box-zoom vs pan: sticky mode makes drag zoom; Shift inverts whichever is
+ * default so pan is never locked out.
+ */
+export function wantsBoxZoom(shiftKey: boolean, stickyMode: boolean): boolean {
+  return stickyMode ? !shiftKey : shiftKey
+}
+
+/** Clamp a local X coordinate into the plot strip `[labelW, cssW - pad]`. */
+export function clampPlotX(x: number, cssW: number, labelW: number, pad: number): number {
+  const left = labelW
+  const right = Math.max(left + 1, cssW - pad)
+  return Math.min(right, Math.max(left, x))
+}
+
+/**
+ * Map a horizontal box selection to a time window. Returns `null` when the
+ * drag is too short to count as a zoom (keeps accidental Shift-clicks inert).
+ */
+export function viewFromBoxSelection(
+  view: { t0: number; t1: number },
+  cssW: number,
+  labelW: number,
+  pad: number,
+  xA: number,
+  xB: number,
+  minPx = 8,
+): { t0: number; t1: number } | null {
+  const a = clampPlotX(xA, cssW, labelW, pad)
+  const b = clampPlotX(xB, cssW, labelW, pad)
+  if (Math.abs(b - a) < minPx) return null
+  const layout: TraceTimeLayout = {
+    labelW,
+    pad,
+    view0: view.t0,
+    view1: view.t1,
+    t0: view.t0,
+  }
+  const lo = Math.min(a, b)
+  const hi = Math.max(a, b)
+  return { t0: tsAt(layout, cssW, lo), t1: tsAt(layout, cssW, hi) }
+}
