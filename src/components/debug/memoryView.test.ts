@@ -4,6 +4,7 @@ import {
   BYTES_PER_ROW,
   VISIBLE_ROWS,
   WINDOW_BYTES,
+  pcWindowTop,
   scrollMemoryAddr,
   wheelRowDelta,
 } from './memoryView'
@@ -38,5 +39,11 @@ describe('memoryView', () => {
     expect(wheelRowDelta(2, 1)).toBe(2)
     expect(wheelRowDelta(-1, 1)).toBe(-1)
     expect(wheelRowDelta(1, 2)).toBe(VISIBLE_ROWS)
+  })
+
+  it('aligns a Thumb PC down to the enclosing row', () => {
+    expect(pcWindowTop(0x8000125, 'arm')).toBe(0x8000120)
+    expect(pcWindowTop(0x8000124, 'arm')).toBe(0x8000120)
+    expect(pcWindowTop(0x8000125, 'aarch64')).toBe(0x8000120)
   })
 })

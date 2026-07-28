@@ -36,3 +36,13 @@ export function wheelRowDelta(deltaY: number, deltaMode: number): number {
   const rows = Math.round(deltaY / 40)
   return rows === 0 ? Math.sign(deltaY) : rows
 }
+
+/**
+ * Window top for a PC seed: clear ARM Thumb LSB, then snap down to a row so
+ * the hex gutter stays aligned and the instruction bytes are in view.
+ */
+export function pcWindowTop(pc: number, arch: 'arm' | 'aarch64' | 'riscv32' | null): number {
+  let addr = pc >>> 0
+  if (arch === 'arm') addr &= ~1
+  return Math.floor(addr / BYTES_PER_ROW) * BYTES_PER_ROW
+}

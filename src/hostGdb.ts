@@ -308,8 +308,10 @@ export async function attachSession(): Promise<boolean> {
 
   const next = new RspClient(ch)
   next.setStopHandler((info) => {
-    if (info.kind === 'signal') {
-      publish({ paused: true })
+      if (info.kind === 'signal') {
+      // Mark regs loading with the pause so Mem cannot seed from 0x0 in the
+      // gap before refreshRegs() runs.
+      publish({ paused: true, registersLoading: true })
       void refreshRegs()
     }
   })
@@ -367,7 +369,7 @@ export async function pause(): Promise<void> {
   if (state.paused) return
   try {
     await client.interrupt()
-    publish({ paused: true })
+    publish({ paused: true, registersLoading: true })
     await refreshRegs()
   } catch {
     // leave state; user can retry
@@ -395,7 +397,7 @@ export async function step(): Promise<void> {
   if (!client || !state.attached || !state.paused) return
   try {
     await client.step()
-    publish({ paused: true })
+    publish({ paused: true, registersLoading: true })
     await refreshRegs()
   } catch {
     // ignore
