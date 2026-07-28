@@ -1,13 +1,12 @@
 /**
  * Per-queue pipe graph for the Trace Queues tab.
  *
- * Each msgq is a horizontal pipe (flanges + barrel + bore fill). Putters sit
- * on the left as name pills, getters on the right. Edges attach to vertically
- * spaced ports on each flange; paths are shortened so arrowheads sit on the
- * mouth without the stroke overshooting the tip.
+ * Pipe orientation follows the Zephyr msgq ring-buffer contract:
+ *   left  = end   — k_msgq_put writes here (write_ptr / back)
+ *   right = front — k_msgq_get reads here; k_msgq_put_front inserts here
+ *                   (read_ptr / head; delivered before older messages)
  *
- * put_front still originates from a putter pill, but the arrow aims at the
- * consumer-side flange (front of the queue), arcing over the pipe.
+ * @see https://docs.zephyrproject.org/latest/doxygen/html/group__msgq__apis.html
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -27,25 +26,29 @@ const HOT_MS = 1200
 const WARM_MS = 4200
 const MAX_ANIM_PER_TICK = 12
 
-const PILL_W = 112
-const PILL_H = 24
+const PILL_W = 120
+const PILL_H = 26
 const PILL_PAD_X = 10
-const PIPE_W = 188
-const PIPE_H_MIN = 40
-const FLANGE_W = 10
-const BORE_INSET = 7
+/** Barrel length between mouth centers. */
+const PIPE_W = 200
+/** Fixed cylinder height — ports attach near the bore centerline. */
+const PIPE_H = 36
+/** Horizontal radius of the mouth ellipses (perspective end-caps). */
+const MOUTH_RX = 7
+const MOUTH_RY = PIPE_H / 2 - 1
 /** Vertical gap between thread pills on the same side. */
-const PORT_GAP = 40
-const ROW_GAP = 28
-const COL_GAP = 48
-const PAD_X = 12
-const PAD_Y = 10
-/** Arrowhead length in user units — path ends this far short of the target. */
-const ARROW_LEN = 9
-const ARROW_W = 7
+const PORT_GAP = 44
+const ROW_GAP = 36
+const COL_GAP = 56
+const PAD_X = 16
+const PAD_Y = 8
+/** Extra top clearance for put_front arcs over the barrel. */
+const ARC_CLEAR = 22
+const ARROW_LEN = 8
+const ARROW_W = 6
 
 const PILL_TEXT_MAX = PILL_W - PILL_PAD_X * 2
-const PIPE_TEXT_MAX = PIPE_W - FLANGE_W * 2 - 16
+const PIPE_TEXT_MAX = PIPE_W - MOUTH_RX * 4 - 12
 
 const CLIP_PILL = 'qg-clip-pill'
 
@@ -55,7 +58,6 @@ type ThreadPill = {
   label: string
   x: number
   y: number
-  /** Side of its pipe. put_front shares the put side. */
   side: 'put' | 'get'
   queueId: number
   port: number
@@ -70,7 +72,6 @@ type Pipe = {
   drops: number
   x: number
   y: number
-  h: number
   putPorts: number
   getPorts: number
 }
@@ -92,6 +93,14 @@ type Layout = {
   byPill: Map<string, ThreadPill>
 }
 
+type Layers = {
+  labels: d3.Selection<SVGGElement, unknown, null, undefined>
+  links: d3.Selection<SVGGElement, unknown, null, undefined>
+  packets: d3.Selection<SVGGElement, unknown, null, undefined>
+  pipes: d3.Selection<SVGGElement, unknown, null, undefined>
+  pills: d3.Selection<SVGGElement, unknown, null, undefined>
+}
+
 function pillKey(queueId: number, tid: number, side: 'put' | 'get') {
   return `p:${queueId}:${tid}:${side}`
 }
@@ -100,15 +109,23 @@ function sideForOp(op: QueueFlowOp): 'put' | 'get' {
   return isPutOp(op) ? 'put' : 'get'
 }
 
-function pipeHeight(putPorts: number, getPorts: number): number {
-  const n = Math.max(putPorts, getPorts, 1)
-  return Math.max(PIPE_H_MIN, Math.min(72, 28 + n * 8))
+function pipeEndX(pipe: Pipe): number {
+  return pipe.x - PIPE_W / 2
 }
 
-function pipePortY(pipe: Pipe, side: 'put' | 'get', port: number): number {
-  const n = side === 'put' ? pipe.putPorts : pipe.getPorts
-  const inner = Math.min(14, (pipe.h - 14) / Math.max(1, n - 1 || 1))
-  const span = Math.max(0, (n - 1) * inner)
+function pipeFrontX(pipe: Pipe): number {
+  return pipe.x + PIPE_W / 2
+}
+
+/**
+ * Mouth attachment Y. Single port → bore centerline; multiple ports fan
+ * slightly inside the mouth ellipse so arrows stay parallel.
+ */
+function mouthY(pipe: Pipe, mouth: 'end' | 'front', port: number): number {
+  const n = mouth === 'end' ? pipe.putPorts : pipe.getPorts
+  if (n <= 1) return pipe.y
+  const inner = Math.min(10, (MOUTH_RY * 1.4) / Math.max(1, n - 1))
+  const span = (n - 1) * inner
   return pipe.y - span / 2 + port * inner
 }
 
@@ -117,7 +134,6 @@ function pillY(pipe: Pipe, port: number, count: number): number {
   return pipe.y - span / 2 + port * PORT_GAP
 }
 
-/** Shorten path end so marker tip lands on (x2,y2) instead of stroke overshooting. */
 function edgeEndpoints(
   x1: number,
   y1: number,
@@ -139,29 +155,28 @@ function edgePath(
 ): { sx: number; sy: number; ex: number; ey: number; mx: number; my: number; d: string } {
   const sy = pill.y
 
-  // put_front inserts at the front of the queue — aim at the consumer flange.
   if (op === 'put_front') {
-    const ey = pipePortY(pipe, 'put', pill.port)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipe.x + PIPE_W / 2, ey, ARROW_LEN)
-    // Arc over the barrel so the stroke is distinct from a normal put.
-    const over = Math.min(raw.y1, raw.y2, pipe.y) - pipe.h / 2 - 14
-    const c1x = raw.x1 + (pipe.x - raw.x1) * 0.35
-    const c2x = raw.x2 - (raw.x2 - pipe.x) * 0.25
-    const mx = (raw.x1 + raw.x2) / 2
+    // Insert at front/head — arc *above* the barrel, land on front mouth.
+    const ey = mouthY(pipe, 'front', Math.min(pill.port, Math.max(0, pipe.getPorts - 1)))
+    const tipX = pipeFrontX(pipe)
+    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, tipX, ey, ARROW_LEN)
+    const over = pipe.y - PIPE_H / 2 - ARC_CLEAR
+    const c1x = raw.x1 + (pipeEndX(pipe) - raw.x1) * 0.55
+    const c2x = tipX - COL_GAP * 0.35
     return {
       sx: raw.x1,
       sy: raw.y1,
       ex: raw.x2,
       ey: raw.y2,
-      mx,
+      mx: (raw.x1 + raw.x2) / 2,
       my: over,
       d: `M${raw.x1},${raw.y1} C${c1x},${over} ${c2x},${over} ${raw.x2},${raw.y2}`,
     }
   }
 
   if (op === 'put') {
-    const ey = pipePortY(pipe, 'put', pill.port)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipe.x - PIPE_W / 2, ey, ARROW_LEN)
+    const ey = mouthY(pipe, 'end', pill.port)
+    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipeEndX(pipe), ey, ARROW_LEN)
     const mx = (raw.x1 + raw.x2) / 2
     return {
       sx: raw.x1,
@@ -174,8 +189,8 @@ function edgePath(
     }
   }
 
-  const ey = pipePortY(pipe, 'get', pill.port)
-  const raw = edgeEndpoints(pipe.x + PIPE_W / 2, ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
+  const ey = mouthY(pipe, 'front', pill.port)
+  const raw = edgeEndpoints(pipeFrontX(pipe), ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
   const mx = (raw.x1 + raw.x2) / 2
   return {
     sx: raw.x1,
@@ -238,7 +253,8 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
 
   const pipes: Pipe[] = []
   const pills: ThreadPill[] = []
-  let yCursor = PAD_Y + 28
+  // Room for column headers + put_front arc above the first pipe.
+  let yCursor = PAD_Y + 18 + ARC_CLEAR
 
   for (const q of queues) {
     const puts = putters.get(q.id) ?? []
@@ -252,8 +268,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     const putIds = sortT(puts)
     const getIds = sortT(gets)
     const ports = Math.max(1, putIds.length, getIds.length)
-    const h = pipeHeight(putIds.length, getIds.length)
-    const bandH = Math.max(h + 8, ports * PORT_GAP + 8)
+    const bandH = Math.max(PIPE_H + 8, ports * PORT_GAP)
     const cy = yCursor + bandH / 2
 
     const pipe: Pipe = {
@@ -265,7 +280,6 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
       drops: q.drops,
       x: pipeX,
       y: cy,
-      h,
       putPorts: Math.max(1, putIds.length),
       getPorts: Math.max(1, getIds.length),
     }
@@ -301,7 +315,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
 
   return {
     w: contentW,
-    h: Math.max(160, yCursor + PAD_Y),
+    h: Math.max(120, yCursor + PAD_Y),
     pipes,
     pills,
     byPipe: new Map(pipes.map((p) => [p.queueId, p])),
@@ -323,13 +337,7 @@ export function QueueGraph({
   const lastIndexRef = useRef(-1)
   const layoutRef = useRef<Layout | null>(null)
   const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
-  const layersRef = useRef<{
-    labels: d3.Selection<SVGGElement, unknown, null, undefined>
-    links: d3.Selection<SVGGElement, unknown, null, undefined>
-    packets: d3.Selection<SVGGElement, unknown, null, undefined>
-    pipes: d3.Selection<SVGGElement, unknown, null, undefined>
-    pills: d3.Selection<SVGGElement, unknown, null, undefined>
-  } | null>(null)
+  const layersRef = useRef<Layers | null>(null)
   const [layoutTick, setLayoutTick] = useState(0)
 
   useEffect(() => {
@@ -338,8 +346,39 @@ export function QueueGraph({
     const svg = d3.select(host).append('svg').attr('class', 'block w-full')
     const defs = svg.append('defs')
 
-    // One marker; fill follows stroke via context-stroke. userSpaceOnUse keeps
-    // size stable; path shortening ensures the tip meets the flange.
+    // Soft metal gradient for the barrel.
+    const grad = defs
+      .append('linearGradient')
+      .attr('id', 'qg-pipe-metal')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%')
+    grad.append('stop').attr('offset', '0%').attr('stop-color', '#6b7280')
+    grad.append('stop').attr('offset', '35%').attr('stop-color', '#4b5563')
+    grad.append('stop').attr('offset', '70%').attr('stop-color', '#374151')
+    grad.append('stop').attr('offset', '100%').attr('stop-color', '#1f2937')
+
+    const fillGrad = defs
+      .append('linearGradient')
+      .attr('id', 'qg-pipe-liquid')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%')
+    fillGrad.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(125,211,252,0.75)')
+    fillGrad.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(14,165,233,0.55)')
+
+    const fillHot = defs
+      .append('linearGradient')
+      .attr('id', 'qg-pipe-liquid-drop')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%')
+    fillHot.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(252,165,165,0.75)')
+    fillHot.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(239,68,68,0.5)')
+
     const marker = defs
       .append('marker')
       .attr('id', 'qg-arrow')
@@ -352,7 +391,7 @@ export function QueueGraph({
       .attr('orient', 'auto')
     marker
       .append('path')
-      .attr('d', `M0,0 L${ARROW_LEN},${ARROW_W / 2} L0,${ARROW_W} Z`)
+      .attr('d', `M0,0.5 L${ARROW_LEN},${ARROW_W / 2} L0,${ARROW_W - 0.5} Z`)
       .attr('fill', 'context-stroke')
 
     defs
@@ -363,7 +402,7 @@ export function QueueGraph({
       .attr('y', -PILL_H / 2 + 1)
       .attr('width', PILL_W - 2)
       .attr('height', PILL_H - 2)
-      .attr('rx', 5)
+      .attr('rx', 6)
 
     layersRef.current = {
       labels: svg.append('g'),
@@ -394,7 +433,7 @@ export function QueueGraph({
       layers.pills.selectAll('*').remove()
       layers.links.selectAll('*').remove()
       layers.labels.selectAll('*').remove()
-      svg.attr('viewBox', '0 0 320 120').attr('height', 120)
+      svg.attr('viewBox', '0 0 320 100').attr('height', 100)
       return
     }
 
@@ -404,23 +443,37 @@ export function QueueGraph({
 
     layers.labels.selectAll('*').remove()
     const headers = [
-      { x: PAD_X + PILL_W / 2, t: 'Put' },
-      { x: layout.pipes[0]?.x ?? layout.w / 2, t: 'Queue' },
-      { x: layout.w - PAD_X - PILL_W / 2, t: 'Get' },
+      { x: PAD_X + PILL_W / 2, t: 'put · end' },
+      { x: layout.pipes[0]?.x ?? layout.w / 2, t: 'msgq' },
+      { x: layout.w - PAD_X - PILL_W / 2, t: 'front · get' },
     ]
     layers.labels
       .selectAll('text')
       .data(headers)
       .enter()
       .append('text')
-      .attr('fill', 'rgba(148,163,184,0.7)')
+      .attr('fill', 'rgba(148,163,184,0.65)')
       .attr('font-size', 9)
       .attr('font-weight', 600)
-      .attr('letter-spacing', '0.08em')
+      .attr('letter-spacing', '0.06em')
       .attr('text-anchor', 'middle')
-      .attr('y', 12)
+      .attr('y', 14)
       .attr('x', (d) => d.x)
       .text((d) => d.t.toUpperCase())
+
+    // Rebuild pipe shells once per layout (not every animation tick).
+    const pipeSel = layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').data(layout.pipes, (d) => d.id)
+    pipeSel.exit().remove()
+    const pipeEnter = pipeSel.enter().append('g').attr('class', 'pipe')
+    pipeEnter.each(function (d) {
+      buildPipeShell(d3.select(this), d)
+    })
+    pipeEnter
+      .merge(pipeSel)
+      .attr('transform', (d) => `translate(${d.x},${d.y})`)
+      .each(function (d) {
+        updatePipeFill(d3.select(this), d, false)
+      })
 
     const flow = queueFlowEvents(tr)
     const newest = flow.filter((ev) => ev.index > lastIndexRef.current)
@@ -459,7 +512,7 @@ export function QueueGraph({
     <div
       ref={hostRef}
       className="overflow-x-auto overflow-y-hidden rounded border border-border/60 bg-slate-950/40"
-      style={{ minHeight: 140 }}
+      style={{ minHeight: 120 }}
     />
   )
 }
@@ -488,7 +541,7 @@ function firePacket(
   const p = edgePath(pill, pipe, ev.op)
   const pkt = packets
     .append('circle')
-    .attr('r', 3.2)
+    .attr('r', 3)
     .attr('fill', packetFill(ev.op))
     .attr('cx', p.sx)
     .attr('cy', p.sy)
@@ -508,15 +561,7 @@ function firePacket(
     .remove()
 }
 
-function paintFrame(
-  layers: {
-    links: d3.Selection<SVGGElement, unknown, null, undefined>
-    pipes: d3.Selection<SVGGElement, unknown, null, undefined>
-    pills: d3.Selection<SVGGElement, unknown, null, undefined>
-  },
-  layout: Layout,
-  edgeState: Map<string, EdgeState>,
-) {
+function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeState>) {
   const now = performance.now()
   const active: Array<{
     key: string
@@ -537,13 +582,14 @@ function paintFrame(
     active.push({ key, pill, pipe, op: st.op, hot: now < st.untilHot })
   }
 
-  const activePills = new Set(active.map((a) => a.pill.id))
+  const activeByPillOp = new Set(active.map((a) => `${a.pill.id}|${a.op}`))
   const structural: typeof active = []
   for (const pill of layout.pills) {
     const pipe = layout.byPipe.get(pill.queueId)
     if (!pipe) continue
-    if (activePills.has(pill.id)) continue
     const op: QueueFlowOp = pill.side === 'put' ? 'put' : 'get'
+    if (activeByPillOp.has(`${pill.id}|${op}`)) continue
+    // Keep a faint structural put even when put_front is glowing.
     const key = flowEdgeId({ threadId: pill.tid, queueId: pill.queueId, op })
     structural.push({ key: `struct:${key}`, pill, pipe, op, hot: false })
   }
@@ -562,18 +608,13 @@ function paintFrame(
     .merge(link)
     .attr('marker-end', (d) => (d.key.startsWith('struct:') ? null : 'url(#qg-arrow)'))
     .attr('stroke', (d) => strokeFor(d.op))
-    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1 : d.hot ? 2.4 : 1.7))
-    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.18 : d.hot ? 0.95 : 0.45))
+    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.1 : d.hot ? 2.2 : 1.6))
+    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.2 : d.hot ? 0.95 : 0.5))
     .attr('d', (d) => edgePath(d.pill, d.pipe, d.op).d)
 
   const hotQueues = new Set(active.filter((a) => a.hot).map((a) => a.pipe.id))
-  const pipeSel = layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').data(layout.pipes, (d) => d.id)
-  pipeSel.exit().remove()
-  const pipeEnter = pipeSel.enter().append('g').attr('class', 'pipe')
-  const pipeMerged = pipeEnter.merge(pipeSel)
-  pipeMerged.attr('transform', (d) => `translate(${d.x},${d.y})`)
-  pipeMerged.each(function (d) {
-    drawPipe(d3.select(this), d, hotQueues.has(d.id))
+  layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').each(function (d) {
+    updatePipeFill(d3.select(this), d, hotQueues.has(d.id))
   })
 
   const hotPills = new Set(
@@ -590,13 +631,13 @@ function paintFrame(
     .attr('y', -PILL_H / 2)
     .attr('width', PILL_W)
     .attr('height', PILL_H)
-    .attr('rx', 6)
+    .attr('rx', 7)
   pillEnter
     .append('text')
     .attr('clip-path', `url(#${CLIP_PILL})`)
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'central')
-    .attr('font-size', 10)
+    .attr('font-size', 11)
     .attr('font-weight', 500)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
 
@@ -611,114 +652,143 @@ function paintFrame(
         'fill',
         hot
           ? put
-            ? 'rgba(96, 165, 250, 0.28)'
-            : 'rgba(251, 191, 36, 0.28)'
+            ? 'rgba(96, 165, 250, 0.22)'
+            : 'rgba(251, 191, 36, 0.22)'
           : put
-            ? 'rgba(96, 165, 250, 0.1)'
-            : 'rgba(251, 191, 36, 0.1)',
+            ? 'rgba(96, 165, 250, 0.08)'
+            : 'rgba(251, 191, 36, 0.08)',
       )
       .attr('stroke', put ? '#60a5fa' : '#fbbf24')
-      .attr('stroke-width', hot ? 1.8 : 1.2)
-    const label = fitEllipsis(d.label, PILL_TEXT_MAX, GRAPH_FONT.pill)
-    g.select('text').attr('fill', 'rgba(248,250,252,0.95)').text(label)
+      .attr('stroke-width', hot ? 1.6 : 1.1)
+    g.select('text')
+      .attr('fill', 'rgba(248,250,252,0.95)')
+      .text(fitEllipsis(d.label, PILL_TEXT_MAX, GRAPH_FONT.pill))
     g.attr('aria-label', d.label)
     g.selectAll('title').remove()
     g.append('title').text(d.label)
   })
 }
 
-/** Draw a horizontal pipe: flanges, barrel, bore, liquid fill, label. */
-function drawPipe(g: d3.Selection<SVGGElement, unknown, null, undefined>, pipe: Pipe, hot: boolean): void {
-  const x = -PIPE_W / 2
-  const y = -pipe.h / 2
-  const w = PIPE_W
-  const h = pipe.h
-  const rx = Math.min(10, h / 3)
-
+/**
+ * Build a clean horizontal cylinder once: end-cap ellipses + barrel + bore.
+ * Live depth updates go through updatePipeFill so we don't rebuild every tick.
+ */
+function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, pipe: Pipe): void {
   g.selectAll('*').remove()
 
-  g.append('rect')
-    .attr('x', x + 2)
-    .attr('y', y + 3)
-    .attr('width', w)
-    .attr('height', h)
-    .attr('rx', rx)
+  const x0 = -PIPE_W / 2
+  const x1 = PIPE_W / 2
+  const y0 = -PIPE_H / 2
+  const y1 = PIPE_H / 2
+
+  // Drop shadow
+  g.append('ellipse')
+    .attr('cx', 0)
+    .attr('cy', y1 + 4)
+    .attr('rx', PIPE_W / 2 - 4)
+    .attr('ry', 5)
     .attr('fill', 'rgba(0,0,0,0.35)')
 
+  // Barrel body (between mouth centers), clipped by nothing — mouths drawn on top.
   g.append('rect')
-    .attr('x', x)
-    .attr('y', y)
-    .attr('width', w)
-    .attr('height', h)
-    .attr('rx', rx)
-    .attr('fill', hot ? '#455266' : '#3f4a5c')
-    .attr('stroke', '#7c8aa0')
-    .attr('stroke-width', hot ? 1.8 : 1.4)
+    .attr('class', 'barrel')
+    .attr('x', x0)
+    .attr('y', y0)
+    .attr('width', PIPE_W)
+    .attr('height', PIPE_H)
+    .attr('rx', MOUTH_RY)
+    .attr('fill', 'url(#qg-pipe-metal)')
+    .attr('stroke', '#9ca3af')
+    .attr('stroke-width', 1.1)
 
+  // Top specular stripe
   g.append('rect')
-    .attr('x', x + FLANGE_W + 2)
-    .attr('y', y + 3)
-    .attr('width', w - FLANGE_W * 2 - 4)
-    .attr('height', Math.max(4, h * 0.22))
-    .attr('rx', 3)
-    .attr('fill', 'rgba(226,232,240,0.14)')
+    .attr('x', x0 + MOUTH_RX + 4)
+    .attr('y', y0 + 3)
+    .attr('width', PIPE_W - MOUTH_RX * 2 - 8)
+    .attr('height', 5)
+    .attr('rx', 2.5)
+    .attr('fill', 'rgba(255,255,255,0.14)')
 
+  // Bore (inner dark channel)
+  const boreX = x0 + MOUTH_RX + 2
+  const boreY = y0 + 8
+  const boreW = PIPE_W - MOUTH_RX * 2 - 4
+  const boreH = PIPE_H - 16
   g.append('rect')
-    .attr('x', x - 2)
-    .attr('y', y - 4)
-    .attr('width', FLANGE_W + 2)
-    .attr('height', h + 8)
-    .attr('rx', 3)
-    .attr('fill', '#4b5568')
-    .attr('stroke', '#94a3b8')
-    .attr('stroke-width', 1.2)
-
-  g.append('rect')
-    .attr('x', x + w - FLANGE_W)
-    .attr('y', y - 4)
-    .attr('width', FLANGE_W + 2)
-    .attr('height', h + 8)
-    .attr('rx', 3)
-    .attr('fill', '#4b5568')
-    .attr('stroke', '#94a3b8')
-    .attr('stroke-width', 1.2)
-
-  const boreX = x + FLANGE_W + 1
-  const boreY = y + BORE_INSET
-  const boreW = w - FLANGE_W * 2 - 2
-  const boreH = h - BORE_INSET * 2
-  g.append('rect')
+    .attr('class', 'bore')
     .attr('x', boreX)
     .attr('y', boreY)
     .attr('width', boreW)
     .attr('height', boreH)
-    .attr('rx', 4)
-    .attr('fill', '#0f172a')
-    .attr('stroke', '#1e293b')
-    .attr('stroke-width', 1)
+    .attr('rx', boreH / 2)
+    .attr('fill', '#0b1220')
 
-  const fillFrac = pipe.cap > 0 ? Math.min(1, pipe.depth / pipe.cap) : 0
-  const fillW = Math.max(0, (boreW - 4) * fillFrac)
-  if (fillW > 0) {
-    g.append('rect')
-      .attr('x', boreX + 2)
-      .attr('y', boreY + 2)
-      .attr('width', fillW)
-      .attr('height', boreH - 4)
-      .attr('rx', 3)
-      .attr('fill', pipe.drops > 0 ? 'rgba(248,113,113,0.55)' : 'rgba(56,189,248,0.45)')
-  }
+  // Liquid occupancy — width updated live.
+  g.append('rect')
+    .attr('class', 'fill')
+    .attr('x', boreX + 2)
+    .attr('y', boreY + 2)
+    .attr('height', boreH - 4)
+    .attr('rx', (boreH - 4) / 2)
+    .attr('width', 0)
+    .attr('fill', 'url(#qg-pipe-liquid)')
 
-  for (const ox of [x + FLANGE_W / 2, x + w - FLANGE_W / 2]) {
-    g.append('ellipse')
-      .attr('cx', ox)
-      .attr('cy', 0)
-      .attr('rx', 3.5)
-      .attr('ry', Math.max(8, h / 2 - 4))
-      .attr('fill', '#0b1220')
-      .attr('stroke', '#64748b')
-      .attr('stroke-width', 1)
-  }
+  // Left mouth (end) — outer ring + dark aperture
+  g.append('ellipse')
+    .attr('cx', x0)
+    .attr('cy', 0)
+    .attr('rx', MOUTH_RX)
+    .attr('ry', MOUTH_RY)
+    .attr('fill', '#4b5563')
+    .attr('stroke', '#d1d5db')
+    .attr('stroke-width', 1.2)
+  g.append('ellipse')
+    .attr('class', 'mouth-end')
+    .attr('cx', x0)
+    .attr('cy', 0)
+    .attr('rx', MOUTH_RX - 2.5)
+    .attr('ry', MOUTH_RY - 4)
+    .attr('fill', '#020617')
+    .attr('stroke', '#64748b')
+    .attr('stroke-width', 0.8)
+
+  // Right mouth (front)
+  g.append('ellipse')
+    .attr('cx', x1)
+    .attr('cy', 0)
+    .attr('rx', MOUTH_RX)
+    .attr('ry', MOUTH_RY)
+    .attr('fill', '#4b5563')
+    .attr('stroke', '#d1d5db')
+    .attr('stroke-width', 1.2)
+  g.append('ellipse')
+    .attr('class', 'mouth-front')
+    .attr('cx', x1)
+    .attr('cy', 0)
+    .attr('rx', MOUTH_RX - 2.5)
+    .attr('ry', MOUTH_RY - 4)
+    .attr('fill', '#020617')
+    .attr('stroke', '#64748b')
+    .attr('stroke-width', 0.8)
+
+  // Tiny end / front captions under mouths
+  g.append('text')
+    .attr('x', x0)
+    .attr('y', y1 + 11)
+    .attr('text-anchor', 'middle')
+    .attr('fill', 'rgba(148,163,184,0.7)')
+    .attr('font-size', 8)
+    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+    .text('end')
+  g.append('text')
+    .attr('x', x1)
+    .attr('y', y1 + 11)
+    .attr('text-anchor', 'middle')
+    .attr('fill', 'rgba(148,163,184,0.7)')
+    .attr('font-size', 8)
+    .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+    .text('front')
 
   const clipId = `qg-clip-pipe-${pipe.queueId}`
   g.append('clipPath')
@@ -729,32 +799,51 @@ function drawPipe(g: d3.Selection<SVGGElement, unknown, null, undefined>, pipe: 
     .attr('width', boreW - 8)
     .attr('height', boreH)
 
-  const name = fitEllipsis(pipe.label, PIPE_TEXT_MAX, GRAPH_FONT.tubeName)
-  const meta = fitEllipsis(
-    `${pipe.depth}/${pipe.cap} · ${pipe.drops} drop${pipe.drops === 1 ? '' : 's'}`,
-    PIPE_TEXT_MAX,
-    GRAPH_FONT.tubeMeta,
-  )
-  const labelG = g.append('g').attr('clip-path', `url(#${clipId})`)
+  const labelG = g.append('g').attr('class', 'labels').attr('clip-path', `url(#${clipId})`)
   labelG
     .append('text')
+    .attr('class', 'name')
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
-    .attr('y', -5)
+    .attr('y', -4)
     .attr('fill', 'rgba(248,250,252,0.95)')
     .attr('font-size', 11)
     .attr('font-weight', 600)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-    .text(name)
   labelG
     .append('text')
+    .attr('class', 'meta')
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
     .attr('y', 9)
     .attr('fill', 'rgba(148,163,184,0.9)')
     .attr('font-size', 9)
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-    .text(meta)
 
-  g.append('title').text(`${pipe.label} — ${pipe.depth}/${pipe.cap}, ${pipe.drops} drops`)
+  g.append('title')
+}
+
+function updatePipeFill(
+  g: d3.Selection<SVGGElement, unknown, null, undefined>,
+  pipe: Pipe,
+  hot: boolean,
+): void {
+  const boreW = PIPE_W - MOUTH_RX * 2 - 4
+  const fillFrac = pipe.cap > 0 ? Math.min(1, pipe.depth / pipe.cap) : 0
+  const fillW = Math.max(0, (boreW - 4) * fillFrac)
+
+  g.select('rect.barrel').attr('stroke', hot ? '#e2e8f0' : '#9ca3af').attr('stroke-width', hot ? 1.5 : 1.1)
+  g.select('rect.fill')
+    .attr('width', fillW)
+    .attr('fill', pipe.drops > 0 ? 'url(#qg-pipe-liquid-drop)' : 'url(#qg-pipe-liquid)')
+
+  const name = fitEllipsis(pipe.label, PIPE_TEXT_MAX, GRAPH_FONT.tubeName)
+  const meta = fitEllipsis(
+    `${pipe.depth}/${pipe.cap}${pipe.drops ? ` · ${pipe.drops} drop${pipe.drops === 1 ? '' : 's'}` : ''}`,
+    PIPE_TEXT_MAX,
+    GRAPH_FONT.tubeMeta,
+  )
+  g.select('text.name').text(name)
+  g.select('text.meta').text(meta)
+  g.select('title').text(`${pipe.label} — ${pipe.depth}/${pipe.cap}, ${pipe.drops} drops`)
 }

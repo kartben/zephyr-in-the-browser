@@ -49,6 +49,8 @@ export {
   flowEdgeId,
   flowThreadLabel,
   isPutOp,
+  mouthForOp,
   type QueueFlowEvent,
   type QueueFlowOp,
+  type MsgqMouth,
 } from './queueGraph'

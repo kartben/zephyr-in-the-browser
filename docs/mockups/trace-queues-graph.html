@@ -44,19 +44,19 @@
   <header>
     <h1>Trace → Queues · pipe layout mockup</h1>
     <p class="sub">
-      Each queue is a horizontal pipe (flanges + barrel + bore fill). Putters on the left,
-      getters on the right. Edges are shortened so arrowheads sit on the flange — stroke
-      does not run past the tip. put_front arcs from the putter to the <em>consumer</em>
-      flange (front of the queue).
+      Pipe mouths follow the Zephyr msgq contract:
+      <code>k_msgq_put</code> → <strong>end</strong> (left),
+      <code>k_msgq_get</code> ← <strong>front</strong> (right),
+      <code>k_msgq_put_front</code> → <strong>front</strong> (head; retrieved before older messages).
     </p>
   </header>
   <section class="panel">
     <div class="bar">
       <div class="tabs"><span>Schedule</span><span class="on">Queues</span></div>
       <div class="legend">
-        <span><i class="put"></i>put →</span>
-        <span><i class="put-front"></i>put_front → get end</span>
-        <span><i class="get"></i>→ get</span>
+        <span><i class="put"></i>put → end</span>
+        <span><i class="put-front"></i>put_front → front</span>
+        <span><i class="get"></i>front → get</span>
         <span>pipe fill = depth</span>
       </div>
     </div>
@@ -133,7 +133,9 @@
       const portY = pipe.y - span / 2 + pill.port * inner
       const sy = pill.y
       if (op === 'put_front') {
-        const sx = pill.x + PILL_W / 2, ex = pipe.x + PIPE_W / 2, ey = portY
+        const spread = Math.min(10, (pipe.h - 16) / Math.max(1, pipe.putN))
+        const ey = pipe.y - ((pipe.putN - 1) * spread) / 2 + pill.port * spread
+        const sx = pill.x + PILL_W / 2, ex = pipe.x + PIPE_W / 2
         const e = shorten(sx, sy, ex, ey, ARROW_LEN)
         const over = Math.min(e.y1, e.y2, pipe.y) - pipe.h / 2 - 14
         const c1x = e.x1 + (pipe.x - e.x1) * 0.35
@@ -171,6 +173,10 @@
         g.append('ellipse').attr('cx', ox).attr('cy', 0).attr('rx', 3.5).attr('ry', Math.max(8, h / 2 - 4))
           .attr('fill', '#0b1220').attr('stroke', '#64748b')
       }
+      g.append('text').attr('x', x + FLANGE_W / 2).attr('y', y + h + 12).attr('text-anchor', 'middle')
+        .attr('fill', 'rgba(148,163,184,0.75)').attr('font-size', 8).attr('font-family', 'var(--mono)').text('end')
+      g.append('text').attr('x', x + w - FLANGE_W / 2).attr('y', y + h + 12).attr('text-anchor', 'middle')
+        .attr('fill', 'rgba(148,163,184,0.75)').attr('font-size', 8).attr('font-family', 'var(--mono)').text('front')
       g.append('text').attr('y', -5).attr('text-anchor', 'middle').attr('fill', '#e2e8f0').attr('font-size', 11).attr('font-weight', 600).attr('font-family', 'var(--mono)').text(d.label)
       g.append('text').attr('y', 9).attr('text-anchor', 'middle').attr('fill', '#94a3b8').attr('font-size', 9).attr('font-family', 'var(--mono)').text(`${d.depth}/${d.cap} · ${d.drops} drops`)
     }
@@ -186,7 +192,7 @@
       const L = layout()
       svg.attr('viewBox', `0 0 ${L.w} ${L.h}`).attr('height', L.h)
       gL.selectAll('*').remove()
-      ;[['Put', L.leftX], ['Queue', L.pipeX], ['Get', L.rightX]].forEach(([t, x]) => {
+      ;[['put · end', L.leftX], ['msgq', L.pipeX], ['front · get', L.rightX]].forEach(([t, x]) => {
         gL.append('text').attr('x', x).attr('y', 14).attr('text-anchor', 'middle')
           .attr('fill', 'rgba(148,163,184,0.7)').attr('font-size', 9).attr('font-weight', 600)
           .attr('letter-spacing', '0.08em').text(t.toUpperCase())
