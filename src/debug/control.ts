@@ -142,6 +142,12 @@ export async function readMemory(addr: number, length?: number): Promise<string 
   return gdb.readMemory(addr, length)
 }
 
+/** Silent peek for Mem search — does not update the visible dump. */
+export async function readMemoryRaw(addr: number, length: number): Promise<Uint8Array | null> {
+  if (!gdb.sessionActive()) return null
+  return gdb.readMemoryRaw(addr, length)
+}
+
 export function patchMemoryCache(addr: number, data: Uint8Array) {
   if (!gdb.sessionActive()) return
   gdb.patchMemoryCache(addr, data)

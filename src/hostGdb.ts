@@ -455,6 +455,19 @@ export async function readMemory(addr: number, length = 64): Promise<string | nu
 }
 
 /**
+ * Peek guest memory without publishing to the Mem pane — used while scanning
+ * so the hex view does not flicker through every chunk.
+ */
+export async function readMemoryRaw(addr: number, length: number): Promise<Uint8Array | null> {
+  if (!client || !state.attached || !state.paused) return null
+  try {
+    return await client.readMemory(addr, length)
+  } catch {
+    return null
+  }
+}
+
+/**
  * Patch the cached peek window without a round-trip — used when the hex view
  * edits a byte locally so a remount does not lose the change.
  */

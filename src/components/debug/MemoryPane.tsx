@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HexView } from '@/components/HexView'
 import { compactHex } from '@/debug/hexFormat'
@@ -8,12 +9,19 @@ import {
   type DebugMemoryChip,
 } from '@/debug/debugMemoryChip'
 import {
+  BYTES_PER_ROW,
   VISIBLE_ROWS,
   WINDOW_BYTES,
   pcWindowTop,
   scrollMemoryAddr,
   wheelRowDelta,
 } from '@/components/debug/memoryView'
+import {
+  SEARCH_CHUNK_BYTES,
+  parseSearchPattern,
+  scanMemory,
+  type SearchDirection,
+} from '@/components/debug/memorySearch'
 
 function parseAddr(text: string): number | null {
   const raw = text.trim().replace(/^0x/i, '')
@@ -36,6 +44,10 @@ function initialAddr(snap: debug.DebugSnapshot): { text: string; addr: number } 
   return { text: '0', addr: 0 }
 }
 
+function windowTopForHit(hit: number): number {
+  return Math.floor((hit >>> 0) / BYTES_PER_ROW) * BYTES_PER_ROW
+}
+
 export function MemoryPane({
   snap,
   seedAddr,
@@ -54,6 +66,13 @@ export function MemoryPane({
   // Only latch after a paused seed — Mem can mount while running (grayed).
   const booted = useRef(false)
   const chipRef = useRef<DebugMemoryChip | null>(null)
+
+  const [patternText, setPatternText] = useState('')
+  const [direction, setDirection] = useState<SearchDirection>('forward')
+  const [searching, setSearching] = useState(false)
+  const [searchStatus, setSearchStatus] = useState<string | null>(null)
+  const searchAbort = useRef<AbortController | null>(null)
+  const lastHit = useRef<number | null>(null)
 
   const loadAt = async (addr: number) => {
     const top = addr >>> 0
@@ -122,6 +141,19 @@ export function MemoryPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr, snap.paused, snap.memory, snap.pc, snap.registersLoading, snap.registers])
 
+  useEffect(() => {
+    return () => searchAbort.current?.abort()
+  }, [])
+
+  useEffect(() => {
+    if (snap.paused) return
+    if (!searching && !searchAbort.current) return
+    searchAbort.current?.abort()
+    searchAbort.current = null
+    setSearching(false)
+    setSearchStatus((s) => (s && s !== 'cancelled' ? 'cancelled' : s))
+  }, [snap.paused, searching])
+
   const memory = snap.memory
   if (!memory) {
     chipRef.current = null
@@ -182,6 +214,63 @@ export function MemoryPane({
     }
   }
 
+  const cancelSearch = () => {
+    searchAbort.current?.abort()
+    searchAbort.current = null
+    setSearching(false)
+    setSearchStatus('cancelled')
+  }
+
+  const runSearch = async () => {
+    if (!snap.paused || searching) return
+    const pattern = parseSearchPattern(patternText)
+    if (!pattern) {
+      setSearchStatus('enter hex or "ascii"')
+      return
+    }
+    const ac = new AbortController()
+    searchAbort.current?.abort()
+    searchAbort.current = ac
+    setSearching(true)
+    setSearchStatus('…')
+
+    const viewLen = Math.max(1, (snap.memory?.hex.length ?? 2) / 2)
+    const origin =
+      lastHit.current !== null
+        ? direction === 'forward'
+          ? (lastHit.current + 1) >>> 0
+          : (lastHit.current - 1) >>> 0
+        : direction === 'forward'
+          ? viewAddr.current >>> 0
+          : ((viewAddr.current + viewLen - 1) >>> 0)
+
+    try {
+      const hit = await scanMemory({
+        pattern,
+        origin,
+        direction,
+        chunkSize: SEARCH_CHUNK_BYTES,
+        signal: ac.signal,
+        read: (addr, length) => debug.readMemoryRaw(addr, length),
+        onProgress: ({ addr }) => {
+          setSearchStatus(compactHex(addr.toString(16)))
+        },
+      })
+      if (ac.signal.aborted) return
+      if (hit === null) {
+        lastHit.current = null
+        setSearchStatus('not found')
+        return
+      }
+      lastHit.current = hit
+      setSearchStatus(`hit ${compactHex(hit.toString(16))}`)
+      await loadAt(windowTopForHit(hit))
+    } finally {
+      if (searchAbort.current === ac) searchAbort.current = null
+      setSearching(false)
+    }
+  }
+
   return (
     <div className="space-y-2 px-1">
       <div className="flex gap-1">
@@ -198,12 +287,73 @@ export function MemoryPane({
           variant="secondary"
           size="sm"
           className="h-7 px-2 text-xs"
-          disabled={busy || !snap.paused}
+          disabled={busy || searching || !snap.paused}
           onClick={() => void load()}
         >
           Read
         </Button>
       </div>
+      <div className="flex gap-1">
+        <input
+          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2 font-mono text-[11px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+          placeholder='Find · hex or "ascii"'
+          value={patternText}
+          disabled={!snap.paused}
+          onChange={(e) => {
+            setPatternText(e.target.value)
+            lastHit.current = null
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              if (searching) cancelSearch()
+              else void runSearch()
+            }
+            if (e.key === 'Escape' && searching) {
+              e.preventDefault()
+              cancelSearch()
+            }
+          }}
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          className="h-7 w-7 shrink-0 px-0"
+          disabled={!snap.paused || searching}
+          title={direction === 'forward' ? 'Search down' : 'Search up'}
+          aria-label={direction === 'forward' ? 'Search down' : 'Search up'}
+          onClick={() => {
+            setDirection((d) => (d === 'forward' ? 'backward' : 'forward'))
+            lastHit.current = null
+          }}
+        >
+          {direction === 'forward' ? (
+            <ArrowDown className="size-3.5" aria-hidden />
+          ) : (
+            <ArrowUp className="size-3.5" aria-hidden />
+          )}
+        </Button>
+        {searching ? (
+          <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={cancelSearch}>
+            Cancel
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={!snap.paused}
+            onClick={() => void runSearch()}
+          >
+            Find
+          </Button>
+        )}
+      </div>
+      {searchStatus && (
+        <p className="px-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {searching ? `scan ${searchStatus}` : searchStatus}
+        </p>
+      )}
       {chip ? (
         <div
           ref={shellRef}
