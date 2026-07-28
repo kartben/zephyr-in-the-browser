@@ -26,6 +26,7 @@ import {
   RotateCw,
   Volume2,
   Waves,
+  Bluetooth,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -79,6 +80,7 @@ const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
   dac: Waves,
   'fuel-gauge': BatteryCharging,
   can: Network,
+  bluetooth: Bluetooth,
   trace: Activity,
   debug: Bug,
 }
@@ -103,6 +105,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   dac: 'DAC',
   'fuel-gauge': 'battery',
   can: 'CAN',
+  bluetooth: 'Bluetooth',
   trace: 'trace',
   debug: 'debug',
 }

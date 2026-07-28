@@ -11,6 +11,13 @@ controller. The bridge shape is already proven (bidirectional browser chardev
 chardev slot, and BT sample packaging — but nothing invents a fourth bridge
 shape.
 
+**Status (implementation started):** `hci0` chardev patches, A53/RISC-V UART
+wiring, `bt-hci-uart` snippet, `bt_peripheral` sample packaging, page bridge +
+Bumble vendor layout, and dock row are in tree. See [`bluetooth.md`](bluetooth.md).
+A qemu-wasm rebuild (feature `"hci"`) and `tools/vendor-bumble.sh` are still
+required before the end-to-end demo runs. Hive WebSocket peers remain a
+follow-up.
+
 ## What Hive actually is
 
 Hive is **not** a Bluetooth controller you drop into a page. It is a set of

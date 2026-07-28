@@ -1,0 +1,13 @@
+{
+  "package": "bumble",
+  "version": "0.0.233",
+  "wheel": "bumble-0.0.233-py3-none-any.whl",
+  "source": "https://pypi.org/project/bumble/0.0.233/",
+  "wheelUrl": "https://files.pythonhosted.org/packages/e8/c1/92d2ff77a857134a99b84f4c551ebd65b268dd357a8a2e5dc834c3e84699/bumble-0.0.233-py3-none-any.whl",
+  "license": "Apache-2.0",
+  "pyodide": {
+    "version": "0.27.5",
+    "indexURL": "https://cdn.jsdelivr.net/pyodide/v0.27.5/full/"
+  },
+  "notes": "Fetched by tools/vendor-bumble.sh. Wheel is gitignored; this manifest is the pin."
+}

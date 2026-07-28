@@ -154,6 +154,9 @@ export function createMockBackend(): PtyBackend {
         disposers.push(() => detachHostGnss())
       }
 
+      // Bluetooth needs the real hci0 rings + Pyodide; mock leaves the dock
+      // row inert (no false "controller ready").
+
       // A guided sample replays its walkthrough here too. The records are the
       // real ones, off the real catalog — only the guest producing them is
       // fake, which is what makes the feature demoable on a bare checkout.

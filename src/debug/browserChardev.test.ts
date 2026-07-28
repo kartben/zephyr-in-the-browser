@@ -44,6 +44,28 @@ describe('bindChardev', () => {
     expect(ch.ringSize).toBeUndefined()
     expect(drainBytes(ch).length).toBe(0)
   })
+  it('maps snake_case Emscripten exports for the hci slot', () => {
+    const feed = () => 0
+    const ring = () => 0
+    const ring_size = () => 16
+    const read_index = () => 0
+    const write_index = () => 0
+    const set_read_index = () => {}
+    const ch = bindChardev(
+      {
+        _qemu_browser_hci_feed: feed,
+        _qemu_browser_hci_ring: ring,
+        _qemu_browser_hci_ring_size: ring_size,
+        _qemu_browser_hci_read_index: read_index,
+        _qemu_browser_hci_write_index: write_index,
+        _qemu_browser_hci_set_read_index: set_read_index,
+        HEAPU8: new Uint8Array(32),
+      },
+      'hci',
+    )
+    expect(chardevAvailable(ch)).toBe(true)
+    expect(ch.feed).toBe(feed)
+  })
 })
 
 describe('feedBytes / drainBytes', () => {

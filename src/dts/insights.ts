@@ -81,7 +81,7 @@ export interface UartBus {
   controllerLabel: string
   path: string
   compatible: string
-  role?: 'console' | 'gnss'
+  role?: 'console' | 'gnss' | 'bluetooth'
   slots: UartSlot[]
 }
 
@@ -367,6 +367,7 @@ const UART_COMPATS = new Set([
 
 const UART_SLOT_CHIP: Record<string, string> = {
   'gnss-nmea-generic': 'gnss',
+  'zephyr,bt-hci-uart': 'bluetooth',
 }
 
 function uartSlots(bus: DtsNode): UartSlot[] {
@@ -402,6 +403,7 @@ function collectUartBuses(doc: DtsDocument): UartBus[] {
     let role: UartBus['role']
     if (consoleNode === node) role = 'console'
     else if (slots.some((s) => s.chipId === 'gnss')) role = 'gnss'
+    else if (slots.some((s) => s.chipId === 'bluetooth')) role = 'bluetooth'
     buses.push({
       controllerLabel: labelOf(node),
       path: pathOf(node),
@@ -636,6 +638,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (hasOkayCompat(doc, 'nxp,pca9685-pwm')) panels.add('pwm')
   if (hasOkayCompat(doc, 'microchip,mcp4725')) panels.add('dac')
   if (hasOkayCompat(doc, 'maxim,max17048')) panels.add('fuel-gauge')
+  if (hasOkayCompat(doc, 'zephyr,bt-hci-uart')) panels.add('bluetooth')
   // 'perf' is a machine property (-icount), invisible to the guest tree.
 
   const aliasTable: Record<string, string> = {}

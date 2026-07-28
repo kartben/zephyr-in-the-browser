@@ -11,6 +11,7 @@ other end of the wire.
 | [pwm-leds.md](pwm-leds.md) | Spec: `pwm-leds` dock strip beside the PWM duty chart |
 | [gpio-controller.md](gpio-controller.md) | Spec (Proposal B): claimed-pin GPIO table + `used by` reveal |
 | [networking.md](networking.md) | Why the page *is* the LAN, and exactly what does and does not leave the tab |
+| [bluetooth.md](bluetooth.md) | Zephyr host + in-page Bumble controller over `hci0` / H:4 |
 | [virtio-bridge.md](virtio-bridge.md) | The generic virtio bridge, which lets a device model be TypeScript instead of QEMU C |
 | [next-drivers.md](next-drivers.md) | The bridge shapes already proven here, and what to add next |
 | [performance.md](performance.md) | Where the time goes — emulator build flags, bridge round-trip latency, and the experiment that settles each |

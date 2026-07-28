@@ -234,6 +234,9 @@ write_features() {
   if grep -q "qemu_browser_gdb_feed" "$dest/$binary.js" 2>/dev/null; then
     feats+=("\"gdb\"")
   fi
+  if grep -q "qemu_browser_hci_feed" "$dest/$binary.js" 2>/dev/null; then
+    feats+=("\"hci\"")
+  fi
 
   local joined
   joined=$(IFS=,; echo "${feats[*]}")

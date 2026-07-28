@@ -7,6 +7,7 @@ import { deriveDeviceInventory, type Availability } from '@/deviceTopology'
 
 const ALL: Availability = {
   gnss: true,
+  bluetooth: true,
   gpio: true,
   audio: true,
   mic: true,

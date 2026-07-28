@@ -64,6 +64,7 @@ export type DeviceClass =
   | 'buzzer'
   | 'stepper'
   | 'gnss'
+  | 'bluetooth'
   | 'audio'
   | 'net'
   | 'other'
@@ -88,6 +89,7 @@ export type BodyKind =
   | 'spi'
   | 'uart'
   | 'can'
+  | 'bluetooth'
   | 'spi-flash'
   | 'gpio'
   | 'gpio-keys'
@@ -102,6 +104,7 @@ export type BodyKind =
 /** Which runtime bridges are actually live right now. */
 export interface Availability {
   gnss: boolean
+  bluetooth: boolean
   gpio: boolean
   audio: boolean
   mic: boolean
@@ -192,6 +195,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   buzzer: 'Buzzer',
   stepper: 'Stepper',
   gnss: 'GNSS',
+  bluetooth: 'Bluetooth',
   audio: 'Audio',
   net: 'Network',
   other: 'Other devices',
@@ -216,6 +220,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'buzzer',
   'stepper',
   'gnss',
+  'bluetooth',
   'audio',
   'net',
   'other',
@@ -936,6 +941,11 @@ function deriveFromTree(
     const busNode = byPath(doc, bus.path)
     const busKey = uniqueKey(ids, bus.controllerLabel)
     const liveGnss = bus.role === 'gnss' && avail.gnss && bus.slots.some((s) => s.chipId === 'gnss')
+    const liveBt =
+      bus.role === 'bluetooth' &&
+      avail.bluetooth &&
+      bus.slots.some((s) => s.chipId === 'bluetooth')
+    const liveUart = liveGnss || liveBt
     push({
       key: busKey,
       nodeName: busNode?.name ?? bus.controllerLabel,
@@ -943,7 +953,7 @@ function deriveFromTree(
       compatible: bus.compatible || undefined,
       deviceClass: 'uart-bus',
       path: bus.path,
-      presence: liveGnss ? 'interactive' : 'inert',
+      presence: liveUart ? 'interactive' : 'inert',
       note: bus.role === 'console' ? '→ terminal' : undefined,
       body: liveGnss ? 'uart' : undefined,
       busLabel: bus.controllerLabel,
@@ -964,6 +974,23 @@ function deriveFromTree(
           body: live ? 'gnss' : undefined,
           crumb: bus.controllerLabel,
           panelKind: live ? 'gnss' : undefined,
+        })
+        continue
+      }
+      if (slot.chipId === 'bluetooth') {
+        const live = avail.bluetooth
+        push({
+          key: uniqueKey(ids, 'bluetooth'),
+          nodeName: slot.nodeName,
+          label: 'Bluetooth HCI',
+          compatible: slot.compatible || undefined,
+          deviceClass: 'bluetooth',
+          path: `${bus.path}/${slot.nodeName}`,
+          parentKey: busKey,
+          presence: live ? 'interactive' : 'inert',
+          body: live ? 'bluetooth' : undefined,
+          crumb: bus.controllerLabel,
+          panelKind: live ? 'bluetooth' : undefined,
         })
         continue
       }

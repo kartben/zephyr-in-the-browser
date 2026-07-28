@@ -1,0 +1,18 @@
+name: bt-hci-uart
+description: >
+  Browser HCI UART (H:4) for host-only Bluetooth samples. Declares a spare
+  PL011 / 16550 backed by QEMU's browser chardev id=hci0, with a
+  zephyr,bt-hci-uart child and chosen zephyr,bt-hci. Requires a qemu-wasm
+  rebuild that includes the HCI chardev + UART patches
+  (tools/qemu-*-patches/*hci*).
+
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_riscv32.overlay

@@ -15,11 +15,16 @@ export interface ChardevExports {
   HEAPU8?: Uint8Array
 }
 
-export type ChardevSlot = 'monitor' | 'gdb'
+export type ChardevSlot = 'monitor' | 'gdb' | 'hci'
 
 /** Bind the six exports for a named slot from an Emscripten Module. */
 export function bindChardev(mod: Record<string, unknown>, slot: ChardevSlot): ChardevExports {
-  const prefix = slot === 'monitor' ? '_qemu_browser_monitor_' : '_qemu_browser_gdb_'
+  const prefix =
+    slot === 'monitor'
+      ? '_qemu_browser_monitor_'
+      : slot === 'gdb'
+        ? '_qemu_browser_gdb_'
+        : '_qemu_browser_hci_'
   return {
     feed: mod[`${prefix}feed`] as ChardevExports['feed'],
     ring: mod[`${prefix}ring`] as ChardevExports['ring'],

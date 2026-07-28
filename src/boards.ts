@@ -32,6 +32,7 @@ export type PanelKind =
   | 'dac'
   | 'fuel-gauge'
   | 'can'
+  | 'bluetooth'
   | 'trace'
   | 'debug'
 
@@ -52,6 +53,13 @@ export const MONITOR_ARGS = ['-chardev', 'browser,id=mon0', '-mon', 'chardev=mon
  * after boot via qemu_browser_gdb_attach().
  */
 export const GDB_ARGS = ['-chardev', 'browser,id=gdb0', '-gdb', 'chardev:gdb0']
+
+/**
+ * Bluetooth HCI (H:4) on a third browser chardev. The virt machine wires
+ * `id=hci0` to a spare UART when present (A53 0x090f0000 / RISC-V 0x1000c000).
+ * Appended only when features.json lists `"hci"`.
+ */
+export const HCI_ARGS = ['-chardev', 'browser,id=hci0']
 
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
@@ -158,6 +166,12 @@ export interface Board {
      * Needs `-semihosting` on the argv; the Trace stage panel follows it.
      */
     hostTrace?: boolean
+    /**
+     * Bluetooth HCI over the browser `hci0` chardev + in-page Bumble
+     * controller. Needs the emulator `"hci"` feature and a guest with
+     * `zephyr,bt-hci-uart` (snippet `bt-hci-uart`).
+     */
+    hostBt?: boolean
   }
   samples: GuestSample[]
   defaultSampleId: string
@@ -479,6 +493,14 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['can', 'spi'],
   },
   {
+    id: 'bt_peripheral',
+    label: 'BLE peripheral',
+    description:
+      'Advertises a Zephyr BLE peripheral over H:4; Bumble is the in-page controller',
+    zephyrSample: 'samples/bluetooth/peripheral',
+    primaryPanels: ['bluetooth'],
+  },
+  {
     id: 'tmc50xx',
     label: 'TMC50xx stepper',
     description:
@@ -794,6 +816,7 @@ export const BOARDS: Board[] = [
       virtio: true,
       // Semihosting CTF follow — pairs with -semihosting above.
       hostTrace: true,
+      hostBt: true,
     },
     samples: CORTEX_A53_SAMPLES,
     // Interactive shell is the landing sample: it surfaces the I²C/SPI/audio
@@ -865,6 +888,7 @@ export const BOARDS: Board[] = [
       hostNet: true,
       virtio: true,
       // No -icount / guest-icount export on the TCI riscv32 build yet.
+      hostBt: true,
     },
     // Same guest apps as A53 base (no `_trace` twins — ARM semihosting CTF path,
     // and this board has no hostTrace peripheral to feed it). Drop dedicated

@@ -1,0 +1,29 @@
+/*
+ * Browser HCI UART on Cortex-A53 virt: PL011 at 0x090f0000 (GIC SPI 9),
+ * matching tools/qemu-jit-patches/0019-hw-char-add-browser-hci-uart-on-virt.patch.
+ */
+
+#include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
+
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_uart;
+	};
+
+	soc {
+		uart2: uart@90f0000 {
+			compatible = "arm,pl011";
+			reg = <0x0 0x090f0000 0x0 0x1000>;
+			interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+			interrupt-names = "irq_0";
+			clocks = <&uartclk>;
+			current-speed = <1000000>;
+			status = "okay";
+
+			bt_hci_uart: bt_hci_uart {
+				compatible = "zephyr,bt-hci-uart";
+				status = "okay";
+			};
+		};
+	};
+};

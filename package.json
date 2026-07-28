@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "docs:fetch": "node tools/fetch-docs.mjs"
+    "docs:fetch": "node tools/fetch-docs.mjs",
+    "vendor:bumble": "tools/vendor-bumble.sh"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",

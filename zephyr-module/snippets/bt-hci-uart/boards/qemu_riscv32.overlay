@@ -1,0 +1,28 @@
+/*
+ * Browser HCI UART on RISC-V virt: 16550 at 0x1000c000 (PLIC IRQ 13),
+ * matching tools/qemu-riscv-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch.
+ */
+
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_uart;
+	};
+
+	soc {
+		uart2: uart@1000c000 {
+			compatible = "ns16550";
+			reg = <0x1000c000 0x1000>;
+			interrupts = <13>;
+			interrupt-parent = <&plic>;
+			clock-frequency = <3686400>;
+			current-speed = <1000000>;
+			reg-shift = <0>;
+			status = "okay";
+
+			bt_hci_uart: bt_hci_uart {
+				compatible = "zephyr,bt-hci-uart";
+				status = "okay";
+			};
+		};
+	};
+};

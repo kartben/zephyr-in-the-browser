@@ -249,14 +249,19 @@ directories under `tools/`:
   injection happens from a `QEMU_CLOCK_VIRTUAL` timer on QEMU's own thread,
   the same pattern the GNSS bridge established, and both directions respect
   NIC flow control (`qemu_can_send_packet` / queued-packet flushing).
-* A `browser` **chardev** (`chardev/char-browser.c`) with two named slots the
-  page can reach: `id=mon0` for QMP (Pause / `info registers`) and `id=gdb0`
-  for the gdbstub (`-gdb chardev:gdb0`). gdb0 stays closed until
-  `qemu_browser_gdb_attach()` so boot is not frozen waiting for a client.
-  See `docs/debug-gdb-plan.md`.
+* A `browser` **chardev** (`chardev/char-browser.c`) with named slots the
+  page can reach: `id=mon0` for QMP (Pause / `info registers`), `id=gdb0`
+  for the gdbstub (`-gdb chardev:gdb0`), and `id=hci0` for Bluetooth H:4
+  (wired to a spare UART by the HCI virt patches — see `docs/bluetooth.md`).
+  gdb0 stays closed until `qemu_browser_gdb_attach()` so boot is not frozen
+  waiting for a client. See `docs/debug-gdb-plan.md`.
 * A `qemu_browser_guest_icount` export (AArch64 only) returning the guest
   instruction count, or `-1` when the build is not running under `-icount`. It
   backs the Performance panel's MIPS readout (`src/guestStats.ts`).
+
+`features.json` lists which of those optional bridges the build actually
+exports (`monitor`, `gdb`, `hci`) so the page never passes an unknown
+`-chardev` backend to an older tarball.
 
 The dependency image — glib, pixman, zlib and libffi cross-compiled to Wasm — is
 built from `tools/Dockerfile.deps`, vendored from ktock's so this repository does

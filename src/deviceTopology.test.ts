@@ -16,6 +16,7 @@ const treeOf = (text: string, name = 'test.dts') => {
 
 const ALL: Availability = {
   gnss: true,
+  bluetooth: true,
   gpio: true,
   audio: true,
   mic: true,
@@ -248,6 +249,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
       [],
       {
         gnss: false,
+        bluetooth: false,
         gpio: false,
         audio: false,
         mic: false,
@@ -534,6 +536,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
   it('lists the full A53 fallback as inert before any bridge is up', () => {
     const none: Availability = {
       gnss: false,
+      bluetooth: false,
       gpio: false,
       audio: false,
       mic: false,

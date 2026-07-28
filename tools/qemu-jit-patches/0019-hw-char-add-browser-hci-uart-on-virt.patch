@@ -1,0 +1,32 @@
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -2390,6 +2390,32 @@ static void machvirt_init(MachineState *machine)
+      */
+     qemu_browser_input_init();
+ 
++    /*
++     * Bluetooth HCI UART (H:4). When the page passes
++     * `-chardev browser,id=hci0`, wire a spare PL011 at 0x090f0000 / SPI 9
++     * so Zephyr's zephyr,bt-hci-uart can sit beside the GNSS UART without
++     * stealing serial_hd(1). Address is the next hole after host-mic
++     * (0x090e0000); Zephyr's bt-hci-uart snippet declares the matching node.
++     */
++    {
++        Chardev *hci = qemu_chr_find("hci0");
++
++        if (hci) {
++            DeviceState *dev = qdev_new(TYPE_PL011);
++            SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
++
++            qdev_prop_set_chr(dev, "chardev", hci);
++            sysbus_realize_and_unref(sbd, &error_fatal);
++            memory_region_add_subregion(sysmem, 0x090f0000,
++                                        sysbus_mmio_get_region(sbd, 0));
++            sysbus_connect_irq(sbd, 0, qdev_get_gpio_in(vms->gic, 9));
++        }
++    }
++
+     /*
+      * Host-backed sensor bridge. Not part of the real virt platform; 0x090c0000
+      * sits in the hole between the secure GPIO (0x090b0000) and the virtio

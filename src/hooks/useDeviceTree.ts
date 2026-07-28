@@ -12,6 +12,7 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import * as hostAudio from '@/hostAudio'
 import * as hostDisplay from '@/hostDisplay'
 import * as hostGnss from '@/hostGnss'
+import * as hostBt from '@/hostBt'
 import * as hostGpio from '@/hostGpio'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
@@ -48,6 +49,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     () => false,
   )
   const gnss = useSyncExternalStore(hostGnss.subscribe, hostGnss.available, () => false)
+  const bluetooth = useSyncExternalStore(hostBt.subscribe, hostBt.available, () => false)
   const gpio = useSyncExternalStore(hostGpio.subscribe, hostGpio.available, () => false)
   const audio = useSyncExternalStore(
     hostAudio.subscribe,
@@ -80,9 +82,9 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   }, [chips])
 
   const inventory = useMemo(() => {
-    const avail: Availability = { gnss, gpio, audio, mic, net, i2c, spi, display, input }
+    const avail: Availability = { gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input }
     return deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
-  }, [tree, chips, spiChips, gnss, gpio, audio, mic, net, i2c, spi, display, input, boardId])
+  }, [tree, chips, spiChips, gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input, boardId])
 
   // Hand the inventory to dockReveal so a caller outside React — an annotation
   // naming a panel, say — can turn a PanelKind into the row that represents it.

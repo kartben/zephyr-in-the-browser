@@ -28,6 +28,7 @@ import {
   RotateCw,
   Volume2,
   Waves,
+  Bluetooth,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
@@ -36,6 +37,7 @@ import { BuzzerBody } from '@/components/BuzzerPanel'
 import { SevenSegBody } from '@/components/SevenSegPanel'
 import { StepperBody, Tmc50xxStepperBody } from '@/components/StepperPanel'
 import { GnssBody } from '@/components/GnssPanel'
+import { BluetoothBody } from '@/components/BluetoothPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
 import { SpiBody } from '@/components/SpiPanel'
@@ -60,6 +62,7 @@ import * as hostAudio from '@/hostAudio'
 import * as hostBuzzer from '@/hostBuzzer'
 import * as hostStepper from '@/hostStepper'
 import * as hostGnss from '@/hostGnss'
+import * as hostBt from '@/hostBt'
 import * as hostGpio from '@/hostGpio'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
@@ -192,6 +195,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <Tmc50xxStepperBody chip={node.chip as Tmc50xxChip} />
     case 'gnss':
       return <GnssBody />
+    case 'bluetooth':
+      return <BluetoothBody />
     case 'speaker':
       return <SpeakerBody />
     case 'mic':
@@ -255,6 +260,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return RotateCw
     case 'gnss':
       return MapPin
+    case 'bluetooth':
+      return Bluetooth
     case 'speaker':
       return Volume2
     case 'mic':
@@ -295,6 +302,12 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return MemoryStick
     case 'rtc':
       return Clock
+    case 'bluetooth':
+      return Bluetooth
+    case 'gnss':
+      return MapPin
+    case 'can-bus':
+      return Network
     default:
       return node.key === 'input' ? Pointer : Cable
   }
@@ -383,6 +396,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <FlashBadge chip={node.chip as import('@/virtio/devices/flash/model').SpiFlashChip} />
     case 'gnss':
       return <GnssBadge />
+    case 'bluetooth':
+      return <BluetoothBadge />
     case 'net':
       return <NetBadge />
     case 'gpio':
@@ -515,6 +530,9 @@ export function GroupBadge({
     if (bus) return <UartBusBadge busKey={bus.key} />
   }
   if (deviceClass === 'gnss' && nodes.some((n) => n.body === 'gnss')) return <GnssBadge />
+  if (deviceClass === 'bluetooth' && nodes.some((n) => n.body === 'bluetooth')) {
+    return <BluetoothBadge />
+  }
   return null
 }
 
@@ -636,6 +654,11 @@ function GnssBadge() {
       {fix.latitude.toFixed(4)}, {fix.longitude.toFixed(4)}
     </Mono>
   )
+}
+
+function BluetoothBadge() {
+  const snap = useSyncExternalStore(hostBt.subscribe, hostBt.getSnapshot, hostBt.getSnapshot)
+  return <Mono>{snap.phase}</Mono>
 }
 
 function NetBadge() {

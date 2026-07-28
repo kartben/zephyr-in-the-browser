@@ -8,6 +8,7 @@ import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
 import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
+import { attach as attachHostBt, detach as detachHostBt } from '@/hostBt'
 import {
   bind as bindHostGdb,
   attachSession as attachHostGdbSession,
@@ -17,7 +18,7 @@ import {
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
 import { loadSampleDts } from '@/devicetree'
-import { GDB_ARGS, MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
+import { GDB_ARGS, HCI_ARGS, MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -267,6 +268,7 @@ export function createQemuBackend(): PtyBackend {
       let args = [...board.args]
       if (features.has('monitor')) args = [...args, ...MONITOR_ARGS]
       if (features.has('gdb')) args = [...args, ...GDB_ARGS]
+      if (features.has('hci') && board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
 
       const mod: QemuModule = {
         arguments: args,
@@ -363,6 +365,8 @@ export function createQemuBackend(): PtyBackend {
       else detachHostInput()
       if (board.peripherals?.hostTrace) attachHostTrace(instance)
       else detachHostTrace()
+      if (features.has('hci') && board.peripherals?.hostBt) attachHostBt(instance)
+      else detachHostBt()
       // Not gated on board metadata: the monitor is a property of the emulator
       // build, not of the machine it is emulating. attach() no-ops when the
       // exports are missing.
@@ -387,6 +391,7 @@ export function createQemuBackend(): PtyBackend {
       detachHostNet()
       detachHostInput()
       detachHostTrace()
+      detachHostBt()
       detachHostGdb()
       detachHostMonitor()
       // Nothing global was touched, so there is nothing to tear down.
