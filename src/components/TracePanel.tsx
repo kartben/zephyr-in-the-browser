@@ -289,8 +289,9 @@ function paintVArrow(
   dir: 'up' | 'down',
   color: string,
   scale = 1,
+  kind: 'idle' | 'hot' | 'selected' = 'idle',
 ) {
-  const s = 5 * scale
+  const s = (kind === 'idle' ? 4.25 : 5) * scale
   const path = () => {
     ctx.beginPath()
     if (dir === 'down') {
@@ -304,9 +305,14 @@ function paintVArrow(
     }
     ctx.closePath()
   }
-  // Tiny white halo so thin arrows stay readable on busy state bars.
+  // Quiet hairline halo by default; stronger only when focused.
   path()
-  ctx.fillStyle = 'rgba(248, 250, 252, 0.55)'
+  ctx.fillStyle =
+    kind === 'selected'
+      ? 'rgba(248, 250, 252, 0.65)'
+      : kind === 'hot'
+        ? 'rgba(248, 250, 252, 0.5)'
+        : 'rgba(248, 250, 252, 0.28)'
   ctx.fill()
   path()
   ctx.fillStyle = color
@@ -314,8 +320,8 @@ function paintVArrow(
 }
 
 /**
- * Thin dashed msgq connector with a soft white underglow for contrast.
- * Core stays ~1px; glow carries visibility instead of fat strokes.
+ * Hairline dashed msgq connector with a soft white underglow.
+ * Idle stays thin; hot/selected pick up a bit more glow, not fat cores.
  */
 function strokeMsgqConnector(
   ctx: CanvasRenderingContext2D,
@@ -325,10 +331,10 @@ function strokeMsgqConnector(
   color: string,
   kind: 'idle' | 'hot' | 'selected',
 ) {
-  const dash = kind === 'idle' ? ([2.5, 2] as const) : ([3, 1.5] as const)
-  const core = kind === 'selected' ? 1.6 : kind === 'hot' ? 1.35 : 1.1
-  const glow = kind === 'selected' ? 3.25 : kind === 'hot' ? 2.75 : 2.35
-  const glowA = kind === 'selected' ? 0.55 : kind === 'hot' ? 0.42 : 0.32
+  const dash = kind === 'idle' ? ([2, 2.5] as const) : ([3, 1.5] as const)
+  const core = kind === 'selected' ? 1.35 : kind === 'hot' ? 1.15 : 0.85
+  const glow = kind === 'selected' ? 2.75 : kind === 'hot' ? 2.25 : 1.55
+  const glowA = kind === 'selected' ? 0.5 : kind === 'hot' ? 0.38 : 0.22
 
   ctx.setLineDash([...dash])
   ctx.strokeStyle = `rgba(248, 250, 252, ${glowA})`
@@ -356,15 +362,15 @@ function paintMsgqMark(
   color: string,
   kind: 'idle' | 'hot' | 'selected',
 ) {
-  const halo = kind === 'idle' ? r + 1.1 : r + 1.4
+  const halo = kind === 'idle' ? r + 0.7 : r + 1.2
   ctx.beginPath()
   ctx.arc(x, y, halo, 0, Math.PI * 2)
   ctx.fillStyle =
     kind === 'selected'
-      ? 'rgba(248, 250, 252, 0.7)'
+      ? 'rgba(248, 250, 252, 0.65)'
       : kind === 'hot'
-        ? 'rgba(248, 250, 252, 0.55)'
-        : 'rgba(248, 250, 252, 0.4)'
+        ? 'rgba(248, 250, 252, 0.5)'
+        : 'rgba(248, 250, 252, 0.28)'
   ctx.fill()
   ctx.beginPath()
   ctx.arc(x, y, r, 0, Math.PI * 2)
@@ -584,8 +590,8 @@ function paint(
   if (showMsgq && msgqEvents.length > 0) {
     const threadRowOf = new Map(lanes.map((tid, row) => [tid, row]))
     const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
-    const MARK_R = 2.5
-    const ARROW_H = 5
+    const MARK_R = 2
+    const ARROW_H = 4.5
 
     if (showQueues) {
       ctx.fillStyle = 'rgba(8, 47, 73, 0.35)'
@@ -678,7 +684,7 @@ function paint(
       const markR = MARK_R * scale
       const arrowH = ARROW_H * scale
 
-      ctx.globalAlpha = dim ? 0.14 : hot ? 1 : 0.95
+      ctx.globalAlpha = dim ? 0.12 : hot ? 1 : 0.88
 
       if (queueY != null && Math.abs(queueY - threadY) > markR * 2 + arrowH) {
         // put: thread ○ →↓ queue    get: queue ○ →↑ thread
@@ -691,7 +697,7 @@ function paint(
 
         strokeMsgqConnector(ctx, x, edgeStart, edgeBeforeTip, color, kind)
         paintMsgqMark(ctx, x, startY, markR, color, kind)
-        paintVArrow(ctx, x, tipY, dir, color, scale)
+        paintVArrow(ctx, x, tipY, dir, color, scale, kind)
       } else {
         strokeMsgqConnector(
           ctx,
