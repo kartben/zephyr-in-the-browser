@@ -66,9 +66,9 @@ describe('TraceReader', () => {
       [3000, 5000, b],
       [5000, 7000, a],
     ])
-    // No prio yet — busiest-first tie-break still puts a ahead of b.
+    // No prio yet — stable tid order (a < b), not busy time.
     const order = laneOrder(reader.tr)
-    expect(order[0]).toBe(a) // 3000 ns busy vs 2000
+    expect(order).toEqual([a, b])
     const rows = renderStateRows(reader.tr, order, reader.tr.t0, reader.tr.t1, 10)
     expect(rows.get(a)?.some((c) => c === 'run')).toBe(true)
     expect(rows.get(b)?.some((c) => c === 'run')).toBe(true)
@@ -83,7 +83,7 @@ describe('TraceReader', () => {
       ...record(100, 0x13, [...encU32(preempt), ...encName('preempt')]),
       ...record(110, 0x13, [...encU32(coop), ...encName('coop')]),
       ...record(120, 0x13, [...encU32(unknown), ...encName('unknown')]),
-      // thread_priority_set: prio 7 then -2 — busy times favour preempt.
+      // thread_priority_set: prio 7 then -2 (busy spans must not affect order).
       ...record(200, 0x12, [...encU32(preempt), ...encName('preempt'), ...encI8(7)]),
       ...record(210, 0x12, [...encU32(coop), ...encName('coop'), ...encI8(-2)]),
       ...record(1000, 0x11, [...encU32(preempt), ...encName('preempt')]),
@@ -96,6 +96,25 @@ describe('TraceReader', () => {
     expect(threadPrio(reader.tr, preempt)).toBe(7)
     expect(threadPrio(reader.tr, unknown)).toBeNull()
     expect(laneOrder(reader.tr)).toEqual([coop, preempt, unknown])
+  })
+
+  it('keeps equal-prio lane order stable regardless of busy time', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const lowBusy = 0x1000
+    const highBusy = 0x2000
+    const bytes = [
+      ...record(100, 0x13, [...encU32(highBusy), ...encName('busy')]),
+      ...record(110, 0x13, [...encU32(lowBusy), ...encName('quiet')]),
+      ...record(200, 0x12, [...encU32(highBusy), ...encName('busy'), ...encI8(5)]),
+      ...record(210, 0x12, [...encU32(lowBusy), ...encName('quiet'), ...encI8(5)]),
+      // highBusy runs much longer — must not leapfrog lowBusy.
+      ...record(1000, 0x11, [...encU32(highBusy), ...encName('busy')]),
+      ...record(9000, 0x10, [...encU32(highBusy), ...encName('busy')]),
+      ...record(9000, 0x11, [...encU32(lowBusy), ...encName('quiet')]),
+      ...record(9100, 0x10, [...encU32(lowBusy), ...encName('quiet')]),
+    ]
+    reader.feed(Uint8Array.from(bytes))
+    expect(laneOrder(reader.tr)).toEqual([lowBusy, highBusy])
   })
 
   it('holds a partial trailing record until the rest arrives', () => {

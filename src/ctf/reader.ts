@@ -310,14 +310,10 @@ export class TraceReader {
 
 /**
  * Thread ids for Gantt lanes: Zephyr priority ascending (lower = higher
- * priority; negative = cooperative), unknown prio last. Ties break by CPU
- * busy time (busiest first), then thread id.
+ * priority; negative = cooperative), unknown prio last. Ties break by
+ * thread id only — never by busy time, so live follow does not reshuffle.
  */
 export function laneOrder(tr: Trace): number[] {
-  const busy = new Map<number, number>()
-  for (const [s, e, tid] of tr.segments) {
-    busy.set(tid, (busy.get(tid) ?? 0) + Math.max(0, e - s))
-  }
   return [...tr.threads.keys()].sort((a, b) => {
     const pa = tr.threads.get(a)?.prio
     const pb = tr.threads.get(b)?.prio
@@ -325,9 +321,6 @@ export function laneOrder(tr: Trace): number[] {
     const bKnown = pb != null
     if (aKnown && bKnown && pa !== pb) return pa - pb
     if (aKnown !== bKnown) return aKnown ? -1 : 1
-    const ba = busy.get(a) ?? 0
-    const bb = busy.get(b) ?? 0
-    if (ba !== bb) return bb - ba
     return a - b
   })
 }
