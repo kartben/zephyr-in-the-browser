@@ -72,6 +72,11 @@ export interface GuestSample {
    * speak over the terminal.
    */
   primaryPanels?: PanelKind[]
+  /**
+   * Default URL for the Network panel's "Talk to the guest" GET tool.
+   * dumb_http_server listens on :8080; the full http_server sample on :80.
+   */
+  guestHttpUrl?: string
 }
 
 export interface Board {
@@ -189,6 +194,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     description: 'Serves a page at 192.0.2.1:8080 — fetch it from the Network panel',
     zephyrSample: 'samples/net/sockets/dumb_http_server',
     primaryPanels: ['net'],
+    guestHttpUrl: 'http://192.0.2.1:8080/',
   },
   {
     // Run-to-completion: one DNS lookup, one GET, prints, exits.
@@ -588,6 +594,7 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
       'Full HTTP server at http://192.0.2.1/ — Network panel + CTF Trace (sockets / fifo / queue)',
     zephyrSample: 'samples/net/sockets/http_server',
     primaryPanels: ['net', 'trace'],
+    guestHttpUrl: 'http://192.0.2.1/',
   },
   {
     id: 'echo_server',
