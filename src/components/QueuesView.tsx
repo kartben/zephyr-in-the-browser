@@ -1,5 +1,6 @@
 /**
- * Message-queue depth history chart — depth replayed from put/get/purge exits.
+ * Queue depth history chart — depth replayed from put/get/purge exits
+ * (msgq / fifo / lifo / k_queue).
  *
  * Full d3 SVG chart (scales, area/line series, axes). Shares the Trace panel's
  * time window (follow / pan / zoom). Transition dots mark depth changes; hover
@@ -87,10 +88,16 @@ type RowLayout = {
   marks: TransitionMark[]
 }
 
-function msgqNameMap(): Map<number, string> {
+const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue'])
+
+function ipcNameMap(): Map<number, string> {
   const map = new Map<number, string>()
   for (const o of getWaitObjects()) {
-    if (o.kind === 'msgq' || o.name.toLowerCase().includes('msgq') || o.name.startsWith('q_')) {
+    if (
+      (o.kind && IPC_KINDS.has(o.kind)) ||
+      /msgq|fifo|lifo/.test(o.name.toLowerCase()) ||
+      o.name.startsWith('q_')
+    ) {
       map.set(o.addr, o.name)
     }
   }
@@ -240,7 +247,7 @@ function renderChart(
         .attr('font-size', '11px')
         .attr('font-family', 'ui-sans-serif, system-ui, sans-serif')
     }
-    empty.attr('x', LABEL_W).attr('y', TOP_H + 28).text('No msgq put/get exits in this trace yet.')
+    empty.attr('x', LABEL_W).attr('y', TOP_H + 28).text('No queue put/get exits in this trace yet.')
   } else if (!empty.empty()) {
     empty.remove()
   }
@@ -286,6 +293,7 @@ function renderChart(
       const g = enter.append('g').attr('class', 'row')
       g.append('rect').attr('class', 'row-bg')
       g.append('text').attr('class', 'row-name')
+      g.append('text').attr('class', 'row-kind')
       g.append('text').attr('class', 'row-drops')
       g.append('g').attr('class', 'y-axis')
       g.append('line').attr('class', 'cap-line')
@@ -328,9 +336,17 @@ function renderChart(
       .attr('font-size', '11px')
       .text(trimmed)
 
+    g.select<SVGTextElement>('text.row-kind')
+      .attr('x', 4)
+      .attr('y', d.y0 + 26)
+      .attr('fill', 'rgba(148, 163, 184, 0.85)')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+      .attr('font-size', '9px')
+      .text(d.queue.kind)
+
     g.select<SVGTextElement>('text.row-drops')
       .attr('x', 4)
-      .attr('y', d.y0 + 28)
+      .attr('y', d.y0 + 38)
       .attr('fill', 'rgba(148, 163, 184, 0.85)')
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '9px')
@@ -489,7 +505,7 @@ function tipLines(tr: Trace, tip: HoverTip): string[] {
 }
 
 /**
- * Interactive msgq depth-over-time chart drawn entirely with d3 (scales, step
+ * Interactive queue depth-over-time chart drawn entirely with d3 (scales, step
  * area/line, axes). Trace pan/zoom handlers attach to the SVG surface.
  */
 export function QueuesView({
@@ -516,7 +532,7 @@ export function QueuesView({
   const layoutsRef = useRef<RowLayout[]>([])
 
   const queues = useMemo(
-    () => sortQueuesByPipelineOrder(tr, reconstructQueues(tr, msgqNameMap())),
+    () => sortQueuesByPipelineOrder(tr, reconstructQueues(tr, ipcNameMap())),
     // eventCount bumps when CTF grows; wait-object names are read live inside.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, eventCount],

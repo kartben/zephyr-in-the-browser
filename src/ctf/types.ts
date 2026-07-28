@@ -43,6 +43,22 @@ export const MSGQ_GET_EXIT = 0x8f
 export const MSGQ_PURGE = 0x91
 export const MSGQ_PUT_FRONT_EXIT = 0x93
 
+/** Queue / FIFO / LIFO exit ids used by fallback decode (prefer name matching). */
+export const QUEUE_APPEND_EXIT = 0x10c
+export const QUEUE_ALLOC_APPEND_EXIT = 0x10e
+export const QUEUE_PREPEND_EXIT = 0x110
+export const QUEUE_ALLOC_PREPEND_EXIT = 0x112
+export const QUEUE_INSERT_EXIT = 0x115
+export const QUEUE_GET_EXIT = 0x11c
+export const QUEUE_REMOVE_EXIT = 0x11e
+export const QUEUE_UNIQUE_APPEND_EXIT = 0x120
+export const FIFO_PUT_EXIT = 0x128
+export const FIFO_ALLOC_PUT_EXIT = 0x12a
+export const FIFO_GET_EXIT = 0x130
+export const LIFO_PUT_EXIT = 0x138
+export const LIFO_ALLOC_PUT_EXIT = 0x13a
+export const LIFO_GET_EXIT = 0x13c
+
 export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[] }> = {
   0x10: { name: 'thread_switched_out', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
   0x11: { name: 'thread_switched_in', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
@@ -101,6 +117,91 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['id', 'uint32_t'],
       ['timeout', 'uint32_t'],
       ['ret', 'int32_t'],
+    ],
+  },
+  0x10c: { name: 'queue_append_exit', fields: [['id', 'uint32_t']] },
+  0x10e: {
+    name: 'queue_alloc_append_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x110: { name: 'queue_prepend_exit', fields: [['id', 'uint32_t']] },
+  0x112: {
+    name: 'queue_alloc_prepend_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x115: { name: 'queue_insert_exit', fields: [['id', 'uint32_t']] },
+  0x11c: {
+    name: 'queue_get_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+      ['ret', 'uint32_t'],
+    ],
+  },
+  0x11e: {
+    name: 'queue_remove_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'uint8_t'],
+    ],
+  },
+  0x120: {
+    name: 'queue_unique_append_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'uint8_t'],
+    ],
+  },
+  0x128: {
+    name: 'fifo_put_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['data', 'uint32_t'],
+    ],
+  },
+  0x12a: {
+    name: 'fifo_alloc_put_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['data', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x130: {
+    name: 'fifo_get_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+      ['ret', 'uint32_t'],
+    ],
+  },
+  0x138: {
+    name: 'lifo_put_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['data', 'uint32_t'],
+    ],
+  },
+  0x13a: {
+    name: 'lifo_alloc_put_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['data', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x13c: {
+    name: 'lifo_get_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+      ['ret', 'uint32_t'],
     ],
   },
 }

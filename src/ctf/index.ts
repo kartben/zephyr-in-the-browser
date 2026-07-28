@@ -45,6 +45,14 @@ export {
   MSGQ_PUT_FRONT_EXIT,
 } from './types'
 export {
+  classifyQueueEvent,
+  classifyQueueKinds,
+  isNestedQueueEvent,
+  queueKindLabel,
+  type QueueKind,
+  type ClassifiedQueueEvent,
+} from './queueKinds'
+export {
   reconstructQueues,
   depthAt,
   queueAxisMax,

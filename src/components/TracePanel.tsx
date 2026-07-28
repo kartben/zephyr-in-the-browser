@@ -1,12 +1,12 @@
 /**
- * Live Zephyr CTF Trace panel — Timeline Gantt + Message Queues + Networking.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Networking.
  *
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
- * with a shared live-follow time window (pan / zoom / pinch). Optional msgq
- * swim lanes line data-passing objects under the threads, with dotted
- * put/get connectors from the actor thread to each queue rail. Lane groups
- * (THREADS, MESSAGE QUEUES, …) carry small uppercase section headers.
- * Message Queues: per-msgq flow graph + depth from put/put_front/get exits.
+ * with a shared live-follow time window (pan / zoom / pinch). Optional queue
+ * swim lanes line data-passing objects (msgq / fifo / lifo / k_queue) under the
+ * threads, with dotted put/get connectors from the actor thread to each queue
+ * rail. Lane groups (THREADS, QUEUES, …) carry small uppercase section headers.
+ * Queues: per-object flow graph + depth from put/put_front/get exits.
  */
 
 import {
@@ -102,7 +102,7 @@ const SECTION_GAP = 4
 
 type LaneSize = 's' | 'm' | 'l'
 
-/** Known Timeline lane groups — extend as FIFO / LIFO / pipes land. */
+/** Known Timeline lane groups (threads + data-passing queues). */
 type TimelineSectionId = 'threads' | 'msgq'
 
 type TimelineSection = {
@@ -123,7 +123,7 @@ const LANE_SIZES: Record<LaneSize, { thread: number; label: string }> = {
   l: { thread: 40, label: 'Tall' },
 }
 
-/** Msgq swim lanes stay ~1.5× thread height at every size. */
+/** Queue swim lanes stay ~1.5× thread height at every size. */
 function laneMetricsFor(size: LaneSize): LaneMetrics {
   const laneH = LANE_SIZES[size].thread
   return { laneH, msgqLaneH: Math.round(laneH * 1.5) }
@@ -131,7 +131,7 @@ function laneMetricsFor(size: LaneSize): LaneMetrics {
 
 type TraceTab = 'schedule' | 'queues' | 'net'
 
-type MsgqSwimLane = { id: number; label: string; series: QueueSeries }
+type MsgqSwimLane = { id: number; label: string; kind: string; series: QueueSeries }
 
 type LaneMetrics = { laneH: number; msgqLaneH: number }
 
@@ -168,10 +168,16 @@ function fitLabel(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
   return lo > 0 ? `${text.slice(0, lo)}…` : '…'
 }
 
-function msgqNameMap(): Map<number, string> {
+const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue'])
+
+function ipcNameMap(): Map<number, string> {
   const map = new Map<number, string>()
   for (const o of hostGdb.getWaitObjects()) {
-    if (o.kind === 'msgq' || o.name.toLowerCase().includes('msgq') || o.name.startsWith('q_')) {
+    if (
+      (o.kind && IPC_KINDS.has(o.kind)) ||
+      /msgq|fifo|lifo/.test(o.name.toLowerCase()) ||
+      o.name.startsWith('q_')
+    ) {
       map.set(o.addr, o.name)
     }
   }
@@ -181,14 +187,14 @@ function msgqNameMap(): Map<number, string> {
   return map
 }
 
-/** Stable msgq swim lanes for Timeline overlay — pipeline order, named when known. */
+/** Stable queue swim lanes for Timeline overlay — pipeline order, named when known. */
 function msgqSwimLanes(tr: Trace, flow: QueueFlowEvent[]): MsgqSwimLane[] {
   const seen = new Set(flow.map((ev) => ev.queueId))
   if (seen.size === 0) return []
   return sortQueuesByPipelineOrder(
     tr,
-    reconstructQueues(tr, msgqNameMap()).filter((q) => seen.has(q.id)),
-  ).map((q) => ({ id: q.id, label: queueLabel(q), series: q }))
+    reconstructQueues(tr, ipcNameMap()).filter((q) => seen.has(q.id)),
+  ).map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
 }
 
 function timelineGeom(
@@ -229,7 +235,7 @@ function timelineGeom(
     contentBottom = queuesBottom
     sections.push({
       id: 'msgq',
-      title: 'MESSAGE QUEUES',
+      title: 'QUEUES',
       headerTop: queueHeaderTop,
       lanesTop: queueTop,
       laneH: metrics.msgqLaneH,
@@ -636,14 +642,24 @@ function paint(
         }
 
         ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 1)' : 'rgba(125, 211, 252, 0.9)'
-        ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
         ctx.textBaseline = 'middle'
         const depthStr = depthLabel(q.series, depthProbeTs)
         ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
         const depthW = ctx.measureText(depthStr).width
-        ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
         const nameMaxW = LABEL_W - 4 - depthW - 10
-        ctx.fillText(fitLabel(ctx, q.label, nameMaxW), 4, y + msgqLaneH / 2)
+        const dual = msgqLaneH >= 30
+        if (dual) {
+          ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
+          ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 0.75)' : 'rgba(125, 211, 252, 0.55)'
+          ctx.fillText(fitLabel(ctx, q.kind, nameMaxW), 4, y + msgqLaneH / 2 - 7)
+          ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
+          ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 1)' : 'rgba(125, 211, 252, 0.9)'
+          ctx.fillText(fitLabel(ctx, q.label, nameMaxW), 4, y + msgqLaneH / 2 + 6)
+        } else {
+          const laneLabel = q.kind === 'msgq' ? q.label : `${q.kind} ${q.label}`
+          ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
+          ctx.fillText(fitLabel(ctx, laneLabel, nameMaxW), 4, y + msgqLaneH / 2)
+        }
         ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 0.95)' : 'rgba(125, 211, 252, 0.7)'
         ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
         ctx.fillText(depthStr, LABEL_W - depthW - 6, y + msgqLaneH / 2)
@@ -1453,7 +1469,7 @@ function TracePanelBody({
         {(
           [
             ['schedule', 'Timeline'],
-            ['queues', 'Message Queues'],
+            ['queues', 'Queues'],
             ['net', 'Networking'],
           ] as const
         ).map(([id, label]) => (
@@ -1530,8 +1546,8 @@ function TracePanelBody({
               </button>
               <button
                 type="button"
-                title="Show msgq edges"
-                aria-label="Show msgq edges"
+                title="Show queue edges"
+                aria-label="Show queue edges"
                 aria-pressed={showMsgq}
                 onClick={() => setShowMsgq((v) => !v)}
                 className={cn(
@@ -1651,11 +1667,11 @@ function TracePanelBody({
             Hover for playhead · drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to
             select
             {showMsgq
-              ? ' · click a msgq edge to pin it'
+              ? ' · click a queue edge to pin it'
               : ''}
           </p>
 
-          {/* Colour legend — thread states + optional msgq marks. */}
+          {/* Colour legend — thread states + optional queue marks. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
             <span className="text-foreground/80">states:</span>
             {(Object.keys(STATE_LABEL) as ThreadState[])
@@ -1672,7 +1688,7 @@ function TracePanelBody({
             {showMsgq && (
               <>
                 <span className="text-border">|</span>
-                <span className="text-foreground/80">msgq:</span>
+                <span className="text-foreground/80">queues:</span>
                 {(
                   [
                     ['put', 'put →'],

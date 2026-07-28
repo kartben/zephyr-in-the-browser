@@ -1,18 +1,20 @@
 /**
- * Reconstruct per-msgq depth timelines from CTF put/get exits alone.
+ * Reconstruct per-object depth timelines from CTF put/get exits.
  *
- * Zephyr's msgq CTF events carry object address + ret — not used_msgs or
- * max_msgs. Counting successful puts (+1) and gets (−1) recovers depth when
- * the stream starts empty (or after a purge). Failed puts count as drops;
- * when a put fails the queue is full, so depth at that moment is the capacity.
+ * Covers msgq, fifo, lifo, and bare k_queue. Zephyr events carry object
+ * address + ret — not used count. Counting successful puts (+1) and gets (−1)
+ * recovers depth when the stream starts empty (or after a msgq purge).
+ *
+ * FIFO/LIFO nest k_queue with the same `id`; nested queue_* events are ignored
+ * when an outer fifo/lifo kind is known for that address.
  */
 
 import {
-  MSGQ_GET_EXIT,
-  MSGQ_PURGE,
-  MSGQ_PUT_EXIT,
-  MSGQ_PUT_FRONT_EXIT,
-} from './types'
+  classifyQueueEvent,
+  classifyQueueKinds,
+  isNestedQueueEvent,
+  type QueueKind,
+} from './queueKinds'
 import type { Trace } from './reader'
 
 /** Depth after an event at `ts`. */
@@ -22,19 +24,19 @@ export interface QueueSample {
 }
 
 export interface QueueSeries {
-  /** CTF msgq id = object address. */
+  /** CTF object id = object address. */
   id: number
+  kind: QueueKind
   name: string | null
   samples: QueueSample[]
   drops: number
-  /** Inferred from a failed put while full; null if never observed full. */
+  /** Inferred from a failed msgq put while full; null if never observed full. */
   cap: number | null
   peak: number
 }
 
-const PUT_EXITS = new Set([MSGQ_PUT_EXIT, MSGQ_PUT_FRONT_EXIT])
-
 type Acc = {
+  kind: QueueKind
   depth: number
   drops: number
   cap: number | null
@@ -42,11 +44,13 @@ type Acc = {
   samples: QueueSample[]
 }
 
-function ensure(map: Map<number, Acc>, id: number): Acc {
+function ensure(map: Map<number, Acc>, id: number, kind: QueueKind): Acc {
   let q = map.get(id)
   if (!q) {
-    q = { depth: 0, drops: 0, cap: null, peak: 0, samples: [] }
+    q = { kind, depth: 0, drops: 0, cap: null, peak: 0, samples: [] }
     map.set(id, q)
+  } else if ((kind === 'fifo' || kind === 'lifo') && q.kind === 'queue') {
+    q.kind = kind
   }
   return q
 }
@@ -63,52 +67,49 @@ function pushSample(q: Acc, ts: number) {
 }
 
 /**
- * Build one series per msgq seen in put/get/purge events.
+ * Build one series per data-passing object seen in put/get/purge exits.
  * `nameById` is optional (ELF wait-object names keyed by address).
  */
 export function reconstructQueues(
   tr: Trace,
   nameById?: Map<number, string> | null,
 ): QueueSeries[] {
+  const kinds = classifyQueueKinds(tr.events)
   const map = new Map<number, Acc>()
 
   for (const ev of tr.events) {
-    const eid = ev.eid
-    if (
-      eid !== MSGQ_PUT_EXIT &&
-      eid !== MSGQ_GET_EXIT &&
-      eid !== MSGQ_PURGE &&
-      eid !== MSGQ_PUT_FRONT_EXIT
-    ) {
-      continue
-    }
-    const idRaw = ev.fields.id
-    if (typeof idRaw !== 'number') continue
-    const q = ensure(map, idRaw)
+    const classified = classifyQueueEvent(ev.name, ev.fields)
+    if (!classified) continue
+    if (isNestedQueueEvent(classified, kinds)) continue
 
-    if (PUT_EXITS.has(eid)) {
-      const ret = typeof ev.fields.ret === 'number' ? ev.fields.ret : 0
-      if (ret === 0) {
-        q.depth += 1
-        pushSample(q, ev.ts)
-      } else {
-        q.drops += 1
-        // Failed put ⇒ queue was already full at current depth (when non-empty).
-        if (q.depth > 0) {
-          q.cap = q.cap == null ? q.depth : Math.max(q.cap, q.depth)
-        }
-      }
-    } else if (eid === MSGQ_GET_EXIT) {
-      const ret = typeof ev.fields.ret === 'number' ? ev.fields.ret : 0
-      if (ret === 0) {
-        q.depth = Math.max(0, q.depth - 1)
-        pushSample(q, ev.ts)
-      }
-    } else if (eid === MSGQ_PURGE) {
+    const kind = kinds.get(classified.id) ?? classified.kind
+    const q = ensure(map, classified.id, kind)
+
+    if (classified.depthAction === 'purge') {
       if (q.depth !== 0) {
         q.depth = 0
         pushSample(q, ev.ts)
       }
+      continue
+    }
+
+    if (classified.depthAction === 'put') {
+      if (classified.ok) {
+        q.depth += 1
+        pushSample(q, ev.ts)
+      } else if (classified.kind === 'msgq') {
+        // Failed msgq put ⇒ drops + capacity inference when depth known.
+        q.drops += 1
+        if (q.depth > 0) {
+          q.cap = q.cap == null ? q.depth : Math.max(q.cap, q.depth)
+        }
+      }
+      continue
+    }
+
+    if (classified.depthAction === 'get' && classified.ok) {
+      q.depth = Math.max(0, q.depth - 1)
+      pushSample(q, ev.ts)
     }
   }
 
@@ -122,6 +123,7 @@ export function reconstructQueues(
     if (tr.t1 > last.ts) q.samples.push({ ts: tr.t1, depth: q.depth })
     out.push({
       id,
+      kind: q.kind,
       name: nameById?.get(id) ?? null,
       samples: q.samples,
       drops: q.drops,
