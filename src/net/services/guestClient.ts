@@ -11,14 +11,28 @@ import { NetStack } from '../stack'
 const decoder = new TextDecoder()
 const encoder = new TextEncoder()
 
+/** Default body cap for the panel GET tool (first ~64 KB). */
+export const HTTP_GET_BODY_CAP = 64 * 1024
+/** Larger cap for the mini-browser (sample pages + a few assets). */
+export const HTTP_BROWSER_BODY_CAP = 256 * 1024
+
 export interface HttpGetResult {
   status: number
   statusText: string
-  /** Response body as text (first 64 KB). */
+  /** Lower-cased header names. */
+  headers: Map<string, string>
+  /** Raw response body (capped). */
+  body: Uint8Array
+  /** Response body decoded as UTF-8 text (same bytes as `body`). */
   text: string
 }
 
-export async function httpGetFromHost(stack: NetStack, url: string, timeoutMs = 8000): Promise<HttpGetResult> {
+export async function httpGetFromHost(
+  stack: NetStack,
+  url: string,
+  timeoutMs = 8000,
+  bodyCap = HTTP_GET_BODY_CAP,
+): Promise<HttpGetResult> {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -55,7 +69,7 @@ export async function httpGetFromHost(stack: NetStack, url: string, timeoutMs = 
         },
         onData: (s, data) => {
           chunks.push(data)
-          if (chunks.reduce((n, c) => n + c.length, 0) > 64 * 1024) {
+          if (chunks.reduce((n, c) => n + c.length, 0) > bodyCap) {
             s.close()
             done()
           }
@@ -74,14 +88,37 @@ export async function httpGetFromHost(stack: NetStack, url: string, timeoutMs = 
     )
   })
 
-  const raw = decoder.decode(concatChunks(chunks))
-  const headEnd = raw.indexOf('\r\n\r\n')
-  const statusMatch = /^HTTP\/1\.[01] (\d{3})\s*(.*)/.exec(raw)
-  if (!statusMatch) return { status: 0, statusText: 'malformed response', text: raw }
+  return parseHttpResponse(concatChunks(chunks))
+}
+
+export function parseHttpResponse(raw: Uint8Array): HttpGetResult {
+  const headEnd = indexOfSeq(raw, '\r\n\r\n')
+  const headBytes = headEnd >= 0 ? raw.subarray(0, headEnd) : raw
+  const body = headEnd >= 0 ? raw.subarray(headEnd + 4) : new Uint8Array(0)
+  const head = decoder.decode(headBytes)
+  const statusMatch = /^HTTP\/1\.[01] (\d{3})\s*(.*)/.exec(head)
+  const headers = new Map<string, string>()
+  if (statusMatch) {
+    for (const line of head.split('\r\n').slice(1)) {
+      const colon = line.indexOf(':')
+      if (colon > 0) headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim())
+    }
+  }
+  if (!statusMatch) {
+    return {
+      status: 0,
+      statusText: 'malformed response',
+      headers,
+      body: raw,
+      text: decoder.decode(raw),
+    }
+  }
   return {
     status: Number(statusMatch[1]),
     statusText: statusMatch[2] || '',
-    text: headEnd >= 0 ? raw.slice(headEnd + 4) : '',
+    headers,
+    body,
+    text: decoder.decode(body),
   }
 }
 
@@ -144,4 +181,15 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
     off += c.length
   }
   return out
+}
+
+function indexOfSeq(hay: Uint8Array, needle: string): number {
+  const n = encoder.encode(needle)
+  outer: for (let i = 0; i <= hay.length - n.length; i++) {
+    for (let j = 0; j < n.length; j++) {
+      if (hay[i + j] !== n[j]) continue outer
+    }
+    return i
+  }
+  return -1
 }

@@ -147,6 +147,8 @@ describe('guestClient', () => {
     const res = await httpGetFromHost(lb.stack, 'http://192.0.2.1:8080/')
     expect(res.status).toBe(200)
     expect(res.text).toBe('<h1>It works</h1>')
+    expect(res.headers.get('content-type')).toBe('text/html')
+    expect(res.body.length).toBeGreaterThan(0)
   })
 
   it('echoes against the guest echo server over TCP and UDP', async () => {
