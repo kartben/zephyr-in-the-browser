@@ -25,7 +25,7 @@ export interface BtControllerHandle {
   removePeer: (id: string) => Promise<void>
   listPeers: () => BtPeerInfo[]
   /** Live params for a peer (speaker stream counters, etc.). */
-  peerParams: (id: string) => Record<string, string | number | boolean> | null
+  peerParams?: (id: string) => Record<string, string | number | boolean> | null
   setPeerParam: (id: string, key: string, value: string | number | boolean) => Promise<void>
   close: () => void
 }
@@ -263,7 +263,9 @@ async def _add_le_peer(type_id, peer_id, name, peer_ctl):
 async def _add_speaker(peer_id, name, peer_ctl):
     config = DeviceConfiguration()
     config.name = name
-    config.class_of_device = 0x240414  # Audio / Loudspeaker
+    # AV major + wearable-headset minor (0x240404). The stock Zephyr
+    # a2dp_source sample filters inquiry results on that CoD pair.
+    config.class_of_device = 0x240404
     config.classic_enabled = True
     config.le_enabled = False
     config.address = peer_ctl.public_address
