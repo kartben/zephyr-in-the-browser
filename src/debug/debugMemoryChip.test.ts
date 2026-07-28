@@ -5,6 +5,7 @@ vi.mock('@/debug/control', () => ({
   patchMemoryCache: vi.fn(),
   writeMemory: vi.fn(async () => true),
   readMemory: vi.fn(async () => null),
+  getSnapshot: vi.fn(() => ({ paused: true })),
 }))
 
 import * as debug from '@/debug/control'
