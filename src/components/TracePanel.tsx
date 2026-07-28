@@ -86,8 +86,8 @@ const LABEL_W = 128
 const PAD = 8
 /** Space reserved above the lanes for the time-axis ruler + labels. */
 const AXIS_H = 28
-/** Default live-follow window — matches a comfortable glance at the tracing sample. */
-const DEFAULT_LIVE_WINDOW_NS = 4_000_000_000 // 4 s
+/** Default live-follow window — last 200 ms of the stream. */
+const DEFAULT_LIVE_WINDOW_NS = 200_000_000 // 200 ms
 const MIN_WINDOW_NS = 1_000_000 // 1 ms
 const ZOOM_IN = 0.7
 const ZOOM_OUT = 1.4
