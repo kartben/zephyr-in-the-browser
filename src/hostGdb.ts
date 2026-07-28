@@ -185,8 +185,19 @@ async function refreshRegs() {
   } catch {
     publish({ registersLoading: false })
   }
+  // First stop (or cleared peek): fill a PC-centered window before the thread
+  // walk saturates the RSP pipe, so Mem has bytes as soon as it mounts.
+  if (state.paused && !state.memory && state.pc) {
+    let addr = Number.parseInt(state.pc, 16)
+    if (Number.isFinite(addr)) {
+      if (arch === 'arm') addr &= ~1
+      addr = Math.floor(addr / 16) * 16
+      await readMemory(addr, 256)
+    }
+  } else {
+    void refreshMemory()
+  }
   void refreshThreads()
-  void refreshMemory()
 }
 
 /**
