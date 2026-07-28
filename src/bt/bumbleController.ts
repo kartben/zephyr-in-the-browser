@@ -113,6 +113,14 @@ def list_peers():
         out.append((peer_id, info['type'], info['name'], info['detail']))
     return out
 
+async def _publish_heart_rate(peer_id, device, service):
+    while peer_id in _peers:
+        await asyncio.sleep(1)
+        await device.notify_subscribers(
+            service.heart_rate_measurement_characteristic,
+            HeartRateService.HeartRateMeasurement(heart_rate=72),
+        )
+
 async def add_peer(type_id: str):
     global _seq
     if type_id not in _TYPE_NAMES:
@@ -131,15 +139,15 @@ async def add_peer(type_id: str):
         'scanner': '0 adv reports',
     }[type_id]
 
+    hr_service = None
     if type_id == 'hrm':
         def read_hr(_connection):
             return HeartRateService.HeartRateMeasurement(heart_rate=72)
-        device.add_service(
-            HeartRateService(
-                read_heart_rate_measurement=read_hr,
-                body_sensor_location=HeartRateService.BodySensorLocation.CHEST,
-            )
+        hr_service = HeartRateService(
+            read_heart_rate_measurement=read_hr,
+            body_sensor_location=HeartRateService.BodySensorLocation.CHEST,
         )
+        device.add_service(hr_service)
         device.advertising_data = _adv_name(name, GATT_HEART_RATE_SERVICE)
     elif type_id == 'advertiser':
         device.advertising_data = _adv_name(name)
@@ -167,6 +175,10 @@ async def add_peer(type_id: str):
         'controller': peer_ctl,
         'adv_count': 0,
     }
+    if hr_service is not None:
+        _peers[peer_id]['notify_task'] = asyncio.create_task(
+            _publish_heart_rate(peer_id, device, hr_service)
+        )
     return peer_id
 
 async def remove_peer(peer_id: str):
@@ -175,6 +187,9 @@ async def remove_peer(peer_id: str):
         return
     device = info['device']
     peer_ctl = info['controller']
+    notify_task = info.get('notify_task')
+    if notify_task is not None:
+        notify_task.cancel()
     try:
         if info['type'] == 'scanner':
             await device.stop_scanning()

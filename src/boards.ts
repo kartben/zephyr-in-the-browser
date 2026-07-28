@@ -501,6 +501,14 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['bluetooth'],
   },
   {
+    id: 'bt_central_hr',
+    label: 'BLE central · Heart Rate',
+    description:
+      'Scans, connects and subscribes to an in-page Bumble Heart Rate monitor',
+    zephyrSample: 'samples/bluetooth/central_hr',
+    primaryPanels: ['bluetooth'],
+  },
+  {
     id: 'tmc50xx',
     label: 'TMC50xx stepper',
     description:

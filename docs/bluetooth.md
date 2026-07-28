@@ -24,13 +24,14 @@ Per-peer configure/control UI (draft):
 | Bumble wheel | `public/vendor/bumble/` — see its README; fetch with `tools/vendor-bumble.sh` |
 | Guest snippet / conf | `zephyr-module/snippets/bt-hci-uart/`, `zephyr-module/conf/bt-hci.conf` |
 | Persistent settings | `bt-settings-spi` W25Q80 on CS1 + `storage_partition` → Zephyr NVS |
-| Packaged sample | `bt_peripheral` → `samples/bluetooth/peripheral` |
+| Packaged samples | `bt_peripheral`, `bt_central_hr` → Zephyr peripheral / central HR |
 
 ## Rebuild checklist
 
 1. **Emulator** (once): `tools/build-qemu-wasm.sh` so `features.json` lists `"hci"`.
 2. **Wheel** (once / on bump): `tools/vendor-bumble.sh`.
 3. **Guest image**: `tools/build-zephyr-image.sh qemu_cortex_a53 bt_peripheral`
+   or `tools/build-zephyr-image.sh qemu_cortex_a53 bt_central_hr`
    (or rebuild all A53 images).
 
 Without step 1 the page never passes `-chardev browser,id=hci0` (older
@@ -45,6 +46,11 @@ pipe but controller start fails on a missing wheel.
 4. Under **On the air**, use **Add peer** for a Scanner (sees adv reports),
    Heart rate monitor, or plain Advertiser — all on the in-tab LocalLink.
    No server; same shape as Ethernet/CAN peers in the page.
+
+For the opposite role, select **BLE central · Heart Rate**, wait for
+**Controller ready**, then add a **Heart rate monitor** peer. The stock Zephyr
+central scans for service `0x180D`, connects, discovers the measurement
+characteristic, subscribes, and prints incoming notifications.
 
 The packaged Bluetooth images also compose the `bt-settings-spi` snippet.
 Zephyr's NVS settings backend stores the generated identity, IRK, and GATT
