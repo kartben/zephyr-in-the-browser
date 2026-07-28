@@ -63,9 +63,9 @@ export function ecgSample(phase: number): number {
  */
 export function heartScale(phase: number): number {
   const p = ((phase % 1) + 1) % 1
-  const lub = envelope(p, 0.18, 0.07, 1)
+  const lub = envelope(p, 0.18, 0.075, 1)
   const dub = envelope(p, 0.3, 0.055, 0.55)
-  return 1 + 0.22 * Math.max(lub, dub * 0.85)
+  return 1 + 0.28 * Math.max(lub, dub * 0.85)
 }
 
 function envelope(phase: number, center: number, width: number, peak: number): number {
