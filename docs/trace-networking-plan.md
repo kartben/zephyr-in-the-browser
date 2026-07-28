@@ -35,7 +35,7 @@ This document is the **spec only**. No product UI yet.
 | --- | --- |
 | CTF hooks (`socket_*`, `net_*`) | Implemented in Zephyr CTF backend |
 | TSDL metadata | Present in `public/tracing/metadata` |
-| Kconfig | `CONFIG_TRACING_NET_SOCKETS` / `TRACING_NET_CORE` default **y** when networking + sockets are on |
+| Kconfig | Pin `CONFIG_TRACING_NETWORKING` / `NET_SOCKETS` / `NET_CORE` in `tracing.conf`; zperf also pulls `tracing-net.conf` (re-enables `NET_IPV6` so CTF address width matches TSDL `[46]`) |
 | Demo sample | A53 `zperf` already ships with `conf/tracing.conf` + auto-expanded Trace |
 | App decoder | Loads full metadata, but **mishandles `address[46]`** (see below) |
 | App UI | Tabs are `schedule \| queues` only today |
@@ -284,7 +284,7 @@ auto-expands — optional, not load-bearing.
 | `address[46]` desync | Phase 0 first; never ship UI without it |
 | High event rate from zperf floods CTF / UI | Aggregate marks into time buckets when zoomed out; same trick as dense Schedule |
 | fd reuse after close | Key series by `(fd, generation)` — bump generation on `socket_init` for a previously closed fd |
-| IPv4-only builds use 20-byte net strings | Honour TSDL `[N]` from metadata actually shipped with the guest; our asset matches upstream IPv6-sized `[46]` — guest images with IPv6 must match that metadata (zperf does) |
+| IPv4-only builds use 20-byte net strings | zperf A53 applies `conf/tracing-net.conf` after `net.conf` to set `CONFIG_NET_IPV6=y` so guest CTF matches TSDL `address[46]`; plain `net.conf` samples without tracing keep IPv6 off |
 | Confusing two “network” UIs | Copy: Trace tab = “guest sockets”; Network panel keeps “page LAN” |
 
 ## Demo path

@@ -93,7 +93,7 @@ qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
 qemu_cortex_a53:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
 qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf
 qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf
-qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf,conf/tracing.conf
+qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf,conf/tracing.conf,conf/tracing-net.conf
 qemu_cortex_a53:hello_world:samples/hello_world
 
 # RISC-V 32-bit virt: same virtio / browser-bridge shape as A53. Built with
