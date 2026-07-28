@@ -10,8 +10,8 @@
  * sample drive what opens by default: a per-selection *seed* supplies the
  * default expansion, and only explicit user choices are stored as overrides.
  * Changing selection clears the expansion overrides (the new sample speaks),
- * but keeps visibility and pop-out choices, which are about the user's screen
- * rather than the running program.
+ * but keeps visibility, pop-out, section, and tab choices, which are about the
+ * user's screen rather than the running program.
  */
 
 import type { PanelKind } from '@/boards'
@@ -39,6 +39,11 @@ export interface DockDeviceState {
   windowed?: boolean
   /** Open state of a body's internal disclosures (Network's sections). */
   sections?: Record<string, boolean>
+  /**
+   * Selected body tab (Debug inspect tabs, Trace Schedule/Queues/Net).
+   * User screen preference — survives sample switches like hidden/windowed.
+   */
+  tab?: string
 }
 
 export interface DockSeed {
@@ -202,6 +207,9 @@ function patchDevice(key: string, patch: DockDeviceState): void {
   if (merged.sections !== undefined && Object.keys(merged.sections).length === 0) {
     delete merged.sections
   }
+  if (merged.tab === undefined || merged.tab === '') {
+    delete merged.tab
+  }
   const devices = { ...state.devices }
   if (Object.keys(merged).length === 0) delete devices[key]
   else devices[key] = merged
@@ -245,6 +253,27 @@ export function sectionOpenIn(
   return current.devices[deviceKey]?.sections?.[sectionId] ?? fallback
 }
 
+/** Persist the selected tab inside a stage panel (Debug / Trace). */
+export function setTab(deviceKey: string, tab: string): void {
+  if (state.devices[deviceKey]?.tab === tab) return
+  patchDevice(deviceKey, { tab })
+}
+
+/** Pure read of a stored tab id, falling back when unset or not allowlisted. */
+export function tabIn(
+  current: DockState,
+  deviceKey: string,
+  allowed: readonly string[],
+  fallback: string,
+): string {
+  const raw = current.devices[deviceKey]?.tab
+  return raw !== undefined && allowed.includes(raw) ? raw : fallback
+}
+
+export function getTab(deviceKey: string, allowed: readonly string[], fallback: string): string {
+  return tabIn(state, deviceKey, allowed, fallback)
+}
+
 export function toggleGroup(deviceClass: DeviceClass): void {
   const collapsed = !(state.groups[deviceClass]?.collapsed ?? false)
   set({ ...state, groups: { ...state.groups, [deviceClass]: { collapsed } } })
@@ -264,8 +293,9 @@ export function groupCollapsed(deviceClass: DeviceClass): boolean {
 /**
  * Install the expansion defaults for the current board/sample selection.
  * Same selection (a reload): user overrides stay. New selection: expansion
- * overrides are cleared so the new sample's defaults speak; visibility and
- * pop-out choices persist — they are about the user's screen, not the guest.
+ * overrides are cleared so the new sample's defaults speak; visibility,
+ * pop-out, section, and tab choices persist — they are about the user's
+ * screen, not the guest.
  */
 export function seedForSelection(selection: string, seed: DockSeed): void {
   if (state.seededFor === selection) {
