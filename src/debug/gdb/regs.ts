@@ -10,11 +10,30 @@ import { hexToBytes } from '@/debug/gdb/rspCodec'
 
 export type GdbArch = 'arm' | 'aarch64' | 'riscv32'
 
+/**
+ * The four registers an unwinder cares about, as numbers.
+ *
+ * Kept separate from {@link RegView.dump} (which is display text) so the call
+ * stack does not have to re-parse its own formatting.
+ */
+export interface FrameRegs {
+  pc: number | null
+  sp: number | null
+  /** Frame pointer: x29 (aarch64), r7 (thumb), s0 (riscv). */
+  fp: number | null
+  /** Return address register: x30 / r14 / ra. */
+  lr: number | null
+}
+
+export const NO_FRAME_REGS: FrameRegs = { pc: null, sp: null, fp: null, lr: null }
+
 export interface RegView {
   pc: string | null
   /** NAME=value lines for the popover / organizeRegisters. */
   dump: string
   summary: string | null
+  /** Numeric PC / SP / FP / LR for the call-stack unwinder. */
+  frame: FrameRegs
 }
 
 function u32(bytes: Uint8Array, off: number): number {
@@ -53,7 +72,7 @@ export function decodeGPacket(arch: GdbArch, hex: string): RegView {
   try {
     bytes = hexToBytes(hex)
   } catch {
-    return { pc: null, dump: hex, summary: null }
+    return { pc: null, dump: hex, summary: null, frame: NO_FRAME_REGS }
   }
 
   if (arch === 'arm') return decodeArm(bytes)
@@ -64,7 +83,7 @@ export function decodeGPacket(arch: GdbArch, hex: string): RegView {
 function decodeArm(bytes: Uint8Array): RegView {
   // r0..r12, sp, lr, pc, xpsr  (17 × 4)
   if (bytes.length < 17 * 4) {
-    return { pc: null, dump: bytesToDump(bytes), summary: null }
+    return { pc: null, dump: bytesToDump(bytes), summary: null, frame: NO_FRAME_REGS }
   }
   const names = [
     'R00', 'R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07',
@@ -72,7 +91,19 @@ function decodeArm(bytes: Uint8Array): RegView {
   ]
   const lines = names.map((name, i) => `${name}=${hex32(u32(bytes, i * 4))}`)
   const pc = hex32(u32(bytes, 15 * 4))
-  return { pc, dump: lines.join('\n'), summary: `PC ${pc}` }
+  return {
+    pc,
+    dump: lines.join('\n'),
+    summary: `PC ${pc}`,
+    frame: {
+      pc: u32(bytes, 15 * 4),
+      sp: u32(bytes, 13 * 4),
+      // Thumb code keeps its frame pointer in r7 (AAPCS uses r11 for ARM state,
+      // but Cortex-M is Thumb-only).
+      fp: u32(bytes, 7 * 4),
+      lr: u32(bytes, 14 * 4),
+    },
+  }
 }
 
 function decodeAarch64(bytes: Uint8Array): RegView {
@@ -86,7 +117,7 @@ function decodeAarch64(bytes: Uint8Array): RegView {
   const pcOff = 32 * 8
   const pstateOff = 33 * 8
   if (bytes.length < pcOff + 8) {
-    return { pc: null, dump: bytesToDump(bytes), summary: null }
+    return { pc: null, dump: bytesToDump(bytes), summary: null, frame: NO_FRAME_REGS }
   }
   const pc = hex64(u64(bytes, pcOff))
   const lines: string[] = [`PC=${pc}`, `SP=${hex64(u64(bytes, spOff))}`]
@@ -97,13 +128,23 @@ function decodeAarch64(bytes: Uint8Array): RegView {
   if (bytes.length >= pstateOff + 4) {
     lines.push(`PSTATE=${hex32(u32(bytes, pstateOff))}`)
   }
-  return { pc, dump: lines.join('\n'), summary: `PC ${pc}` }
+  return {
+    pc,
+    dump: lines.join('\n'),
+    summary: `PC ${pc}`,
+    frame: {
+      pc: Number(u64(bytes, pcOff)),
+      sp: Number(u64(bytes, spOff)),
+      fp: Number(u64(bytes, 29 * 8)),
+      lr: Number(u64(bytes, 30 * 8)),
+    },
+  }
 }
 
 function decodeRiscv32(bytes: Uint8Array): RegView {
   // 33 × 4: x0..x31, pc — pc is register 32
   if (bytes.length < 33 * 4) {
-    return { pc: null, dump: bytesToDump(bytes), summary: null }
+    return { pc: null, dump: bytesToDump(bytes), summary: null, frame: NO_FRAME_REGS }
   }
   const abi = [
     'zero', 'ra', 'sp', 'gp', 'tp', 't0', 't1', 't2',
@@ -116,7 +157,17 @@ function decodeRiscv32(bytes: Uint8Array): RegView {
   for (let i = 1; i < 32; i++) {
     lines.push(`${abi[i]}=${hex32(u32(bytes, i * 4))}`)
   }
-  return { pc, dump: lines.join('\n'), summary: `PC ${pc}` }
+  return {
+    pc,
+    dump: lines.join('\n'),
+    summary: `PC ${pc}`,
+    frame: {
+      pc: u32(bytes, 32 * 4),
+      sp: u32(bytes, 2 * 4),
+      fp: u32(bytes, 8 * 4), // s0
+      lr: u32(bytes, 1 * 4), // ra
+    },
+  }
 }
 
 /** Map board.arch strings onto a gdb register layout. */
@@ -140,4 +191,27 @@ export function archFromBoard(arch: string): GdbArch {
 export function breakpointKind(arch: GdbArch): number {
   if (arch === 'aarch64') return 4
   return 2
+}
+
+/** Stack-slot width — how far the unwinder steps between saved words. */
+export function ptrBytes(arch: GdbArch): 4 | 8 {
+  return arch === 'aarch64' ? 8 : 4
+}
+
+/**
+ * Drop the Thumb bit so a code address matches symtab.
+ * Return addresses on Cortex-M always carry it; symbol values do not.
+ */
+export function codeAddr(arch: GdbArch, addr: number): number {
+  if (arch === 'arm') return (addr & ~1) >>> 0
+  return addr
+}
+
+/**
+ * Instruction sizes a call can have, for "did that step enter a call?".
+ * A4-byte `bl` on AArch64/ARM; RISC-V adds the 2-byte compressed forms.
+ */
+export function callInsnSizes(arch: GdbArch): number[] {
+  if (arch === 'aarch64') return [4]
+  return [4, 2]
 }

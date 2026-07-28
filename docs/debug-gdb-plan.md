@@ -44,9 +44,9 @@ today’s monitor).
 
 ---
 
-## Still later
+## Later phases
 
-### Phase D — Zephyr threads (CONFIG_DEBUG_THREAD_INFO)
+### Phase D — Zephyr threads (CONFIG_DEBUG_THREAD_INFO, shipped)
 
 Same introspection ABI OpenOCD uses. Guests build with
 `CONFIG_DEBUG_THREAD_INFO=y` (`zephyr-module/conf/debug-threads.conf`), which
@@ -61,14 +61,48 @@ read the offset table, then walk `_kernel.threads` over gdb memory reads.
 symbols, or `stack_info` when DWARF has it), and Memory links for the stack /
 TCB. Semaphores / mutexes / object cores can come later.
 
-### Phase E — Disassembly / DWARF (optional)
+### Phase E — Call stack + richer stepping (shipped)
 
-### Phase F — Dedicated Debug panel
+**Stack tab** (`src/debug/callStack.ts`, `components/debug/StackPane.tsx`).
+No CFI parsing; two passes, and the pane labels which one produced the frames:
+
+| Pass | When | Confidence |
+| --- | --- | --- |
+| Frame-pointer chain | `CONFIG_FRAME_POINTER=y` (packaged builds set it) | exact |
+| Link register | frame 0's caller before it is spilled | exact |
+| Stack scan | anything else — words that land *inside* a function | plausible |
+
+The scan's one rule is that a return address is never at a function's first
+instruction (`offset > 0`), which throws out vtables, thread entry points and
+ISR vector words. Frames deeper than the cap, or past the scan window, are
+reported as `truncated` rather than silently dropped.
+
+The picker also unwinds a **parked thread** from its saved SP (scan only — its
+registers live in a switch handle we do not decode), which is how you see what
+a blocked thread was doing without resuming it.
+
+**Run control** grew Step over and Step out, both one-shot breakpoints:
+
+- *Step out* breaks at frame #1 and continues.
+- *Step over* steps one instruction, then asks whether the return-address
+  register now points just past where it was; if so that step entered a call,
+  so it breaks at the return address and continues.
+
+Recursion can stop these one level shallower than intended — no frame is
+tracked across the resume. Pause always recovers.
+
+### Phase F — Dedicated Debug panel (shipped)
 
 See [`debug-panel-plan.md`](debug-panel-plan.md) and the interactive mockup
 [`mockups/debug-panel.html`](mockups/debug-panel.html). Move Break / CPU /
 Memory / Threads out of the pause-only TopBar popover into a dockable panel so
 breakpoints can be set while the guest is running.
+
+### Phase G — Disassembly / DWARF line tables (optional)
+
+Source-line labels (`main.c:37`) per frame would need `.debug_line`; the ELF
+already ships it and `dwarfFormals.ts` has the section plumbing. That would
+also make Step over exact, since a disassembler can see a call coming.
 
 ---
 

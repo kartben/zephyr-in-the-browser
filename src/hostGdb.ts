@@ -15,9 +15,19 @@ import { RspClient } from '@/debug/gdb/rspClient'
 import {
   archFromBoard,
   breakpointKind,
+  callInsnSizes,
+  codeAddr,
   decodeGPacket,
+  NO_FRAME_REGS,
+  type FrameRegs,
   type GdbArch,
 } from '@/debug/gdb/regs'
+import {
+  unwindStack,
+  type StackFrame,
+  type UnwindMethod,
+  type UnwindResult,
+} from '@/debug/callStack'
 import { compactHex } from '@/debug/hexFormat'
 import { parseThreadInfoFromElf, type ThreadInfo } from '@/debug/kernel/meta'
 import { listThreads, type ZephyrThread } from '@/debug/kernel/threads'
@@ -73,6 +83,13 @@ export interface GdbState {
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
+  /** Call stack for the stopped context, innermost first. */
+  stack: StackFrame[]
+  /** How the frames past #0 were recovered — the UI flags scans as guesses. */
+  stackMethod: UnwindMethod
+  stackLoading: boolean
+  /** More frames exist than we built (depth cap or scan window). */
+  stackTruncated: boolean
 }
 
 const EMPTY: GdbState = {
@@ -94,6 +111,10 @@ const EMPTY: GdbState = {
   threads: [],
   threadsLoading: false,
   threadsError: null,
+  stack: [],
+  stackMethod: 'none',
+  stackLoading: false,
+  stackTruncated: false,
 }
 
 let mod: Record<string, unknown> | null = null
@@ -107,10 +128,26 @@ let stackRegions: StackRegion[] = []
 let waitObjects: WaitObject[] = []
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
+/** Numeric PC/SP/FP/LR from the last `g` read — input to the unwinder. */
+let frameRegs: FrameRegs = NO_FRAME_REGS
+/** Breakpoint we planted for Step over / Step out / Run to, cleared on stop. */
+let tempBp: number | null = null
+/** Suppress the stop handler's refresh while a step sequence drives its own. */
+let internalStep = false
 const listeners = new Set<() => void>()
 
 function labelFor(addr: number): string | null {
   return formatSymbol(resolveSymbol(symbolIndex, addr))
+}
+
+/** Read guest memory for the unwinder; null instead of throwing on a bad range. */
+async function tryRead(addr: number, length: number): Promise<Uint8Array | null> {
+  if (!client) return null
+  try {
+    return await client.readMemory(addr, length)
+  } catch {
+    return null
+  }
 }
 
 function formalsForPc(pcNum: number): string[] {
@@ -141,7 +178,7 @@ export function getWaitObjects(): WaitObject[] {
 }
 
 export function sessionActive(): boolean {
-  return state.attached && client !== null
+  return state.attached && (client !== null || devSession)
 }
 
 function startPoll() {
@@ -173,6 +210,7 @@ async function refreshRegs() {
       : pc
         ? `PC ${compactHex(pc)}`
         : view.summary
+    frameRegs = view.frame
     publish({
       registers: view.dump,
       pc,
@@ -197,7 +235,10 @@ async function refreshRegs() {
   } else {
     void refreshMemory()
   }
-  void refreshThreads()
+  // Threads first: the walk gives the current thread's stack bounds, which is
+  // what stops the unwinder's scan from running off the end of the stack.
+  await refreshThreads()
+  await refreshStack()
 }
 
 /**
@@ -243,6 +284,76 @@ async function refreshThreads() {
 }
 
 /**
+ * Rebuild the call stack for the stopped CPU context.
+ *
+ * Needs symbols: without a symtab every candidate return address is
+ * unresolvable, so the walk would be a wall of bare addresses — show frame 0
+ * and stop rather than burn RSP round-trips on a scan that cannot judge a hit.
+ */
+async function refreshStack() {
+  if (!client || !state.paused) return
+  const pc = frameRegs.pc
+  if (!symbolIndex) {
+    const only: StackFrame[] = pc
+      ? [{ addr: codeAddr(arch, pc), label: null, fn: null, origin: 'pc', slot: null }]
+      : []
+    publish({ stack: only, stackMethod: 'none', stackLoading: false, stackTruncated: false })
+    return
+  }
+
+  publish({ stackLoading: true })
+  const current = state.threads.find((t) => t.current) ?? null
+  try {
+    const result = await unwindStack({
+      arch,
+      pc,
+      sp: frameRegs.sp,
+      fp: frameRegs.fp,
+      lr: frameRegs.lr,
+      stackStart: current?.stackStart ?? null,
+      stackSize: current?.stackSize ?? null,
+      read: tryRead,
+      resolve: (addr) => resolveSymbol(symbolIndex, addr),
+    })
+    publish({
+      stack: result.frames,
+      stackMethod: result.method,
+      stackTruncated: result.truncated,
+      stackLoading: false,
+    })
+  } catch {
+    publish({ stack: [], stackMethod: 'none', stackTruncated: false, stackLoading: false })
+  }
+}
+
+/**
+ * Call stack for a thread that is not the running one.
+ *
+ * Its registers live in a saved switch handle we do not decode, so there is no
+ * PC or frame pointer to start from — only the saved SP. That means a scan,
+ * and the pane says so.
+ */
+export async function unwindThreadStack(tcbAddr: number): Promise<UnwindResult> {
+  const empty: UnwindResult = { frames: [], method: 'none', truncated: false }
+  if (!client || !state.paused || !symbolIndex) return empty
+  const thread = state.threads.find((t) => t.addr === tcbAddr)
+  if (!thread || thread.sp == null) return empty
+  try {
+    return await unwindStack({
+      arch,
+      pc: null,
+      sp: thread.sp,
+      stackStart: thread.stackStart,
+      stackSize: thread.stackSize,
+      read: tryRead,
+      resolve: (addr) => resolveSymbol(symbolIndex, addr),
+    })
+  } catch {
+    return empty
+  }
+}
+
+/**
  * Parse CONFIG_DEBUG_THREAD_INFO + function symbols from the guest ELF.
  * Needs an unstripped image; safe no-op on stripped ELFs.
  */
@@ -260,6 +371,8 @@ export function setKernelImage(elf: Uint8Array | null) {
       regFormals: [],
       threads: [],
       threadsError: null,
+      stack: [],
+      stackMethod: 'none',
     })
   }
 }
@@ -319,11 +432,17 @@ export async function attachSession(): Promise<boolean> {
 
   const next = new RspClient(ch)
   next.setStopHandler((info) => {
-      if (info.kind === 'signal') {
+    if (info.kind === 'signal') {
       // Mark regs loading with the pause so Mem cannot seed from 0x0 in the
       // gap before refreshRegs() runs.
       publish({ paused: true, registersLoading: true })
-      void refreshRegs()
+      // Step over / out drive their own refresh once they know where they
+      // landed — let them, instead of racing a full walk per intermediate stop.
+      if (internalStep) return
+      void (async () => {
+        await clearTempBreakpoint()
+        await refreshRegs()
+      })()
     }
   })
   client = next
@@ -366,6 +485,9 @@ export function detach() {
   client = null
   ch = null
   mod = null
+  frameRegs = NO_FRAME_REGS
+  tempBp = null
+  internalStep = false
   threadInfo = null
   symbolIndex = null
   formalIndex = null
@@ -381,6 +503,7 @@ export async function pause(): Promise<void> {
   try {
     await client.interrupt()
     publish({ paused: true, registersLoading: true })
+    await clearTempBreakpoint()
     await refreshRegs()
   } catch {
     // leave state; user can retry
@@ -407,11 +530,102 @@ export async function resume(): Promise<void> {
 export async function step(): Promise<void> {
   if (!client || !state.attached || !state.paused) return
   try {
+    internalStep = true
     await client.step()
     publish({ paused: true, registersLoading: true })
+    await clearTempBreakpoint()
     await refreshRegs()
   } catch {
     // ignore
+  } finally {
+    internalStep = false
+  }
+}
+
+/** Drop the Step over / Step out / Run to breakpoint once it has done its job. */
+async function clearTempBreakpoint(): Promise<void> {
+  const addr = tempBp
+  tempBp = null
+  if (addr === null || !client) return
+  // A user breakpoint at the same address must survive.
+  if (state.breakpoints.some((b) => b.addr === addr)) return
+  try {
+    await client.removeSwBreakpoint(addr, breakpointKind(arch))
+  } catch {
+    // the stub drops it on detach anyway
+  }
+}
+
+/**
+ * Continue until `addr` is reached (Step out, or a click on a caller frame).
+ *
+ * A one-shot breakpoint, not a watched condition: recursion can stop one level
+ * shallower than you meant, and if the address is never reached the guest just
+ * keeps running until you Pause. That is the honest cost of not tracking frames
+ * across a resume, and cheap to recover from.
+ */
+export async function runTo(addr: number): Promise<boolean> {
+  if (!client || !state.attached || !state.paused) return false
+  const target = codeAddr(arch, addr)
+  if (!state.breakpoints.some((b) => b.addr === target)) {
+    const ok = await client.insertSwBreakpoint(target, breakpointKind(arch))
+    if (!ok) return false
+    tempBp = target
+  }
+  await resume()
+  return true
+}
+
+/** Run until the current function returns to its caller (call stack frame #1). */
+export async function stepOut(): Promise<boolean> {
+  if (!client || !state.attached || !state.paused) return false
+  const caller = state.stack[1]
+  if (!caller) return false
+  return runTo(caller.addr)
+}
+
+/**
+ * Step one instruction, but run calls to completion.
+ *
+ * Without a disassembler we cannot see a `bl` coming, so we step first and ask
+ * afterwards: if the return-address register now points at the instruction
+ * right after where we were, that step entered a call — so continue to it.
+ */
+export async function stepOver(): Promise<void> {
+  if (!client || !state.attached || !state.paused) return
+  const fromPc = frameRegs.pc != null ? codeAddr(arch, frameRegs.pc) : null
+  try {
+    internalStep = true
+    await client.step()
+    publish({ paused: true, registersLoading: true })
+    await clearTempBreakpoint()
+
+    if (fromPc !== null) {
+      let landed: FrameRegs | null = null
+      try {
+        landed = decodeGPacket(arch, await client.readRegisters()).frame
+      } catch {
+        landed = null
+      }
+      const ret = landed?.lr != null ? codeAddr(arch, landed.lr) : null
+      const now = landed?.pc != null ? codeAddr(arch, landed.pc) : null
+      const enteredCall =
+        ret !== null &&
+        now !== null &&
+        now !== ret &&
+        callInsnSizes(arch).some((size) => ret === fromPc + size)
+      if (enteredCall && ret !== null) {
+        internalStep = false
+        if (await runTo(ret)) return
+        internalStep = true
+      }
+    }
+
+    await refreshRegs()
+  } catch {
+    // ignore
+  } finally {
+    internalStep = false
   }
 }
 
@@ -514,7 +728,26 @@ export function debugForceAvailable() {
   publish({ available: true })
 }
 
+/**
+ * Dev-only: pretend an RSP session is attached and stopped, so the panel's
+ * paused surfaces (CPU / Stack / Mem / Threads) can be laid out and
+ * screenshotted without a ~100 MB emulator build. Run control does nothing —
+ * there is no stub behind it.
+ */
+let devSession = false
+
+export function debugForceSession(next: Partial<GdbState>) {
+  // Guarded: a fake session routes run control at a stub that is not there.
+  if (!import.meta.env.DEV) return
+  devSession = true
+  publish({ available: true, attached: true, paused: true, ...next })
+}
+
 if (import.meta.env.DEV) {
-  ;(globalThis as unknown as { __zephyrGdbForceAvailable?: typeof debugForceAvailable }).__zephyrGdbForceAvailable =
-    debugForceAvailable
+  const hooks = globalThis as unknown as {
+    __zephyrGdbForceAvailable?: typeof debugForceAvailable
+    __zephyrGdbForceSession?: typeof debugForceSession
+  }
+  hooks.__zephyrGdbForceAvailable = debugForceAvailable
+  hooks.__zephyrGdbForceSession = debugForceSession
 }

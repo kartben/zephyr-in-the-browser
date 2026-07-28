@@ -10,6 +10,7 @@ import * as gdb from '@/hostGdb'
 import * as monitor from '@/hostMonitor'
 import type { ElfSymbol } from '@/debug/elfSymbols'
 import type { ZephyrThread } from '@/debug/kernel/threads'
+import type { StackFrame, UnwindMethod, UnwindResult } from '@/debug/callStack'
 
 export interface DebugSnapshot {
   /** Either bridge is present. */
@@ -36,6 +37,11 @@ export interface DebugSnapshot {
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
+  /** Call stack for the stopped context, innermost first (gdb only). */
+  stack: StackFrame[]
+  stackMethod: UnwindMethod
+  stackLoading: boolean
+  stackTruncated: boolean
 }
 
 function snap(): DebugSnapshot {
@@ -62,6 +68,10 @@ function snap(): DebugSnapshot {
       threads: g.threads,
       threadsLoading: g.threadsLoading,
       threadsError: g.threadsError,
+      stack: g.stack,
+      stackMethod: g.stackMethod,
+      stackLoading: g.stackLoading,
+      stackTruncated: g.stackTruncated,
     }
   }
   return {
@@ -84,6 +94,10 @@ function snap(): DebugSnapshot {
     threads: [],
     threadsLoading: false,
     threadsError: null,
+    stack: [],
+    stackMethod: 'none',
+    stackLoading: false,
+    stackTruncated: false,
   }
 }
 
@@ -125,6 +139,29 @@ export function toggle() {
 
 export async function step(): Promise<void> {
   if (gdb.sessionActive()) await gdb.step()
+}
+
+/** Step one instruction, running any call it enters to completion. */
+export async function stepOver(): Promise<void> {
+  if (gdb.sessionActive()) await gdb.stepOver()
+}
+
+/** Continue until the current function returns to its caller. */
+export async function stepOut(): Promise<boolean> {
+  if (!gdb.sessionActive()) return false
+  return gdb.stepOut()
+}
+
+/** Continue until `addr` is reached (one-shot breakpoint). */
+export async function runTo(addr: number): Promise<boolean> {
+  if (!gdb.sessionActive()) return false
+  return gdb.runTo(addr)
+}
+
+/** Best-effort call stack for a thread that is not the running one. */
+export async function unwindThreadStack(tcbAddr: number): Promise<UnwindResult> {
+  if (!gdb.sessionActive()) return { frames: [], method: 'none', truncated: false }
+  return gdb.unwindThreadStack(tcbAddr)
 }
 
 export async function addBreakpoint(addr: number): Promise<boolean> {
