@@ -37,8 +37,6 @@ const PIPE_H = 44
 /** Horizontal radius of the mouth ellipses (perspective end-caps). */
 const MOUTH_RX = 10
 const MOUTH_RY = PIPE_H / 2 - 1
-/** Vertical gap between thread pills on the same side. */
-const PORT_GAP = 44
 const ROW_GAP = 36
 const COL_GAP = 56
 const PAD_X = 16
@@ -55,14 +53,19 @@ const PIPE_TEXT_MAX = PIPE_W - MOUTH_RX * 4 - 12
 
 const CLIP_PILL = 'qg-clip-pill'
 
-type ThreadPill = {
+type ThreadNode = {
   id: string
   tid: number
   label: string
   x: number
   y: number
-  side: 'put' | 'get'
+}
+
+type FlowLink = {
+  id: string
+  threadId: number
   queueId: number
+  op: QueueFlowOp
   port: number
 }
 
@@ -93,9 +96,10 @@ type Layout = {
   w: number
   h: number
   pipes: Pipe[]
-  pills: ThreadPill[]
+  threads: ThreadNode[]
+  links: FlowLink[]
   byPipe: Map<number, Pipe>
-  byPill: Map<string, ThreadPill>
+  byThread: Map<number, ThreadNode>
 }
 
 type Layers = {
@@ -104,14 +108,6 @@ type Layers = {
   packets: d3.Selection<SVGGElement, unknown, null, undefined>
   pipes: d3.Selection<SVGGElement, unknown, null, undefined>
   pills: d3.Selection<SVGGElement, unknown, null, undefined>
-}
-
-function pillKey(queueId: number, tid: number, side: 'put' | 'get') {
-  return `p:${queueId}:${tid}:${side}`
-}
-
-function sideForOp(op: QueueFlowOp): 'put' | 'get' {
-  return isPutOp(op) ? 'put' : 'get'
 }
 
 function pipeEndX(pipe: Pipe): number {
@@ -143,11 +139,6 @@ function frontInsertY(pipe: Pipe, port: number): number {
   if (count <= 1) return pipe.y - Math.min(8, MOUTH_RY * 0.45)
   const usable = Math.min(10, MOUTH_RY - 5)
   return pipe.y + ((port + 0.5) / count - 0.5) * usable * 2
-}
-
-function pillY(pipe: Pipe, port: number, count: number): number {
-  const span = Math.max(0, (count - 1) * PORT_GAP)
-  return pipe.y - span / 2 + port * PORT_GAP
 }
 
 /**
@@ -191,19 +182,23 @@ function smoothRoute(points: RoutePoint[]): EdgePath {
 }
 
 function edgePath(
-  pill: ThreadPill,
+  thread: ThreadNode,
   pipe: Pipe,
-  op: QueueFlowOp,
+  link: FlowLink,
 ): EdgePath {
-  const sy = pill.y
+  const { op } = link
+  const threadEdge = (towardX: number) => ({
+    x: thread.x + (towardX >= thread.x ? PILL_W / 2 : -PILL_W / 2),
+    y: thread.y,
+  })
 
   if (op === 'put_front') {
     // Insert at front/head: go over the barrel, past its east end, then make a
     // deliberate U-turn so the arrow enters the front port from the east.
-    const ey = frontInsertY(pipe, pill.port)
-    const start = { x: pill.x + PILL_W / 2, y: sy }
+    const ey = frontInsertY(pipe, link.port)
+    const start = threadEdge(pipeFrontX(pipe))
     const end = { x: mouthLipX(pipe, 'front', ey), y: ey }
-    const rise = ARC_CLEAR + 12 + Math.max(0, pipe.putPorts - pill.port - 1) * 10
+    const rise = ARC_CLEAR + 12 + Math.max(0, pipe.putPorts - link.port - 1) * 10
     const railY = pipe.y - PIPE_H / 2 - rise
     const eastTurnX = pipeFrontX(pipe) + 30
     // A compact raised rail plus a small east-side turn: the route visibly
@@ -219,9 +214,13 @@ function edgePath(
   }
 
   if (op === 'put') {
-    const ey = mouthY(pipe, 'end', pill.port)
-    const start = { x: pill.x + PILL_W / 2, y: sy }
+    const ey = mouthY(pipe, 'end', link.port)
+    const start = threadEdge(pipeEndX(pipe))
     const end = { x: mouthLipX(pipe, 'end', ey), y: ey }
+    if (start.x > end.x) {
+      const railY = pipe.y - PIPE_H / 2 - ARC_CLEAR
+      return smoothRoute([start, { x: pipeFrontX(pipe) + 24, y: railY }, { x: end.x - 24, y: railY }, end])
+    }
     return smoothRoute([
       start,
       { x: (start.x + end.x) / 2, y: start.y },
@@ -229,9 +228,13 @@ function edgePath(
     ])
   }
 
-  const ey = mouthY(pipe, 'front', pill.port)
+  const ey = mouthY(pipe, 'front', link.port)
   const start = { x: mouthLipX(pipe, 'front', ey), y: ey }
-  const end = { x: pill.x - PILL_W / 2, y: sy }
+  const end = threadEdge(pipeFrontX(pipe))
+  if (end.x < start.x) {
+    const railY = pipe.y - PIPE_H / 2 - ARC_CLEAR
+    return smoothRoute([start, { x: start.x + 24, y: railY }, { x: end.x - 24, y: railY }, end])
+  }
   return smoothRoute([
     start,
     { x: (start.x + end.x) / 2, y: start.y },
@@ -239,13 +242,14 @@ function edgePath(
   ])
 }
 
-function burstBadgePosition(pill: ThreadPill, pipe: Pipe, op: QueueFlowOp) {
+function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink) {
+  const { op } = link
   if (op === 'put_front') {
     return { x: pipe.x, y: pipe.y - PIPE_H / 2 - ARC_CLEAR - 12 }
   }
-  const from = op === 'get' ? pipeFrontX(pipe) : pill.x + PILL_W / 2
-  const to = op === 'get' ? pill.x - PILL_W / 2 : pipeEndX(pipe)
-  return { x: (from + to) / 2, y: (pill.y + mouthY(pipe, op === 'get' ? 'front' : 'end', pill.port)) / 2 - 9 }
+  const from = op === 'get' ? pipeFrontX(pipe) : thread.x
+  const to = op === 'get' ? thread.x : pipeEndX(pipe)
+  return { x: (from + to) / 2, y: (thread.y + mouthY(pipe, op === 'get' ? 'front' : 'end', link.port)) / 2 - 9 }
 }
 
 function strokeFor(op: QueueFlowOp): string {
@@ -266,110 +270,78 @@ function markerFor(op: QueueFlowOp): string {
 
 function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   const flow = queueFlowEvents(tr)
-
-  const putters = new Map<number, number[]>()
-  const getters = new Map<number, number[]>()
-  const seenPut = new Map<number, Set<number>>()
-  const seenGet = new Map<number, Set<number>>()
+  const valid = flow.filter((ev) => ev.ok && ev.threadId != null && queues.some((q) => q.id === ev.queueId))
+  const threadIds = [...new Set(valid.map((ev) => ev.threadId!))].sort((a, b) =>
+    flowThreadLabel(tr, a).localeCompare(flowThreadLabel(tr, b)) || a - b,
+  )
+  const puts = new Map<number, number[]>()
+  const gets = new Map<number, number[]>()
   for (const q of queues) {
-    putters.set(q.id, [])
-    getters.set(q.id, [])
-    seenPut.set(q.id, new Set())
-    seenGet.set(q.id, new Set())
+    puts.set(q.id, [])
+    gets.set(q.id, [])
   }
-  for (const ev of flow) {
-    if (!ev.ok || ev.threadId == null) continue
-    if (!putters.has(ev.queueId)) continue
-    if (isPutOp(ev.op)) {
-      const s = seenPut.get(ev.queueId)!
-      if (!s.has(ev.threadId)) {
-        s.add(ev.threadId)
-        putters.get(ev.queueId)!.push(ev.threadId)
-      }
-    } else {
-      const s = seenGet.get(ev.queueId)!
-      if (!s.has(ev.threadId)) {
-        s.add(ev.threadId)
-        getters.get(ev.queueId)!.push(ev.threadId)
-      }
+  for (const ev of valid) {
+    const bucket = isPutOp(ev.op) ? puts.get(ev.queueId)! : gets.get(ev.queueId)!
+    if (!bucket.includes(ev.threadId!)) bucket.push(ev.threadId!)
+  }
+
+  const links: FlowLink[] = []
+  const seen = new Set<string>()
+  for (const ev of valid) {
+    const id = flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op })
+    if (seen.has(id)) continue
+    seen.add(id)
+    const portIds = isPutOp(ev.op) ? puts.get(ev.queueId)! : gets.get(ev.queueId)!
+    links.push({ id, threadId: ev.threadId!, queueId: ev.queueId, op: ev.op, port: Math.max(0, portIds.indexOf(ev.threadId!)) })
+  }
+
+  // Longest-path ranks make the common producer → queue → consumer pipeline
+  // read left-to-right. Cycles fall back to a shared column instead of cloning
+  // a thread node merely to satisfy both of its ports.
+  const nodeIds = [...threadIds.map((tid) => `t:${tid}`), ...queues.map((q) => `q:${q.id}`)]
+  const outgoing = new Map(nodeIds.map((id) => [id, new Set<string>()]))
+  const indegree = new Map(nodeIds.map((id) => [id, 0]))
+  for (const link of links) {
+    const from = link.op === 'get' ? `q:${link.queueId}` : `t:${link.threadId}`
+    const to = link.op === 'get' ? `t:${link.threadId}` : `q:${link.queueId}`
+    if (!outgoing.get(from)!.has(to)) {
+      outgoing.get(from)!.add(to)
+      indegree.set(to, (indegree.get(to) ?? 0) + 1)
+    }
+  }
+  const rank = new Map(nodeIds.map((id) => [id, 0]))
+  const ready = nodeIds.filter((id) => indegree.get(id) === 0)
+  for (let i = 0; i < ready.length; i++) {
+    const id = ready[i]!
+    for (const next of outgoing.get(id)!) {
+      rank.set(next, Math.max(rank.get(next) ?? 0, (rank.get(id) ?? 0) + 1))
+      indegree.set(next, indegree.get(next)! - 1)
+      if (indegree.get(next) === 0) ready.push(next)
     }
   }
 
-  const leftX = PAD_X + PILL_W / 2
-  const pipeX = leftX + PILL_W / 2 + COL_GAP + PIPE_W / 2
-  const rightX = pipeX + PIPE_W / 2 + COL_GAP + PILL_W / 2
-  const contentW = Math.max(hostW, rightX + PILL_W / 2 + PAD_X)
-
-  const pipes: Pipe[] = []
-  const pills: ThreadPill[] = []
-  // Room for column headers + put_front arc above the first pipe.
-  let yCursor = PAD_Y + 18 + DETOUR_HEADROOM
-
-  for (const q of queues) {
-    const puts = putters.get(q.id) ?? []
-    const gets = getters.get(q.id) ?? []
-    const sortT = (ids: number[]) =>
-      [...ids].sort((a, b) => {
-        const na = flowThreadLabel(tr, a)
-        const nb = flowThreadLabel(tr, b)
-        return na.localeCompare(nb) || a - b
-      })
-    const putIds = sortT(puts)
-    const getIds = sortT(gets)
-    const ports = Math.max(1, putIds.length, getIds.length)
-    const bandH = Math.max(PIPE_H + 8, ports * PORT_GAP)
-    const cy = yCursor + bandH / 2
-
-    const pipe: Pipe = {
-      id: `q:${q.id}`,
-      queueId: q.id,
-      label: queueLabel(q),
-      cap: q.cap ?? Math.max(1, q.peak),
-      depth: q.samples.length ? q.samples[q.samples.length - 1]!.depth : 0,
-      drops: q.drops,
-      x: pipeX,
-      y: cy,
-      putPorts: Math.max(1, putIds.length),
-      getPorts: Math.max(1, getIds.length),
-    }
-    pipes.push(pipe)
-
-    putIds.forEach((tid, i) => {
-      pills.push({
-        id: pillKey(q.id, tid, 'put'),
-        tid,
-        label: flowThreadLabel(tr, tid),
-        x: leftX,
-        y: pillY(pipe, i, putIds.length),
-        side: 'put',
-        queueId: q.id,
-        port: i,
-      })
-    })
-    getIds.forEach((tid, i) => {
-      pills.push({
-        id: pillKey(q.id, tid, 'get'),
-        tid,
-        label: flowThreadLabel(tr, tid),
-        x: rightX,
-        y: pillY(pipe, i, getIds.length),
-        side: 'get',
-        queueId: q.id,
-        port: i,
-      })
-    })
-
-    yCursor += bandH + ROW_GAP
+  const byRank = d3.group(nodeIds, (id) => rank.get(id) ?? 0)
+  const columnGap = PIPE_W + COL_GAP * 2
+  const laneGap = Math.max(PILL_H, PIPE_H) + ROW_GAP
+  const positions = new Map<string, { x: number; y: number }>()
+  const ranks = [...byRank.keys()].sort((a, b) => a - b)
+  let maxLanes = 1
+  for (const value of byRank.values()) maxLanes = Math.max(maxLanes, value.length)
+  for (const r of ranks) {
+    const ids = byRank.get(r)!.sort((a, b) => a.localeCompare(b))
+    ids.forEach((id, lane) => positions.set(id, { x: PAD_X + Math.max(PIPE_W, PILL_W) / 2 + r * columnGap, y: PAD_Y + 34 + DETOUR_HEADROOM + lane * laneGap }))
   }
-
-  return {
-    w: contentW,
-    h: Math.max(120, yCursor + PAD_Y),
-    pipes,
-    pills,
-    byPipe: new Map(pipes.map((p) => [p.queueId, p])),
-    byPill: new Map(pills.map((p) => [p.id, p])),
-  }
+  const pipes = queues.map((q) => {
+    const pos = positions.get(`q:${q.id}`)!
+    return { id: `q:${q.id}`, queueId: q.id, label: queueLabel(q), cap: q.cap ?? Math.max(1, q.peak), depth: q.samples.length ? q.samples[q.samples.length - 1]!.depth : 0, drops: q.drops, x: pos.x, y: pos.y, putPorts: Math.max(1, puts.get(q.id)!.length), getPorts: Math.max(1, gets.get(q.id)!.length) }
+  })
+  const threads = threadIds.map((tid) => {
+    const pos = positions.get(`t:${tid}`)!
+    return { id: `t:${tid}`, tid, label: flowThreadLabel(tr, tid), x: pos.x, y: pos.y }
+  })
+  const contentW = Math.max(hostW, PAD_X * 2 + Math.max(PIPE_W, PILL_W) + Math.max(0, ranks.length - 1) * columnGap)
+  const contentH = Math.max(120, PAD_Y * 2 + 34 + DETOUR_HEADROOM + maxLanes * laneGap)
+  return { w: contentW, h: contentH, pipes, threads, links, byPipe: new Map(pipes.map((p) => [p.queueId, p])), byThread: new Map(threads.map((t) => [t.tid, t])) }
 }
 
 export function QueueGraph({
@@ -459,11 +431,7 @@ export function QueueGraph({
     svg.attr('viewBox', `0 0 ${layout.w} ${layout.h}`).attr('height', layout.h)
 
     layers.labels.selectAll('*').remove()
-    const headers = [
-      { x: PAD_X + PILL_W / 2, t: 'put · end' },
-      { x: layout.pipes[0]?.x ?? layout.w / 2, t: 'msgq' },
-      { x: layout.w - PAD_X - PILL_W / 2, t: 'front · get' },
-    ]
+    const headers = [{ x: layout.w / 2, t: 'message flow · put → end · front → get' }]
     layers.labels
       .selectAll('text')
       .data(headers)
@@ -550,8 +518,9 @@ function fireBurst(
   if (!ev) return
   if (ev.threadId == null) return
   const pipe = layout.byPipe.get(ev.queueId)
-  const pill = layout.byPill.get(pillKey(ev.queueId, ev.threadId, sideForOp(ev.op)))
-  if (!pipe || !pill) return
+  const thread = layout.byThread.get(ev.threadId)
+  const link = layout.links.find((candidate) => candidate.id === flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }))
+  if (!pipe || !thread || !link) return
 
   const key = flowEdgeId({ threadId: ev.threadId, queueId: ev.queueId, op: ev.op })
   const now = performance.now()
@@ -564,7 +533,7 @@ function fireBurst(
     threadId: ev.threadId,
   })
 
-  const p = edgePath(pill, pipe, ev.op)
+  const p = edgePath(thread, pipe, link)
   // The badge below represents every event. Limit moving dots only so a busy
   // slice remains readable rather than becoming a solid line.
   for (let index = 0; index < Math.min(events.length, MAX_PACKETS_PER_BURST); index++) {
@@ -608,9 +577,9 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
   const now = performance.now()
   const active: Array<{
     key: string
-    pill: ThreadPill
+    thread: ThreadNode
     pipe: Pipe
-    op: QueueFlowOp
+    link: FlowLink
     count: number
     hot: boolean
   }> = []
@@ -621,22 +590,22 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
       continue
     }
     const pipe = layout.byPipe.get(st.queueId)
-    const pill = layout.byPill.get(pillKey(st.queueId, st.threadId, sideForOp(st.op)))
-    if (!pipe || !pill) continue
-    active.push({ key, pill, pipe, op: st.op, count: st.count, hot: now < st.untilHot })
+    const thread = layout.byThread.get(st.threadId)
+    const link = layout.links.find((candidate) => candidate.id === key)
+    if (!pipe || !thread || !link) continue
+    active.push({ key, thread, pipe, link, count: st.count, hot: now < st.untilHot })
   }
 
-  const activePills = new Set(active.map((a) => a.pill.id))
+  const activeLinks = new Set(active.map((a) => a.key))
   const structural: typeof active = []
-  for (const pill of layout.pills) {
-    const pipe = layout.byPipe.get(pill.queueId)
-    if (!pipe) continue
-    const op: QueueFlowOp = pill.side === 'put' ? 'put' : 'get'
+  for (const link of layout.links) {
+    const pipe = layout.byPipe.get(link.queueId)
+    const thread = layout.byThread.get(link.threadId)
+    if (!pipe || !thread) continue
     // An active operation owns its lane; do not leave a second, structural
     // arrow underneath it just because that thread also uses normal put.
-    if (activePills.has(pill.id)) continue
-    const key = flowEdgeId({ threadId: pill.tid, queueId: pill.queueId, op })
-    structural.push({ key: `struct:${key}`, pill, pipe, op, count: 0, hot: false })
+    if (activeLinks.has(link.id)) continue
+    structural.push({ key: `struct:${link.id}`, thread, pipe, link, count: 0, hot: false })
   }
 
   const allLinks = [...structural, ...active]
@@ -652,11 +621,11 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     .attr('stroke-linejoin', 'round')
     .merge(link)
     // Direction must remain legible even between the short-lived event pulses.
-    .attr('marker-end', (d) => markerFor(d.op))
-    .attr('stroke', (d) => strokeFor(d.op))
+    .attr('marker-end', (d) => markerFor(d.link.op))
+    .attr('stroke', (d) => strokeFor(d.link.op))
     .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.35 : d.hot ? 2.3 : 1.7))
     .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.52 : d.hot ? 0.96 : 0.68))
-    .attr('d', (d) => edgePath(d.pill, d.pipe, d.op).d)
+    .attr('d', (d) => edgePath(d.thread, d.pipe, d.link).d)
 
   const burstBadge = layers.packets
     .selectAll<SVGTextElement, (typeof active)[0]>('text.burst-count')
@@ -674,9 +643,9 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     .attr('stroke', '#020617')
     .attr('stroke-width', 3)
     .merge(burstBadge)
-    .attr('x', (entry) => burstBadgePosition(entry.pill, entry.pipe, entry.op).x)
-    .attr('y', (entry) => burstBadgePosition(entry.pill, entry.pipe, entry.op).y)
-    .attr('fill', (entry) => packetFill(entry.op))
+    .attr('x', (entry) => burstBadgePosition(entry.thread, entry.pipe, entry.link).x)
+    .attr('y', (entry) => burstBadgePosition(entry.thread, entry.pipe, entry.link).y)
+    .attr('fill', (entry) => packetFill(entry.link.op))
     .text((entry) => `×${entry.count}`)
 
   const hotQueues = new Set(active.filter((a) => a.hot).map((a) => a.pipe.id))
@@ -684,12 +653,10 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     updatePipeFill(d3.select(this), d, hotQueues.has(d.id))
   })
 
-  const hotPills = new Set(
-    active.filter((a) => a.hot).map((a) => pillKey(a.pill.queueId, a.pill.tid, a.pill.side)),
-  )
+  const hotThreads = new Set(active.filter((a) => a.hot).map((a) => a.thread.id))
   const pillSel = layers.pills
-    .selectAll<SVGGElement, ThreadPill>('g.pill')
-    .data(layout.pills, (d) => d.id)
+    .selectAll<SVGGElement, ThreadNode>('g.pill')
+    .data(layout.threads, (d) => d.id)
   pillSel.exit().remove()
   const pillEnter = pillSel.enter().append('g').attr('class', 'pill')
   pillEnter
@@ -712,20 +679,13 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
   pillMerged.attr('transform', (d) => `translate(${d.x},${d.y})`)
   pillMerged.each(function (d) {
     const g = d3.select(this)
-    const hot = hotPills.has(d.id)
-    const put = d.side === 'put'
+    const hot = hotThreads.has(d.id)
     g.select('rect')
       .attr(
         'fill',
-        hot
-          ? put
-            ? 'rgba(96, 165, 250, 0.22)'
-            : 'rgba(251, 191, 36, 0.22)'
-          : put
-            ? 'rgba(96, 165, 250, 0.08)'
-            : 'rgba(251, 191, 36, 0.08)',
+        hot ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.08)',
       )
-      .attr('stroke', put ? '#60a5fa' : '#fbbf24')
+      .attr('stroke', '#60a5fa')
       .attr('stroke-width', hot ? 1.6 : 1.1)
     g.select('text')
       .attr('fill', 'rgba(248,250,252,0.95)')
