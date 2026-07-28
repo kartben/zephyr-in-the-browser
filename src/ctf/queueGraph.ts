@@ -13,6 +13,7 @@
  */
 
 import {
+  classifyQueueEnter,
   classifyQueueEvent,
   classifyQueueKinds,
   isNestedQueueEvent,
@@ -42,10 +43,17 @@ export function mouthForOp(op: QueueFlowOp): MsgqMouth {
 export interface QueueFlowEvent {
   /** Index into tr.events — stable identity for “what’s new”. */
   index: number
+  /**
+   * Mark timestamp: matching put/get *enter* when present, else a concurrent
+   * waiter `sched_ready`, else exit. Zephyr wakes waiters inside put/get
+   * *before* the exit tracepoint, so exit-only marks look causality-inverted.
+   */
   ts: number
+  /** Exit timestamp (ret / depth clock). */
+  exitTs?: number
   op: QueueFlowOp
   queueId: number
-  /** Running thread at ts, or null if unknown / ISR. */
+  /** Running thread at {@link ts}, or null if unknown / ISR. */
   threadId: number | null
   ok: boolean
 }
@@ -60,21 +68,74 @@ export interface QueueChartEvent {
   ok: boolean
 }
 
+function enterKey(op: QueueFlowOp, queueId: number): string {
+  return `${op}|${queueId}`
+}
+
+/** Lookback when falling back from exit to a concurrent waiter ready. */
+const WAKE_LOOKBACK_NS = 1_000_000 // 1 ms
+
 /** All successful/failed put / put_front / get exits in timestamp order. */
 export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
   const kinds = classifyQueueKinds(tr.events)
   const out: QueueFlowEvent[] = []
+  /** Unmatched enter timestamps per op|queue (stack — single-CPU nest-safe). */
+  const enters = new Map<string, number[]>()
+  /** Latest waiter ready in the open window (for exit-only fallback). */
+  let lastWakeTs: number | null = null
+  let lastWakeTid: number | null = null
+
   for (let i = 0; i < tr.events.length; i++) {
     const ev = tr.events[i]!
+
+    if (ev.name === 'thread_sched_ready' || ev.name === 'thread_ready') {
+      const tid = ev.fields.thread_id
+      if (typeof tid === 'number') {
+        lastWakeTs = ev.ts
+        lastWakeTid = tid
+      }
+      continue
+    }
+
+    const enter = classifyQueueEnter(ev.name, ev.fields)
+    if (enter) {
+      if (isNestedQueueEvent(enter, kinds)) continue
+      const key = enterKey(enter.flowOp, enter.id)
+      const stack = enters.get(key) ?? []
+      stack.push(ev.ts)
+      enters.set(key, stack)
+      continue
+    }
+
     const classified = classifyQueueEvent(ev.name, ev.fields)
     if (!classified || !classified.flowOp) continue
     if (isNestedQueueEvent(classified, kinds)) continue
+
+    const stack = enters.get(enterKey(classified.flowOp, classified.id))
+    const enterTs = stack?.length ? stack.pop()! : null
+    const exitTs = ev.ts
+    const actorAtExit = threadRunningAt(tr, exitTs)
+    let ts = enterTs ?? exitTs
+    if (
+      enterTs == null &&
+      lastWakeTs != null &&
+      lastWakeTid != null &&
+      lastWakeTid !== actorAtExit &&
+      lastWakeTs <= exitTs &&
+      exitTs - lastWakeTs <= WAKE_LOOKBACK_NS
+    ) {
+      // No enter in the stream: snap the mark back to the wake so ready does
+      // not appear *before* the put/get edge.
+      ts = lastWakeTs
+    }
+
     out.push({
       index: i,
-      ts: ev.ts,
+      ts,
+      exitTs,
       op: classified.flowOp,
       queueId: classified.id,
-      threadId: threadRunningAt(tr, ev.ts),
+      threadId: threadRunningAt(tr, ts),
       ok: classified.ok,
     })
   }

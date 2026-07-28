@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   classifyQueueEvent,
+  classifyQueueEnter,
   classifyQueueKinds,
   isNestedQueueEvent,
 } from './queueKinds'
@@ -19,6 +20,18 @@ describe('classifyQueueEvent', () => {
       depthAction: 'purge',
       flowOp: null,
     })
+  })
+
+  it('maps msgq put/get enters for mark pairing', () => {
+    expect(classifyQueueEnter('msgq_put_enter', { id: 1, timeout: 0 })).toMatchObject({
+      kind: 'msgq',
+      flowOp: 'put',
+      id: 1,
+    })
+    expect(classifyQueueEnter('msgq_get_enter', { id: 2, timeout: 0 })).toMatchObject({
+      flowOp: 'get',
+    })
+    expect(classifyQueueEnter('msgq_put_exit', { id: 1, ret: 0 })).toBeNull()
   })
 
   it('maps fifo put to put and get with pointer ret', () => {

@@ -94,12 +94,26 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
+  0x8a: {
+    name: 'msgq_put_enter',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+    ],
+  },
   0x8c: {
     name: 'msgq_put_exit',
     fields: [
       ['id', 'uint32_t'],
       ['timeout', 'uint32_t'],
       ['ret', 'int32_t'],
+    ],
+  },
+  0x8d: {
+    name: 'msgq_get_enter',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
     ],
   },
   0x8f: {
@@ -111,6 +125,13 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
     ],
   },
   0x91: { name: 'msgq_purge', fields: [['id', 'uint32_t']] },
+  0x92: {
+    name: 'msgq_put_front_enter',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+    ],
+  },
   0x93: {
     name: 'msgq_put_front_exit',
     fields: [
@@ -119,6 +140,8 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
+  0x17: { name: 'thread_ready', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
+  0xea: { name: 'thread_sched_ready', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
   0x10c: { name: 'queue_append_exit', fields: [['id', 'uint32_t']] },
   0x10e: {
     name: 'queue_alloc_append_exit',

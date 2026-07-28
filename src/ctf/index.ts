@@ -24,6 +24,7 @@ export {
   niceTimeStep,
   timeTickValues,
   renderStateRows,
+  forEachStateInView,
   stateAt,
   threadRunningAt,
   windowStats,
@@ -46,6 +47,7 @@ export {
 } from './types'
 export {
   classifyQueueEvent,
+  classifyQueueEnter,
   classifyQueueKinds,
   isNestedQueueEvent,
   queueKindLabel,

@@ -58,7 +58,6 @@ import {
   queueFlowEvents,
   queueLabel,
   reconstructQueues,
-  renderStateRows,
   sortQueuesByPipelineOrder,
   stateAt,
   threadLabel,
@@ -66,6 +65,7 @@ import {
   threadRunningAt,
   visibleLanes,
   windowStats,
+  forEachStateInView,
   type QueueFlowEvent,
   type QueueSeries,
   type ThreadState,
@@ -549,7 +549,6 @@ function paint(
   const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
   const cols = Math.max(64, Math.floor(plotW))
-  const rows = renderStateRows(tr, lanes, view0, view1, cols)
   const colW = plotW / cols
   const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
   const depthProbeTs = playheadTs ?? view1
@@ -609,14 +608,15 @@ function paint(
       ctx.fillRect(LABEL_W, y, plotW, laneH)
     }
 
-    const cells = rows.get(tid) ?? []
-    for (let c = 0; c < cells.length; c++) {
-      const st = cells[c]
-      if (!st || st === 'dead') continue
+    // Exact ns→x ranges so ready/run edges line up with queue marks (column
+    // rasterisation used to smear transitions up to one column early).
+    forEachStateInView(tr, tid, view0, view1, (s, e, st) => {
+      const x0 = LABEL_W + ((s - view0) / span) * plotW
+      const x1 = LABEL_W + ((e - view0) / span) * plotW
       ctx.fillStyle = STATE_COLOR[st]
       ctx.globalAlpha = st === 'run' ? 1 : 0.78
-      ctx.fillRect(LABEL_W + c * colW, y + 3, Math.max(1.25, colW + 0.75), laneH - 6)
-    }
+      ctx.fillRect(x0, y + 3, Math.max(1, x1 - x0), laneH - 6)
+    })
     ctx.globalAlpha = 1
   })
 

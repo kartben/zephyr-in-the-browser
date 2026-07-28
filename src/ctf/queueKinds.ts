@@ -23,6 +23,13 @@ export interface ClassifiedQueueEvent {
   ok: boolean
 }
 
+/** Enter half of a put/get — used to place Timeline marks before sched_ready. */
+export interface ClassifiedQueueEnter {
+  kind: QueueKind
+  id: number
+  flowOp: QueueFlowOp
+}
+
 function prefixKind(name: string): QueueKind | null {
   if (name.startsWith('msgq_')) return 'msgq'
   if (name.startsWith('fifo_')) return 'fifo'
@@ -44,6 +51,43 @@ function ptrOk(ret: number | null): boolean {
 /** True when an errno-style exit succeeded (`ret == 0`). */
 function errnoOk(ret: number | null): boolean {
   return ret == null || ret === 0
+}
+
+/** Enter events that open a flow put/get (paired with the matching exit). */
+const FLOW_ENTER_OP: Record<string, QueueFlowOp> = {
+  msgq_put_enter: 'put',
+  msgq_put_front_enter: 'put_front',
+  msgq_get_enter: 'get',
+  fifo_put_enter: 'put',
+  fifo_alloc_put_enter: 'put',
+  fifo_get_enter: 'get',
+  lifo_put_enter: 'put_front',
+  lifo_alloc_put_enter: 'put_front',
+  lifo_get_enter: 'get',
+  queue_append_enter: 'put',
+  queue_alloc_append_enter: 'put',
+  queue_prepend_enter: 'put_front',
+  queue_alloc_prepend_enter: 'put_front',
+  queue_insert_enter: 'put',
+  queue_unique_append_enter: 'put',
+  queue_get_enter: 'get',
+}
+
+/**
+ * Classify a put/get *enter* for Timeline mark placement. Null for non-enter
+ * or for enter events that do not open a single-item flow (list/bulk, …).
+ */
+export function classifyQueueEnter(
+  name: string,
+  fields: Record<string, string | number>,
+): ClassifiedQueueEnter | null {
+  const flowOp = FLOW_ENTER_OP[name]
+  if (!flowOp) return null
+  const kind = prefixKind(name)
+  if (!kind) return null
+  const id = num(fields, 'id')
+  if (id == null) return null
+  return { kind, id, flowOp }
 }
 
 /**
@@ -164,7 +208,7 @@ export function classifyQueueKinds(
 
 /** True when a classified queue_* event should be ignored (FIFO/LIFO wrapper). */
 export function isNestedQueueEvent(
-  classified: ClassifiedQueueEvent,
+  classified: { kind: QueueKind; id: number },
   kinds: Map<number, QueueKind>,
 ): boolean {
   if (classified.kind !== 'queue') return false

@@ -491,6 +491,33 @@ export function renderStateRows(
   return out
 }
 
+/**
+ * Visit clipped state segments in [view0, view1] in timestamp order.
+ * Prefer this over {@link renderStateRows} when marks must share the same
+ * ns→x map (queue edges, playhead) — column rasterisation smears transitions
+ * left of their true start by up to one column.
+ */
+export function forEachStateInView(
+  tr: Trace,
+  tid: number,
+  view0: number,
+  view1: number,
+  visit: (s: number, e: number, state: ThreadState) => void,
+): void {
+  const segs = tr.states.get(tid)
+  const starts = tr.stateStarts.get(tid)
+  if (!segs || !starts?.length) return
+  let i = bisectRight(starts, view0) - 1
+  if (i < 0) i = 0
+  while (i < segs.length) {
+    const [s, e, state] = segs[i]!
+    i++
+    if (s >= view1) break
+    if (e <= view0 || state === 'dead') continue
+    visit(Math.max(s, view0), Math.min(e, view1), state)
+  }
+}
+
 const STATE_PREC_LOCAL: Record<ThreadState, number> = {
   run: 5,
   blk: 4,
