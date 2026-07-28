@@ -16,6 +16,7 @@ import {
   flowEdgeId,
   flowThreadLabel,
   isPutOp,
+  msgqOpColor,
   queueFlowEvents,
   threadFlowScores,
   type QueueFlowEvent,
@@ -548,15 +549,13 @@ function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipe
 }
 
 function strokeFor(op: QueueFlowOp): string {
-  if (op === 'put_front') return '#2dd4bf'
-  if (op === 'put') return '#60a5fa'
-  return '#fbbf24'
+  return msgqOpColor(op)
 }
 
 function packetFill(op: QueueFlowOp): string {
-  if (op === 'put_front') return '#5eead4'
-  if (op === 'put') return '#93c5fd'
-  return '#fcd34d'
+  if (op === 'put_front') return '#fbcfe8'
+  if (op === 'put') return '#bae6fd'
+  return '#fed7aa'
 }
 
 function markerFor(op: QueueFlowOp): string {
@@ -1030,8 +1029,8 @@ function paintFrame(
     // Direction must remain legible even between the short-lived event pulses.
     .attr('marker-end', (d) => markerFor(d.link.op))
     .attr('stroke', (d) => strokeFor(d.link.op))
-    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.35 : d.hot ? 2.3 : 1.7))
-    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.52 : d.hot ? 0.96 : 0.68))
+    .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.1 : d.hot ? 1.6 : 1.25))
+    .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.55 : d.hot ? 0.98 : 0.78))
     .attr('d', (d) => edgePath(d.thread, d.pipe, d.link, layout.pipes).d)
 
   const burstBadge = layers.packets

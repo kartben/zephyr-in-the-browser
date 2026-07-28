@@ -1,14 +1,18 @@
 /**
- * Live Zephyr CTF Trace panel — Schedule Gantt + Message Queues.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + Message Queues + Networking.
  *
- * Schedule: thread lanes coloured by run / ready / blocked / sleep / suspended,
- * with a shared live-follow time window (pan / zoom / pinch).
+ * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
+ * with a shared live-follow time window (pan / zoom / pinch). Optional msgq
+ * swim lanes line data-passing objects under the threads, with dotted
+ * put/get connectors from the actor thread to each queue rail. Lane groups
+ * (THREADS, MESSAGE QUEUES, …) carry small uppercase section headers.
  * Message Queues: per-msgq flow graph + depth from put/put_front/get exits.
  */
 
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -17,29 +21,47 @@ import {
   type TouchEventHandler,
   type WheelEventHandler,
 } from 'react'
-import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
+import { Activity, Crosshair, Maximize2, Waypoints, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { QueuesView, QUEUES_LABEL_W } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import {
   STATE_COLOR,
   STATE_LABEL,
   contextSwitchesIn,
+  depthAt,
   fmtTime,
+  isPutOp,
+  msgqOpColor,
+  queueAxisMax,
+  queueChartOpLabel,
+  queueFlowEvents,
+  queueLabel,
+  reconstructQueues,
   renderStateRows,
+  sortQueuesByPipelineOrder,
   stateAt,
   threadLabel,
   threadPrio,
   threadRunningAt,
   visibleLanes,
   windowStats,
+  type QueueFlowEvent,
+  type QueueSeries,
   type ThreadState,
   type Trace,
 } from '@/ctf'
 import {
-  formatTraceTimes,
+  formatGuestTime,
   paintCanvasTimeAxis,
   paintPlayhead,
   plotWidth,
@@ -60,20 +82,365 @@ import {
   tabIn,
 } from '@/lib/dockStore'
 
-const LANE_H = 22
-/** Room for thread name + optional prio in the left gutter. */
-const LABEL_W = 96
+/** Room for thread name + optional prio / msgq depth in the left gutter. */
+const LABEL_W = 128
 const PAD = 8
 /** Space reserved above the lanes for the time-axis ruler + labels. */
 const AXIS_H = 28
-/** Default live-follow window — matches a comfortable glance at the tracing sample. */
-const DEFAULT_LIVE_WINDOW_NS = 4_000_000_000 // 4 s
+/** Default live-follow window — last 200 ms of the stream. */
+const DEFAULT_LIVE_WINDOW_NS = 200_000_000 // 200 ms
 const MIN_WINDOW_NS = 1_000_000 // 1 ms
 const ZOOM_IN = 0.7
 const ZOOM_OUT = 1.4
 const PAN_THRESHOLD_PX = 8
+/** Pixel thinning for msgq marks / connectors on a single lane. */
+const MSGQ_MARK_MIN_GAP_PX = 5
+/** Small-caps group title row above each lane block (threads, msgq, …). */
+const SECTION_HEADER_H = 15
+/** Breath between consecutive Timeline groups. */
+const SECTION_GAP = 4
+
+type LaneSize = 's' | 'm' | 'l'
+
+/** Known Timeline lane groups — extend as FIFO / LIFO / pipes land. */
+type TimelineSectionId = 'threads' | 'msgq'
+
+type TimelineSection = {
+  id: TimelineSectionId
+  /** Uppercase group label painted in the section header. */
+  title: string
+  headerTop: number
+  lanesTop: number
+  laneH: number
+  rowCount: number
+  bottom: number
+}
+
+const LANE_SIZES: Record<LaneSize, { thread: number; label: string }> = {
+  s: { thread: 16, label: 'Compact' },
+  m: { thread: 22, label: 'Default' },
+  /** Noticeably roomier than Default — queue rails scale with it. */
+  l: { thread: 40, label: 'Tall' },
+}
+
+/** Msgq swim lanes stay ~1.5× thread height at every size. */
+function laneMetricsFor(size: LaneSize): LaneMetrics {
+  const laneH = LANE_SIZES[size].thread
+  return { laneH, msgqLaneH: Math.round(laneH * 1.5) }
+}
 
 type TraceTab = 'schedule' | 'queues' | 'net'
+
+type MsgqSwimLane = { id: number; label: string; series: QueueSeries }
+
+type LaneMetrics = { laneH: number; msgqLaneH: number }
+
+type TimelineGeom = {
+  lanes: number[]
+  hasIsr: boolean
+  /** All painted groups in top→bottom order (headers + lanes). */
+  sections: TimelineSection[]
+  lanesTop: number
+  threadBlockRows: number
+  threadsBottom: number
+  showQueues: boolean
+  queueHeaderTop: number
+  queueTop: number
+  queueBlockH: number
+  /** Bottom of the last section (playhead / canvas height). */
+  contentBottom: number
+  laneH: number
+  msgqLaneH: number
+}
+
+/** Ellipsize `text` so it fits in `maxW` with the current canvas font. */
+function fitLabel(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+  if (maxW <= 0) return ''
+  if (ctx.measureText(text).width <= maxW) return text
+  if (ctx.measureText('…').width > maxW) return ''
+  let lo = 0
+  let hi = text.length
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (ctx.measureText(`${text.slice(0, mid)}…`).width <= maxW) lo = mid
+    else hi = mid - 1
+  }
+  return lo > 0 ? `${text.slice(0, lo)}…` : '…'
+}
+
+function msgqNameMap(): Map<number, string> {
+  const map = new Map<number, string>()
+  for (const o of hostGdb.getWaitObjects()) {
+    if (o.kind === 'msgq' || o.name.toLowerCase().includes('msgq') || o.name.startsWith('q_')) {
+      map.set(o.addr, o.name)
+    }
+  }
+  for (const o of hostGdb.getWaitObjects()) {
+    if (!map.has(o.addr)) map.set(o.addr, o.name)
+  }
+  return map
+}
+
+/** Stable msgq swim lanes for Timeline overlay — pipeline order, named when known. */
+function msgqSwimLanes(tr: Trace, flow: QueueFlowEvent[]): MsgqSwimLane[] {
+  const seen = new Set(flow.map((ev) => ev.queueId))
+  if (seen.size === 0) return []
+  return sortQueuesByPipelineOrder(
+    tr,
+    reconstructQueues(tr, msgqNameMap()).filter((q) => seen.has(q.id)),
+  ).map((q) => ({ id: q.id, label: queueLabel(q), series: q }))
+}
+
+function timelineGeom(
+  tr: Trace,
+  showMsgq: boolean,
+  queueCount: number,
+  metrics: LaneMetrics,
+): TimelineGeom {
+  const lanes = visibleLanes(tr)
+  const hasIsr = tr.isrSpans.length > 0
+  const showQueues = showMsgq && queueCount > 0
+  const threadBlockRows = lanes.length + (hasIsr ? 1 : 0)
+
+  const threadsHeaderTop = AXIS_H
+  const lanesTop = threadsHeaderTop + SECTION_HEADER_H
+  const threadsBottom = lanesTop + threadBlockRows * metrics.laneH
+  const threads: TimelineSection = {
+    id: 'threads',
+    title: 'THREADS',
+    headerTop: threadsHeaderTop,
+    lanesTop,
+    laneH: metrics.laneH,
+    rowCount: threadBlockRows,
+    bottom: threadsBottom,
+  }
+
+  const sections: TimelineSection[] = [threads]
+  let queueHeaderTop = threadsBottom
+  let queueTop = threadsBottom
+  let queueBlockH = 0
+  let contentBottom = threadsBottom
+
+  if (showQueues) {
+    queueHeaderTop = threadsBottom + SECTION_GAP
+    queueTop = queueHeaderTop + SECTION_HEADER_H
+    const queuesBottom = queueTop + queueCount * metrics.msgqLaneH
+    queueBlockH = queuesBottom - threadsBottom
+    contentBottom = queuesBottom
+    sections.push({
+      id: 'msgq',
+      title: 'MESSAGE QUEUES',
+      headerTop: queueHeaderTop,
+      lanesTop: queueTop,
+      laneH: metrics.msgqLaneH,
+      rowCount: queueCount,
+      bottom: queuesBottom,
+    })
+  }
+
+  return {
+    lanes,
+    hasIsr,
+    sections,
+    lanesTop,
+    threadBlockRows,
+    threadsBottom,
+    showQueues,
+    queueHeaderTop,
+    queueTop,
+    queueBlockH,
+    contentBottom,
+    laneH: metrics.laneH,
+    msgqLaneH: metrics.msgqLaneH,
+  }
+}
+
+/** Small uppercase group title above a lane block. */
+function paintSectionHeader(
+  ctx: CanvasRenderingContext2D,
+  title: string,
+  y: number,
+  cssW: number,
+) {
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.65)'
+  ctx.fillRect(0, y, cssW - PAD, SECTION_HEADER_H)
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(4, y + SECTION_HEADER_H - 0.5)
+  ctx.lineTo(cssW - PAD, y + SECTION_HEADER_H - 0.5)
+  ctx.stroke()
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.72)'
+  ctx.font = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(title, 4, y + SECTION_HEADER_H / 2)
+}
+
+function depthLabel(series: QueueSeries, ts: number): string {
+  const d = depthAt(series.samples, ts)
+  return series.cap != null && series.cap > 0 ? `${d}/${series.cap}` : String(d)
+}
+
+/** Vertical chevron — tip sits at `(x, y)` on the destination transition. */
+function paintVArrow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  dir: 'up' | 'down',
+  color: string,
+  scale = 1,
+  kind: 'idle' | 'hot' | 'selected' = 'idle',
+) {
+  const s = (kind === 'idle' ? 4.25 : 5) * scale
+  const path = () => {
+    ctx.beginPath()
+    if (dir === 'down') {
+      ctx.moveTo(x, y)
+      ctx.lineTo(x - s * 0.75, y - s)
+      ctx.lineTo(x + s * 0.75, y - s)
+    } else {
+      ctx.moveTo(x, y)
+      ctx.lineTo(x - s * 0.75, y + s)
+      ctx.lineTo(x + s * 0.75, y + s)
+    }
+    ctx.closePath()
+  }
+  // Quiet hairline halo by default; stronger only when focused.
+  path()
+  ctx.fillStyle =
+    kind === 'selected'
+      ? 'rgba(248, 250, 252, 0.65)'
+      : kind === 'hot'
+        ? 'rgba(248, 250, 252, 0.5)'
+        : 'rgba(248, 250, 252, 0.28)'
+  ctx.fill()
+  path()
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
+/**
+ * Hairline dashed msgq connector with a soft white underglow.
+ * Idle stays thin; hot/selected pick up a bit more glow, not fat cores.
+ * `zw` scales weight with zoom (1 ≈ default 200 ms live window).
+ */
+function strokeMsgqConnector(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y0: number,
+  y1: number,
+  color: string,
+  kind: 'idle' | 'hot' | 'selected',
+  zw = 1,
+) {
+  const dash =
+    kind === 'idle'
+      ? ([2 * zw, 2.5 * zw] as [number, number])
+      : ([3 * zw, 1.5 * zw] as [number, number])
+  const core = (kind === 'selected' ? 1.35 : kind === 'hot' ? 1.15 : 0.85) * zw
+  const glow = (kind === 'selected' ? 2.75 : kind === 'hot' ? 2.25 : 1.55) * zw
+  const glowA = kind === 'selected' ? 0.5 : kind === 'hot' ? 0.38 : 0.22
+
+  ctx.setLineDash(dash)
+  ctx.strokeStyle = `rgba(248, 250, 252, ${glowA})`
+  ctx.lineWidth = glow
+  ctx.beginPath()
+  ctx.moveTo(x, y0)
+  ctx.lineTo(x, y1)
+  ctx.stroke()
+
+  ctx.strokeStyle = color
+  ctx.lineWidth = core
+  ctx.beginPath()
+  ctx.moveTo(x, y0)
+  ctx.lineTo(x, y1)
+  ctx.stroke()
+  ctx.setLineDash([])
+}
+
+/** Origin mark with a soft white halo. */
+function paintMsgqMark(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  kind: 'idle' | 'hot' | 'selected',
+) {
+  const halo = kind === 'idle' ? r + 0.7 : r + 1.2
+  ctx.beginPath()
+  ctx.arc(x, y, halo, 0, Math.PI * 2)
+  ctx.fillStyle =
+    kind === 'selected'
+      ? 'rgba(248, 250, 252, 0.65)'
+      : kind === 'hot'
+        ? 'rgba(248, 250, 252, 0.5)'
+        : 'rgba(248, 250, 252, 0.28)'
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
+/**
+ * Mild stroke scale from the time window: zoomed in → a bit thicker,
+ * zoomed out → a bit thinner. Anchored at the default 200 ms live window.
+ */
+function msgqZoomWeight(spanNs: number): number {
+  const raw = Math.sqrt(DEFAULT_LIVE_WINDOW_NS / Math.max(MIN_WINDOW_NS, spanNs))
+  return Math.min(1.45, Math.max(0.7, raw))
+}
+
+/** Pixel hit slop for clicking a msgq edge connector. */
+const MSGQ_EDGE_HIT_PX = 7
+
+type MsgqHover = {
+  /** Flow event under the tip, if any. */
+  eventIndex: number | null
+  /** Queue swim lane under the pointer / involved by the event. */
+  queueId: number | null
+  /** Pointer is over a msgq swim lane (tip should stay queue-centric). */
+  overQueueLane: boolean
+}
+
+function resolveMsgqHover(
+  playhead: { ts: number; y: number } | null,
+  tr: Trace,
+  view0: number,
+  view1: number,
+  showMsgq: boolean,
+  queueLanes: MsgqSwimLane[],
+  msgqEvents: QueueFlowEvent[],
+  metrics: LaneMetrics,
+  /** Max |Δt| in raw CTF ns for snapping to a flow event. */
+  maxDeltaNs: number,
+): MsgqHover | null {
+  if (!playhead || !showMsgq) return null
+  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  const overQueue =
+    geom.showQueues &&
+    playhead.y >= geom.queueTop &&
+    playhead.y < geom.queueTop + queueLanes.length * geom.msgqLaneH
+      ? Math.floor((playhead.y - geom.queueTop) / geom.msgqLaneH)
+      : -1
+
+  if (overQueue >= 0 && overQueue < queueLanes.length) {
+    const q = queueLanes[overQueue]!
+    const msgq = nearestMsgqNear(
+      msgqEvents.filter((ev) => ev.queueId === q.id),
+      playhead.ts,
+      view0,
+      view1,
+      maxDeltaNs,
+    )
+    return { queueId: q.id, eventIndex: msgq?.index ?? null, overQueueLane: true }
+  }
+
+  const msgq = nearestMsgqNear(msgqEvents, playhead.ts, view0, view1, maxDeltaNs)
+  if (!msgq) return null
+  return { queueId: msgq.queueId, eventIndex: msgq.index, overQueueLane: false }
+}
 
 const TRACE_TABS = ['schedule', 'queues', 'net'] as const satisfies readonly TraceTab[]
 
@@ -127,12 +494,21 @@ function paint(
   follow: boolean,
   selectedLane: number | null,
   playheadTs: number | null,
+  showMsgq: boolean,
+  msgqEvents: QueueFlowEvent[],
+  queueLanes: MsgqSwimLane[],
+  metrics: LaneMetrics,
+  hover: MsgqHover | null,
+  /** When set, playhead snaps to this raw CTF ns (tip event). */
+  snapTs: number | null,
+  /** Sticky click-selected msgq edge (event index). */
+  selectedEdge: number | null,
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
-  const lanes = visibleLanes(tr)
-  const plotRows = lanes.length + (tr.isrSpans.length ? 1 : 0)
-  const cssH = Math.max(120, AXIS_H + PAD + plotRows * LANE_H + 8)
+  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  const { lanes, hasIsr, lanesTop, laneH, msgqLaneH, showQueues, queueTop, contentBottom } = geom
+  const cssH = Math.max(120, contentBottom + 8)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width = Math.floor(cssW * dpr)
     canvas.height = Math.floor(cssH * dpr)
@@ -147,8 +523,11 @@ function paint(
   const cols = Math.max(64, Math.floor(plotW))
   const rows = renderStateRows(tr, lanes, view0, view1, cols)
   const colW = plotW / cols
-  const lanesTop = AXIS_H
   const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
+  const depthProbeTs = playheadTs ?? view1
+  const hoverActive =
+    selectedEdge != null ||
+    (hover != null && (hover.eventIndex != null || hover.queueId != null))
 
   paintCanvasTimeAxis(ctx, {
     cssW,
@@ -160,31 +539,39 @@ function paint(
     follow,
   })
 
-  // --- Lanes -------------------------------------------------------------
+  for (const section of geom.sections) {
+    paintSectionHeader(ctx, section.title, section.headerTop, cssW)
+  }
+
+  // --- Thread lanes ------------------------------------------------------
   ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
-  ctx.fillRect(LABEL_W, lanesTop, plotW, lanes.length * LANE_H)
+  ctx.fillRect(LABEL_W, lanesTop, plotW, lanes.length * laneH)
 
   lanes.forEach((tid, row) => {
-    const y = lanesTop + row * LANE_H
+    const y = lanesTop + row * laneH
     const label = threadLabel(tr, tid)
     const prio = threadPrio(tr, tid)
     const selected = selectedLane === tid
     ctx.fillStyle = selected ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.95)'
     ctx.font = `${selected ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
     ctx.textBaseline = 'middle'
-    const nameMax = prio != null ? 7 : 10
-    const trimmed = label.length > nameMax ? `${label.slice(0, nameMax - 1)}…` : label
-    ctx.fillText(trimmed, 4, y + LANE_H / 2)
+    let prioW = 0
+    if (prio != null) {
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+      prioW = ctx.measureText(String(prio)).width
+      ctx.font = `${selected ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
+    }
+    const nameMaxW = LABEL_W - 4 - (prio != null ? prioW + 10 : 6)
+    ctx.fillText(fitLabel(ctx, label, nameMaxW), 4, y + laneH / 2)
     if (prio != null) {
       const prioStr = String(prio)
       ctx.fillStyle = selected ? 'rgba(148, 163, 184, 0.95)' : 'rgba(100, 116, 139, 0.95)'
       ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-      const tw = ctx.measureText(prioStr).width
-      ctx.fillText(prioStr, LABEL_W - tw - 6, y + LANE_H / 2)
+      ctx.fillText(prioStr, LABEL_W - prioW - 6, y + laneH / 2)
     }
     if (selected) {
       ctx.fillStyle = 'rgba(59, 130, 246, 0.18)'
-      ctx.fillRect(LABEL_W, y, plotW, LANE_H)
+      ctx.fillRect(LABEL_W, y, plotW, laneH)
     }
 
     const cells = rows.get(tid) ?? []
@@ -193,34 +580,244 @@ function paint(
       if (!st || st === 'dead') continue
       ctx.fillStyle = STATE_COLOR[st]
       ctx.globalAlpha = st === 'run' ? 1 : 0.78
-      ctx.fillRect(LABEL_W + c * colW, y + 3, Math.max(1.25, colW + 0.75), LANE_H - 6)
+      ctx.fillRect(LABEL_W + c * colW, y + 3, Math.max(1.25, colW + 0.75), laneH - 6)
     }
     ctx.globalAlpha = 1
   })
 
-  if (tr.isrSpans.length) {
-    const y = lanesTop + lanes.length * LANE_H
+  if (hasIsr) {
+    const y = lanesTop + lanes.length * laneH
     ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
-    ctx.fillText('[ISR]', 4, y + LANE_H / 2)
+    ctx.fillText('[ISR]', 4, y + laneH / 2)
     for (const [s, e] of tr.isrSpans) {
       if (e <= view0 || s >= view1) continue
       const x0 = LABEL_W + ((Math.max(s, view0) - view0) / span) * plotW
       const x1 = LABEL_W + ((Math.min(e, view1) - view0) / span) * plotW
       ctx.fillStyle = 'rgba(168, 85, 247, 0.8)'
-      ctx.fillRect(x0, y + 3, Math.max(2, x1 - x0), LANE_H - 6)
+      ctx.fillRect(x0, y + 3, Math.max(2, x1 - x0), laneH - 6)
     }
   }
 
-  if (playheadTs != null) {
-    const x = xAt(layout, cssW, playheadTs)
+  // --- Msgq swim lanes + dotted connectors -------------------------------
+  if (showMsgq && msgqEvents.length > 0) {
+    const threadRowOf = new Map(lanes.map((tid, row) => [tid, row]))
+    const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
+    const zw = msgqZoomWeight(span)
+    const MARK_R = 2 * (0.85 + 0.15 * zw)
+    const ARROW_H = 4.5 * (0.85 + 0.15 * zw)
+
+    if (showQueues) {
+      ctx.fillStyle = 'rgba(8, 47, 73, 0.35)'
+      ctx.fillRect(LABEL_W, queueTop, plotW, queueLanes.length * msgqLaneH)
+
+      queueLanes.forEach((q, row) => {
+        const y = queueTop + row * msgqLaneH
+        const laneHot = hover?.queueId === q.id
+        if (laneHot) {
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.16)'
+          ctx.fillRect(0, y, cssW - PAD, msgqLaneH)
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.22)'
+          ctx.fillRect(LABEL_W, y, plotW, msgqLaneH)
+        }
+
+        const yMax = queueAxisMax(q.series)
+        const innerPad = 3
+        const innerH = Math.max(2, msgqLaneH - innerPad * 2)
+
+        for (let c = 0; c < cols; c++) {
+          const ts = view0 + ((c + 0.5) / cols) * span
+          const d = depthAt(q.series.samples, ts)
+          if (d <= 0) continue
+          const h = Math.max(1.5, (d / yMax) * innerH)
+          ctx.fillStyle = laneHot ? 'rgba(56, 189, 248, 0.45)' : 'rgba(56, 189, 248, 0.28)'
+          ctx.fillRect(LABEL_W + c * colW, y + msgqLaneH - innerPad - h, Math.max(1, colW + 0.5), h)
+        }
+
+        ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 1)' : 'rgba(125, 211, 252, 0.9)'
+        ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
+        ctx.textBaseline = 'middle'
+        const depthStr = depthLabel(q.series, depthProbeTs)
+        ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+        const depthW = ctx.measureText(depthStr).width
+        ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
+        const nameMaxW = LABEL_W - 4 - depthW - 10
+        ctx.fillText(fitLabel(ctx, q.label, nameMaxW), 4, y + msgqLaneH / 2)
+        ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 0.95)' : 'rgba(125, 211, 252, 0.7)'
+        ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+        ctx.fillText(depthStr, LABEL_W - depthW - 6, y + msgqLaneH / 2)
+
+        ctx.strokeStyle = laneHot ? 'rgba(125, 211, 252, 0.55)' : 'rgba(56, 189, 248, 0.22)'
+        ctx.lineWidth = laneHot ? 1.25 : 1
+        ctx.beginPath()
+        ctx.moveTo(LABEL_W, y + msgqLaneH / 2)
+        ctx.lineTo(LABEL_W + plotW, y + msgqLaneH / 2)
+        ctx.stroke()
+      })
+    }
+
+    const lastXByKey = new Map<string, number>()
+    const visible: QueueFlowEvent[] = []
+    for (const ev of msgqEvents) {
+      if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
+      if (!threadRowOf.has(ev.threadId)) continue
+      const thinKey = `${ev.threadId}|${ev.queueId}`
+      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
+      const prev = lastXByKey.get(thinKey)
+      if (prev != null && x - prev < MSGQ_MARK_MIN_GAP_PX) continue
+      lastXByKey.set(thinKey, x)
+      visible.push(ev)
+    }
+    // Draw dim connectors first; hovered / sticky-selected last (on top).
+    const focusIndex = hover?.eventIndex ?? selectedEdge
+    const ordered =
+      focusIndex != null
+        ? [
+            ...visible.filter((ev) => ev.index !== focusIndex),
+            ...visible.filter((ev) => ev.index === focusIndex),
+          ]
+        : visible
+
+    for (const ev of ordered) {
+      const tRow = threadRowOf.get(ev.threadId!)!
+      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
+      const threadY = lanesTop + tRow * laneH + laneH / 2
+      const color = msgqOpColor(ev.op, ev.ok)
+      const qRow = queueRowOf.get(ev.queueId)
+      const queueY =
+        qRow != null && showQueues ? queueTop + qRow * msgqLaneH + msgqLaneH / 2 : null
+      const selected = selectedEdge === ev.index
+      const hovered =
+        hover?.eventIndex === ev.index ||
+        (hover?.eventIndex == null && hover?.queueId === ev.queueId && !selectedEdge)
+      const hot = selected || hovered
+      const dim = hoverActive && !hot
+      const put = isPutOp(ev.op)
+      const kind = selected ? 'selected' : hot ? 'hot' : 'idle'
+      const scale = selected ? 1.25 : hot ? 1.15 : 1
+      const markR = MARK_R * scale
+      const arrowH = ARROW_H * scale
+
+      ctx.globalAlpha = dim ? 0.1 : hot ? 1 : 0.42
+
+      if (queueY != null && Math.abs(queueY - threadY) > markR * 2 + arrowH) {
+        // put: thread ○ →↓ queue    get: queue ○ →↑ thread
+        // Timestamps are raw CTF ns; x is a pure linear map of those ns.
+        const startY = put ? threadY : queueY
+        const tipY = put ? queueY : threadY
+        const dir: 'up' | 'down' = tipY > startY ? 'down' : 'up'
+        const edgeStart = dir === 'down' ? startY + markR : startY - markR
+        const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
+
+        strokeMsgqConnector(ctx, x, edgeStart, edgeBeforeTip, color, kind, zw)
+        paintMsgqMark(ctx, x, startY, markR, color, kind)
+        paintVArrow(ctx, x, tipY, dir, color, scale, kind)
+      } else {
+        strokeMsgqConnector(
+          ctx,
+          x,
+          threadY - laneH / 2 + 2,
+          threadY + laneH / 2 - 2,
+          color,
+          kind,
+          zw,
+        )
+        paintMsgqMark(ctx, x, threadY, markR, color, kind)
+      }
+
+      ctx.globalAlpha = 1
+    }
+  }
+
+  // Playhead uses the same ns→x map; when a tip event is active, snap to that
+  // event’s raw timestamp so the line sits on the connector.
+  const headTs = snapTs ?? playheadTs
+  if (headTs != null) {
+    const x = xAt(layout, cssW, headTs)
     if (x >= LABEL_W && x <= LABEL_W + plotW) {
-      paintPlayhead(ctx, { x, y0: AXIS_H, y1: AXIS_H + plotRows * LANE_H })
+      paintPlayhead(ctx, {
+        x,
+        y0: AXIS_H,
+        y1: contentBottom,
+      })
     }
   }
 
   canvas.style.height = `${cssH}px`
+}
+
+/** Nearest msgq flow event near `ts` within `maxDeltaNs` (raw CTF ns). */
+function nearestMsgqNear(
+  events: QueueFlowEvent[],
+  ts: number,
+  view0: number,
+  view1: number,
+  maxDeltaNs: number,
+): QueueFlowEvent | null {
+  let best: QueueFlowEvent | null = null
+  let bestDist = Infinity
+  for (const ev of events) {
+    if (ev.ts < view0 || ev.ts > view1) continue
+    const d = Math.abs(ev.ts - ts)
+    if (d < bestDist) {
+      bestDist = d
+      best = ev
+    }
+  }
+  if (!best || bestDist > maxDeltaNs) return null
+  return best
+}
+
+/**
+ * Hit-test a vertical msgq connector at canvas (x, y).
+ * Returns the event index of the nearest edge within {@link MSGQ_EDGE_HIT_PX}, or null.
+ */
+function hitTestMsgqEdge(
+  tr: Trace,
+  view0: number,
+  view1: number,
+  cssW: number,
+  x: number,
+  y: number,
+  showMsgq: boolean,
+  msgqEvents: QueueFlowEvent[],
+  queueLanes: MsgqSwimLane[],
+  metrics: LaneMetrics,
+): number | null {
+  if (!showMsgq || queueLanes.length === 0) return null
+  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  if (!geom.showQueues) return null
+  const plotW = plotWidth(cssW, LABEL_W, PAD)
+  const span = Math.max(1, view1 - view0)
+  const threadRowOf = new Map(geom.lanes.map((tid, row) => [tid, row]))
+  const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
+
+  let best: number | null = null
+  let bestDist = MSGQ_EDGE_HIT_PX
+  const lastXByKey = new Map<string, number>()
+  for (const ev of msgqEvents) {
+    if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
+    const tRow = threadRowOf.get(ev.threadId)
+    const qRow = queueRowOf.get(ev.queueId)
+    if (tRow == null || qRow == null) continue
+    const ex = LABEL_W + ((ev.ts - view0) / span) * plotW
+    const thinKey = `${ev.threadId}|${ev.queueId}`
+    const prev = lastXByKey.get(thinKey)
+    if (prev != null && ex - prev < MSGQ_MARK_MIN_GAP_PX) continue
+    lastXByKey.set(thinKey, ex)
+    const threadY = geom.lanesTop + tRow * geom.laneH + geom.laneH / 2
+    const queueY = geom.queueTop + qRow * geom.msgqLaneH + geom.msgqLaneH / 2
+    const y0 = Math.min(threadY, queueY)
+    const y1 = Math.max(threadY, queueY)
+    if (y < y0 - MSGQ_EDGE_HIT_PX || y > y1 + MSGQ_EDGE_HIT_PX) continue
+    const dx = Math.abs(x - ex)
+    if (dx <= bestDist) {
+      bestDist = dx
+      best = ev.index
+    }
+  }
+  return best
 }
 
 type TraceSurface = HTMLCanvasElement | SVGSVGElement
@@ -333,10 +930,20 @@ function TracePanelBody({
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
-  /** Schedule playhead — hover ts; null when not scrubbing. */
-  const [playhead, setPlayhead] = useState<{ ts: number; x: number } | null>(null)
+  /** Line msgq put/get/put_front marks onto thread lanes. */
+  const [showMsgq, setShowMsgq] = useState(true)
+  const [laneSize, setLaneSize] = useState<LaneSize>('m')
+  /** Sticky click-selected msgq edge (tr.events index). */
+  const [selectedEdge, setSelectedEdge] = useState<number | null>(null)
+  /** Timeline playhead — hover ts; null when not scrubbing. */
+  const [playhead, setPlayhead] = useState<{ ts: number; x: number; y: number } | null>(null)
   const playheadRef = useRef(playhead)
   playheadRef.current = playhead
+  const showMsgqRef = useRef(showMsgq)
+  showMsgqRef.current = showMsgq
+  const laneMetrics = useMemo(() => laneMetricsFor(laneSize), [laneSize])
+  const laneMetricsRef = useRef(laneMetrics)
+  laneMetricsRef.current = laneMetrics
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
@@ -346,6 +953,57 @@ function TracePanelBody({
   const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
 
   const tr = snap.trace
+  const msgqEvents = useMemo(
+    () => (tr ? queueFlowEvents(tr) : []),
+    // revision bumps whenever the event ring changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tr, snap.revision],
+  )
+  const queueLanes = useMemo(
+    () => (tr ? msgqSwimLanes(tr, msgqEvents) : []),
+    // names can appear once GDB wait-objects resolve; revision covers CTF growth
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tr, msgqEvents, snap.revision],
+  )
+  const msgqEventsRef = useRef(msgqEvents)
+  msgqEventsRef.current = msgqEvents
+  const queueLanesRef = useRef(queueLanes)
+  queueLanesRef.current = queueLanes
+
+  const msgqHover = useMemo(() => {
+    if (!tr || !view || !playhead) return null
+    const cssW = canvasRef.current?.clientWidth ?? 480
+    const plotW = plotWidth(cssW, LABEL_W, PAD)
+    // ~8px in raw ns — keeps tip/snap tight to the mark under the cursor.
+    const maxDeltaNs = Math.max(50_000, ((view.t1 - view.t0) * 8) / Math.max(1, plotW))
+    return resolveMsgqHover(
+      playhead,
+      tr,
+      view.t0,
+      view.t1,
+      showMsgq,
+      queueLanes,
+      msgqEvents,
+      laneMetrics,
+      maxDeltaNs,
+    )
+  }, [playhead, tr, view, showMsgq, queueLanes, msgqEvents, laneMetrics])
+  const msgqHoverRef = useRef(msgqHover)
+  msgqHoverRef.current = msgqHover
+  const snapTs = useMemo(() => {
+    const idx = msgqHover?.eventIndex ?? selectedEdge
+    if (idx == null) return null
+    return msgqEvents.find((ev) => ev.index === idx)?.ts ?? null
+  }, [msgqHover, selectedEdge, msgqEvents])
+  const snapTsRef = useRef(snapTs)
+  snapTsRef.current = snapTs
+  const selectedEdgeRef = useRef(selectedEdge)
+  selectedEdgeRef.current = selectedEdge
+
+  useEffect(() => {
+    if (!showMsgq) setSelectedEdge(null)
+  }, [showMsgq])
+
   useEffect(() => {
     if (!tr || tr.events.length === 0) return
     if (follow) {
@@ -357,8 +1015,38 @@ function TracePanelBody({
     if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || !tr || !view) return
-    paint(canvas, tr, view.t0, view.t1, follow, selectedLane, playhead?.ts ?? null)
-  }, [tr, view, follow, snap.revision, selectedLane, tab, playhead])
+    paint(
+      canvas,
+      tr,
+      view.t0,
+      view.t1,
+      follow,
+      selectedLane,
+      playhead?.ts ?? null,
+      showMsgq,
+      msgqEvents,
+      queueLanes,
+      laneMetrics,
+      msgqHover,
+      snapTs,
+      selectedEdge,
+    )
+  }, [
+    tr,
+    view,
+    follow,
+    snap.revision,
+    selectedLane,
+    tab,
+    playhead,
+    showMsgq,
+    msgqEvents,
+    queueLanes,
+    laneMetrics,
+    msgqHover,
+    snapTs,
+    selectedEdge,
+  ])
 
   useEffect(() => {
     if (tab !== 'schedule') return
@@ -374,6 +1062,13 @@ function TracePanelBody({
         follow,
         selectedLane,
         playheadRef.current?.ts ?? null,
+        showMsgqRef.current,
+        msgqEventsRef.current,
+        queueLanesRef.current,
+        laneMetricsRef.current,
+        msgqHoverRef.current,
+        snapTsRef.current,
+        selectedEdgeRef.current,
       )
     })
     ro.observe(canvas)
@@ -381,7 +1076,10 @@ function TracePanelBody({
   }, [tr, follow, selectedLane, tab])
 
   useEffect(() => {
-    if (tab !== 'schedule') setPlayhead(null)
+    if (tab !== 'schedule') {
+      setPlayhead(null)
+      setSelectedEdge(null)
+    }
   }, [tab])
 
   const applyZoom = useCallback(
@@ -455,12 +1153,71 @@ function TracePanelBody({
 
   const scheduleTip = (() => {
     if (!playhead || !tr || !view) return null
+
+    const q =
+      msgqHover?.queueId != null
+        ? queueLanes.find((lane) => lane.id === msgqHover.queueId)
+        : selectedEdge != null
+          ? (() => {
+              const ev = msgqEvents.find((e) => e.index === selectedEdge)
+              return ev ? queueLanes.find((lane) => lane.id === ev.queueId) : undefined
+            })()
+          : undefined
+    const msgq =
+      msgqHover?.eventIndex != null
+        ? (msgqEvents.find((ev) => ev.index === msgqHover.eventIndex) ?? null)
+        : selectedEdge != null
+          ? (msgqEvents.find((ev) => ev.index === selectedEdge) ?? null)
+          : null
+    // Tip / playhead snap to the event’s raw CTF ns when we have one.
+    const tipTs = msgq?.ts ?? playhead.ts
+
+    // Queue-lane tip: keep it about the queue / op — not who is running.
+    if (msgqHover?.overQueueLane && q) {
+      const lines: string[] = []
+      if (msgq) {
+        const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+        const fail = msgq.ok ? '' : ' fail'
+        const arrow = isPutOp(msgq.op) ? '→' : '←'
+        lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} ${arrow} ${q.label}`)
+      } else {
+        lines.push(q.label)
+      }
+      lines.push(`depth ${depthLabel(q.series, tipTs)}`)
+      const cssWQ = canvasRef.current?.clientWidth ?? 480
+      const stepQ = windowTimeStep(view.t0, view.t1, plotWidth(cssWQ, LABEL_W, PAD))
+      lines.push(formatGuestTime(tipTs, stepQ))
+      return lines
+    }
+
     const cssW = canvasRef.current?.clientWidth ?? 480
     const step = windowTimeStep(view.t0, view.t1, plotWidth(cssW, LABEL_W, PAD))
-    const { rel, guest } = formatTraceTimes(playhead.ts, tr.t0, step)
+    const guest = formatGuestTime(tipTs, step)
     const runLabel = runningTid != null ? threadLabel(tr, runningTid) : '(idle)'
-    // Absolute CTF ns from timing_ns_get — not k_uptime_ticks (no tick rate in stream).
-    return [`${rel} · ${runLabel}`, `guest ${guest}`]
+    // Absolute guest CTF ns from timing_ns_get (not relative to first event).
+    const lines = [`${guest} · ${runLabel}`]
+
+    // When the pointer is over a thread lane label, show that lane’s full name.
+    if (playhead.x < LABEL_W) {
+      const geom = timelineGeom(tr, showMsgq, queueLanes.length, laneMetrics)
+      const row = Math.floor((playhead.y - geom.lanesTop) / geom.laneH)
+      if (row >= 0 && row < geom.lanes.length) {
+        const tid = geom.lanes[row]!
+        const full = threadLabel(tr, tid)
+        const prio = threadPrio(tr, tid)
+        lines.push(prio != null ? `${full} · prio ${prio}` : full)
+      }
+    }
+
+    if (msgq) {
+      const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+      const qName = q?.label ?? `0x${msgq.queueId.toString(16)}`
+      const fail = msgq.ok ? '' : ' fail'
+      const arrow = isPutOp(msgq.op) ? '→' : '←'
+      const depth = q ? ` · depth ${depthLabel(q.series, msgq.ts)}` : ''
+      lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} ${arrow} ${qName}${depth}`)
+    }
+    return lines
   })()
 
   const selectLane = (tid: number) => {
@@ -534,14 +1291,35 @@ function TracePanelBody({
       /* ignore */
     }
     if (g.moved || !view || !tr || tab !== 'schedule') return
-    // Tap on a lane label selects it and opens Debug → Threads.
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
+    // Tap a msgq edge to pin/unpin its highlight.
+    if (showMsgq && x >= LABEL_W) {
+      const hit = hitTestMsgqEdge(
+        tr,
+        view.t0,
+        view.t1,
+        e.currentTarget.clientWidth,
+        x,
+        y,
+        showMsgq,
+        msgqEvents,
+        queueLanes,
+        laneMetrics,
+      )
+      if (hit != null) {
+        setSelectedEdge((prev) => (prev === hit ? null : hit))
+        return
+      }
+      // Empty plot click clears a sticky edge.
+      if (selectedEdge != null) setSelectedEdge(null)
+    }
+    // Tap on a lane label selects it and opens Debug → Threads.
     if (x < LABEL_W && y >= AXIS_H) {
-      const row = Math.floor((y - AXIS_H) / LANE_H)
-      const order = visibleLanes(tr)
-      if (row >= 0 && row < order.length) selectLane(order[row]!)
+      const geom = timelineGeom(tr, showMsgq, queueLanes.length, laneMetrics)
+      const row = Math.floor((y - geom.lanesTop) / geom.laneH)
+      if (row >= 0 && row < geom.lanes.length) selectLane(geom.lanes[row]!)
     }
   }
 
@@ -606,7 +1384,16 @@ function TracePanelBody({
 
   if (!tr) return null
 
-  // Compact chrome sits immediately above the time chart (Schedule / Net canvas,
+  const tipAnchorX =
+    playhead && snapTs != null && canvasRef.current && view
+      ? xAt(
+          { labelW: LABEL_W, pad: PAD, view0: view.t0, view1: view.t1, t0: tr.t0 },
+          canvasRef.current.clientWidth,
+          snapTs,
+        )
+      : (playhead?.x ?? 0)
+
+  // Compact chrome sits immediately above the time chart (Timeline / Net canvas,
   // or between the msgq flow graph and depth chart) — same idiom as CAN lanes.
   const chartToolbar = (
     <div className="flex items-center gap-0.5 px-0.5">
@@ -665,7 +1452,7 @@ function TracePanelBody({
       <div className="flex gap-0.5 px-0.5">
         {(
           [
-            ['schedule', 'Schedule'],
+            ['schedule', 'Timeline'],
             ['queues', 'Message Queues'],
             ['net', 'Networking'],
           ] as const
@@ -713,7 +1500,86 @@ function TracePanelBody({
       ) : (
         <>
           <div className="flex flex-col gap-1">
-            {chartToolbar}
+            <div className="flex items-center gap-0.5 px-0.5">
+              <button
+                type="button"
+                title="Zoom in"
+                aria-label="Zoom in"
+                onClick={() => applyZoom(ZOOM_IN)}
+                className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+              >
+                <ZoomIn className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                title="Zoom out"
+                aria-label="Zoom out"
+                onClick={() => applyZoom(ZOOM_OUT)}
+                className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+              >
+                <ZoomOut className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                title="Fit entire trace"
+                aria-label="Fit entire trace"
+                onClick={fitAll}
+                className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+              >
+                <Maximize2 className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                title="Show msgq edges"
+                aria-label="Show msgq edges"
+                aria-pressed={showMsgq}
+                onClick={() => setShowMsgq((v) => !v)}
+                className={cn(
+                  'rounded p-0.5 touch-manipulation',
+                  showMsgq
+                    ? 'bg-secondary text-foreground'
+                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                )}
+              >
+                <Waypoints className="size-3.5" />
+              </button>
+              <Select value={laneSize} onValueChange={(v) => setLaneSize(v as LaneSize)}>
+                <SelectTrigger
+                  className="h-6 w-[5.75rem] touch-manipulation border-0 bg-transparent px-1.5 text-[10px] shadow-none hover:bg-secondary"
+                  aria-label="Lane height"
+                  title="Lane height"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(LANE_SIZES) as LaneSize[]).map((id) => (
+                    <SelectItem key={id} value={id} className="text-[11px]">
+                      {LANE_SIZES[id].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="ml-auto flex items-center gap-0.5">
+                <button
+                  type="button"
+                  title="Pan earlier"
+                  aria-label="Pan earlier"
+                  onClick={() => panByFraction(-0.6)}
+                  className="rounded px-1 py-0.5 font-mono text-xs leading-none text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  title="Pan later"
+                  aria-label="Pan later"
+                  onClick={() => panByFraction(0.6)}
+                  className="rounded px-1 py-0.5 font-mono text-xs leading-none text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
             <div className="relative w-full select-none">
               <canvas
                 ref={canvasRef}
@@ -727,7 +1593,15 @@ function TracePanelBody({
                   }
                   const rect = e.currentTarget.getBoundingClientRect()
                   const x = e.clientX - rect.left
-                  if (x < LABEL_W || x > e.currentTarget.clientWidth - PAD) {
+                  const y = e.clientY - rect.top
+                  const maxX = e.currentTarget.clientWidth - PAD
+                  if (x < LABEL_W && y >= AXIS_H) {
+                    // Gutter hover — tip shows the full thread name; keep last ts or live edge.
+                    const ts = playheadRef.current?.ts ?? view.t1
+                    setPlayhead({ ts, x, y })
+                    return
+                  }
+                  if (x < LABEL_W || x > maxX) {
                     setPlayhead(null)
                     return
                   }
@@ -736,7 +1610,7 @@ function TracePanelBody({
                     e.currentTarget.clientWidth,
                     x,
                   )
-                  setPlayhead({ ts, x })
+                  setPlayhead({ ts, x, y })
                 }}
                 onPointerLeave={() => setPlayhead(null)}
               />
@@ -745,9 +1619,19 @@ function TracePanelBody({
                   role="tooltip"
                   className="pointer-events-none absolute z-10 select-none rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
                   style={{
-                    left: playhead.x > LABEL_W + 160 ? playhead.x - 10 : playhead.x + 10,
-                    top: AXIS_H + 4,
-                    transform: playhead.x > LABEL_W + 160 ? 'translateX(-100%)' : undefined,
+                    left:
+                      playhead.x < LABEL_W
+                        ? LABEL_W + 8
+                        : tipAnchorX > LABEL_W + 160
+                          ? tipAnchorX - 10
+                          : tipAnchorX + 10,
+                    top: Math.max(AXIS_H + 4, playhead.y + 8),
+                    transform:
+                      playhead.x < LABEL_W
+                        ? undefined
+                        : tipAnchorX > LABEL_W + 160
+                          ? 'translateX(-100%)'
+                          : undefined,
                   }}
                 >
                   {scheduleTip.map((line, i) => (
@@ -766,9 +1650,12 @@ function TracePanelBody({
           <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
             Hover for playhead · drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to
             select
+            {showMsgq
+              ? ' · click a msgq edge to pin it'
+              : ''}
           </p>
 
-          {/* Colour legend — same states as the terminal viewer. */}
+          {/* Colour legend — thread states + optional msgq marks. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
             <span className="text-foreground/80">states:</span>
             {(Object.keys(STATE_LABEL) as ThreadState[])
@@ -782,6 +1669,31 @@ function TracePanelBody({
                   {STATE_LABEL[s]}
                 </span>
               ))}
+            {showMsgq && (
+              <>
+                <span className="text-border">|</span>
+                <span className="text-foreground/80">msgq:</span>
+                {(
+                  [
+                    ['put', 'put →'],
+                    ['put_front', 'front →'],
+                    ['get', 'get ←'],
+                  ] as const
+                ).map(([op, label]) => (
+                  <span key={op} className="inline-flex items-center gap-1">
+                    <span
+                      className="inline-block h-2.5 w-1 rounded-sm"
+                      style={{ background: msgqOpColor(op) }}
+                    />
+                    {label}
+                  </span>
+                ))}
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block h-2 w-3 rounded-sm bg-sky-400/30" />
+                  depth
+                </span>
+              </>
+            )}
           </div>
 
           {/* Metrics line — CPU busy + ctxsw over the visible window. */}

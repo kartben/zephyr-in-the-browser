@@ -70,6 +70,7 @@ export {
   queueChartEvents,
   nearestQueueChartEvent,
   queueChartOpLabel,
+  msgqOpColor,
   advanceFlowCursor,
   threadFlowScores,
   flowEdgeId,
