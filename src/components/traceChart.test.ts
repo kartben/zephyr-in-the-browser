@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   clampPlotX,
+  clampYZoom,
+  isIdentityYZoom,
+  panYZoom,
+  screenYToBase,
   viewFromBoxSelection,
   wantsBoxZoom,
+  yZoomFromScreenSelection,
 } from './traceChart'
 
 describe('wantsBoxZoom', () => {
@@ -44,5 +49,45 @@ describe('viewFromBoxSelection', () => {
     const a = viewFromBoxSelection(view, 200, 40, 8, 40, 116)
     const b = viewFromBoxSelection(view, 200, 40, 8, 116, 40)
     expect(a).toEqual(b)
+  })
+})
+
+describe('yZoomFromScreenSelection', () => {
+  it('returns null for a short vertical drag', () => {
+    expect(yZoomFromScreenSelection(20, 220, 40, 45, null)).toBeNull()
+  })
+
+  it('maps a strip into fractions of the plot band', () => {
+    // Mid half of a 200px plot (20..220).
+    const z = yZoomFromScreenSelection(20, 220, 70, 170, null)
+    expect(z).not.toBeNull()
+    expect(z!.f0).toBeCloseTo(0.25, 5)
+    expect(z!.f1).toBeCloseTo(0.75, 5)
+  })
+
+  it('nests through an existing vertical zoom', () => {
+    const outer = { f0: 0.25, f1: 0.75 }
+    // Screen covers the full visible band → stays on the outer window.
+    const nested = yZoomFromScreenSelection(20, 220, 20, 220, outer)
+    expect(nested).not.toBeNull()
+    expect(nested!.f0).toBeCloseTo(0.25, 5)
+    expect(nested!.f1).toBeCloseTo(0.75, 5)
+  })
+})
+
+describe('screenYToBase / panYZoom', () => {
+  it('round-trips identity zoom', () => {
+    expect(screenYToBase(120, 20, 220, null)).toBeCloseTo(120, 5)
+  })
+
+  it('pans without changing span', () => {
+    const next = panYZoom({ f0: 0.2, f1: 0.5 }, 200, 40)
+    expect(next.f1 - next.f0).toBeCloseTo(0.3, 5)
+    expect(isIdentityYZoom(next)).toBe(false)
+  })
+
+  it('clamps a too-tight zoom to a minimum span', () => {
+    const z = clampYZoom({ f0: 0.5, f1: 0.501 }, 0.04)
+    expect(z.f1 - z.f0).toBeGreaterThanOrEqual(0.04 - 1e-9)
   })
 })
