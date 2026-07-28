@@ -8,7 +8,11 @@ import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
 import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
-import { attach as attachHostBt, detach as detachHostBt } from '@/hostBt'
+import {
+  attach as attachHostBt,
+  detach as detachHostBt,
+  startController as prepareHostBtController,
+} from '@/hostBt'
 import {
   bind as bindHostGdb,
   attachSession as attachHostGdbSession,
@@ -18,7 +22,14 @@ import {
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
 import { loadSampleDts } from '@/devicetree'
-import { GDB_ARGS, HCI_ARGS, MONITOR_ARGS, sampleAsset, sampleDtsAsset } from '@/boards'
+import {
+  GDB_ARGS,
+  HCI_ARGS,
+  MONITOR_ARGS,
+  getSample,
+  sampleAsset,
+  sampleDtsAsset,
+} from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -269,6 +280,18 @@ export function createQemuBackend(): PtyBackend {
       if (features.has('monitor')) args = [...args, ...MONITOR_ARGS]
       if (features.has('gdb')) args = [...args, ...GDB_ARGS]
       if (features.has('hci') && board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
+
+      // A cold Pyodide + Bumble load takes longer than Zephyr's 10-second HCI
+      // command timeout. Prepare the controller before main() so the guest's
+      // first HCI Reset waits in the chardev ring for a ready consumer instead
+      // of being drained and dropped while Bumble is still loading.
+      const bluetoothSample =
+        getSample(board, sampleId).primaryPanels?.includes('bluetooth') ?? false
+      if (features.has('hci') && board.peripherals?.hostBt && bluetoothSample) {
+        onStatus({ status: 'loading', detail: 'preparing Bluetooth controller' })
+        await prepareHostBtController()
+        if (signal.aborted) return
+      }
 
       const mod: QemuModule = {
         arguments: args,

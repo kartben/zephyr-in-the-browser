@@ -1,7 +1,7 @@
 diff --git a/hw/riscv/virt.c b/hw/riscv/virt.c
 --- a/hw/riscv/virt.c
 +++ b/hw/riscv/virt.c
-@@ -1712,6 +1712,18 @@ static void virt_machine_init(MachineState *machine)
+@@ -1712,5 +1712,19 @@ static void virt_machine_init(MachineState *machine)
          0, qdev_get_gpio_in(mmio_irqchip, 12), 399193,
          qemu_browser_gnss_chardev(), DEVICE_LITTLE_ENDIAN);
  

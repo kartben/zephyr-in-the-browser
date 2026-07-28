@@ -1,7 +1,7 @@
 diff --git a/chardev/char-browser.c b/chardev/char-browser.c
 --- a/chardev/char-browser.c
 +++ b/chardev/char-browser.c
-@@ -46,8 +46,10 @@
+@@ -46,8 +46,9 @@
  #endif
  
  /* Both powers of two: the ring index is free-running and masked on use. */
@@ -21,7 +21,7 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
  
  /* Frontend -> page: output waiting to be read out of the heap. */
  static int browser_chr_write(Chardev *chr, const uint8_t *buf, int len)
-@@ -171,6 +174,16 @@ static void browser_chr_open(Chardev *chr, ChardevBackend *backend,
+@@ -171,6 +174,14 @@ static void browser_chr_open(Chardev *chr, ChardevBackend *backend,
              return;
          }
          browser_gdb = s;
@@ -46,7 +46,7 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
  }
  
  /*
-@@ -340,6 +356,48 @@ void qemu_browser_gdb_detach(void)
+@@ -340,6 +356,42 @@ void qemu_browser_gdb_detach(void)
      browser_gdb->pending_close = true;
  }
  
@@ -104,7 +104,7 @@ diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
   * the guest at boot and events are not raised from the browser thread.
   *
   * SPDX-License-Identifier: GPL-2.0-or-later
-@@ -41,4 +42,14 @@
+@@ -41,5 +42,15 @@
   */
  int qemu_browser_gdb_attach(void);
  void qemu_browser_gdb_detach(void);

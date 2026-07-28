@@ -36,8 +36,16 @@ export const PYODIDE_INDEX_URL =
   (import.meta.env.VITE_PYODIDE_INDEX_URL as string | undefined) ??
   'https://cdn.jsdelivr.net/pyodide/v0.27.5/full/'
 
-/** Served from public/; produced by tools/vendor-bumble.sh. */
-export const BUMBLE_WHEEL_URL = `${import.meta.env.BASE_URL}vendor/bumble/bumble-0.0.233-py3-none-any.whl`
+/**
+ * Served from public/; produced by tools/vendor-bumble.sh.
+ *
+ * micropip rejects relative URLs (it resolves them as file: paths inside its
+ * virtual filesystem), so resolve this against the browser document first.
+ */
+export const BUMBLE_WHEEL_URL = new URL(
+  `${import.meta.env.BASE_URL}vendor/bumble/bumble-0.0.233-py3-none-any.whl`,
+  globalThis.location?.href ?? 'http://localhost/',
+).href
 
 const CONTROLLER_PY = `
 import asyncio

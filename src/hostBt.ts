@@ -147,9 +147,18 @@ export type { BtPeerParams, BtPeerParamValue } from '@/bt/peers'
 
 /** Bind the hci0 chardev exports from an Emscripten Module. */
 export function attach(mod: unknown) {
-  detach()
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  ch = null
+  framer.reset()
+
   const bound = bindChardev(mod as Record<string, unknown>, 'hci')
   if (!chardevAvailable(bound)) {
+    controller?.close()
+    controller = null
+    starting = null
     setSnapshot({
       available: false,
       phase: 'idle',
@@ -166,16 +175,20 @@ export function attach(mod: unknown) {
   framer = new H4Framer()
   setSnapshot({
     available: true,
-    phase: 'idle',
-    detail: 'HCI pipe ready — start the controller when a BT sample runs',
+    phase: controller ? 'ready' : starting ? 'loading' : 'idle',
+    detail:
+      controller || starting
+        ? snapshot.detail
+        : 'HCI pipe ready — start the controller when a BT sample runs',
     rxPackets: 0,
     txPackets: 0,
-    controllerName: '',
-    peers: [],
-    selectedPeerId: null,
+    controllerName: controller?.name ?? '',
+    peers: controller ? rosterFromController() : [],
+    selectedPeerId,
   })
   pollTimer = setInterval(poll, POLL_MS)
-  // Eagerly bring up Bumble so the first HCI Reset from the guest is answered.
+  // The QEMU backend preloads Bumble for Bluetooth samples before main(). This
+  // remains as the fallback for custom guests and older callers.
   void startController()
 }
 
@@ -238,10 +251,6 @@ export function detach() {
 export async function startController(): Promise<void> {
   if (mockMode) return
   if (controller || starting) return starting ?? Promise.resolve()
-  if (!ch) {
-    setSnapshot({ phase: 'error', detail: 'no HCI chardev' })
-    return
-  }
   setSnapshot({ phase: 'loading', detail: 'loading Pyodide + Bumble…' })
   starting = (async () => {
     try {
