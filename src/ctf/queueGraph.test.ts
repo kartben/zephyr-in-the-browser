@@ -108,7 +108,42 @@ describe('queueFlowEvents', () => {
     )
     const flow = queueFlowEvents(reader.tr)
     expect(flow).toHaveLength(1)
-    expect(flow[0]).toMatchObject({ ts: 220, exitTs: 250, op: 'put' })
+    expect(flow[0]).toMatchObject({
+      ts: 220,
+      exitTs: 250,
+      op: 'put',
+      threadId: producer,
+    })
+  })
+
+  it('keeps the exit actor when a stale enter belonged to another thread', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const worker = 0x2000
+    const q = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(worker), ...encName('worker')]),
+        // Orphan put_enter while main runs (matching exit never arrives).
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        ...record(110, 0x8a, [...encU32(q), ...encU32(0)]), // put_enter
+        ...record(120, 0x10, [...encU32(main), ...encName('main')]),
+        // Worker put_exit with no enter of its own — must not inherit main.
+        ...record(200, 0x11, [...encU32(worker), ...encName('worker')]),
+        ...record(250, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]), // put_exit
+      ]),
+    )
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(1)
+    expect(flow[0]).toMatchObject({
+      op: 'put',
+      queueId: q,
+      threadId: worker,
+      // Rejected stale enter → mark stays on exit.
+      ts: 250,
+      exitTs: 250,
+    })
   })
 
   it('treats msgq_put_front_exit as a distinct producer-side put_front op', () => {

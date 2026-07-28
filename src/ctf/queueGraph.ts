@@ -75,12 +75,14 @@ function enterKey(op: QueueFlowOp, queueId: number): string {
 /** Lookback when falling back from exit to a concurrent waiter ready. */
 const WAKE_LOOKBACK_NS = 1_000_000 // 1 ms
 
+type EnterMark = { ts: number; threadId: number | null }
+
 /** All successful/failed put / put_front / get exits in timestamp order. */
 export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
   const kinds = classifyQueueKinds(tr.events)
   const out: QueueFlowEvent[] = []
-  /** Unmatched enter timestamps per op|queue (stack — single-CPU nest-safe). */
-  const enters = new Map<string, number[]>()
+  /** Unmatched enter marks per op|queue (stack — single-CPU nest-safe). */
+  const enters = new Map<string, EnterMark[]>()
   /** Latest waiter ready in the open window (for exit-only fallback). */
   let lastWakeTs: number | null = null
   let lastWakeTid: number | null = null
@@ -102,7 +104,9 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
       if (isNestedQueueEvent(enter, kinds)) continue
       const key = enterKey(enter.flowOp, enter.id)
       const stack = enters.get(key) ?? []
-      stack.push(ev.ts)
+      // Record who was running at enter — used later to reject stale pairs
+      // (e.g. main's leftover enter claimed by a worker's exit).
+      stack.push({ ts: ev.ts, threadId: threadRunningAt(tr, ev.ts) })
       enters.set(key, stack)
       continue
     }
@@ -112,12 +116,21 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
     if (isNestedQueueEvent(classified, kinds)) continue
 
     const stack = enters.get(enterKey(classified.flowOp, classified.id))
-    const enterTs = stack?.length ? stack.pop()! : null
+    const enterMark = stack?.length ? stack.pop()! : null
     const exitTs = ev.ts
+    // Actor is always who ran the exit (the thread that called put/get).
+    // Mark X may snap back to enter/wake for causality; never reattribute.
     const actorAtExit = threadRunningAt(tr, exitTs)
-    let ts = enterTs ?? exitTs
+    let ts = exitTs
     if (
-      enterTs == null &&
+      enterMark != null &&
+      (enterMark.threadId == null ||
+        actorAtExit == null ||
+        enterMark.threadId === actorAtExit)
+    ) {
+      ts = enterMark.ts
+    } else if (
+      enterMark == null &&
       lastWakeTs != null &&
       lastWakeTid != null &&
       lastWakeTid !== actorAtExit &&
@@ -135,7 +148,7 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
       exitTs,
       op: classified.flowOp,
       queueId: classified.id,
-      threadId: threadRunningAt(tr, ts),
+      threadId: actorAtExit,
       ok: classified.ok,
     })
   }
