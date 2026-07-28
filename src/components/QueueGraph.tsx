@@ -103,7 +103,6 @@ type Layout = {
 
 type Layers = {
   scene: d3.Selection<SVGGElement, unknown, null, undefined>
-  labels: d3.Selection<SVGGElement, unknown, null, undefined>
   links: d3.Selection<SVGGElement, unknown, null, undefined>
   packets: d3.Selection<SVGGElement, unknown, null, undefined>
   pipes: d3.Selection<SVGGElement, unknown, null, undefined>
@@ -332,7 +331,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   for (const r of ranks) {
     const ids = byRank.get(r)!.sort((a, b) => a.localeCompare(b))
     const laneOffset = ((maxLanes - ids.length) * laneGap) / 2
-    ids.forEach((id, lane) => positions.set(id, { x: PAD_X + Math.max(PIPE_W, PILL_W) / 2 + laneOffset + lane * laneGap, y: PAD_Y + 34 + DETOUR_HEADROOM + r * rankGap }))
+    ids.forEach((id, lane) => positions.set(id, { x: PAD_X + Math.max(PIPE_W, PILL_W) / 2 + laneOffset + lane * laneGap, y: PAD_Y + DETOUR_HEADROOM + r * rankGap }))
   }
   const pipes = queues.map((q) => {
     const pos = positions.get(`q:${q.id}`)!
@@ -343,7 +342,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     return { id: `t:${tid}`, tid, label: flowThreadLabel(tr, tid), x: pos.x, y: pos.y }
   })
   const contentW = Math.max(hostW, PAD_X * 2 + Math.max(PIPE_W, PILL_W) + Math.max(0, maxLanes - 1) * laneGap)
-  const contentH = Math.max(120, PAD_Y * 2 + 34 + DETOUR_HEADROOM + Math.max(0, ranks.length - 1) * rankGap + PIPE_H)
+  const contentH = Math.max(120, PAD_Y * 2 + DETOUR_HEADROOM + Math.max(0, ranks.length - 1) * rankGap + PIPE_H)
   return { w: contentW, h: contentH, pipes, threads, links, byPipe: new Map(pipes.map((p) => [p.queueId, p])), byThread: new Map(threads.map((t) => [t.tid, t])) }
 }
 
@@ -402,7 +401,6 @@ export function QueueGraph({
     const scene = svg.append('g').attr('class', 'queue-graph-scene')
     const layers: Layers = {
       scene,
-      labels: scene.append('g'),
       links: scene.append('g'),
       packets: scene.append('g'),
       pipes: scene.append('g'),
@@ -453,7 +451,6 @@ export function QueueGraph({
       layers.pipes.selectAll('*').remove()
       layers.pills.selectAll('*').remove()
       layers.links.selectAll('*').remove()
-      layers.labels.selectAll('*').remove()
       svg.attr('viewBox', '0 0 320 100').attr('height', 100)
       return
     }
@@ -465,22 +462,6 @@ export function QueueGraph({
     }
     layoutRef.current = layout
     svg.attr('viewBox', `0 0 ${layout.w} ${layout.h}`).attr('height', layout.h)
-
-    layers.labels.selectAll('*').remove()
-    const headers = [{ x: layout.w / 2, t: 'message flow · put → end · front → get' }]
-    layers.labels
-      .selectAll('text')
-      .data(headers)
-      .enter()
-      .append('text')
-      .attr('fill', 'rgba(148,163,184,0.65)')
-      .attr('font-size', 9)
-      .attr('font-weight', 600)
-      .attr('letter-spacing', '0.06em')
-      .attr('text-anchor', 'middle')
-      .attr('y', 14)
-      .attr('x', (d) => d.x)
-      .text((d) => d.t.toUpperCase())
 
     // Rebuild pipe shells once per layout (not every animation tick).
     const pipeSel = layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').data(layout.pipes, (d) => d.id)
