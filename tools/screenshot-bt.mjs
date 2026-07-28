@@ -79,9 +79,14 @@ await page.getByRole('button', { name: /Advertiser/ }).first().click()
 await page.waitForTimeout(200)
 await clipPanel('bt-roster-noselection')
 
-// Floating window with HRM selected again
-await page.getByRole('button', { name: /Heart rate 1/ }).first().click()
-await page.waitForTimeout(200)
+// --- Speaker (A2DP) inspector ---
+await peerSelect.selectOption('speaker')
+await addBtn.click()
+await page.waitForTimeout(250)
+await page.locator('text=A2DP').first().waitFor({ timeout: 5000 })
+await clipPanel('bt-inspector-speaker')
+
+// Floating window with speaker selected
 const pop = page
   .locator('[aria-label*="Pop" i], button[title*="Pop" i], button[title*="window" i]')
   .first()
