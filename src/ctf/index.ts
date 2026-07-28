@@ -28,6 +28,7 @@ export {
   threadRunningAt,
   windowStats,
   contextSwitchesIn,
+  forEachStateInView,
   type CtfEvent,
   type Trace,
   type ThreadInfo,

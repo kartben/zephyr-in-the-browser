@@ -6,6 +6,7 @@ import {
   threadLabel,
   threadPrio,
   renderStateRows,
+  forEachStateInView,
   fmtTime,
   fmtAxisTime,
   niceTimeStep,
@@ -74,6 +75,23 @@ describe('TraceReader', () => {
     const rows = renderStateRows(reader.tr, order, reader.tr.t0, reader.tr.t1, 10)
     expect(rows.get(a)?.some((c) => c === 'run')).toBe(true)
     expect(rows.get(b)?.some((c) => c === 'run')).toBe(true)
+  })
+
+  it('forEachStateInView clips segments to the view without column smear', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const a = 0x1000
+    reader.feed(
+      Uint8Array.from([
+        ...record(1000, 0x13, [...encU32(a), ...encName('thread_a')]),
+        ...record(2000, 0x11, [...encU32(a), ...encName('thread_a')]),
+        ...record(3500, 0x10, [...encU32(a), ...encName('thread_a')]),
+      ]),
+    )
+    const seen: Array<[number, number, string]> = []
+    forEachStateInView(reader.tr, a, 2500, 4000, (s, e, st) => {
+      seen.push([s, e, st])
+    })
+    expect(seen.some(([s, e, st]) => st === 'run' && s === 2500 && e === 3500)).toBe(true)
   })
 
   it('orders Gantt lanes by Zephyr priority (lower = higher), unknown last', () => {
