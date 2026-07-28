@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackDefs } from './metadata'
 import { TraceReader } from './reader'
-import { isPutOp, mouthForOp, queueFlowEvents, threadFlowScores } from './queueGraph'
+import {
+  isPutOp,
+  mouthForOp,
+  queueFlowEvents,
+  sortQueuesByPipelineOrder,
+  threadFlowScores,
+} from './queueGraph'
 
 function encU16(n: number): number[] {
   return [n & 0xff, (n >> 8) & 0xff]
@@ -82,5 +88,41 @@ describe('queueFlowEvents', () => {
     expect(mouthForOp('put')).toBe('end')
     expect(mouthForOp('put_front')).toBe('front')
     expect(mouthForOp('get')).toBe('front')
+  })
+})
+
+describe('sortQueuesByPipelineOrder', () => {
+  it('orders queues by longest-path pipeline rank, not alphabetically', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const producer = 0x1000
+    const filter = 0x1001
+    const sink = 0x1002
+    const inputQ = 0x2001
+    const workQ = 0x2002
+    const doneQ = 0x2003
+    // producer → input_q → filter → work_q → sink → done_q
+    // Pair switched_out / switched_in like real Zephyr CTF so only one thread
+    // is marked running at a time (threadRunningAt walks run-state).
+    reader.feed(
+      Uint8Array.from([
+        ...record(10, 0x11, [...encU32(producer), ...encName('producer')]),
+        ...record(20, 0x8c, [...encU32(inputQ), ...encU32(0), ...encI32(0)]),
+        ...record(25, 0x10, [...encU32(producer), ...encName('producer')]),
+        ...record(30, 0x11, [...encU32(filter), ...encName('filter')]),
+        ...record(40, 0x8f, [...encU32(inputQ), ...encU32(0), ...encI32(0)]),
+        ...record(50, 0x8c, [...encU32(workQ), ...encU32(0), ...encI32(0)]),
+        ...record(55, 0x10, [...encU32(filter), ...encName('filter')]),
+        ...record(60, 0x11, [...encU32(sink), ...encName('sink')]),
+        ...record(70, 0x8f, [...encU32(workQ), ...encU32(0), ...encI32(0)]),
+        ...record(80, 0x8c, [...encU32(doneQ), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+    // Deliberately alphabetical input order (done, input, work).
+    const sorted = sortQueuesByPipelineOrder(reader.tr, [
+      { id: doneQ, name: 'done_q' },
+      { id: inputQ, name: 'input_q' },
+      { id: workQ, name: 'work_q' },
+    ])
+    expect(sorted.map((q) => q.name)).toEqual(['input_q', 'work_q', 'done_q'])
   })
 })

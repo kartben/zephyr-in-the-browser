@@ -11,6 +11,7 @@ import {
   queueAxisMax,
   queueLabel,
   reconstructQueues,
+  sortQueuesByPipelineOrder,
   type QueueSeries,
   type Trace,
 } from '@/ctf'
@@ -220,7 +221,7 @@ export function QueuesView({
   canvasProps?: CanvasHTMLAttributes<HTMLCanvasElement>
 }) {
   const queues = useMemo(
-    () => reconstructQueues(tr, msgqNameMap()),
+    () => sortQueuesByPipelineOrder(tr, reconstructQueues(tr, msgqNameMap())),
     // eventCount bumps when CTF grows; wait-object names are read live inside.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, eventCount],

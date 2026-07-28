@@ -16,6 +16,7 @@ import {
   flowThreadLabel,
   isPutOp,
   queueFlowEvents,
+  threadFlowScores,
   type QueueFlowEvent,
   type QueueFlowOp,
 } from '@/ctf/queueGraph'
@@ -36,33 +37,42 @@ const PIPE_W = 224
 const PIPE_H = 44
 /** Horizontal radius of the mouth ellipses (perspective end-caps). */
 const MOUTH_RX = 10
-const MOUTH_RY = PIPE_H / 2 - 1
-/** Vertical gap between thread pills on the same side. */
-const PORT_GAP = 44
-const ROW_GAP = 36
-const COL_GAP = 56
+/** Vertical radius — must match the barrel half-height so rails meet the caps. */
+const MOUTH_RY = PIPE_H / 2
+const COL_GAP = 48
 const PAD_X = 16
 const PAD_Y = 8
 /** Extra top clearance for put_front arcs over the barrel. */
 const ARC_CLEAR = 28
-/** Keeps the highest detour clear of the column labels. */
-const DETOUR_HEADROOM = 76
+/** Keeps put_front rails clear of the top edge. */
+const DETOUR_HEADROOM = 36
+/** Vertical gap between stacked pipes — must leave a clear routing channel. */
+const RANK_GAP = PIPE_H + ARC_CLEAR + 56
+/** Minimum gap between thread pills on the same side. */
+const SIDE_GAP = PILL_H + 18
 const ARROW_LEN = 11
 const ARROW_W = 10
+/** How far wrap-around rails stand off from a mouth. */
+const RAIL_STANDOFF = 36
 
 const PILL_TEXT_MAX = PILL_W - PILL_PAD_X * 2
 const PIPE_TEXT_MAX = PIPE_W - MOUTH_RX * 4 - 12
 
 const CLIP_PILL = 'qg-clip-pill'
 
-type ThreadPill = {
+type ThreadNode = {
   id: string
   tid: number
   label: string
   x: number
   y: number
-  side: 'put' | 'get'
+}
+
+type FlowLink = {
+  id: string
+  threadId: number
   queueId: number
+  op: QueueFlowOp
   port: number
 }
 
@@ -93,25 +103,18 @@ type Layout = {
   w: number
   h: number
   pipes: Pipe[]
-  pills: ThreadPill[]
+  threads: ThreadNode[]
+  links: FlowLink[]
   byPipe: Map<number, Pipe>
-  byPill: Map<string, ThreadPill>
+  byThread: Map<number, ThreadNode>
 }
 
 type Layers = {
-  labels: d3.Selection<SVGGElement, unknown, null, undefined>
+  scene: d3.Selection<SVGGElement, unknown, null, undefined>
   links: d3.Selection<SVGGElement, unknown, null, undefined>
   packets: d3.Selection<SVGGElement, unknown, null, undefined>
   pipes: d3.Selection<SVGGElement, unknown, null, undefined>
   pills: d3.Selection<SVGGElement, unknown, null, undefined>
-}
-
-function pillKey(queueId: number, tid: number, side: 'put' | 'get') {
-  return `p:${queueId}:${tid}:${side}`
-}
-
-function sideForOp(op: QueueFlowOp): 'put' | 'get' {
-  return isPutOp(op) ? 'put' : 'get'
 }
 
 function pipeEndX(pipe: Pipe): number {
@@ -123,45 +126,35 @@ function pipeFrontX(pipe: Pipe): number {
 }
 
 /**
- * Mouth attachment Y. Single port → bore centerline; multiple ports fan
- * slightly inside the mouth ellipse so arrows stay parallel.
+ * Attach at the thread’s height when it falls inside the mouth; otherwise clamp
+ * to the aperture. Avoids reflowing every lane when putPorts/getPorts grows.
  */
-function mouthY(pipe: Pipe, mouth: 'end' | 'front', port: number): number {
-  const n = mouth === 'end' ? pipe.putPorts : pipe.getPorts
-  if (n <= 1) return pipe.y
-  const inner = Math.min(10, (MOUTH_RY * 1.4) / Math.max(1, n - 1))
-  const span = (n - 1) * inner
-  return pipe.y - span / 2 + port * inner
+function clampMouthY(pipe: Pipe, preferredY: number): number {
+  const lo = pipe.y - MOUTH_RY + 4
+  const hi = pipe.y + MOUTH_RY - 4
+  return Math.max(lo, Math.min(hi, preferredY))
 }
 
 /**
  * put_front shares the physical front mouth with get. Give inserts their own
  * entry lanes so their arrows do not sit directly on top of outgoing gets.
+ * Port 0 is the topmost insert lane.
  */
 function frontInsertY(pipe: Pipe, port: number): number {
-  const count = pipe.putPorts
+  const count = Math.max(1, pipe.putPorts)
   if (count <= 1) return pipe.y - Math.min(8, MOUTH_RY * 0.45)
   const usable = Math.min(10, MOUTH_RY - 5)
-  return pipe.y + ((port + 0.5) / count - 0.5) * usable * 2
+  return pipe.y - usable + (port / Math.max(1, count - 1)) * usable * 2
 }
 
-function pillY(pipe: Pipe, port: number, count: number): number {
-  const span = Math.max(0, (count - 1) * PORT_GAP)
-  return pipe.y - span / 2 + port * PORT_GAP
-}
-
-function edgeEndpoints(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  shortenEnd: number,
-): { x1: number; y1: number; x2: number; y2: number } {
-  const dx = x2 - x1
-  const dy = y2 - y1
-  const len = Math.hypot(dx, dy) || 1
-  const t = Math.max(0.05, (len - shortenEnd) / len)
-  return { x1, y1, x2: x1 + dx * t, y2: y1 + dy * t }
+/**
+ * Outside edge of a pipe mouth at a given attachment height. Links live below
+ * the pipe layer, so ending here lets the arrow meet the aperture cleanly
+ * without drawing through the tube shell.
+ */
+function mouthLipX(pipe: Pipe, mouth: 'end' | 'front', y: number): number {
+  const dx = MOUTH_RX * Math.sqrt(Math.max(0, 1 - ((y - pipe.y) / MOUTH_RY) ** 2))
+  return (mouth === 'end' ? pipeEndX(pipe) - dx : pipeFrontX(pipe) + dx)
 }
 
 type EdgePath = {
@@ -174,80 +167,241 @@ type EdgePath = {
 
 type RoutePoint = { x: number; y: number }
 
+type Obstacle = {
+  id: string
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+/** Corner radius for orthogonal rails. */
+const RAIL_RADIUS = 12
+/** Padding around a tube that edges must not enter. */
+const OBSTACLE_PAD = 4
+
 /**
- * D3 owns the curve geometry. We provide semantic waypoints only; the
- * basis spline rounds the supplied routing rail without the large overshoot
- * Catmull–Rom produces when a source is far from the pipe.
+ * Barrel body as an obstacle. Mouth lips sit just outside left/right so a
+ * final stub into the aperture is legal; crossing the bore is not.
  */
-function smoothRoute(points: RoutePoint[]): EdgePath {
-  const d = d3
-    .line<RoutePoint>()
-    .x((point) => point.x)
-    .y((point) => point.y)
-    .curve(d3.curveBasis)(points)
+function pipeObstacle(pipe: Pipe): Obstacle {
   return {
-    sx: points[0]!.x,
-    sy: points[0]!.y,
-    ex: points.at(-1)!.x,
-    ey: points.at(-1)!.y,
-    d: d ?? '',
+    id: pipe.id,
+    left: pipe.x - PIPE_W / 2 + MOUTH_RX * 0.35,
+    right: pipe.x + PIPE_W / 2 - MOUTH_RX * 0.35,
+    top: pipe.y - PIPE_H / 2 - OBSTACLE_PAD,
+    bottom: pipe.y + PIPE_H / 2 + OBSTACLE_PAD,
   }
+}
+
+function segHitsObstacle(a: RoutePoint, b: RoutePoint, obs: Obstacle): boolean {
+  const minX = Math.min(a.x, b.x)
+  const maxX = Math.max(a.x, b.x)
+  const minY = Math.min(a.y, b.y)
+  const maxY = Math.max(a.y, b.y)
+  if (Math.abs(a.y - b.y) < 0.5) {
+    // Horizontal
+    if (a.y < obs.top || a.y > obs.bottom) return false
+    return maxX >= obs.left && minX <= obs.right
+  }
+  if (Math.abs(a.x - b.x) < 0.5) {
+    // Vertical
+    if (a.x < obs.left || a.x > obs.right) return false
+    return maxY >= obs.top && minY <= obs.bottom
+  }
+  // Non-ortho: treat as hit if the bbox overlaps (shouldn't happen).
+  return maxX >= obs.left && minX <= obs.right && maxY >= obs.top && minY <= obs.bottom
+}
+
+function pathHitsObstacles(points: RoutePoint[], obstacles: Obstacle[]): boolean {
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]!
+    const b = points[i + 1]!
+    for (const obs of obstacles) {
+      if (segHitsObstacle(a, b, obs)) return true
+    }
+  }
+  return false
+}
+
+/** Horizontal gutters above / between / below tubes — the only legal east-west rails. */
+function channelYs(obstacles: Obstacle[]): number[] {
+  if (!obstacles.length) return []
+  const sorted = [...obstacles].sort((a, b) => a.top - b.top)
+  const channels: number[] = [sorted[0]!.top - RAIL_STANDOFF]
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const gap = sorted[i + 1]!.top - sorted[i]!.bottom
+    if (gap >= 12) channels.push(sorted[i]!.bottom + gap / 2)
+  }
+  channels.push(sorted.at(-1)!.bottom + RAIL_STANDOFF)
+  return channels
+}
+
+function westCorridorX(obstacles: Obstacle[]): number {
+  if (!obstacles.length) return 0
+  return Math.min(...obstacles.map((o) => o.left)) - RAIL_STANDOFF
+}
+
+function eastCorridorX(obstacles: Obstacle[]): number {
+  if (!obstacles.length) return 0
+  return Math.max(...obstacles.map((o) => o.right)) + RAIL_STANDOFF
+}
+
+function nearestChannel(y: number, channels: number[]): number {
+  if (!channels.length) return y
+  return channels.reduce((best, ch) => (Math.abs(ch - y) < Math.abs(best - y) ? ch : best), channels[0]!)
+}
+
+/**
+ * Orthogonal polyline with quadratic rounded elbows. Final segment is always a
+ * straight `L` into the target so arrowheads line up with the stroke.
+ */
+function roundedOrtho(points: RoutePoint[]): EdgePath {
+  if (points.length < 2) {
+    const p = points[0] ?? { x: 0, y: 0 }
+    return { sx: p.x, sy: p.y, ex: p.x, ey: p.y, d: '' }
+  }
+  const pts: RoutePoint[] = [points[0]!]
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i]!
+    const prev = pts.at(-1)!
+    if (Math.hypot(p.x - prev.x, p.y - prev.y) > 0.5) pts.push(p)
+  }
+  if (pts.length < 2) {
+    const p = pts[0]!
+    return { sx: p.x, sy: p.y, ex: p.x, ey: p.y, d: '' }
+  }
+  const start = pts[0]!
+  const end = pts.at(-1)!
+  let d = `M${start.x},${start.y}`
+  for (let i = 1; i < pts.length - 1; i++) {
+    const prev = pts[i - 1]!
+    const cur = pts[i]!
+    const next = pts[i + 1]!
+    const inDx = cur.x - prev.x
+    const inDy = cur.y - prev.y
+    const outDx = next.x - cur.x
+    const outDy = next.y - cur.y
+    const inLen = Math.hypot(inDx, inDy)
+    const outLen = Math.hypot(outDx, outDy)
+    if (inLen < 1e-3 || outLen < 1e-3) continue
+    const r = Math.min(RAIL_RADIUS, inLen / 2, outLen / 2)
+    const before = { x: cur.x - (inDx / inLen) * r, y: cur.y - (inDy / inLen) * r }
+    const after = { x: cur.x + (outDx / outLen) * r, y: cur.y + (outDy / outLen) * r }
+    d += `L${before.x},${before.y}Q${cur.x},${cur.y} ${after.x},${after.y}`
+  }
+  d += `L${end.x},${end.y}`
+  return { sx: start.x, sy: start.y, ex: end.x, ey: end.y, d }
+}
+
+/**
+ * Short orthogonal routes that skip tubes. Tries the fewest bends first:
+ *   1) single L (3 points)
+ *   2) one channel wrap (4–5 points) on the preferred side
+ * D3 only strokes the result — it is not involved in choosing waypoints.
+ */
+function routeAvoidingTubes(
+  start: RoutePoint,
+  end: RoutePoint,
+  obstacles: Obstacle[],
+  prefer: 'hvh' | 'east' | 'west',
+): EdgePath {
+  const tryPath = (points: RoutePoint[]) =>
+    pathHitsObstacles(points, obstacles) ? null : roundedOrtho(points)
+
+  // 1. Single L-bends (one corner).
+  const l1 = tryPath([start, { x: end.x, y: start.y }, end])
+  if (l1) return l1
+  const l2 = tryPath([start, { x: start.x, y: end.y }, end])
+  if (l2) return l2
+
+  // 2. One wrap via the nearest clear channel + side corridor.
+  const eastX = eastCorridorX(obstacles)
+  const westX = westCorridorX(obstacles)
+  const ch = nearestChannel((start.y + end.y) / 2, channelYs(obstacles))
+  const sideX = prefer === 'west' ? westX : eastX
+
+  const wrap = tryPath([
+    start,
+    { x: sideX, y: start.y },
+    { x: sideX, y: ch },
+    { x: prefer === 'west' ? Math.min(end.x, sideX) : Math.max(end.x, sideX), y: ch },
+    { x: end.x, y: ch },
+    end,
+  ])
+  if (wrap) return wrap
+
+  // Cross-side wrap (right-column thread → left mouth): east → channel → west → end.
+  if (prefer === 'west') {
+    const cross = tryPath([
+      start,
+      { x: eastX, y: start.y },
+      { x: eastX, y: ch },
+      { x: westX, y: ch },
+      { x: westX, y: end.y },
+      end,
+    ])
+    if (cross) return cross
+  }
+
+  // put_front from the left: channel above, then east corridor into the mouth.
+  if (prefer === 'east') {
+    const over = tryPath([
+      start,
+      { x: start.x, y: ch },
+      { x: eastX, y: ch },
+      { x: eastX, y: end.y },
+      end,
+    ])
+    if (over) return over
+  }
+
+  return roundedOrtho([start, { x: sideX, y: start.y }, { x: sideX, y: end.y }, end])
 }
 
 function edgePath(
-  pill: ThreadPill,
+  thread: ThreadNode,
   pipe: Pipe,
-  op: QueueFlowOp,
+  link: FlowLink,
+  pipes: Pipe[],
 ): EdgePath {
-  const sy = pill.y
+  const { op } = link
+  const obstacles = pipes.map(pipeObstacle)
+  const threadEdge = (towardX: number) => ({
+    x: thread.x + (towardX >= thread.x ? PILL_W / 2 : -PILL_W / 2),
+    y: thread.y,
+  })
 
   if (op === 'put_front') {
-    // Insert at front/head: go over the barrel, past its east end, then make a
-    // deliberate U-turn so the arrow enters the front port from the east.
-    const ey = frontInsertY(pipe, pill.port)
-    const start = { x: pill.x + PILL_W / 2, y: sy }
-    const end = { x: pipeFrontX(pipe) + ARROW_LEN, y: ey }
-    const rise = ARC_CLEAR + 12 + Math.max(0, pipe.putPorts - pill.port - 1) * 10
-    const railY = pipe.y - PIPE_H / 2 - rise
-    const eastTurnX = pipeFrontX(pipe) + 30
-    // A compact raised rail plus a small east-side turn: the route visibly
-    // detours, but never dominates the whole graph.
-    return smoothRoute([
-      start,
-      { x: pipeEndX(pipe) - 12, y: railY },
-      { x: eastTurnX, y: railY },
-      { x: eastTurnX + 12, y: ey },
-      { x: end.x + 34, y: ey },
-      end,
-    ])
+    const ey = frontInsertY(pipe, link.port)
+    const start = threadEdge(pipeFrontX(pipe))
+    const end = { x: mouthLipX(pipe, 'front', ey), y: ey }
+    return routeAvoidingTubes(start, end, obstacles, 'east')
   }
 
   if (op === 'put') {
-    const ey = mouthY(pipe, 'end', pill.port)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipeEndX(pipe), ey, ARROW_LEN)
-    return smoothRoute([
-      { x: raw.x1, y: raw.y1 },
-      { x: (raw.x1 + raw.x2) / 2, y: raw.y1 },
-      { x: raw.x2, y: raw.y2 },
-    ])
+    const ey = clampMouthY(pipe, thread.y)
+    const start = threadEdge(pipeEndX(pipe))
+    const end = { x: mouthLipX(pipe, 'end', ey), y: ey }
+    return routeAvoidingTubes(start, end, obstacles, start.x <= end.x ? 'hvh' : 'west')
   }
 
-  const ey = mouthY(pipe, 'front', pill.port)
-  const raw = edgeEndpoints(pipeFrontX(pipe), ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
-  return smoothRoute([
-    { x: raw.x1, y: raw.y1 },
-    { x: (raw.x1 + raw.x2) / 2, y: raw.y1 },
-    { x: raw.x2, y: raw.y2 },
-  ])
+  const ey = clampMouthY(pipe, thread.y)
+  const start = { x: mouthLipX(pipe, 'front', ey), y: ey }
+  const end = threadEdge(pipeFrontX(pipe))
+  return routeAvoidingTubes(start, end, obstacles, end.x >= start.x ? 'hvh' : 'east')
 }
 
-function burstBadgePosition(pill: ThreadPill, pipe: Pipe, op: QueueFlowOp) {
+function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipes: Pipe[]) {
+  const { op } = link
   if (op === 'put_front') {
-    return { x: pipe.x, y: pipe.y - PIPE_H / 2 - ARC_CLEAR - 12 }
+    const y = nearestChannel(pipe.y - PIPE_H / 2 - ARC_CLEAR, channelYs(pipes.map(pipeObstacle)))
+    return { x: pipe.x, y: y - 8 }
   }
-  const from = op === 'get' ? pipeFrontX(pipe) : pill.x + PILL_W / 2
-  const to = op === 'get' ? pill.x - PILL_W / 2 : pipeEndX(pipe)
-  return { x: (from + to) / 2, y: (pill.y + mouthY(pipe, op === 'get' ? 'front' : 'end', pill.port)) / 2 - 9 }
+  const attachY = clampMouthY(pipe, thread.y)
+  const fromX = op === 'get' ? pipeFrontX(pipe) : thread.x + PILL_W / 2
+  const toX = op === 'get' ? thread.x - PILL_W / 2 : pipeEndX(pipe)
+  return { x: (fromX + toX) / 2, y: (thread.y + attachY) / 2 - 9 }
 }
 
 function strokeFor(op: QueueFlowOp): string {
@@ -268,110 +422,143 @@ function markerFor(op: QueueFlowOp): string {
 
 function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   const flow = queueFlowEvents(tr)
-
-  const putters = new Map<number, number[]>()
-  const getters = new Map<number, number[]>()
-  const seenPut = new Map<number, Set<number>>()
-  const seenGet = new Map<number, Set<number>>()
+  const valid = flow.filter((ev) => ev.ok && ev.threadId != null && queues.some((q) => q.id === ev.queueId))
+  const threadIds = [...new Set(valid.map((ev) => ev.threadId!))].sort((a, b) =>
+    flowThreadLabel(tr, a).localeCompare(flowThreadLabel(tr, b)) || a - b,
+  )
+  const puts = new Map<number, number[]>()
+  const gets = new Map<number, number[]>()
   for (const q of queues) {
-    putters.set(q.id, [])
-    getters.set(q.id, [])
-    seenPut.set(q.id, new Set())
-    seenGet.set(q.id, new Set())
+    puts.set(q.id, [])
+    gets.set(q.id, [])
   }
-  for (const ev of flow) {
-    if (!ev.ok || ev.threadId == null) continue
-    if (!putters.has(ev.queueId)) continue
-    if (isPutOp(ev.op)) {
-      const s = seenPut.get(ev.queueId)!
-      if (!s.has(ev.threadId)) {
-        s.add(ev.threadId)
-        putters.get(ev.queueId)!.push(ev.threadId)
-      }
-    } else {
-      const s = seenGet.get(ev.queueId)!
-      if (!s.has(ev.threadId)) {
-        s.add(ev.threadId)
-        getters.get(ev.queueId)!.push(ev.threadId)
-      }
-    }
+  for (const ev of valid) {
+    const bucket = isPutOp(ev.op) ? puts.get(ev.queueId)! : gets.get(ev.queueId)!
+    if (!bucket.includes(ev.threadId!)) bucket.push(ev.threadId!)
   }
 
+  const links: FlowLink[] = []
+  const seen = new Set<string>()
+  for (const ev of valid) {
+    const id = flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op })
+    if (seen.has(id)) continue
+    seen.add(id)
+    // Port is filled in after threads are placed so mouth order matches Y order.
+    links.push({ id, threadId: ev.threadId!, queueId: ev.queueId, op: ev.op, port: 0 })
+  }
+
+  // Pipe Y follows the caller’s queue order (sortQueuesByPipelineOrder) so the
+  // topology spine matches the depth-chart rows top-to-bottom. Threads sit
+  // beside the mouths they use (putters west / getters east).
   const leftX = PAD_X + PILL_W / 2
-  const pipeX = leftX + PILL_W / 2 + COL_GAP + PIPE_W / 2
-  const rightX = pipeX + PIPE_W / 2 + COL_GAP + PILL_W / 2
-  const contentW = Math.max(hostW, rightX + PILL_W / 2 + PAD_X)
+  const pipeSpineX = leftX + PILL_W / 2 + COL_GAP + PIPE_W / 2
+  const rightX = pipeSpineX + PIPE_W / 2 + COL_GAP + PILL_W / 2
 
-  const pipes: Pipe[] = []
-  const pills: ThreadPill[] = []
-  // Room for column headers + put_front arc above the first pipe.
-  let yCursor = PAD_Y + 18 + DETOUR_HEADROOM
+  const pipePos = new Map<string, { x: number; y: number }>()
+  queues.forEach((q, row) => {
+    pipePos.set(`q:${q.id}`, {
+      x: pipeSpineX,
+      y: PAD_Y + DETOUR_HEADROOM + row * RANK_GAP + PIPE_H / 2,
+    })
+  })
 
-  for (const q of queues) {
-    const puts = putters.get(q.id) ?? []
-    const gets = getters.get(q.id) ?? []
-    const sortT = (ids: number[]) =>
-      [...ids].sort((a, b) => {
-        const na = flowThreadLabel(tr, a)
-        const nb = flowThreadLabel(tr, b)
-        return na.localeCompare(nb) || a - b
-      })
-    const putIds = sortT(puts)
-    const getIds = sortT(gets)
-    const ports = Math.max(1, putIds.length, getIds.length)
-    const bandH = Math.max(PIPE_H + 8, ports * PORT_GAP)
-    const cy = yCursor + bandH / 2
-
-    const pipe: Pipe = {
+  const pipes = queues.map((q) => {
+    const pos = pipePos.get(`q:${q.id}`)!
+    return {
       id: `q:${q.id}`,
       queueId: q.id,
       label: queueLabel(q),
       cap: q.cap ?? Math.max(1, q.peak),
       depth: q.samples.length ? q.samples[q.samples.length - 1]!.depth : 0,
       drops: q.drops,
-      x: pipeX,
-      y: cy,
-      putPorts: Math.max(1, putIds.length),
-      getPorts: Math.max(1, getIds.length),
+      x: pos.x,
+      y: pos.y,
+      putPorts: Math.max(1, puts.get(q.id)!.length),
+      getPorts: Math.max(1, gets.get(q.id)!.length),
     }
-    pipes.push(pipe)
+  })
+  const byPipe = new Map(pipes.map((p) => [p.queueId, p]))
 
-    putIds.forEach((tid, i) => {
-      pills.push({
-        id: pillKey(q.id, tid, 'put'),
-        tid,
-        label: flowThreadLabel(tr, tid),
-        x: leftX,
-        y: pillY(pipe, i, putIds.length),
-        side: 'put',
-        queueId: q.id,
-        port: i,
-      })
-    })
-    getIds.forEach((tid, i) => {
-      pills.push({
-        id: pillKey(q.id, tid, 'get'),
-        tid,
-        label: flowThreadLabel(tr, tid),
-        x: rightX,
-        y: pillY(pipe, i, getIds.length),
-        side: 'get',
-        queueId: q.id,
-        port: i,
-      })
-    })
+  const scores = threadFlowScores(valid)
+  type Side = 'left' | 'right'
+  type Draft = { tid: number; side: Side; y: number; anchorKey: string; label: string }
+  const draft: Draft[] = threadIds.map((tid) => {
+    const mine = links.filter((link) => link.threadId === tid)
+    const label = flowThreadLabel(tr, tid)
+    const score = scores.get(tid) ?? 0
+    const hasGet = mine.some((link) => link.op === 'get')
+    const hasPut = mine.some((link) => isPutOp(link.op))
+    // Mouth affinity: end is west, front is east. Bridge threads (put+get) sit
+    // on the consumer/front side so get edges stay short.
+    let side: Side
+    if (hasGet && hasPut) side = 'right'
+    else if (score > 0 || (hasPut && !hasGet)) side = 'left'
+    else side = 'right'
 
-    yCursor += bandH + ROW_GAP
+    // Anchor to the primary queue on that side so co-producers / co-consumers
+    // stack together instead of all collapsing to the same mean Y.
+    const primary = mine
+      .filter((link) => (side === 'left' ? isPutOp(link.op) : link.op === 'get'))
+      .sort((a, b) => a.queueId - b.queueId)[0]
+      ?? mine[0]
+    const anchorPipe = primary ? byPipe.get(primary.queueId) : undefined
+    const ys = mine.map((link) => byPipe.get(link.queueId)?.y).filter((y): y is number => y != null)
+    const y = anchorPipe?.y ?? (ys.length ? (d3.mean(ys) ?? PAD_Y + DETOUR_HEADROOM) : PAD_Y + DETOUR_HEADROOM)
+    const anchorKey = `${side}:${primary?.queueId ?? 'none'}`
+    return { tid, side, y, anchorKey, label }
+  })
+
+  // Stack each producer/consumer family on its pipe, ordered by label so the
+  // vertical order is stable and matches mouth port order (no criss-cross).
+  for (const group of d3.groups(draft, (node) => node.anchorKey)) {
+    const members = group[1].sort((a, b) => a.label.localeCompare(b.label) || a.tid - b.tid)
+    const anchorY = members[0]?.y ?? PAD_Y + DETOUR_HEADROOM
+    members.forEach((node, i) => {
+      node.y = anchorY + (i - (members.length - 1) / 2) * SIDE_GAP
+    })
   }
 
-  return {
-    w: contentW,
-    h: Math.max(120, yCursor + PAD_Y),
-    pipes,
-    pills,
-    byPipe: new Map(pipes.map((p) => [p.queueId, p])),
-    byPill: new Map(pills.map((p) => [p.id, p])),
+  for (const side of ['left', 'right'] as const) {
+    const group = draft.filter((node) => node.side === side).sort((a, b) => a.y - b.y || a.label.localeCompare(b.label) || a.tid - b.tid)
+    for (let i = 1; i < group.length; i++) {
+      const prev = group[i - 1]!
+      const cur = group[i]!
+      if (cur.y - prev.y < SIDE_GAP) cur.y = prev.y + SIDE_GAP
+    }
   }
+
+  const threads = draft.map((node) => ({
+    id: `t:${node.tid}`,
+    tid: node.tid,
+    label: node.label,
+    x: node.side === 'left' ? leftX : rightX,
+    y: node.y,
+  }))
+  const byThread = new Map(threads.map((t) => [t.tid, t]))
+
+  // Mouth ports follow visual top→bottom order so edges to the same aperture
+  // never cross when threads are already sorted on their side.
+  const assignPorts = (pred: (link: FlowLink) => boolean) => {
+    const grouped = d3.group(links.filter(pred), (link) => link.queueId)
+    for (const [, group] of grouped) {
+      group.sort((a, b) => {
+        const ay = byThread.get(a.threadId)?.y ?? 0
+        const by = byThread.get(b.threadId)?.y ?? 0
+        return ay - by || a.threadId - b.threadId
+      })
+      group.forEach((link, port) => {
+        link.port = port
+      })
+    }
+  }
+  assignPorts((link) => isPutOp(link.op))
+  assignPorts((link) => link.op === 'get')
+
+  const maxThreadY = threads.reduce((m, t) => Math.max(m, t.y), 0)
+  const maxPipeY = pipes.reduce((m, p) => Math.max(m, p.y), 0)
+  const contentW = Math.max(hostW, rightX + PILL_W / 2 + PAD_X)
+  const contentH = Math.max(120, PAD_Y + Math.max(maxThreadY + PILL_H / 2, maxPipeY + PIPE_H / 2 + 14) + PAD_Y)
+  return { w: contentW, h: contentH, pipes, threads, links, byPipe, byThread }
 }
 
 export function QueueGraph({
@@ -389,6 +576,9 @@ export function QueueGraph({
   const layoutRef = useRef<Layout | null>(null)
   const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
   const layersRef = useRef<Layers | null>(null)
+  const positionOverridesRef = useRef(new Map<string, { x: number; y: number }>())
+  const threadDragRef = useRef<d3.DragBehavior<SVGGElement, ThreadNode, ThreadNode | d3.SubjectPosition> | null>(null)
+  const pipeDragRef = useRef<d3.DragBehavior<SVGGElement, Pipe, Pipe | d3.SubjectPosition> | null>(null)
   const [layoutTick, setLayoutTick] = useState(0)
 
   useEffect(() => {
@@ -423,13 +613,38 @@ export function QueueGraph({
       .attr('height', PILL_H - 2)
       .attr('rx', 6)
 
-    layersRef.current = {
-      labels: svg.append('g'),
-      links: svg.append('g'),
-      packets: svg.append('g'),
-      pipes: svg.append('g'),
-      pills: svg.append('g'),
+    const scene = svg.append('g').attr('class', 'queue-graph-scene')
+    const layers: Layers = {
+      scene,
+      links: scene.append('g'),
+      packets: scene.append('g'),
+      pipes: scene.append('g'),
+      pills: scene.append('g'),
     }
+    layersRef.current = layers
+    svg.call(
+      d3
+        .zoom<SVGSVGElement, unknown>()
+        .scaleExtent([0.35, 3])
+        .on('zoom', (event) => scene.attr('transform', event.transform.toString())),
+    )
+
+    const move = (event: d3.D3DragEvent<SVGGElement, ThreadNode | Pipe, unknown>, d: ThreadNode | Pipe) => {
+      const svgNode = svg.node()
+      if (!svgNode) return
+      const [screenX, screenY] = d3.pointer(event.sourceEvent, svgNode)
+      const transform = d3.zoomTransform(svgNode)
+      d.x = transform.invertX(screenX)
+      d.y = transform.invertY(screenY)
+      positionOverridesRef.current.set(d.id, { x: d.x, y: d.y })
+      layers.pipes
+        .selectAll<SVGGElement, Pipe>('g.pipe')
+        .filter((candidate) => candidate.id === d.id)
+        .attr('transform', `translate(${d.x},${d.y})`)
+      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current, threadDragRef.current)
+    }
+    threadDragRef.current = d3.drag<SVGGElement, ThreadNode>().on('drag', function (event, d) { move(event, d) })
+    pipeDragRef.current = d3.drag<SVGGElement, Pipe>().on('drag', function (event, d) { move(event, d) })
     svgRef.current = svg
     const ro = new ResizeObserver(() => setLayoutTick((n) => n + 1))
     ro.observe(host)
@@ -451,34 +666,41 @@ export function QueueGraph({
       layers.pipes.selectAll('*').remove()
       layers.pills.selectAll('*').remove()
       layers.links.selectAll('*').remove()
-      layers.labels.selectAll('*').remove()
       svg.attr('viewBox', '0 0 320 100').attr('height', 100)
       return
     }
 
     const layout = buildLayout(tr, queues, host.clientWidth || 320)
+    const liveIds = new Set([...layout.pipes, ...layout.threads].map((node) => node.id))
+    for (const id of [...positionOverridesRef.current.keys()]) {
+      if (!liveIds.has(id)) positionOverridesRef.current.delete(id)
+    }
+    // Only user drags stick — auto-freeze was locking nodes on the wrong side
+    // and forcing the router into long wraps.
+    for (const node of [...layout.pipes, ...layout.threads]) {
+      const dragged = positionOverridesRef.current.get(node.id)
+      if (dragged) Object.assign(node, dragged)
+    }
+    // Re-assign mouth ports from the (possibly dragged) thread Y order so a
+    // pinned stack can’t drift out of sync with aperture lanes.
+    const assignPorts = (pred: (link: FlowLink) => boolean) => {
+      const grouped = d3.group(layout.links.filter(pred), (link) => link.queueId)
+      for (const [, group] of grouped) {
+        group.sort((a, b) => {
+          const ay = layout.byThread.get(a.threadId)?.y ?? 0
+          const by = layout.byThread.get(b.threadId)?.y ?? 0
+          return ay - by || a.threadId - b.threadId
+        })
+        group.forEach((link, port) => {
+          link.port = port
+        })
+      }
+    }
+    assignPorts((link) => isPutOp(link.op))
+    assignPorts((link) => link.op === 'get')
+
     layoutRef.current = layout
     svg.attr('viewBox', `0 0 ${layout.w} ${layout.h}`).attr('height', layout.h)
-
-    layers.labels.selectAll('*').remove()
-    const headers = [
-      { x: PAD_X + PILL_W / 2, t: 'put · end' },
-      { x: layout.pipes[0]?.x ?? layout.w / 2, t: 'msgq' },
-      { x: layout.w - PAD_X - PILL_W / 2, t: 'front · get' },
-    ]
-    layers.labels
-      .selectAll('text')
-      .data(headers)
-      .enter()
-      .append('text')
-      .attr('fill', 'rgba(148,163,184,0.65)')
-      .attr('font-size', 9)
-      .attr('font-weight', 600)
-      .attr('letter-spacing', '0.06em')
-      .attr('text-anchor', 'middle')
-      .attr('y', 14)
-      .attr('x', (d) => d.x)
-      .text((d) => d.t.toUpperCase())
 
     // Rebuild pipe shells once per layout (not every animation tick).
     const pipeSel = layers.pipes.selectAll<SVGGElement, Pipe>('g.pipe').data(layout.pipes, (d) => d.id)
@@ -487,12 +709,13 @@ export function QueueGraph({
     pipeEnter.each(function (d) {
       buildPipeShell(d3.select(this), d)
     })
-    pipeEnter
+    const pipeMerged = pipeEnter
       .merge(pipeSel)
       .attr('transform', (d) => `translate(${d.x},${d.y})`)
       .each(function (d) {
         updatePipeFill(d3.select(this), d, false)
       })
+    if (pipeDragRef.current) pipeMerged.call(pipeDragRef.current)
 
     const flow = queueFlowEvents(tr)
     const newest = flow.filter((ev) => ev.index > lastIndexRef.current)
@@ -525,10 +748,10 @@ export function QueueGraph({
       }
     }
 
-    paintFrame(layers, layout, edgeStateRef.current)
+    paintFrame(layers, layout, edgeStateRef.current, threadDragRef.current)
 
     const interval = window.setInterval(() => {
-      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current)
+      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current, threadDragRef.current)
     }, 180)
     return () => window.clearInterval(interval)
   }, [tr, queues, eventCount, layoutTick])
@@ -552,8 +775,9 @@ function fireBurst(
   if (!ev) return
   if (ev.threadId == null) return
   const pipe = layout.byPipe.get(ev.queueId)
-  const pill = layout.byPill.get(pillKey(ev.queueId, ev.threadId, sideForOp(ev.op)))
-  if (!pipe || !pill) return
+  const thread = layout.byThread.get(ev.threadId)
+  const link = layout.links.find((candidate) => candidate.id === flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }))
+  if (!pipe || !thread || !link) return
 
   const key = flowEdgeId({ threadId: ev.threadId, queueId: ev.queueId, op: ev.op })
   const now = performance.now()
@@ -566,7 +790,7 @@ function fireBurst(
     threadId: ev.threadId,
   })
 
-  const p = edgePath(pill, pipe, ev.op)
+  const p = edgePath(thread, pipe, link, layout.pipes)
   // The badge below represents every event. Limit moving dots only so a busy
   // slice remains readable rather than becoming a solid line.
   for (let index = 0; index < Math.min(events.length, MAX_PACKETS_PER_BURST); index++) {
@@ -606,13 +830,18 @@ function firePacket(
     .remove()
 }
 
-function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeState>) {
+function paintFrame(
+  layers: Layers,
+  layout: Layout,
+  edgeState: Map<string, EdgeState>,
+  threadDrag?: d3.DragBehavior<SVGGElement, ThreadNode, ThreadNode | d3.SubjectPosition> | null,
+) {
   const now = performance.now()
   const active: Array<{
     key: string
-    pill: ThreadPill
+    thread: ThreadNode
     pipe: Pipe
-    op: QueueFlowOp
+    link: FlowLink
     count: number
     hot: boolean
   }> = []
@@ -623,22 +852,22 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
       continue
     }
     const pipe = layout.byPipe.get(st.queueId)
-    const pill = layout.byPill.get(pillKey(st.queueId, st.threadId, sideForOp(st.op)))
-    if (!pipe || !pill) continue
-    active.push({ key, pill, pipe, op: st.op, count: st.count, hot: now < st.untilHot })
+    const thread = layout.byThread.get(st.threadId)
+    const link = layout.links.find((candidate) => candidate.id === key)
+    if (!pipe || !thread || !link) continue
+    active.push({ key, thread, pipe, link, count: st.count, hot: now < st.untilHot })
   }
 
-  const activePills = new Set(active.map((a) => a.pill.id))
+  const activeLinks = new Set(active.map((a) => a.key))
   const structural: typeof active = []
-  for (const pill of layout.pills) {
-    const pipe = layout.byPipe.get(pill.queueId)
-    if (!pipe) continue
-    const op: QueueFlowOp = pill.side === 'put' ? 'put' : 'get'
+  for (const link of layout.links) {
+    const pipe = layout.byPipe.get(link.queueId)
+    const thread = layout.byThread.get(link.threadId)
+    if (!pipe || !thread) continue
     // An active operation owns its lane; do not leave a second, structural
     // arrow underneath it just because that thread also uses normal put.
-    if (activePills.has(pill.id)) continue
-    const key = flowEdgeId({ threadId: pill.tid, queueId: pill.queueId, op })
-    structural.push({ key: `struct:${key}`, pill, pipe, op, count: 0, hot: false })
+    if (activeLinks.has(link.id)) continue
+    structural.push({ key: `struct:${link.id}`, thread, pipe, link, count: 0, hot: false })
   }
 
   const allLinks = [...structural, ...active]
@@ -650,15 +879,16 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     .enter()
     .append('path')
     .attr('fill', 'none')
-    .attr('stroke-linecap', 'round')
+    // butt + straight end stubs keep the stroke flush with marker-end triangles.
+    .attr('stroke-linecap', 'butt')
     .attr('stroke-linejoin', 'round')
     .merge(link)
     // Direction must remain legible even between the short-lived event pulses.
-    .attr('marker-end', (d) => markerFor(d.op))
-    .attr('stroke', (d) => strokeFor(d.op))
+    .attr('marker-end', (d) => markerFor(d.link.op))
+    .attr('stroke', (d) => strokeFor(d.link.op))
     .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.35 : d.hot ? 2.3 : 1.7))
     .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.52 : d.hot ? 0.96 : 0.68))
-    .attr('d', (d) => edgePath(d.pill, d.pipe, d.op).d)
+    .attr('d', (d) => edgePath(d.thread, d.pipe, d.link, layout.pipes).d)
 
   const burstBadge = layers.packets
     .selectAll<SVGTextElement, (typeof active)[0]>('text.burst-count')
@@ -676,9 +906,9 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     .attr('stroke', '#020617')
     .attr('stroke-width', 3)
     .merge(burstBadge)
-    .attr('x', (entry) => burstBadgePosition(entry.pill, entry.pipe, entry.op).x)
-    .attr('y', (entry) => burstBadgePosition(entry.pill, entry.pipe, entry.op).y)
-    .attr('fill', (entry) => packetFill(entry.op))
+    .attr('x', (entry) => burstBadgePosition(entry.thread, entry.pipe, entry.link, layout.pipes).x)
+    .attr('y', (entry) => burstBadgePosition(entry.thread, entry.pipe, entry.link, layout.pipes).y)
+    .attr('fill', (entry) => packetFill(entry.link.op))
     .text((entry) => `×${entry.count}`)
 
   const hotQueues = new Set(active.filter((a) => a.hot).map((a) => a.pipe.id))
@@ -686,12 +916,10 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
     updatePipeFill(d3.select(this), d, hotQueues.has(d.id))
   })
 
-  const hotPills = new Set(
-    active.filter((a) => a.hot).map((a) => pillKey(a.pill.queueId, a.pill.tid, a.pill.side)),
-  )
+  const hotThreads = new Set(active.filter((a) => a.hot).map((a) => a.thread.id))
   const pillSel = layers.pills
-    .selectAll<SVGGElement, ThreadPill>('g.pill')
-    .data(layout.pills, (d) => d.id)
+    .selectAll<SVGGElement, ThreadNode>('g.pill')
+    .data(layout.threads, (d) => d.id)
   pillSel.exit().remove()
   const pillEnter = pillSel.enter().append('g').attr('class', 'pill')
   pillEnter
@@ -712,22 +940,16 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
 
   const pillMerged = pillEnter.merge(pillSel)
   pillMerged.attr('transform', (d) => `translate(${d.x},${d.y})`)
+  if (threadDrag) pillMerged.call(threadDrag)
   pillMerged.each(function (d) {
     const g = d3.select(this)
-    const hot = hotPills.has(d.id)
-    const put = d.side === 'put'
+    const hot = hotThreads.has(d.id)
     g.select('rect')
       .attr(
         'fill',
-        hot
-          ? put
-            ? 'rgba(96, 165, 250, 0.22)'
-            : 'rgba(251, 191, 36, 0.22)'
-          : put
-            ? 'rgba(96, 165, 250, 0.08)'
-            : 'rgba(251, 191, 36, 0.08)',
+        hot ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.08)',
       )
-      .attr('stroke', put ? '#60a5fa' : '#fbbf24')
+      .attr('stroke', '#60a5fa')
       .attr('stroke-width', hot ? 1.6 : 1.1)
     g.select('text')
       .attr('fill', 'rgba(248,250,252,0.95)')
@@ -740,33 +962,34 @@ function paintFrame(layers: Layers, layout: Layout, edgeState: Map<string, EdgeS
 
 /**
  * Build a clean horizontal cylinder once: end-cap ellipses + barrel + bore.
- * Live depth updates go through updatePipeFill so we don't rebuild every tick.
+ * Top/bottom rails share the ellipse ±ry so strokes meet without a gap or
+ * double-line. Live depth updates go through updatePipeFill.
  */
 function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, pipe: Pipe): void {
   g.selectAll('*').remove()
 
   const x0 = -PIPE_W / 2
   const x1 = PIPE_W / 2
-  const y0 = -PIPE_H / 2
-  const y1 = PIPE_H / 2
+  const y0 = -MOUTH_RY
+  const y1 = MOUTH_RY
+  const stroke = 'rgba(203,213,225,0.72)'
+  const strokeW = 1
 
-  // Flat tube: one quiet silhouette, not a stack of shiny rounded rectangles.
-  // The slight bow gives the cylinder its form without a gradient or a heavy rim.
-  g.append('path')
-    .attr('class', 'barrel')
-    .attr(
-      'd',
-      `M${x0},${y0 + 3} Q0,${y0 - 3} ${x1},${y0 + 3} L${x1},${y1 - 3} Q0,${y1 + 3} ${x0},${y1 - 3} Z`,
-    )
+  // Barrel body — fill only. Vertical ends are the mouth ellipses; stroking a
+  // rect here leaves a 1px seam where the caps meet the rails.
+  g.append('rect')
+    .attr('class', 'barrel-fill')
+    .attr('x', x0)
+    .attr('y', y0)
+    .attr('width', PIPE_W)
+    .attr('height', PIPE_H)
     .attr('fill', '#151f30')
-    .attr('stroke', 'rgba(203,213,225,0.72)')
-    .attr('stroke-width', 0.85)
 
-  // Flat inner channel; it carries queue occupancy without adding another rim.
-  const boreX = x0 + MOUTH_RX + 3
-  const boreY = y0 + 10
-  const boreW = PIPE_W - MOUTH_RX * 2 - 6
-  const boreH = PIPE_H - 20
+  // Inner channel (occupancy track).
+  const boreX = x0 + MOUTH_RX + 4
+  const boreY = y0 + 9
+  const boreW = PIPE_W - MOUTH_RX * 2 - 8
+  const boreH = PIPE_H - 18
   g.append('rect')
     .attr('class', 'bore')
     .attr('x', boreX)
@@ -776,7 +999,6 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
     .attr('rx', boreH / 2)
     .attr('fill', '#0b1220')
 
-  // Liquid occupancy — width updated live.
   g.append('rect')
     .attr('class', 'fill')
     .attr('x', boreX + 2)
@@ -787,48 +1009,54 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
     .attr('fill', '#38bdf8')
     .attr('fill-opacity', 0.56)
 
-  // Left mouth (end) — outer ring + dark aperture
-  g.append('ellipse')
-    .attr('cx', x0)
-    .attr('cy', 0)
-    .attr('rx', MOUTH_RX)
-    .attr('ry', MOUTH_RY)
-    .attr('fill', '#151f30')
-    .attr('stroke', 'rgba(203,213,225,0.72)')
-    .attr('stroke-width', 0.85)
-  g.append('ellipse')
-    .attr('class', 'mouth-end')
-    .attr('cx', x0)
-    .attr('cy', 0)
-    .attr('rx', MOUTH_RX - 2.5)
-    .attr('ry', MOUTH_RY - 4)
-    .attr('fill', '#0b1220')
-    .attr('stroke', 'rgba(148,163,184,0.45)')
-    .attr('stroke-width', 0.55)
+  // Mouth caps first (under the rails) so the horizontal strokes sit on top at
+  // the tangent points and read as one continuous silhouette.
+  const drawMouth = (cx: number, cls: string) => {
+    g.append('ellipse')
+      .attr('class', 'mouth-ring')
+      .attr('cx', cx)
+      .attr('cy', 0)
+      .attr('rx', MOUTH_RX)
+      .attr('ry', MOUTH_RY)
+      .attr('fill', '#151f30')
+      .attr('stroke', stroke)
+      .attr('stroke-width', strokeW)
+    g.append('ellipse')
+      .attr('class', cls)
+      .attr('cx', cx)
+      .attr('cy', 0)
+      .attr('rx', Math.max(3, MOUTH_RX - 2.5))
+      .attr('ry', Math.max(8, MOUTH_RY - 5))
+      .attr('fill', '#0b1220')
+      .attr('stroke', 'rgba(148,163,184,0.4)')
+      .attr('stroke-width', 0.6)
+  }
+  drawMouth(x0, 'mouth-end')
+  drawMouth(x1, 'mouth-front')
 
-  // Right mouth (front)
-  g.append('ellipse')
-    .attr('cx', x1)
-    .attr('cy', 0)
-    .attr('rx', MOUTH_RX)
-    .attr('ry', MOUTH_RY)
-    .attr('fill', '#151f30')
-    .attr('stroke', 'rgba(203,213,225,0.72)')
-    .attr('stroke-width', 0.85)
-  g.append('ellipse')
-    .attr('class', 'mouth-front')
-    .attr('cx', x1)
-    .attr('cy', 0)
-    .attr('rx', MOUTH_RX - 2.5)
-    .attr('ry', MOUTH_RY - 4)
-    .attr('fill', '#0b1220')
-    .attr('stroke', 'rgba(148,163,184,0.45)')
-    .attr('stroke-width', 0.55)
+  // Top + bottom rails — exact tangents of both mouth ellipses.
+  g.append('line')
+    .attr('class', 'barrel-rail')
+    .attr('x1', x0)
+    .attr('y1', y0)
+    .attr('x2', x1)
+    .attr('y2', y0)
+    .attr('stroke', stroke)
+    .attr('stroke-width', strokeW)
+    .attr('stroke-linecap', 'butt')
+  g.append('line')
+    .attr('class', 'barrel-rail')
+    .attr('x1', x0)
+    .attr('y1', y1)
+    .attr('x2', x1)
+    .attr('y2', y1)
+    .attr('stroke', stroke)
+    .attr('stroke-width', strokeW)
+    .attr('stroke-linecap', 'butt')
 
-  // Tiny end / front captions under mouths
   g.append('text')
     .attr('x', x0)
-    .attr('y', y1 + 11)
+    .attr('y', y1 + 12)
     .attr('text-anchor', 'middle')
     .attr('fill', 'rgba(148,163,184,0.7)')
     .attr('font-size', 8)
@@ -836,7 +1064,7 @@ function buildPipeShell(g: d3.Selection<SVGGElement, unknown, null, undefined>, 
     .text('end')
   g.append('text')
     .attr('x', x1)
-    .attr('y', y1 + 11)
+    .attr('y', y1 + 12)
     .attr('text-anchor', 'middle')
     .attr('fill', 'rgba(148,163,184,0.7)')
     .attr('font-size', 8)
@@ -881,12 +1109,18 @@ function updatePipeFill(
   pipe: Pipe,
   hot: boolean,
 ): void {
-  const boreW = PIPE_W - MOUTH_RX * 2 - 4
+  const boreX = -PIPE_W / 2 + MOUTH_RX + 4
+  const boreW = PIPE_W - MOUTH_RX * 2 - 8
   const fillFrac = pipe.cap > 0 ? Math.min(1, pipe.depth / pipe.cap) : 0
   const fillW = Math.max(0, (boreW - 4) * fillFrac)
+  const stroke = hot ? '#e2e8f0' : 'rgba(203,213,225,0.72)'
+  const strokeW = hot ? 1.25 : 1
 
-  g.select('path.barrel').attr('stroke', hot ? '#e2e8f0' : 'rgba(203,213,225,0.72)').attr('stroke-width', hot ? 1.1 : 0.85)
+  g.selectAll('line.barrel-rail').attr('stroke', stroke).attr('stroke-width', strokeW)
+  g.selectAll('ellipse.mouth-ring').attr('stroke', stroke).attr('stroke-width', strokeW)
+
   g.select('rect.fill')
+    .attr('x', boreX + 2)
     .attr('width', fillW)
     .attr('fill', pipe.drops > 0 ? '#fb7185' : '#38bdf8')
 
