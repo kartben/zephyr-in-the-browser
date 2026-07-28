@@ -48,6 +48,7 @@ export {
   threadFlowScores,
   flowEdgeId,
   flowThreadLabel,
+  isPutOp,
   type QueueFlowEvent,
   type QueueFlowOp,
 } from './queueGraph'

@@ -247,8 +247,9 @@ export function QueuesView({
   return (
     <>
       <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-        Each msgq is a tube — puts enter left, gets leave right. Packets animate on new{' '}
+        Each msgq is a pipe — puts enter left, gets leave right. Packets animate on new{' '}
         <span className="font-mono text-foreground/80">put_exit</span> /{' '}
+        <span className="font-mono text-foreground/80">put_front_exit</span> /{' '}
         <span className="font-mono text-foreground/80">get_exit</span>
         {queues.length > 0 ? ` · ${queues.length} msgq` : ''}. Depth charts share the Schedule
         window below.
@@ -259,9 +260,12 @@ export function QueuesView({
             <span className="inline-block h-0.5 w-3 bg-sky-400" /> put →
           </span>
           <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-0.5 w-3 bg-teal-400" /> put_front →
+          </span>
+          <span className="inline-flex items-center gap-1">
             <span className="inline-block h-0.5 w-3 bg-amber-400" /> → get
           </span>
-          <span>tube fill = depth</span>
+          <span>pipe fill = depth</span>
         </div>
       )}
       {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
