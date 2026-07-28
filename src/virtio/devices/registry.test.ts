@@ -6,7 +6,9 @@ import { isJhd1313Backlight, isJhd1313Lcd } from './chips/jhd1313'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 
-afterEach(() => clear())
+afterEach(async () => {
+  await clear()
+})
 
 describe('hasDriver', () => {
   it('answers from the fallback table when no devicetree is loaded', () => {

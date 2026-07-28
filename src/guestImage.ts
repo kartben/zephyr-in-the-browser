@@ -3,9 +3,9 @@
  *
  * The awkward part is the reload. An Emscripten module is single-shot per
  * document, so booting a different image after QEMU is already running means
- * navigating — and the dropped bytes have to survive that. They are handed off
- * through IndexedDB and deleted on the way out, so this is a one-shot buffer
- * rather than persistence: nothing outlives the boot it was dropped for.
+ * navigating — and the dropped bytes have to survive that. They live in
+ * IndexedDB for the rest of the session: Reload / refresh keeps the custom
+ * ELF, and only an explicit clear (or picking a bundled sample) drops it.
  */
 
 const DB_NAME = 'zephyr-in-the-browser'
@@ -66,8 +66,7 @@ export function handoffTx<T>(
   )
 }
 
-/** Stash bytes for the next document to pick up, then reload into them. */
-export async function stash(image: GuestImage): Promise<void> {
+async function persist(image: GuestImage): Promise<void> {
   // Store a plain ArrayBuffer: structured clone handles it everywhere, and a
   // detached view would not survive.
   await handoffTx('readwrite', (s) =>
@@ -76,14 +75,21 @@ export async function stash(image: GuestImage): Promise<void> {
 }
 
 /**
- * Reads and clears the stashed image. Called once at startup, before any
- * backend runs, so a failed boot does not trap the page in a reload loop.
+ * Persist bytes so the next document (and later Reloads) pick them up.
+ * Used before a hard reload, and by set() so a soft boot still survives one.
+ */
+export async function stash(image: GuestImage): Promise<void> {
+  await persist(image)
+}
+
+/**
+ * Reads the persisted image into this document. Leaves the IndexedDB copy in
+ * place so Reload / refresh boots the same ELF again; clear() is what drops it.
  */
 export async function claimStashed(): Promise<GuestImage | null> {
   let record: { name: string; buffer: ArrayBuffer } | undefined
   try {
     record = await handoffTx('readonly', (s) => s.get(KEY))
-    if (record) await handoffTx('readwrite', (s) => s.delete(KEY))
   } catch {
     return null // private mode, blocked storage — fall back to the stock image
   }
@@ -96,16 +102,25 @@ export async function claimStashed(): Promise<GuestImage | null> {
 /**
  * Use this image for the next boot in *this* document. Only valid before QEMU
  * has committed; afterwards the caller must stash() and reload instead.
+ * Persists so a later hard Reload still finds it.
  */
 export function set(image: GuestImage) {
   current = image
   notify()
+  void persist(image).catch(() => {
+    /* private mode, blocked storage — memory still holds this document's boot */
+  })
 }
 
 /** Forget the custom image; the next boot uses the board's stock one. */
-export function clear() {
+export async function clear(): Promise<void> {
   current = null
   notify()
+  try {
+    await handoffTx('readwrite', (s) => s.delete(KEY))
+  } catch {
+    // Same storage failure claim tolerates.
+  }
 }
 
 /**

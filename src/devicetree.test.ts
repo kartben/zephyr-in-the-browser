@@ -1,9 +1,19 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clear, get, loadSampleDts, setUserDts, subscribe } from './devicetree'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  claimStashedDts,
+  clear,
+  clearStashedDts,
+  get,
+  loadSampleDts,
+  setUserDts,
+  stashUserDts,
+  subscribe,
+} from './devicetree'
 import a53Shell from './dts/fixtures/qemu_cortex_a53_shell.dts?raw'
+import { installFakeIndexedDb } from './testing/fakeIndexedDb'
 
-afterEach(() => {
-  clear()
+afterEach(async () => {
+  await clear()
   vi.unstubAllGlobals()
 })
 
@@ -44,15 +54,43 @@ describe('devicetree store', () => {
     expect(get()?.name).toBe('zephyr.dts')
   })
 
-  it('notifies subscribers on set and clear', () => {
+  it('notifies subscribers on set and clear', async () => {
     let calls = 0
     const unsubscribe = subscribe(() => calls++)
     setUserDts('zephyr.dts', a53Shell)
     expect(calls).toBe(1)
-    clear()
+    await clear()
     expect(calls).toBe(2)
-    clear() // already clear — no spurious notification
+    await clear() // already clear — no spurious notification
     expect(calls).toBe(2)
     unsubscribe()
+  })
+
+  describe('session persistence', () => {
+    beforeEach(async () => {
+      installFakeIndexedDb()
+      await clearStashedDts()
+      await clear()
+    })
+
+    it('keeps a stashed user DTS available after claim so Reload can reclaim it', async () => {
+      await stashUserDts('zephyr.dts', a53Shell)
+      await claimStashedDts()
+      expect(get()?.name).toBe('zephyr.dts')
+      expect(get()?.source).toBe('user')
+
+      // Reload: claim again without clearing — row must still be there.
+      await claimStashedDts()
+      expect(get()?.name).toBe('zephyr.dts')
+    })
+
+    it('forgets the DTS from IndexedDB on clear', async () => {
+      await stashUserDts('zephyr.dts', a53Shell)
+      await claimStashedDts()
+      await clear()
+      expect(get()).toBeNull()
+      await claimStashedDts()
+      expect(get()).toBeNull()
+    })
   })
 })

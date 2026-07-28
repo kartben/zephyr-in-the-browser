@@ -277,13 +277,16 @@ export default function App() {
   /**
    * Choosing a built-in app also drops any user-supplied ELF — and with it any
    * user devicetree, which must not leak onto a sample. The sample's own tree
-   * is re-fetched by the backend when the new session starts.
+   * is re-fetched by the backend when the new session starts. Await the
+   * IndexedDB clears before any hard navigation so Reload cannot resurrect them.
    */
   const handleSampleChange = useCallback(
     (id: string) => {
-      clearGuestImage()
-      clearDeviceTree()
-      applySelection({ sampleId: id })
+      void (async () => {
+        await clearGuestImage()
+        await clearDeviceTree()
+        applySelection({ sampleId: id })
+      })()
     },
     [applySelection],
   )
@@ -301,11 +304,11 @@ export default function App() {
   }, [])
 
   /**
-   * Boot a user-supplied ELF, with or without its devicetree. If QEMU has
-   * already committed this document the bytes have to survive a reload, so
-   * both files go through the IndexedDB handoff; otherwise the session can
-   * just be remounted around them. A stale stashed devicetree is cleared
-   * either way, so skipping the prompt cannot resurrect an old one.
+   * Boot a user-supplied ELF, with or without its devicetree. Both files are
+   * persisted in IndexedDB for the session so Reload / refresh keeps them; a
+   * committed QEMU document still has to navigate to pick the new bytes up.
+   * A stale stashed devicetree is cleared either way, so skipping the prompt
+   * cannot resurrect an old one.
    */
   const commitElf = useCallback(
     async (image: GuestImage, dts: { name: string; text: string } | null) => {
@@ -319,7 +322,7 @@ export default function App() {
           return
         }
         if (dts) setUserDts(dts.name, dts.text)
-        else clearDeviceTree()
+        else await clearDeviceTree()
         setGuestImage(image)
         setNonce((n) => n + 1)
       } catch (err) {
@@ -389,18 +392,23 @@ export default function App() {
   )
 
   const handleClearImage = useCallback(() => {
-    clearGuestImage()
-    clearDeviceTree()
-    if (backendRef.current?.resetRequiresReload) {
-      location.reload()
-      return
-    }
-    setNonce((n) => n + 1)
+    void (async () => {
+      // Drop the session copies before any hard reload, or they would come back.
+      await clearGuestImage()
+      await clearDeviceTree()
+      if (backendRef.current?.resetRequiresReload) {
+        location.reload()
+        return
+      }
+      setNonce((n) => n + 1)
+    })()
   }, [])
 
   const handleRestart = useCallback(() => {
     const backend = backendRef.current
     if (backend?.resetRequiresReload) {
+      // Custom ELF/DTS stay in IndexedDB across this navigation (claim leaves
+      // them in place); stock samples have nothing persisted to reclaim.
       void backend.reset() // navigates; nothing after this runs
       return
     }

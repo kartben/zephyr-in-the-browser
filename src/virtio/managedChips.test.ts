@@ -32,8 +32,8 @@ import {
 } from './index'
 import { isPt6314 } from './devices/chips/pt6314'
 
-afterEach(() => {
-  clear()
+afterEach(async () => {
+  await clear()
   // Drop any user-attached SPI strangers left by a test (including CS1
   // PT6314 minted for the shell tree).
   for (const chip of [...spiModel.chips()]) {
@@ -90,13 +90,13 @@ describe('syncManagedChips', () => {
     expect(addresses()).toEqual([])
   })
 
-  it('keeps EEPROM contents across a detach/reattach cycle', () => {
+  it('keeps EEPROM contents across a detach/reattach cycle', async () => {
     eeprom.poke(0, 0xab)
 
     setUserDts('blinky.dts', a53Blinky)
     expect(i2cModel.chips()).not.toContain(eeprom)
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(i2cModel.chips()).toContain(eeprom)
     expect(eeprom.memory[0]).toBe(0xab)
@@ -153,38 +153,38 @@ describe('syncManagedChips', () => {
     expect(spiModel.chips()).not.toContain(w25q)
   })
 
-  it('restores the NOR after clearing the SCT2024 tree', () => {
+  it('restores the NOR after clearing the SCT2024 tree', async () => {
     setUserDts('sct2024.dts', a53Sct2024)
     expect(spiModel.chips()).toEqual([sct2024])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('restores the NOR after clearing the WS2812 tree', () => {
+  it('restores the NOR after clearing the WS2812 tree', async () => {
     setUserDts('ws2812.dts', a53Ws2812)
     expect(spiModel.chips()).toEqual([ws2812])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('restores the NOR after clearing the PT6314 tree', () => {
+  it('restores the NOR after clearing the PT6314 tree', async () => {
     setUserDts('pt6314.dts', a53Pt6314)
     expect(spiModel.chips()).toEqual([pt6314])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
 
-  it('restores the NOR after clearing the TMC50xx tree', () => {
+  it('restores the NOR after clearing the TMC50xx tree', async () => {
     setUserDts('tmc50xx.dts', a53Tmc50xx)
     expect(spiModel.chips()).toEqual([tmc50xx])
 
-    clear()
+    await clear()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
