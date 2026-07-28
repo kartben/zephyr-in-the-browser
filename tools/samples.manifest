@@ -80,6 +80,7 @@ qemu_cortex_a53:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-
 qemu_cortex_a53:philosophers:samples/philosophers
 qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:tracing_pipeline:samples/subsys/tracing/pipeline
+qemu_cortex_a53:msg_queue:samples/kernel/msg_queue:conf/tracing.conf
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
 qemu_cortex_a53:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio

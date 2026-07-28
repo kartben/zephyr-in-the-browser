@@ -497,6 +497,16 @@ const CORTEX_A53_SAMPLES: GuestSample[] = [
     primaryPanels: ['trace'],
   },
   {
+    // Stock msgq sample (put + put_front urgent) with CTF overlay so the
+    // Queues pipe graph can show producer/consumer and put_front traffic.
+    // https://docs.zephyrproject.org/latest/samples/kernel/msg_queue/README.html
+    id: 'msg_queue',
+    label: 'Message Queue',
+    description: 'Producer/consumer msgq with urgent put_front — live CTF queue view',
+    zephyrSample: 'samples/kernel/msg_queue',
+    primaryPanels: ['trace'],
+  },
+  {
     // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
@@ -810,7 +820,7 @@ export const BOARDS: Board[] = [
     },
     // Same guest apps as A53, minus tracing samples (ARM semihosting CTF path).
     samples: CORTEX_A53_SAMPLES.filter(
-      (s) => s.id !== 'tracing' && s.id !== 'tracing_pipeline',
+      (s) => s.id !== 'tracing' && s.id !== 'tracing_pipeline' && s.id !== 'msg_queue',
     ),
     defaultSampleId: 'hello_world',
     extraFiles: [
