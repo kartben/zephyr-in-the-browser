@@ -101,7 +101,6 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
       defaultExpanded={expanded}
       dockedWidth={24}
       seedHeight={28}
-      dockedResize="both"
       side="left"
       dismissible={false}
       status={

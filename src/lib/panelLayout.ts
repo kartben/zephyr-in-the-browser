@@ -91,9 +91,8 @@ export function clearAllPanelLayouts(): void {
 
 /** Persist a panel's layout, silently tolerating quota or private-mode errors. */
 export function savePanelLayout(id: string, layout: PanelLayout): void {
-  // Nothing worth storing once a panel is docked with no size box — clear the
+  // Nothing worth storing once a panel is docked with no custom box — clear the
   // key so a stale floating position can't resurrect on the next reload.
-  // Docked-resizable Trace/Debug keep `rect` (w/h) while floating is false.
   if (!layout.floating && !layout.rect) {
     try {
       localStorage.removeItem(key(id))

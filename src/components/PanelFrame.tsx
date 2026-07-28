@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { ChevronDown, Dock, PictureInPicture2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -41,18 +41,10 @@ interface PanelFrameProps {
   /** Extra header buttons, placed before the built-in undock/collapse/close. */
   actions?: ReactNode
   /**
-   * Fill the parent up to `dockedWidth` — the stage Trace panel used this so a
-   * phone got a nearly full-bleed timeline without every dock card stretching.
-   * Prefer `dockedResize` when the card should keep a stable, user-sized box.
+   * Fill the parent up to `dockedWidth` — the stage Trace panel uses this so a
+   * phone gets a nearly full-bleed timeline without every dock card stretching.
    */
   fill?: boolean
-  /**
-   * Let the user resize the card while it stays in the stage stack. `width`
-   * exposes an east-edge grip; `both` also locks height (tab switches no longer
-   * grow/shrink the chrome) and adds a south-east corner grip. Size persists
-   * with the floating `rect`.
-   */
-  dockedResize?: false | 'width' | 'both'
   /**
    * Controlled window mode, for bodies whose home is the dock: the frame is
    * always floating, and both the dock button and the X hand control back to
@@ -91,7 +83,6 @@ export function PanelFrame({
   status,
   actions,
   fill = false,
-  dockedResize = false,
   windowed,
   dismissible = true,
   children,
@@ -102,32 +93,21 @@ export function PanelFrame({
   const [floating, setFloating] = useState(windowed ? true : (saved?.floating ?? false))
   const [rect, setRect] = useState<PanelBox | null>(() => {
     if (saved?.rect) return saved.rect
-    // Windowed cards and docked-resizable stage cards always own a size box so
-    // tab changes cannot grow/shrink the chrome, and undock has something to
-    // lift. Other docked panels stay content-sized until first undock.
-    if (windowed || dockedResize) return clampBox(seedBox(dockedWidth, seedHeight, side))
-    return null
+    if (!windowed) return null
+    // A window opens floating with nothing saved yet: seed its box now, the
+    // same math undock() uses on first pop-out.
+    return clampBox(seedBox(dockedWidth, seedHeight, side))
   })
 
-  const sizedDocked = Boolean(dockedResize) && !floating
-  const fixedHeight = floating || dockedResize === 'both'
-
   // Collapsed floaters are header-tall; clamp Y against that so they can sit
-  // near the bottom. Full rect.h is preserved for expand. Docked cards only
-  // store a size — skip viewport X/Y clamping while they stay in the stack.
-  const { dragHandlers, resizeHandlers, resizeXHandlers, resizeYHandlers } = useDragResize(
+  // near the bottom. Full rect.h is preserved for expand.
+  const { dragHandlers, resizeHandlers } = useDragResize(
     rect,
     setRect,
-    floating
-      ? collapsed
-        ? { visibleHeight: FLOATING_HEADER_H }
-        : undefined
-      : sizedDocked
-        ? { sizeOnly: true }
-        : undefined,
+    collapsed ? { visibleHeight: FLOATING_HEADER_H } : undefined,
   )
 
-  // Persist floating + size; collapse/dismiss stay session-only.
+  // Persist only the floating layout; collapse/dismiss stay session-only.
   useEffect(() => {
     savePanelLayout(id, { floating, rect })
   }, [id, floating, rect])
@@ -135,15 +115,16 @@ export function PanelFrame({
   const setCollapsedSafe = (next: boolean | ((c: boolean) => boolean)) => {
     const collapsedNext = typeof next === 'function' ? next(collapsed) : next
     // Expanding after a low drag: push up so the restored body fits.
-    if (collapsed && !collapsedNext && rect && floating) {
+    if (collapsed && !collapsedNext && rect) {
       setRect(clampBox(rect))
     }
     setCollapsed(collapsedNext)
   }
 
   const undock = () => {
-    // Seed a box from the docked width on first undock; reuse whatever the user
-    // last left (including a docked-resizable w/h). clampBox keeps it on-screen.
+    // Seed a box from the docked width, popping out near this panel's own edge
+    // on first undock, then reuse whatever the user last left. clampBox keeps it
+    // on-screen.
     setRect(clampBox(rect ?? seedBox(dockedWidth, seedHeight, side)))
     setFloating(true)
   }
@@ -153,42 +134,27 @@ export function PanelFrame({
 
   if (dismissed) return null
 
-  // A collapsed floating/sized card sizes to its header — keeping height would
-  // leave a tall empty box. The stored rect.h is untouched, so expanding
-  // restores it.
-  let boxStyle: CSSProperties | undefined
-  if (floating && rect) {
-    boxStyle = {
-      left: rect.x,
-      top: rect.y,
-      width: rect.w,
-      ...(collapsed ? {} : { height: rect.h }),
-    }
-  } else if (sizedDocked && rect) {
-    boxStyle = {
-      width: rect.w,
-      maxWidth: 'calc(100vw - 2rem)',
-      ...(collapsed || dockedResize !== 'both' ? {} : { height: rect.h }),
-    }
-  } else if (fill) {
-    boxStyle = { width: '100%', maxWidth: `${dockedWidth}rem` }
-  } else {
-    boxStyle = { width: `${dockedWidth}rem`, maxWidth: 'calc(100vw - 2rem)' }
-  }
-
-  const showCornerResize = !collapsed && rect && (floating || dockedResize === 'both')
-  const showWidthResize = !collapsed && rect && (floating || dockedResize === 'width' || dockedResize === 'both')
-  const showHeightResize = !collapsed && rect && (floating || dockedResize === 'both')
+  // A collapsed floating card sizes to its header — keeping height would leave a
+  // tall empty box. The stored rect.h is untouched, so expanding restores it.
+  const floatingStyle =
+    floating && rect
+      ? { left: rect.x, top: rect.y, width: rect.w, ...(collapsed ? {} : { height: rect.h }) }
+      : undefined
 
   return (
     <div
       data-dock-key={id}
       className={cn(
-        'pointer-events-auto relative overflow-hidden rounded-lg border border-border bg-card shadow-lg',
-        (floating || fixedHeight) && 'flex flex-col',
-        floating && 'fixed z-40',
+        'pointer-events-auto overflow-hidden rounded-lg border border-border bg-card shadow-lg',
+        floating && 'fixed z-40 flex flex-col',
       )}
-      style={boxStyle}
+      style={
+        floating
+          ? floatingStyle
+          : fill
+            ? { width: '100%', maxWidth: `${dockedWidth}rem` }
+            : { width: `${dockedWidth}rem`, maxWidth: 'calc(100vw - 2rem)' }
+      }
     >
       <div
         data-dock-focus
@@ -200,7 +166,7 @@ export function PanelFrame({
           setCollapsedSafe((c) => !c)
         }}
         className={cn(
-          'flex shrink-0 items-center gap-2 px-3 py-2 outline-none',
+          'flex items-center gap-2 px-3 py-2 outline-none',
           !collapsed && 'border-b border-border',
           floating && 'cursor-move touch-none select-none',
         )}
@@ -251,37 +217,15 @@ export function PanelFrame({
       </div>
 
       {!collapsed && (
-        <div className={cn(fixedHeight && 'min-h-0 flex-1 overflow-auto')}>{children}</div>
+        <div className={cn(floating && 'min-h-0 flex-1 overflow-auto')}>{children}</div>
       )}
 
-      {/* East-edge width grip — docked Trace/Debug and every floating card. */}
-      {showWidthResize && (
-        <div
-          {...resizeXHandlers}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={`Resize ${title} width`}
-          className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize touch-none"
-        />
-      )}
-
-      {/* South-edge height grip — sized docked cards + floating. */}
-      {showHeightResize && (
-        <div
-          {...resizeYHandlers}
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label={`Resize ${title} height`}
-          className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-ns-resize touch-none"
-        />
-      )}
-
-      {/* Corner resize grip. */}
-      {showCornerResize && (
+      {/* Corner resize grip — floating only. */}
+      {floating && !collapsed && (
         <div
           {...resizeHandlers}
           role="presentation"
-          className="absolute bottom-0 right-0 z-20 size-4 cursor-se-resize touch-none"
+          className="absolute bottom-0 right-0 size-4 cursor-se-resize touch-none"
           style={{
             background:
               'linear-gradient(135deg, transparent 0 50%, var(--color-border) 50% 60%, transparent 60% 70%, var(--color-border) 70% 80%, transparent 80%)',

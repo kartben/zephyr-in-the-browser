@@ -272,6 +272,12 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
 
   const expanded = defaultExpanded || effectiveExpandedIn(dock, STAGE_TRACE_KEY, 'trace')
 
+  const live = snap.eventCount > 0
+  const statusLabel = live ? null : 'ctf'
+  const statusDetail = live
+    ? `${snap.eventCount} evt · ${snap.threadCount} thr`
+    : 'waiting…'
+
   return (
     <PanelFrame
       id="trace"
@@ -279,17 +285,19 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       icon={Activity}
       defaultExpanded={expanded}
       dockedWidth={34}
-      seedHeight={22}
-      dockedResize="both"
       side="left"
       status={
-        snap.eventCount > 0 ? (
-          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-            {snap.eventCount} evt · {snap.threadCount} thr
-          </span>
-        ) : (
-          <span className="text-[10px] text-muted-foreground">waiting for CTF…</span>
-        )
+        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+          <span
+            className={cn(
+              'size-1.5 shrink-0 rounded-full',
+              live ? 'bg-amber-500/80' : 'bg-muted-foreground/50',
+            )}
+            aria-hidden
+          />
+          {statusLabel && <span className="shrink-0 text-foreground/70">{statusLabel}</span>}
+          <span className="min-w-0 truncate text-muted-foreground">{statusDetail}</span>
+        </span>
       }
       actions={
         <Button
@@ -309,8 +317,11 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
         </Button>
       }
     >
-      {/* PanelFrame only mounts children while expanded — keep Gantt work there. */}
-      <TracePanelBody snap={snap} follow={follow} setFollow={setFollow} apiRef={bodyApiRef} />
+      {!live ? (
+        <p className="px-3 py-4 text-[11px] text-muted-foreground">Waiting for traces…</p>
+      ) : (
+        <TracePanelBody snap={snap} follow={follow} setFollow={setFollow} apiRef={bodyApiRef} />
+      )}
     </PanelFrame>
   )
 }
@@ -574,206 +585,199 @@ function TracePanelBody({
     onTouchEnd,
   }
 
+  if (!tr) return null
+
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
-      {!tr || tr.events.length === 0 ? (
-        <p className="px-1 text-[11px] leading-relaxed text-muted-foreground">
-          Semihosting is writing <code className="font-mono text-foreground">tracing.bin</code> into
-          the emulator filesystem. The Gantt appears as soon as the first CTF records land.
-        </p>
+      <div className="flex gap-0.5 px-0.5">
+        {(
+          [
+            ['schedule', 'Schedule'],
+            ['queues', 'Message Queues'],
+            ['net', 'Networking'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
+              tab === id
+                ? 'bg-secondary text-foreground'
+                : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
+            )}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-1 px-0.5">
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="size-9 touch-manipulation"
+          title="Zoom in"
+          aria-label="Zoom in"
+          onClick={() => applyZoom(ZOOM_IN)}
+        >
+          <ZoomIn className="size-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="size-9 touch-manipulation"
+          title="Zoom out"
+          aria-label="Zoom out"
+          onClick={() => applyZoom(ZOOM_OUT)}
+        >
+          <ZoomOut className="size-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="size-9 touch-manipulation"
+          title="Fit entire trace"
+          aria-label="Fit entire trace"
+          onClick={fitAll}
+        >
+          <Maximize2 className="size-4" />
+        </Button>
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
+            title="Pan earlier"
+            aria-label="Pan earlier"
+            onClick={() => panByFraction(-0.6)}
+          >
+            ‹
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
+            title="Pan later"
+            aria-label="Pan later"
+            onClick={() => panByFraction(0.6)}
+          >
+            ›
+          </Button>
+        </div>
+      </div>
+
+      {tab === 'queues' && view ? (
+        <QueuesView
+          tr={tr}
+          view0={view.t0}
+          view1={view.t1}
+          follow={follow}
+          eventCount={snap.revision}
+          canvasRef={queuesCanvasRef}
+          canvasProps={canvasHandlers}
+        />
+      ) : tab === 'net' && view ? (
+        <NetView
+          tr={tr}
+          view0={view.t0}
+          view1={view.t1}
+          follow={follow}
+          eventCount={snap.revision}
+          canvasRef={netCanvasRef}
+          canvasProps={canvasHandlers}
+        />
       ) : (
         <>
-          <div className="flex gap-0.5 px-0.5">
-            {(
-              [
-                ['schedule', 'Schedule'],
-                ['queues', 'Message Queues'],
-                ['net', 'Networking'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={cn(
-                  'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
-                  tab === id
-                    ? 'bg-secondary text-foreground'
-                    : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
-                )}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
+          <canvas
+            ref={canvasRef}
+            className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+            {...canvasHandlers}
+          />
+
+          <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+            Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select (opens Debug
+            Threads when gdb is live)
+          </p>
+
+          {/* Colour legend — same states as the terminal viewer. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
+            <span className="text-foreground/80">states:</span>
+            {(Object.keys(STATE_LABEL) as ThreadState[])
+              .filter((s) => s !== 'dead')
+              .map((s) => (
+                <span key={s} className="inline-flex items-center gap-1">
+                  <span
+                    className="inline-block size-2.5 rounded-sm"
+                    style={{ background: STATE_COLOR[s] }}
+                  />
+                  {STATE_LABEL[s]}
+                </span>
+              ))}
           </div>
 
-          <div className="flex items-center gap-1 px-0.5">
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="size-9 touch-manipulation"
-              title="Zoom in"
-              aria-label="Zoom in"
-              onClick={() => applyZoom(ZOOM_IN)}
-            >
-              <ZoomIn className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="size-9 touch-manipulation"
-              title="Zoom out"
-              aria-label="Zoom out"
-              onClick={() => applyZoom(ZOOM_OUT)}
-            >
-              <ZoomOut className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="size-9 touch-manipulation"
-              title="Fit entire trace"
-              aria-label="Fit entire trace"
-              onClick={fitAll}
-            >
-              <Maximize2 className="size-4" />
-            </Button>
-            <div className="ml-auto flex items-center gap-1">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
-                title="Pan earlier"
-                aria-label="Pan earlier"
-                onClick={() => panByFraction(-0.6)}
-              >
-                ‹
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="h-9 min-w-9 touch-manipulation px-2.5 font-mono text-xs"
-                title="Pan later"
-                aria-label="Pan later"
-                onClick={() => panByFraction(0.6)}
-              >
-                ›
-              </Button>
-            </div>
-          </div>
-
-          {tab === 'queues' && view ? (
-            <QueuesView
-              tr={tr}
-              view0={view.t0}
-              view1={view.t1}
-              follow={follow}
-              eventCount={snap.revision}
-              canvasRef={queuesCanvasRef}
-              canvasProps={canvasHandlers}
-            />
-          ) : tab === 'net' && view ? (
-            <NetView
-              tr={tr}
-              view0={view.t0}
-              view1={view.t1}
-              follow={follow}
-              eventCount={snap.revision}
-              canvasRef={netCanvasRef}
-              canvasProps={canvasHandlers}
-            />
-          ) : (
-            <>
-              <canvas
-                ref={canvasRef}
-                className="w-full cursor-grab touch-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-                {...canvasHandlers}
-              />
-
-              <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-                Drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to select (opens Debug
-                Threads when gdb is live)
-              </p>
-
-              {/* Colour legend — same states as the terminal viewer. */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
-                <span className="text-foreground/80">states:</span>
-                {(Object.keys(STATE_LABEL) as ThreadState[])
-                  .filter((s) => s !== 'dead')
-                  .map((s) => (
-                    <span key={s} className="inline-flex items-center gap-1">
-                      <span
-                        className="inline-block size-2.5 rounded-sm"
-                        style={{ background: STATE_COLOR[s] }}
-                      />
-                      {STATE_LABEL[s]}
-                    </span>
-                  ))}
-              </div>
-
-              {/* Metrics line — CPU busy + ctxsw over the visible window. */}
-              {stats && (
-                <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                  <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
-                  {' · '}
-                  <span>
-                    ctxsw {switches}
-                    {secs > 0 ? ` (${(switches / secs).toFixed(0)}/s)` : ''}
-                  </span>
-                  {' · '}
-                  <span className="text-foreground">window {fmtTime(stats.spanNs)}</span>
-                  {snap.desync && (
-                    <span className="ml-2 text-amber-500">desync — unknown CTF id</span>
-                  )}
-                </div>
+          {/* Metrics line — CPU busy + ctxsw over the visible window. */}
+          {stats && (
+            <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
+              {' · '}
+              <span>
+                ctxsw {switches}
+                {secs > 0 ? ` (${(switches / secs).toFixed(0)}/s)` : ''}
+              </span>
+              {' · '}
+              <span className="text-foreground">window {fmtTime(stats.spanNs)}</span>
+              {snap.desync && (
+                <span className="ml-2 text-amber-500">desync — unknown CTF id</span>
               )}
+            </div>
+          )}
 
-              {/* Info strip — running thread + selected lane at the window's right edge. */}
-              <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                <div>
-                  <span className="text-muted-foreground">running: </span>
-                  <span className="font-mono text-foreground">
-                    {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
+          {/* Info strip — running thread + selected lane at the window's right edge. */}
+          <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+            <div>
+              <span className="text-muted-foreground">running: </span>
+              <span className="font-mono text-foreground">
+                {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
+              </span>
+              {runningTid !== null && (
+                <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
+              )}
+            </div>
+            {lane !== null && (
+              <div className="mt-0.5">
+                <span className="text-muted-foreground">lane: </span>
+                <span className="font-mono text-foreground">{threadLabel(tr, lane)}</span>
+                {lanePrio != null && (
+                  <span
+                    className="ml-1.5 font-mono tabular-nums text-foreground/70"
+                    title="Scheduler priority (negative = cooperative)"
+                  >
+                    <span className="text-muted-foreground">prio </span>
+                    {lanePrio}
                   </span>
-                  {runningTid !== null && (
-                    <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
-                  )}
-                </div>
-                {lane !== null && (
-                  <div className="mt-0.5">
-                    <span className="text-muted-foreground">lane: </span>
-                    <span className="font-mono text-foreground">{threadLabel(tr, lane)}</span>
-                    {lanePrio != null && (
-                      <span
-                        className="ml-1.5 font-mono tabular-nums text-foreground/70"
-                        title="Scheduler priority (negative = cooperative)"
-                      >
-                        <span className="text-muted-foreground">prio </span>
-                        {lanePrio}
-                      </span>
-                    )}
-                    {st && (
-                      <>
-                        {' → '}
-                        <span style={{ color: STATE_COLOR[st] }}>
-                          {st === 'blk' && reason
-                            ? `blocked on ${reason}`
-                            : st === 'slp' && reason
-                              ? reason
-                              : STATE_LABEL[st]}
-                        </span>
-                      </>
-                    )}
-                  </div>
+                )}
+                {st && (
+                  <>
+                    {' → '}
+                    <span style={{ color: STATE_COLOR[st] }}>
+                      {st === 'blk' && reason
+                        ? `blocked on ${reason}`
+                        : st === 'slp' && reason
+                          ? reason
+                          : STATE_LABEL[st]}
+                    </span>
+                  </>
                 )}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </>
       )}
     </div>

@@ -23,17 +23,4 @@ describe('clampBox', () => {
     expect(box.h).toBe(400) // stored height preserved
     expect(box.y).toBe(760) // 800 - 40
   })
-
-  it('sizeOnly keeps x/y and still enforces min width/height', () => {
-    expect(clampBox({ x: -20, y: 50, w: 100, h: 50 }, { sizeOnly: true })).toEqual({
-      x: -20,
-      y: 50,
-      w: 192,
-      h: 96,
-    })
-  })
-
-  it('sizeOnly caps width to the viewport', () => {
-    expect(clampBox({ x: 0, y: 0, w: 2000, h: 400 }, { sizeOnly: true }).w).toBe(1000 - 32)
-  })
 })

@@ -66,10 +66,10 @@ import {
  * Both sit below the z-50 overlays. Their height is reported so the UART host
  * can shrink and keep the shell prompt clear of the cards.
  *
- * The Trace card goes nearly full-bleed on a phone (drag-pan needs width); on
- * wider viewports it caps so it does not cover the whole terminal. The left
- * stack is also height-capped to the reserved bottom band — undock for a
- * taller floating card. The Display stays free to size itself.
+ * Debug and Trace sit side by side (wrapping on narrow viewports) so they share
+ * the reserved bottom band instead of stacking. Trace still fills toward its
+ * max width on a phone; the left cluster caps so it does not cover the whole
+ * terminal. The Display stays free to size itself.
  */
 function StageOverlays({
   displayExpanded,
@@ -130,14 +130,17 @@ function StageOverlays({
       </div>
       <div
         ref={leftRef}
-        className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 overflow-y-auto sm:right-auto sm:max-w-[min(34rem,calc(100%-1.5rem))] md:bottom-4 md:left-4"
+        className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 overflow-y-auto sm:right-auto sm:max-w-[min(60rem,calc(100%-1.5rem))] md:bottom-4 md:left-4"
         style={stackMaxH != null ? { maxHeight: stackMaxH } : undefined}
       >
         <div className="self-start">
           <StagePill />
         </div>
-        <DebugPanel defaultExpanded={debugExpanded} />
-        <TracePanel defaultExpanded={traceExpanded} />
+        {/* Side by side when both are open; wrap keeps Trace usable on a phone. */}
+        <div className="flex flex-wrap items-end gap-3">
+          <DebugPanel defaultExpanded={debugExpanded} />
+          <TracePanel defaultExpanded={traceExpanded} />
+        </div>
       </div>
       {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
         <div
