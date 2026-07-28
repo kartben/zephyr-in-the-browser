@@ -150,18 +150,14 @@ function pillY(pipe: Pipe, port: number, count: number): number {
   return pipe.y - span / 2 + port * PORT_GAP
 }
 
-function edgeEndpoints(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  shortenEnd: number,
-): { x1: number; y1: number; x2: number; y2: number } {
-  const dx = x2 - x1
-  const dy = y2 - y1
-  const len = Math.hypot(dx, dy) || 1
-  const t = Math.max(0.05, (len - shortenEnd) / len)
-  return { x1, y1, x2: x1 + dx * t, y2: y1 + dy * t }
+/**
+ * Outside edge of a pipe mouth at a given attachment height. Links live below
+ * the pipe layer, so ending here lets the arrow meet the aperture cleanly
+ * without drawing through the tube shell.
+ */
+function mouthLipX(pipe: Pipe, mouth: 'end' | 'front', y: number): number {
+  const dx = MOUTH_RX * Math.sqrt(Math.max(0, 1 - ((y - pipe.y) / MOUTH_RY) ** 2))
+  return (mouth === 'end' ? pipeEndX(pipe) - dx : pipeFrontX(pipe) + dx)
 }
 
 type EdgePath = {
@@ -206,7 +202,7 @@ function edgePath(
     // deliberate U-turn so the arrow enters the front port from the east.
     const ey = frontInsertY(pipe, pill.port)
     const start = { x: pill.x + PILL_W / 2, y: sy }
-    const end = { x: pipeFrontX(pipe) + ARROW_LEN, y: ey }
+    const end = { x: mouthLipX(pipe, 'front', ey), y: ey }
     const rise = ARC_CLEAR + 12 + Math.max(0, pipe.putPorts - pill.port - 1) * 10
     const railY = pipe.y - PIPE_H / 2 - rise
     const eastTurnX = pipeFrontX(pipe) + 30
@@ -224,20 +220,22 @@ function edgePath(
 
   if (op === 'put') {
     const ey = mouthY(pipe, 'end', pill.port)
-    const raw = edgeEndpoints(pill.x + PILL_W / 2, sy, pipeEndX(pipe), ey, ARROW_LEN)
+    const start = { x: pill.x + PILL_W / 2, y: sy }
+    const end = { x: mouthLipX(pipe, 'end', ey), y: ey }
     return smoothRoute([
-      { x: raw.x1, y: raw.y1 },
-      { x: (raw.x1 + raw.x2) / 2, y: raw.y1 },
-      { x: raw.x2, y: raw.y2 },
+      start,
+      { x: (start.x + end.x) / 2, y: start.y },
+      end,
     ])
   }
 
   const ey = mouthY(pipe, 'front', pill.port)
-  const raw = edgeEndpoints(pipeFrontX(pipe), ey, pill.x - PILL_W / 2, sy, ARROW_LEN)
+  const start = { x: mouthLipX(pipe, 'front', ey), y: ey }
+  const end = { x: pill.x - PILL_W / 2, y: sy }
   return smoothRoute([
-    { x: raw.x1, y: raw.y1 },
-    { x: (raw.x1 + raw.x2) / 2, y: raw.y1 },
-    { x: raw.x2, y: raw.y2 },
+    start,
+    { x: (start.x + end.x) / 2, y: start.y },
+    end,
   ])
 }
 
