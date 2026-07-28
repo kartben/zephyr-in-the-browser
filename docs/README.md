@@ -6,6 +6,7 @@ other end of the wire.
 
 | Document | What it covers |
 | --- | --- |
+| [architecture.md](architecture.md) | Start here: the layers, the page-to-guest transports, the repository map, and where a new device goes |
 | [peripherals.md](peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the vendored drivers behind snippets, and touch input |
 | [pwm-leds.md](pwm-leds.md) | Spec: `pwm-leds` dock strip beside the PWM duty chart |
 | [gpio-controller.md](gpio-controller.md) | Spec (Proposal B): claimed-pin GPIO table + `used by` reveal |
