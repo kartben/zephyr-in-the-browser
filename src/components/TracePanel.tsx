@@ -20,7 +20,7 @@ import {
   type TouchEventHandler,
   type WheelEventHandler,
 } from 'react'
-import { Activity, Crosshair, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
+import { Activity, Crosshair, Maximize2, Waypoints, ZoomIn, ZoomOut } from 'lucide-react'
 import { PanelFrame } from '@/components/PanelFrame'
 import { QueuesView, QUEUES_LABEL_W } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
@@ -227,6 +227,9 @@ function paintVArrow(
   ctx.fill()
 }
 
+/** Pixel hit slop for clicking a msgq edge connector. */
+const MSGQ_EDGE_HIT_PX = 7
+
 type MsgqHover = {
   /** Flow event under the tip, if any. */
   eventIndex: number | null
@@ -333,6 +336,8 @@ function paint(
   hover: MsgqHover | null,
   /** When set, playhead snaps to this raw CTF ns (tip event). */
   snapTs: number | null,
+  /** Sticky click-selected msgq edge (event index). */
+  selectedEdge: number | null,
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
@@ -355,7 +360,9 @@ function paint(
   const colW = plotW / cols
   const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
   const depthProbeTs = playheadTs ?? view1
-  const hoverActive = hover != null && (hover.eventIndex != null || hover.queueId != null)
+  const hoverActive =
+    selectedEdge != null ||
+    (hover != null && (hover.eventIndex != null || hover.queueId != null))
 
   paintCanvasTimeAxis(ctx, {
     cssW,
@@ -503,12 +510,13 @@ function paint(
       lastXByKey.set(thinKey, x)
       visible.push(ev)
     }
-    // Draw dim connectors first, hovered one last (on top).
+    // Draw dim connectors first; hovered / sticky-selected last (on top).
+    const focusIndex = hover?.eventIndex ?? selectedEdge
     const ordered =
-      hover?.eventIndex != null
+      focusIndex != null
         ? [
-            ...visible.filter((ev) => ev.index !== hover.eventIndex),
-            ...visible.filter((ev) => ev.index === hover.eventIndex),
+            ...visible.filter((ev) => ev.index !== focusIndex),
+            ...visible.filter((ev) => ev.index === focusIndex),
           ]
         : visible
 
@@ -520,20 +528,22 @@ function paint(
       const qRow = queueRowOf.get(ev.queueId)
       const queueY =
         qRow != null && showQueues ? queueTop + qRow * msgqLaneH + msgqLaneH / 2 : null
-      const hot =
+      const selected = selectedEdge === ev.index
+      const hovered =
         hover?.eventIndex === ev.index ||
-        (hover?.eventIndex == null && hover?.queueId === ev.queueId)
+        (hover?.eventIndex == null && hover?.queueId === ev.queueId && !selectedEdge)
+      const hot = selected || hovered
       const dim = hoverActive && !hot
       const put = isPutOp(ev.op)
-      const scale = hot ? 1.25 : 1
+      const scale = selected ? 1.35 : hot ? 1.25 : 1
       const markR = MARK_R * scale
       const arrowH = ARROW_H * scale
 
-      ctx.globalAlpha = dim ? 0.18 : hot ? 1 : 0.9
+      ctx.globalAlpha = dim ? 0.14 : hot ? 1 : 0.9
 
       if (hot) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'
-        ctx.lineWidth = 4
+        ctx.strokeStyle = selected ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.35)'
+        ctx.lineWidth = selected ? 5 : 4
         ctx.beginPath()
         if (queueY != null) {
           ctx.moveTo(x, Math.min(threadY, queueY))
@@ -646,6 +656,57 @@ function nearestMsgqNear(
     }
   }
   if (!best || bestDist > maxDeltaNs) return null
+  return best
+}
+
+/**
+ * Hit-test a vertical msgq connector at canvas (x, y).
+ * Returns the event index of the nearest edge within {@link MSGQ_EDGE_HIT_PX}, or null.
+ */
+function hitTestMsgqEdge(
+  tr: Trace,
+  view0: number,
+  view1: number,
+  cssW: number,
+  x: number,
+  y: number,
+  showMsgq: boolean,
+  msgqEvents: QueueFlowEvent[],
+  queueLanes: MsgqSwimLane[],
+  metrics: LaneMetrics,
+): number | null {
+  if (!showMsgq || queueLanes.length === 0) return null
+  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  if (!geom.showQueues) return null
+  const plotW = plotWidth(cssW, LABEL_W, PAD)
+  const span = Math.max(1, view1 - view0)
+  const threadRowOf = new Map(geom.lanes.map((tid, row) => [tid, row]))
+  const queueRowOf = new Map(queueLanes.map((q, row) => [q.id, row]))
+
+  let best: number | null = null
+  let bestDist = MSGQ_EDGE_HIT_PX
+  const lastXByKey = new Map<string, number>()
+  for (const ev of msgqEvents) {
+    if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
+    const tRow = threadRowOf.get(ev.threadId)
+    const qRow = queueRowOf.get(ev.queueId)
+    if (tRow == null || qRow == null) continue
+    const ex = LABEL_W + ((ev.ts - view0) / span) * plotW
+    const thinKey = `${ev.threadId}|${ev.queueId}`
+    const prev = lastXByKey.get(thinKey)
+    if (prev != null && ex - prev < MSGQ_MARK_MIN_GAP_PX) continue
+    lastXByKey.set(thinKey, ex)
+    const threadY = geom.lanesTop + tRow * geom.laneH + geom.laneH / 2
+    const queueY = geom.queueTop + qRow * geom.msgqLaneH + geom.msgqLaneH / 2
+    const y0 = Math.min(threadY, queueY)
+    const y1 = Math.max(threadY, queueY)
+    if (y < y0 - MSGQ_EDGE_HIT_PX || y > y1 + MSGQ_EDGE_HIT_PX) continue
+    const dx = Math.abs(x - ex)
+    if (dx <= bestDist) {
+      bestDist = dx
+      best = ev.index
+    }
+  }
   return best
 }
 
@@ -762,6 +823,8 @@ function TracePanelBody({
   /** Line msgq put/get/put_front marks onto thread lanes. */
   const [showMsgq, setShowMsgq] = useState(true)
   const [laneSize, setLaneSize] = useState<LaneSize>('m')
+  /** Sticky click-selected msgq edge (tr.events index). */
+  const [selectedEdge, setSelectedEdge] = useState<number | null>(null)
   /** Timeline playhead — hover ts; null when not scrubbing. */
   const [playhead, setPlayhead] = useState<{ ts: number; x: number; y: number } | null>(null)
   const playheadRef = useRef(playhead)
@@ -818,11 +881,18 @@ function TracePanelBody({
   const msgqHoverRef = useRef(msgqHover)
   msgqHoverRef.current = msgqHover
   const snapTs = useMemo(() => {
-    if (msgqHover?.eventIndex == null) return null
-    return msgqEvents.find((ev) => ev.index === msgqHover.eventIndex)?.ts ?? null
-  }, [msgqHover, msgqEvents])
+    const idx = msgqHover?.eventIndex ?? selectedEdge
+    if (idx == null) return null
+    return msgqEvents.find((ev) => ev.index === idx)?.ts ?? null
+  }, [msgqHover, selectedEdge, msgqEvents])
   const snapTsRef = useRef(snapTs)
   snapTsRef.current = snapTs
+  const selectedEdgeRef = useRef(selectedEdge)
+  selectedEdgeRef.current = selectedEdge
+
+  useEffect(() => {
+    if (!showMsgq) setSelectedEdge(null)
+  }, [showMsgq])
 
   useEffect(() => {
     if (!tr || tr.events.length === 0) return
@@ -849,6 +919,7 @@ function TracePanelBody({
       laneMetrics,
       msgqHover,
       snapTs,
+      selectedEdge,
     )
   }, [
     tr,
@@ -864,6 +935,7 @@ function TracePanelBody({
     laneMetrics,
     msgqHover,
     snapTs,
+    selectedEdge,
   ])
 
   useEffect(() => {
@@ -886,6 +958,7 @@ function TracePanelBody({
         laneMetricsRef.current,
         msgqHoverRef.current,
         snapTsRef.current,
+        selectedEdgeRef.current,
       )
     })
     ro.observe(canvas)
@@ -893,7 +966,10 @@ function TracePanelBody({
   }, [tr, follow, selectedLane, tab])
 
   useEffect(() => {
-    if (tab !== 'schedule') setPlayhead(null)
+    if (tab !== 'schedule') {
+      setPlayhead(null)
+      setSelectedEdge(null)
+    }
   }, [tab])
 
   const applyZoom = useCallback(
@@ -971,11 +1047,18 @@ function TracePanelBody({
     const q =
       msgqHover?.queueId != null
         ? queueLanes.find((lane) => lane.id === msgqHover.queueId)
-        : undefined
+        : selectedEdge != null
+          ? (() => {
+              const ev = msgqEvents.find((e) => e.index === selectedEdge)
+              return ev ? queueLanes.find((lane) => lane.id === ev.queueId) : undefined
+            })()
+          : undefined
     const msgq =
       msgqHover?.eventIndex != null
         ? (msgqEvents.find((ev) => ev.index === msgqHover.eventIndex) ?? null)
-        : null
+        : selectedEdge != null
+          ? (msgqEvents.find((ev) => ev.index === selectedEdge) ?? null)
+          : null
     // Tip / playhead snap to the event’s raw CTF ns when we have one.
     const tipTs = msgq?.ts ?? playhead.ts
 
@@ -1096,10 +1179,31 @@ function TracePanelBody({
       /* ignore */
     }
     if (g.moved || !view || !tr || tab !== 'schedule') return
-    // Tap on a lane label selects it and opens Debug → Threads.
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
+    // Tap a msgq edge to pin/unpin its highlight.
+    if (showMsgq && x >= LABEL_W) {
+      const hit = hitTestMsgqEdge(
+        tr,
+        view.t0,
+        view.t1,
+        e.currentTarget.clientWidth,
+        x,
+        y,
+        showMsgq,
+        msgqEvents,
+        queueLanes,
+        laneMetrics,
+      )
+      if (hit != null) {
+        setSelectedEdge((prev) => (prev === hit ? null : hit))
+        return
+      }
+      // Empty plot click clears a sticky edge.
+      if (selectedEdge != null) setSelectedEdge(null)
+    }
+    // Tap on a lane label selects it and opens Debug → Threads.
     if (x < LABEL_W && y >= AXIS_H) {
       const row = Math.floor((y - AXIS_H) / laneMetrics.laneH)
       const order = visibleLanes(tr)
@@ -1314,17 +1418,18 @@ function TracePanelBody({
               </button>
               <button
                 type="button"
-                title="Line up msgq swim lanes with put/get connectors"
+                title="Show msgq edges"
+                aria-label="Show msgq edges"
                 aria-pressed={showMsgq}
                 onClick={() => setShowMsgq((v) => !v)}
                 className={cn(
-                  'rounded px-1.5 py-0.5 text-[10px] touch-manipulation',
+                  'rounded p-0.5 touch-manipulation',
                   showMsgq
                     ? 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
                 )}
               >
-                Line up msgq
+                <Waypoints className="size-3.5" />
               </button>
               <Select value={laneSize} onValueChange={(v) => setLaneSize(v as LaneSize)}>
                 <SelectTrigger
@@ -1434,7 +1539,7 @@ function TracePanelBody({
             Hover for playhead · drag to pan · pinch or ± to zoom (keeps LIVE) · tap a lane name to
             select
             {showMsgq
-              ? ' · Line up msgq adds queue swim lanes (depth fill) with directed put/get connectors'
+              ? ' · click a msgq edge to pin it'
               : ''}
           </p>
 
