@@ -8,8 +8,10 @@ import {
   type DebugMemoryChip,
 } from '@/debug/debugMemoryChip'
 import {
+  BYTES_PER_ROW,
   VISIBLE_ROWS,
   WINDOW_BYTES,
+  pcWindowTop,
   scrollMemoryAddr,
   wheelRowDelta,
 } from '@/components/debug/memoryView'
@@ -29,8 +31,8 @@ function initialAddr(snap: debug.DebugSnapshot): { text: string; addr: number } 
     }
   }
   if (snap.pc) {
-    const addr = parseAddr(snap.pc) ?? 0
-    return { text: compactHex(snap.pc), addr }
+    const addr = pcWindowTop(parseAddr(snap.pc) ?? 0, snap.regArch)
+    return { text: compactHex(addr.toString(16)), addr }
   }
   return { text: '0', addr: 0 }
 }
@@ -50,7 +52,8 @@ export function MemoryPane({
   const busyRef = useRef(false)
   const queuedAddr = useRef<number | null>(null)
   const viewAddr = useRef(first.addr)
-  const booted = useRef(!!snap.memory || !!seedAddr)
+  // Only latch after a paused seed — Mem can mount while running (grayed).
+  const booted = useRef(false)
   const chipRef = useRef<DebugMemoryChip | null>(null)
 
   const loadAt = async (addr: number) => {
@@ -80,17 +83,18 @@ export function MemoryPane({
 
   useEffect(() => {
     if (!seedAddr) return
+    if (!snap.paused) return
     booted.current = true
     setAddrText(seedAddr)
     onSeedConsumed()
     const addr = parseAddr(seedAddr)
     if (addr !== null) void loadAt(addr)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedAddr])
+  }, [seedAddr, snap.paused])
 
-  // First open: land on PC. Wait for regs if the PC has not arrived yet.
+  // First pause: land on PC. Do not seed while the guest is still running.
   useEffect(() => {
-    if (booted.current || seedAddr) return
+    if (!snap.paused || booted.current || seedAddr) return
     if (snap.memory) {
       booted.current = true
       viewAddr.current = snap.memory.addr
@@ -100,19 +104,18 @@ export function MemoryPane({
     }
     if (!snap.pc) return
     booted.current = true
-    const addr = parseAddr(snap.pc)
-    if (addr !== null) void loadAt(addr)
+    void loadAt(pcWindowTop(parseAddr(snap.pc) ?? 0, snap.regArch))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedAddr, snap.memory, snap.pc])
+  }, [seedAddr, snap.paused, snap.memory, snap.pc, snap.regArch])
 
-  // If PC never shows up (regs failed), fall back to 0 once loading settles.
+  // Regs refreshed with no PC — fall back to 0 once, never before a refresh.
   useEffect(() => {
-    if (booted.current || seedAddr || snap.memory || snap.pc) return
-    if (snap.registersLoading) return
+    if (!snap.paused || booted.current || seedAddr || snap.memory || snap.pc) return
+    if (snap.registersLoading || snap.registers === null) return
     booted.current = true
     void loadAt(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedAddr, snap.memory, snap.pc, snap.registersLoading])
+  }, [seedAddr, snap.paused, snap.memory, snap.pc, snap.registersLoading, snap.registers])
 
   const memory = snap.memory
   if (!memory) {
