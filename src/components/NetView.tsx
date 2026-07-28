@@ -2,7 +2,15 @@
  * Socket swimlanes + net-core latency strip — shares the Trace time window.
  */
 
-import { useEffect, useMemo, useRef, type CanvasHTMLAttributes, type RefObject } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type CanvasHTMLAttributes,
+  type ReactNode,
+  type RefObject,
+} from 'react'
+import { cn } from '@/lib/utils'
 import {
   formatByteCount,
   fmtTime,
@@ -237,6 +245,8 @@ export function NetView({
   eventCount,
   canvasRef,
   canvasProps,
+  overlay,
+  boxZoomArmed = false,
 }: {
   tr: Trace
   view0: number
@@ -245,6 +255,10 @@ export function NetView({
   eventCount: number
   canvasRef: RefObject<HTMLCanvasElement | null>
   canvasProps?: CanvasHTMLAttributes<HTMLCanvasElement>
+  /** Rubber-band box-zoom preview from TracePanel. */
+  overlay?: ReactNode
+  /** When true, drag selects a zoom range instead of panning. */
+  boxZoomArmed?: boolean
 }) {
   const sockets = useMemo(
     () => reconstructSockets(tr),
@@ -312,11 +326,17 @@ export function NetView({
           </span>
         </span>
       </div>
-      <canvas
-        ref={canvasRef}
-        className="w-full cursor-grab touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
-        {...canvasProps}
-      />
+      <div className="relative w-full select-none">
+        <canvas
+          ref={canvasRef}
+          className={cn(
+            'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40',
+            boxZoomArmed ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing',
+          )}
+          {...canvasProps}
+        />
+        {overlay}
+      </div>
     </>
   )
 }

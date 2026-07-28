@@ -501,6 +501,8 @@ export function QueuesView({
   svgRef,
   surfaceProps,
   toolbar,
+  overlay,
+  boxZoomArmed = false,
 }: {
   tr: Trace
   view0: number
@@ -511,6 +513,10 @@ export function QueuesView({
   surfaceProps?: SVGAttributes<SVGSVGElement>
   /** Compact pan/zoom chrome — sits between the flow graph and the depth chart. */
   toolbar?: ReactNode
+  /** Rubber-band box-zoom preview from TracePanel. */
+  overlay?: ReactNode
+  /** When true, drag selects a zoom range instead of panning. */
+  boxZoomArmed?: boolean
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const layoutsRef = useRef<RowLayout[]>([])
@@ -657,7 +663,11 @@ export function QueuesView({
         <div ref={hostRef} className="relative w-full select-none">
           <svg
             ref={svgRef}
-            className="block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing"
+            className={
+              boxZoomArmed
+                ? 'block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40'
+                : 'block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing'
+            }
             style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
             {...surfaceProps}
             onPointerDown={onPointerDown}
@@ -665,6 +675,7 @@ export function QueuesView({
             onPointerLeave={onPointerLeave}
             onDragStart={(e) => e.preventDefault()}
           />
+          {overlay}
           {tip && tipStyle && (
             <div
               role="tooltip"
@@ -685,7 +696,8 @@ export function QueuesView({
       </div>
       {queues.length > 0 && (
         <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-          Hover a transition · drag to pan · pinch or ± to zoom
+          Hover a transition · drag to pan · Shift-drag (or box-zoom tool) to zoom a range · pinch
+          or ± to zoom
         </p>
       )}
     </div>
