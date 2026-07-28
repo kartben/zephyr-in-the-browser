@@ -47,7 +47,9 @@ import {
   effectiveExpandedIn,
   getState,
   setExpanded,
+  setTab as setStoredTab,
   subscribe as subscribeDock,
+  tabIn,
 } from '@/lib/dockStore'
 
 const LANE_H = 22
@@ -64,6 +66,8 @@ const ZOOM_OUT = 1.4
 const PAN_THRESHOLD_PX = 8
 
 type TraceTab = 'schedule' | 'queues' | 'net'
+
+const TRACE_TABS = ['schedule', 'queues', 'net'] as const satisfies readonly TraceTab[]
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -330,7 +334,9 @@ function TracePanelBody({
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
-  const [tab, setTab] = useState<TraceTab>('schedule')
+  const dock = useSyncExternalStore(subscribeDock, getState, getState)
+  const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
+  const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
   const followRef = useRef(follow)
   followRef.current = follow
   viewRef.current = view

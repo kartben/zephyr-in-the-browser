@@ -103,6 +103,43 @@ describe('dockStore persistence', () => {
       sections: { capture: true, status: false },
     })
   })
+
+  it('round-trips stage panel tabs and rejects unknown ids', () => {
+    const allowed = ['schedule', 'queues', 'net'] as const
+    expect(dock.tabIn(dock.getState(), dock.STAGE_TRACE_KEY, allowed, 'schedule')).toBe(
+      'schedule',
+    )
+
+    dock.setTab(dock.STAGE_TRACE_KEY, 'queues')
+    dock.setTab(dock.STAGE_DEBUG_KEY, 'threads')
+    dock.reloadFromStorage()
+
+    expect(dock.tabIn(dock.getState(), dock.STAGE_TRACE_KEY, allowed, 'schedule')).toBe('queues')
+    expect(
+      dock.tabIn(dock.getState(), dock.STAGE_DEBUG_KEY, ['cpu', 'memory', 'threads'], 'cpu'),
+    ).toBe('threads')
+    expect(dock.tabIn(dock.getState(), dock.STAGE_TRACE_KEY, ['schedule'], 'schedule')).toBe(
+      'schedule',
+    )
+    // Coexists with expansion / visibility.
+    dock.setExpanded(dock.STAGE_TRACE_KEY, true)
+    expect(dock.getState().devices[dock.STAGE_TRACE_KEY]).toEqual({
+      expanded: true,
+      tab: 'queues',
+    })
+  })
+
+  it('keeps panel tabs across sample reseeds', () => {
+    dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false })
+    dock.setTab(dock.STAGE_TRACE_KEY, 'net')
+    dock.setTab(dock.STAGE_DEBUG_KEY, 'memory')
+
+    dock.seedForSelection('a53:display', { primary: ['display'], expandAll: false })
+    expect(dock.getTab(dock.STAGE_TRACE_KEY, ['schedule', 'queues', 'net'], 'schedule')).toBe(
+      'net',
+    )
+    expect(dock.getTab(dock.STAGE_DEBUG_KEY, ['cpu', 'memory', 'threads'], 'cpu')).toBe('memory')
+  })
 })
 
 describe('seeding and expansion precedence', () => {
