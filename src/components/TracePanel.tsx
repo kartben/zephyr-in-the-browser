@@ -279,8 +279,6 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       icon={Activity}
       defaultExpanded={expanded}
       dockedWidth={34}
-      seedHeight={22}
-      dockedResize="both"
       side="left"
       status={
         snap.eventCount > 0 ? (

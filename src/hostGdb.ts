@@ -430,3 +430,13 @@ export async function readMemory(addr: number, length = 64): Promise<string | nu
 export function resetForTests() {
   detach()
 }
+
+/** Dev-only: show the Debug stage card without a live gdbstub (screenshots / UI). */
+export function debugForceAvailable() {
+  publish({ available: true })
+}
+
+if (import.meta.env.DEV) {
+  ;(globalThis as unknown as { __zephyrGdbForceAvailable?: typeof debugForceAvailable }).__zephyrGdbForceAvailable =
+    debugForceAvailable
+}

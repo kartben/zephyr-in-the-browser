@@ -12,7 +12,6 @@ import type { PanelBox } from '@/lib/panelLayout'
 
 const MIN_W = 192 // 12rem
 const MIN_H = 96 // 6rem
-const EDGE_MARGIN = 32 // ~2rem — keep docked cards inside the stage padding
 
 export type ClampBoxOpts = {
   /**
@@ -20,26 +19,12 @@ export type ClampBoxOpts = {
    * header). Stored `box.h` is left alone so expand can restore full size.
    */
   visibleHeight?: number
-  /**
-   * When true, skip viewport X/Y clamping — docked stage cards only store a
-   * size; their position is CSS (`bottom` / `left`), not `rect.x/y`.
-   */
-  sizeOnly?: boolean
 }
 
 /** Keep a box at least MIN sized and fully inside the viewport. */
 export function clampBox(box: PanelBox, opts?: ClampBoxOpts): PanelBox {
   const w = Math.max(MIN_W, Math.round(box.w))
   const h = Math.max(MIN_H, Math.round(box.h))
-  if (opts?.sizeOnly) {
-    const maxW = Math.max(MIN_W, window.innerWidth - EDGE_MARGIN)
-    return {
-      w: Math.min(w, maxW),
-      h,
-      x: Math.round(box.x),
-      y: Math.round(box.y),
-    }
-  }
   const clampH =
     opts?.visibleHeight != null ? Math.max(1, Math.round(opts.visibleHeight)) : h
   const maxX = Math.max(0, window.innerWidth - w)
@@ -52,9 +37,7 @@ export function clampBox(box: PanelBox, opts?: ClampBoxOpts): PanelBox {
   }
 }
 
-type ResizeMode = 'resize' | 'resize-x' | 'resize-y'
-type GestureMode = 'move' | ResizeMode
-type Gesture = { pointerX: number; pointerY: number; box: PanelBox; mode: GestureMode }
+type Gesture = { pointerX: number; pointerY: number; box: PanelBox; mode: 'move' | 'resize' }
 
 export function useDragResize(
   rect: PanelBox | null,
@@ -71,14 +54,14 @@ export function useDragResize(
   useEffect(() => {
     const onResize = () => {
       const { rect: current, onChange: update, opts: clampOpts } = latest.current
-      if (current && !clampOpts?.sizeOnly) update(clampBox(current, clampOpts))
+      if (current) update(clampBox(current, clampOpts))
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
   const begin = useCallback(
-    (mode: GestureMode) => (event: ReactPointerEvent) => {
+    (mode: 'move' | 'resize') => (event: ReactPointerEvent) => {
       // Let clicks on the header controls (undock/collapse/close) through — a
       // drag must never swallow a button press.
       if (event.target instanceof Element && event.target.closest('button')) return
@@ -103,17 +86,10 @@ export function useDragResize(
     const next =
       g.mode === 'move'
         ? { ...g.box, x: g.box.x + dx, y: g.box.y + dy }
-        : g.mode === 'resize-x'
-          ? { ...g.box, w: g.box.w + dx }
-          : g.mode === 'resize-y'
-            ? { ...g.box, h: g.box.h + dy }
-            : { ...g.box, w: g.box.w + dx, h: g.box.h + dy }
+        : { ...g.box, w: g.box.w + dx, h: g.box.h + dy }
     // Resize always clamps against the live box height; move may use a
     // shorter visibleHeight (collapsed header) so the strip can sit lower.
-    const clampOpts =
-      g.mode === 'move'
-        ? latest.current.opts
-        : { ...latest.current.opts, visibleHeight: undefined }
+    const clampOpts = g.mode === 'move' ? latest.current.opts : undefined
     latest.current.onChange(clampBox(next, clampOpts))
   }, [])
 
@@ -127,17 +103,12 @@ export function useDragResize(
     }
   }, [])
 
-  const handlers = (mode: GestureMode) => ({
+  const handlers = (mode: 'move' | 'resize') => ({
     onPointerDown: begin(mode),
     onPointerMove: move,
     onPointerUp: end,
     onPointerCancel: end,
   })
 
-  return {
-    dragHandlers: handlers('move'),
-    resizeHandlers: handlers('resize'),
-    resizeXHandlers: handlers('resize-x'),
-    resizeYHandlers: handlers('resize-y'),
-  }
+  return { dragHandlers: handlers('move'), resizeHandlers: handlers('resize') }
 }
