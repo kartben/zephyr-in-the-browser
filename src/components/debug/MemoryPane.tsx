@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type WheelEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { HexView } from '@/components/HexView'
 import { compactHex } from '@/debug/hexFormat'
@@ -7,33 +7,112 @@ import {
   createDebugMemoryChip,
   type DebugMemoryChip,
 } from '@/debug/debugMemoryChip'
+import {
+  VISIBLE_ROWS,
+  WINDOW_BYTES,
+  scrollMemoryAddr,
+  wheelRowDelta,
+} from '@/components/debug/memoryView'
+
+function parseAddr(text: string): number | null {
+  const raw = text.trim().replace(/^0x/i, '')
+  if (!raw) return 0
+  const addr = Number.parseInt(raw, 16)
+  return Number.isFinite(addr) ? addr >>> 0 : null
+}
+
+function initialAddr(snap: debug.DebugSnapshot): { text: string; addr: number } {
+  if (snap.memory) {
+    return {
+      text: compactHex(snap.memory.addr.toString(16)),
+      addr: snap.memory.addr,
+    }
+  }
+  if (snap.pc) {
+    const addr = parseAddr(snap.pc) ?? 0
+    return { text: compactHex(snap.pc), addr }
+  }
+  return { text: '0', addr: 0 }
+}
 
 export function MemoryPane({
   snap,
   seedAddr,
-  seedLen,
   onSeedConsumed,
 }: {
   snap: debug.DebugSnapshot
   seedAddr: string | null
-  seedLen: number
   onSeedConsumed: () => void
 }) {
-  const defaultAddr = snap.pc ? compactHex(snap.pc) : ''
-  const [addrText, setAddrText] = useState(
-    snap.memory ? compactHex(snap.memory.addr.toString(16)) : defaultAddr,
-  )
+  const first = initialAddr(snap)
+  const [addrText, setAddrText] = useState(first.text)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const queuedAddr = useRef<number | null>(null)
+  const viewAddr = useRef(first.addr)
+  const booted = useRef(!!snap.memory || !!seedAddr)
   const chipRef = useRef<DebugMemoryChip | null>(null)
+
+  const loadAt = async (addr: number) => {
+    const top = addr >>> 0
+    viewAddr.current = top
+    setAddrText(compactHex(top.toString(16)))
+    if (busyRef.current) {
+      queuedAddr.current = top
+      return
+    }
+    busyRef.current = true
+    setBusy(true)
+    try {
+      for (;;) {
+        const target = queuedAddr.current ?? top
+        queuedAddr.current = null
+        viewAddr.current = target
+        setAddrText(compactHex(target.toString(16)))
+        await debug.readMemory(target, WINDOW_BYTES)
+        if (queuedAddr.current === null) break
+      }
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!seedAddr) return
+    booted.current = true
     setAddrText(seedAddr)
     onSeedConsumed()
-    const addr = Number.parseInt(seedAddr, 16)
-    if (Number.isFinite(addr)) void debug.readMemory(addr, seedLen)
+    const addr = parseAddr(seedAddr)
+    if (addr !== null) void loadAt(addr)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr])
+
+  // First open: land on PC. Wait for regs if the PC has not arrived yet.
+  useEffect(() => {
+    if (booted.current || seedAddr) return
+    if (snap.memory) {
+      booted.current = true
+      viewAddr.current = snap.memory.addr
+      setAddrText(compactHex(snap.memory.addr.toString(16)))
+      if (snap.memory.hex.length < WINDOW_BYTES * 2) void loadAt(snap.memory.addr)
+      return
+    }
+    if (!snap.pc) return
+    booted.current = true
+    const addr = parseAddr(snap.pc)
+    if (addr !== null) void loadAt(addr)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedAddr, snap.memory, snap.pc])
+
+  // If PC never shows up (regs failed), fall back to 0 once loading settles.
+  useEffect(() => {
+    if (booted.current || seedAddr || snap.memory || snap.pc) return
+    if (snap.registersLoading) return
+    booted.current = true
+    void loadAt(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedAddr, snap.memory, snap.pc, snap.registersLoading])
 
   const memory = snap.memory
   if (!memory) {
@@ -50,14 +129,34 @@ export function MemoryPane({
   const chip = chipRef.current
 
   const load = async () => {
-    const raw = addrText.trim().replace(/^0x/i, '')
-    const addr = Number.parseInt(raw, 16)
-    if (!Number.isFinite(addr)) return
-    setBusy(true)
-    try {
-      await debug.readMemory(addr, 64)
-    } finally {
-      setBusy(false)
+    const addr = parseAddr(addrText)
+    if (addr === null) return
+    await loadAt(addr)
+  }
+
+  const moveByRows = (rowDelta: number) => {
+    if (rowDelta === 0 || !snap.paused) return
+    void loadAt(scrollMemoryAddr(viewAddr.current, rowDelta))
+  }
+
+  const onWheel = (e: WheelEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    moveByRows(wheelRowDelta(e.deltaY, e.deltaMode))
+  }
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      moveByRows(1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveByRows(-1)
+    } else if (e.key === 'PageDown') {
+      e.preventDefault()
+      moveByRows(VISIBLE_ROWS)
+    } else if (e.key === 'PageUp') {
+      e.preventDefault()
+      moveByRows(-VISIBLE_ROWS)
     }
   }
 
@@ -84,7 +183,15 @@ export function MemoryPane({
         </Button>
       </div>
       {chip ? (
-        <HexView chip={chip} addressBase={chip.baseAddr} dimErased={false} />
+        <div
+          className="outline-none focus:ring-1 focus:ring-ring"
+          tabIndex={0}
+          onWheel={onWheel}
+          onKeyDown={onKeyDown}
+          aria-label="Memory dump. Scroll or use arrow keys to move."
+        >
+          <HexView chip={chip} addressBase={chip.baseAddr} dimErased={false} />
+        </div>
       ) : (
         <p className="rounded-md bg-muted/40 px-2 py-3 font-mono text-[10px] text-muted-foreground">
           Enter an address and Read — or click a register.

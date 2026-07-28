@@ -43,7 +43,6 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const tab = tabIn(dock, STAGE_DEBUG_KEY, INSPECT_TABS, 'cpu') as InspectTab
   const setTab = (id: InspectTab) => setStoredTab(STAGE_DEBUG_KEY, id)
   const [peekAddr, setPeekAddr] = useState<string | null>(null)
-  const [peekLen, setPeekLen] = useState(64)
   const [stepping, setStepping] = useState(false)
 
   useEffect(() => {
@@ -65,10 +64,9 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
   const expanded = defaultExpanded || snap.gdb || effectiveExpandedIn(dock, STAGE_DEBUG_KEY, 'debug')
   const live = snap.gdb
 
-  const onPeek = (addrHex: string, length = 64) => {
+  const onPeek = (addrHex: string, _length?: number) => {
     if (!snap.paused) return
     setPeekAddr(compactHex(addrHex))
-    setPeekLen(length)
     setTab('memory')
   }
 
@@ -216,7 +214,6 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
                 <MemoryPane
                   snap={snap}
                   seedAddr={peekAddr}
-                  seedLen={peekLen}
                   onSeedConsumed={() => setPeekAddr(null)}
                 />
               )}
