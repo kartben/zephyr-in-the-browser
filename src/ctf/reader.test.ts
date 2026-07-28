@@ -7,7 +7,9 @@ import {
   threadPrio,
   renderStateRows,
   fmtTime,
+  fmtAxisTime,
   niceTimeStep,
+  timeTickValues,
   threadRunningAt,
   windowStats,
   contextSwitchesIn,
@@ -155,6 +157,20 @@ describe('time-axis helpers', () => {
   it('niceTimeStep lands on a 1/2/5×10^n ladder', () => {
     expect(niceTimeStep(1_000_000_000, 5)).toBe(200_000_000)
     expect(niceTimeStep(5_000_000, 5)).toBe(1_000_000)
+  })
+
+  it('fmtAxisTime picks a unit from the tick step', () => {
+    expect(fmtAxisTime(12_400_000, 200_000)).toBe('12.400ms')
+    expect(fmtAxisTime(1_500, 500)).toBe('1.500µs')
+    expect(fmtAxisTime(2_500_000_000, 1_000_000_000)).toBe('2.500s')
+  })
+
+  it('timeTickValues walks the nice step across the window', () => {
+    const { values, step } = timeTickValues(0, 1_000_000_000, 5)
+    expect(step).toBe(200_000_000)
+    expect(values[0]).toBe(0)
+    expect(values.at(-1)).toBe(1_000_000_000)
+    expect(values).toHaveLength(6)
   })
 
   it('windowStats and threadRunningAt match the visible window', () => {
