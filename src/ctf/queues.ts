@@ -131,6 +131,8 @@ export function reconstructQueues(
   }
 
   out.sort((a, b) => {
+    // Alphabetical fallback — QueuesView re-sorts with longest-path pipeline
+    // order (sortQueuesByPipelineOrder) so the chart matches the topology graph.
     if (a.name && b.name && a.name !== b.name) return a.name.localeCompare(b.name)
     if (a.name && !b.name) return -1
     if (!a.name && b.name) return 1
