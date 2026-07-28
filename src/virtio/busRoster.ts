@@ -119,7 +119,7 @@ export function forgetSpiCs(cs: number): void {
   write(roster)
 }
 
-/** Drop the whole breadboard — for tests. */
+/** Drop the whole breadboard roster (Clear on the bus panel). */
 export function clearBusRoster(): void {
   try {
     localStorage.removeItem(STORAGE_KEY)

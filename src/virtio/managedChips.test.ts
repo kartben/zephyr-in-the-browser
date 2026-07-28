@@ -13,7 +13,9 @@ import {
   adxl345,
   attachUserI2c,
   attachUserSpi,
+  clearUserPeripherals,
   eeprom,
+  hasUserPeripherals,
   ht16k33,
   i2cModel,
   ina219,
@@ -282,6 +284,27 @@ describe('syncManagedChips', () => {
 
     syncManagedChips()
     expect(spiModel.chips().some((c) => c.cs === 1)).toBe(true)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('clearUserPeripherals drops breadboard parts and restores the board', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+
+    setUserDts('blinky.dts', a53Blinky)
+    attachUserI2c('tmp112', 0x4a)
+    attachUserSpi('loopback', 1)
+    expect(hasUserPeripherals()).toBe(true)
+
+    clearUserPeripherals()
+    expect(hasUserPeripherals()).toBe(false)
+    expect(addresses()).toEqual([])
+    expect(spiModel.chips().some((c) => c.cs === 1)).toBe(false)
 
     vi.unstubAllGlobals()
   })

@@ -41,6 +41,7 @@ import { FALLBACK_DT_SLOTS, chipType } from './devices/registry'
 import { spiChipType } from './devices/spiRegistry'
 import { attach as transportAttach, detach as transportDetach, register } from './transport'
 import {
+  clearBusRoster,
   forgetI2cAddress,
   forgetSpiCs,
   getBusRoster,
@@ -386,6 +387,42 @@ export function attachUserSpi(typeId: string, cs: number): void {
 export function detachUserSpi(cs: number): void {
   forgetSpiCs(cs)
   spiModel.detachChip(cs)
+}
+
+function managedI2cSet(): Set<I2cChip> {
+  return new Set(MANAGED_CHIPS.values())
+}
+
+function managedSpiSet(): Set<SpiChip> {
+  return new Set([...MANAGED_SPI_BY_ID.values(), ...managedSpiAltCs.values()])
+}
+
+/** True when the breadboard has anything beyond the DT/fallback board. */
+export function hasUserPeripherals(): boolean {
+  const roster = getBusRoster()
+  if (roster.i2c.length > 0 || roster.spi.length > 0) return true
+  const managedI2c = managedI2cSet()
+  if (i2cModel.chips().some((chip) => !managedI2c.has(chip))) return true
+  const managedSpi = managedSpiSet()
+  return spiModel.chips().some((chip) => !managedSpi.has(chip))
+}
+
+/**
+ * Unsold the breadboard: drop every user Attach (and its persisted roster),
+ * then re-apply the DT/fallback board parts. One click from either bus panel.
+ */
+export function clearUserPeripherals(): void {
+  clearBusRoster()
+  const managedI2c = managedI2cSet()
+  for (const chip of [...i2cModel.chips()]) {
+    if (!managedI2c.has(chip)) i2cModel.detachChip(chip.address)
+  }
+  const managedSpi = managedSpiSet()
+  for (const chip of [...spiModel.chips()]) {
+    if (!managedSpi.has(chip)) spiModel.detachChip(chip.cs)
+  }
+  // Restores any DT-managed parts the user had detached for a bus-error demo.
+  syncManagedChips()
 }
 
 /** CS → managed chip the current DT (or fallback) wants on that select. */
