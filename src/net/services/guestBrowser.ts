@@ -11,6 +11,8 @@ import { HTTP_BROWSER_BODY_CAP, httpGetFromHost, type HttpGetResult } from './gu
 import { NetStack } from '../stack'
 
 const NAV_MESSAGE = 'guest-browser-navigate'
+const FETCH_MESSAGE = 'guest-browser-fetch'
+export const GUEST_BROWSER_FETCH_RESPONSE_MESSAGE = 'guest-browser-fetch-response'
 const MAX_ASSETS = 24
 
 export interface GuestBrowserPage {
@@ -32,6 +34,37 @@ export function isGuestBrowserNavigateMessage(
     data !== null &&
     (data as { type?: unknown }).type === NAV_MESSAGE &&
     typeof (data as { href?: unknown }).href === 'string'
+  )
+}
+
+export interface GuestBrowserFetchMessage {
+  type: typeof FETCH_MESSAGE
+  id: number
+  url: string
+  method: string
+  headers: Array<[string, string]>
+  body: number[]
+}
+
+export function isGuestBrowserFetchMessage(data: unknown): data is GuestBrowserFetchMessage {
+  if (typeof data !== 'object' || data === null) return false
+  const message = data as Partial<GuestBrowserFetchMessage>
+  return (
+    message.type === FETCH_MESSAGE &&
+    Number.isSafeInteger(message.id) &&
+    typeof message.url === 'string' &&
+    typeof message.method === 'string' &&
+    Array.isArray(message.headers) &&
+    message.headers.every(
+      (entry) =>
+        Array.isArray(entry) &&
+        entry.length === 2 &&
+        typeof entry[0] === 'string' &&
+        typeof entry[1] === 'string',
+    ) &&
+    Array.isArray(message.body) &&
+    message.body.length <= HTTP_BROWSER_BODY_CAP &&
+    message.body.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff)
   )
 }
 
@@ -75,6 +108,7 @@ async function materializeHtml(
   const base = new URL(pageUrl)
   const blobUrls: string[] = []
   const cache = new Map<string, string>()
+  const scriptSources = new Map<string, string>()
   let html = res.text
 
   // Absolute-ize same-document links first so the click bridge can pass a
@@ -104,6 +138,10 @@ async function materializeHtml(
       const mime =
         (asset.headers.get('content-type') ?? guessMime(assetUrl, asset)).split(';')[0].trim() ||
         'application/octet-stream'
+      if (isJavaScript(mime, assetUrl)) {
+        scriptSources.set(assetUrl, asset.text)
+        continue
+      }
       // Copy off any SAB-backed view before handing to Blob.
       const copy = new Uint8Array(asset.body)
       const blobUrl = URL.createObjectURL(
@@ -115,6 +153,12 @@ async function materializeHtml(
       // Leave the original URL; the iframe simply won't load that asset.
     }
   }
+
+  // A sandboxed srcdoc document has an opaque origin, so a blob: script
+  // created by the parent is not a dependable executable resource. Inline
+  // same-host JavaScript instead; the fetch bridge below still keeps its
+  // dynamic requests confined to the simulated guest.
+  html = inlineScripts(html, base, scriptSources)
 
   html = rewriteAttrUrls(html, assetAttrs, (raw, attr) => {
     if (attr === 'href' && !looksLikeAssetHref(raw) && !cache.has(raw)) return raw
@@ -132,20 +176,51 @@ async function materializeHtml(
     `parent.postMessage({type:${JSON.stringify(NAV_MESSAGE)},href:href},'*');` +
     `},true);})();</script>`
 
+  // A srcdoc iframe cannot dial the guest directly. Install this before any
+  // page scripts so fetch("/uptime") / fetch("/led", {method:"POST"}) cross
+  // the iframe boundary and the parent can issue them through NetStack.
+  const fetchBridge =
+    `<script>(function(){var seq=0,pending=new Map();` +
+    `addEventListener('message',function(e){var d=e.data;` +
+    `if(!d||d.type!==${JSON.stringify(GUEST_BROWSER_FETCH_RESPONSE_MESSAGE)})return;` +
+    `var p=pending.get(d.id);if(!p)return;pending.delete(d.id);` +
+    `if(d.error){p.reject(new TypeError(d.error));return;}` +
+    `var response=new Response(d.body&&d.body.length?new Uint8Array(d.body):null,` +
+    `{status:d.status,statusText:d.statusText,headers:d.headers});` +
+    `p.resolve(response);});` +
+    `window.fetch=async function(input,init){` +
+    `var raw=typeof input==='string'?input:input.url;` +
+    `var method=((init&&init.method)||(typeof input==='object'&&input.method)||'GET').toUpperCase();` +
+    `var headers=new Headers(typeof input==='object'&&input.headers?input.headers:void 0);` +
+    `if(init&&init.headers)new Headers(init.headers).forEach(function(v,k){headers.set(k,v);});` +
+    `var body=[];var value=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:null;` +
+    `if(method!=='GET'&&method!=='HEAD'&&value!=null){var bytes;` +
+    `if(typeof value==='string'||value instanceof URLSearchParams)bytes=new TextEncoder().encode(String(value));` +
+    `else if(value instanceof ArrayBuffer)bytes=new Uint8Array(value);` +
+    `else if(ArrayBuffer.isView(value))bytes=new Uint8Array(value.buffer,value.byteOffset,value.byteLength);` +
+    `else if(value instanceof Blob)bytes=new Uint8Array(await value.arrayBuffer());` +
+    `else throw new TypeError('Unsupported guest fetch body');body=Array.from(bytes);}` +
+    `var id=++seq;var promise=new Promise(function(resolve,reject){pending.set(id,{resolve:resolve,reject:reject});});` +
+    `parent.postMessage({type:${JSON.stringify(FETCH_MESSAGE)},id:id,` +
+    `url:new URL(raw,document.baseURI).href,method:method,headers:Array.from(headers.entries()),body:body},'*');` +
+    `return promise;` +
+    `};})();</script>`
+
   html = stripDangerousBase(html)
   const baseTag = `<base href="${escapeAttr(pageUrl)}">`
+  const headPrefix = `${baseTag}${fetchBridge}`
   let srcdoc: string
   if (/<html[\s>]/i.test(html) || /<!doctype\s+html/i.test(html)) {
     if (/<head[\s>]/i.test(html)) {
-      srcdoc = html.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`)
+      srcdoc = html.replace(/<head([^>]*)>/i, `<head$1>${headPrefix}`)
     } else {
-      srcdoc = html.replace(/<html([^>]*)>/i, `<html$1><head>${baseTag}</head>`)
+      srcdoc = html.replace(/<html([^>]*)>/i, `<html$1><head>${headPrefix}</head>`)
     }
     if (/<\/body>/i.test(srcdoc)) srcdoc = srcdoc.replace(/<\/body>/i, `${bridge}</body>`)
     else srcdoc += bridge
   } else {
     srcdoc =
-      `<!doctype html><html><head><meta charset="utf-8">${baseTag}</head>` +
+      `<!doctype html><html><head><meta charset="utf-8">${headPrefix}</head>` +
       `<body>${html}${bridge}</body></html>`
   }
 
@@ -196,6 +271,27 @@ function resolveGuestUrl(base: URL, raw: string): string | null {
 
 function looksLikeAssetHref(href: string): boolean {
   return /\.(css|js|mjs|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|map)(\?|#|$)/i.test(href)
+}
+
+function isJavaScript(mime: string, url: string): boolean {
+  return (
+    mime === 'text/javascript' ||
+    mime === 'application/javascript' ||
+    /\.(m?js)(\?|#|$)/i.test(url)
+  )
+}
+
+function inlineScripts(html: string, base: URL, sources: Map<string, string>): string {
+  return html.replace(
+    /<script\b([^>]*?)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>\s*<\/script\s*>/gi,
+    (tag, before: string, _quote: string, raw: string, after: string) => {
+      const abs = resolveGuestUrl(base, raw)
+      const source = abs ? sources.get(abs) : undefined
+      if (source === undefined) return tag
+      const attributes = `${before}${after}`.trim()
+      return `<script${attributes ? ` ${attributes}` : ''}>${source.replace(/<\/script/gi, '<\\/script')}</script>`
+    },
+  )
 }
 
 function isHtml(contentType: string, text: string): boolean {

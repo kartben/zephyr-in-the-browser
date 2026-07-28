@@ -32,9 +32,16 @@ export interface HttpGetResult {
   text: string
 }
 
-export async function httpGetFromHost(
+export interface HttpRequestOptions {
+  method?: string
+  headers?: Array<[string, string]>
+  body?: Uint8Array
+}
+
+export async function httpRequestFromHost(
   stack: NetStack,
   url: string,
+  options: HttpRequestOptions = {},
   timeoutMs = 8000,
   bodyCap = HTTP_GET_BODY_CAP,
 ): Promise<HttpGetResult> {
@@ -49,6 +56,18 @@ export async function httpGetFromHost(
   const ip = ipFromString(parsed.hostname) ?? stack.ipForName(parsed.hostname) ?? stack.guestIp
   if (ip === null) throw new Error('Guest IP unknown — has the sample brought its interface up?')
   const port = parsed.port ? Number(parsed.port) : 80
+  const method = (options.method ?? 'GET').toUpperCase()
+  if (!/^[A-Z]+$/.test(method)) throw new Error(`Invalid HTTP method: ${method}`)
+  const body = options.body ?? new Uint8Array()
+  const blockedHeaders = new Set(['host', 'connection', 'content-length', 'accept-encoding'])
+  const requestHeaders: string[] = []
+  for (const [name, value] of options.headers ?? []) {
+    if (blockedHeaders.has(name.toLowerCase())) continue
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(value)) {
+      throw new Error(`Invalid HTTP header: ${name}`)
+    }
+    requestHeaders.push(`${name}: ${value}`)
+  }
 
   const chunks: Uint8Array[] = []
   await new Promise<void>((resolve, reject) => {
@@ -65,14 +84,18 @@ export async function httpGetFromHost(
       { ip, port },
       {
         onOpen: (s) => {
+          const head =
+            `${method} ${parsed.pathname}${parsed.search} HTTP/1.1\r\n` +
+            `Host: ${parsed.host}\r\n` +
+            `Connection: close\r\n` +
+            `Accept: */*\r\n` +
+            `Accept-Encoding: gzip, deflate, br\r\n` +
+            `${requestHeaders.join('\r\n')}${requestHeaders.length ? '\r\n' : ''}` +
+            `Content-Length: ${body.length}\r\n\r\n`
           s.send(
-            encoder.encode(
-              `GET ${parsed.pathname}${parsed.search} HTTP/1.1\r\n` +
-                `Host: ${parsed.hostname}\r\n` +
-                `Connection: close\r\n` +
-                `Accept: */*\r\n` +
-                `Accept-Encoding: gzip, deflate, br\r\n\r\n`,
-            ),
+            body.length
+              ? concatChunks([encoder.encode(head), body])
+              : encoder.encode(head),
           )
         },
         onData: (s, data) => {
@@ -97,6 +120,15 @@ export async function httpGetFromHost(
   })
 
   return finalizeHttpResponse(parseHttpResponse(concatChunks(chunks)))
+}
+
+export function httpGetFromHost(
+  stack: NetStack,
+  url: string,
+  timeoutMs = 8000,
+  bodyCap = HTTP_GET_BODY_CAP,
+): Promise<HttpGetResult> {
+  return httpRequestFromHost(stack, url, { method: 'GET' }, timeoutMs, bodyCap)
 }
 
 export function parseHttpResponse(raw: Uint8Array): HttpGetResult {

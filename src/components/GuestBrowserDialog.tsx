@@ -9,8 +9,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { isGuestBrowserNavigateMessage } from '@/net/services/guestBrowser'
-import { loadGuestBrowserPage } from '@/hostNet'
+import {
+  GUEST_BROWSER_FETCH_RESPONSE_MESSAGE,
+  isGuestBrowserFetchMessage,
+  isGuestBrowserNavigateMessage,
+} from '@/net/services/guestBrowser'
+import { httpRequestFromHost, loadGuestBrowserPage } from '@/hostNet'
 
 /**
  * Popup that renders pages served by the guest over the in-page LAN.
@@ -33,6 +37,7 @@ export function GuestBrowserDialog({
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
   const blobUrlsRef = useRef<string[]>([])
   const currentUrlRef = useRef(currentUrl)
   currentUrlRef.current = currentUrl
@@ -84,8 +89,49 @@ export function GuestBrowserDialog({
   useEffect(() => {
     if (!open) return
     const onMessage = (event: MessageEvent) => {
-      if (!isGuestBrowserNavigateMessage(event.data)) return
-      void navigateRef.current(event.data.href, { pushHistory: true })
+      const frame = iframeRef.current?.contentWindow
+      if (!frame || event.source !== frame) return
+      if (isGuestBrowserNavigateMessage(event.data)) {
+        void navigateRef.current(event.data.href, { pushHistory: true })
+        return
+      }
+      if (!isGuestBrowserFetchMessage(event.data)) return
+
+      const request = event.data
+      void (async () => {
+        try {
+          const page = new URL(currentUrlRef.current)
+          const target = new URL(request.url, page)
+          if (target.protocol !== 'http:' || target.host !== page.host) {
+            throw new Error('Guest pages may only fetch from their own host')
+          }
+          const response = await httpRequestFromHost(target.href, {
+            method: request.method,
+            headers: request.headers,
+            body: new Uint8Array(request.body),
+          })
+          frame.postMessage(
+            {
+              type: GUEST_BROWSER_FETCH_RESPONSE_MESSAGE,
+              id: request.id,
+              status: response.status,
+              statusText: response.statusText,
+              headers: Array.from(response.headers.entries()),
+              body: Array.from(response.body),
+            },
+            '*',
+          )
+        } catch (error) {
+          frame.postMessage(
+            {
+              type: GUEST_BROWSER_FETCH_RESPONSE_MESSAGE,
+              id: request.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            '*',
+          )
+        }
+      })()
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -189,6 +235,7 @@ export function GuestBrowserDialog({
         <div className="min-h-0 flex-1 bg-background">
           {srcdoc ? (
             <iframe
+              ref={iframeRef}
               title="Guest page"
               sandbox="allow-scripts"
               srcDoc={srcdoc}

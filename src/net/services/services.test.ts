@@ -4,7 +4,7 @@ import { createLoopback } from '../testing/loopback'
 import { installHttpProxy } from './httpProxy'
 import { installEchoHost } from './echoHost'
 import { installZperf, ZPERF_PORT } from './zperf'
-import { echoToGuest, httpGetFromHost } from './guestClient'
+import { echoToGuest, httpGetFromHost, httpRequestFromHost } from './guestClient'
 
 describe('httpProxy', () => {
   it('proxies a guest GET through fetch with an https upgrade', async () => {
@@ -149,6 +149,30 @@ describe('guestClient', () => {
     expect(res.text).toBe('<h1>It works</h1>')
     expect(res.headers.get('content-type')).toBe('text/html')
     expect(res.body.length).toBeGreaterThan(0)
+  })
+
+  it('POSTs a body and headers to a guest HTTP resource', async () => {
+    const lb = createLoopback()
+    lb.guest.configureStatic('192.0.2.1')
+    lb.guest.serveHttpRoutes(8080, {
+      '/led': { body: '', contentType: 'text/plain' },
+    })
+
+    const payload = '{"led_num":0,"led_state":true}'
+    const res = await httpRequestFromHost(lb.stack, 'http://192.0.2.1:8080/led', {
+      method: 'POST',
+      headers: [['content-type', 'application/json']],
+      body: new TextEncoder().encode(payload),
+    })
+
+    expect(res.status).toBe(200)
+    expect(lb.guest.httpRequests).toHaveLength(1)
+    expect(lb.guest.httpRequests[0]).toMatchObject({
+      method: 'POST',
+      path: '/led',
+      body: payload,
+    })
+    expect(lb.guest.httpRequests[0]?.headers.get('content-type')).toBe('application/json')
   })
 
   it('echoes against the guest echo server over TCP and UDP', async () => {

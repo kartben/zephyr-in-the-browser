@@ -29,6 +29,12 @@ export class FakeGuest {
   readonly mac: Uint8Array
   ip = 0
   dnsServer = ipFromString('192.0.2.3')!
+  readonly httpRequests: Array<{
+    method: string
+    path: string
+    headers: Map<string, string>
+    body: string
+  }> = []
   private hooks: FakeGuestHooks
   readonly tcp: TcpEngine
   private udpHandlers: Array<{ port: number; handler: (src: { ip: number; port: number }, payload: Uint8Array) => void }> = []
@@ -243,9 +249,32 @@ export class FakeGuest {
       socket.handlers = {
         onData: (s, data) => {
           got = concat([got, data])
-          if (indexOf(got, '\r\n\r\n') < 0) return
-          const head = decoder.decode(got.subarray(0, indexOf(got, '\r\n\r\n')))
-          const path = /^[A-Z]+\s+(\S+)/.exec(head)?.[1]?.split('?')[0] ?? '/'
+          const headEnd = indexOf(got, '\r\n\r\n')
+          if (headEnd < 0) return
+          const head = decoder.decode(got.subarray(0, headEnd))
+          const lines = head.split('\r\n')
+          const requestLine = /^([A-Z]+)\s+(\S+)/.exec(lines[0] ?? '')
+          const headers = new Map<string, string>()
+          for (const line of lines.slice(1)) {
+            const colon = line.indexOf(':')
+            if (colon > 0) {
+              headers.set(
+                line.slice(0, colon).trim().toLowerCase(),
+                line.slice(colon + 1).trim(),
+              )
+            }
+          }
+          const contentLength = Number(headers.get('content-length') ?? 0)
+          if (got.length < headEnd + 4 + contentLength) return
+          const method = requestLine?.[1] ?? 'GET'
+          const rawPath = requestLine?.[2] ?? '/'
+          const path = rawPath.split('?')[0] ?? '/'
+          this.httpRequests.push({
+            method,
+            path: rawPath,
+            headers,
+            body: decoder.decode(got.subarray(headEnd + 4, headEnd + 4 + contentLength)),
+          })
           const route = routes[path]
           if (!route) {
             const missing = encoder.encode('not found')

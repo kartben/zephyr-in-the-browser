@@ -25,9 +25,12 @@ import { installEchoHost } from '@/net/services/echoHost'
 import { installHttpProxy } from '@/net/services/httpProxy'
 import { installZperf } from '@/net/services/zperf'
 import {
+  HTTP_BROWSER_BODY_CAP,
   echoToGuest as echoService,
   httpGetFromHost as httpGetService,
+  httpRequestFromHost as httpRequestService,
   type HttpGetResult,
+  type HttpRequestOptions,
 } from '@/net/services/guestClient'
 import {
   loadGuestBrowserPage as loadGuestBrowserPageService,
@@ -294,6 +297,15 @@ export function httpGetFromHost(url: string): Promise<HttpGetResult> {
   return httpGetService(stack, url)
 }
 
+/** Mini-browser fetch bridge: issue a GET/POST from a guest page through NetStack. */
+export function httpRequestFromHost(
+  url: string,
+  options: HttpRequestOptions,
+): Promise<HttpGetResult> {
+  if (!stack) return Promise.reject(new Error('Network bridge not attached'))
+  return httpRequestService(stack, url, options, 8000, HTTP_BROWSER_BODY_CAP)
+}
+
 /** Mini-browser: GET + rewrite guest assets into a srcdoc page. */
 export function loadGuestBrowserPage(url: string): Promise<GuestBrowserPage> {
   if (!stack) return Promise.reject(new Error('Network bridge not attached'))
@@ -306,7 +318,7 @@ export function echoToGuest(payload: string, proto: 'tcp' | 'udp'): Promise<stri
   return echoService(stack, payload, proto)
 }
 
-export type { GuestBrowserPage, HttpGetResult }
+export type { GuestBrowserPage, HttpGetResult, HttpRequestOptions }
 
 /* ------------------------------------------------------------ data path */
 
