@@ -100,7 +100,7 @@ qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,co
 qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
-qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf
+qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf:virtio-gpio
 qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf
 qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf
 qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf

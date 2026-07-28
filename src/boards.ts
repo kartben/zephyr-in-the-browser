@@ -671,7 +671,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     description:
       'Full HTTP server at http://192.0.2.1/ — Network panel + CTF Trace (sockets / fifo / queue)',
     zephyrSample: 'samples/net/sockets/http_server',
-    primaryPanels: ['net', 'trace'],
+    primaryPanels: ['net', 'led', 'gpio', 'trace'],
     guestHttpUrl: 'http://192.0.2.1/',
   },
   {
