@@ -233,7 +233,10 @@ export class FakeGuest {
    */
   serveHttpRoutes(
     port: number,
-    routes: Record<string, { body: string | Uint8Array; contentType?: string }>,
+    routes: Record<
+      string,
+      { body: string | Uint8Array; contentType?: string; contentEncoding?: string }
+    >,
   ): void {
     this.tcp.listen({ port }, (socket) => {
       let got: Uint8Array = new Uint8Array(0)
@@ -257,9 +260,12 @@ export class FakeGuest {
           }
           const payload = typeof route.body === 'string' ? encoder.encode(route.body) : route.body
           const type = route.contentType ?? 'text/html'
+          const encoding = route.contentEncoding
+            ? `content-encoding: ${route.contentEncoding}\r\n`
+            : ''
           s.send(
             encoder.encode(
-              `HTTP/1.1 200 OK\r\ncontent-type: ${type}\r\ncontent-length: ${payload.length}\r\nconnection: close\r\n\r\n`,
+              `HTTP/1.1 200 OK\r\ncontent-type: ${type}\r\n${encoding}content-length: ${payload.length}\r\nconnection: close\r\n\r\n`,
             ),
           )
           s.send(payload)

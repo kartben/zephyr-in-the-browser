@@ -3,27 +3,32 @@
  * guest runs — an HTTP GET against dumb_http_server, a TCP/UDP echo against
  * echo_server. All plumbing rides the same TcpEngine/stack as everything
  * else, so the traffic shows up in the capture like any other flow.
+ *
+ * Response bodies honor Content-Encoding (gzip/deflate/br) and chunked
+ * Transfer-Encoding so Zephyr samples that ship precompressed static files
+ * still render in the panel GET and the guest browser.
  */
 
 import { ipFromString, ipToString } from '../bytes'
 import { NetStack } from '../stack'
+import { decodeHttpEntity } from './httpDecode'
 
 const decoder = new TextDecoder()
 const encoder = new TextEncoder()
 
-/** Default body cap for the panel GET tool (first ~64 KB). */
+/** Default body cap for the panel GET tool (first ~64 KB on the wire). */
 export const HTTP_GET_BODY_CAP = 64 * 1024
-/** Larger cap for the mini-browser (sample pages + a few assets). */
+/** Larger wire cap for the mini-browser (sample pages + a few assets). */
 export const HTTP_BROWSER_BODY_CAP = 256 * 1024
 
 export interface HttpGetResult {
   status: number
   statusText: string
-  /** Lower-cased header names. */
+  /** Lower-cased header names (Content-Encoding stripped after decode). */
   headers: Map<string, string>
-  /** Raw response body (capped). */
+  /** Response body after transfer/content decoding (capped). */
   body: Uint8Array
-  /** Response body decoded as UTF-8 text (same bytes as `body`). */
+  /** Decoded body as UTF-8 text. */
   text: string
 }
 
@@ -63,7 +68,10 @@ export async function httpGetFromHost(
           s.send(
             encoder.encode(
               `GET ${parsed.pathname}${parsed.search} HTTP/1.1\r\n` +
-                `Host: ${parsed.hostname}\r\nConnection: close\r\nAccept: */*\r\n\r\n`,
+                `Host: ${parsed.hostname}\r\n` +
+                `Connection: close\r\n` +
+                `Accept: */*\r\n` +
+                `Accept-Encoding: gzip, deflate, br\r\n\r\n`,
             ),
           )
         },
@@ -88,7 +96,7 @@ export async function httpGetFromHost(
     )
   })
 
-  return parseHttpResponse(concatChunks(chunks))
+  return finalizeHttpResponse(parseHttpResponse(concatChunks(chunks)))
 }
 
 export function parseHttpResponse(raw: Uint8Array): HttpGetResult {
@@ -119,6 +127,23 @@ export function parseHttpResponse(raw: Uint8Array): HttpGetResult {
     headers,
     body,
     text: decoder.decode(body),
+  }
+}
+
+/** Apply chunked / Content-Encoding decoding; updates body, text, headers. */
+export async function finalizeHttpResponse(res: HttpGetResult): Promise<HttpGetResult> {
+  if (res.status === 0) return res
+  try {
+    const decoded = await decodeHttpEntity(res.body, res.headers)
+    return {
+      ...res,
+      headers: decoded.headers,
+      body: decoded.body,
+      text: decoder.decode(decoded.body),
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`Could not decode HTTP body: ${reason}`)
   }
 }
 
