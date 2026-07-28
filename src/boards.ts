@@ -505,7 +505,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     label: 'BLE central · Heart Rate',
     description:
       'Scans, connects and subscribes to an in-page Bumble Heart Rate monitor',
-    zephyrSample: 'samples/bluetooth/central_hr',
+    zephyrSample: 'zephyr-module/apps/bt_central_hr',
     primaryPanels: ['bluetooth'],
   },
   {

@@ -24,7 +24,7 @@ Per-peer configure/control UI (draft):
 | Bumble wheel | `public/vendor/bumble/` — see its README; fetch with `tools/vendor-bumble.sh` |
 | Guest snippet / conf | `zephyr-module/snippets/bt-hci-uart/`, `zephyr-module/conf/bt-hci.conf` |
 | Persistent settings | `bt-settings-spi` W25Q80 on CS1 + `storage_partition` → Zephyr NVS |
-| Packaged samples | `bt_peripheral`, `bt_central_hr` → Zephyr peripheral / central HR |
+| Packaged samples | `bt_peripheral` → Zephyr peripheral; `bt_central_hr` → browser variant that decodes the SIG Heart Rate Measurement |
 
 ## Rebuild checklist
 
@@ -48,9 +48,10 @@ pipe but controller start fails on a missing wheel.
    No server; same shape as Ethernet/CAN peers in the page.
 
 For the opposite role, select **BLE central · Heart Rate**, wait for
-**Controller ready**, then add a **Heart rate monitor** peer. The stock Zephyr
+**Controller ready**, then add a **Heart rate monitor** peer. The packaged
 central scans for service `0x180D`, connects, discovers the measurement
-characteristic, subscribes, and prints incoming notifications.
+characteristic, subscribes, and prints the decoded measurement, for example
+`[HEART RATE] 72 BPM (flags 0x00)`.
 
 The packaged Bluetooth images also compose the `bt-settings-spi` snippet.
 Zephyr's NVS settings backend stores the generated identity, IRK, and GATT
