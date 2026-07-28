@@ -19,6 +19,16 @@ const DIFF_SCAN_LIMIT = 4096
 
 const hex2 = (n: number) => n.toString(16).padStart(2, '0')
 
+/** Which column an edit is happening in — the two are interchangeable. */
+type EditColumn = 'hex' | 'ascii'
+
+type EditTarget = { offset: number; column: EditColumn }
+
+const isPrintable = (value: number) => value >= 0x20 && value <= 0x7e
+
+/** ASCII gutter glyph; unprintable bytes read as a dot, hexdump-style. */
+const asciiChar = (value: number) => (isPrintable(value) ? String.fromCharCode(value) : '·')
+
 /** Jump the sliding window to an absolute address (sector map → hex). */
 export type HexJump = { address: number; token: number }
 
@@ -37,7 +47,9 @@ export type HexViewRange = { start: number; end: number }
  *   is something you watch happen rather than infer.
  * - The read pointer is outlined, showing where the guest is reading from.
  * - Clicking a byte edits it, which is how you plant something for the guest
- *   to find without writing an application to do it.
+ *   to find without writing an application to do it. Either column takes the
+ *   edit: hex when you know the value, ASCII when what you want to plant is
+ *   text — typing there walks the cursor along so a string goes in as a string.
  *
  * Parts larger than {@link WINDOW_BYTES} page around the live pointer (with
  * prev/next controls) instead of mounting a million cells. Pass {@link jump}
@@ -65,7 +77,7 @@ export function HexView({
   dimErased?: boolean
 }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
-  const [editing, setEditing] = useState<number | null>(null)
+  const [editing, setEditing] = useState<EditTarget | null>(null)
   const [pageBase, setPageBase] = useState(0)
   const [follow, setFollow] = useState(true)
 
@@ -88,11 +100,21 @@ export function HexView({
 
   const erased = chip.decl.erased ?? 0xff
   const rows = Math.ceil(view.length / BYTES_PER_ROW) || 1
+
   // Enough digits for the largest absolute address, so the gutter does not jitter.
   const offsetDigits = Math.max(
     4,
     Math.max(0, addressBase + data.length - 1).toString(16).length,
   )
+
+  /**
+   * Move the caret to the next byte after a commit, so typing a string in the
+   * ASCII column (or a run of hex pairs) does not need a click per byte.
+   */
+  const advance = (target: EditTarget) => {
+    const next = target.offset + 1
+    setEditing(next < base + viewLen ? { offset: next, column: target.column } : null)
+  }
 
   return (
     <div className="space-y-1.5">
@@ -160,11 +182,12 @@ export function HexView({
                         dim={dimErased && value === erased}
                         flash={recent.has(offset)}
                         isPointer={offset === pointer}
-                        editing={editing === offset}
-                        onEdit={() => setEditing(offset)}
-                        onCommit={(next) => {
+                        editing={editing?.column === 'hex' && editing.offset === offset}
+                        onEdit={() => setEditing({ offset, column: 'hex' })}
+                        onCommit={(next, keepGoing) => {
                           chip.poke(offset, next)
-                          setEditing(null)
+                          if (keepGoing) advance({ offset, column: 'hex' })
+                          else setEditing(null)
                         }}
                         onCancel={() => setEditing(null)}
                         // A gap after the eighth byte, the way hexdump splits it.
@@ -174,22 +197,24 @@ export function HexView({
                   })}
                 </span>
 
-                <span className="select-none">
+                <span className="flex">
                   {bytes.map((value, i) => {
                     const offset = rowBase + i
-                    const printable = value >= 0x20 && value <= 0x7e
                     return (
-                      <span
+                      <AsciiCell
                         key={offset}
-                        className={cn(
-                          'transition-colors',
-                          recent.has(offset) && 'bg-primary/30 text-foreground',
-                          !recent.has(offset) &&
-                            (printable ? 'text-muted-foreground' : 'text-muted-foreground/40'),
-                        )}
-                      >
-                        {printable ? String.fromCharCode(value) : '·'}
-                      </span>
+                        address={addressBase + offset}
+                        value={value}
+                        flash={recent.has(offset)}
+                        editing={editing?.column === 'ascii' && editing.offset === offset}
+                        onEdit={() => setEditing({ offset, column: 'ascii' })}
+                        onCommit={(next, keepGoing) => {
+                          chip.poke(offset, next)
+                          if (keepGoing) advance({ offset, column: 'ascii' })
+                          else setEditing(null)
+                        }}
+                        onCancel={() => setEditing(null)}
+                      />
                     )
                   })}
                 </span>
@@ -222,10 +247,14 @@ function ByteCell({
   editing: boolean
   spacer: boolean
   onEdit: () => void
-  onCommit: (value: number) => void
+  /** `advance` asks the view to move the caret to the next byte. */
+  onCommit: (value: number, advance: boolean) => void
   onCancel: () => void
 }) {
   const cancelled = useRef(false)
+  // Set once the cell has resolved itself (auto-advance): a blur arriving after
+  // that must not commit again, and must not clear the caret we just moved.
+  const settled = useRef(false)
 
   if (editing) {
     return (
@@ -235,19 +264,28 @@ function ByteCell({
         aria-label={`Byte 0x${address.toString(16)}`}
         onFocus={(e) => {
           cancelled.current = false
+          settled.current = false
           e.currentTarget.select()
         }}
         onChange={(e) => {
-          e.currentTarget.value = e.currentTarget.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 2)
+          const text = e.currentTarget.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 2)
+          e.currentTarget.value = text
+          // A full pair is unambiguous — take it and move on, so a run of bytes
+          // types straight through.
+          if (text.length === 2) {
+            settled.current = true
+            onCommit(Number.parseInt(text, 16), true)
+          }
         }}
         onBlur={(e) => {
+          if (settled.current) return
           if (cancelled.current) {
             onCancel()
             return
           }
           const parsed = Number.parseInt(e.currentTarget.value, 16)
           if (Number.isNaN(parsed)) onCancel()
-          else onCommit(parsed)
+          else onCommit(parsed, false)
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
@@ -279,6 +317,88 @@ function ByteCell({
       )}
     >
       {hex2(value)}
+    </button>
+  )
+}
+
+/**
+ * One glyph of the ASCII gutter, editable in place.
+ *
+ * Typing a character writes that byte and steps to the next one, because what
+ * you come to the ASCII column to do is type a word — a filename, a command, a
+ * marker to search for — not to place a single character. Non-printable bytes
+ * still show as dots but accept a character just the same.
+ */
+function AsciiCell({
+  address,
+  value,
+  flash,
+  editing,
+  onEdit,
+  onCommit,
+  onCancel,
+}: {
+  address: number
+  value: number
+  flash: boolean
+  editing: boolean
+  onEdit: () => void
+  onCommit: (value: number, advance: boolean) => void
+  onCancel: () => void
+}) {
+  const settled = useRef(false)
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        defaultValue={isPrintable(value) ? String.fromCharCode(value) : ''}
+        aria-label={`ASCII at 0x${address.toString(16)}`}
+        onFocus={(e) => {
+          settled.current = false
+          e.currentTarget.select()
+        }}
+        onChange={(e) => {
+          // Take the last character typed so overtyping a filled cell works.
+          const text = e.currentTarget.value
+          const ch = text.charCodeAt(text.length - 1)
+          if (!Number.isFinite(ch) || ch > 0xff) {
+            e.currentTarget.value = ''
+            return
+          }
+          settled.current = true
+          onCommit(ch & 0xff, true)
+        }}
+        onBlur={() => {
+          if (settled.current) return
+          onCancel()
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' || e.key === 'Enter') e.currentTarget.blur()
+          // Backspace on an empty cell writes a NUL — the usual way to cut a
+          // string short in place.
+          if (e.key === 'Backspace' && e.currentTarget.value === '') {
+            settled.current = true
+            onCommit(0, true)
+          }
+        }}
+        className="w-[1ch] bg-primary/20 text-center font-mono text-[10px] text-foreground outline-none"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      title={`0x${address.toString(16).padStart(4, '0')} — click to type a character`}
+      className={cn(
+        'w-[1ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
+        flash && 'bg-primary/30 text-foreground',
+        !flash && (isPrintable(value) ? 'text-muted-foreground' : 'text-muted-foreground/40'),
+      )}
+    >
+      {asciiChar(value)}
     </button>
   )
 }
