@@ -93,9 +93,24 @@ run, and the reason appears on the card in dev.
 | `stop:` | `yes` | `no` shows the card and lets the machine run on |
 
 `when:` is DAP's `hitCondition`, spelt out. Hits are counted **in the browser**:
-the breakpoint fires on every pass, and the ones that do not match are resumed
-before anything is drawn. A step deep inside a loop costs the guest nothing and
-needs no `SAMPLE_ONCE()` compiled into it.
+the breakpoint traps on every pass, and the ones that do not match are let go
+again. No `SAMPLE_ONCE()` is compiled into the guest, and the sample has no idea
+any of it is happening.
+
+**A rejected hit is not free, only cheap.** It costs one register read and a
+continue — the machine never publishes a pause, so nothing else runs: no memory
+peek, no thread walk, no stack unwind, no card. That is a few milliseconds plus
+the stub's poll interval, which is fine at blinky's one-blink-a-second and not
+fine on something taking a mutex thirty times a second.
+
+So match the condition to the rate:
+
+- **Cold breakpoint** (once a second, a few times a run): `hits % 10 == 0` with
+  `repeat: yes` is comfortable, and the card can come back round after round.
+- **Hot breakpoint** (a kernel entry point, anything in an inner loop): use
+  `hits == N`. It fires once and the breakpoint is lifted, so the cost stops
+  there. A `repeat:` step on a hot address keeps trapping for the rest of the
+  run, and the guest will feel it.
 
 Two steps may share an address — "the line that does the work" and "the same
 line, forty passes later" are both about blinky's toggle. Each counts its own

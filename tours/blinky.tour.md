@@ -115,11 +115,11 @@ Sleeping may only be done from a thread. Doing it in an interrupt handler is a
 kernel error, which is why blinking from an ISR wants a `k_timer` or a work
 item instead.
 
-## Once more, forty toggles later
+## Once more, ten toggles later
 
 ```tour
 at: main.c:/gpio_pin_toggle_dt/
-when: hits % 40 == 0
+when: hits % 10 == 0
 repeat: yes
 stop: no
 panel: led
@@ -127,11 +127,16 @@ watch:
   - stopped in = $pc as code
 ```
 
-The same line as three steps ago, on every fortieth pass, and this time without
+The same line as three steps ago, on every tenth pass, and this time without
 stopping the machine: `stop: no` puts the card up and lets the guest run on.
 
 Nothing about that is visible from inside the guest. The breakpoint fires on
-every pass, the browser counts the hits, and the thirty-nine that do not match
-are resumed before anything is drawn. That is the difference between a tour and
-the instrumentation it replaces — the sample is not participating, and would
-build byte-for-byte the same if this file did not exist.
+every pass, the browser counts the hits, and the nine that do not match are let
+go again before the machine has even finished looking stopped — no card, no
+register dump, no thread walk. That is the difference between a tour and the
+instrumentation it replaces: the sample is not participating, and would build
+byte-for-byte the same if this file did not exist.
+
+A blink is once a second, which is a comfortable rate to be counting. A
+breakpoint somewhere genuinely hot wants `hits == N` instead, so it fires once
+and gets out of the way — see the mutex steps in the philosophers tour.

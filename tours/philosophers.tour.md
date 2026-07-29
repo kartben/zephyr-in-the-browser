@@ -95,8 +95,7 @@ change.
 
 ```tour
 at: z_impl_k_mutex_lock
-when: hits % 12 == 0
-repeat: yes
+when: hits == 12
 threads: yes
 ```
 
@@ -112,12 +111,16 @@ That is why this sample is a fair test of a scheduler rather than of a CPU. The
 philosophers spend almost all their time asleep or blocked, and everything
 interesting happens in the transitions.
 
+Note the condition: `hits == 12`, not `hits % 12 == 0`. Taking a fork is one of
+the hottest things this sample does, and a step that keeps its breakpoint alive
+there would go on costing a stop per lock for the rest of the run. This one
+fires once and the breakpoint is lifted.
+
 ## Eating is a sleep, and sleeping is scheduling
 
 ```tour
 at: main.c:/EATING/
-when: hits % 6 == 0
-repeat: yes
+when: hits == 6
 stop: no
 threads: yes
 ```
@@ -127,6 +130,7 @@ random interval while it "eats". It is asleep, holding both forks, and everyone
 adjacent to it is blocked on one of them.
 
 This step does not stop the machine (`stop: no`), so the terminal keeps
-scrolling underneath the card while the thread list updates. The whole demo is
+scrolling underneath the card while the thread list stays as it was at the
+sixth meal. The whole demo is
 this: six threads taking turns being blocked, and a scheduler deciding who is
 next.

@@ -119,6 +119,7 @@ const EMPTY: GdbState = {
 
 let kernelElf: Uint8Array | null = null
 let attachHook: (() => Promise<void>) | null = null
+let stopFilter: ((pc: string) => boolean) | null = null
 let mod: Record<string, unknown> | null = null
 let ch: ChardevExports | null = null
 let client: RspClient | null = null
@@ -198,6 +199,27 @@ export function getSymbolIndex(): SymbolIndex | null {
  */
 export function setAttachHook(fn: (() => Promise<void>) | null) {
   attachHook = fn
+}
+
+/**
+ * Vet a stop before anything expensive happens to it.
+ *
+ * A full stop costs a register read, a memory peek, a thread walk and a stack
+ * unwind — dozens of RSP round-trips — and publishes a pause the whole UI
+ * reacts to. That is the right price for a stop somebody is going to look at,
+ * and much too high for one that exists only to be counted: a tour step
+ * conditioned on `hits % 10 == 0` rejects nine hits out of ten, and on a hot
+ * breakpoint the rejected ones are the whole cost of the feature.
+ *
+ * The filter sees only the PC — one round-trip to get it — and returns true to
+ * say "not this one". The machine is then let go without ever having looked
+ * paused.
+ *
+ * @param fn Called with the stop PC as hex. Must not block: the guest is
+ *           frozen until it answers.
+ */
+export function setStopFilter(fn: ((pc: string) => boolean) | null) {
+  stopFilter = fn
 }
 
 /** ELF wait-queue objects (msgq/sem/…) for resolving CTF object ids to names. */
@@ -463,18 +485,37 @@ export async function attachSession(): Promise<boolean> {
 
   const next = new RspClient(ch)
   next.setStopHandler((info) => {
-    if (info.kind === 'signal') {
+    if (info.kind !== 'signal') return
+    // Step over / out drive their own refresh once they know where they
+    // landed — let them, instead of racing a full walk per intermediate stop.
+    if (internalStep) {
       // Mark regs loading with the pause so Mem cannot seed from 0x0 in the
       // gap before refreshRegs() runs.
       publish({ paused: true, registersLoading: true })
-      // Step over / out drive their own refresh once they know where they
-      // landed — let them, instead of racing a full walk per intermediate stop.
-      if (internalStep) return
-      void (async () => {
-        await clearTempBreakpoint()
-        await refreshRegs()
-      })()
+      return
     }
+    void (async () => {
+      // Ask the filter first, and publish nothing until it has answered: a
+      // rejected stop must not flicker the UI into "paused" or trigger the
+      // reads below. Reading the registers is what the full refresh would
+      // have started with anyway, so a kept stop pays nothing extra.
+      if (stopFilter) {
+        let pc: string | null = null
+        try {
+          pc = decodeGPacket(arch, await next.readRegisters()).pc
+        } catch {
+          pc = null
+        }
+        if (pc !== null && stopFilter(pc)) {
+          await clearTempBreakpoint()
+          await next.continue()
+          return
+        }
+      }
+      publish({ paused: true, registersLoading: true })
+      await clearTempBreakpoint()
+      await refreshRegs()
+    })()
   })
   client = next
   startPoll()
@@ -524,6 +565,7 @@ export function detach() {
   client = null
   ch = null
   mod = null
+  stopFilter = null
   frameRegs = NO_FRAME_REGS
   tempBp = null
   internalStep = false
