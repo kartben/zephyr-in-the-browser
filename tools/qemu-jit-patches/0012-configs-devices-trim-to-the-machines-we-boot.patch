@@ -1,6 +1,6 @@
 diff --git a/configs/devices/aarch64-softmmu/browser.mak b/configs/devices/aarch64-softmmu/browser.mak
 new file mode 100644
-index 0000000..e71d3a8
+index 0000000..9058eb1
 --- /dev/null
 +++ b/configs/devices/aarch64-softmmu/browser.mak
 @@ -0,0 +1,87 @@

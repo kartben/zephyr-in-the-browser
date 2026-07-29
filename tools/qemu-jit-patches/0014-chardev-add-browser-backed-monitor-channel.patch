@@ -1,6 +1,6 @@
 diff --git a/chardev/char-browser.c b/chardev/char-browser.c
 new file mode 100644
-index 0000000..1111111
+index 0000000..2f0501e
 --- /dev/null
 +++ b/chardev/char-browser.c
 @@ -0,0 +1,359 @@
@@ -363,9 +363,19 @@ index 0000000..1111111
 +}
 +
 +type_init(register_types);
+diff --git a/chardev/meson.build b/chardev/meson.build
+index 56ee39a..3ce1352 100644
+--- a/chardev/meson.build
++++ b/chardev/meson.build
+@@ -1,4 +1,5 @@
+ chardev_ss.add(files(
++  'char-browser.c',
+   'char-fe.c',
+   'char-file.c',
+   'char-io.c',
 diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
 new file mode 100644
-index 0000000..1111111
+index 0000000..1ba4ee3
 --- /dev/null
 +++ b/include/chardev/char-browser.h
 @@ -0,0 +1,44 @@
@@ -413,21 +423,11 @@ index 0000000..1111111
 +void qemu_browser_gdb_detach(void);
 +
 +#endif /* CHARDEV_CHAR_BROWSER_H */
-diff --git a/chardev/meson.build b/chardev/meson.build
-index 56ee39a..3ce1352 100644
---- a/chardev/meson.build
-+++ b/chardev/meson.build
-@@ -1,4 +1,5 @@
- chardev_ss.add(files(
-+  'char-browser.c',
-   'char-fe.c',
-   'char-file.c',
-   'char-io.c',
 diff --git a/qapi/char.json b/qapi/char.json
-index f0a53f7..801522a 100644
+index dde2f95..55338ec 100644
 --- a/qapi/char.json
 +++ b/qapi/char.json
-@@ -474,6 +474,8 @@
+@@ -476,6 +476,8 @@
  #
  # @file: regular files
  #
@@ -436,7 +436,7 @@ index f0a53f7..801522a 100644
  # @serial: serial host device
  #
  # @parallel: parallel host device
-@@ -526,6 +528,7 @@
+@@ -528,6 +530,7 @@
  ##
  { 'enum': 'ChardevBackendKind',
    'data': [ 'file',
@@ -444,7 +444,7 @@ index f0a53f7..801522a 100644
              { 'name': 'serial', 'if': 'HAVE_CHARDEV_SERIAL' },
              { 'name': 'parallel', 'if': 'HAVE_CHARDEV_PARALLEL' },
              'pipe',
-@@ -717,6 +720,7 @@
+@@ -719,6 +722,7 @@
    'base': { 'type': 'ChardevBackendKind' },
    'discriminator': 'type',
    'data': { 'file': 'ChardevFileWrapper',

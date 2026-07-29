@@ -1,8 +1,8 @@
 diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
-index 7231fe6..1968c9c 100644
+index b55a174..ff2ae52 100644
 --- a/hw/virtio/virtio-browser.c
 +++ b/hw/virtio/virtio-browser.c
-@@ -216,10 +216,38 @@ static int64_t wake_latency_sum_ns;
+@@ -222,10 +222,38 @@ static int64_t wake_latency_sum_ns;
  static int64_t wake_latency_max_ns;
  static uint32_t wake_latency_count;
  
@@ -41,7 +41,7 @@ index 7231fe6..1968c9c 100644
  }
  
  void virtio_browser_note_vcpu_wake(void);
-@@ -318,12 +346,14 @@ static void virtio_browser_kick_bh_cb(void *opaque)
+@@ -320,12 +348,14 @@ static void virtio_browser_kick_bh_cb(void *opaque)
          return;
      }
      virtio_browser_draining = true;

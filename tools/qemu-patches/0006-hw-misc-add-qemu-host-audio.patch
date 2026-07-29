@@ -1,20 +1,20 @@
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index 0a30b96..e7634c1 100644
+index 7238aed..0a2f912 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -225,6 +225,7 @@ config STELLARIS
+@@ -224,6 +224,7 @@ config STELLARIS
+     imply I2C_DEVICES
      select ARM_V7M
-     select QEMU_HOST_SENSOR
      select QEMU_HOST_GPIO
 +    select QEMU_HOST_AUDIO
      select CMSDK_APB_WATCHDOG
      select I2C
      select PL011 # UART
 diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
-index de0f6c3..f86f3b8 100644
+index bfdd8e5..e9ebc4d 100644
 --- a/hw/arm/stellaris.c
 +++ b/hw/arm/stellaris.c
-@@ -1406,6 +1406,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+@@ -1405,6 +1405,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
       */
      sysbus_create_simple("qemu-host-gpio", 0x40061000, NULL);
  
@@ -29,10 +29,10 @@ index de0f6c3..f86f3b8 100644
      create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
      create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
 diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
-index 194629e..db84078 100644
+index 2b5b482..097643a 100644
 --- a/hw/misc/Kconfig
 +++ b/hw/misc/Kconfig
-@@ -241,4 +241,7 @@ config QEMU_HOST_SENSOR
+@@ -240,4 +240,7 @@ config XLNX_VERSAL_TRNG
  config QEMU_HOST_GPIO
      bool
  
@@ -41,12 +41,12 @@ index 194629e..db84078 100644
 +
  source macio/Kconfig
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index a6fbaf3..05c845c 100644
+index 61a60d7..99eca6c 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -7,6 +7,7 @@ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+@@ -6,6 +6,7 @@ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
- system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
  system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
 +system_ss.add(when: 'CONFIG_QEMU_HOST_AUDIO', if_true: files('qemu-host-audio.c'))
  system_ss.add(files('qemu-browser-gnss.c'))
@@ -61,7 +61,7 @@ index 0000000..541daf9
 +/*
 + * Host-backed audio-out device.
 + *
-+ * A companion to qemu-host-sensor.c and qemu-host-gpio.c, built on the same
++ * A companion to qemu-host-gpio.c and qemu-host-mic.c, built on the same
 + * idea: it models no real hardware. The guest pushes 16-bit mono PCM samples
 + * through a data register into a ring the QEMU *host* drains -- under
 + * qemu-wasm, page JavaScript feeding the Web Audio API. Nothing here is

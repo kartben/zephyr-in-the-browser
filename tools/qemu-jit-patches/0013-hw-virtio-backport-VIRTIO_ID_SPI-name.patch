@@ -1,5 +1,5 @@
 diff --git a/hw/virtio/virtio.c b/hw/virtio/virtio.c
-index 9a81ad9..cb30589 100644
+index 2e98cec..9b58f2e 100644
 --- a/hw/virtio/virtio.c
 +++ b/hw/virtio/virtio.c
 @@ -194,7 +194,8 @@ const char *virtio_device_names[] = {

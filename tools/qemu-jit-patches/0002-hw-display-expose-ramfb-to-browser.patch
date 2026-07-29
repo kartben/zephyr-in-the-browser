@@ -1,11 +1,11 @@
 diff --git a/hw/display/ramfb.c b/hw/display/ramfb.c
-index 8c0f907..10170ce 100644
+index 8c0f907..6e4582b 100644
 --- a/hw/display/ramfb.c
 +++ b/hw/display/ramfb.c
 @@ -19,6 +19,17 @@
  #include "ui/console.h"
  #include "system/reset.h"
-
+ 
 +#include "qemu/atomic.h"
 +#include "qemu/timer.h"
 +#include "system/memory.h"
@@ -20,7 +20,7 @@ index 8c0f907..10170ce 100644
  struct QEMU_PACKED RAMFBCfg {
      uint64_t addr;
      uint32_t fourcc;
-@@ -33,9 +43,141 @@ typedef struct RAMFBCfg RAMFBCfg;
+@@ -33,9 +44,141 @@ typedef struct RAMFBCfg RAMFBCfg;
  struct RAMFBState {
      DisplaySurface *ds;
      uint32_t width, height;
@@ -162,7 +162,9 @@ index 8c0f907..10170ce 100644
  static void ramfb_unmap_display_surface(pixman_image_t *image, void *unused)
  {
      void *data = pixman_image_get_data(image);
-@@ -99,6 +242,11 @@ static void ramfb_fw_cfg_write(void *dev, off_t offset, size_t len)
+@@ -97,10 +240,15 @@ static void ramfb_fw_cfg_write(void *dev, off_t offset, size_t len)
+         return;
+     }
  
 +    ramfb_browser_disable_dirty_tracking(s);
 +
@@ -174,6 +176,8 @@ index 8c0f907..10170ce 100644
      s->ds = surface;
 +    ramfb_browser_enable_dirty_tracking(s);
  }
+ 
+ void ramfb_display_update(QemuConsole *con, RAMFBState *s)
 @@ -146,6 +294,9 @@ RAMFBState *ramfb_setup(Error **errp)
      }
  

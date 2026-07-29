@@ -27,10 +27,10 @@ index 6eec5c9..903b2ac 100644
      }
  
 diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
-index 7c06366..7231fe6 100644
+index 7e18656..b55a174 100644
 --- a/hw/virtio/virtio-browser.c
 +++ b/hw/virtio/virtio-browser.c
-@@ -204,6 +204,63 @@ static void virtio_browser_drain(void *opaque);
+@@ -206,6 +206,63 @@ static void virtio_browser_drain(void *opaque);
  static void virtio_browser_kick_bh_cb(void *opaque);
  static void virtio_browser_arm_drain(VirtIOBrowser *b);
  

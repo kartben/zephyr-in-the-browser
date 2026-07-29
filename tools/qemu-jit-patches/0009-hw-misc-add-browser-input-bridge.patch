@@ -1,5 +1,5 @@
 diff --git a/hw/arm/virt.c b/hw/arm/virt.c
-index 036d0b3..bc87973 100644
+index 3021969..6c99e6b 100644
 --- a/hw/arm/virt.c
 +++ b/hw/arm/virt.c
 @@ -38,6 +38,7 @@
@@ -26,7 +26,7 @@ index 036d0b3..bc87973 100644
       * Host-backed sensor bridge. Not part of the real virt platform; 0x090c0000
       * sits in the hole between the secure GPIO (0x090b0000) and the virtio
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 5942a7a..499f653 100644
+index 8c3e3aa..cf4c978 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
 @@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
@@ -34,9 +34,9 @@ index 5942a7a..499f653 100644
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(files('qemu-browser-gnss.c'))
 +system_ss.add(files('qemu-browser-input.c'))
- system_ss.add(files('qemu-host-sensor.c'))
  system_ss.add(files('qemu-host-audio.c'))
  system_ss.add(files('qemu-host-mic.c'))
+ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
 diff --git a/hw/misc/qemu-browser-input.c b/hw/misc/qemu-browser-input.c
 new file mode 100644
 index 0000000..d741802

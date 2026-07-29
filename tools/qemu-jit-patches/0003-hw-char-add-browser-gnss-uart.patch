@@ -1,8 +1,8 @@
 diff --git a/hw/arm/virt.c b/hw/arm/virt.c
-index 3a9eb60..cd63ec1 100644
+index 9a6cd08..4cc30bc 100644
 --- a/hw/arm/virt.c
 +++ b/hw/arm/virt.c
-@@ -32,6 +32,7 @@
+@@ -37,6 +37,7 @@
  #include "hw/arm/boot.h"
  #include "hw/arm/primecell.h"
  #include "hw/arm/virt.h"
@@ -21,10 +21,10 @@ index 3a9eb60..cd63ec1 100644
  
      if (vms->secure) {
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index d916529..9f80379 100644
+index 6d47de4..ba185a9 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))
+@@ -4,6 +4,7 @@ system_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))
  system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
  system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
@@ -32,34 +32,9 @@ index d916529..9f80379 100644
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
  system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
  system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
-diff --git a/include/hw/misc/qemu-browser-gnss.h b/include/hw/misc/qemu-browser-gnss.h
-new file mode 100644
-index 0000000..fe5651e
---- /dev/null
-+++ b/include/hw/misc/qemu-browser-gnss.h
-@@ -0,0 +1,19 @@
-+/*
-+ * Browser-fed NMEA character backend.
-+ *
-+ * SPDX-License-Identifier: GPL-2.0-or-later
-+ */
-+
-+#ifndef HW_MISC_QEMU_BROWSER_GNSS_H
-+#define HW_MISC_QEMU_BROWSER_GNSS_H
-+
-+#include "chardev/char.h"
-+
-+/*
-+ * Returns a singleton backend. The browser fills its lock-free byte ring and
-+ * a QEMU timer drains those bytes into the UART frontend on the QEMU thread.
-+ */
-+int qemu_browser_gnss_feed_byte(int value);
-+Chardev *qemu_browser_gnss_chardev(void);
-+
-+#endif
 diff --git a/hw/misc/qemu-browser-gnss.c b/hw/misc/qemu-browser-gnss.c
 new file mode 100644
-index 0000000..8478406
+index 0000000..3d04eed
 --- /dev/null
 +++ b/hw/misc/qemu-browser-gnss.c
 @@ -0,0 +1,103 @@
@@ -166,3 +141,28 @@ index 0000000..8478406
 +              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + GNSS_POLL_MS);
 +    return s->chr;
 +}
+diff --git a/include/hw/misc/qemu-browser-gnss.h b/include/hw/misc/qemu-browser-gnss.h
+new file mode 100644
+index 0000000..fa2b37f
+--- /dev/null
++++ b/include/hw/misc/qemu-browser-gnss.h
+@@ -0,0 +1,19 @@
++/*
++ * Browser-fed NMEA character backend.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_MISC_QEMU_BROWSER_GNSS_H
++#define HW_MISC_QEMU_BROWSER_GNSS_H
++
++#include "chardev/char.h"
++
++/*
++ * Returns a singleton backend. The browser fills its lock-free byte ring and
++ * a QEMU timer drains those bytes into the UART frontend on the QEMU thread.
++ */
++int qemu_browser_gnss_feed_byte(int value);
++Chardev *qemu_browser_gnss_chardev(void);
++
++#endif

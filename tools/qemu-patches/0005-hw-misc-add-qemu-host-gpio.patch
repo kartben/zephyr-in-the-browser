@@ -1,23 +1,30 @@
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index 6f9fb25..17fd03c 100644
+index 2aa4b5d..7238aed 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -5,6 +5,7 @@ config STELLARIS
+@@ -223,6 +223,7 @@ config STELLARIS
+     depends on TCG && ARM
      imply I2C_DEVICES
      select ARM_V7M
-     select QEMU_HOST_SENSOR
 +    select QEMU_HOST_GPIO
      select CMSDK_APB_WATCHDOG
      select I2C
      select PL011 # UART
 diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
-index 3510a45..577c470 100644
+index 0d33d34..bfdd8e5 100644
 --- a/hw/arm/stellaris.c
 +++ b/hw/arm/stellaris.c
-@@ -5,6 +5,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+@@ -1391,6 +1391,20 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+     /* Add dummy regions for the devices we don't implement yet,
+      * so guest accesses don't cause unlogged crashes.
       */
-     sysbus_create_simple("qemu-host-sensor", 0x40060000, NULL);
- 
++    /*
++     * Host-backed sensor bridge. Not part of the real LM3S6965; it sits in the
++     * gap between the last modelled peripheral (0x40048000) and the hibernation
++     * block (0x400fc000), so it cannot collide with anything the board actually
++     * has. The guest finds it via devicetree, not by probing.
++     */
++
 +    /*
 +     * Host-backed GPIO bridge, on the same principle as the sensor above and in
 +     * the same unused window: pins are driven and observed by the QEMU host (a
@@ -29,25 +36,27 @@ index 3510a45..577c470 100644
      create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
      create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
 diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
-index 859e23e..f689412 100644
+index 4e35657..2b5b482 100644
 --- a/hw/misc/Kconfig
 +++ b/hw/misc/Kconfig
-@@ -7,4 +7,7 @@ config XLNX_VERSAL_TRNG
- config QEMU_HOST_SENSOR
+@@ -235,4 +235,9 @@ config IOSB
+ config XLNX_VERSAL_TRNG
      bool
  
++    bool
++
 +config QEMU_HOST_GPIO
 +    bool
 +
  source macio/Kconfig
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 4f885c1..849596d 100644
+index 42a7fb6..61a60d7 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -6,6 +6,7 @@ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+@@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
+ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
- system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
 +system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
  system_ss.add(files('qemu-browser-gnss.c'))
  system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
@@ -61,7 +70,7 @@ index 0000000..72f595b
 +/*
 + * Host-backed GPIO device.
 + *
-+ * A companion to qemu-host-sensor.c and built on the same idea: it models no
++ * A companion to qemu-host-audio.c and qemu-host-mic.c: it models no
 + * real hardware. Instead the QEMU *host* drives the input pins and observes the
 + * output pins, so under qemu-wasm page JavaScript becomes the thing on the other
 + * end of the wires -- a browser button raises an input, a guest-driven output

@@ -1,4 +1,9 @@
-name: qemu-host-sensor
+# Named for the browser_bridge shield this module exists to carry. It was once
+# `qemu-host-sensor`, after the first bridge built here; that device is gone and
+# the name outlived it by a long way. Nothing resolves the module by name —
+# tools/build-zephyr-image.sh passes the directory via ZEPHYR_EXTRA_MODULES — so
+# this is an identity label only.
+name: browser-bridge
 build:
   cmake: .
   kconfig: Kconfig

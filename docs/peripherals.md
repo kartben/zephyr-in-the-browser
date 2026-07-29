@@ -31,12 +31,14 @@ Sensors used to be here too, as a `qemu,host-sensor` MMIO device aliased
 `accel0`/`temp0`/`light0`/…, so stock sensor samples bound to a bespoke device
 invented for this project. They are now **simulated I²C parts** instead (below),
 which is a better trade: the guest binds *unmodified in-tree drivers* to chips
-that behave like the real silicon. The MMIO device is still instantiated by
-`tools/qemu-patches/0001-…-host-sensor.patch` and its virt counterpart, but no
-devicetree node references it, so nothing binds it and it does nothing. Those
-two patches are retired on the next qemu-wasm rebuild — the audio, mic and GPIO
-patches carry their lines as diff context, so dropping them is a rebase of the
-series rather than a deletion.
+that behave like the real silicon. Both host-sensor patches are now gone, and
+the device is no longer built into the emulator. Dropping them was the rebase
+this section predicted rather than a deletion: the GNSS, GPIO, audio and mic
+patches carried host-sensor's lines as diff context — including
+`select QEMU_HOST_SENSOR` in the STELLARIS Kconfig — so eight patches across
+the two series had to be re-anchored. That was done by replaying each series as
+one commit per patch, dropping the host-sensor commit, and letting `git rebase`
+3-way merge the rest, rather than by editing the diffs by hand.
 
 ## Simulated I²C chips
 

@@ -1,9 +1,9 @@
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index e7634c1..2d0f983 100644
+index 0a2f912..6bc43b2 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -226,6 +226,7 @@ config STELLARIS
-     select QEMU_HOST_SENSOR
+@@ -225,6 +225,7 @@ config STELLARIS
+     select ARM_V7M
      select QEMU_HOST_GPIO
      select QEMU_HOST_AUDIO
 +    select QEMU_HOST_MIC
@@ -11,10 +11,10 @@ index e7634c1..2d0f983 100644
      select I2C
      select PL011 # UART
 diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
-index f86f3b8..5cf1cf2 100644
+index e9ebc4d..612c87c 100644
 --- a/hw/arm/stellaris.c
 +++ b/hw/arm/stellaris.c
-@@ -1413,6 +1413,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
+@@ -1412,6 +1412,13 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
       */
      sysbus_create_simple("qemu-host-audio", 0x40062000, NULL);
  
@@ -29,10 +29,10 @@ index f86f3b8..5cf1cf2 100644
      create_unimplemented_device("QEI-0", 0x4002c000, 0x1000);
      create_unimplemented_device("QEI-1", 0x4002d000, 0x1000);
 diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
-index db84078..f3a21c6 100644
+index 097643a..b1b3eca 100644
 --- a/hw/misc/Kconfig
 +++ b/hw/misc/Kconfig
-@@ -244,4 +244,7 @@ config QEMU_HOST_GPIO
+@@ -243,4 +243,7 @@ config QEMU_HOST_GPIO
  config QEMU_HOST_AUDIO
      bool
  
@@ -41,11 +41,11 @@ index db84078..f3a21c6 100644
 +
  source macio/Kconfig
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 05c845c..aa13710 100644
+index 99eca6c..93e4404 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -8,6 +8,7 @@ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
- system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
+@@ -7,6 +7,7 @@ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+ system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
  system_ss.add(when: 'CONFIG_QEMU_HOST_GPIO', if_true: files('qemu-host-gpio.c'))
  system_ss.add(when: 'CONFIG_QEMU_HOST_AUDIO', if_true: files('qemu-host-audio.c'))
 +system_ss.add(when: 'CONFIG_QEMU_HOST_MIC', if_true: files('qemu-host-mic.c'))

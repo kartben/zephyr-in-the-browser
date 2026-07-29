@@ -1,7 +1,8 @@
 diff --git a/chardev/char-browser.c b/chardev/char-browser.c
+index 2f0501e..9e71feb 100644
 --- a/chardev/char-browser.c
 +++ b/chardev/char-browser.c
-@@ -46,8 +46,9 @@
+@@ -40,8 +40,9 @@
  #endif
  
  /* Both powers of two: the ring index is free-running and masked on use. */
@@ -13,7 +14,7 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
  #define BROWSER_POLL_MS   20
  
  struct BrowserChardev {
-@@ -80,6 +82,7 @@ typedef struct BrowserChardev BrowserChardev;
+@@ -74,6 +75,7 @@ DECLARE_INSTANCE_CHECKER(BrowserChardev, BROWSER_CHARDEV, TYPE_CHARDEV_BROWSER)
  /* Named slots the page can reach. Label comes from -chardev …,id=. */
  static BrowserChardev *browser_mon;
  static BrowserChardev *browser_gdb;
@@ -21,7 +22,7 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
  
  /* Frontend -> page: output waiting to be read out of the heap. */
  static int browser_chr_write(Chardev *chr, const uint8_t *buf, int len)
-@@ -171,6 +174,14 @@ static void browser_chr_open(Chardev *chr, ChardevBackend *backend,
+@@ -165,6 +167,14 @@ static void browser_chr_open(Chardev *chr, ChardevBackend *backend,
              return;
          }
          browser_gdb = s;
@@ -36,7 +37,7 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
      } else {
          /* Working chardev, but the page has no exports for this id. */
          *be_opened = true;
-@@ -195,6 +208,9 @@ static void browser_chr_finalize(Object *obj)
+@@ -189,6 +199,9 @@ static void browser_chr_finalize(Object *obj)
      if (browser_gdb == s) {
          browser_gdb = NULL;
      }
@@ -46,7 +47,7 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
  }
  
  /*
-@@ -340,6 +356,42 @@ void qemu_browser_gdb_detach(void)
+@@ -335,6 +348,42 @@ void qemu_browser_gdb_detach(void)
      browser_gdb->pending_close = true;
  }
  
@@ -90,9 +91,10 @@ diff --git a/chardev/char-browser.c b/chardev/char-browser.c
  {
      ChardevClass *cc = CHARDEV_CLASS(oc);
 diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
+index 1ba4ee3..36def58 100644
 --- a/include/chardev/char-browser.h
 +++ b/include/chardev/char-browser.h
-@@ -6,8 +6,9 @@
+@@ -4,8 +4,9 @@
   * Declared in a header only because QEMU builds with -Wmissing-prototypes;
   * nothing inside QEMU calls any of these. See chardev/char-browser.c.
   *
@@ -104,11 +106,10 @@ diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
   * the guest at boot and events are not raised from the browser thread.
   *
   * SPDX-License-Identifier: GPL-2.0-or-later
-@@ -41,5 +42,15 @@
-  */
+@@ -41,4 +42,14 @@ void qemu_browser_gdb_set_read_index(unsigned int value);
  int qemu_browser_gdb_attach(void);
  void qemu_browser_gdb_detach(void);
-+
+ 
 +/** Queue one byte from the page towards the HCI UART (id=hci0). */
 +int qemu_browser_hci_feed(int value);
 +
@@ -118,5 +119,5 @@ diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
 +unsigned int qemu_browser_hci_write_index(void);
 +unsigned int qemu_browser_hci_read_index(void);
 +void qemu_browser_hci_set_read_index(unsigned int value);
- 
++
  #endif /* CHARDEV_CHAR_BROWSER_H */

@@ -13,9 +13,9 @@
  * virtio region (0x0a000000), so they cannot collide with anything the machine
  * actually maps. Our patched qemu-wasm virt machine instantiates the devices at
  * these exact addresses; see tools/qemu-jit-patches/0005-hw-misc-add-qemu-host-
- * audio.patch and 0006-hw-misc-add-qemu-host-mic.patch. (An inert host-sensor
- * device is still instantiated by 0004-...-host-sensor.patch; nothing binds it
- * now, and that patch is retired in a dedicated qemu-wasm rebuild.)
+ * audio.patch and 0006-hw-misc-add-qemu-host-mic.patch. The qemu,host-sensor
+ * device that used to sit at 0x090c0000 is gone from the emulator — its patch
+ * was dropped once nothing bound it.
  *
  * Zephyr's stock Cortex-A53 ramfb is 1024x768. That is unnecessarily large for
  * the browser demo: every refresh is emulated by QEMU and uploaded as a browser

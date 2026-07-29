@@ -1,8 +1,8 @@
 diff --git a/hw/arm/virt.c b/hw/arm/virt.c
-index ad92055..036d0b3 100644
+index de77a10..3021969 100644
 --- a/hw/arm/virt.c
 +++ b/hw/arm/virt.c
-@@ -2398,6 +2398,13 @@ static void machvirt_init(MachineState *machine)
+@@ -2397,6 +2397,13 @@ static void machvirt_init(MachineState *machine)
       */
      sysbus_create_simple("qemu-host-audio", 0x090d0000, NULL);
  
@@ -17,12 +17,12 @@ index ad92055..036d0b3 100644
          create_secure_ram(vms, secure_sysmem, secure_tag_sysmem);
      }
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 5d484e7..5942a7a 100644
+index 4385a3f..8c3e3aa 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -7,6 +7,7 @@ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
+@@ -6,6 +6,7 @@ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+ system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(files('qemu-browser-gnss.c'))
- system_ss.add(files('qemu-host-sensor.c'))
  system_ss.add(files('qemu-host-audio.c'))
 +system_ss.add(files('qemu-host-mic.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))

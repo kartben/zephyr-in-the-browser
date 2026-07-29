@@ -17,7 +17,7 @@ index 0000000..541daf9
 +/*
 + * Host-backed audio-out device.
 + *
-+ * A companion to qemu-host-sensor.c and qemu-host-gpio.c, built on the same
++ * A companion to qemu-host-mic.c, built on the same
 + * idea: it models no real hardware. The guest pushes 16-bit mono PCM samples
 + * through a data register into a ring the QEMU *host* drains -- under
 + * qemu-wasm, page JavaScript feeding the Web Audio API. Nothing here is

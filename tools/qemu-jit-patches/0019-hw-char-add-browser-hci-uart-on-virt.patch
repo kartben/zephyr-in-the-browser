@@ -1,7 +1,8 @@
 diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index 6c99e6b..adce606 100644
 --- a/hw/arm/virt.c
 +++ b/hw/arm/virt.c
-@@ -2390,6 +2390,28 @@ static void machvirt_init(MachineState *machine)
+@@ -2392,6 +2392,28 @@ static void machvirt_init(MachineState *machine)
       */
      qemu_browser_input_init();
  
