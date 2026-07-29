@@ -74,7 +74,7 @@ ASSETS=()
 # --- emulator ---------------------------------------------------------------
 
 if want_emulator; then
-  for binary in qemu-system-arm qemu-system-aarch64; do
+  for binary in qemu-system-arm qemu-system-aarch64 qemu-system-riscv32; do
     [ -f "$SRC/$binary.js" ] && [ -f "$SRC/$binary.wasm" ] \
       || { echo "Missing $binary artifacts — run tools/build-qemu-wasm.sh first." >&2; exit 1; }
   done
