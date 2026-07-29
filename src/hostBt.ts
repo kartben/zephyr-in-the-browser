@@ -53,6 +53,13 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let framer = new H4Framer()
 let controller: BtControllerHandle | null = null
 let starting: Promise<void> | null = null
+/**
+ * Host→controller packets seen before Bumble finished loading. The guest's
+ * first HCI Reset arrives the moment the driver binds; dropping it would leave
+ * Zephyr waiting out its command timeout, so hold them and replay on ready.
+ */
+let pendingPackets: Uint8Array[] = []
+const PENDING_PACKET_CAP = 64
 let mockMode = false
 let mockSeq = 0
 let mockPeers: BtPeerSnapshot[] = []
@@ -181,7 +188,7 @@ export function attach(mod: unknown) {
     detail:
       controller || starting
         ? snapshot.detail
-        : 'HCI pipe ready — start the controller when a BT sample runs',
+        : 'HCI pipe ready — the controller loads on the guest’s first packet',
     rxPackets: 0,
     txPackets: 0,
     controllerName: controller?.name ?? '',
@@ -189,9 +196,6 @@ export function attach(mod: unknown) {
     selectedPeerId,
   })
   pollTimer = setInterval(poll, POLL_MS)
-  // The QEMU backend preloads Bumble for Bluetooth samples before main(). This
-  // remains as the fallback for custom guests and older callers.
-  void startController()
 }
 
 /**
@@ -233,6 +237,7 @@ export function detach() {
   controller?.close()
   controller = null
   starting = null
+  pendingPackets = []
   mockMode = false
   mockSeq = 0
   mockPeers = []
@@ -268,6 +273,10 @@ export async function startController(): Promise<void> {
         onPeersChanged: () => refreshPeers(),
       })
       controller = handle
+      // Replay whatever the guest sent while Bumble was loading, in order.
+      const queued = pendingPackets
+      pendingPackets = []
+      for (const packet of queued) handle.onHostPacket(packet)
       setSnapshot({
         phase: 'ready',
         detail: 'Bumble virtual controller on LocalLink',
@@ -419,6 +428,14 @@ export async function setPeerParam(
   refreshPeers()
 }
 
+/**
+ * The first HCI byte from the guest is what proves this build speaks Bluetooth,
+ * and it is the only honest trigger for the Pyodide + Bumble load: starting the
+ * controller on attach cost every sample — blinky, philosophers, the shell — a
+ * multi-megabyte CDN download and a second WASM runtime competing with QEMU for
+ * the main thread. Samples the manifest already knows are Bluetooth are still
+ * preloaded before main() by the QEMU backend, so they never wait on this.
+ */
 function poll() {
   if (!ch || mockMode) return
   const bytes = drainBytes(ch)
@@ -428,6 +445,11 @@ function poll() {
     setSnapshot({ rxPackets: snapshot.rxPackets + 1 })
     if (controller) {
       controller.onHostPacket(packet)
+      continue
     }
+    // Cap the backlog: a guest talking to a controller that failed to load
+    // must not grow this without bound.
+    if (pendingPackets.length < PENDING_PACKET_CAP) pendingPackets.push(packet)
+    void startController()
   }
 }
