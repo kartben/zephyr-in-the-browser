@@ -30,3 +30,4 @@ zephyr-images.tar.gz
 
 # Python bytecode from tools/
 __pycache__/
+.probe/
