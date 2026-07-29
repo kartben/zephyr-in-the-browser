@@ -15,6 +15,7 @@ const ALL: Availability = {
   spi: true,
   display: true,
   input: true,
+  disk: false,
 }
 
 describe('pt6314 dock topology', () => {

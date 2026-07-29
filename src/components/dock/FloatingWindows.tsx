@@ -22,6 +22,8 @@ function windowSeed(node: DeviceNode): { width: number; height?: number } {
   // The guest screen is the one body whose whole point is pixel area.
   if (node.body === 'display') return { width: 42, height: 32 }
   if (node.body === 'spi-flash') return { width: 32, height: 40 }
+  // Block map + dump, the same stack the NOR carries.
+  if (node.body === 'disk') return { width: 32, height: 40 }
   if (node.body === 'memory') return { width: 28, height: 34 }
   if (node.body === 'net') return { width: 21 }
   return { width: 19 }

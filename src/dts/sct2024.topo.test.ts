@@ -15,6 +15,7 @@ const ALL: Availability = {
   spi: true,
   display: true,
   input: true,
+  disk: false,
 }
 
 describe('sct2024 dock topology', () => {
