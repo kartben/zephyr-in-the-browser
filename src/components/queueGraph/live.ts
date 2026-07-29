@@ -18,6 +18,12 @@ export interface LiveQueueGraph {
   topologyKey: string
 }
 
+export interface QueueDepthEnvelope {
+  minDepth: number
+  maxDepth: number
+  finalDepth: number
+}
+
 export function liveThreadNodeId(threadId: number): string {
   return `thread:${threadId}`
 }
@@ -51,6 +57,40 @@ export function liveFlowAction(kind: QueueSeries['kind'], op: QueueFlowOp): Flow
 
 function currentDepth(queue: QueueSeries): number {
   return queue.samples.at(-1)?.depth ?? 0
+}
+
+/**
+ * Compress all depth changes since the previous publication into an exact
+ * min/max envelope. The node can remain truthful about its final depth while
+ * still surfacing a fill-and-drain spike that happened inside the batch.
+ */
+export function queueDepthEnvelope(
+  queue: QueueSeries,
+  afterTs: number,
+  previousDepth: number,
+): QueueDepthEnvelope | null {
+  let minDepth = previousDepth
+  let maxDepth = previousDepth
+  let cursor = previousDepth
+  let changed = false
+  // Samples are chronological; jump straight to this publication's suffix so
+  // a long-running trace does not rescan the queue's entire depth history.
+  let lo = 0
+  let hi = queue.samples.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (queue.samples[mid]!.ts <= afterTs) lo = mid + 1
+    else hi = mid
+  }
+  for (let i = lo; i < queue.samples.length; i++) {
+    const sample = queue.samples[i]!
+    if (sample.depth !== cursor) changed = true
+    cursor = sample.depth
+    minDepth = Math.min(minDepth, sample.depth)
+    maxDepth = Math.max(maxDepth, sample.depth)
+  }
+  if (!changed) return null
+  return { minDepth, maxDepth, finalDepth: currentDepth(queue) }
 }
 
 function fixedCapacity(queue: QueueSeries): number | null {

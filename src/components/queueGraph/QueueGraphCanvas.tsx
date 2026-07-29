@@ -41,6 +41,22 @@ const BUTTON_ZOOM_OUT = 1 / BUTTON_ZOOM_IN
 const MIN_FIT_SCALE_FACTOR = 0.35
 const MAX_SCALE = 4
 
+type DisplayLayoutNode = LayoutNode & {
+  batchMinDepth?: number
+  batchMaxDepth?: number
+  batchDurationMs?: number
+  batchSequence?: number
+}
+
+function batchDepthLabel(node: DisplayLayoutNode): string {
+  if (node.batchMinDepth == null || node.batchMaxDepth == null) return ''
+  const range =
+    node.batchMinDepth === node.batchMaxDepth
+      ? compactCount(node.batchMinDepth)
+      : `${compactCount(node.batchMinDepth)}–${compactCount(node.batchMaxDepth)}`
+  return ` · batch ${range}`
+}
+
 function markerId(action: FlowAction): string {
   return `mock-arrow-${action}`
 }
@@ -115,7 +131,7 @@ function ActorShape({ node }: { node: LayoutNode }) {
   )
 }
 
-function MsgqShape({ node }: { node: LayoutNode }) {
+function MsgqShape({ node }: { node: DisplayLayoutNode }) {
   if (node.kind !== 'msgq') return null
   const cap = Math.max(1, node.capacity ?? 1)
   const showExactSlots = node.capacity != null && node.capacity <= 10
@@ -126,6 +142,9 @@ function MsgqShape({ node }: { node: LayoutNode }) {
   const trackW = node.width - 48
   const slotW = showExactSlots ? (trackW - gap * (visibleSlots - 1)) / visibleSlots : 0
   const fillFraction = capacityFillFraction(node.depth, cap)
+  const batchMax = Math.max(node.depth, node.batchMaxDepth ?? node.depth)
+  const batchFillFraction = capacityFillFraction(batchMax, cap)
+  const batchDuration = `${node.batchDurationMs ?? 420}ms`
   return (
     <>
       <rect
@@ -141,22 +160,36 @@ function MsgqShape({ node }: { node: LayoutNode }) {
       </text>
       <text x={node.width - 18} y={24} textAnchor="end" fill={MUTED} fontSize={9.5}>
         msgq · {compactCapacity(node.depth, node.capacity)}
+        {batchDepthLabel(node)}
       </text>
       {showExactSlots ? (
-        Array.from({ length: visibleSlots }, (_, index) => (
-          <rect
-            key={index}
-            x={trackX + index * (slotW + gap)}
-            y={trackY}
-            width={slotW}
-            height={24}
-            rx={4}
-            fill={index < node.depth ? '#38bdf8' : '#09111f'}
-            fillOpacity={index < node.depth ? 0.62 : 1}
-            stroke={index < node.depth ? '#7dd3fc' : '#27364d'}
-            strokeWidth={0.8}
-          />
-        ))
+        Array.from({ length: visibleSlots }, (_, index) => {
+          const filled = index < node.depth
+          const inBatch = !filled && index < batchMax
+          return (
+            <rect
+              key={`${index}:${inBatch ? node.batchSequence : 'steady'}`}
+              x={trackX + index * (slotW + gap)}
+              y={trackY}
+              width={slotW}
+              height={24}
+              rx={4}
+              fill={filled || inBatch ? '#38bdf8' : '#09111f'}
+              fillOpacity={filled ? 0.62 : inBatch ? 0.3 : 1}
+              stroke={filled || inBatch ? '#7dd3fc' : '#27364d'}
+              strokeWidth={0.8}
+            >
+              {inBatch && (
+                <animate
+                  attributeName="fill-opacity"
+                  values="0.3;0"
+                  dur={batchDuration}
+                  fill="freeze"
+                />
+              )}
+            </rect>
+          )
+        })
       ) : (
         <>
           <rect
@@ -169,6 +202,27 @@ function MsgqShape({ node }: { node: LayoutNode }) {
             stroke="#27364d"
             strokeWidth={0.8}
           />
+          {batchFillFraction > fillFraction && (
+            <rect
+              key={`batch:${node.batchSequence}`}
+              x={trackX}
+              y={trackY}
+              width={Math.max(1, trackW * batchFillFraction)}
+              height={24}
+              rx={Math.min(6, Math.max(0.5, (trackW * batchFillFraction) / 2))}
+              fill="#38bdf8"
+              fillOpacity={0.3}
+              stroke="#7dd3fc"
+              strokeWidth={0.8}
+            >
+              <animate
+                attributeName="fill-opacity"
+                values="0.3;0"
+                dur={batchDuration}
+                fill="freeze"
+              />
+            </rect>
+          )}
           {fillFraction > 0 && (
             <rect
               x={trackX}
@@ -194,7 +248,7 @@ function MsgqShape({ node }: { node: LayoutNode }) {
   )
 }
 
-function FifoShape({ node }: { node: LayoutNode }) {
+function FifoShape({ node }: { node: DisplayLayoutNode }) {
   if (node.kind !== 'fifo' && node.kind !== 'queue') return null
   const itemCount = Math.min(5, Math.max(1, node.depth))
   const startX = 58
@@ -214,6 +268,7 @@ function FifoShape({ node }: { node: LayoutNode }) {
       </text>
       <text x={node.width - 18} y={24} textAnchor="end" fill={MUTED} fontSize={9.5}>
         {node.kind} · depth {node.depth}
+        {batchDepthLabel(node)}
       </text>
       <line x1={42} y1={centerY} x2={node.width - 42} y2={centerY} stroke="#334155" strokeWidth={2} />
       {Array.from({ length: itemCount }, (_, index) => {
@@ -235,7 +290,7 @@ function FifoShape({ node }: { node: LayoutNode }) {
   )
 }
 
-function VerticalStackShape({ node }: { node: LayoutNode }) {
+function VerticalStackShape({ node }: { node: DisplayLayoutNode }) {
   if (node.kind !== 'stack' && node.kind !== 'lifo') return null
   const fixed = node.kind === 'stack'
   const showExactSlots = fixed && node.capacity != null && node.capacity <= 8
@@ -263,6 +318,7 @@ function VerticalStackShape({ node }: { node: LayoutNode }) {
       </text>
       <text x={16} y={40} fill={MUTED} fontSize={9.5}>
         {fixed ? compactCapacity(node.depth, node.capacity) : `depth ${compactCount(node.depth)}`}
+        {batchDepthLabel(node)}
       </text>
       <path
         d={`M${bodyX},${bodyY}V${bodyY + bodyH}H${bodyX + bodyW}V${bodyY}`}
@@ -351,7 +407,7 @@ function NodeView({
   actionByEdge,
   active,
 }: {
-  node: LayoutNode
+  node: DisplayLayoutNode
   actionByEdge: Map<string, FlowAction>
   active: boolean
 }) {
@@ -436,6 +492,10 @@ export interface QueueGraphNodeState {
   detail?: string
   depth?: number
   capacity?: number | null
+  batchMinDepth?: number
+  batchMaxDepth?: number
+  batchDurationMs?: number
+  batchSequence?: number
 }
 
 export interface QueueGraphEdgeActivity {
@@ -487,7 +547,7 @@ export function QueueGraphCanvas({
     () =>
       layout.nodes.map((node) => {
         const state = nodeState?.get(node.id)
-        return state ? ({ ...node, ...state } as LayoutNode) : node
+        return state ? ({ ...node, ...state } as DisplayLayoutNode) : node
       }),
     [layout.nodes, nodeState],
   )

@@ -94,7 +94,7 @@ import {
   yZoomFromScreenSelection,
   type YZoom,
 } from '@/components/traceChart'
-import { getSnapshot, subscribe } from '@/hostTrace'
+import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
@@ -1154,6 +1154,11 @@ function TracePanelBody({
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
+
+  useEffect(() => {
+    if (tab !== 'queues') return
+    return requestDetailUpdates()
+  }, [tab])
   const followRef = useRef(follow)
   followRef.current = follow
   viewRef.current = view

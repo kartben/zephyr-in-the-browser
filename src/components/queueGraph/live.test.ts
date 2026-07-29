@@ -7,6 +7,7 @@ import {
   liveObjectNodeId,
   liveQueueNodeState,
   liveThreadNodeId,
+  queueDepthEnvelope,
 } from './live'
 
 function trace(): Trace {
@@ -125,5 +126,32 @@ describe('live queue graph adapter', () => {
 
     expect(live.flow).toEqual([])
     expect(live.graph.edges).toEqual([])
+  })
+
+  it('squashes a fill-and-drain burst into an occupancy envelope', () => {
+    const queue = queues()[0]!
+    queue.samples = [
+      { ts: 100, depth: 0 },
+      { ts: 120, depth: 4 },
+      { ts: 140, depth: 16 },
+      { ts: 160, depth: 7 },
+      { ts: 180, depth: 0 },
+    ]
+
+    expect(queueDepthEnvelope(queue, 100, 0)).toEqual({
+      minDepth: 0,
+      maxDepth: 16,
+      finalDepth: 0,
+    })
+  })
+
+  it('does not invent an envelope when the batch only holds its depth', () => {
+    const queue = queues()[0]!
+    queue.samples = [
+      { ts: 100, depth: 3 },
+      { ts: 200, depth: 3 },
+    ]
+
+    expect(queueDepthEnvelope(queue, 100, 3)).toBeNull()
   })
 })

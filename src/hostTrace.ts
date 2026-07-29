@@ -18,8 +18,11 @@ const TRACE_PATHS = ['./tracing.bin', '/tracing.bin', 'tracing.bin']
 const METADATA_URL = `${import.meta.env.BASE_URL}tracing/metadata`
 const POLL_ID = 'trace'
 const POLL_MS = 250
+/** Queue synoptics opt into this cadence only while their tab is mounted. */
+const DETAIL_POLL_MS = 200
 /** Rendering a high-rate trace faster than this is not perceptibly smoother. */
 const UI_UPDATE_MS = 500
+const DETAIL_UI_UPDATE_MS = 200
 /** Cap retained events so a long-running sample cannot unbounded-grow the heap. */
 const MAX_EVENTS = 50_000
 /** Trim in batches instead of allocating a 50k-element copy every poll. */
@@ -72,7 +75,16 @@ let defs = fallbackDefs()
 let revision = 0
 let lastPublishAt = 0
 let publishTimer: ReturnType<typeof setTimeout> | undefined
+let detailUpdateLeases = 0
 const listeners = new Set<() => void>()
+
+function pollMs(): number {
+  return detailUpdateLeases > 0 ? DETAIL_POLL_MS : POLL_MS
+}
+
+function uiUpdateMs(): number {
+  return detailUpdateLeases > 0 ? DETAIL_UI_UPDATE_MS : UI_UPDATE_MS
+}
 
 function notify() {
   for (const fn of listeners) fn()
@@ -113,8 +125,9 @@ function publish() {
 
 /** Coalesce high-rate decoder updates into a steady, inexpensive UI cadence. */
 function requestPublish() {
+  const updateMs = uiUpdateMs()
   const elapsed = performance.now() - lastPublishAt
-  if (elapsed >= UI_UPDATE_MS) {
+  if (elapsed >= updateMs) {
     revision++
     lastPublishAt = performance.now()
     publish()
@@ -126,7 +139,7 @@ function requestPublish() {
     revision++
     lastPublishAt = performance.now()
     publish()
-  }, UI_UPDATE_MS - elapsed)
+  }, updateMs - elapsed)
 }
 
 function findTraceFile(fs: EmscriptenFS): string | null {
@@ -222,7 +235,7 @@ export function attach(instance: unknown) {
   mod = instance as TraceModule
   void ensureDefs()
   sample()
-  registerPoll(POLL_ID, POLL_MS, sample)
+  registerPoll(POLL_ID, pollMs(), sample)
 }
 
 export function detach() {
@@ -248,6 +261,31 @@ export function subscribe(fn: () => void): () => void {
 
 export function getSnapshot(): TraceSnapshot {
   return snapshot
+}
+
+/**
+ * Temporarily follow CTF at 5 Hz for detail views that need to expose short
+ * within-batch transitions. The normal 2 Hz publication remains the default,
+ * so hidden/collapsed trace panels do not pay for the extra reconstruction.
+ */
+export function requestDetailUpdates(): () => void {
+  detailUpdateLeases++
+  if (detailUpdateLeases === 1) {
+    if (mod) registerPoll(POLL_ID, pollMs(), sample)
+    // A slower pending publication may already hold freshly decoded events.
+    if (publishTimer !== undefined) {
+      clearTimeout(publishTimer)
+      publishTimer = undefined
+      requestPublish()
+    }
+  }
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    detailUpdateLeases = Math.max(0, detailUpdateLeases - 1)
+    if (detailUpdateLeases === 0 && mod) registerPoll(POLL_ID, pollMs(), sample)
+  }
 }
 
 /** Test helper: push synthetic CTF bytes as if the guest wrote them. */
