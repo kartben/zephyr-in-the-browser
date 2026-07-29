@@ -228,9 +228,10 @@ demo sample.
 
 ## Mockup
 
-Visual target (static HTML, no build):
+Visual targets (static HTML, no build):
 
-[`docs/mockups/trace-power.html`](mockups/trace-power.html)
+- Phase 1 (ships with this PR): [`docs/mockups/trace-power.html`](mockups/trace-power.html)
+- Phase 2 concept (upstream `pm_*` CTF): [`docs/mockups/trace-power-phase2.html`](mockups/trace-power-phase2.html)
 
 ## Status
 

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trace · Power tab mockup — Phase 2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1419; --elev: #171d26; --soft: #1e2633; --line: #2a3342;
+      --fg: #e7e4de; --dim: #9aa3b0; --mute: #6a7382;
+      --active: #f59e0b; --idle: #64748b; --wake: #34d399;
+      --runtime: #38bdf8; --suspend: #2dd4bf; --standby: #0d9488;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      --sans: "IBM Plex Sans", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; font-family: var(--sans); color: var(--fg);
+      background:
+        radial-gradient(900px 480px at 80% -10%, #1a2218, transparent 55%),
+        radial-gradient(700px 420px at 0% 100%, #1c2430, transparent 50%),
+        var(--bg);
+      padding: 1.25rem 1.5rem 2rem; display: flex; flex-direction: column; gap: 1rem;
+    }
+    h1 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .sub { margin: 0.35rem 0 0; color: var(--dim); font-size: 0.85rem; max-width: 48rem; line-height: 1.45; }
+    .panel { background: var(--elev); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .bar {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+      padding: 0.55rem 0.75rem; background: var(--soft); border-bottom: 1px solid var(--line);
+    }
+    .tabs { display: flex; gap: 0.25rem; }
+    .tabs span {
+      font: 600 0.65rem/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 0.35rem 0.55rem; border-radius: 6px; color: var(--mute);
+    }
+    .tabs span.on { background: #2a3344; color: var(--fg); }
+    .metrics {
+      margin-left: auto; display: flex; flex-wrap: wrap; gap: 0.85rem;
+      font: 500 0.7rem/1 var(--mono); color: var(--dim);
+    }
+    .metrics b { color: var(--fg); font-weight: 600; }
+    .metrics .busy { color: var(--active); }
+    .metrics .wake { color: var(--wake); }
+    .metrics .pm { color: var(--suspend); }
+    .controls {
+      display: flex; gap: 0.4rem; padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: center;
+    }
+    button {
+      appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--dim);
+      font: 500 0.72rem/1 var(--sans); padding: 0.4rem 0.65rem; border-radius: 7px; cursor: pointer;
+    }
+    button.primary { background: rgba(52,211,153,0.12); border-color: rgba(52,211,153,0.35); color: var(--wake); }
+    .legend { margin-left: auto; display: flex; gap: 0.75rem; font: 500 0.65rem/1 var(--mono); color: var(--dim); flex-wrap: wrap; }
+    .legend i { display: inline-block; width: 0.65rem; height: 0.65rem; border-radius: 2px; vertical-align: -1px; margin-right: 0.22rem; }
+    .legend .active { background: var(--active); }
+    .legend .idle { background: var(--idle); }
+    .legend .runtime { background: var(--runtime); }
+    .legend .suspend { background: var(--suspend); }
+    .legend .dev { background: #94a3b8; }
+    #stage { background: #121821; }
+    #stage svg { display: block; width: 100%; height: auto; }
+    .lane-label { font: 500 0.68rem/1.2 var(--mono); fill: var(--dim); }
+    .axis { font: 500 0.6rem/1 var(--mono); fill: var(--mute); }
+    .strip-label { font: 600 0.58rem/1 var(--sans); letter-spacing: 0.05em; text-transform: uppercase; fill: var(--mute); }
+    .detail {
+      display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 1rem;
+      padding: 0.65rem 0.85rem; border-top: 1px solid var(--line);
+      font: 500 0.72rem/1.35 var(--mono); color: var(--dim); background: #141a22;
+    }
+    .detail strong { color: var(--fg); }
+    .note { font-size: 0.78rem; color: var(--mute); line-height: 1.5; max-width: 48rem; }
+    .note code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
+    .badge {
+      display: inline-block; margin-left: 0.4rem; padding: 0.12rem 0.4rem; border-radius: 999px;
+      font: 600 0.58rem/1 var(--sans); letter-spacing: 0.04em; text-transform: uppercase;
+      background: rgba(45,212,191,0.12); color: var(--suspend); border: 1px solid rgba(45,212,191,0.28);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Trace · Power <span class="badge">Phase 2 concept</span></h1>
+    <p class="sub">
+      After upstream CTF grows <code>pm_*</code> events: keep the CPU residency lane, add a system PM state
+      band, then device-runtime get/put swimlanes. Not implemented yet — visual target only.
+    </p>
+  </header>
+
+  <div class="panel">
+    <div class="bar">
+      <div class="tabs">
+        <span>Timeline</span>
+        <span>Queues</span>
+        <span>Networking</span>
+        <span class="on">Power</span>
+      </div>
+      <div class="metrics">
+        <span class="busy">busy <b>11%</b></span>
+        <span class="pm">suspend-to-idle <b>64%</b></span>
+        <span class="wake">wakes <b>9</b></span>
+        <span>devices held <b>1</b></span>
+      </div>
+    </div>
+    <div class="controls">
+      <button type="button">−</button>
+      <button type="button">+</button>
+      <button type="button" class="primary">Live</button>
+      <button type="button">Fit</button>
+      <div class="legend">
+        <span><i class="active"></i>CPU active</span>
+        <span><i class="idle"></i>CPU idle</span>
+        <span><i class="runtime"></i>runtime-idle</span>
+        <span><i class="suspend"></i>suspend-to-idle</span>
+        <span><i class="dev"></i>device held</span>
+      </div>
+    </div>
+    <div id="stage">
+      <svg viewBox="0 0 920 360" role="img" aria-label="Power Phase 2 mockup">
+        <g stroke="#1e2633" stroke-width="1">
+          <line x1="148" y1="28" x2="148" y2="300" />
+          <line x1="300" y1="28" x2="300" y2="300" />
+          <line x1="460" y1="28" x2="460" y2="300" />
+          <line x1="620" y1="28" x2="620" y2="300" />
+          <line x1="780" y1="28" x2="780" y2="300" />
+        </g>
+        <g class="axis">
+          <text x="148" y="18">0.0s</text>
+          <text x="300" y="18">0.5s</text>
+          <text x="460" y="18">1.0s</text>
+          <text x="620" y="18">1.5s</text>
+          <text x="780" y="18">2.0s</text>
+        </g>
+
+        <!-- CPU residency -->
+        <text class="lane-label" x="12" y="58"><tspan font-weight="600" fill="#e7e4de">CPU</tspan></text>
+        <text class="lane-label" x="12" y="74">residency</text>
+        <rect x="148" y="42" width="720" height="44" fill="#0f172a" opacity="0.55" />
+        <rect x="148" y="42" width="110" height="44" fill="#64748b" opacity="0.45" />
+        <rect x="258" y="42" width="22" height="44" fill="#f59e0b" opacity="0.85" />
+        <rect x="280" y="42" width="160" height="44" fill="#64748b" opacity="0.45" />
+        <rect x="440" y="42" width="16" height="44" fill="#f59e0b" opacity="0.85" />
+        <rect x="456" y="42" width="180" height="44" fill="#64748b" opacity="0.45" />
+        <rect x="636" y="42" width="30" height="44" fill="#f59e0b" opacity="0.85" />
+        <rect x="666" y="42" width="140" height="44" fill="#64748b" opacity="0.45" />
+        <rect x="806" y="42" width="18" height="44" fill="#f59e0b" opacity="0.85" />
+        <rect x="824" y="42" width="44" height="44" fill="#64748b" opacity="0.45" />
+        <g stroke="#34d399" stroke-width="2">
+          <line x1="258" y1="36" x2="258" y2="86" />
+          <line x1="440" y1="36" x2="440" y2="86" />
+          <line x1="636" y1="36" x2="636" y2="86" />
+          <line x1="806" y1="36" x2="806" y2="86" />
+        </g>
+
+        <!-- System PM state -->
+        <text class="lane-label" x="12" y="124"><tspan font-weight="600" fill="#e7e4de">PM</tspan></text>
+        <text class="lane-label" x="12" y="140">state</text>
+        <rect x="148" y="108" width="720" height="36" fill="#0f172a" opacity="0.4" />
+        <!-- active / runtime-idle / suspend-to-idle -->
+        <rect x="148" y="114" width="110" height="24" rx="3" fill="#38bdf8" opacity="0.55" />
+        <rect x="258" y="114" width="22" height="24" rx="3" fill="#f59e0b" opacity="0.7" />
+        <rect x="280" y="114" width="160" height="24" rx="3" fill="#2dd4bf" opacity="0.65" />
+        <rect x="440" y="114" width="16" height="24" rx="3" fill="#f59e0b" opacity="0.7" />
+        <rect x="456" y="114" width="180" height="24" rx="3" fill="#2dd4bf" opacity="0.65" />
+        <rect x="636" y="114" width="30" height="24" rx="3" fill="#f59e0b" opacity="0.7" />
+        <rect x="666" y="114" width="140" height="24" rx="3" fill="#0d9488" opacity="0.7" />
+        <rect x="806" y="114" width="18" height="24" rx="3" fill="#f59e0b" opacity="0.7" />
+        <rect x="824" y="114" width="44" height="24" rx="3" fill="#38bdf8" opacity="0.55" />
+        <text class="axis" x="300" y="130" fill="#ccfbf1">suspend-to-idle</text>
+        <text class="axis" x="690" y="130" fill="#99f6e4">standby</text>
+
+        <!-- Device runtime -->
+        <line x1="12" y1="164" x2="908" y2="164" stroke="#2a3342" />
+        <text class="strip-label" x="12" y="180">device runtime · usage count</text>
+
+        <text class="lane-label" x="12" y="210"><tspan font-weight="600" fill="#e7e4de">i2c0</text>
+        <text class="lane-label" x="12" y="226">held×1</text>
+        <rect x="148" y="198" width="720" height="28" fill="#0f172a" opacity="0.35" />
+        <rect x="250" y="204" width="40" height="16" rx="2" fill="#94a3b8" opacity="0.85" />
+        <rect x="620" y="204" width="55" height="16" rx="2" fill="#94a3b8" opacity="0.85" />
+        <text class="axis" x="256" y="216" fill="#e2e8f0">get</text>
+        <text class="axis" x="626" y="216" fill="#e2e8f0">get</text>
+
+        <text class="lane-label" x="12" y="252"><tspan font-weight="600" fill="#e7e4de">uart1</text>
+        <text class="lane-label" x="12" y="268">held×0</text>
+        <rect x="148" y="240" width="720" height="28" fill="#0f172a" opacity="0.35" />
+        <rect x="430" y="246" width="70" height="16" rx="2" fill="#94a3b8" opacity="0.55" />
+        <text class="axis" x="448" y="258" fill="#cbd5e1">get→put</text>
+
+        <text class="lane-label" x="12" y="294"><tspan font-weight="600" fill="#e7e4de">spi0</text>
+        <text class="lane-label" x="12" y="310">suspended</text>
+        <rect x="148" y="282" width="720" height="28" fill="#0f172a" opacity="0.35" />
+        <text class="axis" x="160" y="300">no runtime get in window</text>
+
+        <line x1="848" y1="28" x2="848" y2="310" stroke="#e7e4de" stroke-width="1" stroke-dasharray="3 4" opacity="0.35" />
+      </svg>
+    </div>
+    <div class="detail">
+      <div>
+        <strong>PM_STATE_SUSPEND_TO_IDLE</strong> · ticks 482 · exit latency ok<br />
+        device <strong>i2c0</strong> usage 1 · last get from <strong>sensor_sample</strong>
+      </div>
+      <div style="text-align:right">
+        residency idle <strong>89%</strong><br />
+        deepest state this window <strong style="color:var(--standby)">standby</strong>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    Needs Zephyr CTF emitters for <code>pm_system_suspend_*</code> and
+    <code>pm_device_runtime_*</code> (already in SystemView). See
+    <code>docs/trace-power-plan.md</code> Phase 2.
+  </p>
+</body>
+</html>
