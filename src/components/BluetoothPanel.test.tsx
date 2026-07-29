@@ -37,7 +37,7 @@ describe('BluetoothView', () => {
       },
       false,
     )
-    expect(out).toContain('Bluetooth isn’t available on this Board yet')
+    expect(out).toContain('Bluetooth isn’t available on this board yet')
     expect(out).toContain('Bluetooth sample')
   })
 

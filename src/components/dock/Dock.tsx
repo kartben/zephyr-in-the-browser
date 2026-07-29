@@ -196,7 +196,7 @@ export function Dock({ boardId }: { boardId: string }) {
           <SectionHeading>Devices</SectionHeading>
           {inventory.nodes.length === 0 ? (
             <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              No peripherals yet — wait for the guest to boot.
+              No peripherals yet. Waiting for the emulator to boot.
             </p>
           ) : (
             rendered
@@ -280,7 +280,7 @@ function RunningTreeButton() {
       <DtsViewer
         open={open}
         onOpenChange={setDialogOpen}
-        title={`${tree.name} — running build`}
+        title={`${tree.name} · running build`}
         load={load}
       />
     </>

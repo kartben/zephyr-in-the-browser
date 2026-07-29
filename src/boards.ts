@@ -82,7 +82,7 @@ export interface GuestSample {
    */
   primaryPanels?: PanelKind[]
   /**
-   * Default URL for the Network panel's "Talk to the guest" GET tool.
+   * Default URL for the Network panel's "Talk to the emulator" GET tool.
    * dumb_http_server listens on :8080; the full http_server sample on :80.
    */
   guestHttpUrl?: string
@@ -133,7 +133,7 @@ export function withA53TraceVariants(samples: GuestSample[]): GuestSample[] {
       ...sample,
       id: `${sample.id}_trace`,
       label: `${sample.label} · traced`,
-      description: `${sample.description} — opens Trace and Debug`,
+      description: `${sample.description}. Opens Trace and Debug`,
       primaryPanels: uniquePanels([...(sample.primaryPanels ?? []), 'trace', 'debug']),
       tracedFrom: sample.id,
     })
@@ -257,7 +257,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // chain, so it dodges the TCI k_sleep stall.
     id: 'dhcp',
     label: 'DHCP Client',
-    description: 'Acquires an IPv4 lease — watch it in Network',
+    description: 'Acquires an IPv4 lease. Watch it in Network',
     zephyrSample: 'samples/net/dhcpv4_client',
     primaryPanels: ['net'],
   },
@@ -265,7 +265,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // Steady state blocks in accept()/recv(), woken by injected frames.
     id: 'http_server',
     label: 'HTTP Server',
-    description: 'Serves a page at 192.0.2.1:8080 — fetch it from Network',
+    description: 'Serves a page at 192.0.2.1:8080. Fetch it from Network',
     zephyrSample: 'samples/net/sockets/dumb_http_server',
     primaryPanels: ['net'],
     guestHttpUrl: 'http://192.0.2.1:8080/',
@@ -274,7 +274,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // Run-to-completion: one DNS lookup, one GET, prints, exits.
     id: 'http_get',
     label: 'HTTP GET',
-    description: 'DNS + TCP fetch of http://google.com — watch traffic in Network',
+    description: 'DNS + TCP fetch of http://google.com. Watch traffic in Network',
     zephyrSample: 'samples/net/sockets/http_get',
     primaryPanels: ['net'],
   },
@@ -289,7 +289,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // shows up as the panel's LED0 flashing once a second.
     id: 'blinky',
     label: 'Blinky',
-    description: 'Blinks LED0 — watch it in the device dock',
+    description: 'Blinks LED0. Watch it in the device dock',
     zephyrSample: 'samples/basic/blinky',
     primaryPanels: ['led', 'gpio'],
   },
@@ -347,7 +347,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'lvgl_music',
     label: 'Music Player',
-    description: 'LVGL music player on the Display — click its controls to drive it',
+    description: 'LVGL music player on the display. Click its controls to drive it',
     zephyrSample: 'samples/modules/lvgl/demos',
     primaryPanels: ['display'],
   },
@@ -405,7 +405,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // Sparse localStorage persist keeps written sectors across reloads.
     id: 'spi_flash',
     label: 'SPI flash',
-    description: 'Erase, write and read a JEDEC SPI NOR — inspect it in the dock',
+    description: 'Erase, write and read a JEDEC SPI NOR. Inspect it in the dock',
     zephyrSample: 'samples/drivers/spi_flash',
     primaryPanels: ['spi'],
   },
@@ -427,7 +427,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // on its first mount. The Disk panel reads those same bytes back out.
     id: 'virtio_blk',
     label: 'Disk',
-    description: 'Formats a FAT volume on a block disk — browse it from the Disk peripheral',
+    description: 'Formats a FAT volume on a block disk. Browse it from the disk peripheral',
     zephyrSample: 'zephyr-module/apps/virtio_blk_fs',
     primaryPanels: ['disk'],
     // Slot 6 of the virtio-mmio array — 0-5 are net, gpu, gpio, tablet, i2c
@@ -534,7 +534,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'bt_peripheral',
     label: 'BLE peripheral',
-    description: 'Advertises a Zephyr BLE peripheral — peers appear in Bluetooth',
+    description: 'Advertises a Zephyr BLE peripheral. Peers appear in Bluetooth',
     zephyrSample: 'samples/bluetooth/peripheral',
     primaryPanels: ['bluetooth'],
   },
@@ -603,7 +603,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // the Trace dock row follows it live (docs/tracing-feasibility.md).
     id: 'tracing',
     label: 'Tracing',
-    description: 'Live Trace schedule — thread lanes like Zephyr’s trace viewer',
+    description: 'Live Trace schedule: thread lanes like Zephyr’s trace viewer',
     zephyrSample: 'samples/subsys/tracing/basic',
     primaryPanels: ['trace'],
   },
@@ -612,7 +612,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // pipeline so msgq / mutex / condvar contention shows up in the Gantt.
     id: 'tracing_pipeline',
     label: 'Tracing Pipeline',
-    description: 'Sensor pipeline with msgq/mutex/condvar — richer Trace schedule story',
+    description: 'Sensor pipeline with msgq/mutex/condvar. Richer Trace schedule story',
     zephyrSample: 'samples/subsys/tracing/pipeline',
     primaryPanels: ['trace'],
   },
@@ -630,7 +630,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
     label: 'Blinky',
-    description: 'Blinks LED0 — watch it in the device dock',
+    description: 'Blinks LED0. Watch it in the device dock',
     zephyrSample: 'samples/basic/blinky',
     primaryPanels: ['led', 'gpio'],
   },
@@ -689,7 +689,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'dhcp',
     label: 'DHCP Client',
-    description: 'Acquires an IPv4 lease — watch it in Network',
+    description: 'Acquires an IPv4 lease. Watch it in Network',
     zephyrSample: 'samples/net/dhcpv4_client',
     primaryPanels: ['net', 'trace'],
   },
@@ -697,7 +697,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'http_server',
     label: 'HTTP Server',
     description:
-      'Full HTTP server at http://192.0.2.1/ — use Network; Trace shows sockets / fifo / queue',
+      'Full HTTP server at http://192.0.2.1/. Use Network; Trace shows sockets / fifo / queue',
     zephyrSample: 'samples/net/sockets/http_server',
     primaryPanels: ['net', 'led', 'gpio', 'trace'],
     guestHttpUrl: 'http://192.0.2.1/',
@@ -705,21 +705,21 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'echo_server',
     label: 'Echo Server',
-    description: 'TCP/UDP echo on port 4242 — ping it from Network',
+    description: 'TCP/UDP echo on port 4242. Ping it from Network',
     zephyrSample: 'samples/net/sockets/echo_server',
     primaryPanels: ['net', 'trace'],
   },
   {
     id: 'http_get',
     label: 'HTTP GET',
-    description: 'DNS + TCP fetch of http://google.com — watch traffic in Network',
+    description: 'DNS + TCP fetch of http://google.com. Watch traffic in Network',
     zephyrSample: 'samples/net/sockets/http_get',
     primaryPanels: ['net', 'trace'],
   },
   {
     id: 'zperf',
     label: 'zperf',
-    description: 'iperf2-style throughput benchmark — charts in Network',
+    description: 'iperf2-style throughput benchmark. Charts in Network',
     zephyrSample: 'samples/net/zperf',
     primaryPanels: ['net'],
   },

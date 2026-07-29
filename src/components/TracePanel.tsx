@@ -1027,7 +1027,7 @@ export function TraceBody() {
   if (snap.eventCount === 0) {
     return (
       <p className="px-3 py-4 text-[11px] text-muted-foreground">
-        No Trace events yet — pick a traced App, or one that embeds tracing.
+        No Trace events yet. Pick a traced app, or one that embeds tracing.
       </p>
     )
   }

@@ -296,7 +296,7 @@ export function SampleGallery({
 
           <DialogFooter className="justify-between">
             <span className="text-[11px] text-muted-foreground">
-              Or bring your own build — any Zephyr ELF for this Board boots as-is.
+              Or bring your own build. Any Zephyr ELF for this board boots as-is.
             </span>
             <Button variant="outline" onClick={() => fileRef.current?.click()}>
               <FileUp aria-hidden />
@@ -340,7 +340,7 @@ export function SampleGallery({
         onOpenChange={(o) => {
           if (!o) setDtsSample(null)
         }}
-        title={`${dtsDocs?.title ?? dtsSample?.label ?? ''} — devicetree (${board.zephyrTarget})`}
+        title={`${dtsDocs?.title ?? dtsSample?.label ?? ''} · devicetree (${board.zephyrTarget})`}
         load={loadDts}
       />
     </div>
@@ -395,7 +395,7 @@ function SampleRow({
               className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
               title={
                 sample.tracedFrom
-                  ? 'Built with tracing enabled — opens Trace and Debug'
+                  ? 'Built with tracing enabled. Opens Trace and Debug'
                   : 'This sample embeds tracing in its own configuration'
               }
             >
@@ -437,7 +437,7 @@ function SampleRow({
         {docs.canonicalHref && (
           <RowLink
             href={docs.canonicalHref}
-            title="Official docs — docs.zephyrproject.org"
+            title="Official docs (docs.zephyrproject.org)"
             onClick={stop}
           >
             <ExternalLink className="size-3.5" aria-hidden />

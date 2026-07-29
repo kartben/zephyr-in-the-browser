@@ -59,7 +59,7 @@ describe('sampleDocs', () => {
     const traced: GuestSample = {
       id: 'hello_trace',
       label: 'Hello World · traced',
-      description: 'Prints one line and stops — opens Trace and Debug',
+      description: 'Prints one line and stops. Opens Trace and Debug',
       zephyrSample: 'samples/hello_world',
       tracedFrom: 'hello',
       primaryPanels: ['trace', 'debug'],
