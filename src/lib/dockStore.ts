@@ -22,11 +22,19 @@ const STORAGE_KEY = 'zephyr.dock'
 const VERSION = 1
 
 export const DOCK_MIN_WIDTH = 17
-export const DOCK_MAX_WIDTH = 28
-export const DOCK_DEFAULT_WIDTH = 20
+/**
+ * The dock now hosts the guest's framebuffer and the CTF timeline, which are
+ * about area in a way a sensor card never was — so it drags a lot wider than
+ * the 28rem that fitted a column of little cards.
+ */
+export const DOCK_MAX_WIDTH = 48
+export const DOCK_DEFAULT_WIDTH = 21
 
-/** Stage widgets the Panels menu manages alongside the dock's device rows. */
-export const STAGE_DISPLAY_KEY = 'stage:display'
+/**
+ * The machine's own instruments — not devicetree nodes, so they have no
+ * inventory key of their own. The `stage:` prefix is historical (they used to
+ * float over the terminal); it is kept so existing layouts survive.
+ */
 export const STAGE_PERF_KEY = 'stage:perf'
 export const STAGE_TRACE_KEY = 'stage:trace'
 export const STAGE_DEBUG_KEY = 'stage:debug'
@@ -55,7 +63,14 @@ export interface DockSeed {
 
 export interface DockState {
   view: DockView
+  /** Desktop sidebar preference — persisted. */
   open: boolean
+  /**
+   * Narrow-viewport drawer visibility. A different thing from `open`: the
+   * drawer covers the terminal, so it starts closed on every visit like any
+   * other mobile drawer, and is deliberately never persisted.
+   */
+  drawerOpen: boolean
   /** Dock width in rem, clamped to [DOCK_MIN_WIDTH, DOCK_MAX_WIDTH]. */
   width: number
   /** `${boardId}:${sampleId}` (or 'custom:…') the seed belongs to. */
@@ -69,6 +84,7 @@ function defaults(): DockState {
   return {
     view: 'classes',
     open: true,
+    drawerOpen: false,
     width: DOCK_DEFAULT_WIDTH,
     seededFor: '',
     seed: { primary: [], expandAll: false },
@@ -92,10 +108,12 @@ function load(): DockState {
     const devices =
       parsed.devices && typeof parsed.devices === 'object' ? { ...parsed.devices } : {}
     // UART rows used to be keyed serial:console / serial:uart1; rename to the
-    // controller labels I²C/SPI buses already use.
+    // controller labels I²C/SPI buses already use. The display was a stage
+    // widget before it became an ordinary device row keyed by its DT node.
     for (const [from, to] of [
       ['serial:console', 'uart0'],
       ['serial:uart1', 'uart1'],
+      ['stage:display', 'display'],
     ] as const) {
       if (devices[from] !== undefined && devices[to] === undefined) {
         devices[to] = devices[from]
@@ -118,6 +136,8 @@ function load(): DockState {
       view:
         parsed.view === 'classes' || parsed.view === 'devicetree' ? parsed.view : base.view,
       open: typeof parsed.open === 'boolean' ? parsed.open : base.open,
+      // Never restored: a drawer that reopens itself is a drawer in the way.
+      drawerOpen: false,
       width: clampWidth(typeof parsed.width === 'number' ? parsed.width : base.width),
       seededFor: typeof parsed.seededFor === 'string' ? parsed.seededFor : '',
       seed:
@@ -134,7 +154,8 @@ function load(): DockState {
 
 function save(next: DockState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, ...next }))
+    const { drawerOpen: _session, ...persisted } = next
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, ...persisted }))
   } catch {
     /* storage full or blocked — the dock just won't survive the reload */
   }
@@ -189,6 +210,19 @@ export function setView(view: DockView): void {
 
 export function setOpen(open: boolean): void {
   if (state.open !== open) set({ ...state, open })
+}
+
+export function setDrawerOpen(drawerOpen: boolean): void {
+  if (state.drawerOpen !== drawerOpen) set({ ...state, drawerOpen })
+}
+
+/**
+ * Put the dock on screen whichever shape it currently has — what a caller
+ * outside the layout (revealDockRow, a shortcut, Reset layout) actually means.
+ */
+export function showDock(): void {
+  if (state.open && state.drawerOpen) return
+  set({ ...state, open: true, drawerOpen: true })
 }
 
 export function setWidth(width: number): void {
@@ -253,7 +287,7 @@ export function sectionOpenIn(
   return current.devices[deviceKey]?.sections?.[sectionId] ?? fallback
 }
 
-/** Persist the selected tab inside a stage panel (Debug / Trace). */
+/** Persist the selected tab inside an instrument body (Debug / Trace). */
 export function setTab(deviceKey: string, tab: string): void {
   if (state.devices[deviceKey]?.tab === tab) return
   patchDevice(deviceKey, { tab })
@@ -322,9 +356,10 @@ export function resetLayout(): void {
   } catch {
     /* ignore */
   }
-  // Keep the current selection's seed so default expansion still applies.
-  const { seededFor, seed } = state
-  set({ ...defaults(), seededFor, seed })
+  // Keep the current selection's seed so default expansion still applies, and
+  // whether the dock is currently on screen — Reset layout is about the panels.
+  const { seededFor, seed, drawerOpen } = state
+  set({ ...defaults(), seededFor, seed, drawerOpen })
 }
 
 /** Re-run migration + load. For tests, and after external storage edits. */

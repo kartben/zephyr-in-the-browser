@@ -34,6 +34,7 @@ import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
 import { AuxdisplayBody, type AuxdisplayChip } from '@/components/AuxdisplayPanel'
 import { BuzzerBody } from '@/components/BuzzerPanel'
+import { DisplayBadge, DisplayBody } from '@/components/DisplayPanel'
 import { SevenSegBody } from '@/components/SevenSegPanel'
 import { StepperBody, Tmc50xxStepperBody } from '@/components/StepperPanel'
 import { GnssBody } from '@/components/GnssPanel'
@@ -138,6 +139,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
           onOpenWindow={variant === 'dock' ? () => setWindowed(node.key, true) : undefined}
         />
       )
+    case 'display':
+      return <DisplayBody />
     case 'oled':
       return <OledBody />
     case 'auxdisplay':
@@ -214,6 +217,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Gauge
     case 'memory':
       return MemoryStick
+    case 'display':
+      return Monitor
     case 'oled':
       return MonitorDot
     case 'auxdisplay':
@@ -323,6 +328,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <SensorBadge chip={node.chip as SensorChip} />
     case 'memory':
       return <MemoryBadge chip={node.chip as MemoryChip} />
+    case 'display':
+      return <DisplayBadge />
     case 'oled': {
       const chip = node.chip as Ssd1306Chip
       return (
@@ -513,6 +520,9 @@ export function GroupBadge({
     const chip = nodes.find((n) => n.presence === 'interactive' && n.body === 'fuel-gauge')
       ?.chip as FuelGaugeChip | undefined
     if (chip) return <Mono>{formatSocPct(chip.getReading().socPct)}</Mono>
+  }
+  if (deviceClass === 'display' && nodes.some((n) => n.body === 'display')) {
+    return <DisplayBadge />
   }
   if (deviceClass === 'net' && nodes.some((n) => n.body === 'net')) return <NetBadge />
   if (deviceClass === 'gpio' && nodes.some((n) => n.body === 'gpio')) return <GpioControllerBadge />

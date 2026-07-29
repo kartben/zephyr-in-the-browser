@@ -17,14 +17,12 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type MutableRefObject,
   type PointerEventHandler,
   type ReactNode,
   type TouchEventHandler,
   type WheelEventHandler,
 } from 'react'
 import {
-  Activity,
   BoxSelect,
   Crosshair,
   Maximize2,
@@ -33,10 +31,8 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
 import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -100,9 +96,7 @@ import * as hostGdb from '@/hostGdb'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import {
   STAGE_TRACE_KEY,
-  effectiveExpandedIn,
   getState,
-  setExpanded,
   setTab as setStoredTab,
   subscribe as subscribeDock,
   tabIn,
@@ -1021,102 +1015,34 @@ function plotBandForTab(tab: TraceTab, cssH: number): { plotTop: number; plotBot
   return { plotTop: AXIS_H, plotBottom: Math.max(AXIS_H + 1, cssH) }
 }
 
-export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
+/** CTF thread timeline / queues / networking — the body of the Trace dock row. */
+export function TraceBody() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const gdbSnap = useSyncExternalStore(
     hostGdb.subscribe,
     hostGdb.getSnapshot,
     hostGdb.getSnapshot,
   )
-  const dock = useSyncExternalStore(subscribeDock, getState, getState)
-  const [follow, setFollow] = useState(true)
-  /** Lets the header Crosshair jump-to-live without keeping view state in the shell. */
-  const bodyApiRef = useRef<{ jumpLive: () => void } | null>(null)
 
-  useEffect(() => {
-    if (defaultExpanded) setExpanded(STAGE_TRACE_KEY, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultExpanded])
-
-  if ((!snap.available && !defaultExpanded) || dock.devices[STAGE_TRACE_KEY]?.hidden) {
-    return null
+  if (snap.eventCount === 0) {
+    return (
+      <p className="px-3 py-4 text-[11px] text-muted-foreground">
+        No CTF events yet — this build may not have tracing enabled.
+      </p>
+    )
   }
-
-  const expanded = defaultExpanded || effectiveExpandedIn(dock, STAGE_TRACE_KEY, 'trace')
-
-  const live = snap.eventCount > 0
-  const statusLabel = live ? null : 'ctf'
-  const statusDetail = live
-    ? `${snap.eventCount} evt · ${snap.threadCount} thr`
-    : 'waiting…'
-
-  return (
-    <PanelFrame
-      id="trace"
-      title="Trace"
-      icon={Activity}
-      defaultExpanded={expanded}
-      dockedWidth={34}
-      side="left"
-      status={
-        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
-          <span
-            className={cn(
-              'size-1.5 shrink-0 rounded-full',
-              live ? 'bg-amber-500/80' : 'bg-muted-foreground/50',
-            )}
-            aria-hidden
-          />
-          {statusLabel && <span className="shrink-0 text-foreground/70">{statusLabel}</span>}
-          <span className="min-w-0 truncate text-muted-foreground">{statusDetail}</span>
-        </span>
-      }
-      actions={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          title={follow ? 'Following live edge' : 'Jump to live edge'}
-          aria-label={follow ? 'Following live edge' : 'Jump to live edge'}
-          aria-pressed={follow}
-          onClick={() => {
-            bodyApiRef.current?.jumpLive()
-            setFollow(true)
-          }}
-          className={cn('size-8 touch-manipulation', follow && 'text-primary')}
-        >
-          <Crosshair className="size-4" />
-        </Button>
-      }
-    >
-      {!live ? (
-        <p className="px-3 py-4 text-[11px] text-muted-foreground">Waiting for traces…</p>
-      ) : (
-        <TracePanelBody
-          snap={snap}
-          objectCores={gdbSnap.objects}
-          follow={follow}
-          setFollow={setFollow}
-          apiRef={bodyApiRef}
-        />
-      )}
-    </PanelFrame>
-  )
+  return <TracePanelBody snap={snap} objectCores={gdbSnap.objects} />
 }
 
 function TracePanelBody({
   snap,
   objectCores,
-  follow,
-  setFollow,
-  apiRef,
 }: {
   snap: ReturnType<typeof getSnapshot>
   objectCores: ObjectCoreSnapshot | null
-  follow: boolean
-  setFollow: (v: boolean) => void
-  apiRef: MutableRefObject<{ jumpLive: () => void } | null>
 }) {
+  /** Pinned to the live edge until a pan/zoom detaches the view. */
+  const [follow, setFollow] = useState(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const queuesSvgRef = useRef<SVGSVGElement>(null)
   const netCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -1388,13 +1314,6 @@ function TracePanelBody({
     if (view) setLiveWindowNs(view.t1 - view.t0)
     setFollow(true)
   }, [view, setFollow])
-
-  useEffect(() => {
-    apiRef.current = { jumpLive }
-    return () => {
-      apiRef.current = null
-    }
-  }, [apiRef, jumpLive])
 
   const panByFraction = useCallback(
     (frac: number) => {
@@ -1882,6 +1801,19 @@ function TracePanelBody({
       >
         <Maximize2 className="size-3.5" />
       </button>
+      <button
+        type="button"
+        title={follow ? 'Following the live edge' : 'Jump to the live edge'}
+        aria-label={follow ? 'Following the live edge' : 'Jump to the live edge'}
+        aria-pressed={follow}
+        onClick={jumpLive}
+        className={cn(
+          'rounded p-0.5 touch-manipulation',
+          follow ? 'text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+        )}
+      >
+        <Crosshair className="size-3.5" />
+      </button>
       <div className="ml-auto flex items-center gap-0.5">
         <button
           type="button"
@@ -2119,16 +2051,14 @@ function TracePanelBody({
             </div>
           </div>
 
-          <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-            Hover for playhead · drag to pan · Shift-drag a rectangle to zoom time+lanes · pinch or ±
-            for time zoom (keeps LIVE) · unfold resets vertical · Fit resets both · tap a lane name to
-            select
-            {showMsgq
-              ? ' · click a queue edge to pin it'
-              : ''}
-          </p>
+          {/*
+            No gesture crib sheet here. Every one of those lines — zoom, box
+            zoom, fit, unfold, pan, live — is a button in the toolbar above,
+            with the gesture in its tooltip; the rest (drag to pan, hover for a
+            playhead) is what a chart does. It cost more height than the chart.
 
-          {/* Colour legend — thread states + optional queue marks. */}
+            The colour legend stays: state → colour is not guessable.
+          */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
             <span className="text-foreground/80">states:</span>
             {(Object.keys(STATE_LABEL) as ThreadState[])

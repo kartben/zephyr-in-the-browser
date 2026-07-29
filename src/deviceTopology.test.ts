@@ -156,7 +156,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(nodeByKey(inv, 'uart0').note).toBe('→ terminal')
     expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
     expect(nodeByKey(inv, 'uart0').presence).toBe('inert')
-    expect(nodeByKey(inv, 'display').note).toBe('on stage')
+    expect(nodeByKey(inv, 'display').presence).toBe('interactive')
+    expect(nodeByKey(inv, 'display').body).toBe('display')
     expect(nodeByKey(inv, 'display').nodeName).toBe('ramfb')
     expect(nodeByKey(inv, 'net').nodeName).toBe('virtio-net')
 
@@ -510,7 +511,8 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     expect(nodeByKey(inv, 'net').crumb).toBe('virtio_net0')
     expect(nodeByKey(inv, 'uart0').nodeName).toBe('uart@9000000')
     expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
-    expect(nodeByKey(inv, 'display').note).toBe('on stage')
+    expect(nodeByKey(inv, 'display').presence).toBe('interactive')
+    expect(nodeByKey(inv, 'display').body).toBe('display')
   })
 
   it('ghosts a detached declared chip exactly like the devicetree path', () => {
@@ -553,7 +555,8 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     expect(nodeByKey(inv, 'virtio_i2c0:48').deviceClass).toBe('sensor')
     expect(nodeByKey(inv, 'gnss').presence).toBe('inert')
     expect(nodeByKey(inv, 'gpio').presence).toBe('inert')
-    expect(nodeByKey(inv, 'display').note).toBe('on stage')
+    expect(nodeByKey(inv, 'display').presence).toBe('inert')
+    expect(nodeByKey(inv, 'display').body).toBeUndefined()
     expect(nodeByKey(inv, 'virtio_spi0:0').presence).toBe('inert')
   })
 })

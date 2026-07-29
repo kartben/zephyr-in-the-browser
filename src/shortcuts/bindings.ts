@@ -16,21 +16,23 @@ import {
   resetLayout,
   setExpanded,
   setHidden,
+  setDrawerOpen,
   setOpen as setDockOpen,
+  showDock,
 } from '@/lib/dockStore'
-import { revealStagePanel } from '@/lib/dockReveal'
+import { revealDockRow } from '@/lib/dockReveal'
 import { onShortcut, toggleHelp } from '@/lib/shortcuts'
 import * as debug from '@/debug/control'
 import * as hostNet from '@/hostNet'
 import * as tours from '@/tours/store'
 
-function toggleStagePanel(key: string): void {
+function togglePanelRow(key: string): void {
   const hidden = isHidden(key)
   const expanded = effectiveExpanded(key)
   if (hidden || !expanded) {
     setHidden(key, false)
     setExpanded(key, true)
-    revealStagePanel(key)
+    revealDockRow(key)
     return
   }
   setExpanded(key, false)
@@ -97,13 +99,17 @@ export function installShortcutBindings(): () => void {
     }),
 
     onShortcut('toggle-dock', () => {
-      setDockOpen(!getDockState().open)
+      // Keyboard implies a desktop, but honour whichever shape is on screen.
+      const state = getDockState()
+      const narrow = typeof matchMedia === 'function' && !matchMedia('(min-width: 768px)').matches
+      if (narrow) setDrawerOpen(!state.drawerOpen)
+      else setDockOpen(!state.open)
     }),
-    onShortcut('toggle-debug', () => toggleStagePanel(STAGE_DEBUG_KEY)),
-    onShortcut('toggle-trace', () => toggleStagePanel(STAGE_TRACE_KEY)),
+    onShortcut('toggle-debug', () => togglePanelRow(STAGE_DEBUG_KEY)),
+    onShortcut('toggle-trace', () => togglePanelRow(STAGE_TRACE_KEY)),
     onShortcut('reset-layout', () => {
       resetLayout()
-      setDockOpen(true)
+      showDock()
     }),
 
     onShortcut('open-samples', () => {

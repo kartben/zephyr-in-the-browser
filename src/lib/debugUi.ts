@@ -1,5 +1,5 @@
 /**
- * Focus handoff for the Debug stage panel (PC chip → CPU, Trace lane → Threads).
+ * Focus handoff for the Debug dock row (PC chip → CPU, Trace lane → Threads).
  * Tiny module-level store — same idiom as dockStore / hostGnss.
  */
 
@@ -8,7 +8,7 @@ import {
   setExpanded,
   setHidden,
 } from '@/lib/dockStore'
-import { revealStagePanel } from '@/lib/dockReveal'
+import { revealDockRow } from '@/lib/dockReveal'
 import * as debug from '@/debug/control'
 
 export type DebugSection =
@@ -50,7 +50,7 @@ export function getSnapshot(): DebugUiState {
   return state
 }
 
-/** Open/focus the Debug panel on a section (defaults to breakpoints). */
+/** Open/focus the Debug row on a section (defaults to breakpoints). */
 export function focusDebug(section: DebugSection = 'breakpoints'): void {
   setHidden(STAGE_DEBUG_KEY, false)
   setExpanded(STAGE_DEBUG_KEY, true)
@@ -61,7 +61,7 @@ export function focusDebug(section: DebugSection = 'breakpoints'): void {
     threadName: null,
   }
   notify()
-  revealStagePanel(STAGE_DEBUG_KEY)
+  revealDockRow(STAGE_DEBUG_KEY)
 }
 
 /**
@@ -80,5 +80,5 @@ export function focusDebugThread(addr: number, name?: string | null): void {
     threadName: name ?? null,
   }
   notify()
-  revealStagePanel(STAGE_DEBUG_KEY)
+  revealDockRow(STAGE_DEBUG_KEY)
 }
