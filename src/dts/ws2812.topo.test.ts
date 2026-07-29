@@ -15,6 +15,7 @@ const ALL: Availability = {
   spi: true,
   display: true,
   input: true,
+  disk: false,
 }
 
 describe('ws2812 dock topology', () => {

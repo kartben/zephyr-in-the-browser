@@ -13,6 +13,7 @@ import {
   Calculator,
   Gauge,
   MapPin,
+  HardDrive,
   MemoryStick,
   Mic,
   Monitor,
@@ -46,6 +47,7 @@ import { UartBody } from '@/components/UartPanel'
 import { CanBody } from '@/components/CanPanel'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { FlashBadge } from '@/components/FlashStats'
+import { DiskBadge, DiskBody } from '@/components/DiskPanel'
 import { MemoryBody, SpiFlashBody } from '@/components/MemoryCard'
 import { MemoryBadge } from '@/components/MemoryStats'
 import { NetworkBody } from '@/components/NetworkPanel'
@@ -184,6 +186,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
           onOpenWindow={variant === 'dock' ? () => setWindowed(node.key, true) : undefined}
         />
       )
+    case 'disk':
+      return <DiskBody dockKey={node.key} compact={variant === 'dock'} />
     case 'gpio':
       return <GpioBody />
     case 'gpio-keys':
@@ -253,6 +257,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Network
     case 'spi-flash':
       return MemoryStick
+    case 'disk':
+      return HardDrive
     case 'gpio':
       return CircuitBoard
     case 'gpio-keys':
@@ -401,6 +407,8 @@ export function DeviceBadge({ node }: { node: DeviceNode }) {
       return <UartBusBadge busKey={node.key} />
     case 'spi-flash':
       return <FlashBadge chip={node.chip as import('@/virtio/devices/flash/model').SpiFlashChip} />
+    case 'disk':
+      return <DiskBadge />
     case 'gnss':
       return <GnssBadge />
     case 'bluetooth':

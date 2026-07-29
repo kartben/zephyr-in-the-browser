@@ -25,6 +25,7 @@ const ALL: Availability = {
   spi: false,
   display: true,
   input: true,
+  disk: false,
 }
 
 /* Fakes carrying just the duck-type markers the classifiers look for. */
@@ -259,6 +260,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
         spi: false,
         display: false,
         input: false,
+        disk: false,
       },
       'qemu_cortex_a53',
     )
@@ -547,6 +549,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
       spi: false,
       display: false,
       input: false,
+      disk: false,
     }
     const inv = deriveDeviceInventory(null, [], [], none, 'qemu_cortex_a53')
     expect(inv.source).toBe('fallback')

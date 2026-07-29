@@ -92,6 +92,7 @@ export type BodyKind =
   | 'can'
   | 'bluetooth'
   | 'spi-flash'
+  | 'disk'
   | 'gpio'
   | 'gpio-keys'
   | 'buzzer'
@@ -114,6 +115,7 @@ export interface Availability {
   spi: boolean
   display: boolean
   input: boolean
+  disk: boolean
 }
 
 export interface DeviceNode {
@@ -682,6 +684,29 @@ function deriveFromTree(
         presence: 'inert',
         note: '→ display touch',
         crumb: tablet.labels[0],
+      })
+    }
+  }
+
+  {
+    // The virtio-blk disk. A device row rather than an Instrument because the
+    // guest's tree really does declare it — and `memory` rather than a class of
+    // its own so it sits beside the SPI NOR, which is the other storage medium
+    // and the panel this one is modelled on.
+    const disk = firstOkay('virtio,blk')
+    if (disk) {
+      const live = avail.disk
+      push({
+        key: uniqueKey(ids, 'disk'),
+        nodeName: disk.name,
+        label: 'Disk',
+        compatible: compatibles(disk)[0],
+        deviceClass: 'memory',
+        path: pathOf(disk),
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'disk' : undefined,
+        crumb: disk.labels[0],
+        panelKind: live ? 'disk' : undefined,
       })
     }
   }
