@@ -5,6 +5,7 @@ import {
   isIdentityYZoom,
   panYZoom,
   screenYToBase,
+  timeTickCount,
   viewFromBoxSelection,
   wantsBoxZoom,
   yZoomFromScreenSelection,
@@ -89,5 +90,20 @@ describe('screenYToBase / panYZoom', () => {
   it('clamps a too-tight zoom to a minimum span', () => {
     const z = clampYZoom({ f0: 0.5, f1: 0.501 }, 0.04)
     expect(z.f1 - z.f0).toBeGreaterThanOrEqual(0.04 - 1e-9)
+  })
+})
+
+describe('timeTickCount', () => {
+  it('scales with the plot width', () => {
+    expect(timeTickCount(900)).toBe(16)
+    expect(timeTickCount(560)).toBe(10)
+  })
+
+  it('asks for two ticks at dock and phone widths, not four', () => {
+    // 4 labels of ~54px cannot fit 180px; asking for them is what produced a
+    // row of overlapping numbers.
+    expect(timeTickCount(180)).toBe(3)
+    expect(timeTickCount(100)).toBe(2)
+    expect(timeTickCount(0)).toBe(2)
   })
 })
