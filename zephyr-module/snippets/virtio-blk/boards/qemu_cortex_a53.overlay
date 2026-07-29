@@ -1,0 +1,38 @@
+/*
+ * Enable the VIRTIO block device on slot 6 and declare a FAT volume on it.
+ *
+ * The device model is stock QEMU (`-device virtio-blk-device`), attached for
+ * this sample only by the `virtio_blk` entry in src/boards.ts; the raw backing
+ * image is allocated blank in the page, so the first mount formats it
+ * (CONFIG_FS_FATFS_MOUNT_MKFS in conf/virtio-blk.conf).
+ *
+ * The mount point has to be the FatFS volume name with a leading slash:
+ * subsys/fs/fat_fs.c hands `&mnt_point[1]` straight to f_mount(), and the name
+ * must match this node's disk-name, which is what disk_access_* is keyed on.
+ *
+ * No `automount` — the sample mounts explicitly so its output tells the story.
+ * `no-format` is deliberately absent too: fat_fs.c BUILD_ASSERTs against it.
+ *
+ * Shared by RISC-V, whose snippet.yml points at this same file — the node
+ * labels are identical on both boards.
+ */
+
+&virtio_mmio6 {
+	status = "okay";
+};
+
+&virtio_blk0 {
+	status = "okay";
+};
+
+/ {
+	fstab {
+		compatible = "zephyr,fstab";
+
+		fatfs0: fatfs0 {
+			compatible = "zephyr,fstab,fatfs";
+			mount-point = "/VIRTIOBLK0:";
+			disk-access;
+		};
+	};
+};

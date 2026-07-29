@@ -177,6 +177,37 @@
 };
 
 /*
+ * Block device: a VIRTIO block device on slot 6 of virt's virtio-mmio array
+ * (0x0a000c00, SPI 22). Slots 0-5 are virtio-net, virtio-gpu, GPIO, tablet,
+ * I2C and SPI.
+ *
+ * This one is the odd one out. Every other virtio device on this shield is the
+ * generic browser bridge with a TypeScript device model behind it, because QEMU
+ * ships no model we can use in a single-process wasm build. virtio-blk it does
+ * ship — `virtio-blk-device` and the whole block layer are already linked into
+ * the packaged emulators — so there is no page-side model and no QEMU patch
+ * here at all. The backing store is a raw image the page allocates in the
+ * Emscripten filesystem; see the `virtio_blk` sample in src/boards.ts, whose
+ * `extraArgs` attach `-drive` + `-device virtio-blk-device` for that sample
+ * alone. A disk is not free the way the other bridges are, which is why it is
+ * per-sample rather than in the board argv.
+ *
+ * The guest driver is vendored from zephyrproject-rtos/zephyr#112581
+ * (zephyr-module/drivers/vendor/virtio_blk.c) until it lands upstream.
+ *
+ * Declared disabled: `-S virtio-blk` turns it on and adds the FAT mount.
+ */
+&virtio_mmio6 {
+	status = "disabled";
+
+	virtio_blk0: virtio-blk {
+		compatible = "virtio,blk";
+		disk-name = "VIRTIOBLK0";
+		status = "disabled";
+	};
+};
+
+/*
  * Browser network bridge: virtio-net on the first virtio-mmio slot, which
  * QEMU populates with `-device virtio-net-device,bus=virtio-mmio-bus.0`
  * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property
