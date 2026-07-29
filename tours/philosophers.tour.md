@@ -17,6 +17,10 @@ it could be: a thread cannot describe the run queue it is currently on.
 ```tour
 at: z_impl_k_thread_create
 when: first
+show:
+  file: main.c
+  mark: /K_THREAD_STACK_ARRAY_DEFINE/
+  note: the stack area this call is being handed, declared at link time
 threads: yes
 watch:
   - new thread = $arg0 as addr
@@ -66,6 +70,10 @@ cursor.
 ```tour
 at: z_impl_k_mutex_lock
 when: first
+show:
+  file: main.c
+  mark: /k_mutex_lock/
+  note: the sample's side of this stop
 watch:
   - fork = $arg0 as addr
   - owner = *($arg0+2p) as ptr

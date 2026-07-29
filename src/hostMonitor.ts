@@ -310,6 +310,23 @@ export function resume() {
   if (stub) onPaused(false)
 }
 
+/**
+ * Start a machine that has never run — one booted with `-S`.
+ *
+ * {@link resume} cannot do this. Its guard is on `paused`, which tracks QEMU's
+ * STOP event, and a machine held at reset by `-S` never emitted one: it is not
+ * *paused*, it is *unstarted*. The two look the same from the outside and want
+ * opposite guards, so they are separate calls rather than one with a flag.
+ *
+ * Only src/backends/qemu.ts should need this, to rescue a boot frozen for a
+ * tour whose gdb session never opened.
+ */
+export function startFrozen() {
+  if (!available()) return
+  send({ execute: 'cont' })
+  if (stub) onPaused(false)
+}
+
 export function toggle() {
   if (state.paused) resume()
   else pause()

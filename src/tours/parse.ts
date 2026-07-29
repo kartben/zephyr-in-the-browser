@@ -64,6 +64,33 @@ export interface MemorySpec {
   note: string | null
 }
 
+/**
+ * A step's `show:` block — which source lines the reader should be looking at.
+ *
+ * Separate from `at:` because where the machine stops and what the prose is
+ * about are two different questions, and conflating them is a real limitation
+ * rather than a simplification. A step can only break where there is code, so
+ * `at:` can never point at a `#define`, a struct initialiser or a devicetree
+ * node — and those are exactly the things the interesting lessons are about.
+ * blinky's first step stops at `main` and talks about two lines of file scope
+ * above it; its `k_msleep` step stops inside the kernel and talks about the
+ * call in the sample.
+ *
+ * This is the same split `memory:` already has — an address to look at, a range
+ * to pick out, a note saying why — applied to source instead of bytes.
+ */
+export interface ShowSpec {
+  /** File to excerpt, by basename. Null means the one the anchor landed in. */
+  file: string | null
+  /**
+   * Lines to highlight, inclusive. Each end is a line number or a `/pattern/`;
+   * a bare endpoint with no `..` marks a single line.
+   */
+  mark: { start: string; end: string } | null
+  /** Caption for the highlight. */
+  note: string | null
+}
+
 export interface TourStep {
   /** 0-based position, which is also the order the author wrote them in. */
   index: number
@@ -81,6 +108,8 @@ export interface TourStep {
   /** A PanelKind for the device dock to reveal. */
   panel: string | null
   watch: WatchSpec[]
+  /** Source lines to excerpt and highlight. Null means "wherever `at:` landed". */
+  show: ShowSpec | null
   memory: MemorySpec | null
   /** Register names to spotlight, as the arch spells them. */
   registers: string[]
@@ -247,6 +276,67 @@ function parseMark(raw: string | undefined): { start: string; end: string } | nu
   return { start, end }
 }
 
+/**
+ * Index of the `..` that separates two endpoints, ignoring one inside a
+ * `/pattern/` — `/a..b/../c/` splits in exactly one place, and it is not the
+ * first `..` in the string. Returns -1 when there is no separator, which is how
+ * a single-line `show: /GPIO_DT_SPEC_GET/` is told from a range.
+ */
+function splitRange(text: string): number {
+  let inPattern = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '\\') {
+      i++
+      continue
+    }
+    if (c === '/') {
+      inPattern = !inPattern
+      continue
+    }
+    if (!inPattern && c === '.' && text[i + 1] === '.') return i
+  }
+  return -1
+}
+
+/**
+ * Parse `show: 12..18` or `show: /LED0_NODE/../GPIO_DT_SPEC_GET/` — a line
+ * range, inclusive at both ends because lines are things you point at rather
+ * than offsets you measure between. (`memory: mark:` is end-exclusive for the
+ * opposite reason.)
+ */
+export function parseLineRange(raw: string | undefined): { start: string; end: string } | null {
+  const text = raw?.trim()
+  if (!text) return null
+  const at = splitRange(text)
+  if (at < 0) return { start: text, end: text }
+  const start = text.slice(0, at).trim()
+  const end = text.slice(at + 2).trim()
+  if (start === '' || end === '') return null
+  return { start, end }
+}
+
+function parseShow(value: Directive | undefined, problems: string[]): ShowSpec | null {
+  if (value === undefined) return null
+  // `show: 12..18` is the short form of a block with only `mark:`, the same way
+  // `memory: led` is the short form of one with only `at:`.
+  const map = typeof value === 'string' ? { mark: value } : value
+  if (Array.isArray(map)) {
+    problems.push('`show:` takes a line range or a block, not a list')
+    return null
+  }
+  const file = map.file?.trim() || null
+  const mark = parseLineRange(map.mark)
+  if (map.mark && !mark) {
+    problems.push(`\`show: mark: ${map.mark}\` is not a line or a \`start..end\` range`)
+  }
+  if (!file && !mark) {
+    problems.push('`show:` needs a `mark:` range, a `file:`, or both')
+    return null
+  }
+  return { file, mark, note: map.note?.trim() || null }
+}
+
 const DEFAULT_MEMORY_BYTES = 64
 
 function parseMemory(value: Directive | undefined, problems: string[]): MemorySpec | null {
@@ -333,6 +423,7 @@ function buildStep(
     repeat: asBool(parsed.values.get('repeat'), false),
     panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
     watch,
+    show: parseShow(parsed.values.get('show'), problems),
     memory,
     registers: parseList(parsed.values.get('registers')),
     threads: asBool(parsed.values.get('threads'), false),

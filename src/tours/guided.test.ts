@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BOARDS, type GuestSample } from '@/boards'
 import { isKnownFormat } from '@/tours/expr'
-import { patternFile } from '@/tours/anchors'
+import { patternFile, resolveShow } from '@/tours/anchors'
 import { parseTour } from '@/tours/parse'
 import { tourIds } from '@/tours/catalog'
 import { whenFires } from '@/tours/when'
@@ -72,6 +72,14 @@ describe('tours/', () => {
         ).toBe(true)
       }
       expect(step.body.trim(), `step ${step.index + 1} has no prose`).not.toBe('')
+      // The page fetches an excerpt by basename (sampleSourceAsset), so a
+      // `show: file:` carrying a path would ask for a URL nothing serves.
+      if (step.show?.file) {
+        expect(
+          step.show.file,
+          `step ${step.index + 1}: \`show: file:\` wants a bare basename`,
+        ).not.toContain('/')
+      }
       for (const watch of step.watch) {
         expect(isKnownFormat(watch.format)).toBe(true)
       }
@@ -82,5 +90,89 @@ describe('tours/', () => {
       // the reader can act on it — almost always a typo for `stop: no`.
       expect(step.stop || step.repeat || step.when !== null).toBe(true)
     }
+  })
+})
+
+/**
+ * The `show:` blocks in the shipped tours, resolved against the real thing.
+ *
+ * Everything else here stops at parsing, because anchors need a built ELF. A
+ * `show:` does not: it is resolved against source text, and source text can be
+ * a fixture. So this is the one part of a shipped tour that can be checked
+ * end-to-end here — and it earns its place, since a `show:` that resolves to
+ * nothing degrades to "no excerpt", which is exactly the kind of silent failure
+ * that never gets noticed.
+ */
+const STOCK_BLINKY = `/*
+ * Copyright (c) 2016 Intel Corporation
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <stdio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+
+/* 1000 msec = 1 sec */
+#define SLEEP_TIME_MS   1000
+
+/* The devicetree node identifier for the "led0" alias. */
+#define LED0_NODE DT_ALIAS(led0)
+
+/*
+ * A build error on this line means your board is unsupported.
+ */
+static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+
+int main(void)
+{
+	int ret;
+	bool led_state = true;
+
+	if (!gpio_is_ready_dt(&led)) {
+		return 0;
+	}
+
+	ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
+	if (ret < 0) {
+		return 0;
+	}
+
+	while (1) {
+		ret = gpio_pin_toggle_dt(&led);
+		if (ret < 0) {
+			return 0;
+		}
+
+		led_state = !led_state;
+		printf("LED state: %s\\n", led_state ? "ON" : "OFF");
+		k_msleep(SLEEP_TIME_MS);
+	}
+	return 0;
+}
+`
+
+describe('blinky show: blocks, against stock upstream blinky', () => {
+  const doc = parseTour(readFileSync(resolve(TOURS_DIR, 'blinky.tour.md'), 'utf8'))
+  const sources = new Map([['main.c', STOCK_BLINKY.split('\n')]])
+  // Stands in for `at: main` having landed on the first statement of main().
+  const inMain = { addr: 0, via: 'symbol' as const, file: 'main.c', line: 27, symbol: 'main' }
+
+  it('points the first step at the two lines of file scope it talks about', () => {
+    const show = resolveShow(doc.steps[0]!.show!, inMain, sources)
+    expect(show?.file).toBe('main.c')
+    // The #define through the spec initialiser — neither of which is code, and
+    // neither of which `at:` could ever have reached.
+    expect(STOCK_BLINKY.split('\n')[show!.start - 1]).toContain('#define LED0_NODE')
+    expect(STOCK_BLINKY.split('\n')[show!.end - 1]).toContain('GPIO_DT_SPEC_GET')
+  })
+
+  it('points the k_msleep step back at the sample, from inside the kernel', () => {
+    const step = doc.steps.find((s) => s.at === 'z_impl_k_sleep')
+    const inKernel = { addr: 0, via: 'symbol' as const, file: 'kernel/timeout.c', line: 100, symbol: 'z_impl_k_sleep' }
+    const show = resolveShow(step!.show!, inKernel, sources)
+    expect(show?.file).toBe('main.c')
+    expect(STOCK_BLINKY.split('\n')[show!.start - 1]).toContain('k_msleep(SLEEP_TIME_MS)')
+    expect(show!.end).toBe(show!.start)
   })
 })

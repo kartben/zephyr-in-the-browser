@@ -238,22 +238,19 @@ build_one() {
   cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
   printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
 
-  # A sample with a guided tour ships the tour file beside its image, plus a
-  # verbatim copy of the sources it points at. Neither is in the ELF and neither
-  # changes it: a tour is Markdown the browser reads, and the addresses it
-  # breaks on are resolved at runtime from the DWARF already in the image.
+  # A sample with a guided tour ships a verbatim copy of the sources that tour
+  # points at. The tour file itself does *not* ship here: it rides in the page
+  # bundle (src/tours/catalog.ts), so it can change without a Zephyr rebuild.
+  # Only the sources come from this side, because they are Zephyr tree files
+  # rather than ours.
   #
-  # The sources are copied unmodified, because the line numbers the page
-  # resolves out of `.debug_line` are in *those* coordinates. Only the base
-  # build ships them — a `_trace` twin is the same sources, and the page reads
-  # both from the base id's files.
+  # They are copied unmodified, because the line numbers the page resolves out
+  # of `.debug_line` are in *those* coordinates. Only the base build ships them
+  # — a `_trace` twin is the same sources, and the page reads both from the base
+  # id's files.
   local base_id="${id%_trace}"
   local tour="$ROOT/tours/$base_id.tour.md"
   if [ "$id" = "$base_id" ] && [ -f "$tour" ]; then
-    cp "$tour" "$dest/$base_id.tour.md"
-    printf '    %-16s %8s bytes\n' "$base_id.tour.md" \
-      "$(command wc -c < "$dest/$base_id.tour.md" | xargs)"
-
     local sample_src="$ZEPHYR_WS/zephyr/$sample/src"
     case "$sample" in
       zephyr-module/*) sample_src="$ROOT/$sample/src" ;;
@@ -261,10 +258,25 @@ build_one() {
     if [ -d "$sample_src" ]; then
       rm -rf "$dest/src/$base_id"
       mkdir -p "$dest/src/$base_id"
-      find "$sample_src" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' \) \
+      # Whole subtree, not just the top level: a sample with src/net/foo.c used
+      # to ship nothing for it, and the only symptom was every `foo.c` anchor in
+      # the tour failing at runtime with "was not shipped".
+      #
+      # Flattened, because the page addresses sources by basename
+      # (sampleSourceAsset, and findSource in src/tours/anchors.ts). That makes
+      # two files of the same name in different directories a real collision, so
+      # count them and say so rather than let one silently win.
+      local found unique
+      found=$(find "$sample_src" -type f \( -name '*.c' -o -name '*.h' \) | command wc -l | xargs)
+      find "$sample_src" -type f \( -name '*.c' -o -name '*.h' \) \
         -exec cp {} "$dest/src/$base_id/" \;
-      printf '    %-16s %8s file(s)\n' "src/$base_id/" \
-        "$(find "$dest/src/$base_id" -type f | command wc -l | xargs)"
+      unique=$(find "$dest/src/$base_id" -type f | command wc -l | xargs)
+      printf '    %-16s %8s file(s)\n' "src/$base_id/" "$unique"
+      if [ "$found" -ne "$unique" ]; then
+        echo "    WARNING: $sample has $found source file(s) but only $unique distinct" \
+             "basename(s) — the page addresses sources by basename, so a tour" \
+             "anchored in a shadowed file will resolve against the wrong one." >&2
+      fi
     else
       echo "    WARNING: no sources at $sample_src — the tour will show no code." >&2
     fi

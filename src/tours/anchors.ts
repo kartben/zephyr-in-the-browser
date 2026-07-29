@@ -29,6 +29,11 @@
  * All four are looked up in the ELF the page already fetched to boot the guest,
  * which is why a tour can point at code it does not own: `at: z_impl_k_sleep`
  * breaks inside the kernel, and the sample it is teaching never knows.
+ *
+ * Which is also why {@link resolveShow} lives here. Once a step can break in
+ * code the sample does not own, "where the machine stopped" and "what the
+ * reader should be looking at" come apart for good, and `show:` is the second
+ * of those. See {@link ShowSpec}.
  */
 
 import {
@@ -39,6 +44,7 @@ import {
 } from '@/debug/dwarfLines'
 import type { SymbolIndex } from '@/debug/elfSymbols'
 import { codeAddr, type GdbArch } from '@/debug/gdb/regs'
+import type { ShowSpec } from '@/tours/parse'
 
 export interface AnchorContext {
   symbols: SymbolIndex | null
@@ -112,7 +118,7 @@ function resolveOne(at: string, ctx: AnchorContext): AnchorResult {
   const pattern = FILE_PATTERN.exec(raw)
   if (pattern) {
     const file = pattern[1]!
-    const source = findSource(ctx, file)
+    const source = findSource(ctx.sources, file)
     if (!source) {
       return { ok: false, error: `\`${raw}\`: \`${file}\` was not shipped, so its text cannot be searched` }
     }
@@ -197,14 +203,96 @@ function describe(addr: number, ctx: AnchorContext): Pick<ResolvedAnchor, 'file'
 }
 
 /** The shipped copy of a source file, by basename or path suffix. */
-function findSource(ctx: AnchorContext, file: string): string[] | null {
+function findSource(sources: Map<string, string[]> | undefined, file: string): string[] | null {
   const want = file.toLowerCase()
-  const direct = ctx.sources?.get(want)
+  const direct = sources?.get(want)
   if (direct) return direct
-  for (const [name, lines] of ctx.sources ?? []) {
+  for (const [name, lines] of sources ?? []) {
     if (name.endsWith(`/${want}`)) return lines
   }
   return null
+}
+
+/** Basename of a path as the line table or a tour spells it. */
+export function baseName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+/** The excerpt a card shows, once `show:` has been resolved against the text. */
+export interface ResolvedShow {
+  /** Basename of the file to excerpt. */
+  file: string
+  /** First and last line to highlight, 1-based and inclusive. */
+  start: number
+  end: number
+  note: string | null
+}
+
+/**
+ * Resolve one end of a `show:` range — a line number, or the first line
+ * matching a `/pattern/` at or after `from`.
+ *
+ * Searching forward from the start is what makes `/a/../b/` mean "from the
+ * first `a` to the next `b`" rather than "…to the first `b` in the file", which
+ * matters when the end pattern also occurs above the start.
+ *
+ * @param from 0-based index to search from, inclusive. Inclusive because the
+ *             two ends of a one-line `show: /k_msleep/` are the same pattern
+ *             and have to be allowed to match the same line.
+ */
+function resolveEnd(text: string, source: string[] | null, from: number): number | null {
+  const pattern = /^\/(.+)\/$/.exec(text)
+  if (pattern) {
+    if (!source) return null
+    let re: RegExp
+    try {
+      re = new RegExp(pattern[1]!)
+    } catch {
+      return null
+    }
+    for (let i = Math.max(0, from); i < source.length; i++) {
+      if (re.test(source[i]!)) return i + 1
+    }
+    return null
+  }
+  const line = Number(text)
+  return Number.isInteger(line) && line > 0 ? line : null
+}
+
+/**
+ * Turn a step's `show:` into the lines the card should light up.
+ *
+ * Falls back to the anchor at every step it can: no `file:` means the file the
+ * breakpoint landed in, and no `mark:` means the single line it landed on. A
+ * step with no `show:` at all never gets here — the caller uses the anchor
+ * directly, which is what every tour written before this existed relies on.
+ *
+ * Returns null when there is nothing to point at, which the card renders as no
+ * excerpt rather than as an error: a `show:` whose file was not shipped is the
+ * same class of absence as a source excerpt that could not be fetched.
+ */
+export function resolveShow(
+  spec: ShowSpec,
+  anchor: ResolvedAnchor | null,
+  sources: Map<string, string[]>,
+): ResolvedShow | null {
+  const file = spec.file ? baseName(spec.file) : anchor?.file ? baseName(anchor.file) : null
+  if (!file) return null
+
+  if (!spec.mark) {
+    // `show: { file: … }` with no range: the anchor's line, in another file.
+    // Only meaningful when the anchor knows one.
+    return anchor?.line ? { file, start: anchor.line, end: anchor.line, note: spec.note } : null
+  }
+
+  const source = findSource(sources, file)
+  const start = resolveEnd(spec.mark.start, source, 0)
+  if (start === null) return null
+  // `start` is a 1-based line; the search index is 0-based, so `start - 1` is
+  // the start line itself rather than the one after it.
+  const end = resolveEnd(spec.mark.end, source, start - 1)
+  if (end === null) return null
+  return { file, start, end: Math.max(start, end), note: spec.note }
 }
 
 /**

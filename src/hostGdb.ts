@@ -120,6 +120,8 @@ const EMPTY: GdbState = {
 let kernelElf: Uint8Array | null = null
 let attachHook: (() => Promise<void>) | null = null
 let stopFilter: ((pc: string) => boolean) | null = null
+/** The machine was started with `-S` and nothing has let it go yet. */
+let frozenBoot = false
 let mod: Record<string, unknown> | null = null
 let ch: ChardevExports | null = null
 let client: RspClient | null = null
@@ -220,6 +222,24 @@ export function setAttachHook(fn: (() => Promise<void>) | null) {
  */
 export function setStopFilter(fn: ((pc: string) => boolean) | null) {
   stopFilter = fn
+}
+
+/**
+ * True while a boot frozen with `-S` is still waiting for something to start it.
+ *
+ * {@link attachSession} releases it on the path where the handshake works. Every
+ * other path returns false or throws without ever having an RSP client to
+ * continue *with*, so the caller that asked for the freeze has to thaw it by
+ * another route — see the monitor fallback in src/backends/qemu.ts. A tour is
+ * worth a race; it is not worth a guest that never boots.
+ */
+export function bootStillFrozen(): boolean {
+  return frozenBoot
+}
+
+/** Give up on releasing a frozen boot through gdb; the caller took it over. */
+export function clearFrozenBoot(): void {
+  frozenBoot = false
 }
 
 /** ELF wait-queue objects (msgq/sem/…) for resolving CTF object ids to names. */
@@ -430,9 +450,13 @@ export function setKernelImage(elf: Uint8Array | null) {
 
 /**
  * Bind the gdb exports from the emulator module.
- * Does not open the stub yet — call {@link attachSession} after boot.
+ * Does not open the stub yet — call {@link attachSession} once it is up.
+ *
+ * @param frozen The machine was started with `-S` (see FREEZE_ARGS) and is
+ *               sitting at reset. {@link attachSession} owns starting it, and
+ *               must do so however the handshake goes.
  */
-export function bind(module: unknown, boardArch: string) {
+export function bind(module: unknown, boardArch: string, frozen = false) {
   const keptElf = kernelElf
   const keptInfo = threadInfo
   const keptSyms = symbolIndex
@@ -449,6 +473,9 @@ export function bind(module: unknown, boardArch: string) {
   mod = module as Record<string, unknown>
   ch = bindChardev(mod, 'gdb')
   arch = archFromBoard(boardArch)
+  // After detach(), which owns clearing session state — this is about the
+  // machine that is starting, not the one that just went away.
+  frozenBoot = frozen
   const available = chardevAvailable(ch) && typeof mod._qemu_browser_gdb_attach === 'function'
   publish({
     ...EMPTY,
@@ -533,11 +560,19 @@ export async function attachSession(): Promise<boolean> {
         console.warn('[gdb] attach hook failed', err)
       }
     }
-    // Connecting the stub often stops the VM; kick it again so boot is not
-    // left frozen until the user notices Pause.
-    if (stop) {
+    /*
+     * Let the machine go, now that the hook has had its stop.
+     *
+     * Two reasons to be here. Connecting the stub often stops a running VM, and
+     * leaving it that way would freeze boot until the user noticed Pause. And a
+     * boot frozen with `-S` for a tour has *only* this continue to start it —
+     * `?` reports a stop on a machine halted at reset, but not every stub does,
+     * so the flag is checked rather than inferred from the stop reply.
+     */
+    if (stop || frozenBoot) {
       await next.continue()
     }
+    frozenBoot = false
     publish({ paused: false })
     console.info('[gdb] RSP session attached')
     return true

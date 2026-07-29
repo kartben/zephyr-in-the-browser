@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { LineIndex } from '@/debug/dwarfLines'
 import { ROW_IS_STMT, ROW_PROLOGUE_END } from '@/debug/dwarfLines'
 import type { SymbolIndex } from '@/debug/elfSymbols'
-import { patternFile, resolveAnchor } from '@/tours/anchors'
+import { patternFile, resolveAnchor, resolveShow } from '@/tours/anchors'
 
 /** Two functions and four rows of main.c, hand-built. */
 function lines(): LineIndex {
@@ -131,5 +131,74 @@ describe('fallback chains', () => {
       expect(result.error).toContain('was not shipped')
       expect(result.error).toContain('no such function')
     }
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * show: — what the reader looks at, which is not where the machine stopped
+ * ------------------------------------------------------------------ */
+
+const source = [
+  '#include <zephyr/kernel.h>', // 1
+  '', // 2
+  '#define SLEEP_TIME_MS 1000', // 3
+  '', // 4
+  '#define LED0_NODE DT_ALIAS(led0)', // 5
+  '', // 6
+  'static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);', // 7
+  '', // 8
+  'int main(void)', // 9
+  '{', // 10
+  '\tk_msleep(SLEEP_TIME_MS);', // 11
+  '}', // 12
+]
+
+const sources = new Map([['main.c', source]])
+
+/** An anchor that landed on main.c:9, as `at: main` would. */
+const landed = { addr: 0x8000, via: 'symbol' as const, file: 'src/main.c', line: 9, symbol: 'main' }
+
+describe('resolveShow', () => {
+  it('marks a range between two patterns, in the file the anchor landed in', () => {
+    const show = resolveShow({ file: null, mark: { start: '/LED0_NODE/', end: '/GPIO_DT_SPEC_GET/' }, note: 'why' }, landed, sources)
+    // Starts at the #define, not at the second mention on line 7.
+    expect(show).toEqual({ file: 'main.c', start: 5, end: 7, note: 'why' })
+  })
+
+  it('excerpts a different file from the one the breakpoint is in', () => {
+    // The blinky k_msleep step: stopped in the kernel, pointing at the sample.
+    const inKernel = { addr: 0x100, via: 'symbol' as const, file: 'kernel/sched.c', line: 900, symbol: 'z_impl_k_sleep' }
+    const show = resolveShow({ file: 'main.c', mark: { start: '/k_msleep/', end: '/k_msleep/' }, note: null }, inKernel, sources)
+    expect(show).toEqual({ file: 'main.c', start: 11, end: 11, note: null })
+  })
+
+  it('searches for the end pattern forward from the start, not from the top', () => {
+    // SLEEP_TIME_MS is on line 3 as well as line 11. Searching from the top
+    // would find the #define, above the start, and give an inverted range.
+    const show = resolveShow({ file: null, mark: { start: '/int main/', end: '/SLEEP_TIME_MS/' }, note: null }, landed, sources)
+    expect(show).toEqual({ file: 'main.c', start: 9, end: 11, note: null })
+  })
+
+  it('takes plain line numbers, which need no source text at all', () => {
+    const show = resolveShow({ file: 'main.c', mark: { start: '3', end: '5' }, note: null }, null, new Map())
+    expect(show).toEqual({ file: 'main.c', start: 3, end: 5, note: null })
+  })
+
+  it('falls back to the anchor line when the block only renames the file', () => {
+    const show = resolveShow({ file: 'other.c', mark: null, note: null }, landed, sources)
+    expect(show).toEqual({ file: 'other.c', start: 9, end: 9, note: null })
+  })
+
+  it('is nothing to show, rather than an error, when a pattern misses', () => {
+    expect(resolveShow({ file: null, mark: { start: '/nope/', end: '/nope/' }, note: null }, landed, sources)).toBeNull()
+  })
+
+  it('is nothing to show when the file was never shipped', () => {
+    expect(resolveShow({ file: 'absent.c', mark: { start: '/main/', end: '/main/' }, note: null }, landed, sources)).toBeNull()
+  })
+
+  it('never returns an inverted range', () => {
+    const show = resolveShow({ file: null, mark: { start: '10', end: '2' }, note: null }, landed, sources)
+    expect(show).toEqual({ file: 'main.c', start: 10, end: 10, note: null })
   })
 })

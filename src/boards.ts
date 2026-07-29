@@ -49,10 +49,33 @@ export const MONITOR_ARGS = ['-chardev', 'browser,id=mon0', '-mon', 'chardev=mon
 
 /**
  * GDB stub on a second browser chardev. Appended only when features.json lists
- * `"gdb"` (dual-channel chardev patch). Do not pass `-S` — the page attaches
- * after boot via qemu_browser_gdb_attach().
+ * `"gdb"` (dual-channel chardev patch). The page opens the stub after the
+ * module is up, via qemu_browser_gdb_attach().
  */
 export const GDB_ARGS = ['-chardev', 'browser,id=gdb0', '-gdb', 'chardev:gdb0']
+
+/**
+ * Start with the vCPU halted, for a sample whose tour has to plant breakpoints
+ * before the guest reaches them.
+ *
+ * Without this the page is in a race it usually loses quietly: QEMU boots as
+ * soon as the module starts, and the tour cannot plant anything until the
+ * chardev has opened (~150 ms of retries and drain timer) and an RSP handshake
+ * has completed. Zephyr reaches `main()` long before that, so a one-shot step
+ * anchored anywhere in early boot — `at: main`, the `gpio_pin_configure_dt()`
+ * step in blinky — simply never fires, and looks identical to a tour that is
+ * still waiting. Loop steps hid the bug by coming round again.
+ *
+ * `-S` is the whole fix: the machine sits at reset until something starts it,
+ * and the thing that starts it is the gdb `continue` at the end of
+ * {@link attachSession}, after the attach hook has armed the tour. Nothing
+ * else in the page passes `-S`, so a frozen boot always has exactly one owner.
+ *
+ * Appended only for a sample that has a tour, and only alongside GDB_ARGS: the
+ * releasing continue rides the gdb session, so freezing a boot with no stub to
+ * unfreeze it would hang the guest at reset.
+ */
+export const FREEZE_ARGS = ['-S']
 
 /**
  * Bluetooth HCI (H:4) on a third browser chardev. The virt machine wires

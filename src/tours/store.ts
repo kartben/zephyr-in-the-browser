@@ -23,7 +23,15 @@ import { formatSymbol, resolveSymbol } from '@/debug/elfSymbols'
 import * as debug from '@/debug/control'
 import * as gdb from '@/hostGdb'
 import { revealPanelKind } from '@/lib/dockReveal'
-import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
+import {
+  baseName,
+  normalizeAddr,
+  patternFile,
+  resolveAnchor,
+  resolveShow,
+  type ResolvedAnchor,
+  type ResolvedShow,
+} from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
 import { parseTour, type TourDoc, type TourStep } from '@/tours/parse'
@@ -58,6 +66,12 @@ export interface TourCard {
   step: TourStep
   /** Where the breakpoint actually landed. */
   anchor: ResolvedAnchor | null
+  /**
+   * Which source lines to excerpt and light up. From the step's `show:` when it
+   * has one, and otherwise the single line the anchor landed on — so a tour
+   * written before `show:` existed renders exactly as it did.
+   */
+  show: ResolvedShow | null
   /** The machine is stopped underneath this card. */
   paused: boolean
   /** Which time through this was. */
@@ -128,8 +142,10 @@ let armWatchdog: ReturnType<typeof setTimeout> | undefined
  * Hits are counted once, in the filter; this carries the verdict across.
  */
 let pendingFire: StepRuntime | null = null
-/** Shipped sources by basename, fetched for pattern anchors. */
+/** Shipped sources by basename, fetched for pattern anchors and `show:`. */
 let sources = new Map<string, string[]>()
+/** Basenames the image build did not ship, so they are asked for only once. */
+let missingSources = new Set<string>()
 /** How to reach a shipped source file — the board and sample live in App. */
 let sourceUrl: ((file: string) => string) | null = null
 const listeners = new Set<() => void>()
@@ -327,29 +343,47 @@ export async function arm(): Promise<void> {
 /**
  * Fetch the sources any `at: file.c:/pattern/` step needs to search.
  *
- * Only files a pattern names: an anchor by line or symbol never reads the
- * text, and the excerpt under the card fetches lazily on its own.
+ * Only files a pattern names, and only at arm time: those have to be searched
+ * before a breakpoint can be planted. A `show:` range is resolved when its step
+ * fires, by which point the machine is stopped and there is all the time in the
+ * world to fetch — see {@link sourceLines}.
  */
 async function loadPatternSources(): Promise<void> {
-  if (!sourceUrl) return
   const wanted = new Set<string>()
   for (const runtime of steps) {
     const file = patternFile(runtime.step.at)
     if (file && !sources.has(file)) wanted.add(file)
   }
-  await Promise.all(
-    [...wanted].map(async (file) => {
-      try {
-        const res = await fetch(sourceUrl!(file))
-        if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) return
-        const text = await res.text()
-        if (text.trimStart().startsWith('<')) return
-        sources.set(file, text.split('\n'))
-      } catch {
-        // A tour whose sources were not shipped falls back to saying so.
-      }
-    }),
-  )
+  await Promise.all([...wanted].map((file) => sourceLines(file)))
+}
+
+/**
+ * The shipped text of one source file, by basename, fetched once.
+ *
+ * Misses go in {@link missingSources} rather than into `sources` as an empty
+ * array: `sources` means "files whose text we have", and an empty entry there
+ * would turn "this file was never shipped" into "no line in it matches", which
+ * points an author at the wrong mistake.
+ */
+async function sourceLines(file: string): Promise<string[] | null> {
+  const key = file.toLowerCase()
+  const cached = sources.get(key)
+  if (cached) return cached
+  if (missingSources.has(key) || !sourceUrl) return null
+  let lines: string[] | null = null
+  try {
+    const res = await fetch(sourceUrl(key))
+    // Vite and Pages both answer an unknown path with index.html and a 200.
+    if (res.ok && !(res.headers.get('content-type') ?? '').includes('text/html')) {
+      const text = await res.text()
+      if (!text.trimStart().startsWith('<')) lines = text.split('\n')
+    }
+  } catch {
+    // Absence reads the same as a network failure.
+  }
+  if (lines) sources.set(key, lines)
+  else missingSources.add(key)
+  return lines
 }
 
 /** Drop every planted breakpoint — leaving the tour, or turning tours off. */
@@ -556,6 +590,7 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
   return {
     step,
     anchor: runtime.anchor,
+    show: await resolveExcerpt(step, runtime.anchor),
     paused: step.stop,
     hits: runtime.hits,
     values,
@@ -563,6 +598,32 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     registers,
     threads: step.threads,
   }
+}
+
+/**
+ * Which lines the card should excerpt: the step's `show:`, or the anchor.
+ *
+ * The anchor fallback is what every tour written before `show:` existed relies
+ * on, so it is the default rather than a special case — a step with no `show:`
+ * highlights the one line the breakpoint landed on, exactly as before.
+ *
+ * A `show:` that names patterns needs the file's text, which is fetched here
+ * rather than at arm time: the machine is stopped, so a round trip costs the
+ * reader nothing, and a file only one step cares about is never fetched for a
+ * run that does not reach that step.
+ */
+async function resolveExcerpt(
+  step: TourStep,
+  anchor: ResolvedAnchor | null,
+): Promise<ResolvedShow | null> {
+  if (!step.show) {
+    return anchor?.file && anchor.line
+      ? { file: baseName(anchor.file), start: anchor.line, end: anchor.line, note: null }
+      : null
+  }
+  const file = step.show.file ?? (anchor?.file ? baseName(anchor.file) : null)
+  if (file) await sourceLines(file)
+  return resolveShow(step.show, anchor, sources)
 }
 
 /* ------------------------------------------------------------------ *
@@ -615,8 +676,36 @@ export function setEnabled(enabled: boolean): void {
   }
 }
 
+/**
+ * Say which steps armed and then never happened, now that the run is over.
+ *
+ * `arm()` already reports the steps it could not resolve. This is the other
+ * failure, and until now it was invisible: a step whose anchor resolved, whose
+ * breakpoint the stub accepted, and which the guest simply never reached. On
+ * screen that is indistinguishable from a tour still patiently waiting.
+ *
+ * It is the symptom a boot race produces — every one-shot step in early boot
+ * missing, every loop step fine — so listing them is what makes that class of
+ * bug visible at all. Reported at reset rather than on a timer, because only
+ * then is "never" a fact rather than a guess about a slow tour.
+ */
+function reportUnfired(): void {
+  if (!state.live || steps.length === 0) return
+  const missed = steps.filter((s) => s.anchor !== null && s.card === null)
+  if (missed.length === 0) return
+  const lines = missed.map((s) => {
+    const at = s.anchor
+    const where = at?.file && at.line ? `${baseName(at.file)}:${at.line}` : (at?.symbol ?? '?')
+    return `step ${s.step.index + 1} (“${s.step.title}”) at ${where} — ${
+      s.hits === 0 ? 'never reached' : `reached ${s.hits}×, but \`when: ${s.step.when}\` never matched`
+    }`
+  })
+  console.warn(`[tour] ${missed.length} step(s) armed but never fired:\n  ${lines.join('\n  ')}`)
+}
+
 /** Drop everything — a new guest is starting. */
 export function reset(): void {
+  reportUnfired()
   if (demoTimer !== undefined) clearTimeout(demoTimer)
   demoTimer = undefined
   if (armWatchdog !== undefined) clearTimeout(armWatchdog)
@@ -626,6 +715,7 @@ export function reset(): void {
   pendingFire = null
   steps = []
   sources = new Map()
+  missingSources = new Set()
   sourceUrl = null
   lineIndex = null
   lineIndexFor = null
@@ -666,11 +756,20 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
         return
       }
       runtime.hits = 1
-      runtime.card = demoCard(runtime)
       if (runtime.step.panel) revealPanelKind(runtime.step.panel)
       const seen = new Set(state.seen)
       seen.add(index)
-      publish({ current: runtime.card, seen })
+      /*
+       * The excerpt is the one part of a card the mock can get genuinely right:
+       * `show:` is resolved against the shipped source text, and no machine is
+       * needed to read a file. So an author on a bare checkout sees the real
+       * lines their range picks out, rather than a placeholder.
+       */
+      void resolveExcerpt(runtime.step, null).then((show) => {
+        if (signal.aborted) return
+        runtime.card = { ...demoCard(runtime), show }
+        publish({ current: runtime.card, seen })
+      })
       index++
       demoTimer = setTimeout(tick, DEMO_STEP_MS)
     }
@@ -688,6 +787,8 @@ function demoCard(runtime: StepRuntime): TourCard {
   return {
     step,
     anchor: null,
+    // Filled in by the caller once the source text has been read.
+    show: null,
     paused: false,
     hits: 1,
     values: step.watch.map((watch) => ({

@@ -16,6 +16,9 @@ nothing was added to it, and nothing needed to be.
 
 ```tour
 at: main
+show:
+  mark: /LED0_NODE/../GPIO_DT_SPEC_GET/
+  note: neither of these lines is code — there is nothing here to break on
 panel: gpio
 watch:
   - controller = **led as string
@@ -99,6 +102,10 @@ electrical one.
 ```tour
 at: z_impl_k_sleep
 when: first
+show:
+  file: main.c
+  mark: /k_msleep/
+  note: the call this stop is inside, two layers of inlining down
 threads: yes
 ```
 

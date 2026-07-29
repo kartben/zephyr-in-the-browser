@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseDirectives, parseTour, parseWatch } from '@/tours/parse'
+import { parseDirectives, parseLineRange, parseTour, parseWatch } from '@/tours/parse'
 
 describe('parseDirectives', () => {
   it('reads scalars, lists and one level of mapping', () => {
@@ -150,5 +150,74 @@ describe('parseTour', () => {
   it('reads a document that is not a tour as having no steps', () => {
     expect(parseTour('<!doctype html>\n<html></html>').steps).toEqual([])
     expect(parseTour('').steps).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * show:
+ * ------------------------------------------------------------------ */
+
+describe('parseLineRange', () => {
+  it('reads a numeric range', () => {
+    expect(parseLineRange('12..18')).toEqual({ start: '12', end: '18' })
+  })
+
+  it('reads a range between two patterns', () => {
+    expect(parseLineRange('/LED0_NODE/../GPIO_DT_SPEC_GET/')).toEqual({
+      start: '/LED0_NODE/',
+      end: '/GPIO_DT_SPEC_GET/',
+    })
+  })
+
+  it('does not split on a `..` inside a pattern', () => {
+    // `a..b` is a regex, not a range: the only separator is the one between
+    // the two closed patterns.
+    expect(parseLineRange('/a..b/../c/')).toEqual({ start: '/a..b/', end: '/c/' })
+  })
+
+  it('treats a lone endpoint as a single line', () => {
+    expect(parseLineRange('/k_msleep/')).toEqual({ start: '/k_msleep/', end: '/k_msleep/' })
+    expect(parseLineRange('31')).toEqual({ start: '31', end: '31' })
+  })
+
+  it('is nothing at all when empty or one-sided', () => {
+    expect(parseLineRange(undefined)).toBeNull()
+    expect(parseLineRange('  ')).toBeNull()
+    expect(parseLineRange('12..')).toBeNull()
+  })
+})
+
+describe('show:', () => {
+  const step = (directives: string) =>
+    parseTour(`---\ntour: t\n---\n\n## Step\n\n\`\`\`tour\n${directives}\n\`\`\`\n\nProse.\n`)
+
+  it('takes the short form as a mark in the anchor’s own file', () => {
+    const doc = step('at: main\nshow: 4..9')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.show).toEqual({ file: null, mark: { start: '4', end: '9' }, note: null })
+  })
+
+  it('takes a block naming another file, with a note', () => {
+    const doc = step('at: z_impl_k_sleep\nshow:\n  file: main.c\n  mark: /k_msleep/\n  note: the call')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.show).toEqual({
+      file: 'main.c',
+      mark: { start: '/k_msleep/', end: '/k_msleep/' },
+      note: 'the call',
+    })
+  })
+
+  it('is absent by default, which is what leaves a step on its anchor', () => {
+    expect(step('at: main').steps[0]!.show).toBeNull()
+  })
+
+  it('complains about a block that points nowhere', () => {
+    const doc = step('at: main\nshow:\n  note: no file and no range')
+    expect(doc.problems.join(' ')).toContain('`show:` needs')
+  })
+
+  it('complains about a malformed range rather than guessing at one', () => {
+    const doc = step('at: main\nshow:\n  file: main.c\n  mark: 12..')
+    expect(doc.problems.join(' ')).toContain('is not a line or a `start..end` range')
   })
 })

@@ -7,7 +7,11 @@ import { attach as attachGuestStats, detach as detachGuestStats } from '@/guestS
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
-import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
+import {
+  attach as attachHostMonitor,
+  detach as detachHostMonitor,
+  startFrozen as startFrozenMachine,
+} from '@/hostMonitor'
 import {
   attach as attachHostBt,
   detach as detachHostBt,
@@ -16,6 +20,8 @@ import {
 import {
   bind as bindHostGdb,
   attachSession as attachHostGdbSession,
+  bootStillFrozen,
+  clearFrozenBoot,
   detach as detachHostGdb,
   setKernelImage as setHostGdbKernelImage,
 } from '@/hostGdb'
@@ -23,6 +29,7 @@ import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
 import { loadSampleDts } from '@/devicetree'
 import {
+  FREEZE_ARGS,
   GDB_ARGS,
   HCI_ARGS,
   MONITOR_ARGS,
@@ -30,6 +37,7 @@ import {
   sampleAsset,
   sampleDtsAsset,
 } from '@/boards'
+import { hasTour } from '@/tours/catalog'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -197,6 +205,21 @@ async function emulatorFeatures(): Promise<Set<string>> {
   }
 }
 
+/**
+ * Start a machine that was frozen for a tour, when gdb turned out not to be
+ * able to.
+ *
+ * The freeze is only ever asked for alongside the monitor bridge, so there is
+ * always this second way out. Idempotent: the common case is that gdb attached
+ * and released it already, and then there is nothing here to do.
+ */
+function thawFrozenBoot(why: string): void {
+  if (!bootStillFrozen()) return
+  clearFrozenBoot()
+  console.warn(`[tour] boot was held at reset for a tour, but ${why} — starting without it`)
+  startFrozenMachine()
+}
+
 export function createQemuBackend(): PtyBackend {
   return {
     id: 'qemu',
@@ -280,6 +303,21 @@ export function createQemuBackend(): PtyBackend {
       if (features.has('monitor')) args = [...args, ...MONITOR_ARGS]
       if (features.has('gdb')) args = [...args, ...GDB_ARGS]
       if (features.has('hci') && board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
+
+      /*
+       * A toured sample boots halted, so the tour can plant its breakpoints
+       * before the guest runs past them. `hasTour` reads the page's own bundle,
+       * so this costs no fetch and cannot be wrong about an image tarball.
+       * A custom ELF is never toured. See FREEZE_ARGS.
+       *
+       * The monitor is required as well, though the tour never uses it: it is
+       * the only way to start a machine whose gdb handshake failed, and a
+       * freeze with no second way out of it could strand the guest at reset.
+       * Better to lose the race on such a build than to lose the boot.
+       */
+      const frozenForTour =
+        !custom && features.has('gdb') && features.has('monitor') && hasTour(sampleId)
+      if (frozenForTour) args = [...args, ...FREEZE_ARGS]
 
       // A cold Pyodide + Bumble load takes longer than Zephyr's 10-second HCI
       // command timeout. Prepare the controller before main() so the guest's
@@ -395,9 +433,20 @@ export function createQemuBackend(): PtyBackend {
       // exports are missing.
       attachHostMonitor(instance)
       if (features.has('gdb')) {
-        bindHostGdb(instance, board.arch)
-        // Attach after the machine is running so OPENED does not freeze boot.
-        void attachHostGdbSession()
+        bindHostGdb(instance, board.arch, frozenForTour)
+        /*
+         * Opening the stub is what releases a boot frozen for a tour, so a
+         * handshake that never happens would leave the guest at reset forever.
+         * Every failure path returns false or throws without an RSP client to
+         * continue with, so thaw through the monitor instead: the tour is lost,
+         * which is what used to happen anyway, and the sample still runs.
+         */
+        void attachHostGdbSession().then(
+          (ok) => {
+            if (!ok) thawFrozenBoot('the gdbstub did not open')
+          },
+          (err) => thawFrozenBoot(String(err)),
+        )
       }
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })

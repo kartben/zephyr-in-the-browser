@@ -143,6 +143,55 @@ hits; the first whose condition fires is the one shown.
 
 Everything below is optional, and a step with none of it is just prose.
 
+### `show:`
+
+Which source lines to excerpt and light up. **Not the same question as `at:`**,
+and worth keeping apart: a step can only break where there is code, so `at:` can
+never point at a `#define`, a static initialiser or a devicetree node — and
+those are what the interesting lessons are about. Two steps in the blinky tour
+need the split:
+
+```yaml
+at: main                                    # stops on the first statement
+show:
+  mark: /LED0_NODE/../GPIO_DT_SPEC_GET/     # …talks about two lines above it
+  note: neither of these lines is code — there is nothing here to break on
+```
+
+```yaml
+at: z_impl_k_sleep                          # stops inside the kernel
+show:
+  file: main.c                              # …shows the call in the sample
+  mark: /k_msleep/
+```
+
+| Key | Default | Means |
+| --- | --- | --- |
+| `file:` | the file `at:` landed in | basename of the file to excerpt |
+| `mark:` | the line `at:` landed on | lines to highlight |
+| `note:` | — | caption under the excerpt |
+
+`mark:` is a `start..end` range, **inclusive** at both ends (`memory: mark:` is
+end-exclusive; lines are things you point at, bytes are offsets you measure
+between). Each end is a line number or a `/pattern/`, and a lone endpoint with
+no `..` marks a single line:
+
+```yaml
+show: 31..38                       # short form: a range in the anchor's file
+show: /gpio_pin_toggle_dt/         # one line
+show: /LED0_NODE/../GPIO_DT_SPEC_GET/
+```
+
+The end pattern is searched for **at or after** the start, so `/a/../b/` means
+"from the first `a` to the next `b`" and not "…to the first `b` in the file".
+A `..` inside a pattern is not a separator, so `/a..b/../c/` splits in one
+place. Prefer patterns for the same reason `at:` does — upstream keeps editing
+these files — and note that a `show:` that resolves to nothing costs the
+excerpt, not the step: the card renders the prose without it.
+
+A step with no `show:` highlights the single line its anchor landed on, which is
+what every tour written before this existed does.
+
 ### `panel:`
 
 A `PanelKind` from `src/boards.ts` (`gpio`, `led`, `i2c`, `net`, …). The device
@@ -231,16 +280,51 @@ Debug → CPU). `threads:` shows the kernel thread list at this stop — states,
 priorities, stack use — which needs `CONFIG_DEBUG_THREAD_INFO`, on in every
 packaged image.
 
+## Where things come from
+
+Two artifacts, on two release cadences, and it is worth knowing which is which.
+
+| | ships with | changes when |
+| --- | --- | --- |
+| the tour | **the page** (`import.meta.glob`) | you push to this repo |
+| the sample's sources | the guest image tarball | somebody rebuilds Zephyr |
+| the ELF (symbols, DWARF) | the guest image tarball | somebody rebuilds Zephyr |
+
+So a tour can be newer than the sources it searches. That is why `at:` takes a
+`|` fallback, and why a `show:` that resolves to nothing is a missing excerpt
+rather than an error. Nothing yet checks that the shipped sources and the booted
+ELF came from the same build. DWARF 5 records an MD5 of each source file in the
+line-table header (`DW_LNCT_MD5`), and `src/debug/dwarfLines.ts` already reads
+past it, so checking the shipped copy against the ELF that actually booted is
+the obvious next step — and would let a stale excerpt say so instead of quietly
+highlighting the wrong line.
+
 ## How it runs
 
-1. The page loads `<app>.tour.md` beside the ELF, at the same time it starts the
+1. The page loads the tour out of its own bundle, at the same time it starts the
    emulator.
-2. Opening the gdbstub stops the machine once, early in boot. The tour plants
-   every step's breakpoint at that stop, before the guest can run past `main()`.
+2. **A toured sample boots halted.** QEMU is given `-S`, so the machine sits at
+   reset while the page opens the gdbstub and the tour plants every step's
+   breakpoint. The gdb `continue` at the end of the attach is what starts the
+   guest.
 3. Each stop is matched to a step by address. A stop nobody claims — the
    reader's own breakpoint, or the Pause button — is left alone.
 4. A firing step reads its values, reveals its panel, and puts up the card.
    Continue resumes.
+
+Step 2 is not a nicety. Without it the page is in a race it usually loses
+quietly: QEMU boots the moment the module starts, and the tour cannot plant
+anything until a chardev has opened and an RSP handshake has finished — by which
+time Zephyr is well past `main()`. Every one-shot step in early boot would
+simply never fire, and would look exactly like a tour still waiting to start.
+Loop steps hid it by coming round again.
+
+The freeze is only asked for when the emulator has the **monitor** bridge as
+well as the gdbstub, because the monitor is the only way to start a machine
+whose gdb handshake failed. A tour is worth a race; it is not worth a guest that
+never boots. When a run ends, any step that armed and never fired is listed in
+the console — the symptom this whole arrangement exists to prevent, made visible
+in case it happens anyway.
 
 Steps are planted all at once, not one ahead of the reader: a tour is not
 necessarily linear, and whichever step the guest reaches first is the one that
@@ -281,11 +365,12 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | --- | --- |
 | The tours | `tours/*.tour.md` |
 | File format | `src/tours/parse.ts` |
-| Anchors | `src/tours/anchors.ts`, `src/debug/dwarfLines.ts` |
+| Anchors and `show:` | `src/tours/anchors.ts`, `src/debug/dwarfLines.ts` |
 | Expressions | `src/tours/expr.ts` |
 | Hit conditions | `src/tours/when.ts` |
 | Engine | `src/tours/store.ts` |
 | Gallery badge | `src/tours/guided.ts` |
-| UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx` |
+| UI | `src/components/TourCard.tsx`, `SourceSnippet.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx` |
+| Booting halted | `FREEZE_ARGS` in `src/boards.ts`, `src/backends/qemu.ts` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |
 | Packaging | `tools/build-zephyr-image.sh`, the `tours()` plugin in `vite.config.ts` |

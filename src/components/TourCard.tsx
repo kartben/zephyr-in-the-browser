@@ -74,10 +74,13 @@ export function TourCard({ board, sampleId }: Props) {
 
   if (!card || !state.enabled) return null
 
-  const { step, anchor, paused, values, memory, registers, threads } = card
+  const { step, anchor, show, paused, values, memory, registers, threads } = card
   const total = state.doc?.steps.length ?? 0
-  const src = anchor?.file
-    ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, baseName(anchor.file))}`
+  // The excerpt follows `show:`, which need not be the file the breakpoint
+  // landed in — blinky's `k_msleep` step stops in the kernel and shows the call
+  // in the sample. Falls back to the anchor when the step said nothing.
+  const src = show
+    ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, show.file)}`
     : null
 
   const where = anchor
@@ -168,7 +171,9 @@ export function TourCard({ board, sampleId }: Props) {
             </div>
           )}
 
-          {src && anchor?.line && <SourceSnippet src={src} line={anchor.line} />}
+          {src && show && (
+            <SourceSnippet src={src} start={show.start} end={show.end} note={show.note} />
+          )}
 
           {state.problems.length > 0 && (
             <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-600 dark:text-amber-400">
