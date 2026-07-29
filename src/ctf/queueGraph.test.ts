@@ -64,6 +64,31 @@ describe('queueFlowEvents', () => {
     expect(scores.get(thr)).toBe(0)
   })
 
+  it('does not attribute an ISR queue operation to the interrupted thread', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thread = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thread), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(thread), ...encName('worker')]),
+        ...record(200, 0x1b, []),
+        ...record(220, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+        ...record(240, 0x1c, []),
+        ...record(260, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ queueId: q, threadId: null, ts: 220 })
+    expect(flow[1]).toMatchObject({ queueId: q, threadId: thread, ts: 260 })
+
+    const chart = queueChartEvents(reader.tr)
+    expect(chart[0]).toMatchObject({ queueId: q, threadId: null, ts: 220 })
+    expect(chart[1]).toMatchObject({ queueId: q, threadId: thread, ts: 260 })
+  })
+
   it('anchors flow marks on put enter so ready is not before the edge', () => {
     const reader = new TraceReader(fallbackDefs())
     const producer = 0x1000
