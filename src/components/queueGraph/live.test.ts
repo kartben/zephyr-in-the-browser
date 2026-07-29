@@ -29,6 +29,7 @@ function trace(): Trace {
       [200, 300, 3],
     ],
     isrSpans: [],
+    isrOpenStart: null,
     states: new Map(),
     stateStarts: new Map(),
     t0: 0,
