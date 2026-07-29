@@ -82,7 +82,10 @@ export function HexView({
   const [follow, setFollow] = useState(true)
 
   const windowed = data.length > WINDOW_BYTES
-  const autoBase = windowed ? Math.floor(pointer / WINDOW_BYTES) * WINDOW_BYTES : 0
+  // A chip with no read pointer reports -1 (see debugMemoryChip, hostDisk),
+  // which would floor to a negative page and print negative addresses. Only
+  // visible on a medium big enough to be windowed.
+  const autoBase = windowed ? Math.floor(Math.max(0, pointer) / WINDOW_BYTES) * WINDOW_BYTES : 0
   const base = windowed ? (follow ? autoBase : pageBase) : 0
   const viewLen = windowed ? Math.min(WINDOW_BYTES, Math.max(0, data.length - base)) : data.length
   const view = useMemo(() => data.subarray(base, base + viewLen), [data, base, viewLen])
