@@ -42,19 +42,9 @@ const MIN_FIT_SCALE_FACTOR = 0.35
 const MAX_SCALE = 4
 
 type DisplayLayoutNode = LayoutNode & {
-  batchMinDepth?: number
   batchMaxDepth?: number
   batchDurationMs?: number
   batchSequence?: number
-}
-
-function batchDepthLabel(node: DisplayLayoutNode): string {
-  if (node.batchMinDepth == null || node.batchMaxDepth == null) return ''
-  const range =
-    node.batchMinDepth === node.batchMaxDepth
-      ? compactCount(node.batchMinDepth)
-      : `${compactCount(node.batchMinDepth)}–${compactCount(node.batchMaxDepth)}`
-  return ` · batch ${range}`
 }
 
 function markerId(action: FlowAction): string {
@@ -160,7 +150,6 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
       </text>
       <text x={node.width - 18} y={24} textAnchor="end" fill={MUTED} fontSize={9.5}>
         msgq · {compactCapacity(node.depth, node.capacity)}
-        {batchDepthLabel(node)}
       </text>
       {showExactSlots ? (
         Array.from({ length: visibleSlots }, (_, index) => {
@@ -268,7 +257,6 @@ function FifoShape({ node }: { node: DisplayLayoutNode }) {
       </text>
       <text x={node.width - 18} y={24} textAnchor="end" fill={MUTED} fontSize={9.5}>
         {node.kind} · depth {node.depth}
-        {batchDepthLabel(node)}
       </text>
       <line x1={42} y1={centerY} x2={node.width - 42} y2={centerY} stroke="#334155" strokeWidth={2} />
       {Array.from({ length: itemCount }, (_, index) => {
@@ -318,7 +306,6 @@ function VerticalStackShape({ node }: { node: DisplayLayoutNode }) {
       </text>
       <text x={16} y={40} fill={MUTED} fontSize={9.5}>
         {fixed ? compactCapacity(node.depth, node.capacity) : `depth ${compactCount(node.depth)}`}
-        {batchDepthLabel(node)}
       </text>
       <path
         d={`M${bodyX},${bodyY}V${bodyY + bodyH}H${bodyX + bodyW}V${bodyY}`}
@@ -492,7 +479,6 @@ export interface QueueGraphNodeState {
   detail?: string
   depth?: number
   capacity?: number | null
-  batchMinDepth?: number
   batchMaxDepth?: number
   batchDurationMs?: number
   batchSequence?: number

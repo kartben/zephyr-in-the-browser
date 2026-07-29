@@ -81,7 +81,6 @@ export function QueueGraph({
     for (const [queueId, envelope] of depthEnvelopes) {
       const node = state.get(liveObjectNodeId(queueId))
       if (!node) continue
-      node.batchMinDepth = envelope.minDepth
       node.batchMaxDepth = envelope.maxDepth
       node.batchDurationMs = OCCUPANCY_ENVELOPE_MS
       node.batchSequence = envelope.sequence
