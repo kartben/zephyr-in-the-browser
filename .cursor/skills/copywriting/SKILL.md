@@ -1,6 +1,6 @@
 ---
 name: copywriting
-description: Write user-facing copy for Zephyr in the Browser aimed at people learning Zephyr. Use when drafting or editing UI strings, tour prose, gallery descriptions, onboarding, empty states, tooltips, error messages, README blurbs, or any learner-facing text. Do not use for maintainer docs under docs/ about building the emulator.
+description: Write user-facing copy for Zephyr in the Browser aimed at people learning Zephyr. Use when drafting or editing UI strings, tour prose, gallery descriptions, onboarding, empty states, tooltips, error messages, README blurbs, or any learner-facing text. Enforces clutter-free UI (tooltips over subtitles; consistent subtitle use when present). Do not use for maintainer docs under docs/ about building the emulator.
 ---
 
 # Copywriting (Zephyr learners)
@@ -32,6 +32,16 @@ If a sentence only helps someone who already ships firmware for a living, cut it
 Always use the same word for the same thing. Prefer product and Zephyr terms from [terminology.md](terminology.md). Do not invent synonyms for UI chrome or Zephyr concepts already named there.
 
 When unsure of a Zephyr term, check the [Zephyr glossary](https://docs.zephyrproject.org/latest/glossary.html) or the Zephyr knowledge sources before coining language.
+
+## UI density
+
+Keep the UI **as clutter-free as possible**.
+
+- Prefer a single clear label per control, row, or widget.
+- **Tooltips are fine** for extra detail, units, or “what is this?” — put secondary text there, not under the label.
+- **Do not add subtitles** (secondary lines under a title/label) by default.
+- When a given type or level of UI *does* use a subtitle, **every peer of that type/level must use one the same way** — same role, similar length, same information kind. Never mix subtitled and subtitle-free siblings (e.g. some dock rows with a blurb and others without, or one picker entry with a description line and its neighbors bare).
+- If you cannot write a useful subtitle for every peer, drop subtitles for that level and use tooltips or tour/help prose instead.
 
 ## What belongs in learner copy
 
@@ -68,5 +78,6 @@ Small string tweaks, typo fixes, and aligning an existing phrase to [terminology
 
 - [ ] A Zephyr learner is the implied reader, not a tool builder
 - [ ] Terms match [terminology.md](terminology.md) — no alternate names for the same UI or Zephyr concept
+- [ ] UI stays clutter-free: no casual subtitles; tooltips for secondary detail; any subtitle pattern is consistent across peers of the same type/level
 - [ ] No emulator/build internals unless the learner must know them to act
 - [ ] Large new copy blocks are flagged for human review
