@@ -61,7 +61,7 @@ function Values({ values, live }: { values: TourValue[]; live: boolean }) {
       ))}
       {!live && (
         <p className="px-2 py-1 text-[10.5px] text-muted-foreground/80">
-          Values come from the running guest — start a sample to see them.
+          Values come from the running emulator. Start a sample to see them.
         </p>
       )}
     </dl>
@@ -103,7 +103,7 @@ export function TourCard({ board, sampleId }: Props) {
           {paused && (
             <span
               className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
-              title="The guest is paused on this line"
+              title="The emulator is paused on this line"
             >
               <Pause className="size-2.5" aria-hidden />
               paused
@@ -201,7 +201,7 @@ export function TourCard({ board, sampleId }: Props) {
             </Button>
           )}
           {paused && (
-            <span className="text-[11px] text-muted-foreground">resumes the guest</span>
+            <span className="text-[11px] text-muted-foreground">resumes the emulator</span>
           )}
           <button
             type="button"

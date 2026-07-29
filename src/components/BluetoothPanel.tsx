@@ -57,8 +57,8 @@ export function BluetoothView({ snap, live }: { snap: BtSnapshot; live: boolean 
     <div className="space-y-3 px-3 py-2.5 text-[12px]">
       {!live && (
         <p className="text-muted-foreground">
-          Bluetooth isn’t available on this Board yet. Pick a Bluetooth sample
-          once the guest is ready.
+          Bluetooth isn’t available on this board yet. Pick a Bluetooth sample
+          once the emulator is ready.
         </p>
       )}
 

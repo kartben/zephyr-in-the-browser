@@ -58,7 +58,7 @@ export function KernelObjectsPane({
   if (!snap.objectCores) {
     return (
       <div className="rounded-md border border-dashed border-border/70 px-3 py-3 text-[11px] leading-relaxed text-foreground/60">
-        No kernel object list in this App. Use a build with object-core support
+        No kernel object list in this app. Use a build with object-core support
         (and symbols) to inspect queues, mutexes, and threads here.
       </div>
     )

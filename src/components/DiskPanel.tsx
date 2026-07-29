@@ -70,7 +70,7 @@ export function DiskBody({
       description: 'FAT volume on this block disk',
       loading: 'Reading the disk…',
       empty:
-        'Nothing formatted yet — the guest mkfs’s the image on its first mount, then this fills in.',
+        'Nothing formatted yet. Waiting for the emulator to mkfs on first mount.',
       failed: 'Could not read a FAT volume from this disk image.',
       mountedEmpty: 'Formatted, but empty.',
     }),
@@ -80,7 +80,7 @@ export function DiskBody({
   if (!snap.available) {
     return (
       <p className="px-3 py-3 text-xs text-muted-foreground">
-        Waiting for the disk — it appears once the guest starts.
+        Waiting for the disk. It appears once the emulator starts.
       </p>
     )
   }
@@ -142,7 +142,7 @@ export function DiskBody({
               tone: written ? 'bg-sky-500/70' : 'bg-muted',
               label: `block ${i} · 0x${addr.toString(16)} · ${written ? 'has data' : 'zero'}${
                 selected ? ' · in hex view' : ''
-              }${compact ? '' : ' — click to show in hex'}`,
+              }${compact ? '' : '. Click to show in hex'}`,
             }
           }}
         />

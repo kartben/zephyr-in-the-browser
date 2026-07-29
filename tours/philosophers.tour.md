@@ -41,15 +41,15 @@ when: first
 highlight: /Dijkstra/ + 7
 ```
 
-Each philosopher needs two forks and there are only six, so the obvious order —
-“take the one on my left, then the one on my right” — deadlocks: everyone waits
+Each philosopher needs two forks and there are only six, so the obvious order
+("take the one on my left, then the one on my right") deadlocks: everyone waits
 forever for a neighbour.
 
 The fix is classic: **always take the lower-numbered fork first**. Five
 philosophers do the obvious thing, the last one swaps its order, and that single
 asymmetry makes a cycle of waiters impossible. No timeout, no retry, no arbiter.
 
-The highlighted block is the asymmetry — only the last philosopher swaps fork
+The highlighted block is the asymmetry: only the last philosopher swaps fork
 order.
 
 ## A fork is a mutex
@@ -66,8 +66,8 @@ watch:
   - lock count = $arg0+3p as u32
 ```
 
-Each fork is a `k_mutex`. The stop focuses the mutex this philosopher is locking
-— see its owner and waiters in **Debug**.
+Each fork is a `k_mutex`. The stop focuses the mutex this philosopher is locking.
+See its owner and waiters in **Debug**.
 
 A mutex tracks which **thread** owns it, how many times that thread has locked
 it (locking one you already hold just counts up), and who is waiting. No owner
@@ -86,7 +86,7 @@ threads: yes
 objects: mutex
 ```
 
-After several meals, this philosopher holds both forks while eating — those two
+After several meals, this philosopher holds both forks while eating. Those two
 mutexes name it as owner.
 
 A waiter does **not** spin-poll. The **kernel** blocks that **thread** (off the

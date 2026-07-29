@@ -166,10 +166,10 @@ export function GuestBrowserDialog({
         <DialogHeader className="border-b border-border px-4 pb-3 pr-12 pt-4">
           <DialogTitle className="flex items-center gap-2">
             <Globe className="size-4 text-muted-foreground" aria-hidden />
-            Guest browser
+            Emulator browser
           </DialogTitle>
           <DialogDescription>
-            Pages served by the guest, opened through Network.
+            Pages served by the emulator, opened through Network.
           </DialogDescription>
         </DialogHeader>
 
@@ -198,7 +198,7 @@ export function GuestBrowserDialog({
           </Button>
           <input
             type="text"
-            aria-label="Guest URL"
+            aria-label="Emulator URL"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             onKeyDown={(e) => {
@@ -235,7 +235,7 @@ export function GuestBrowserDialog({
           {srcdoc ? (
             <iframe
               ref={iframeRef}
-              title="Guest page"
+              title="Emulator page"
               sandbox="allow-scripts"
               srcDoc={srcdoc}
               className="size-full min-h-[20rem] border-0 bg-white"

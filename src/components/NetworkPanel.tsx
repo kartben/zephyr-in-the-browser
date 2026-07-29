@@ -73,7 +73,7 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
                   ? 'static'
                   : snapshot.dhcpState === 'offered'
                     ? 'DHCP offered…'
-                    : 'waiting for the guest'}
+                    : 'waiting for the emulator'}
             </span>
             <Button
               variant="ghost"
@@ -99,8 +99,8 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
 
         <Disclosure title="Throughput" meta={formatBps(snapshot.txBps)} {...fold('throughput', true)}>
           <div className="space-y-2">
-            <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
-            <ThroughputRow label="RX" hint="browser → guest" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
+            <ThroughputRow label="TX" hint="emulator → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
+            <ThroughputRow label="RX" hint="browser → emulator" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
             <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
               ↑ {snapshot.txPackets} pkts · {formatBytes(snapshot.txBytes)}
               {'   '}↓ {snapshot.rxPackets} pkts · {formatBytes(snapshot.rxBytes)}
@@ -148,7 +148,7 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
           />
         </Disclosure>
 
-        <Disclosure title="Talk to the guest" {...fold('tools', false)}>
+        <Disclosure title="Talk to the emulator" {...fold('tools', false)}>
           <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
         </Disclosure>
       </div>
@@ -163,24 +163,24 @@ function AboutThisNetwork() {
   return (
     <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
       <p>
-        <span className="font-medium">This network is the page.</span> Every frame the guest sends
-        lands in JavaScript, which answers as gateway, DHCP, DNS — and as every remote host. No
+        <span className="font-medium">This network is the page.</span> Every frame the emulator
+        sends lands in JavaScript, which answers as gateway, DHCP, DNS, and as every remote host. No
         packet reaches the real internet.
       </p>
       <p>
         <span className="font-medium text-success">Real:</span> DNS answers (looked up via
-        DNS-over-HTTPS) · HTTP the guest sends to any host&apos;s :80/:8080, re-issued as a browser{' '}
-        <code className="font-mono">fetch()</code> — CORS decides what is readable,{' '}
+        DNS-over-HTTPS). HTTP the emulator sends to any host&apos;s :80/:8080, re-issued as a browser{' '}
+        <code className="font-mono">fetch()</code>. CORS decides what is readable;{' '}
         <code className="font-mono">host.internal</code> always works.
       </p>
       <p>
-        <span className="font-medium text-warning">Simulated:</span> ping replies — every address
-        &quot;answers&quot; because the page does, not the host · SNTP (your browser&apos;s clock) ·
-        the echo and zperf peers at 192.0.2.x.
+        <span className="font-medium text-warning">Simulated:</span> ping replies (every address
+        &quot;answers&quot; because the page does, not the host). SNTP (your browser&apos;s clock).
+        The echo and zperf peers at 192.0.2.x.
       </p>
       <p>
         <span className="font-medium text-destructive">Impossible:</span> HTTPS or raw TCP/UDP to
-        real hosts — browser pages have no sockets. Servers the guest runs are reachable only
+        real hosts (browser pages have no sockets). Servers the emulator runs are reachable only
         through the GET and Browser tools below.
       </p>
       {/* The passt-uplink plan used to be a fifth paragraph here. A roadmap is
@@ -372,7 +372,7 @@ function ToolsSection({
         <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
           <input
             type="text"
-            aria-label="URL to fetch from the guest"
+            aria-label="URL to fetch from the emulator"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -412,7 +412,7 @@ function ToolsSection({
         <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
           <input
             type="text"
-            aria-label="Payload to echo off the guest"
+            aria-label="Payload to echo off the emulator"
             value={echoText}
             onChange={(e) => setEchoText(e.target.value)}
             className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-[11px] text-foreground outline-none"
@@ -432,7 +432,7 @@ function ToolsSection({
       )}
       {!ready && (
         <p className="text-[11px] text-muted-foreground">
-          Tools unlock once the guest has an IP address.
+          Tools unlock once the emulator has an IP address.
         </p>
       )}
     </div>

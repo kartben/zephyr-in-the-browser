@@ -19,11 +19,11 @@ panel: gpio
 ```
 
 **Devicetree** describes the board’s hardware. `GPIO_DT_SPEC_GET` looks up the
-`led0` alias at **build** time and fills a `gpio_dt_spec` — controller, pin, and
-flags — so this file never hard-codes a pin number.
+`led0` alias at **build** time and fills a `gpio_dt_spec` (controller, pin, and
+flags), so this file never hard-codes a pin number.
 
 That lookup already happened before `main` ran. Change boards by changing
-devicetree (or the **Board**), not by editing this sample’s pin math.
+devicetree (or the board picker), not by editing this sample’s pin math.
 
 ## What devicetree chose, arriving at the driver
 
@@ -45,8 +45,8 @@ memory:
 bound to the controller to set the pin up.
 
 Check the GPIO / LED rows in the **device dock**: the pin is an output.
-`GPIO_OUTPUT_ACTIVE` means “start in the active state,” which is **not** the same
-as logic high — if the pin is `GPIO_ACTIVE_LOW` in devicetree, active means
+`GPIO_OUTPUT_ACTIVE` means “start in the active state,” which is not the same
+as logic high. If the pin is `GPIO_ACTIVE_LOW` in devicetree, active means
 driven low. The sample code stays the same either way.
 
 ## One call, and no register write in sight
@@ -61,8 +61,8 @@ The loop body is `gpio_pin_toggle_dt()`. The GPIO API flips the pin’s logical
 level and handles active-low for you.
 
 Watch the LED in the **device dock** (and the `LED state:` lines in the
-**terminal**). You do not need to know how this Board wires GPIO underneath —
-the sample only talks to the API.
+**terminal**). You do not need to know how this board wires GPIO underneath.
+The sample only talks to the API.
 
 ## `k_msleep()` gives the CPU up
 
@@ -73,7 +73,7 @@ threads: yes
 ```
 
 This is not a busy-wait. `k_msleep()` asks the **kernel** to wake this **thread**
-later, takes it off the run queue, and arms a timer so another thread can run —
+later, takes it off the run queue, and arms a timer so another thread can run,
 or the **idle** thread can run until the timeout.
 
 Open the thread list in **Debug** on this stop (`main` is blinky; it is about to
@@ -91,7 +91,7 @@ panel: led
 ```
 
 Ten blinks later, deeper in the stack, a single-pin toggle becomes a **bitmask**
-on the port — `16` is `BIT(4)`, pin 4 and nothing else.
+on the port: `16` is `BIT(4)`, pin 4 and nothing else.
 
 Prefer watching the LED again over reading the mask. If you want the public API
 for flipping several pins at once, that is `gpio_port_toggle_bits()`.

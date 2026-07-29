@@ -136,7 +136,7 @@ export function PartsCatalog() {
           <DialogTitle>Supported parts</DialogTitle>
           {/* The columns already say manufacturer / compatible / datasheet. */}
           <DialogDescription>
-            Chips you can attach on I²C and SPI while the guest runs.
+            Chips you can attach on I²C and SPI while the emulator runs.
           </DialogDescription>
         </DialogHeader>
 

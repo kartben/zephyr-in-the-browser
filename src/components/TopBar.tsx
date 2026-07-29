@@ -101,8 +101,8 @@ export function TopBar({
           disabled={status === 'loading'}
           title={
             hardRestart
-              ? 'Reset the MCU — guest reboots; wiring and flash stay'
-              : 'Restart the guest'
+              ? 'Reset the MCU. The emulator reboots; wiring and flash stay'
+              : 'Restart the emulator'
           }
         >
           {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
