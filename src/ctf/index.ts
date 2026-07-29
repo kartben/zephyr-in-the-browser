@@ -77,6 +77,23 @@ export {
   type NetCoreSample,
 } from './netSockets'
 export {
+  reconstructSync,
+  syncCountAt,
+  syncKindLabel,
+  syncLabel,
+  syncOpLabel,
+  syncWindowStats,
+  nearestSyncMark,
+  type SyncKind,
+  type SyncOp,
+  type SyncMark,
+  type SyncHoldSeg,
+  type SyncWaitSeg,
+  type SyncHandoff,
+  type SyncCountSample,
+  type SyncSeries,
+} from './sync'
+export {
   queueFlowEvents,
   queueChartEvents,
   nearestQueueChartEvent,

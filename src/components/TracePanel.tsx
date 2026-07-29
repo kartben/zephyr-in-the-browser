@@ -1,5 +1,5 @@
 /**
- * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Networking.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Sync + Networking.
  *
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
@@ -7,7 +7,8 @@
  * lifo / k_queue / k_stack) under the threads, with dotted put/get connectors
  * from the actor context to each queue rail. Lane groups (THREADS, QUEUES, …)
  * carry small uppercase section headers. Queues: per-object flow graph + depth
- * from put/put_front/get exits.
+ * from put/put_front/get exits. Sync: mutex / semaphore / condvar hold–wait–
+ * handoff lanes (object-centric twin of Timeline).
  */
 
 import {
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react'
 import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
+import { SyncView, SYNC_LABEL_W } from '@/components/SyncView'
 import {
   Select,
   SelectContent,
@@ -149,7 +151,7 @@ function laneMetricsFor(size: LaneSize): LaneMetrics {
   return { laneH, msgqLaneH: Math.round(laneH * 1.5) }
 }
 
-type TraceTab = 'schedule' | 'queues' | 'net'
+type TraceTab = 'schedule' | 'queues' | 'sync' | 'net'
 
 type MsgqSwimLane = { id: number; label: string; kind: string; series: QueueSeries }
 
@@ -189,10 +191,15 @@ function fitLabel(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
 }
 
 const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue', 'stack'])
+const SYNC_KINDS = new Set(['mutex', 'sem', 'condvar'])
 
 type IpcObjectMetadata = {
   names: Map<number, string>
   capacities: Map<number, number>
+}
+
+type SyncObjectMetadata = {
+  names: Map<number, string>
 }
 
 function ipcObjectMetadata(objects: ObjectCoreSnapshot | null): IpcObjectMetadata {
@@ -221,6 +228,20 @@ function ipcObjectMetadata(objects: ObjectCoreSnapshot | null): IpcObjectMetadat
     }
   }
   return { names, capacities }
+}
+
+function syncObjectMetadata(objects: ObjectCoreSnapshot | null): SyncObjectMetadata {
+  const names = new Map<number, string>()
+  for (const o of hostGdb.getWaitObjects()) {
+    if (o.kind && SYNC_KINDS.has(o.kind)) names.set(o.addr, o.name)
+  }
+  for (const type of objects?.types ?? []) {
+    if (!['MUTX', 'SEM4', 'COND'].includes(type.code)) continue
+    for (const object of type.objects) {
+      names.set(object.addr, object.name)
+    }
+  }
+  return { names }
 }
 
 /** Stable queue swim lanes for Timeline overlay — pipeline order, named when known. */
@@ -484,7 +505,7 @@ function resolveMsgqHover(
   return { queueId: msgq.queueId, eventIndex: msgq.index, overQueueLane: false }
 }
 
-const TRACE_TABS = ['schedule', 'queues', 'net'] as const satisfies readonly TraceTab[]
+const TRACE_TABS = ['schedule', 'queues', 'sync', 'net'] as const satisfies readonly TraceTab[]
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -1015,7 +1036,7 @@ function plotBandForTab(tab: TraceTab, cssH: number): { plotTop: number; plotBot
   return { plotTop: AXIS_H, plotBottom: Math.max(AXIS_H + 1, cssH) }
 }
 
-/** CTF thread timeline / queues / networking — the body of the Trace dock row. */
+/** CTF thread timeline / queues / sync / networking — the body of the Trace dock row. */
 export function TraceBody() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const gdbSnap = useSyncExternalStore(
@@ -1045,6 +1066,7 @@ function TracePanelBody({
   const [follow, setFollow] = useState(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const queuesSvgRef = useRef<SVGSVGElement>(null)
+  const syncCanvasRef = useRef<HTMLCanvasElement>(null)
   const netCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
@@ -1088,7 +1110,8 @@ function TracePanelBody({
   const followRef = useRef(follow)
   followRef.current = follow
   viewRef.current = view
-  const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
+  const gutterW =
+    tab === 'queues' ? QUEUES_LABEL_W : tab === 'sync' ? SYNC_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
   const yZoom = yZoomByTab[tab] ?? null
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
@@ -1110,6 +1133,7 @@ function TracePanelBody({
 
   const tr = snap.trace
   const ipcMetadata = useMemo(() => ipcObjectMetadata(objectCores), [objectCores])
+  const syncMetadata = useMemo(() => syncObjectMetadata(objectCores), [objectCores])
   const msgqEvents = useMemo(
     () => (tr ? queueFlowEvents(tr) : []),
     // revision bumps whenever the event ring changes
@@ -1771,7 +1795,7 @@ function TracePanelBody({
   // Compact chrome sits immediately above the time chart (Timeline / Net canvas,
   // or between the msgq flow graph and depth chart) — same idiom as CAN lanes.
   /**
-   * The chart chrome, shared by all three tabs.
+   * The chart chrome, shared by all four tabs.
    *
    * Timeline used to keep its own hand-written copy of this row, differing only
    * by two extra controls at the end — which is how it came to be the one tab
@@ -1855,12 +1879,18 @@ function TracePanelBody({
           [
             ['schedule', 'Timeline'],
             ['queues', 'Queues'],
+            ['sync', 'Sync'],
             ['net', 'Networking'],
           ] as const
         ).map(([id, label]) => (
           <button
             key={id}
             type="button"
+            title={
+              id === 'sync'
+                ? 'Mutex, semaphore, and condition-variable hold / wait / handoff'
+                : undefined
+            }
             className={cn(
               'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
               tab === id
@@ -1890,6 +1920,23 @@ function TracePanelBody({
           boxZoomArmed={boxZoomArmed}
           yZoom={yZoom}
         />
+      ) : tab === 'sync' && view ? (
+        <div className="flex flex-col gap-1">
+          {chartToolbar}
+          <SyncView
+            tr={tr}
+            view0={view.t0}
+            view1={view.t1}
+            follow={follow}
+            eventCount={snap.revision}
+            nameById={syncMetadata.names}
+            canvasRef={syncCanvasRef}
+            canvasProps={canvasHandlers}
+            overlay={boxZoomOverlay}
+            boxZoomArmed={boxZoomArmed}
+            yZoom={yZoom}
+          />
+        </div>
       ) : tab === 'net' && view ? (
         <div className="flex flex-col gap-1">
           {chartToolbar}
