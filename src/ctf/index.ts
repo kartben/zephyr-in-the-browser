@@ -27,6 +27,7 @@ export {
   forEachStateInView,
   stateAt,
   isrActiveAt,
+  scheduledThreadAt,
   threadRunningAt,
   windowStats,
   contextSwitchesIn,
