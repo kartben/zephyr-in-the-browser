@@ -196,7 +196,7 @@ export function Dock({ boardId }: { boardId: string }) {
           <SectionHeading>Devices</SectionHeading>
           {inventory.nodes.length === 0 ? (
             <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              None exposed yet.
+              No peripherals yet — wait for the guest to boot.
             </p>
           ) : (
             rendered

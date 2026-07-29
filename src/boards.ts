@@ -133,7 +133,7 @@ export function withA53TraceVariants(samples: GuestSample[]): GuestSample[] {
       ...sample,
       id: `${sample.id}_trace`,
       label: `${sample.label} · traced`,
-      description: `${sample.description} — CTF tracing + thread debug`,
+      description: `${sample.description} — opens Trace and Debug`,
       primaryPanels: uniquePanels([...(sample.primaryPanels ?? []), 'trace', 'debug']),
       tracedFrom: sample.id,
     })
@@ -231,7 +231,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   {
     id: 'gnss',
     label: 'GNSS',
-    description: 'Parses browser-fed NMEA fixes over UART',
+    description: 'Parses NMEA fixes from the GNSS peripheral over UART',
     zephyrSample: 'samples/drivers/gnss',
     primaryPanels: ['gnss'],
   },
@@ -257,7 +257,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // chain, so it dodges the TCI k_sleep stall.
     id: 'dhcp',
     label: 'DHCP Client',
-    description: 'Acquires an IPv4 lease from the browser network',
+    description: 'Acquires an IPv4 lease — watch it in Network',
     zephyrSample: 'samples/net/dhcpv4_client',
     primaryPanels: ['net'],
   },
@@ -265,7 +265,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // Steady state blocks in accept()/recv(), woken by injected frames.
     id: 'http_server',
     label: 'HTTP Server',
-    description: 'Serves a page at 192.0.2.1:8080 — fetch it from the Network panel',
+    description: 'Serves a page at 192.0.2.1:8080 — fetch it from Network',
     zephyrSample: 'samples/net/sockets/dumb_http_server',
     primaryPanels: ['net'],
     guestHttpUrl: 'http://192.0.2.1:8080/',
@@ -274,7 +274,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // Run-to-completion: one DNS lookup, one GET, prints, exits.
     id: 'http_get',
     label: 'HTTP GET',
-    description: 'DNS + TCP fetch of http://google.com through the page proxy',
+    description: 'DNS + TCP fetch of http://google.com — watch traffic in Network',
     zephyrSample: 'samples/net/sockets/http_get',
     primaryPanels: ['net'],
   },
@@ -289,7 +289,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // shows up as the panel's LED0 flashing once a second.
     id: 'blinky',
     label: 'Blinky',
-    description: 'Blinks LED0 on the host GPIO bridge',
+    description: 'Blinks LED0 — watch it in the device dock',
     zephyrSample: 'samples/basic/blinky',
     primaryPanels: ['led', 'gpio'],
   },
@@ -316,7 +316,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     // lights led0 (pin 4) — click SW0 in the Keys panel to press it.
     id: 'basic_button',
     label: 'Button',
-    description: 'A host GPIO button lights an LED via the input subsystem',
+    description: 'Press SW0 in the dock; the input subsystem lights an LED',
     zephyrSample: 'samples/basic/button',
     primaryPanels: ['keys', 'led', 'gpio'],
   },
@@ -326,35 +326,35 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'gnss',
     label: 'GNSS',
-    description: 'Parses browser-fed NMEA fixes over UART',
+    description: 'Parses NMEA fixes from the GNSS peripheral over UART',
     zephyrSample: 'samples/drivers/gnss',
     primaryPanels: ['gnss'],
   },
   {
     id: 'display',
     label: 'Display',
-    description: 'Draws Zephyr’s display test pattern through qemu,ramfb',
+    description: 'Draws Zephyr’s display test pattern on the Display peripheral',
     zephyrSample: 'samples/drivers/display',
     primaryPanels: ['display'],
   },
   {
     id: 'touch',
     label: 'Touch Events',
-    description: 'Draws a cross wherever you click the display, over virtio-input',
+    description: 'Draws a cross wherever you click the Display',
     zephyrSample: 'samples/subsys/input/draw_touch_events',
     primaryPanels: ['display'],
   },
   {
     id: 'lvgl_music',
     label: 'Music Player',
-    description: 'LVGL’s music player on qemu,ramfb — click its controls to drive it',
+    description: 'LVGL music player on the Display — click its controls to drive it',
     zephyrSample: 'samples/modules/lvgl/demos',
     primaryPanels: ['display'],
   },
   {
     id: 'accel_chart',
     label: 'Accelerometer Chart',
-    description: 'Browser accelerometer traced live on an LVGL chart',
+    description: 'Device accelerometer traced live on an LVGL chart',
     // Fork under zephyr-module/apps: circular update + smaller ramfb so the
     // emulated A53 can keep the trace moving in wall-clock time.
     zephyrSample: 'zephyr-module/apps/accelerometer_chart',
@@ -405,7 +405,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // Sparse localStorage persist keeps written sectors across reloads.
     id: 'spi_flash',
     label: 'SPI flash',
-    description: 'Erase, write and read a JEDEC SPI NOR on the browser SPI bus',
+    description: 'Erase, write and read a JEDEC SPI NOR — inspect it in the dock',
     zephyrSample: 'samples/drivers/spi_flash',
     primaryPanels: ['spi'],
   },
@@ -415,7 +415,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // dialog browses /lfs with real littlefs (Dreagonmon littlefs-js).
     id: 'littlefs',
     label: 'LittleFS',
-    description: 'Boot counter on LittleFS over the browser SPI NOR; survives reload',
+    description: 'Boot counter on LittleFS over SPI NOR; survives reload',
     zephyrSample: 'samples/subsys/fs/littlefs',
     primaryPanels: ['spi'],
   },
@@ -426,8 +426,8 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // image below, allocated in the emulator filesystem, which the guest mkfs's
     // on its first mount. The Disk panel reads those same bytes back out.
     id: 'virtio_blk',
-    label: 'Disk (virtio-blk)',
-    description: 'Formats and writes a FAT volume on a VIRTIO block disk; browse it in the page',
+    label: 'Disk',
+    description: 'Formats a FAT volume on a block disk — browse it from the Disk peripheral',
     zephyrSample: 'zephyr-module/apps/virtio_blk_fs',
     primaryPanels: ['disk'],
     // Slot 6 of the virtio-mmio array — 0-5 are net, gpu, gpio, tablet, i2c
@@ -457,7 +457,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // (LCD @0x3e + RGB backlight @0x62) modelled in the page.
     id: 'auxdisplay',
     label: 'Aux display',
-    description: '“Hello World” on a 16×2 I²C character LCD (JHD1313) in the page',
+    description: '“Hello World” on a 16×2 I²C character LCD (JHD1313) in the dock',
     zephyrSample: 'samples/drivers/auxdisplay',
     primaryPanels: ['auxdisplay', 'i2c'],
   },
@@ -467,7 +467,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // path with the JHD1313 packaging, different conf + snippet.
     id: 'auxdisplay_pt6314',
     label: 'PT6314 VFD',
-    description: '“Hello World” on a 20×2 SPI character VFD (PT6314) in the page',
+    description: '“Hello World” on a 20×2 SPI character VFD (PT6314) in the dock',
     zephyrSample: 'samples/drivers/auxdisplay',
     primaryPanels: ['auxdisplay', 'spi'],
   },
@@ -476,7 +476,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // the 16×8 display RAM; keyscan is off in this packaging.
     id: 'ht16k33',
     label: 'HT16K33 LED',
-    description: 'Walks, blinks and dims a 16×8 I²C LED matrix (HT16K33) in the page',
+    description: 'Walks, blinks and dims a 16×8 I²C LED matrix (HT16K33) in the dock',
     zephyrSample: 'samples/drivers/ht16k33',
     primaryPanels: ['led', 'i2c'],
   },
@@ -485,7 +485,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // a mixed RGB orb plus channel meters (engines approximate led_blink).
     id: 'lp5562',
     label: 'RGB LED',
-    description: 'Cycles colors and blinks on a TI LP5562 RGBW LED; orb in the page',
+    description: 'Cycles colors and blinks on a TI LP5562 RGBW LED; orb in the dock',
     zephyrSample: 'samples/drivers/led/lp5562',
     primaryPanels: ['led', 'i2c'],
   },
@@ -494,7 +494,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // body as LP5562, painting a strip of four module orbs.
     id: 'lp50xx',
     label: 'LP50xx LED',
-    description: 'Cycles colors on a TI LP5012 (4 RGB modules); strip in the page',
+    description: 'Cycles colors on a TI LP5012 (4 RGB modules); strip in the dock',
     zephyrSample: 'samples/drivers/led/lp50xx',
     primaryPanels: ['led', 'i2c'],
   },
@@ -503,7 +503,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // virtio-gpio pins 6/7; the dock shows a 16-dot bar plus SHIFT/LED_OUT/CTRL.
     id: 'sct2024',
     label: 'SCT2024 LED',
-    description: 'Walks 16 LEDs on an SCT2024 SPI LED driver; bar + registers in the page',
+    description: 'Walks 16 LEDs on an SCT2024 SPI LED driver; bar + registers in the dock',
     zephyrSample: 'samples/drivers/led/sct2024',
     primaryPanels: ['led', 'spi', 'gpio'],
   },
@@ -515,7 +515,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'led_strip',
     label: 'WS2812 LED strip',
     description:
-      'Chases colors along a 16-pixel WS2812 strip over SPI; RGB orbs in the page',
+      'Chases colors along a 16-pixel WS2812 strip over SPI; RGB orbs in the dock',
     zephyrSample: 'samples/drivers/led/led_strip',
     primaryPanels: ['led'],
   },
@@ -527,23 +527,21 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // page plays the rest of the bus, so the sample has a peer to count with.
     id: 'can_counter',
     label: 'CAN counter',
-    description: 'Exchanges counter frames over CAN; bus roster and traffic in the page',
+    description: 'Exchanges counter frames over CAN; bus roster and traffic in the dock',
     zephyrSample: 'samples/drivers/can/counter',
     primaryPanels: ['can', 'spi'],
   },
   {
     id: 'bt_peripheral',
     label: 'BLE peripheral',
-    description:
-      'Advertises a Zephyr BLE peripheral over H:4; Bumble is the in-page controller',
+    description: 'Advertises a Zephyr BLE peripheral — peers appear in Bluetooth',
     zephyrSample: 'samples/bluetooth/peripheral',
     primaryPanels: ['bluetooth'],
   },
   {
     id: 'bt_central_hr',
     label: 'BLE central · Heart Rate',
-    description:
-      'Scans, connects and subscribes to an in-page Bumble Heart Rate monitor',
+    description: 'Scans, connects, and subscribes to a Heart Rate monitor in Bluetooth',
     zephyrSample: 'zephyr-module/apps/bt_central_hr',
     primaryPanels: ['bluetooth'],
   },
@@ -553,16 +551,14 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // https://docs.zephyrproject.org/latest/samples/bluetooth/classic/a2dp_source/README.html
     id: 'bt_a2dp_source',
     label: 'A2DP source',
-    description:
-      'Classic A2DP source streams SBC to an in-page Speaker peer over LocalLink',
+    description: 'Classic A2DP source streams audio to a Speaker peer in Bluetooth',
     zephyrSample: 'samples/bluetooth/classic/a2dp_source',
     primaryPanels: ['bluetooth'],
   },
   {
     id: 'tmc50xx',
     label: 'TMC50xx stepper',
-    description:
-      'Spins a TMC50xx axis over SPI (ping-pong); dial + registers in the page',
+    description: 'Spins a TMC50xx axis over SPI (ping-pong); dial + registers in the dock',
     zephyrSample: 'samples/drivers/stepper/tmc50xx',
     primaryPanels: ['stepper', 'spi'],
   },
@@ -571,7 +567,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // Dock shows the pwm-leds brightness strip and the PWM duty chart.
     id: 'pwm_led',
     label: 'PWM LED',
-    description: 'Fades and blinks PWM LEDs on a PCA9685; LEDs + duty chart in the page',
+    description: 'Fades and blinks PWM LEDs on a PCA9685; LEDs + duty chart in the dock',
     zephyrSample: 'samples/drivers/led/pwm',
     primaryPanels: ['led', 'pwm', 'i2c'],
   },
@@ -583,7 +579,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // (DacChip framework).
     id: 'dac',
     label: 'DAC',
-    description: 'Sawtooth on a 12-bit MCP4725; Vout chart in the page',
+    description: 'Sawtooth on a 12-bit MCP4725; Vout chart in the dock',
     zephyrSample: 'zephyr-module/apps/dac_sawtooth',
     primaryPanels: ['dac', 'i2c'],
   },
@@ -592,7 +588,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // paints SoC % / voltage (FuelGaugeChip framework).
     id: 'fuel_gauge',
     label: 'Fuel gauge',
-    description: 'Polls SoC % and voltage on a MAX17048; battery card in the page',
+    description: 'Polls SoC % and voltage on a MAX17048; battery card in the dock',
     zephyrSample: 'samples/drivers/fuel_gauge',
     primaryPanels: ['fuel-gauge', 'i2c'],
   },
@@ -607,7 +603,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // the Trace dock row follows it live (docs/tracing-feasibility.md).
     id: 'tracing',
     label: 'Tracing',
-    description: 'Live CTF schedule view — thread lanes like Zephyr’s trace_viewer',
+    description: 'Live Trace schedule — thread lanes like Zephyr’s trace viewer',
     zephyrSample: 'samples/subsys/tracing/basic',
     primaryPanels: ['trace'],
   },
@@ -616,7 +612,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // pipeline so msgq / mutex / condvar contention shows up in the Gantt.
     id: 'tracing_pipeline',
     label: 'Tracing Pipeline',
-    description: 'Sensor pipeline with msgq/mutex/condvar — richer CTF schedule story',
+    description: 'Sensor pipeline with msgq/mutex/condvar — richer Trace schedule story',
     zephyrSample: 'samples/subsys/tracing/pipeline',
     primaryPanels: ['trace'],
   },
@@ -634,7 +630,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
     label: 'Blinky',
-    description: 'Blinks LED0 over a VIRTIO GPIO device',
+    description: 'Blinks LED0 — watch it in the device dock',
     zephyrSample: 'samples/basic/blinky',
     primaryPanels: ['led', 'gpio'],
   },
@@ -643,7 +639,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // the M3 build — observe the GPIO output; no new QEMU device.
     id: 'buzzer',
     label: 'Buzzer',
-    description: 'Drives a gpio-buzzer over VIRTIO GPIO; the dock shakes and vibrates',
+    description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
     zephyrSample: 'samples/drivers/buzzer/tone',
     primaryPanels: ['buzzer', 'gpio', 'led'],
   },
@@ -652,7 +648,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // on virtio (each guest write notifies). Press SW0 to advance modes.
     id: 'stepper',
     label: 'Stepper',
-    description: 'GPIO step/dir over VIRTIO GPIO; press SW0 to cycle modes, dial in the dock',
+    description: 'GPIO step/dir stepper; press SW0 to cycle modes, dial in the dock',
     zephyrSample: 'samples/drivers/stepper/generic',
     primaryPanels: ['stepper', 'keys', 'gpio'],
   },
@@ -662,7 +658,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // of polling the pin.
     id: 'basic_button',
     label: 'Button',
-    description: 'A browser button lights an LED, over an interrupt-driven VIRTIO GPIO',
+    description: 'Press SW0 in the dock; an interrupt-driven GPIO lights an LED',
     zephyrSample: 'samples/basic/button',
     primaryPanels: ['keys', 'led', 'gpio'],
   },
@@ -680,7 +676,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // lives in the page. No framebuffer anywhere in the path.
     id: 'oled',
     label: 'OLED',
-    description: 'Zephyr’s display test pattern on a 128x64 I2C OLED simulated in the page',
+    description: 'Zephyr’s display test pattern on a 128×64 I²C OLED in the dock',
     zephyrSample: 'samples/drivers/display',
     primaryPanels: ['oled', 'i2c'],
   },
@@ -693,7 +689,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'dhcp',
     label: 'DHCP Client',
-    description: 'Acquires an IPv4 lease from the browser network',
+    description: 'Acquires an IPv4 lease — watch it in Network',
     zephyrSample: 'samples/net/dhcpv4_client',
     primaryPanels: ['net', 'trace'],
   },
@@ -701,7 +697,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'http_server',
     label: 'HTTP Server',
     description:
-      'Full HTTP server at http://192.0.2.1/ — Network panel + CTF Trace (sockets / fifo / queue)',
+      'Full HTTP server at http://192.0.2.1/ — use Network; Trace shows sockets / fifo / queue',
     zephyrSample: 'samples/net/sockets/http_server',
     primaryPanels: ['net', 'led', 'gpio', 'trace'],
     guestHttpUrl: 'http://192.0.2.1/',
@@ -709,21 +705,21 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'echo_server',
     label: 'Echo Server',
-    description: 'TCP/UDP echo on port 4242 — ping it from the Network panel',
+    description: 'TCP/UDP echo on port 4242 — ping it from Network',
     zephyrSample: 'samples/net/sockets/echo_server',
     primaryPanels: ['net', 'trace'],
   },
   {
     id: 'http_get',
     label: 'HTTP GET',
-    description: 'DNS + TCP fetch of http://google.com through the page proxy',
+    description: 'DNS + TCP fetch of http://google.com — watch traffic in Network',
     zephyrSample: 'samples/net/sockets/http_get',
     primaryPanels: ['net', 'trace'],
   },
   {
     id: 'zperf',
     label: 'zperf',
-    description: 'iperf2-style throughput benchmark against the page',
+    description: 'iperf2-style throughput benchmark — charts in Network',
     zephyrSample: 'samples/net/zperf',
     primaryPanels: ['net'],
   },

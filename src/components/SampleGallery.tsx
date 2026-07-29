@@ -296,7 +296,7 @@ export function SampleGallery({
 
           <DialogFooter className="justify-between">
             <span className="text-[11px] text-muted-foreground">
-              Or bring your own build — any Zephyr ELF for this machine boots as-is.
+              Or bring your own build — any Zephyr ELF for this Board boots as-is.
             </span>
             <Button variant="outline" onClick={() => fileRef.current?.click()}>
               <FileUp aria-hidden />
@@ -395,8 +395,8 @@ function SampleRow({
               className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
               title={
                 sample.tracedFrom
-                  ? 'Built with CTF tracing (browser-tracing) and thread debug info'
-                  : 'This sample embeds CTF tracing in its own configuration'
+                  ? 'Built with tracing enabled — opens Trace and Debug'
+                  : 'This sample embeds tracing in its own configuration'
               }
             >
               <Activity className="size-2.5" aria-hidden />

@@ -44,7 +44,7 @@ export function BoardSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectLabel>Machine QEMU emulates</SelectLabel>
+            <SelectLabel>Board</SelectLabel>
             {BOARDS.map((b) => (
               <SelectItem key={b.id} value={b.id}>
                 <span className="flex flex-col items-start">

@@ -169,8 +169,7 @@ export function GuestBrowserDialog({
             Guest browser
           </DialogTitle>
           <DialogDescription>
-            Pages from the guest, fetched over the in-page LAN. Link clicks and same-host assets
-            are proxied in JavaScript.
+            Pages served by the guest, opened through Network.
           </DialogDescription>
         </DialogHeader>
 

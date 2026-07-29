@@ -1,40 +1,32 @@
 # Zephyr in the Browser
 
-**[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) shell running in a browser tab, no hardware or install required.
+**[▶ Try it live](https://kartben.github.io/zephyr-in-the-browser/)** — the [Zephyr RTOS](https://zephyrproject.org/) running in a browser tab, no hardware or install required.
 
-It's [QEMU](https://www.qemu.org/) compiled to WebAssembly with Emscripten,
-emulating Cortex-M3 and Cortex-A53 boards. **Cortex-A53 is the focus for the
-foreseeable future** — JIT, virtio bridges, and live CTF tracing all land there
-first ([docs/focus.md](docs/focus.md)). Alongside the serial terminal, every
-browser-backed peripheral lives in the **device dock** — one scrollable sidebar
-with two arrangements of the same controls: a tree that mirrors the running
-build's devicetree (chips under their I²C bus, the GNSS receiver under its
-UART, real node names and compatibles), and a view grouped by peripheral class.
-Above them sit the machine's own instruments — the simulation's throughput, the
-CTF trace timeline and the gdb debugger — as rows of exactly the same kind. Any
-row pops out into a floating window; collapsed rows keep a live readout. Nothing
-covers the terminal unless you pop it out there.
+Pick a **Board** and an **App**, then learn from what you can see: the
+**terminal**, the **device dock** (peripherals wired to the running build’s
+devicetree), and instruments like **Trace** and **Debug**. Any dock row can pop
+out into a floating window; collapsed rows keep a live readout.
 
-| Device | What the guest sees |
+| Device | What you see |
 | --- | --- |
 | **Sensors** | Simulated I²C parts — TMP112 and LM75 thermometers, ADXL345 and LSM6DSO motion, LPS22HH pressure, INA219 power, ISL29035 light — each a row of sliders and config bits, read through stock Zephyr drivers. Motion sensors can follow your device's real tilt; the LSM6DSO sample shows `sensor_attr_set` configuring the sampling rate |
 | **RTC** | A PCF8523 real-time clock: live date/time, sync from the browser, and alarm armed/fired state — through Zephyr's stock RTC driver and shell (`rtc get` / `rtc set_alarm`) |
-| **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight — Zephyr's stock auxdisplay driver writes "Hello World"; the backlight is a JSON register map at 0x62 |
-| **LED matrix** | A Holtek HT16K33 16×8 LED driver at 0x70 — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix; the dock paints display RAM with a JSON register map |
-| **RGB LED** | A TI LP5562 RGBW driver at 0x30 — stock `samples/drivers/led/lp5562` cycles colors and blinks; the dock paints a mixed orb plus channel meters. Also a TI LP5012 at 0x14 — stock `samples/drivers/led/lp50xx` drives four RGB modules; the same dock body paints a strip of orbs. Also a Worldsemi WS2812 strip on SPI CS0 — stock `samples/drivers/led/led_strip` chases colors; the page decodes the SPI bit-encoding into the same strip of orbs |
-| **PWM** | An NXP PCA9685 16-channel PWM at 0x60 — stock `samples/drivers/led/pwm` fades and blinks via `pwm-leds`; the dock shows LED brightness and an annotated duty-cycle chart |
-| **DAC** | A Microchip MCP4725 12-bit DAC at 0x61 — stock `samples/drivers/dac` writes a sawtooth; the dock charts Vout over time (framework-ready for more DAC parts) |
-| **Fuel gauge** | A Maxim MAX17048 at 0x36 — stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card with Registers (framework-ready for more gauges) |
+| **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight — Zephyr's stock auxdisplay driver writes "Hello World"; watch it in the dock |
+| **LED matrix** | A Holtek HT16K33 16×8 LED driver — stock `samples/drivers/ht16k33` walks, blinks and dims the matrix in the dock |
+| **RGB LED** | A TI LP5562 RGBW LED, a TI LP5012 strip, or a Worldsemi WS2812 strip — stock LED samples cycle colors; the dock paints orbs and channel meters |
+| **PWM** | An NXP PCA9685 16-channel PWM — stock `samples/drivers/led/pwm` fades and blinks via `pwm-leds`; the dock shows LED brightness and a duty-cycle chart |
+| **DAC** | A Microchip MCP4725 12-bit DAC — stock `samples/drivers/dac` writes a sawtooth; the dock charts Vout over time |
+| **Fuel gauge** | A Maxim MAX17048 — stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card |
 | **GPIO** | Clickable buttons (`gpio-keys`) and a separate LED-class row for `gpio-leds`, wired per the running build’s tree |
-| **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |
-| **Stepper** | GPIO step/dir on pins 6/7 (`samples/drivers/stepper/generic`) or an Analog Devices TMC50xx on SPI CS0 (`samples/drivers/stepper/tmc50xx`) — the dock dial tracks position/velocity; the TMC also exposes its ramp registers |
+| **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes and vibrates (or buzzes) when the guest drives it |
+| **Stepper** | GPIO step/dir (`samples/drivers/stepper/generic`) or an Analog Devices TMC50xx on SPI (`samples/drivers/stepper/tmc50xx`) — the dock dial tracks position/velocity |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
-| **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. A dock row like any other peripheral; pop it out into a window when you want the pixels big |
-| **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
-| **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump (persisted across reloads; erase clears it) or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
-| **SPI** | A virtio-spi bus with a 1 MiB W25Q-class JEDEC NOR on CS0 — hex dump, LittleFS browser (`Filesystem` dialog via real littlefs / Dreagonmon littlefs-js), and sparse persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same CS0 can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
-| **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
-| **Guided tours** | A **stock** sample that explains itself. A tour is a Markdown file the page reads: each step breaks somewhere in the running guest — in the sample or inside the kernel — **stops the emulated machine**, and shows what it finds there: live values, a hexdump of the struct under discussion with the interesting bytes lit, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
+| **Display** | Zephyr's display driver painting a framebuffer — and a touchscreen: clicks and drags on the Display peripheral. Pop the dock row out when you want the pixels big |
+| **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API |
+| **I²C** | The bus itself: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels |
+| **SPI** | A SPI bus with JEDEC NOR flash — hex dump, LittleFS browser, and persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same bus can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
+| **Network** | Ethernet with throughput charts and a packet capture — DHCP, HTTP, and echo samples talk through Network |
+| **Guided tours** | A **stock** sample that explains itself. Each step pauses the **guest** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
 
 ## Quick start
 
@@ -43,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173>. You'll land on a **mock backend** — a fake shell that echoes input and answers a few commands — so the UI works out of the box without a ~100 MB QEMU build.
+Open <http://localhost:5173>. You'll land on a **mock backend** — a fake shell that echoes input and answers a few commands — so the UI works out of the box without a full emulator build.
 
 To boot real Zephyr, build the emulator and a guest image, then restart the dev server:
 
@@ -62,17 +54,21 @@ native. The app switches to QEMU automatically once it finds a build. See
 
 ## Choosing what runs
 
-Pick a **Board** (the emulated machine) and an **App** (the program it boots) from the top bar. You can also drop your own ELF onto the window to boot it instead — anything QEMU can run with `-kernel` works, not just Zephyr. Dropped ELFs assume tracing may be enabled, so the Trace panel opens by default.
+Pick a **Board** and an **App** from the top bar. You can also drop your own ELF
+onto the window to boot it instead — anything built for that Board works, not
+just Zephyr. Dropped ELFs assume tracing may be enabled, so **Trace** opens by
+default.
 
-On Cortex-A53 every sample ships **with and without CTF tracing** (gallery rows
+On Cortex-A53 every sample ships **with and without tracing** (gallery rows
 marked **traced**). The packaged apps are listed in
 [`tools/samples.manifest`](tools/samples.manifest); the build script expands
 each A53 entry into a `_trace` twin via the `browser-tracing` snippet. Cortex-M3
-lists apps verified against its slower qemu-wasm TCI timing — most run
-(including single-threaded sleepers like `blinky` and `basic_button`, albeit not
-at wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 runs the
-wasm JIT and is unaffected.
+lists apps verified against its slower timing — most run (including
+single-threaded sleepers like `blinky` and `basic_button`, albeit not at
+wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 is the focus
+for new work ([docs/focus.md](docs/focus.md)).
 
 ---
 
-Working on the emulator itself? [`docs/`](docs/) covers the internals.
+Working on the emulator itself? [`docs/`](docs/) covers the internals — QEMU,
+WebAssembly, bridges, and board focus.

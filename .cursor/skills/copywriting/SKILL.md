@@ -25,7 +25,7 @@ If a sentence only helps someone who already ships firmware for a living, cut it
 - Name the Zephyr concept, then show what it does — do not dump glossary definitions.
 - Explain a term the first time it matters; after that, reuse the same word.
 - Be concrete: cite the call, the pin, the thread, the dock row — not abstractions about "the platform."
-- Match the tone of existing tours (`tours/*.tour.md`): curious, precise, never cute.
+- Tone: curious, precise, never cute. Do not treat older tour drafts as a voice model — judge each surface against this skill and [terminology.md](terminology.md).
 
 ## Consistency
 
