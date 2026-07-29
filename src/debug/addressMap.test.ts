@@ -98,12 +98,13 @@ describe('buildAddressMap', () => {
     expect(map.resolve(0x2000_0c10)?.typeCode).toBe('THRD')
   })
 
-  it('calls out the embedded object core member', () => {
-    expect(map.resolve(0x2000_1a64)).toMatchObject({
-      kind: 'objectCore',
-      name: 'uart_msgq',
-      offset: 0,
-    })
+  it('calls out the embedded object core member, distinctly from the object', () => {
+    const core = map.resolve(0x2000_1a64)
+    expect(core).toMatchObject({ kind: 'objectCore', offset: 0, typeCode: 'MSGQ' })
+    // Following the link lands on the member, so the label must not read as
+    // though it lands on the object.
+    expect(formatTarget(core!)).toBe('uart_msgq.obj_core')
+    expect(formatTarget(map.resolve(0x2000_1a40)!)).toBe('uart_msgq')
   })
 
   it('resolves stacks, data symbols and functions', () => {
