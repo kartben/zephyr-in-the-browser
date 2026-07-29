@@ -171,7 +171,8 @@ build_one() {
   mkdir -p "$dest" "$work"
 
   # debug-threads.conf → CONFIG_DEBUG_THREAD_INFO (thread state/stack ABI),
-  # CONFIG_OBJ_CORE (typed live kernel-object inventory), and
+  # CONFIG_OBJ_CORE + CONFIG_OBJ_CORE_STATS (typed live kernel-object inventory
+  # with participating runtime statistics), and
   # CONFIG_FRAME_POINTER (exact call stacks in the Debug panel).
   # Manifest fragments (relative to zephyr-module/) follow it.
   local conf_list="$MODULE/conf/debug-threads.conf"

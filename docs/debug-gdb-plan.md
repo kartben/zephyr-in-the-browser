@@ -74,9 +74,10 @@ objects and statistics from the initialized lists.
 
 The **Objects** tab groups every linked kernel object by four-character type ID,
 names static objects from the ELF, decodes useful fields for common primitives,
-and links object/core/pointer addresses into Memory. If an image also enables
-`CONFIG_OBJ_CORE_STATS`, raw stats buffers and their decoded thread/CPU/system
-cycle or memory-pool fields appear under each participating object.
+and links object/core/pointer addresses into Memory. Packaged images also enable
+`CONFIG_OBJ_CORE_STATS`; raw stats buffers and their decoded thread/CPU/system
+cycle or memory-pool fields appear under each participating object. Custom ELFs
+without statistics remain supported.
 
 Trace queue swim lanes, depth charts, and the queue synoptic reuse the live
 object-core bounds for fixed-capacity objects (for example `k_msgq.max_msgs`
