@@ -143,6 +143,22 @@
 	};
 };
 
+/*
+ * VIRTIO block on slot 6 — declared disabled; `-S virtio-blk` enables it.
+ * Unlike the bridges above this is a stock QEMU device model (no page-side
+ * model, no qemu-wasm patch); the backing image is allocated by the page.
+ * See the A53 overlay for the full reasoning.
+ */
+&virtio_mmio6 {
+	status = "disabled";
+
+	virtio_blk0: virtio-blk {
+		compatible = "virtio,blk";
+		disk-name = "VIRTIOBLK0";
+		status = "disabled";
+	};
+};
+
 &virtio_mmio0 {
 	status = "okay";
 

@@ -11,7 +11,8 @@
 #                    comma-separated
 # - snippet          optional snippets (west build -S ...), comma-separated.
 #                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
-#                    virtio-i2c, virtio-spi, gpio-buzzer, gpio-step-dir,
+#                    virtio-i2c, virtio-spi, virtio-blk, gpio-buzzer,
+#                    gpio-step-dir,
 #                    i2c-sensors-extra, auxdisplays, eeprom-only,
 #                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
 #                    max17048-only, lp5562-only, lp5012-only, sct2024-only,
@@ -70,6 +71,7 @@ qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,i
 qemu_cortex_a53:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_cortex_a53:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
 qemu_cortex_a53:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
+qemu_cortex_a53:virtio_blk:zephyr-module/apps/virtio_blk_fs:conf/virtio-blk.conf:virtio-blk
 qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_cortex_a53:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt6314-only
@@ -119,6 +121,7 @@ qemu_riscv32:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,isl2
 qemu_riscv32:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_riscv32:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
 qemu_riscv32:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
+qemu_riscv32:virtio_blk:zephyr-module/apps/virtio_blk_fs:conf/virtio-blk.conf:virtio-blk
 qemu_riscv32:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_riscv32:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
 qemu_riscv32:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt6314-only

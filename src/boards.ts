@@ -30,6 +30,7 @@ export type PanelKind =
   | 'led'
   | 'pwm'
   | 'dac'
+  | 'disk'
   | 'fuel-gauge'
   | 'can'
   | 'bluetooth'
@@ -90,6 +91,21 @@ export interface GuestSample {
    * id (`<id>_trace` artifact from `browser-tracing`). Gallery UI badges it.
    */
   tracedFrom?: string
+  /**
+   * QEMU argv this *sample* needs, appended after the board's own.
+   *
+   * Every bridge in a board's `args` is unconditional because it costs the
+   * samples that ignore it nothing. A backing store does not: `-drive` needs
+   * its file present on every boot, and the image occupies wasm heap. So a
+   * device that only one sample uses is declared here instead.
+   */
+  extraArgs?: string[]
+  /**
+   * Zero-filled files to create in the emulator filesystem before `main()`,
+   * for argv above that names one. Nothing is downloaded — the bytes are
+   * allocated in the page, so the size is free of the asset pipeline.
+   */
+  blankFiles?: Array<{ fsPath: string; bytes: number }>
 }
 
 /**
@@ -402,6 +418,30 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     description: 'Boot counter on LittleFS over the browser SPI NOR; survives reload',
     zephyrSample: 'samples/subsys/fs/littlefs',
     primaryPanels: ['spi'],
+  },
+  {
+    // A FAT volume on a VIRTIO block device — the one virtio device here whose
+    // model is stock QEMU rather than the browser bridge, so there is nothing
+    // page-side answering the virtqueue. The backing store is the blank raw
+    // image below, allocated in the emulator filesystem, which the guest mkfs's
+    // on its first mount. The Disk panel reads those same bytes back out.
+    id: 'virtio_blk',
+    label: 'Disk (virtio-blk)',
+    description: 'Formats and writes a FAT volume on a VIRTIO block disk; browse it in the page',
+    zephyrSample: 'zephyr-module/apps/virtio_blk_fs',
+    primaryPanels: ['disk'],
+    // Slot 6 of the virtio-mmio array — 0-5 are net, gpu, gpio, tablet, i2c
+    // and spi. Must match &virtio_mmio6 in the browser_bridge shield overlay.
+    // `cache=unsafe` keeps the guest's flushes from turning into fsync round
+    // trips on MEMFS, and `file.locking=off` skips the fcntl(F_OFD_SETLK)
+    // probe, which Emscripten does not implement.
+    extraArgs: [
+      '-drive',
+      'file=/pack/virtio-blk.img,if=none,id=vblk,format=raw,cache=unsafe,file.locking=off',
+      '-device',
+      'virtio-blk-device,drive=vblk,bus=virtio-mmio-bus.6',
+    ],
+    blankFiles: [{ fsPath: '/pack/virtio-blk.img', bytes: 4 * 1024 * 1024 }],
   },
   {
     // Stock RTC sample against the browser PCF8523 at 0x68. The dock RTC card

@@ -253,6 +253,7 @@ export function createQemuBackend(): PtyBackend {
       if (!custom) {
         void loadSampleDts(url(sampleDtsAsset(board, sampleId)), `${sampleId}.dts`)
       }
+      const sample = getSample(board, sampleId)
       const preloaded = [
         {
           fsPath: board.kernelFsPath,
@@ -264,6 +265,13 @@ export function createQemuBackend(): PtyBackend {
             bytes: await fetchAsset(f.asset),
           })),
         )),
+        // Blank backing stores (a virtio-blk disk, say) are allocated rather
+        // than fetched. They must stay *after* the kernel, which is indexed
+        // positionally just below.
+        ...(sample.blankFiles ?? []).map((f) => ({
+          fsPath: f.fsPath,
+          bytes: new Uint8Array(f.bytes),
+        })),
       ]
       // Resolve CONFIG_DEBUG_THREAD_INFO symbols from the (unstripped) guest ELF.
       setHostGdbKernelImage(preloaded[0]!.bytes)
@@ -274,12 +282,15 @@ export function createQemuBackend(): PtyBackend {
       onStatus({ status: 'loading', detail: 'starting emulator' })
 
       // Monitor / gdb are properties of the build, not of the machine, so they
-      // are appended here rather than baked into each board's argv.
+      // are appended here rather than baked into each board's argv. The
+      // sample's own devices come last, for the same reason: they belong to
+      // the program, not the machine.
       const features = await emulatorFeatures()
       let args = [...board.args]
       if (features.has('monitor')) args = [...args, ...MONITOR_ARGS]
       if (features.has('gdb')) args = [...args, ...GDB_ARGS]
       if (features.has('hci') && board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
+      if (sample.extraArgs) args = [...args, ...sample.extraArgs]
 
       /*
        * A cold Pyodide + Bumble load takes longer than Zephyr's 10-second HCI
@@ -295,7 +306,7 @@ export function createQemuBackend(): PtyBackend {
        * worth asking both questions here.
        */
       const bluetoothSample =
-        (getSample(board, sampleId).primaryPanels?.includes('bluetooth') ?? false) ||
+        (sample.primaryPanels?.includes('bluetooth') ?? false) ||
         (getDeviceTree()?.insights?.uartBuses.some((bus) => bus.role === 'bluetooth') ?? false)
       if (features.has('hci') && board.peripherals?.hostBt && bluetoothSample) {
         onStatus({ status: 'loading', detail: 'preparing Bluetooth controller' })
