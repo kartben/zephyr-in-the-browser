@@ -7,6 +7,7 @@ import {
   nearestQueueChartEvent,
   queueChartEvents,
   queueChartOpLabel,
+  queueFlowEffectTs,
   queueFlowEvents,
   advanceFlowCursor,
   sortQueuesByPipelineOrder,
@@ -183,6 +184,25 @@ describe('queueFlowEvents', () => {
       exitTs: 250,
     })
     expect(flow[0]!.ts).toBeLessThanOrEqual(220)
+    expect(queueFlowEffectTs(flow[0]!)).toBe(250)
+  })
+
+  it('visualizes a blocking get when it completes, not at its earlier enter', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const input = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(input), ...encName('input')]),
+        ...record(50, 0x11, [...encU32(input), ...encName('input')]),
+        ...record(100, 0x8d, [...encU32(q), ...encU32(0xffffffff)]),
+        ...record(1_000, 0x8f, [...encU32(q), ...encU32(0xffffffff), ...encI32(0)]),
+      ]),
+    )
+
+    const [get] = queueFlowEvents(reader.tr)
+    expect(get).toMatchObject({ op: 'get', ts: 100, exitTs: 1_000 })
+    expect(queueFlowEffectTs(get!)).toBe(1_000)
   })
 
   it('falls back to concurrent sched_ready when put enter is missing', () => {

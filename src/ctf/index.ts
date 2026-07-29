@@ -89,6 +89,7 @@ export {
   flowThreadLabel,
   queueActorKey,
   queueActorLabel,
+  queueFlowEffectTs,
   isPutOp,
   mouthForOp,
   queuePipelineRanks,

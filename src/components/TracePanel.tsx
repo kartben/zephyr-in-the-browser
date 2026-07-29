@@ -58,6 +58,7 @@ import {
   queueActorLabel,
   queueAxisMax,
   queueChartOpLabel,
+  queueFlowEffectTs,
   queueFlowEvents,
   queueLabel,
   reconstructQueues,
@@ -569,7 +570,7 @@ function paint(
   const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
   const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
-  const depthProbeTs = playheadTs ?? view1
+  const depthProbeTs = snapTs ?? playheadTs ?? view1
   const hoverActive =
     selectedEdge != null ||
     (hover != null && (hover.eventIndex != null || hover.queueId != null))
@@ -684,8 +685,8 @@ function paint(
         const innerH = Math.max(2, msgqLaneH - innerPad * 2)
         const samples = q.series.samples
 
-        // Exact ns→x ranges (same as thread states). Column rasterisation
-        // smeared depth steps relative to enter-anchored edges.
+        // Exact ns→x ranges (same as thread states). Flow connectors use the
+        // operation effect/exit clock below, matching these depth steps.
         for (let i = 0; i < samples.length; i++) {
           const s = samples[i]!
           const e = i + 1 < samples.length ? samples[i + 1]!.ts : view1
@@ -732,11 +733,12 @@ function paint(
     const lastXByKey = new Map<string, number>()
     const visible: QueueFlowEvent[] = []
     for (const ev of msgqEvents) {
-      if (ev.ts < view0 || ev.ts > view1 || ev.actor.kind === 'unknown') continue
+      const effectTs = queueFlowEffectTs(ev)
+      if (effectTs < view0 || effectTs > view1 || ev.actor.kind === 'unknown') continue
       if (ev.actor.kind === 'thread' && !threadRowOf.has(ev.actor.threadId)) continue
       if (ev.actor.kind === 'isr' && !hasIsr) continue
       const thinKey = `${queueActorKey(ev.actor)}|${ev.queueId}`
-      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
+      const x = LABEL_W + ((effectTs - view0) / span) * plotW
       const prev = lastXByKey.get(thinKey)
       if (prev != null && x - prev < MSGQ_MARK_MIN_GAP_PX) continue
       lastXByKey.set(thinKey, x)
@@ -757,7 +759,7 @@ function paint(
         ev.actor.kind === 'thread'
           ? lanesTop + threadRowOf.get(ev.actor.threadId)! * laneH + laneH / 2
           : lanesTop + lanes.length * laneH + laneH / 2
-      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
+      const x = LABEL_W + ((queueFlowEffectTs(ev) - view0) / span) * plotW
       const color = msgqOpColor(ev.op, ev.ok)
       const qRow = queueRowOf.get(ev.queueId)
       const queueY =
@@ -835,8 +837,9 @@ function nearestMsgqNear(
   let best: QueueFlowEvent | null = null
   let bestDist = Infinity
   for (const ev of events) {
-    if (ev.ts < view0 || ev.ts > view1) continue
-    const d = Math.abs(ev.ts - ts)
+    const effectTs = queueFlowEffectTs(ev)
+    if (effectTs < view0 || effectTs > view1) continue
+    const d = Math.abs(effectTs - ts)
     if (d < bestDist) {
       bestDist = d
       best = ev
@@ -874,7 +877,8 @@ function hitTestMsgqEdge(
   let bestDist = MSGQ_EDGE_HIT_PX
   const lastXByKey = new Map<string, number>()
   for (const ev of msgqEvents) {
-    if (ev.ts < view0 || ev.ts > view1 || ev.actor.kind === 'unknown') continue
+    const effectTs = queueFlowEffectTs(ev)
+    if (effectTs < view0 || effectTs > view1 || ev.actor.kind === 'unknown') continue
     const actorY =
       ev.actor.kind === 'thread'
         ? (() => {
@@ -886,7 +890,7 @@ function hitTestMsgqEdge(
           : null
     const qRow = queueRowOf.get(ev.queueId)
     if (actorY == null || qRow == null) continue
-    const ex = LABEL_W + ((ev.ts - view0) / span) * plotW
+    const ex = LABEL_W + ((effectTs - view0) / span) * plotW
     const thinKey = `${queueActorKey(ev.actor)}|${ev.queueId}`
     const prev = lastXByKey.get(thinKey)
     if (prev != null && ex - prev < MSGQ_MARK_MIN_GAP_PX) continue
@@ -1229,7 +1233,8 @@ function TracePanelBody({
   const snapTs = useMemo(() => {
     const idx = msgqHover?.eventIndex ?? selectedEdge
     if (idx == null) return null
-    return msgqEvents.find((ev) => ev.index === idx)?.ts ?? null
+    const event = msgqEvents.find((ev) => ev.index === idx)
+    return event ? queueFlowEffectTs(event) : null
   }, [msgqHover, selectedEdge, msgqEvents])
   const snapTsRef = useRef(snapTs)
   snapTsRef.current = snapTs
@@ -1442,7 +1447,7 @@ function TracePanelBody({
           ? (msgqEvents.find((ev) => ev.index === selectedEdge) ?? null)
           : null
     // Tip / playhead snap to the event’s raw CTF ns when we have one.
-    const tipTs = msgq?.ts ?? playhead.ts
+    const tipTs = msgq ? queueFlowEffectTs(msgq) : playhead.ts
 
     // Queue-lane tip: keep it about the queue / op — not who is running.
     if (msgqHover?.overQueueLane && q) {
@@ -1494,7 +1499,7 @@ function TracePanelBody({
       const qName = q?.label ?? `0x${msgq.queueId.toString(16)}`
       const fail = msgq.ok ? '' : ' fail'
       const arrow = isPutOp(msgq.op) ? '→' : '←'
-      const depth = q ? ` · depth ${depthLabel(q.series, msgq.ts)}` : ''
+      const depth = q ? ` · depth ${depthLabel(q.series, queueFlowEffectTs(msgq))}` : ''
       lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} ${arrow} ${qName}${depth}`)
     }
     return lines

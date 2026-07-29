@@ -66,6 +66,19 @@ export interface QueueFlowEvent {
   ok: boolean
 }
 
+/**
+ * Timestamp where the operation takes effect in queue/depth visualizations.
+ *
+ * `ts` may intentionally point back to a much earlier blocking enter for
+ * scheduler causality. The exit is where the operation completes and where
+ * reconstructed depth changes are sampled.
+ */
+export function queueFlowEffectTs(
+  event: Pick<QueueFlowEvent, 'ts' | 'exitTs'>,
+): number {
+  return event.exitTs ?? event.ts
+}
+
 /** Queue event surfaced on the depth-chart hover tip (includes purge). */
 export interface QueueChartEvent {
   index: number
