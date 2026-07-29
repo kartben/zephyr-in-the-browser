@@ -226,19 +226,12 @@ function ipcObjectMetadata(objects: ObjectCoreSnapshot | null): IpcObjectMetadat
 }
 
 /** Stable queue swim lanes for Timeline overlay — pipeline order, named when known. */
-function msgqSwimLanes(
-  tr: Trace,
-  flow: QueueFlowEvent[],
-  metadata: IpcObjectMetadata,
-): MsgqSwimLane[] {
+function msgqSwimLanes(flow: QueueFlowEvent[], queues: QueueSeries[]): MsgqSwimLane[] {
   const seen = new Set(flow.map((ev) => ev.queueId))
   if (seen.size === 0) return []
-  return sortQueuesByPipelineOrder(
-    tr,
-    reconstructQueues(tr, metadata.names, metadata.capacities).filter((q) =>
-      seen.has(q.id),
-    ),
-  ).map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
+  return queues
+    .filter((q) => seen.has(q.id))
+    .map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
 }
 
 function timelineGeom(
@@ -1171,11 +1164,22 @@ function TracePanelBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, snap.revision],
   )
-  const queueLanes = useMemo(
-    () => (tr ? msgqSwimLanes(tr, msgqEvents, ipcMetadata) : []),
-    // Object-core metadata can add exact names/capacities independently of CTF growth.
+  const queueSeries = useMemo(
+    () => {
+      if (!tr || (msgqEvents.length === 0 && tab !== 'queues')) return []
+      return sortQueuesByPipelineOrder(
+        tr,
+        reconstructQueues(tr, ipcMetadata.names, ipcMetadata.capacities),
+        msgqEvents,
+      )
+    },
+    // Keep one queue reconstruction shared by the timeline, synoptic, and depth chart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, msgqEvents, snap.revision, ipcMetadata],
+    [tr, msgqEvents, snap.revision, ipcMetadata, tab],
+  )
+  const queueLanes = useMemo(
+    () => msgqSwimLanes(msgqEvents, queueSeries),
+    [msgqEvents, queueSeries],
   )
   const msgqEventsRef = useRef(msgqEvents)
   msgqEventsRef.current = msgqEvents
@@ -1897,12 +1901,12 @@ function TracePanelBody({
       {tab === 'queues' && view ? (
         <QueuesView
           tr={tr}
+          queues={queueSeries}
+          flowEvents={msgqEvents}
           view0={view.t0}
           view1={view.t1}
           follow={follow}
           eventCount={snap.revision}
-          nameById={ipcMetadata.names}
-          capacityById={ipcMetadata.capacities}
           svgRef={queuesSvgRef}
           surfaceProps={canvasHandlers}
           toolbar={chartToolbar}

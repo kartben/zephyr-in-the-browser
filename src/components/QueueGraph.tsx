@@ -14,8 +14,12 @@ import { flowActionColor } from '@/components/queueGraph/model'
 import { advanceFlowCursor, type QueueFlowEvent } from '@/ctf/queueGraph'
 import type { QueueSeries, Trace } from '@/ctf'
 
-const HOT_MS = 1200
-const WARM_MS = 4200
+/** A reaction must finish before the next normal 500 ms trace publication. */
+const PACKET_MS = 360
+const PACKET_STAGGER_MS = 60
+const PACKET_CLEANUP_MS = PACKET_MS + PACKET_STAGGER_MS + 80
+const HOT_MS = 420
+const WARM_MS = 1600
 const MAX_PACKETS_PER_BURST = 3
 const MAX_LIVE_PACKETS = 48
 
@@ -49,13 +53,18 @@ function LegendItem({ color, label }: { color: string; label: string }) {
 export function QueueGraph({
   tr,
   queues,
+  flowEvents,
   eventCount,
 }: {
   tr: Trace
   queues: QueueSeries[]
+  flowEvents: QueueFlowEvent[]
   eventCount: number
 }) {
-  const live = useMemo(() => buildLiveQueueGraph(tr, queues), [tr, queues, eventCount])
+  const live = useMemo(
+    () => buildLiveQueueGraph(tr, queues, flowEvents),
+    [tr, queues, flowEvents, eventCount],
+  )
   const graphForLayout = useMemo(() => live.graph, [live.topologyKey])
   const nodeState = useMemo(() => liveQueueNodeState(tr, queues), [tr, queues, eventCount])
   const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
@@ -113,36 +122,49 @@ export function QueueGraph({
         nextPackets.push({
           id: `${edgeId}:${packetSequenceRef.current++}`,
           edgeId,
-          delayMs: (index / packetCount) * 90,
+          delayMs: (index / packetCount) * PACKET_STAGGER_MS,
+          durationMs: PACKET_MS,
         })
       }
     }
     if (nextPackets.length > 0) {
-      const packetIds = new Set(nextPackets.map((packet) => packet.id))
-      setPackets((current) => [...current, ...nextPackets].slice(-MAX_LIVE_PACKETS))
+      // The depth chart already jumped to this publication's newest sample.
+      // Replace any older visual replay so the synoptic depicts this same batch
+      // instead of accumulating an animation backlog under sustained traffic.
+      for (const timeout of packetTimeoutsRef.current) window.clearTimeout(timeout)
+      packetTimeoutsRef.current = []
+      setPackets(nextPackets.slice(-MAX_LIVE_PACKETS))
       const timeout = window.setTimeout(() => {
-        setPackets((current) => current.filter((packet) => !packetIds.has(packet.id)))
-        packetTimeoutsRef.current = packetTimeoutsRef.current.filter(
-          (candidate) => candidate !== timeout,
-        )
-      }, 1100)
+        setPackets([])
+        packetTimeoutsRef.current = []
+      }, PACKET_CLEANUP_MS)
       packetTimeoutsRef.current.push(timeout)
     }
     setClock(now)
   }, [eventCount, live.flow])
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      const now = performance.now()
-      let hasWarmEdge = false
-      for (const [edgeId, activity] of activityRef.current) {
-        if (activity.untilWarm <= now) activityRef.current.delete(edgeId)
-        else hasWarmEdge = true
+    const now = performance.now()
+    let nextBoundary = Number.POSITIVE_INFINITY
+    for (const [edgeId, activity] of activityRef.current) {
+      if (activity.untilWarm <= now) {
+        activityRef.current.delete(edgeId)
+        continue
       }
-      if (hasWarmEdge) setClock(now)
-    }, 180)
-    return () => window.clearInterval(interval)
-  }, [])
+      nextBoundary = Math.min(
+        nextBoundary,
+        activity.untilHot > now ? activity.untilHot : activity.untilWarm,
+      )
+    }
+    if (!Number.isFinite(nextBoundary)) return
+    // Repaint only when an edge changes hot/warm state. The old 180 ms polling
+    // loop needlessly rerendered the entire SVG between those two boundaries.
+    const timeout = window.setTimeout(
+      () => setClock(performance.now()),
+      Math.max(16, Math.ceil(nextBoundary - now) + 1),
+    )
+    return () => window.clearTimeout(timeout)
+  }, [clock])
 
   useEffect(
     () => () => {
@@ -154,6 +176,7 @@ export function QueueGraph({
   const edgeActivity = useMemo(() => {
     const activity = new Map<string, QueueGraphEdgeActivity>()
     for (const [edgeId, state] of activityRef.current) {
+      if (clock >= state.untilWarm) continue
       activity.set(edgeId, {
         hot: clock < state.untilHot,
         warm: clock < state.untilWarm,

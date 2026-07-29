@@ -92,4 +92,11 @@ describe('live queue graph adapter', () => {
     expect(liveFlowAction('lifo', 'put_front')).toBe('push')
     expect(liveFlowAction('lifo', 'get')).toBe('pop')
   })
+
+  it('uses the supplied publication flow instead of rescanning mutable trace history', () => {
+    const live = buildLiveQueueGraph(trace(), queues(), [])
+
+    expect(live.flow).toEqual([])
+    expect(live.graph.edges).toEqual([])
+  })
 })

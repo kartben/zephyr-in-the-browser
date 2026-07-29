@@ -306,12 +306,16 @@ type PipelineQueue = { id: number; name?: string | null }
  * Longest-path ranks on the thread↔queue flow DAG (Sugiyama layer assignment).
  * Producer→queue→consumer→queue pipelines read top-to-bottom / early-to-late.
  */
-export function queuePipelineRanks(tr: Trace, queueIds: Iterable<number>): Map<number, number> {
+export function queuePipelineRanks(
+  tr: Trace,
+  queueIds: Iterable<number>,
+  flowEvents?: QueueFlowEvent[],
+): Map<number, number> {
   const qids = [...new Set(queueIds)]
   const ranks = new Map(qids.map((id) => [id, 0]))
   if (qids.length === 0) return ranks
 
-  const flow = queueFlowEvents(tr)
+  const flow = flowEvents ?? queueFlowEvents(tr)
   const valid = flow.filter((ev) => ev.ok && ev.threadId != null && ranks.has(ev.queueId))
   const threadIds = [...new Set(valid.map((ev) => ev.threadId!))]
 
@@ -350,11 +354,16 @@ export function queuePipelineRanks(tr: Trace, queueIds: Iterable<number>): Map<n
  * Order queues for the depth chart and topology graph: longest-path pipeline
  * rank first, then name / id. Matches the Sugiyama layering used for layout.
  */
-export function sortQueuesByPipelineOrder<T extends PipelineQueue>(tr: Trace, queues: T[]): T[] {
+export function sortQueuesByPipelineOrder<T extends PipelineQueue>(
+  tr: Trace,
+  queues: T[],
+  flowEvents?: QueueFlowEvent[],
+): T[] {
   if (queues.length <= 1) return queues
   const ranks = queuePipelineRanks(
     tr,
     queues.map((q) => q.id),
+    flowEvents,
   )
   return [...queues].sort((a, b) => {
     const ra = ranks.get(a.id) ?? 0
