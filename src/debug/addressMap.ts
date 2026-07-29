@@ -115,13 +115,15 @@ export function buildAddressMap({ objects, stacks, symbols }: AddressMapSources)
         fields: object.fields,
       })
       // The _obj_core member itself: walking the type's linked list lands here,
-      // and "object core of X" is the answer that makes that chain readable.
+      // and naming it is what makes that chain readable. The `.obj_core` suffix
+      // is not decoration — following the link lands on the member, not on the
+      // object, and a chip reading plain `fork_objs[1]` would promise otherwise.
       if (object.coreAddr !== object.addr) {
         push(ranges, {
           start: object.coreAddr,
           end: object.coreAddr + 1,
           kind: 'objectCore',
-          name: object.name,
+          name: `${object.name}.obj_core`,
           size: null,
           typeCode: object.typeCode,
           typeName: object.typeName,
