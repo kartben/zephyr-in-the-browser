@@ -73,6 +73,7 @@ export type DeviceClass =
 export type BodyKind =
   | 'sensor'
   | 'memory'
+  | 'display'
   | 'oled'
   | 'auxdisplay'
   | 'seven-seg'
@@ -135,7 +136,7 @@ export interface DeviceNode {
    * the bus — the NAK/bus-error demo, visible.
    */
   presence: 'interactive' | 'inert' | 'ghost'
-  /** Short annotation ('→ terminal', 'on stage', 'NAK — detached'). */
+  /** Short annotation ('→ terminal', 'no page model', 'NAK — detached'). */
   note?: string
   /** Small qualifier chip ('bus only' for an attached-but-undeclared part). */
   tag?: string
@@ -652,6 +653,7 @@ function deriveFromTree(
   {
     const display = firstOkay('qemu,ramfb', 'virtio,gpu')
     if (display) {
+      const live = avail.display
       push({
         key: uniqueKey(ids, 'display'),
         nodeName: display.name,
@@ -659,9 +661,10 @@ function deriveFromTree(
         compatible: compatibles(display)[0],
         deviceClass: 'display',
         path: pathOf(display),
-        presence: 'inert',
-        note: 'on stage',
+        presence: live ? 'interactive' : 'inert',
+        body: live ? 'display' : undefined,
         crumb: display.labels[0],
+        panelKind: live ? 'display' : undefined,
       })
     }
   }
@@ -1292,6 +1295,7 @@ function deriveFallback(
   }
 
   if (names.display) {
+    const live = avail.display
     nodes.push({
       key: uniqueKey(ids, 'display'),
       nodeName: names.display.nodeName,
@@ -1299,8 +1303,9 @@ function deriveFallback(
       compatible: 'qemu,ramfb',
       deviceClass: 'display',
       path: `/soc/${names.display.nodeName}`,
-      presence: 'inert',
-      note: 'on stage',
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'display' : undefined,
+      panelKind: live ? 'display' : undefined,
     })
   }
 

@@ -38,8 +38,26 @@ describe('dockStore persistence', () => {
     const state = dock.getState()
     expect(state.view).toBe('classes')
     expect(state.open).toBe(true)
+    expect(state.drawerOpen).toBe(false)
     expect(state.width).toBe(dock.DOCK_DEFAULT_WIDTH)
     expect(state.devices).toEqual({})
+  })
+
+  it('never persists or restores the narrow-viewport drawer', () => {
+    dock.setDrawerOpen(true)
+    expect(dock.getState().drawerOpen).toBe(true)
+    expect(localStorage.getItem('zephyr.dock')).not.toContain('drawerOpen')
+
+    dock.reloadFromStorage()
+    expect(dock.getState().drawerOpen).toBe(false)
+  })
+
+  it('showDock puts the dock on screen in either shape', () => {
+    dock.setOpen(false)
+    dock.setDrawerOpen(false)
+    dock.showDock()
+    expect(dock.getState().open).toBe(true)
+    expect(dock.getState().drawerOpen).toBe(true)
   })
 
   it('round-trips through storage', () => {

@@ -10,7 +10,10 @@ browser-backed peripheral lives in the **device dock** — one scrollable sideba
 with two arrangements of the same controls: a tree that mirrors the running
 build's devicetree (chips under their I²C bus, the GNSS receiver under its
 UART, real node names and compatibles), and a view grouped by peripheral class.
-Any row pops out into a floating window; collapsed rows keep a live readout.
+Above them sit the machine's own instruments — the simulation's throughput, the
+CTF trace timeline and the gdb debugger — as rows of exactly the same kind. Any
+row pops out into a floating window; collapsed rows keep a live readout. Nothing
+covers the terminal unless you pop it out there.
 
 | Device | What the guest sees |
 | --- | --- |
@@ -26,7 +29,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **Buzzer** | A `gpio-buzzer` on a dedicated output pin — the dock shakes a Lucide icon and vibrates (or buzzes via Web Audio) when the guest drives it |
 | **Stepper** | GPIO step/dir on pins 6/7 (`samples/drivers/stepper/generic`) or an Analog Devices TMC50xx on SPI CS0 (`samples/drivers/stepper/tmc50xx`) — the dock dial tracks position/velocity; the TMC also exposes its ramp registers |
 | **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
-| **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. Output, not controls, so it floats on the stage |
+| **Display** | Zephyr's display driver painting a framebuffer — and a *touchscreen*: clicks and drags arrive as a virtio-input tablet. A dock row like any other peripheral; pop it out into a window when you want the pixels big |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API, wired to Web Audio and `getUserMedia` |
 | **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump (persisted across reloads; erase clears it) or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
 | **SPI** | A virtio-spi bus with a 1 MiB W25Q-class JEDEC NOR on CS0 — hex dump, LittleFS browser (`Filesystem` dialog via real littlefs / Dreagonmon littlefs-js), and sparse persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same CS0 can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |

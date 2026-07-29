@@ -58,6 +58,8 @@ const LEGACY_KEY_MIGRATIONS: Record<string, string> = {
   i2c: 'virtio_i2c0',
   'serial:console': 'uart0',
   'serial:uart1': 'uart1',
+  // The display stopped being a stage widget and became a device row.
+  'stage:display': 'display',
 }
 const LEGACY_REMOVALS = ['perf']
 

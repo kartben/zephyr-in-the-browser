@@ -1,6 +1,13 @@
 /**
- * TopBar pause control for QMP-only boards (no gdb Debug panel).
- * When gdb is attached, run control lives in DebugPanel instead.
+ * TopBar run control: stop and start the machine, whatever is driving it.
+ *
+ * This used to stand down whenever gdb was attached, because the Debug panel
+ * floated over the terminal and always had its own Pause. Debug is a dock row
+ * now and the dock can be closed, so global run control has to live somewhere
+ * that is always on screen. The Debug body keeps its own Pause/Continue beside
+ * the step buttons — that pair belongs together while you are stepping.
+ *
+ * The register popover stays QMP-only: a gdb session has the whole Debug row.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -36,8 +43,7 @@ export function PauseDebugControl() {
     }
   }, [open])
 
-  // gdb sessions use DebugPanel for Pause / Step / inspect.
-  if (!snap.available || snap.gdb) return null
+  if (!snap.available) return null
 
   const chipLabel =
     snap.registersLoading && !snap.summary
@@ -64,7 +70,7 @@ export function PauseDebugControl() {
         )}
       </Button>
 
-      {snap.paused && (
+      {snap.paused && !snap.gdb && (
         <Button
           variant="ghost"
           size="sm"

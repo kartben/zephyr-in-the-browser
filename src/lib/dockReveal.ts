@@ -10,7 +10,7 @@ import {
   setExpanded,
   setGroupCollapsed,
   setHidden,
-  setOpen,
+  showDock,
 } from '@/lib/dockStore'
 
 const BLINK_MS = 900
@@ -23,12 +23,15 @@ function escapeKey(key: string): string {
 }
 
 /**
- * Bring a dock (or floating) device into view and briefly highlight it.
+ * Bring a dock row — device or instrument — into view and briefly highlight it.
  * `deviceClass` is required in ▤ view so a collapsed class group can open.
+ *
+ * A row that is popped out is left where it is: PanelFrame stamps the same
+ * `data-dock-key` on its floating card, so the blink finds it there.
  */
 export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
   const state = getState()
-  if (!state.open) setOpen(true)
+  if (state.devices[key]?.windowed !== true) showDock()
   if (state.devices[key]?.hidden) setHidden(key, false)
   if (
     deviceClass &&
@@ -37,13 +40,6 @@ export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
   ) {
     setGroupCollapsed(deviceClass, false)
   }
-  setExpanded(key, true)
-  pulseDockKey(key)
-}
-
-/** Unhide + expand + attention blink for a stage panel (does not open the dock). */
-export function revealStagePanel(key: string): void {
-  if (getState().devices[key]?.hidden) setHidden(key, false)
   setExpanded(key, true)
   pulseDockKey(key)
 }

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Monitor, Pointer } from 'lucide-react'
-import { PanelFrame } from '@/components/PanelFrame'
+import { Pointer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getFrame, getFrameSequence, getSharedBuffer, getSnapshot, subscribe } from '@/hostDisplay'
 import {
@@ -73,56 +72,57 @@ function workerRenderingSupported(buffer: ArrayBufferLike | null): buffer is Sha
   )
 }
 
-/** Paints Zephyr's qemu,ramfb framebuffer into a browser canvas. */
-export function DisplayPanel({ defaultExpanded = true }: { defaultExpanded?: boolean }) {
-  const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  // Whether this emulator carries the virtio-input bridge. Shown in the header,
-  // so it lives out here rather than in the body that comes and goes with
-  // collapse. Checked once the framebuffer is live, long after the module attached.
+/**
+ * Whether this emulator carries the virtio-input bridge, so the canvas is a
+ * tablet and not just a picture. Only knowable once the framebuffer is live,
+ * long after the module attached.
+ */
+function usePointer(available: boolean): boolean {
   const [pointer, setPointer] = useState(false)
-
   useEffect(() => {
-    setPointer(display.available && pointerAvailable())
-  }, [display.available])
+    setPointer(available && pointerAvailable())
+  }, [available])
+  return pointer
+}
 
+/** The row's collapsed summary: guest resolution, and whether it takes touch. */
+export function DisplayBadge() {
+  const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const pointer = usePointer(display.available)
   if (!display.available) return null
-
   return (
-    <PanelFrame
-      id="display"
-      title="Display"
-      icon={Monitor}
-      defaultExpanded={defaultExpanded}
-      dockedWidth={42}
-      status={
-        <>
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {display.width}×{display.height}
-          </span>
-          {pointer && (
-            <span
-              role="img"
-              aria-label="Touch input enabled"
-              title="Click and drag on the display — it is a virtio-input tablet"
-            >
-              <Pointer className="size-3 text-muted-foreground" aria-hidden />
-            </span>
-          )}
-        </>
-      }
-    >
-      <DisplayBody display={display} pointer={pointer} />
-    </PanelFrame>
+    <span className="flex items-center gap-1.5">
+      <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+        {display.width}×{display.height}
+      </span>
+      {pointer && (
+        <span
+          role="img"
+          aria-label="Takes touch input"
+          title="Click and drag on the display — it is a virtio-input tablet"
+        >
+          <Pointer className="size-3 text-muted-foreground" aria-hidden />
+        </span>
+      )}
+    </span>
   )
 }
 
 /**
- * The framebuffer canvas and its render session. Split out of DisplayPanel so
- * it mounts only while the panel is expanded: PanelFrame renders the body only
- * then, so setup runs on mount and teardown on unmount — no collapse flag to
- * thread through the render effects.
+ * Paints Zephyr's qemu,ramfb framebuffer into a browser canvas — the body of
+ * the Display dock row, and of its floating window when popped out.
+ *
+ * Mounted only while the row is expanded, so render setup runs on mount and
+ * teardown on unmount: no collapse flag to thread through the render effects.
  */
-function DisplayBody({
+export function DisplayBody() {
+  const display = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const pointer = usePointer(display.available)
+  if (!display.available) return null
+  return <DisplayCanvas display={display} pointer={pointer} />
+}
+
+function DisplayCanvas({
   display,
   pointer,
 }: {

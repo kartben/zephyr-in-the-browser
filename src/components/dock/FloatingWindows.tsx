@@ -19,6 +19,8 @@ import { getState, setWindowed, subscribe } from '@/lib/dockStore'
  * hints, legend, last hex rows — is not scrolled off the first look.
  */
 function windowSeed(node: DeviceNode): { width: number; height?: number } {
+  // The guest screen is the one body whose whole point is pixel area.
+  if (node.body === 'display') return { width: 42, height: 32 }
   if (node.body === 'spi-flash') return { width: 32, height: 40 }
   if (node.body === 'memory') return { width: 28, height: 34 }
   if (node.body === 'net') return { width: 21 }

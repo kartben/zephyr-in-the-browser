@@ -1,19 +1,9 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { TopBar } from '@/components/TopBar'
 import { XTerminal, type TerminalSession } from '@/components/XTerminal'
-import { DisplayPanel } from '@/components/DisplayPanel'
-import { TracePanel } from '@/components/TracePanel'
-import { DebugPanel } from '@/components/DebugPanel'
-import { StagePill } from '@/components/StagePill'
 import { Dock } from '@/components/dock/Dock'
 import { FloatingWindows } from '@/components/dock/FloatingWindows'
+import { InstrumentWindows } from '@/components/dock/Instruments'
 import { DropOverlay } from '@/components/DropOverlay'
 import { DtsPromptDialog } from '@/components/DtsPromptDialog'
 import { ShortcutsHelpDialog } from '@/components/ShortcutsHelpDialog'
@@ -21,17 +11,7 @@ import { TourCard } from '@/components/TourCard'
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
-import {
-  STAGE_DISPLAY_KEY,
-  getState as getDockState,
-  seedForSelection,
-  subscribe as subscribeDock,
-} from '@/lib/dockStore'
-import {
-  stageBottomInset,
-  stageOverlayEdgePx,
-  stageOverlayStackMaxH,
-} from '@/lib/stageLayout'
+import { seedForSelection } from '@/lib/dockStore'
 import {
   clear as clearGuestImage,
   get as getGuestImage,
@@ -64,100 +44,6 @@ import {
 } from '@/boards'
 
 /**
- * The floating widgets over the stage: the display (with its Panels-menu
- * visibility flag) bottom-right, the MIPS pill / Debug / Trace bottom-left.
- * Both sit below the z-50 overlays. Their height is reported so the UART host
- * can shrink and keep the shell prompt clear of the cards.
- *
- * Debug and Trace sit side by side (wrapping on narrow viewports) so they share
- * the reserved bottom band instead of stacking. Trace still fills toward its
- * max width on a phone; the left cluster caps so it does not cover the whole
- * terminal. The Display stays free to size itself.
- */
-function StageOverlays({
-  displayExpanded,
-  traceExpanded,
-  debugExpanded,
-  boardId,
-  sampleId,
-  onBottomInset,
-}: {
-  displayExpanded: boolean
-  traceExpanded: boolean
-  debugExpanded: boolean
-  boardId: string
-  sampleId: string
-  onBottomInset: (px: number) => void
-}) {
-  const dock = useSyncExternalStore(subscribeDock, getDockState, getDockState)
-  const leftRef = useRef<HTMLDivElement>(null)
-  const rightRef = useRef<HTMLDivElement>(null)
-  const [stackMaxH, setStackMaxH] = useState<number | undefined>(undefined)
-
-  useLayoutEffect(() => {
-    const left = leftRef.current
-    const right = rightRef.current
-    const stage = left?.offsetParent instanceof HTMLElement ? left.offsetParent : null
-    if (!stage) {
-      onBottomInset(0)
-      return
-    }
-
-    const measure = () => {
-      const md = window.matchMedia('(min-width: 768px)').matches
-      const edge = stageOverlayEdgePx(md)
-      const leftH = left?.offsetHeight ?? 0
-      const rightH = right?.offsetHeight ?? 0
-      const stackH = Math.max(leftH, rightH)
-      setStackMaxH(stageOverlayStackMaxH(stage.clientHeight, edge))
-      onBottomInset(stageBottomInset(stackH, stage.clientHeight, edge))
-    }
-
-    const ro = new ResizeObserver(measure)
-    ro.observe(stage)
-    if (left) ro.observe(left)
-    if (right) ro.observe(right)
-    measure()
-    return () => {
-      ro.disconnect()
-      onBottomInset(0)
-    }
-  }, [onBottomInset, dock.devices[STAGE_DISPLAY_KEY]?.hidden])
-
-  return (
-    <>
-      {/* Above the stage panels, below the z-50 modals: a tour step may have
-          stopped the machine, so it must not end up behind a device card. */}
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
-        <TourCard board={getBoard(boardId)} sampleId={sampleId} />
-      </div>
-      <div
-        ref={leftRef}
-        className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col items-stretch gap-3 overflow-y-auto sm:right-auto sm:max-w-[min(60rem,calc(100%-1.5rem))] md:bottom-4 md:left-4"
-        style={stackMaxH != null ? { maxHeight: stackMaxH } : undefined}
-      >
-        <div className="self-start">
-          <StagePill />
-        </div>
-        {/* Side by side when both are open; wrap keeps Trace usable on a phone. */}
-        <div className="flex flex-wrap items-end gap-3">
-          <DebugPanel defaultExpanded={debugExpanded} />
-          <TracePanel defaultExpanded={traceExpanded} />
-        </div>
-      </div>
-      {!dock.devices[STAGE_DISPLAY_KEY]?.hidden && (
-        <div
-          ref={rightRef}
-          className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col items-end"
-        >
-          <DisplayPanel defaultExpanded={displayExpanded} />
-        </div>
-      )}
-    </>
-  )
-}
-
-/**
  * The selection lives in the query string so it can survive the reload that a
  * committed QEMU session needs. Without this the board and backend dropdowns
  * become dead controls the moment the emulator is running.
@@ -183,10 +69,6 @@ export default function App() {
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
-  const [bottomInset, setBottomInset] = useState(0)
-  const handleBottomInset = useCallback((px: number) => {
-    setBottomInset((prev) => (prev === px ? prev : px))
-  }, [])
   const [nonce, setNonce] = useState(0)
   const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
@@ -205,7 +87,7 @@ export default function App() {
     }
     if (customImage !== null) {
       // expandAll covers interactive dock rows; still seed Trace + Debug so
-      // the stage panels open even before anything is discovered.
+      // their instrument rows open even before anything is discovered.
       return new Set<PanelKind>(['trace', 'debug'])
     }
     return samplePrimaryPanels(getBoard(boardId), sampleId)
@@ -515,45 +397,26 @@ export default function App() {
 
       <main className="flex min-h-0 flex-1 bg-terminal">
         {/*
-          The stage: terminal underneath, screens floating over it. This
-          wrapper is static and always present, so the dock opening or closing
-          never reparents (and so never remounts) the terminal — only its box
-          changes, which the FitAddon's ResizeObserver absorbs.
+          The stage is the terminal, whole. Panels — devices, and the machine's
+          own instruments — live in the dock and pop out into windows from
+          there; nothing is pinned over the console any more, so no band has to
+          be measured out from under it. This wrapper is static and always
+          present, so the dock opening or closing never reparents (and so never
+          remounts) the terminal — only its box changes, which the FitAddon's
+          ResizeObserver absorbs.
         */}
         <div className="relative min-w-0 flex-1 p-4">
-          {/*
-            Bottom overlays (Debug / Trace / Display) paint over the stage.
-            Leave a measured band under the UART so FitAddon shrinks rows and
-            the shell prompt stays readable; the overlays sit in that band.
-          */}
-          <div className="flex h-full flex-col">
-            <div className="min-h-0 flex-1">
-              {/* Changing board or backend remounts the session, same as Restart. */}
-              <XTerminal
-                key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
-                onSession={handleSession}
-                onTeardown={handleTeardown}
-              />
-            </div>
-            {bottomInset > 0 && (
-              <div className="shrink-0" style={{ height: bottomInset }} aria-hidden />
-            )}
-          </div>
-          {/*
-            The display is output, not controls — it stays a floating stage
-            panel (its render worker dislikes remounts; the dock is for
-            everything else). Keyed by sample, image and tree so the non-reload
-            paths (mock, pre-commit) re-derive its default expansion too.
-          */}
-          <StageOverlays
-            key={`${sampleId}:${customImage?.name ?? ''}:${deviceTree?.source ?? ''}:${deviceTree?.name ?? ''}`}
-            displayExpanded={expandAllPanels || primaryPanels.has('display')}
-            traceExpanded={expandAllPanels || primaryPanels.has('trace')}
-            debugExpanded={expandAllPanels || primaryPanels.has('debug')}
-            boardId={boardId}
-            sampleId={sampleId}
-            onBottomInset={handleBottomInset}
+          {/* Changing board or backend remounts the session, same as Restart. */}
+          <XTerminal
+            key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
+            onSession={handleSession}
+            onTeardown={handleTeardown}
           />
+          {/* A tour step may have stopped the machine, so its card sits above
+              the panels but below the z-50 modals. */}
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
+            <TourCard board={getBoard(boardId)} sampleId={sampleId} />
+          </div>
         </div>
 
         {/*
@@ -564,6 +427,7 @@ export default function App() {
         */}
         <Dock boardId={boardId} />
         <FloatingWindows boardId={boardId} />
+        <InstrumentWindows />
       </main>
 
       {/* Whole-window target, so the drop works wherever the pointer is. */}
