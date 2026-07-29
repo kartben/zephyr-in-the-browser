@@ -17,7 +17,11 @@ import {
   type FlowAction,
   type PortRole,
 } from '@/components/queueGraph/model'
-import { queueGraphLargeCapacityMock, queueGraphMock } from './queueGraphMockData'
+import {
+  queueGraphLargeCapacityMock,
+  queueGraphMock,
+  queueGraphRoutingStressMock,
+} from './queueGraphMockData'
 
 const OBJECT_FILL = '#101a2b'
 const OBJECT_STROKE = '#7c8ba1'
@@ -474,10 +478,15 @@ function LegendItem({ action, label }: { action: FlowAction; label: string }) {
 }
 
 export function QueueGraphMock() {
-  const [largeCapacities, setLargeCapacities] = useState(false)
+  const [scenario, setScenario] = useState<'typical' | 'large' | 'routing'>('typical')
   const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const graph = largeCapacities ? queueGraphLargeCapacityMock : queueGraphMock
+  const graph =
+    scenario === 'routing'
+      ? queueGraphRoutingStressMock
+      : scenario === 'large'
+        ? queueGraphLargeCapacityMock
+        : queueGraphMock
 
   useEffect(() => {
     let current = true
@@ -531,38 +540,52 @@ export function QueueGraphMock() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11px] text-slate-500">
-            Small capacities show exact slots; large capacities use a continuous proportional gauge.
-            Exact values remain available in each object tooltip.
+            {scenario === 'routing'
+              ? 'Routing stress: 19 nodes, 25 flows, mixed object semantics, long edges, and feedback cycles.'
+              : 'Small capacities show exact slots; large capacities use a continuous proportional gauge. Exact values remain available in each object tooltip.'}
           </p>
           <div
             className="flex rounded-lg border border-slate-800 bg-slate-900/70 p-1 text-[11px]"
-            aria-label="Capacity scenario"
+            aria-label="Mock scenario"
           >
             <button
               type="button"
               data-testid="capacity-typical"
-              aria-pressed={!largeCapacities}
+              aria-pressed={scenario === 'typical'}
               className={
-                !largeCapacities
+                scenario === 'typical'
                   ? 'rounded-md bg-slate-700 px-3 py-1.5 text-slate-100'
                   : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
               }
-              onClick={() => setLargeCapacities(false)}
+              onClick={() => setScenario('typical')}
             >
               Typical capacity
             </button>
             <button
               type="button"
               data-testid="capacity-large"
-              aria-pressed={largeCapacities}
+              aria-pressed={scenario === 'large'}
               className={
-                largeCapacities
+                scenario === 'large'
                   ? 'rounded-md bg-violet-500/25 px-3 py-1.5 text-violet-200'
                   : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
               }
-              onClick={() => setLargeCapacities(true)}
+              onClick={() => setScenario('large')}
             >
               Large-capacity stress
+            </button>
+            <button
+              type="button"
+              data-testid="routing-stress"
+              aria-pressed={scenario === 'routing'}
+              className={
+                scenario === 'routing'
+                  ? 'rounded-md bg-sky-500/25 px-3 py-1.5 text-sky-200'
+                  : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
+              }
+              onClick={() => setScenario('routing')}
+            >
+              Routing stress · 3×
             </button>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { queueGraphMock } from '@/mocks/queueGraphMockData'
+import { queueGraphMock, queueGraphRoutingStressMock } from '@/mocks/queueGraphMockData'
 import { validateQueueGraphLayout } from './geometry'
 import { layoutSemanticGraph } from './layout'
 import { buildSemanticGraph, type FlowNodeSpec, type FlowSpec } from './model'
@@ -35,6 +35,14 @@ describe('layoutSemanticGraph', () => {
 
     expect(new Set(positions).size).toBe(12)
     expect(object.height).toBeGreaterThan(200)
+    expect(validateQueueGraphLayout(layout)).toEqual([])
+  })
+
+  it('routes the 3× mixed-object stress topology without geometry violations', async () => {
+    const layout = await layoutSemanticGraph(queueGraphRoutingStressMock)
+
+    expect(layout.nodes).toHaveLength(19)
+    expect(layout.edges).toHaveLength(25)
     expect(validateQueueGraphLayout(layout)).toEqual([])
   })
 })
