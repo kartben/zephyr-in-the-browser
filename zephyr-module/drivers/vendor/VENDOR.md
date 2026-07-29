@@ -8,6 +8,7 @@ under `zephyr-module/` is this repo's own code.
 
 Each pristine entry is retired — deleted, along with its Kconfig and the CMake
 guard that builds it — as soon as the upstream commit lands in mainline Zephyr.
+`virtio_blk.c` has one extra thing to delete with it: see its section below.
 
 ## `display_virtio_gpu.c`
 
@@ -126,6 +127,75 @@ diff <(gh api "repos/kartben/zephyr/contents/drivers/spi/spi_virtio.c?ref=claude
 `CONFIG_SPI_VIRTIO` is declared in `zephyr-module/Kconfig` under the *same*
 name upstream uses, with the same CMake guard on
 `${ZEPHYR_BASE}/drivers/spi/spi_virtio.c`.
+
+## `virtio_blk.c`
+
+VIRTIO block device driver, behind Zephyr's Disk Access API.
+
+| | |
+| --- | --- |
+| Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/112581> |
+| Commit | `549733517cfe705fee23a5843054f759e7103f87` — *drivers: disk: add virtio-blk driver* |
+| Path | `drivers/disk/virtio_blk.c` |
+| SHA-256 | `f9fdcfb2fb4cc70c5e528c83b2a5198785c116267edc03e1ffe344db04ea3597` |
+
+Shipped alongside it, also unmodified from the same commit:
+
+- `zephyr-module/dts/bindings/disk/virtio,blk.yaml` — the `virtio,blk`
+  binding (`dts/bindings/disk/virtio,blk.yaml` upstream), SHA-256
+  `1010392c2045ae84384256a742a12b966ac0fd792139eb97d1e9f95a31553a5c`.
+
+Unlike every other virtio driver here, the device this one talks to **is**
+stock QEMU: `virtio-blk-device` and the whole block layer are already linked
+into the packaged emulators, so this needed no qemu-wasm rebuild and there is
+no page-side device model. The backing store is a raw image the page allocates
+in the Emscripten filesystem — see the `virtio_blk` sample's `extraArgs` /
+`blankFiles` in `src/boards.ts`.
+
+The PR also carries board enablement (`boards/qemu/cortex_a53/board.cmake`,
+`cmake/emu/qemu.cmake`, a `qemu-img` disk-creation step) and tests. None of
+that is vendored: this repo attaches the device from `src/boards.ts` and
+creates the image in the page.
+
+### Checking for drift
+
+```console
+diff <(gh api "repos/hongquan-prog/zephyr/contents/drivers/disk/virtio_blk.c?ref=virtio-blk-split" --jq .content | base64 -d) \
+     zephyr-module/drivers/vendor/virtio_blk.c
+```
+
+### Kconfig symbol collision
+
+`CONFIG_DISK_DRIVER_VIRTIO_BLK`, `CONFIG_DISK_VIRTIO_BLK_MAX_SEGMENTS` and
+`CONFIG_DISK_VIRTIO_BLK_SECTOR_SIZE` are declared in `zephyr-module/Kconfig`
+under the *same* names upstream uses, with the same CMake guard on
+`${ZEPHYR_BASE}/drivers/disk/virtio_blk.c`. Upstream sources its
+`Kconfig.virtio_blk` from inside `if DISK_DRIVERS`; the copy here reproduces
+that with an explicit `depends on DISK_DRIVERS`.
+
+### The one thing that is *not* vendored: the FatFS volume string
+
+Upstream also patches `modules/fatfs/zephyr_fatfs_config.h` to add
+
+```c
+DT_FOREACH_STATUS_OKAY(virtio_blk, _FF_DISK_NAME)
+```
+
+to `FF_VOLUME_STRS`, so that FatFS knows the disk's name. That file is in the
+Zephyr tree, and an out-of-tree module cannot reach it.
+
+Zephyr already ships an escape hatch for exactly this, and
+`zephyr-module/conf/virtio-blk.conf` uses it:
+
+```
+CONFIG_FS_FATFS_CUSTOM_MOUNT_POINT_COUNT=1
+CONFIG_FS_FATFS_CUSTOM_MOUNT_POINTS="VIRTIOBLK0"
+```
+
+`fatfs_init()` splits that string into the same `VolumeStr[]` array that
+`modules/fatfs/zfs_diskio.c` indexes to get the name it hands to
+`disk_access_*` — so the result is identical to upstream's generated list, for
+this one disk. Delete those two lines together with this driver.
 
 ## `auxdisplay_shell.c`
 

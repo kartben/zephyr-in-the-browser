@@ -99,6 +99,54 @@ config SPI_VIRTIO
 	  Every transfer is a round trip to the virtio device, so the SPI API
 	  can only be used from a thread.
 
+config DISK_DRIVER_VIRTIO_BLK
+	bool "VIRTIO block disk driver"
+	default y
+	depends on DT_HAS_VIRTIO_BLK_ENABLED
+	depends on DISK_DRIVERS
+	select VIRTIO
+	help
+	  Enable driver for VIRTIO block devices, exposed through the Disk
+	  Access API.
+
+	  Unlike the other virtio devices here this one is *not* the browser
+	  bridge: virtio-blk is a stock QEMU device model, backed by a raw image
+	  in the emulator filesystem. See drivers/vendor/VENDOR.md.
+
+	  The extra `depends on DISK_DRIVERS` stands in for upstream sourcing
+	  its Kconfig.virtio_blk from inside `if DISK_DRIVERS`.
+
+# Nested exactly as upstream's drivers/disk/Kconfig.virtio_blk nests it, so the
+# whole block deletes cleanly.
+if DISK_DRIVER_VIRTIO_BLK
+
+config DISK_VIRTIO_BLK_MAX_SEGMENTS
+	int "VIRTIO block max scatter-gather data segments per request"
+	depends on MMU
+	default 14
+	range 1 254
+	help
+	  Maximum number of scatter-gather data segments a single block request
+	  may carry. The driver keeps one request in flight and sizes the request
+	  virtqueue by rounding (MAX_SEGMENTS + 2) up to a power of two, the two
+	  extra descriptors holding the request header and status byte — so the
+	  default 14 uses a 16-entry virtqueue.
+
+config DISK_VIRTIO_BLK_SECTOR_SIZE
+	int "VIRTIO block fallback logical block size"
+	default 512
+	range 512 4096
+	help
+	  Logical block (sector) size reported to the disk access layer when the
+	  device does not advertise VIRTIO_BLK_F_BLK_SIZE. Must be a multiple of
+	  512 and, under CONFIG_MMU, must not exceed the MMU page size.
+
+module = DISK_VIRTIO_BLK
+module-str = disk_virtio_blk
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # DISK_DRIVER_VIRTIO_BLK
+
 config VIRTIO_GPU_DISPLAY
 	bool "VIRTIO GPU display"
 	default y
