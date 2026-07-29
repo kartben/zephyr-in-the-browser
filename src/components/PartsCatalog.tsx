@@ -134,10 +134,9 @@ export function PartsCatalog() {
       <DialogContent className="h-[min(85vh,42rem)] max-w-xl">
         <DialogHeader>
           <DialogTitle>Supported parts</DialogTitle>
+          {/* The columns already say manufacturer / compatible / datasheet. */}
           <DialogDescription>
-            Simulated chips the browser can attach on virtio-i2c / virtio-spi —
-            each with manufacturer, Zephyr compatible, and datasheet when one is
-            linkable.
+            Chips the browser can attach on virtio-i2c and virtio-spi.
           </DialogDescription>
         </DialogHeader>
 

@@ -242,10 +242,9 @@ export function SampleGallery({
         <DialogContent className="h-[min(85vh,40rem)] max-w-xl">
           <DialogHeader>
             <DialogTitle>Zephyr app to boot</DialogTitle>
-            <DialogDescription>
-              Prebuilt samples for {board.label}, sorted A–Z. Titles and descriptions come from
-              the Zephyr docs when this deployment carries them.
-            </DialogDescription>
+            {/* Where the titles come from and what order the list is in are
+                facts about the build, not choices the reader is making. */}
+            <DialogDescription>Prebuilt samples for {board.label}.</DialogDescription>
           </DialogHeader>
 
           <div className="shrink-0 px-5 pb-3">

@@ -45,11 +45,10 @@ export function DtsPromptDialog({
         <DialogHeader>
           <DialogTitle>Add its devicetree?</DialogTitle>
           <DialogDescription>
-            Booting <code className="font-mono text-foreground">{elfName}</code>. If you add the
-            build&apos;s <code className="font-mono">zephyr.dts</code> (from{' '}
-            <code className="font-mono">build/zephyr/</code>), the peripheral panels follow it —
-            which buses exist, the GPIO pin names, the I2C chips with drivers. Skipping just shows
-            every panel this machine has.
+            Booting <code className="font-mono text-foreground">{elfName}</code>. Add the build&apos;s{' '}
+            <code className="font-mono">zephyr.dts</code> (from{' '}
+            <code className="font-mono">build/zephyr/</code>) and the dock follows it — the right
+            buses, GPIO pin names and I²C chips. Skip it and you get every panel this machine has.
           </DialogDescription>
         </DialogHeader>
 

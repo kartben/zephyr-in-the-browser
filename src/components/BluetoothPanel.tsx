@@ -118,11 +118,9 @@ export function BluetoothView({ snap, live }: { snap: BtSnapshot; live: boolean 
 
               {selected && <PeerInspector peer={selected} />}
 
+              {/* "Select a peer to configure it" said nothing a click does not
+                  teach, and the LocalLink is already named in the phase line. */}
               <AddPeerRow />
-              <p className="text-[11px] text-muted-foreground">
-                Select a peer to configure it. Peers share this tab&apos;s LocalLink —
-                external Hive remains optional.
-              </p>
             </>
           )}
         </>
