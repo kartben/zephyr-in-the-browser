@@ -8,6 +8,7 @@
 
 import * as gdb from '@/hostGdb'
 import * as monitor from '@/hostMonitor'
+import type { AddressMapSources } from '@/debug/addressMap'
 import type { ElfSymbol } from '@/debug/elfSymbols'
 import type { ZephyrThread } from '@/debug/kernel/threads'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
@@ -218,4 +219,13 @@ export async function writeMemory(addr: number, data: Uint8Array): Promise<boole
 /** Feed the guest ELF so thread-info + function symbols can be resolved. */
 export function setKernelImage(elf: Uint8Array | null) {
   gdb.setKernelImage(elf)
+}
+
+/**
+ * ELF-derived inputs for {@link buildAddressMap}. Kept out of the snapshot
+ * because they only change when the image does; the live half of the map
+ * (object cores) already rides along in {@link DebugSnapshot.objects}.
+ */
+export function elfAddressSources(): Omit<AddressMapSources, 'objects'> {
+  return { stacks: gdb.getStackRegions(), symbols: gdb.getSymbolIndex() }
 }

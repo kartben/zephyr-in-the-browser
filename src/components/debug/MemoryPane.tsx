@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HexView } from '@/components/HexView'
 import { compactHex } from '@/debug/hexFormat'
+import { buildAddressMap, formatTarget } from '@/debug/addressMap'
+import {
+  decodeWindowPointers,
+  pointerBytes,
+  type PointerRun,
+} from '@/components/debug/memoryPointers'
 import * as debug from '@/debug/control'
 import {
   createDebugMemoryChip,
@@ -72,6 +78,11 @@ export function MemoryPane({
   const booted = useRef(false)
   const chipRef = useRef<DebugMemoryChip | null>(null)
 
+  // Jump history — following pointers is only useful if you can get back.
+  // Scrolling deliberately does not record: it would bury the jumps.
+  const [trail, setTrail] = useState<number[]>([first.addr])
+  const [trailAt, setTrailAt] = useState(0)
+
   const [patternText, setPatternText] = useState('')
   const [direction, setDirection] = useState<SearchDirection>('forward')
   const [searching, setSearching] = useState(false)
@@ -137,6 +148,32 @@ export function MemoryPane({
     }
   }
 
+  /** A deliberate move — recorded so Back returns to where you came from. */
+  const jumpTo = async (addr: number) => {
+    const top = addr >>> 0
+    const kept = trail.slice(0, trailAt + 1)
+    if (kept[kept.length - 1] !== top) {
+      setTrail([...kept, top])
+      setTrailAt(kept.length)
+    }
+    await loadAt(top)
+  }
+
+  /** Establish the origin (first stop) rather than appending to it. */
+  const startTrail = (addr: number) => {
+    setTrail([addr >>> 0])
+    setTrailAt(0)
+    void loadAt(addr)
+  }
+
+  const stepTrail = (delta: number) => {
+    const next = trailAt + delta
+    const addr = trail[next]
+    if (addr === undefined) return
+    setTrailAt(next)
+    void loadAt(addr)
+  }
+
   useEffect(() => {
     if (!seedAddr) return
     if (!snap.paused) return
@@ -144,7 +181,7 @@ export function MemoryPane({
     setAddrText(seedAddr)
     onSeedConsumed()
     const addr = parseAddr(seedAddr)
-    if (addr !== null) void loadAt(addr)
+    if (addr !== null) void jumpTo(addr)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr, snap.paused])
 
@@ -155,12 +192,14 @@ export function MemoryPane({
       booted.current = true
       viewAddr.current = snap.memory.addr
       setAddrText(compactHex(snap.memory.addr.toString(16)))
+      setTrail([snap.memory.addr >>> 0])
+      setTrailAt(0)
       if (snap.memory.hex.length < WINDOW_BYTES * 2) void loadAt(snap.memory.addr)
       return
     }
     if (!snap.pc) return
     booted.current = true
-    void loadAt(pcWindowTop(parseAddr(snap.pc) ?? 0, snap.regArch))
+    startTrail(pcWindowTop(parseAddr(snap.pc) ?? 0, snap.regArch))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr, snap.paused, snap.memory, snap.pc, snap.regArch])
 
@@ -169,7 +208,7 @@ export function MemoryPane({
     if (!snap.paused || booted.current || seedAddr || snap.memory || snap.pc) return
     if (snap.registersLoading || snap.registers === null) return
     booted.current = true
-    void loadAt(0)
+    startTrail(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedAddr, snap.paused, snap.memory, snap.pc, snap.registersLoading, snap.registers])
 
@@ -207,7 +246,37 @@ export function MemoryPane({
   const load = async () => {
     const addr = parseAddr(addrText)
     if (addr === null) return
-    await loadAt(addr)
+    await jumpTo(addr)
+  }
+
+  // Object core names the live objects; the ELF names stacks, data and code.
+  const addressMap = useMemo(
+    () => buildAddressMap({ objects: snap.objects, ...debug.elfAddressSources() }),
+    // elfAddressSources only changes with the image, which also flips hasSymbols.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snap.objects, snap.hasSymbols],
+  )
+
+  const ptrBytes = pointerBytes(snap.regArch)
+  const pointers = useMemo(
+    () =>
+      memory
+        ? decodeWindowPointers({
+            base: memory.addr,
+            bytes: hexToBytes(memory.hex),
+            ptrBytes,
+            map: addressMap,
+          })
+        : [],
+    [memory, ptrBytes, addressMap],
+  )
+
+  /** What the window itself is sitting on — shown above the dump. */
+  const here = memory ? addressMap.resolve(memory.addr) : null
+
+  const follow = (run: PointerRun) => {
+    setAddrText(compactHex(run.value.toString(16)))
+    void jumpTo(run.value)
   }
 
   const moveByRows = (rowDelta: number) => {
@@ -291,7 +360,7 @@ export function MemoryPane({
           setSearchStatus(`hit ${compactHex(hit.toString(16))}`)
           setSearching(false)
           searchAbort.current = null
-          await loadAt(windowTopForHit(hit))
+          await jumpTo(windowTopForHit(hit))
           return
         }
       }
@@ -304,7 +373,7 @@ export function MemoryPane({
           setSearchStatus(`hit ${compactHex(hit.toString(16))}`)
           setSearching(false)
           searchAbort.current = null
-          await loadAt(windowTopForHit(hit))
+          await jumpTo(windowTopForHit(hit))
           return
         }
       }
@@ -338,7 +407,7 @@ export function MemoryPane({
       }
       lastHit.current = result.addr
       setSearchStatus(`hit ${compactHex(result.addr.toString(16))}`)
-      await loadAt(windowTopForHit(result.addr))
+      await jumpTo(windowTopForHit(result.addr))
     } finally {
       if (searchAbort.current === ac) searchAbort.current = null
       setSearching(false)
@@ -348,6 +417,32 @@ export function MemoryPane({
   return (
     <div className="space-y-2 px-1">
       <div className="flex gap-1">
+        {trail.length > 1 && (
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 w-7 shrink-0 px-0"
+              disabled={trailAt === 0 || busy || !snap.paused}
+              title="Back"
+              aria-label="Back to the previous address"
+              onClick={() => stepTrail(-1)}
+            >
+              <ArrowLeft className="size-3.5" aria-hidden />
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 w-7 shrink-0 px-0"
+              disabled={trailAt >= trail.length - 1 || busy || !snap.paused}
+              title="Forward"
+              aria-label="Forward to the next address"
+              onClick={() => stepTrail(1)}
+            >
+              <ArrowRight className="size-3.5" aria-hidden />
+            </Button>
+          </>
+        )}
         <input
           className="h-7 min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2 font-mono text-[11px] tabular-nums text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Address (hex)"
@@ -428,15 +523,32 @@ export function MemoryPane({
           {searching ? `scan ${searchStatus}` : searchStatus}
         </p>
       )}
+      {here && (
+        <p className="flex items-center gap-2 truncate px-0.5 font-mono text-[10px] text-foreground/70">
+          {here.typeCode && (
+            <span className="shrink-0 rounded-sm bg-primary/15 px-1 text-[9px] tracking-wide text-primary/90">
+              {here.typeCode.replace(/_+$/, '')}
+            </span>
+          )}
+          <span className="truncate text-foreground">{formatTarget(here)}</span>
+          {here.size != null && <span className="shrink-0 text-foreground/45">{here.size} B</span>}
+        </p>
+      )}
       {chip ? (
         <div
           ref={shellRef}
           className="overscroll-contain outline-none focus:ring-1 focus:ring-ring"
           tabIndex={0}
           onKeyDown={onKeyDown}
-          aria-label="Memory dump. Scroll or use arrow keys to move."
+          aria-label="Memory dump. Scroll or use arrow keys to move. Hold Command to follow a pointer."
         >
-          <HexView chip={chip} addressBase={chip.baseAddr} dimErased={false} />
+          <HexView
+            chip={chip}
+            addressBase={chip.baseAddr}
+            dimErased={false}
+            pointers={pointers}
+            onFollowPointer={follow}
+          />
         </div>
       ) : (
         <p className="rounded-md bg-muted/40 px-2 py-3 font-mono text-[10px] text-muted-foreground">
