@@ -276,6 +276,12 @@ export function HexView({
    * One chip per distinct target on the row — the name the underline lacks room
    * for. Self-references stay out of it: they are worth flagging in the dump but
    * lead nowhere, and letting one take a slot buries a link that does.
+   *
+   * Sits ahead of the ASCII column rather than after it. The debug pane is
+   * narrower than a 16-byte dump even before this, so one of the two trailing
+   * columns is off-screen either way — and in a window whose words resolve to
+   * kernel objects the ASCII is a row of dots, while the names are the reason
+   * to look. Windows with no pointers keep the classic hex | ascii layout.
    */
   const gutter = (rowBase: number, length: number) => {
     if (!pointers?.length) return null
@@ -363,6 +369,8 @@ export function HexView({
 
                 <span className="flex">{hexCells(rowBase, bytes)}</span>
 
+                {gutter(rowBase, bytes.length)}
+
                 <span className="flex">
                   {bytes.map((value, i) => {
                     const offset = rowBase + i
@@ -384,8 +392,6 @@ export function HexView({
                     )
                   })}
                 </span>
-
-                {gutter(rowBase, bytes.length)}
               </div>
             )
           })}
