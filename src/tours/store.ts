@@ -54,6 +54,12 @@ export interface TourMemory {
   error: string | null
 }
 
+/** A run of source lines to light up, inclusive, in the anchor's file. */
+export interface TourHighlight {
+  start: number
+  end: number
+}
+
 export interface TourCard {
   step: TourStep
   /** Where the breakpoint actually landed. */
@@ -66,6 +72,8 @@ export interface TourCard {
   memory: TourMemory | null
   registers: Array<{ name: string; value: string }>
   threads: boolean
+  /** Lines the step is *about*, which need not be the line it stopped on. */
+  highlight: TourHighlight[]
 }
 
 export interface TourState {
@@ -102,6 +110,8 @@ const EMPTY: TourState = {
 export interface StepRuntime {
   step: TourStep
   anchor: ResolvedAnchor | null
+  /** The anchor did not resolve against this build; the step is skipped. */
+  unresolved: boolean
   /** Breakpoint is currently planted. */
   planted: boolean
   hits: number
@@ -246,7 +256,14 @@ export async function loadFor(
   sourceUrl = sourceFor ?? null
   const doc = await fetchTour(sampleId)
   if (!doc) return
-  steps = doc.steps.map((step) => ({ step, anchor: null, planted: false, hits: 0, card: null }))
+  steps = doc.steps.map((step) => ({
+    step,
+    anchor: null,
+    unresolved: false,
+    planted: false,
+    hits: 0,
+    card: null,
+  }))
   publish({ doc, problems: [...doc.problems], finished: false, seen: new Set() })
   // Plant at the stop that opening the stub produces, before the machine runs
   // on. If the session is already up — a tour loaded after boot — plant now and
@@ -287,12 +304,23 @@ export async function loadFor(
 }
 
 /**
- * Resolve every step and plant its breakpoint.
+ * Arm the tour: resolve every anchor, then plant only the step the reader is
+ * actually waiting on.
  *
- * Steps are planted all at once rather than one ahead of the reader, because a
- * tour is not necessarily linear: a `when: hits % 100 == 0` step deep in a loop
- * and a one-shot step in `main()` are both armed from the start, and whichever
- * the guest reaches first is the one that fires.
+ * Resolving is done up front — it is pure lookup in the ELF, it costs the guest
+ * nothing, and doing it all at once is what lets the outline and the problem
+ * list be honest before the first step fires.
+ *
+ * *Planting* is one at a time. A breakpoint is a trap on every pass, so a tour
+ * with every step planted has the guest trapping into the page at addresses
+ * nobody is looking at yet — for the whole run, including steps the reader may
+ * never reach. It also let a later step fire before an earlier one, which reads
+ * as the tour jumping about.
+ *
+ * The cost of linearity is that a step whose location is passed before its turn
+ * comes round is simply missed — the guest reaches it again on a later pass, or
+ * not at all. That is the right trade for a document with numbered steps, and
+ * it is what the prose already implies.
  */
 export async function arm(): Promise<void> {
   if (!state.enabled || steps.length === 0) return
@@ -306,21 +334,20 @@ export async function arm(): Promise<void> {
   const problems = [...(state.doc?.problems ?? [])]
 
   for (const runtime of steps) {
-    if (runtime.planted) continue
+    if (runtime.anchor) continue
     const result = resolveAnchor(runtime.step.at, context)
     if (!result.ok) {
       problems.push(`step ${runtime.step.index + 1}: ${result.error}`)
+      runtime.unresolved = true
       continue
     }
     runtime.anchor = result.anchor
-    runtime.planted = await debug.addBreakpoint(result.anchor.addr)
-    if (!runtime.planted) {
-      problems.push(`step ${runtime.step.index + 1}: the stub refused a breakpoint at \`${runtime.step.at}\``)
-    }
   }
+
+  const planted = await plantNext()
+
   if (armWatchdog !== undefined) clearTimeout(armWatchdog)
   armWatchdog = undefined
-  const armed = steps.some((s) => s.planted)
   /*
    * Say something when a tour cannot run. Until now this was silent in
    * production: the gallery badges the sample as guided, the reader waits, and
@@ -332,8 +359,32 @@ export async function arm(): Promise<void> {
   if (problems.length > 0) {
     console.warn(`[tour] ${problems.length} step(s) could not be armed:\n  ${problems.join('\n  ')}`)
   }
-  if (!armed) console.warn('[tour] no step resolved against this build; the tour will not run')
-  publish({ armed, live: true, problems })
+  if (!planted) console.warn('[tour] no step resolved against this build; the tour will not run')
+  publish({ armed: planted, live: true, problems })
+}
+
+/**
+ * Plant the next step that still wants a breakpoint, if it has none.
+ *
+ * Awaited before any resume, always: `main()` and the line after it are
+ * microseconds apart on a JIT guest, so planting after letting go would lose
+ * the step every time.
+ */
+async function plantNext(): Promise<boolean> {
+  const runtime = steps.find(
+    (s) => !s.unresolved && s.anchor !== null && !s.planted && (s.card === null || s.step.repeat),
+  )
+  if (!runtime?.anchor) return steps.some((s) => s.planted)
+  runtime.planted = await debug.addBreakpoint(runtime.anchor.addr)
+  if (!runtime.planted) {
+    publish({
+      problems: [
+        ...state.problems,
+        `step ${runtime.step.index + 1}: the stub refused a breakpoint at \`${runtime.step.at}\``,
+      ],
+    })
+  }
+  return steps.some((s) => s.planted)
 }
 
 /**
@@ -490,8 +541,13 @@ async function showPending(): Promise<void> {
   publish({ current: card, seen, armed: steps.some((s) => s.planted) })
 
   // `stop: no` is a note the reader can read while the guest carries on — the
-  // card stays, the machine does not.
-  if (!runtime.step.stop) debug.resume()
+  // card stays, the machine does not. Plant the next step before letting go, or
+  // the guest reaches it while we are still asking for the breakpoint.
+  if (!runtime.step.stop) {
+    await plantNext()
+    publish({ armed: steps.some((s) => s.planted) })
+    debug.resume()
+  }
 }
 
 /**
@@ -510,6 +566,36 @@ async function evalMark(
   } catch {
     return null
   }
+}
+
+/**
+ * Turn a step's `highlight:` entries into line ranges.
+ *
+ * Patterns are searched in the same shipped source the excerpt is drawn from,
+ * so a highlight and the code under it cannot disagree. A pattern that matches
+ * nothing is dropped rather than guessed at: a highlight over the wrong lines
+ * is worse than none.
+ */
+function resolveHighlights(step: TourStep, file: string | null): TourHighlight[] {
+  const out: TourHighlight[] = []
+  const text = file ? sources.get(file.slice(file.lastIndexOf('/') + 1).toLowerCase()) : undefined
+  for (const spec of step.highlight) {
+    if (spec.kind === 'lines') {
+      out.push({ start: spec.start, end: spec.end })
+      continue
+    }
+    if (!text) continue
+    let re: RegExp
+    try {
+      re = new RegExp(spec.pattern)
+    } catch {
+      continue
+    }
+    const hit = text.findIndex((line) => re.test(line))
+    if (hit < 0) continue
+    out.push({ start: hit + 1, end: hit + 1 + spec.extra })
+  }
+  return out
 }
 
 async function buildCard(runtime: StepRuntime): Promise<TourCard> {
@@ -574,6 +660,7 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     memory,
     registers,
     threads: step.threads,
+    highlight: resolveHighlights(step, runtime.anchor?.file ?? null),
   }
 }
 
@@ -581,11 +668,26 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
  * Reader controls
  * ------------------------------------------------------------------ */
 
-/** Dismiss the card and let the machine run to the next step. */
+/**
+ * Dismiss the card and let the machine run to the next step.
+ *
+ * The next breakpoint goes in *before* the resume. `main()` and the line after
+ * it are microseconds apart on a JIT guest, so a plant that races the resume
+ * loses the step — reliably, not occasionally.
+ */
 export function next(): void {
   const card = state.current
-  publish({ current: null, finished: steps.every((s) => s.card !== null) })
-  if (card?.paused && state.live) debug.resume()
+  publish({ current: null })
+  void (async () => {
+    const planted = await plantNext()
+    publish({
+      armed: planted,
+      // Over when nothing is left to reach: every step has either had its turn
+      // or could not be resolved against this build.
+      finished: steps.every((s) => s.card !== null || s.unresolved),
+    })
+    if (card?.paused && state.live) debug.resume()
+  })()
 }
 
 /** Read a step again, without touching the machine. */
@@ -666,7 +768,14 @@ const DEMO_STEP_MS = 3200
 export function startDemo(sampleId: string, signal: AbortSignal): () => void {
   void fetchTour(sampleId).then((doc) => {
     if (!doc || signal.aborted) return
-    steps = doc.steps.map((step) => ({ step, anchor: null, planted: false, hits: 0, card: null }))
+    steps = doc.steps.map((step) => ({
+    step,
+    anchor: null,
+    unresolved: false,
+    planted: false,
+    hits: 0,
+    card: null,
+  }))
     publish({ doc, live: false, armed: false, problems: [...doc.problems] })
 
     let index = 0
@@ -722,5 +831,6 @@ function demoCard(runtime: StepRuntime): TourCard {
       : null,
     registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: '—' })),
     threads: step.threads,
+    highlight: resolveHighlights(step, null),
   }
 }

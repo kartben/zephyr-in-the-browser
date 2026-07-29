@@ -16,6 +16,7 @@ nothing was added to it, and nothing needed to be.
 
 ```tour
 at: main
+highlight: /GPIO_DT_SPEC_GET/
 panel: gpio
 watch:
   - controller = **led as string
@@ -28,8 +29,10 @@ memory:
   note: pointer to the GPIO controller, resolved by the linker
 ```
 
-The machine is stopped on the first statement of `main()`, and `led` already
-holds everything this sample will ever know about the hardware.
+The machine is stopped on the first statement of `main()` — the `▸` in the
+excerpt below — but the line worth looking at is the highlighted one, twenty
+lines earlier, which has already run before `main()` was entered. `led` holds
+everything this sample will ever know about the hardware.
 
 `GPIO_DT_SPEC_GET(LED0_NODE, gpios)` expanded **at compile time** into a static
 initialiser: a pointer to the controller device, the pin number, and the flags
@@ -45,6 +48,9 @@ between the three machines this page can boot.
 
 ```tour
 at: main.c:/gpio_pin_configure_dt/ | main.c:32
+highlight:
+  - /gpio_is_ready_dt/ + 2
+  - /gpio_pin_configure_dt/ + 3
 panel: gpio
 registers: pc, sp
 watch:
@@ -53,8 +59,9 @@ watch:
   - state = *(*led+3p) as ptr
 ```
 
-The `gpio_is_ready_dt()` on the line above has already returned true, and it
-was never "start the driver". Zephyr initialised its devices during boot, in
+Two things are lit below: the readiness check that has already run, and the
+call the machine is now stopped in front of. The `gpio_is_ready_dt()` above
+returned true, and it was never "start the driver". Zephyr initialised its devices during boot, in
 dependency order, well before the application got the CPU. The check asks a
 much narrower question: does the controller devicetree *declared* have a driver
 bound to it, and did that driver's init succeed? A node left `status = "okay"`

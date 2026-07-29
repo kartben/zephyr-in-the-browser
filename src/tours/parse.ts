@@ -49,6 +49,22 @@ export interface WatchSpec {
   format: string
 }
 
+/**
+ * One `highlight:` entry: a line, a range of lines, or a pattern to find.
+ *
+ *     highlight: 21          one line
+ *     highlight: 21-24       a range, inclusive
+ *     highlight: /GPIO_DT_SPEC_GET/     the first line matching
+ *     highlight: /^int main/ + 3        the match and the three lines after
+ *
+ * Line numbers are in the source as shipped; a pattern is resolved against the
+ * same text an `at:` pattern searches, so it survives the file being edited
+ * upstream in the same way.
+ */
+export type HighlightSpec =
+  | { kind: 'lines'; start: number; end: number }
+  | { kind: 'pattern'; pattern: string; extra: number }
+
 /** A step's `memory:` block — which window of guest memory to put on screen. */
 export interface MemorySpec {
   /** Address expression for the first byte shown. */
@@ -80,6 +96,15 @@ export interface TourStep {
   repeat: boolean
   /** A PanelKind for the device dock to reveal. */
   panel: string | null
+  /**
+   * Source to light up in the excerpt, independent of where the breakpoint is.
+   *
+   * A step usually stops on one line and is *about* several — a declaration and
+   * its use, a whole `if`, the three lines of a loop body. `at:` answers "where
+   * does the machine stop"; this answers "what am I pointing at", and they are
+   * not the same question.
+   */
+  highlight: HighlightSpec[]
   watch: WatchSpec[]
   memory: MemorySpec | null
   /** Register names to spotlight, as the arch spells them. */
@@ -278,6 +303,26 @@ function parseMemory(value: Directive | undefined, problems: string[]): MemorySp
   }
 }
 
+const HIGHLIGHT_RANGE = /^(\d+)\s*(?:-\s*(\d+))?$/
+const HIGHLIGHT_PATTERN = /^\/(.+)\/(?:\s*\+\s*(\d+))?$/
+
+/** Parse one `highlight:` entry. Returns null for anything unrecognised. */
+export function parseHighlight(raw: string): HighlightSpec | null {
+  const text = raw.trim()
+  const range = HIGHLIGHT_RANGE.exec(text)
+  if (range) {
+    const start = Number(range[1])
+    const end = range[2] === undefined ? start : Number(range[2])
+    if (start < 1 || end < start) return null
+    return { kind: 'lines', start, end }
+  }
+  const pattern = HIGHLIGHT_PATTERN.exec(text)
+  if (pattern) {
+    return { kind: 'pattern', pattern: pattern[1]!, extra: Number(pattern[2] ?? 0) }
+  }
+  return null
+}
+
 function parseList(value: Directive | undefined): string[] {
   if (value === undefined) return []
   if (Array.isArray(value)) return value.filter((v) => v !== '')
@@ -323,6 +368,13 @@ function buildStep(
 
   const memory = parseMemory(parsed.values.get('memory'), problems)
 
+  const highlight: HighlightSpec[] = []
+  for (const row of parseList(parsed.values.get('highlight'))) {
+    const spec = parseHighlight(row)
+    if (spec) highlight.push(spec)
+    else problems.push(`${where}: \`highlight: ${row}\` is not a line, a range or a /pattern/`)
+  }
+
   return {
     index,
     title,
@@ -332,6 +384,7 @@ function buildStep(
     stop: asBool(parsed.values.get('stop'), true),
     repeat: asBool(parsed.values.get('repeat'), false),
     panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
+    highlight,
     watch,
     memory,
     registers: parseList(parsed.values.get('registers')),

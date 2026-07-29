@@ -111,7 +111,7 @@ in the console rather than looking like a sample with no tour.
 
 | Key | Default | Means |
 | --- | --- | --- |
-| `when:` | every hit | `first`, `hits == 4`, `hits >= 3`, `hits % 40 == 0` |
+| `when:` | every hit | `first`, `hits == 4`, `hits >= 3`, `hits % 10 == 0` |
 | `repeat:` | `no` | keep the breakpoint after the step has fired |
 | `stop:` | `yes` | `no` shows the card and lets the machine run on |
 
@@ -136,7 +136,7 @@ So match the condition to the rate:
   run, and the guest will feel it.
 
 Two steps may share an address — "the line that does the work" and "the same
-line, forty passes later" are both about blinky's toggle. Each counts its own
+line, ten passes later" are both about blinky's toggle. Each counts its own
 hits; the first whose condition fires is the one shown.
 
 ## What the card shows
@@ -219,6 +219,41 @@ it, end-exclusive, and both ends are expressions too — so `2p..3p` means the
 third pointer-sized field whatever the word size is. The card offers to hand the
 same address to **Debug → Mem**, where it can be scrolled, searched and edited.
 
+### `highlight:`
+
+Where the machine stops and what the step is *about* are different questions,
+and `highlight:` answers the second:
+
+```yaml
+at: main
+highlight: /GPIO_DT_SPEC_GET/
+```
+
+That step stops on the first statement of `main()` and points at a declaration
+twenty lines earlier which has already run. In the excerpt the stop line carries
+a `▸` in the gutter and the highlight is tinted, so the two never get confused.
+
+| Entry | Means |
+| --- | --- |
+| `21` | line 21 |
+| `21-24` | lines 21 to 24, inclusive |
+| `/pattern/` | the first line matching |
+| `/pattern/ + 3` | that line and the three after it |
+
+Several are allowed:
+
+```yaml
+highlight:
+  - /gpio_is_ready_dt/ + 2
+  - /gpio_pin_configure_dt/ + 3
+```
+
+Line numbers are in the shipped source; patterns are searched in the same text
+an `at:` pattern uses, so a highlight and the code under it cannot disagree. A
+pattern that matches nothing is dropped rather than guessed at — a highlight
+over the wrong lines is worse than none. The excerpt grows to cover whatever is
+marked, up to a cap.
+
 ### `registers:` and `threads:`
 
 ```yaml
@@ -233,18 +268,29 @@ packaged image.
 
 ## How it runs
 
-1. The page loads `<app>.tour.md` beside the ELF, at the same time it starts the
-   emulator.
-2. Opening the gdbstub stops the machine once, early in boot. The tour plants
-   every step's breakpoint at that stop, before the guest can run past `main()`.
+1. The page loads the tour from its own bundle as the emulator starts.
+2. Opening the gdbstub stops the machine once, early in boot. Every anchor is
+   resolved at that stop, and the **first** step's breakpoint is planted —
+   before the guest can run past `main()`.
 3. Each stop is matched to a step by address. A stop nobody claims — the
    reader's own breakpoint, or the Pause button — is left alone.
 4. A firing step reads its values, reveals its panel, and puts up the card.
-   Continue resumes.
+   Continue plants the next step's breakpoint and *then* resumes.
 
-Steps are planted all at once, not one ahead of the reader: a tour is not
-necessarily linear, and whichever step the guest reaches first is the one that
-fires.
+**One breakpoint at a time.** A breakpoint traps on every pass, so a tour with
+all its steps planted has the guest trapping into the page at addresses nobody
+is looking at yet, for the whole run, including steps the reader never reaches.
+Planting one ahead also keeps the tour in the order it was written, rather than
+firing whichever step the guest happens to reach first.
+
+The cost is that a step whose location goes by before its turn comes round is
+missed — the guest reaches it again on a later pass, or not at all. For a
+document with numbered steps that is the right trade, and the ordering is what
+the prose already implies.
+
+The plant is always awaited *before* the resume. `main()` and the line after it
+are microseconds apart on a JIT guest, so a plant racing a resume loses the step
+reliably rather than occasionally.
 
 The tour needs the gdbstub, so it needs an emulator built with the dual-channel
 chardev patch (`public/qemu/features.json` lists `"gdb"`). Without it the sample

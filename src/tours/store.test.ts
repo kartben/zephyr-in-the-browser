@@ -126,6 +126,11 @@ at: 0x9000
 Prose.
 `
 
+/** Let the plant-then-resume chain in next() finish. */
+async function settle() {
+  await new Promise((r) => setTimeout(r, 0))
+}
+
 /**
  * Deliver a stop at `addr`, the way hostGdb would: read the PC, offer it to the
  * filter, and only publish a pause for the stops the filter keeps. A rejected
@@ -161,11 +166,23 @@ beforeEach(async () => {
 })
 
 describe('arming', () => {
-  it('plants a breakpoint per resolvable step and reports the rest', () => {
-    // `main` resolves through symbols; 0x9000 is a raw address; both plant.
-    expect([...breakpoints].sort()).toEqual([0x8000, 0x9000])
+  it('resolves every step but plants only the one being waited on', () => {
+    // All three resolve — `main` through symbols, 0x9000 as a raw address —
+    // but a breakpoint is a trap on every pass, so only the first goes in.
+    expect(getSteps().every((s) => s.anchor !== null)).toBe(true)
+    expect([...breakpoints]).toEqual([0x8000])
     expect(getSnapshot().armed).toBe(true)
     expect(getSnapshot().problems).toEqual([])
+  })
+
+  it('plants the next step before resuming, not after', async () => {
+    await stopAt(0x8000) // step 1
+    next()
+    await settle()
+    // Step 2 shares step 1's address, so that one stays; the resume must not
+    // have happened before the plant, or the guest outruns the tour.
+    expect(breakpoints.has(0x8000)).toBe(true)
+    expect(resumed).toHaveLength(1)
   })
 })
 
@@ -191,6 +208,7 @@ describe('stops', () => {
   it('lifts the breakpoint only when no other step still wants the address', async () => {
     await stopAt(0x8000)
     next()
+    await settle()
     // Step 2 shares the address and repeats, so the breakpoint stays.
     expect(breakpoints.has(0x8000)).toBe(true)
     expect(getSteps()[0]!.planted).toBe(false)
@@ -200,6 +218,7 @@ describe('stops', () => {
   it('slips past hits no step asked for, without ever pausing', async () => {
     await stopAt(0x8000)
     next() // step 1 fires and is done
+    await settle()
     await stopAt(0x8000) // hit 2 — step 2 wants every fourth
     expect(getSnapshot().current).toBeNull()
     // The rejected hit never reached the expensive path: no pause published,
@@ -219,6 +238,7 @@ describe('stops', () => {
   it('fires the repeating step on its hit and runs on when `stop: no`', async () => {
     await stopAt(0x8000)
     next()
+    await settle()
     await stopAt(0x8000)
     await stopAt(0x8000)
     await stopAt(0x8000) // hit 4
@@ -241,7 +261,7 @@ describe('leaving', () => {
   it('drops every breakpoint and resumes', async () => {
     await stopAt(0x8000)
     skip()
-    await new Promise((r) => setTimeout(r, 0))
+    await settle()
     expect(breakpoints.size).toBe(0)
     expect(getSnapshot().finished).toBe(true)
     expect(getSnapshot().current).toBeNull()
