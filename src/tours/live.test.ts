@@ -88,7 +88,7 @@ vi.mock('@/debug/browserChardev', () => ({
   bindChardev: () => ({ feed: () => 0, ring: () => 0 }),
   chardevAvailable: () => true,
 }))
-vi.mock('@/lib/dockReveal', () => ({ revealPanelKind: () => {} }))
+vi.mock('@/lib/dockReveal', () => ({ revealPanelKind: () => {}, revealTrace: () => {} }))
 
 const TOUR = `---
 tour: Live test

@@ -239,3 +239,31 @@ describe('highlight', () => {
     expect(doc.problems[0]).toContain('highlight')
   })
 })
+
+describe('trace', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('takes a tab name, and reads a plain yes as the timeline', () => {
+    expect(step('trace: queues').steps[0]!.trace).toBe('queues')
+    expect(step('trace: yes').steps[0]!.trace).toBe('schedule')
+  })
+
+  it('is absent unless asked for', () => {
+    expect(step('panel: gpio').steps[0]!.trace).toBeNull()
+    expect(step('trace: no').steps[0]!.trace).toBeNull()
+  })
+
+  it('reports a tab it does not know', () => {
+    const doc = step('trace: timeline')
+    expect(doc.steps[0]!.trace).toBeNull()
+    expect(doc.problems[0]).toContain('timeline')
+  })
+
+  it('survives `stop: no`, because the timeline is not a walk', () => {
+    // Unlike `threads:`/`objects:`, revealing the Trace row is one store write
+    // and needs nothing from the stopped guest.
+    const doc = step('stop: no\ntrace: yes')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.trace).toBe('schedule')
+  })
+})

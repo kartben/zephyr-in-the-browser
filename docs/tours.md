@@ -149,6 +149,21 @@ A `PanelKind` from `src/boards.ts` (`gpio`, `led`, `i2c`, `net`, …). The devic
 dock unhides that row, expands it and blinks it, so the reader's eye has
 somewhere to go when the machine stops.
 
+### `trace:`
+
+Opens the Trace instrument on one of its tabs — `schedule` (the thread
+timeline), `queues` or `net`. `trace: yes` means `schedule`.
+
+```yaml
+trace: yes
+```
+
+This is the one thing on the card that is not a snapshot. `watch:`, `objects:`
+and `threads:` all describe the instant the machine stopped; the timeline is the
+history that led there, so a step about *why* this thread is the one running
+points at it rather than at a table of states. Trace is an instrument rather
+than a device, so it has its own directive instead of a `PanelKind`.
+
 ### `watch:`
 
 A list of `label = expression as format` rows, read at the stop.

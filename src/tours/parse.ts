@@ -113,6 +113,14 @@ export interface TourStep {
   /** A PanelKind for the device dock to reveal. */
   panel: string | null
   /**
+   * Which Trace tab to put on screen, if any.
+   *
+   * Separate from `panel:` because Trace is an instrument rather than a device,
+   * and because the tab matters: a step about who runs next wants the timeline,
+   * a step about a message queue wants the depth chart.
+   */
+  trace: string | null
+  /**
    * Source to light up in the excerpt, independent of where the breakpoint is.
    *
    * A step usually stops on one line and is *about* several — a declaration and
@@ -242,6 +250,25 @@ function asBool(value: Directive | undefined, fallback: boolean): boolean {
 /* ------------------------------------------------------------------ *
  * Directive vocabulary
  * ------------------------------------------------------------------ */
+
+/** Trace tabs a step may ask for, as src/components/TracePanel.tsx spells them. */
+export const TRACE_VIEWS = ['schedule', 'queues', 'net'] as const
+
+/**
+ * Parse `trace:` — a tab name, or a plain yes for the timeline.
+ *
+ * `trace: yes` is the common case by a wide margin, so it does not have to be
+ * spelt `trace: schedule`.
+ */
+function parseTrace(value: Directive | undefined, problems: string[]): string | null {
+  const raw = asScalar(value)?.toLowerCase()
+  if (raw === undefined || raw === null || raw === '') return null
+  if (['no', 'false', 'off', '0'].includes(raw)) return null
+  if (['yes', 'true', 'on', '1'].includes(raw)) return 'schedule'
+  if ((TRACE_VIEWS as readonly string[]).includes(raw)) return raw
+  problems.push(`\`trace: ${raw}\` is not a trace view (${TRACE_VIEWS.join(', ')})`)
+  return null
+}
 
 /**
  * Parse one `watch:` row — `[label =] expression [as format]`.
@@ -430,6 +457,10 @@ function buildStep(
     else problems.push(`${where}: \`highlight: ${row}\` is not a line, a range or a /pattern/`)
   }
 
+  const traceProblems: string[] = []
+  const trace = parseTrace(parsed.values.get('trace'), traceProblems)
+  for (const problem of traceProblems) problems.push(`${where}: ${problem}`)
+
   const stop = asBool(parsed.values.get('stop'), true)
   const threads = asBool(parsed.values.get('threads'), false)
   /*
@@ -456,6 +487,7 @@ function buildStep(
     stop,
     repeat: asBool(parsed.values.get('repeat'), false),
     panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
+    trace,
     highlight,
     watch,
     memory,

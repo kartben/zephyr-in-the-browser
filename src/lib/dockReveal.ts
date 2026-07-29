@@ -5,11 +5,14 @@
 
 import type { PanelKind } from '@/boards'
 import type { DeviceClass, DeviceInventory } from '@/deviceTopology'
+import * as hostTrace from '@/hostTrace'
 import {
+  STAGE_TRACE_KEY,
   getState,
   setExpanded,
   setGroupCollapsed,
   setHidden,
+  setTab,
   showDock,
 } from '@/lib/dockStore'
 
@@ -82,6 +85,25 @@ function pulseDockKey(key: string): void {
       pulseElement(el)
     })
   })
+}
+
+/**
+ * Open the Trace row on one of its tabs, if there is a trace to open it on.
+ *
+ * Not a `revealPanelKind('trace')`: the inventory holds the board's devices,
+ * and Trace is an instrument, so nothing in there answers for it. The tab is
+ * part of the ask — "watch the timeline" and "watch the queue depth" are
+ * different views of the same stream.
+ *
+ * CTF comes from the guest's own configuration, so only a build made with the
+ * `browser-tracing` snippet has any (the `· traced` samples in the gallery).
+ * Blinking an empty panel at a reader would be worse than leaving the dock
+ * alone, so an untraced guest makes this a no-op.
+ */
+export function revealTrace(tab: string): void {
+  if (!hostTrace.getSnapshot().available) return
+  setTab(STAGE_TRACE_KEY, tab)
+  revealDockRow(STAGE_TRACE_KEY)
 }
 
 /*

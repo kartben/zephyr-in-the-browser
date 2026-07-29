@@ -22,7 +22,7 @@ import { registerValues } from '@/debug/registerModel'
 import { formatSymbol, resolveSymbol } from '@/debug/elfSymbols'
 import * as debug from '@/debug/control'
 import * as gdb from '@/hostGdb'
-import { revealPanelKind } from '@/lib/dockReveal'
+import { revealPanelKind, revealTrace } from '@/lib/dockReveal'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
@@ -551,6 +551,7 @@ async function showPending(): Promise<void> {
   // Reveal before the card lands, so the row the step is about is already in
   // view when the reader's eye goes looking for it.
   if (runtime.step.panel) revealPanelKind(runtime.step.panel)
+  if (runtime.step.trace) revealTrace(runtime.step.trace)
 
   const seen = new Set(state.seen)
   seen.add(runtime.step.index)
@@ -794,6 +795,7 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
       runtime.hits = 1
       runtime.card = demoCard(runtime)
       if (runtime.step.panel) revealPanelKind(runtime.step.panel)
+      if (runtime.step.trace) revealTrace(runtime.step.trace)
       const seen = new Set(state.seen)
       seen.add(index)
       publish({ current: runtime.card, seen })

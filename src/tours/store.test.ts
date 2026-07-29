@@ -84,6 +84,7 @@ vi.mock('@/tours/catalog', () => ({
 const revealed: string[] = []
 vi.mock('@/lib/dockReveal', () => ({
   revealPanelKind: (kind: string) => revealed.push(kind),
+  revealTrace: (tab: string) => revealed.push(`trace:${tab}`),
 }))
 
 const { arm, getSnapshot, getSteps, loadFor, next, reset, skip } = await import('@/tours/store')
