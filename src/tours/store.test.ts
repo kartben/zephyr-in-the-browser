@@ -70,6 +70,17 @@ vi.mock('@/debug/control', () => ({
   },
 }))
 
+/*
+ * Tours are bundled with the page rather than fetched, so this is what stands
+ * in for the glob — the store asks for a sample id, not a URL.
+ */
+vi.mock('@/tours/catalog', () => ({
+  loadTourSource: async (id: string) => (id.startsWith('tour-') ? TOUR : null),
+  hasTour: () => true,
+  tourIds: () => ['tour'],
+  baseSampleId: (id: string) => id.replace(/_trace$/, ''),
+}))
+
 const revealed: string[] = []
 vi.mock('@/lib/dockReveal', () => ({
   revealPanelKind: (kind: string) => revealed.push(kind),
@@ -144,12 +155,8 @@ beforeEach(async () => {
   revealed.length = 0
   swallowed.length = 0
   stopFilter = null
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => new Response(TOUR, { headers: { 'content-type': 'text/markdown' } })),
-  )
-  // A fresh URL each time: the tour cache is keyed by it, deliberately.
-  await loadFor(`/tour-${url++}.tour.md`)
+  // A fresh id each time: the tour cache is keyed by it, deliberately.
+  await loadFor(`tour-${url++}`)
   await arm()
 })
 

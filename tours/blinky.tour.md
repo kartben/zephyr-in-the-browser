@@ -44,7 +44,7 @@ between the three machines this page can boot.
 ## Drivers were running before `main()` was
 
 ```tour
-at: main.c:/gpio_pin_configure_dt/
+at: main.c:/gpio_pin_configure_dt/ | main.c:32
 panel: gpio
 registers: pc, sp
 watch:
@@ -75,7 +75,7 @@ claims it.
 ## The line that does the work
 
 ```tour
-at: main.c:/gpio_pin_toggle_dt/
+at: main.c:/gpio_pin_toggle_dt/ | main.c:38
 when: first
 panel: led
 watch:
@@ -118,7 +118,7 @@ item instead.
 ## Once more, ten toggles later
 
 ```tour
-at: main.c:/gpio_pin_toggle_dt/
+at: main.c:/gpio_pin_toggle_dt/ | main.c:38
 when: hits % 10 == 0
 repeat: yes
 stop: no

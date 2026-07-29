@@ -48,9 +48,16 @@ The machine is stopped on the first statement of `main()`, and `led` already
 holds everything this sample will ever know about the hardware…
 ````
 
-Then add the id to `TOURED_SAMPLES` in `src/tours/guided.ts`, so the gallery
-badges it. That is the whole wiring: no build step, no CMake, no rebuild of
-anything. `npm run test` parses every tour and checks the two lists agree.
+Dropping the file in is the whole wiring. Tours are picked up by an
+`import.meta.glob`, so the gallery badge, the loader and the tests all discover
+them from the directory — there is no list to keep in step. `npm run test`
+parses every tour and fails on an authoring mistake.
+
+**Tours ship with the page, not with the guest images.** That matters: the
+images are a ~100 MB containerised Zephyr build published as a release asset and
+pinned by a repository variable, so a tour bundled with *them* could not appear
+until somebody rebuilt Zephyr. A tour is Markdown in this repository, it is in
+the JS bundle, and a sample that has one always has one.
 
 The directive block is a strict subset of YAML — `key: value`, `- item` lists,
 one level of nested mapping. Anything the parser accepts, a real YAML parser
@@ -65,6 +72,7 @@ reads the same way.
 | `gpio_pin_configure` | that function, past its prologue |
 | `main+0x1c` | that function, at an offset |
 | `0x40001234` | that address |
+| `a \| b` | try `a`, fall back to `b` |
 
 **Prefer the pattern form.** These samples track Zephyr `main`, so a line number
 is a fact about a moment in somebody else's git history; `/toggle_dt/` still
@@ -81,8 +89,23 @@ A line anchor lands on the first code **at or after** the line, the same as
 gdb's `break file:n`, because an optimised build has no code for a comment or a
 folded branch. The card shows where it actually landed.
 
+A pattern has one weakness the other spellings do not: searching source text
+needs the source text, and *that* does arrive with the guest images. An image
+tarball older than the tour has no `src/<app>/`, and every pattern anchor in the
+tour fails. So give each one a fallback:
+
+```yaml
+at: main.c:/gpio_pin_toggle_dt/ | main.c:38
+```
+
+Alternatives are tried in order. The pattern survives upstream editing the file;
+the line number survives an image build that predates the tour. Each covers the
+other's failure, and a test insists every pattern anchor in a shipped tour has
+one.
+
 An anchor that does not resolve costs one step, not the tour. The rest still
-run, and the reason appears on the card in dev.
+run, the reason appears on the card, and a tour where *nothing* resolved says so
+in the console rather than looking like a sample with no tour.
 
 ## When it fires — `when:` and friends
 

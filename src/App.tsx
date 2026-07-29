@@ -56,7 +56,6 @@ import {
   getBoard,
   getSample,
   sampleSourceAsset,
-  sampleTourAsset,
   samplePrimaryPanels,
   type PanelKind,
 } from '@/boards'
@@ -235,18 +234,16 @@ export default function App() {
     setStatus({ status: 'loading' })
 
     /*
-     * The tour, if this sample has one. Fire-and-forget: most samples have no
-     * tour file to find, and that is the normal case. Loading it early matters
+     * The tour, if this sample has one. It rides in the page bundle, so it is
+     * there whatever the guest images do — only the source excerpts come from
+     * the image build. Fire-and-forget. Loading it early matters
      * — the store hands the debugger an attach hook, and the breakpoints have
      * to be planted at the stop that opening the gdbstub produces, before the
      * guest runs past main().
      */
     resetTour()
     void loadTour(
-      `${import.meta.env.BASE_URL}qemu/${sampleTourAsset(
-        getBoard(configRef.current.boardId),
-        configRef.current.sampleId,
-      )}`,
+      configRef.current.sampleId,
       (file) =>
         `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(
           getBoard(configRef.current.boardId),

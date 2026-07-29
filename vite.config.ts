@@ -61,22 +61,18 @@ function qemuAssetProbe(): Plugin {
 }
 
 /**
- * Serves tour artifacts in dev.
+ * Serves a toured sample's sources in dev.
  *
- * tools/build-zephyr-image.sh drops `<app>.tour.md` and a copy of the sample's
- * sources next to each ELF, but that needs a containerised Zephyr build. A
- * checkout with no images still lands on the mock backend, and the mock can
- * walk a tour — so answer the same asset URLs straight out of `tours/`.
- *
- * Sources are the one thing this cannot conjure: a tour now points at *stock*
- * Zephyr samples, whose code lives in the Zephyr workspace rather than in this
- * repo. When one is at hand (ZEPHYR_WS, default ~/zephyrproject) the excerpts
- * work in dev too; when it is not, the tour reads fine without them.
+ * The tours themselves need nothing from here — they are bundled with the page
+ * (src/tours/catalog.ts). Their *sources* are another matter: a tour points at
+ * stock Zephyr samples, whose code lives in the Zephyr workspace rather than in
+ * this repo, and normally arrives with the guest images. When a workspace is at
+ * hand (ZEPHYR_WS, default ~/zephyrproject) the excerpts and pattern anchors
+ * work in dev too; when it is not, the tour still reads.
  *
  * Dev only. A deployment has real images, and this must never mask them.
  */
 function tours(): Plugin {
-  const dir = path.join(root, 'tours')
   const zephyrWs = process.env.ZEPHYR_WS ?? path.join(os.homedir(), 'zephyrproject')
 
   /** app id → Zephyr sample path, straight out of the packaging manifest. */
@@ -96,34 +92,23 @@ function tours(): Plugin {
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        // `/qemu/zephyr/<board>/<app>.tour.md` and
         // `/qemu/zephyr/<board>/src/<app>/<file>` — board is irrelevant here,
-        // since a tour and its sources do not vary by machine.
+        // since a sample's sources do not vary by machine.
         const url = (req.url ?? '').split('?')[0]
-        const tour = /\/qemu\/zephyr\/[^/]+\/([^/]+)\.tour\.md$/.exec(url)
         const source = /\/qemu\/zephyr\/[^/]+\/src\/([^/]+)\/([^/]+)$/.exec(url)
-        if (!tour && !source) return next()
+        if (!source) return next()
         // A real build's artifacts win: only answer for what it has not shipped.
         if (existsSync(path.join(QEMU_ASSET_DIR, url.split('/qemu/')[1] ?? ''))) return next()
 
-        let file: string | null = null
-        if (tour) {
-          file = path.join(dir, `${tour[1]}.tour.md`)
-        } else {
-          const sample = sampleForApp(source![1]!)
-          if (sample) {
-            const base = sample.startsWith('zephyr-module/')
-              ? path.join(root, sample)
-              : path.join(zephyrWs, 'zephyr', sample)
-            file = path.join(base, 'src', source![2]!)
-          }
-        }
-        if (!file || !existsSync(file)) return next()
+        const sample = sampleForApp(source[1]!)
+        if (!sample) return next()
+        const base = sample.startsWith('zephyr-module/')
+          ? path.join(root, sample)
+          : path.join(zephyrWs, 'zephyr', sample)
+        const file = path.join(base, 'src', source[2]!)
+        if (!existsSync(file)) return next()
 
-        res.setHeader(
-          'Content-Type',
-          tour ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8',
-        )
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8')
         res.end(readFileSync(file))
       })
     },

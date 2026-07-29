@@ -108,3 +108,28 @@ describe('patternFile', () => {
     expect(patternFile('main')).toBeNull()
   })
 })
+
+describe('fallback chains', () => {
+  it('takes the first alternative that resolves', () => {
+    const sources = new Map([['main.c', ['int main(void)', '{', '\tgpio_toggle();']]])
+    // Pattern wins when the sources are there…
+    expect(resolveAnchor('main.c:/gpio_toggle/ | main.c:38', { ...context, sources })).toMatchObject(
+      { ok: true, anchor: { via: 'pattern' } },
+    )
+    // …and the line number carries it when they are not, which is what an
+    // image tarball older than the tour looks like.
+    expect(resolveAnchor('main.c:/gpio_toggle/ | main.c:32', context)).toMatchObject({
+      ok: true,
+      anchor: { via: 'line', line: 32 },
+    })
+  })
+
+  it('reports every reason when no alternative resolves', () => {
+    const result = resolveAnchor('main.c:/x/ | nope', context)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('was not shipped')
+      expect(result.error).toContain('no such function')
+    }
+  })
+})

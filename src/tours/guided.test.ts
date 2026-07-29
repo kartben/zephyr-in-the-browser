@@ -3,8 +3,9 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BOARDS, type GuestSample } from '@/boards'
 import { isKnownFormat } from '@/tours/expr'
+import { patternFile } from '@/tours/anchors'
 import { parseTour } from '@/tours/parse'
-import { touredSampleIds } from '@/tours/guided'
+import { tourIds } from '@/tours/catalog'
 import { whenFires } from '@/tours/when'
 
 /**
@@ -14,9 +15,9 @@ import { whenFires } from '@/tours/when'
  * notices is missing.
  *
  * Anchors cannot be *resolved* without a built ELF, which this test does not
- * have. What it can check is everything up to that: the file parses, the badge
- * list matches the directory, and the sample each tour claims to be about is
- * the one the gallery will run it against.
+ * have. What it can check is everything up to that: the file parses, the page
+ * bundle can see it, and the sample each tour claims to be about is the one the
+ * gallery will run it against.
  */
 
 const TOURS_DIR = resolve(process.cwd(), 'tours')
@@ -36,9 +37,10 @@ function sampleById(id: string): GuestSample | undefined {
 }
 
 describe('tours/', () => {
-  it('has exactly the tours the gallery badges', () => {
-    const onDisk = tourFiles().map((f) => f.replace('.tour.md', ''))
-    expect(onDisk).toEqual([...touredSampleIds()].sort())
+  it('is discovered from the files themselves', () => {
+    // No hand-kept list to drift: dropping a file in `tours/` is the whole
+    // wiring, and this is what proves the glob sees it.
+    expect(tourIds()).toEqual(tourFiles().map((f) => f.replace('.tour.md', '')))
   })
 
   it.each(tourFiles())('%s parses with no authoring errors', (file) => {
@@ -60,6 +62,15 @@ describe('tours/', () => {
     const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
     for (const step of doc.steps) {
       expect(step.at, `step ${step.index + 1} has no anchor`).toBeTruthy()
+      // A pattern anchor needs the sample's sources, which arrive with the
+      // guest images and can be older than the tour. Every one carries a
+      // fallback so the step still resolves on a build without them.
+      if (patternFile(step.at) !== null) {
+        expect(
+          step.at.includes('|'),
+          `step ${step.index + 1}: a pattern anchor wants a \`|\` fallback`,
+        ).toBe(true)
+      }
       expect(step.body.trim(), `step ${step.index + 1} has no prose`).not.toBe('')
       for (const watch of step.watch) {
         expect(isKnownFormat(watch.format)).toBe(true)
