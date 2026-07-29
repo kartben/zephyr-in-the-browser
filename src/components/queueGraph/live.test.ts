@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { QueueSeries, Trace } from '@/ctf'
 import {
   buildLiveQueueGraph,
+  LIVE_ISR_NODE_ID,
   liveFlowAction,
   liveObjectNodeId,
   liveQueueNodeState,
@@ -91,5 +92,31 @@ describe('live queue graph adapter', () => {
     })
     expect(liveFlowAction('lifo', 'put_front')).toBe('push')
     expect(liveFlowAction('lifo', 'get')).toBe('pop')
+  })
+
+  it('includes ISR queue operations as a virtual synoptic actor', () => {
+    const tr = trace()
+    tr.events.push(
+      { ts: 310, eid: 7, name: 'isr_enter', fields: {} },
+      { ts: 320, eid: 8, name: 'msgq_put_enter', fields: { id: 0x1000 } },
+      { ts: 340, eid: 9, name: 'msgq_put_exit', fields: { id: 0x1000, ret: 0 } },
+      { ts: 340, eid: 10, name: 'isr_exit', fields: {} },
+    )
+    tr.isrSpans = [[310, 340]]
+    tr.t1 = 340
+
+    const live = buildLiveQueueGraph(tr, queues())
+    const isr = live.graph.nodes.find((node) => node.id === LIVE_ISR_NODE_ID)
+    const isrPut = live.graph.edges.find((edge) => edge.sourceNodeId === LIVE_ISR_NODE_ID)
+
+    expect(isr).toMatchObject({
+      kind: 'isr',
+      label: '[ISR]',
+      detail: 'interrupt context',
+    })
+    expect(isrPut).toMatchObject({
+      targetNodeId: liveObjectNodeId(0x1000),
+      action: 'put',
+    })
   })
 })

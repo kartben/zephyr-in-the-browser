@@ -14,6 +14,7 @@ import {
 import {
   flowActionColor,
   flowActionLabel,
+  isActorNode,
   type FlowAction,
   type PortRole,
 } from '@/components/queueGraph/model'
@@ -28,8 +29,10 @@ import { cn } from '@/lib/utils'
 
 const OBJECT_FILL = '#101a2b'
 const OBJECT_STROKE = '#7c8ba1'
-const THREAD_FILL = '#1b1830'
-const THREAD_STROKE = '#a78bfa'
+const THREAD_FILL = '#10203a'
+const THREAD_STROKE = '#60a5fa'
+const ISR_FILL = '#241338'
+const ISR_STROKE = '#c084fc'
 const TEXT = '#f1f5f9'
 const MUTED = '#94a3b8'
 const PANEL = '#080d18'
@@ -54,15 +57,16 @@ function portRoleLabel(role: PortRole): string {
       return 'top · push'
     case 'top-out':
       return 'top · pop'
-    case 'thread-in':
+    case 'actor-in':
       return 'flow in'
-    case 'thread-out':
+    case 'actor-out':
       return 'flow out'
   }
 }
 
 function nodeKindLabel(node: LayoutNode): string {
   if (node.kind === 'thread') return 'thread'
+  if (node.kind === 'isr') return 'interrupt context'
   if (node.kind === 'msgq') return 'message queue'
   if (node.kind === 'fifo') return 'fifo'
   if (node.kind === 'queue') return 'queue'
@@ -70,19 +74,31 @@ function nodeKindLabel(node: LayoutNode): string {
   return 'fixed stack'
 }
 
-function ThreadShape({ node }: { node: LayoutNode }) {
-  if (node.kind !== 'thread') return null
+function ActorShape({ node }: { node: LayoutNode }) {
+  if (node.kind !== 'thread' && node.kind !== 'isr') return null
+  const isr = node.kind === 'isr'
+  const fill = isr ? ISR_FILL : THREAD_FILL
+  const stroke = isr ? ISR_STROKE : THREAD_STROKE
   return (
     <>
       <rect
         width={node.width}
         height={node.height}
         rx={12}
-        fill={THREAD_FILL}
-        stroke={THREAD_STROKE}
+        fill={fill}
+        stroke={stroke}
         strokeWidth={1.5}
+        strokeDasharray={isr ? '6 4' : undefined}
       />
-      <circle cx={20} cy={node.height / 2} r={6} fill="#a78bfa" fillOpacity={0.9} />
+      {isr ? (
+        <path
+          d={`M17 ${node.height / 2 - 9}L25 ${node.height / 2 - 2}L20 ${node.height / 2 - 2}L24 ${node.height / 2 + 9}L15 ${node.height / 2 + 1}L20 ${node.height / 2 + 1}Z`}
+          fill={ISR_STROKE}
+          fillOpacity={0.95}
+        />
+      ) : (
+        <circle cx={20} cy={node.height / 2} r={6} fill={THREAD_STROKE} fillOpacity={0.9} />
+      )}
       <text
         x={35}
         y={node.height / 2 - 7}
@@ -93,7 +109,7 @@ function ThreadShape({ node }: { node: LayoutNode }) {
         {node.label}
       </text>
       <text x={35} y={node.height / 2 + 11} fill={MUTED} fontSize={9.5}>
-        {node.detail ?? 'thread'}
+        {node.detail ?? (isr ? 'interrupt context' : 'thread')}
       </text>
     </>
   )
@@ -345,7 +361,7 @@ function NodeView({
       opacity={active ? 1 : 0.5}
       style={{ transition: 'opacity 120ms ease' }}
     >
-      <ThreadShape node={node} />
+      <ActorShape node={node} />
       <MsgqShape node={node} />
       <FifoShape node={node} />
       <VerticalStackShape node={node} />
@@ -367,7 +383,7 @@ function NodeView({
       })}
       <title>
         {nodeKindLabel(node)} · {node.label}
-        {node.kind === 'thread'
+        {isActorNode(node)
           ? ''
           : ` · depth ${node.depth.toLocaleString('en-US')}${node.capacity == null ? '' : ` of ${node.capacity.toLocaleString('en-US')}`}`}
       </title>

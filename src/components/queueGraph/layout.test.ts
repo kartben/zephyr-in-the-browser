@@ -24,7 +24,7 @@ describe('layoutSemanticGraph', () => {
     ]
     const flows: FlowSpec[] = threadNodes.map((thread, index) => ({
       id: `flow:${index}`,
-      threadId: thread.id,
+      actorId: thread.id,
       objectId: 'object:busy',
       action: 'put',
     }))
