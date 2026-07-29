@@ -21,7 +21,7 @@ import {
 } from '@/hostGdb'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { get as getGuestImage } from '@/guestImage'
-import { loadSampleDts } from '@/devicetree'
+import { get as getDeviceTree, loadSampleDts } from '@/devicetree'
 import {
   GDB_ARGS,
   HCI_ARGS,
@@ -281,12 +281,22 @@ export function createQemuBackend(): PtyBackend {
       if (features.has('gdb')) args = [...args, ...GDB_ARGS]
       if (features.has('hci') && board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
 
-      // A cold Pyodide + Bumble load takes longer than Zephyr's 10-second HCI
-      // command timeout. Prepare the controller before main() so the guest's
-      // first HCI Reset waits in the chardev ring for a ready consumer instead
-      // of being drained and dropped while Bumble is still loading.
+      /*
+       * A cold Pyodide + Bumble load takes longer than Zephyr's 10-second HCI
+       * command timeout. Prepare the controller before main() so the guest's
+       * first HCI Reset waits in the chardev ring for a ready consumer instead
+       * of timing out while Bumble is still loading.
+       *
+       * Two ways to know this guest speaks Bluetooth before it says so: the
+       * sample manifest, and the devicetree — a user ELF dropped with its
+       * zephyr.dts declares its HCI UART there, and the tree is installed
+       * before this boot starts. hostBt also starts the controller on the
+       * first HCI packet, but that is a fallback with no head start, so it is
+       * worth asking both questions here.
+       */
       const bluetoothSample =
-        getSample(board, sampleId).primaryPanels?.includes('bluetooth') ?? false
+        (getSample(board, sampleId).primaryPanels?.includes('bluetooth') ?? false) ||
+        (getDeviceTree()?.insights?.uartBuses.some((bus) => bus.role === 'bluetooth') ?? false)
       if (features.has('hci') && board.peripherals?.hostBt && bluetoothSample) {
         onStatus({ status: 'loading', detail: 'preparing Bluetooth controller' })
         await prepareHostBtController()
