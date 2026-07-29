@@ -1,4 +1,3 @@
-import ELK from 'elkjs/lib/elk.bundled.js'
 import type {
   ElkEdgeSection,
   ElkExtendedEdge,
@@ -113,7 +112,14 @@ function edgePoints(section: ElkEdgeSection): ElkPoint[] {
   return [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]
 }
 
-const elk = new ELK()
+type ElkInstance = InstanceType<typeof import('elkjs/lib/elk.bundled.js').default>
+
+let elkPromise: Promise<ElkInstance> | null = null
+
+function loadElk(): Promise<ElkInstance> {
+  elkPromise ??= import('elkjs/lib/elk.bundled.js').then(({ default: ELK }) => new ELK())
+  return elkPromise
+}
 
 export async function layoutSemanticGraph(graph: SemanticGraph): Promise<QueueGraphLayout> {
   const root: ElkNode = {
@@ -141,6 +147,7 @@ export async function layoutSemanticGraph(graph: SemanticGraph): Promise<QueueGr
     },
   }
 
+  const elk = await loadElk()
   const result = await elk.layout(root)
   const semanticNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
   const semanticEdgeById = new Map(graph.edges.map((edge) => [edge.id, edge]))
