@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseDirectives, parseTour, parseWatch } from '@/tours/parse'
+import { parseDirectives, parseHighlight, parseTour, parseWatch } from '@/tours/parse'
 
 describe('parseDirectives', () => {
   it('reads scalars, lists and one level of mapping', () => {
@@ -150,5 +150,46 @@ describe('parseTour', () => {
   it('reads a document that is not a tour as having no steps', () => {
     expect(parseTour('<!doctype html>\n<html></html>').steps).toEqual([])
     expect(parseTour('').steps).toEqual([])
+  })
+})
+
+describe('highlight', () => {
+  it('reads a line, a range and a pattern', () => {
+    expect(parseHighlight('21')).toEqual({ kind: 'lines', start: 21, end: 21 })
+    expect(parseHighlight('21-24')).toEqual({ kind: 'lines', start: 21, end: 24 })
+    expect(parseHighlight('/GPIO_DT_SPEC_GET/')).toEqual({
+      kind: 'pattern',
+      pattern: 'GPIO_DT_SPEC_GET',
+      extra: 0,
+    })
+    expect(parseHighlight('/^int main/ + 3')).toEqual({
+      kind: 'pattern',
+      pattern: '^int main',
+      extra: 3,
+    })
+  })
+
+  it('rejects a backwards range and anything else', () => {
+    expect(parseHighlight('24-21')).toBeNull()
+    expect(parseHighlight('0')).toBeNull()
+    expect(parseHighlight('somewhere near the top')).toBeNull()
+  })
+
+  it('is a list on the step, and independent of `at:`', () => {
+    const doc = parseTour(
+      '## Step\n\n```tour\nat: main\nhighlight:\n  - 21\n  - /toggle/ + 1\n```\n\nProse.\n',
+    )
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.at).toBe('main')
+    expect(doc.steps[0]!.highlight).toEqual([
+      { kind: 'lines', start: 21, end: 21 },
+      { kind: 'pattern', pattern: 'toggle', extra: 1 },
+    ])
+  })
+
+  it('reports an entry it cannot read', () => {
+    const doc = parseTour('## Step\n\n```tour\nat: main\nhighlight: the top bit\n```\n\nProse.\n')
+    expect(doc.steps[0]!.highlight).toEqual([])
+    expect(doc.problems[0]).toContain('highlight')
   })
 })

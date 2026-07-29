@@ -168,7 +168,9 @@ export function TourCard({ board, sampleId }: Props) {
             </div>
           )}
 
-          {src && anchor?.line && <SourceSnippet src={src} line={anchor.line} />}
+          {src && anchor?.line && (
+            <SourceSnippet src={src} line={anchor.line} ranges={card.highlight} />
+          )}
 
           {state.problems.length > 0 && (
             <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-600 dark:text-amber-400">

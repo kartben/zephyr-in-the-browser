@@ -49,6 +49,7 @@ The threads are created `K_FOREVER`, which means "do not schedule this yet". The
 ```tour
 at: main.c:/if \(is_last_philosopher/ | main.c:151
 when: first
+highlight: /Dijkstra/ + 7
 ```
 
 Each philosopher needs two forks and there are only six, so the naive order —
@@ -58,8 +59,8 @@ six are holding their left fork.
 The fix is the classic one: **always take the lower-numbered fork first.** Five
 philosophers do the obvious thing; the last one swaps its order, and that single
 asymmetry is what makes a cycle of waiters impossible. There is no timeout, no
-retry and no arbiter, and the code that implements it is the `if` under the
-cursor.
+retry and no arbiter, and the whole of it is the highlighted block — the
+machine is stopped at the top of it.
 
 ## A fork is a mutex, and this is what one looks like
 
