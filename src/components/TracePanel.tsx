@@ -1770,7 +1770,15 @@ function TracePanelBody({
 
   // Compact chrome sits immediately above the time chart (Timeline / Net canvas,
   // or between the msgq flow graph and depth chart) — same idiom as CAN lanes.
-  const chartToolbar = (
+  /**
+   * The chart chrome, shared by all three tabs.
+   *
+   * Timeline used to keep its own hand-written copy of this row, differing only
+   * by two extra controls at the end — which is how it came to be the one tab
+   * without a jump-to-live button. `extras` is those two controls; everything
+   * else is written once.
+   */
+  const chartToolbarWith = (extras?: ReactNode) => (
     <div className="flex items-center gap-0.5 px-0.5">
       <button
         type="button"
@@ -1814,6 +1822,7 @@ function TracePanelBody({
       >
         <Crosshair className="size-3.5" />
       </button>
+      {extras}
       <div className="ml-auto flex items-center gap-0.5">
         <button
           type="button"
@@ -1836,6 +1845,8 @@ function TracePanelBody({
       </div>
     </div>
   )
+
+  const chartToolbar = chartToolbarWith()
 
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
@@ -1898,88 +1909,41 @@ function TracePanelBody({
       ) : (
         <>
           <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-0.5 px-0.5">
-              <button
-                type="button"
-                title="Zoom in"
-                aria-label="Zoom in"
-                onClick={() => applyZoom(ZOOM_IN)}
-                className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
-              >
-                <ZoomIn className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Zoom out"
-                aria-label="Zoom out"
-                onClick={() => applyZoom(ZOOM_OUT)}
-                className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
-              >
-                <ZoomOut className="size-3.5" />
-              </button>
-              {boxZoomToggle}
-              {resetYZoomButton}
-              <button
-                type="button"
-                title="Fit entire trace (resets time + vertical zoom)"
-                aria-label="Fit entire trace"
-                onClick={fitAll}
-                className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
-              >
-                <Maximize2 className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Show queue edges"
-                aria-label="Show queue edges"
-                aria-pressed={showMsgq}
-                onClick={() => setShowMsgq((v) => !v)}
-                className={cn(
-                  'rounded p-0.5 touch-manipulation',
-                  showMsgq
-                    ? 'bg-secondary text-foreground'
-                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-                )}
-              >
-                <Waypoints className="size-3.5" />
-              </button>
-              <Select value={laneSize} onValueChange={(v) => setLaneSize(v as LaneSize)}>
-                <SelectTrigger
-                  className="h-6 w-[5.75rem] touch-manipulation border-0 bg-transparent px-1.5 text-[10px] shadow-none hover:bg-secondary"
-                  aria-label="Lane height"
-                  title="Lane height"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(LANE_SIZES) as LaneSize[]).map((id) => (
-                    <SelectItem key={id} value={id} className="text-[11px]">
-                      {LANE_SIZES[id].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="ml-auto flex items-center gap-0.5">
+            {chartToolbarWith(
+              <>
                 <button
                   type="button"
-                  title="Pan earlier"
-                  aria-label="Pan earlier"
-                  onClick={() => panByFraction(-0.6)}
-                  className="rounded px-1 py-0.5 font-mono text-xs leading-none text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+                  title="Show queue edges"
+                  aria-label="Show queue edges"
+                  aria-pressed={showMsgq}
+                  onClick={() => setShowMsgq((v) => !v)}
+                  className={cn(
+                    'rounded p-0.5 touch-manipulation',
+                    showMsgq
+                      ? 'bg-secondary text-foreground'
+                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                  )}
                 >
-                  ‹
+                  <Waypoints className="size-3.5" />
                 </button>
-                <button
-                  type="button"
-                  title="Pan later"
-                  aria-label="Pan later"
-                  onClick={() => panByFraction(0.6)}
-                  className="rounded px-1 py-0.5 font-mono text-xs leading-none text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
-                >
-                  ›
-                </button>
-              </div>
-            </div>
+                <Select value={laneSize} onValueChange={(v) => setLaneSize(v as LaneSize)}>
+                  <SelectTrigger
+                    className="h-6 w-[5.75rem] touch-manipulation border-0 bg-transparent px-1.5 text-[10px] shadow-none hover:bg-secondary"
+                    aria-label="Lane height"
+                    title="Lane height"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(LANE_SIZES) as LaneSize[]).map((id) => (
+                      <SelectItem key={id} value={id} className="text-[11px]">
+                        {LANE_SIZES[id].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>,
+            )}
             <div className="relative w-full select-none">
               <canvas
                 ref={canvasRef}
