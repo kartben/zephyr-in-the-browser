@@ -584,7 +584,7 @@ export function stateAt(tr: Trace, tid: number, ts: number): [ThreadState | null
 }
 
 /** Whether `ts` falls inside a closed or currently-open ISR span. */
-function isrActiveAt(tr: Trace, ts: number): boolean {
+export function isrActiveAt(tr: Trace, ts: number): boolean {
   const spans = tr.isrSpans
   let lo = 0
   let hi = spans.length

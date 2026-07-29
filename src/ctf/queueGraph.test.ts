@@ -81,12 +81,22 @@ describe('queueFlowEvents', () => {
 
     const flow = queueFlowEvents(reader.tr)
     expect(flow).toHaveLength(2)
-    expect(flow[0]).toMatchObject({ queueId: q, threadId: null, ts: 220 })
-    expect(flow[1]).toMatchObject({ queueId: q, threadId: thread, ts: 260 })
+    expect(flow[0]).toMatchObject({ queueId: q, actor: { kind: 'isr' }, threadId: null, ts: 220 })
+    expect(flow[1]).toMatchObject({
+      queueId: q,
+      actor: { kind: 'thread', threadId: thread },
+      threadId: thread,
+      ts: 260,
+    })
 
     const chart = queueChartEvents(reader.tr)
-    expect(chart[0]).toMatchObject({ queueId: q, threadId: null, ts: 220 })
-    expect(chart[1]).toMatchObject({ queueId: q, threadId: thread, ts: 260 })
+    expect(chart[0]).toMatchObject({ queueId: q, actor: { kind: 'isr' }, threadId: null, ts: 220 })
+    expect(chart[1]).toMatchObject({
+      queueId: q,
+      actor: { kind: 'thread', threadId: thread },
+      threadId: thread,
+      ts: 260,
+    })
   })
 
   it('anchors flow marks on put enter so ready is not before the edge', () => {
@@ -329,9 +339,9 @@ describe('queueChartEvents / nearestQueueChartEvent', () => {
 describe('advanceFlowCursor', () => {
   it('returns first/delta normally and recovers after an index rewind (trim)', () => {
     const flow = [
-      { index: 10, ts: 1, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
-      { index: 11, ts: 2, op: 'get' as const, queueId: 1, threadId: 1, ok: true },
-      { index: 20, ts: 3, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 10, ts: 1, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
+      { index: 11, ts: 2, op: 'get' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
+      { index: 20, ts: 3, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
     ]
     expect(advanceFlowCursor(flow, -1)).toMatchObject({ kind: 'first', nextIndex: 20, newest: [] })
     const delta = advanceFlowCursor(flow, 10)
@@ -341,15 +351,15 @@ describe('advanceFlowCursor', () => {
 
     // After hostTrace trims the ring, indices restart — must not stall.
     const trimmed = [
-      { index: 0, ts: 100, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
-      { index: 1, ts: 101, op: 'get' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 0, ts: 100, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
+      { index: 1, ts: 101, op: 'get' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
     ]
     const rewind = advanceFlowCursor(trimmed, 20)
     expect(rewind).toMatchObject({ kind: 'trimmed', nextIndex: 1, newest: [] })
     const after = advanceFlowCursor(
       [
         ...trimmed,
-        { index: 2, ts: 102, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+        { index: 2, ts: 102, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
       ],
       rewind.nextIndex,
     )
