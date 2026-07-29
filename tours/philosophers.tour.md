@@ -4,10 +4,9 @@ sample: samples/philosophers
 ---
 
 Six threads, six forks, and a rule about which one to pick up first. The
-terminal shows the philosophers' own account of what is happening; this tour
-shows the kernel's, read straight out of guest memory. None of it is printed by
-the sample, and none of it could be: a thread cannot describe the run queue it
-is currently on.
+terminal shows what the philosophers think is happening. This shows what the
+kernel is doing underneath: which threads exist, which of them are blocked, and
+who is holding what.
 
 ## Six threads, created and then started
 
@@ -22,13 +21,16 @@ watch:
   - entry point = $arg3 as code
 ```
 
-The first of the six times the sample calls `k_thread_create()`. Its arguments
-are read out of the registers the ABI passes them in, which is why this reads
-the same on AArch64 and on RISC-V.
+The first of the six `k_thread_create()` calls, caught inside the kernel. Each
+philosopher is one thread running the same function, told apart only by the
+argument it is passed.
 
-`k_thread_create` is *handed* a stack and its size rather than allocating one:
-thread stacks are link-time objects and cannot grow. All six are created
-`K_FOREVER` — nothing runs until `k_thread_start()`.
+Zephyr does not allocate the stack for you: `k_thread_create()` is *handed* one,
+declared at build time with `K_THREAD_STACK_ARRAY_DEFINE`. Two kilobytes each
+here, decided when the image was linked, and it cannot grow later.
+
+All six are created `K_FOREVER`, which means "do not schedule this yet". They
+sit there until `k_thread_start()` releases them a few lines further down.
 
 ## Dijkstra's rule, in five lines
 
@@ -38,14 +40,15 @@ when: first
 highlight: /Dijkstra/ + 7
 ```
 
-Two forks each, six forks total: "left first, then right" deadlocks the moment
-all six philosophers hold their left one.
+Each philosopher needs two forks and there are only six, so the obvious order —
+"take the one on my left, then the one on my right" — deadlocks the moment all
+six are holding their left fork. Everyone waits for a neighbour, forever.
 
-The fix is the classic one — **always take the lower-numbered fork first**. Five
+The fix is the classic one: **always take the lower-numbered fork first**. Five
 philosophers do the obvious thing, the last one swaps its order, and that single
-asymmetry makes a cycle of waiters impossible. No timeout, no arbiter.
+asymmetry makes a cycle of waiters impossible. No timeout, no retry, no arbiter.
 
-## A fork is a mutex, and here are all six
+## A fork is a mutex
 
 ```tour
 at: z_impl_k_mutex_lock
@@ -59,14 +62,17 @@ watch:
   - lock count = $arg0+3p as u32
 ```
 
-The fork this philosopher asked for is highlighted below, next to the other
-five. Nobody told the page where they are: `CONFIG_OBJ_CORE` links every mutex
-onto a list the debugger walks, and the build's own DWARF says where `owner`
-sits inside one.
+Every fork in this sample is a `k_mutex`, and here they all are — the one this
+philosopher is reaching for is picked out.
 
-A null owner means the fork is on the table. `owner_orig_prio` — one word past
-the lock count — is the whole of priority inheritance: where the kernel parks a
-holder's real priority while it lends it the waiter's.
+A mutex is a small thing: which thread owns it, how many times that thread has
+locked it (locking one you already hold just counts up), and a queue of whoever
+is waiting. No owner means the fork is on the table.
+
+The fourth field is `owner_orig_prio`, and it is the whole of priority
+inheritance. If a low-priority philosopher holds a fork that a high-priority one
+wants, the kernel temporarily raises the holder so it can finish and let go —
+and that field is where it remembers what to put back afterwards.
 
 ## Waiting is not spinning
 
@@ -77,14 +83,18 @@ threads: yes
 objects: mutex
 ```
 
-Six meals in, and two of the forks now name their owner — the philosopher
-stopped here, holding both while it eats.
+Six meals in, and two forks now name their owner: the philosopher stopped here,
+holding both while it eats.
 
-Anyone who wants one of those two does not spin waiting for it. The kernel takes
-that thread off the run queue and parks it on the wait queue *inside the mutex*,
-where it costs nothing; whoever unlocks hands the fork straight to the
-highest-priority waiter. Watch a philosopher go **pending** in the list below as
-the rounds go on.
+Anyone who wants one of those two does not sit in a loop checking. The kernel
+takes that thread off the run queue entirely and parks it on a queue inside the
+mutex itself, where it costs nothing at all — no CPU, no timer, no polling. When
+the fork is dropped, ownership passes straight to the highest-priority thread
+waiting for it.
+
+That is why this sample is a good test of a scheduler rather than of a CPU. The
+philosophers spend nearly all their time asleep or blocked, and everything
+interesting happens in the handovers.
 
 ## Eating is a sleep, and sleeping is scheduling
 
@@ -93,14 +103,12 @@ at: main.c:/EATING/ | main.c:168
 when: hits == 8
 stop: no
 watch:
-  - stopped in = $pc as code
+  - in = $pc as code
 ```
 
-Eight meals later, and this time without stopping the machine: `stop: no` puts
-the card up and lets the guest run on, so the terminal keeps scrolling
-underneath it.
+`k_msleep()` again, this time with two forks held. The philosopher is asleep,
+its neighbours are blocked on the forks it is holding, and the kernel is free to
+run whoever else is ready.
 
-Note the condition — `hits == 8`, not `hits % 8 == 0`. A step that keeps its
-breakpoint alive on a line this hot goes on costing a trap per pass for the rest
-of the run; this one fires once and lifts it. That is the whole demo: six
-threads taking turns being blocked, and a scheduler deciding who is next.
+And that is the whole demo: six threads taking turns being blocked, and a
+scheduler deciding who goes next.

@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Search } from 'lucide-react'
 import { compactHex } from '@/debug/hexFormat'
 import { describeThreadStatus, formatStackSize } from '@/debug/kernel/threads'
 import { cn } from '@/lib/utils'
+import * as debugUi from '@/lib/debugUi'
+import { pulseElement } from '@/lib/dockReveal'
 import type * as debug from '@/debug/control'
 
 export function KernelObjectsPane({
@@ -15,6 +17,8 @@ export function KernelObjectsPane({
   onThread?: (tcbAddr: number) => void
 }) {
   const [query, setQuery] = useState('')
+  const focus = useSyncExternalStore(debugUi.subscribe, debugUi.getSnapshot, debugUi.getSnapshot)
+  const listRef = useRef<HTMLDivElement>(null)
   const objects = snap.objects
   const q = query.trim().toLowerCase()
   const groups = useMemo(() => {
@@ -34,6 +38,22 @@ export function KernelObjectsPane({
       }))
       .filter((type) => type.objects.length > 0)
   }, [objects, q])
+
+  /*
+   * Somebody elsewhere pointed at one object — a fork on a tour card, say.
+   * Open the group it lives in (a collapsed <details> keeps its rows in the DOM
+   * but out of view, so scrolling to one would land nowhere) and blink it.
+   */
+  useEffect(() => {
+    if (focus.nonce === 0 || focus.section !== 'objects' || focus.objectAddr == null) return
+    const row = listRef.current?.querySelector<HTMLElement>(
+      `[data-object-addr="${focus.objectAddr}"]`,
+    )
+    if (!row) return
+    row.closest('details')?.setAttribute('open', '')
+    // Wait a frame so opening the group has painted.
+    requestAnimationFrame(() => pulseElement(row))
+  }, [focus.nonce, focus.section, focus.objectAddr, objects])
 
   if (!snap.objectCores) {
     return (
@@ -80,7 +100,7 @@ export function KernelObjectsPane({
       {groups.length === 0 ? (
         <p className="px-1 py-3 text-center text-[11px] text-foreground/50">No matching objects.</p>
       ) : (
-        <div className="max-h-[min(30rem,62vh)] space-y-1.5 overflow-auto pr-0.5">
+        <div ref={listRef} className="max-h-[min(30rem,62vh)] space-y-1.5 overflow-auto pr-0.5">
           {groups.map((type) => (
             <details
               key={type.addr}
@@ -115,6 +135,7 @@ export function KernelObjectsPane({
                   return (
                     <li
                       key={obj.coreAddr}
+                      data-object-addr={obj.addr}
                       className={cn(
                         'border-b border-border/45 px-2 py-2 last:border-b-0',
                         thread?.current && 'bg-primary/[0.06]',

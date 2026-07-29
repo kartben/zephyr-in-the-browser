@@ -55,17 +55,17 @@ export function TourObjects({
     return <Note>Kernel objects are read from the running machine — boot the emulator to see them.</Note>
   }
   if (!snap.objectCores) {
-    return <Note>This build has no object-core metadata (CONFIG_OBJ_CORE).</Note>
+    return <Note>This build does not keep an inventory of its kernel objects.</Note>
   }
   if (!snap.objects) {
-    return <Note>{snap.objectsError ?? 'Reading object cores…'}</Note>
+    return <Note>{snap.objectsError ?? 'Asking the kernel what it has…'}</Note>
   }
 
   const groups = snap.objects.types.filter(
     (type) => type.objects.length > 0 && (spec.types.length === 0 || spec.types.includes(type.code)),
   )
   if (groups.length === 0) {
-    return <Note>This guest has no such objects linked yet.</Note>
+    return <Note>The kernel has none of these yet.</Note>
   }
 
   return (
@@ -94,8 +94,8 @@ export function TourObjects({
                   >
                     <button
                       type="button"
-                      onClick={() => debugUi.focusDebug('objects')}
-                      title={`0x${obj.addr.toString(16)} — open the Objects pane`}
+                      onClick={() => debugUi.focusDebugObject(obj.addr)}
+                      title={`Find ${obj.name} in Debug → Objects`}
                       className={cn(
                         'min-w-0 shrink-0 basis-1/3 truncate text-left font-mono text-[11px] hover:text-primary',
                         focused ? 'text-foreground' : 'text-muted-foreground',
@@ -133,7 +133,7 @@ export function TourObjects({
             </ul>
             {type.objects.length > shown.length && (
               <p className="border-t border-border/40 px-2 py-1 text-[10px] text-muted-foreground/70">
-                and {type.objects.length - shown.length} more, in Debug → Objects
+                and {type.objects.length - shown.length} more, under Debug → Objects
               </p>
             )}
           </div>
