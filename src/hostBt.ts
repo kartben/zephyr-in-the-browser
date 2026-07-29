@@ -182,11 +182,18 @@ export function attach(mod: unknown) {
   }
   ch = bound
   framer = new H4Framer()
+  /*
+   * A controller the backend preloaded before main() may already have failed —
+   * a blocked CDN, an offline dev box. Reporting 'idle' over that threw the
+   * traceback away and left the panel claiming the pipe was fine, which is the
+   * one state a Bluetooth sample most needs to see: it is *why* nothing works.
+   */
+  const failed = !controller && !starting && snapshot.phase === 'error'
   setSnapshot({
     available: true,
-    phase: controller ? 'ready' : starting ? 'loading' : 'idle',
+    phase: controller ? 'ready' : starting ? 'loading' : failed ? 'error' : 'idle',
     detail:
-      controller || starting
+      controller || starting || failed
         ? snapshot.detail
         : 'HCI pipe ready — the controller loads on the guest’s first packet',
     rxPackets: 0,
