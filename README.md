@@ -18,15 +18,15 @@ out into a floating window; collapsed rows keep a live readout.
 | **DAC** | A Microchip MCP4725 12-bit DAC. Stock `samples/drivers/dac` writes a sawtooth; the dock charts Vout over time |
 | **Fuel gauge** | A Maxim MAX17048. Stock `samples/drivers/fuel_gauge` polls SoC % and voltage; the dock paints a battery card |
 | **GPIO** | Clickable buttons (`gpio-keys`) and a separate LED-class row for `gpio-leds`, wired per the running build’s tree |
-| **Buzzer** | A `gpio-buzzer` on a dedicated output pin. The dock shakes and vibrates (or buzzes) when the emulator drives it |
+| **Buzzer** | A `gpio-buzzer` on a dedicated output pin. The dock shakes and vibrates (or buzzes) when the guest drives it |
 | **Stepper** | GPIO step/dir (`samples/drivers/stepper/generic`) or an Analog Devices TMC50xx on SPI (`samples/drivers/stepper/tmc50xx`). The dock dial tracks position/velocity |
-| **GNSS** | An editable fix, streamed to the emulator over UART and parsed by Zephyr's stock NMEA driver |
+| **GNSS** | An editable fix, streamed to the guest over UART and parsed by Zephyr's stock NMEA driver |
 | **Display** | Zephyr's display driver painting a framebuffer, plus a touchscreen: clicks and drags on the display peripheral. Pop the dock row out when you want the pixels big |
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API |
-| **I²C** | The bus itself: attach and detach chips while the emulator runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels |
+| **I²C** | The bus itself: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels |
 | **SPI** | A SPI bus with JEDEC NOR flash: hex dump, LittleFS browser, and persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same bus can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
 | **Network** | Ethernet with throughput charts and a packet capture. DHCP, HTTP, and echo samples talk through Network |
-| **Guided tours** | A **stock** sample that explains itself. Each step pauses the **emulator** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
+| **Guided tours** | A **stock** sample that explains itself. Each step pauses the **guest** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
 
 ## Quick start
 

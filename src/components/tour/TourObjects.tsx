@@ -52,7 +52,7 @@ export function TourObjects({
   live: boolean
 }) {
   if (!live) {
-    return <Note>Kernel objects are read from the running machine — boot the emulator to see them.</Note>
+    return <Note>Kernel objects are read from the running guest. Start a sample to see them.</Note>
   }
   if (!snap.objectCores) {
     return <Note>This build does not keep an inventory of its kernel objects.</Note>
