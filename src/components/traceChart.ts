@@ -40,9 +40,21 @@ export function formatGuestTime(ts: number, stepNs: number): string {
   return fmtAxisTime(ts, stepNs)
 }
 
+/**
+ * How many time ticks a plot of this width can carry.
+ *
+ * A label reads like `293.865ms` — about 54 px at 10 px monospace — so ~56 px
+ * apiece. The floor is 2, not 4: in a dock-width panel (or on a phone) four
+ * labels do not fit, and asking for them produced a row of overlapping numbers
+ * rather than fewer, readable ones.
+ */
+export function timeTickCount(plotW: number): number {
+  return Math.max(2, Math.floor(plotW / 56))
+}
+
 /** Tick step for the current window (shared by Timeline / Queues tips). */
 export function windowTimeStep(view0: number, view1: number, plotW: number): number {
-  return timeTickValues(view0, view1, Math.max(4, Math.floor(plotW / 56))).step
+  return timeTickValues(view0, view1, timeTickCount(plotW)).step
 }
 
 const AXIS_STROKE = 'rgba(148, 163, 184, 0.45)'
@@ -78,14 +90,18 @@ export function paintCanvasTimeAxis(
     baselineY = 18,
   } = opts
   const plotW = plotWidth(cssW, labelW, pad)
-  const { values, step } = timeTickValues(view0, view1, Math.max(4, Math.floor(plotW / 56)))
+  const { values, step } = timeTickValues(view0, view1, timeTickCount(plotW))
 
   ctx.fillStyle = AXIS_FILL
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'alphabetic'
+  /** Right edge the label row must not cross — the LIVE badge sits there. */
+  let labelLimit = cssW
   if (follow) {
     ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
-    ctx.fillText('LIVE', Math.max(labelW, cssW - 32), 12)
+    const liveX = Math.max(labelW, cssW - 32)
+    ctx.fillText('LIVE', liveX, 12)
+    labelLimit = liveX - 4
   } else {
     ctx.fillStyle = 'rgba(148, 163, 184, 0.7)'
     ctx.fillText('t →', 4, 12)
@@ -99,6 +115,10 @@ export function paintCanvasTimeAxis(
   ctx.lineTo(labelW + plotW, baselineY)
   ctx.stroke()
 
+  // Tick marks are cheap and always drawn; the *label* is dropped when it would
+  // land on top of the previous one or under the LIVE badge. Clamping alone was
+  // what turned a too-narrow axis into a row of numbers written over each other.
+  let lastLabelRight = -Infinity
   for (const t of values) {
     const x = xAt({ labelW, pad, view0, view1, t0 }, cssW, t)
     if (x < labelW - 0.5 || x > labelW + plotW + 0.5) continue
@@ -108,9 +128,10 @@ export function paintCanvasTimeAxis(
     ctx.stroke()
     const label = fmtAxisTime(t, step)
     const tw = ctx.measureText(label).width
-    let lx = x - tw / 2
-    lx = Math.max(labelW, Math.min(labelW + plotW - tw, lx))
+    const lx = Math.max(labelW, Math.min(labelW + plotW - tw, x - tw / 2))
+    if (lx < lastLabelRight + 6 || lx + tw > labelLimit) continue
     ctx.fillText(label, lx, 12)
+    lastLabelRight = lx + tw
   }
 
   ctx.fillStyle = AXIS_EDGE

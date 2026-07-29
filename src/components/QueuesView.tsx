@@ -7,7 +7,17 @@
  * a dot for a short tip (time, depth, op, thread).
  */
 
-import * as d3 from 'd3'
+/*
+ * d3 submodules, not the `d3` meta-package. Rolldown already shakes most of
+ * `import * as d3 from 'd3'` out, so this is worth about 17 kB raw / 5 kB
+ * gzipped — small, but naming the four modules this file needs also stops the
+ * dependency being "all of d3" the next time someone reads it.
+ */
+import { range, ticks } from 'd3-array'
+import { axisBottom, axisLeft } from 'd3-axis'
+import { scaleLinear, type ScaleLinear } from 'd3-scale'
+import { select, type Selection } from 'd3-selection'
+import { area, curveStepAfter, line } from 'd3-shape'
 import {
   useCallback,
   useEffect,
@@ -36,7 +46,13 @@ import {
   type Trace,
 } from '@/ctf'
 import { QueueGraph } from '@/components/QueueGraph'
-import { formatGuestTime, screenYToBase, yZoomSvgTransform, type YZoom } from '@/components/traceChart'
+import {
+  formatGuestTime,
+  screenYToBase,
+  timeTickCount,
+  yZoomSvgTransform,
+  type YZoom,
+} from '@/components/traceChart'
 
 const LABEL_W = 108
 const PAD = 8
@@ -85,19 +101,19 @@ type RowLayout = {
   plotTop: number
   plotH: number
   yMax: number
-  yScale: d3.ScaleLinear<number, number>
+  yScale: ScaleLinear<number, number>
   points: QueueSample[]
   marks: TransitionMark[]
 }
 
 function depthTicks(yMax: number): number[] {
   if (yMax <= 0) return [0]
-  if (yMax <= 4) return d3.range(0, yMax + 1)
-  const ticks = d3.ticks(0, yMax, 3).map((t) => Math.round(t))
-  return [...new Set([0, ...ticks, yMax])].sort((a, b) => a - b)
+  if (yMax <= 4) return range(0, yMax + 1)
+  const steps = ticks(0, yMax, 3).map((t) => Math.round(t))
+  return [...new Set([0, ...steps, yMax])].sort((a, b) => a - b)
 }
 
-/** Step series clipped to the visible window for d3.curveStepAfter. */
+/** Step series clipped to the visible window for curveStepAfter. */
 function windowPoints(q: QueueSeries, view0: number, view1: number): QueueSample[] {
   const pts: QueueSample[] = [{ ts: view0, depth: depthAt(q.samples, view0) }]
   for (const s of q.samples) {
@@ -149,7 +165,7 @@ function nearestMark(marks: TransitionMark[], ts: number, maxDeltaNs: number): T
   return best
 }
 
-function styleAxis(g: d3.Selection<SVGGElement, unknown, null, undefined>): void {
+function styleAxis(g: Selection<SVGGElement, unknown, null, undefined>): void {
   g.select('.domain').attr('stroke', AXIS_STROKE).attr('stroke-width', 1)
   g.selectAll('.tick line').attr('stroke', AXIS_STROKE)
   g.selectAll('.tick text')
@@ -178,14 +194,10 @@ function renderChart(
   const plotBottom = TOP_H + (queues.length === 0 ? ROW_H : queues.length * ROW_H)
   const cssH = plotBottom + BOTTOM_AXIS_H
   const plotW = Math.max(1, cssW - LABEL_W - PAD)
-  const xScale = d3.scaleLinear().domain([view0, view1]).range([LABEL_W, LABEL_W + plotW])
-  const { values: tickValues, step } = timeTickValues(
-    view0,
-    view1,
-    Math.max(4, Math.floor(plotW / 56)),
-  )
+  const xScale = scaleLinear().domain([view0, view1]).range([LABEL_W, LABEL_W + plotW])
+  const { values: tickValues, step } = timeTickValues(view0, view1, timeTickCount(plotW))
 
-  const root = d3.select(svg)
+  const root = select(svg)
   root
     .attr('width', cssW)
     .attr('height', cssH)
@@ -274,7 +286,7 @@ function renderChart(
     const plotTop = y0 + PLOT_PAD_TOP
     const plotH = ROW_H - PLOT_PAD_TOP - PLOT_PAD_BOT
     const yMax = queueAxisMax(queue)
-    const yScale = d3.scaleLinear().domain([0, yMax]).range([plotTop + plotH, plotTop])
+    const yScale = scaleLinear().domain([0, yMax]).range([plotTop + plotH, plotTop])
     return {
       queue,
       y0,
@@ -314,18 +326,16 @@ function renderChart(
     })
 
   rowSel.each(function (d, i) {
-    const g = d3.select(this)
-    const area = d3
-      .area<QueueSample>()
+    const g = select(this)
+    const depthArea = area<QueueSample>()
       .x((p) => xScale(p.ts))
       .y0(d.plotTop + d.plotH)
       .y1((p) => d.yScale(p.depth))
-      .curve(d3.curveStepAfter)
-    const line = d3
-      .line<QueueSample>()
+      .curve(curveStepAfter)
+    const depthLine = line<QueueSample>()
       .x((p) => xScale(p.ts))
       .y((p) => d.yScale(p.depth))
-      .curve(d3.curveStepAfter)
+      .curve(curveStepAfter)
 
     g.select<SVGRectElement>('rect.row-bg')
       .attr('x', 0)
@@ -360,8 +370,7 @@ function renderChart(
       .attr('font-size', '9px')
       .text(`${d.queue.drops} drop${d.queue.drops === 1 ? '' : 's'}`)
 
-    const yAxis = d3
-      .axisLeft(d.yScale)
+    const yAxis = axisLeft(d.yScale)
       .tickValues(depthTicks(d.yMax))
       .tickSize(0)
       .tickPadding(4)
@@ -404,12 +413,12 @@ function renderChart(
       )
 
     g.select<SVGPathElement>('path.depth-area')
-      .attr('d', area(d.points) ?? '')
+      .attr('d', depthArea(d.points) ?? '')
       .attr('fill', AREA_FILL)
       .attr('stroke', 'none')
 
     g.select<SVGPathElement>('path.depth-line')
-      .attr('d', line(d.points) ?? '')
+      .attr('d', depthLine(d.points) ?? '')
       .attr('fill', 'none')
       .attr('stroke', LINE_STROKE)
       .attr('stroke-width', 1.5)
@@ -457,8 +466,7 @@ function renderChart(
 
   let xAxisG = frame.select<SVGGElement>('g.x-axis')
   if (xAxisG.empty()) xAxisG = frame.append('g').attr('class', 'x-axis')
-  const xAxis = d3
-    .axisBottom(xScale)
+  const xAxis = axisBottom(xScale)
     .tickValues(tickValues)
     .tickSizeOuter(0)
     .tickSizeInner(6)
@@ -630,7 +638,7 @@ export function QueuesView({
       if (qs.length === 0) return null
       const { view0: v0, view1: v1 } = viewRef.current
       const plotW = Math.max(1, target.clientWidth - LABEL_W - PAD)
-      const xScale = d3.scaleLinear().domain([v0, v1]).range([LABEL_W, LABEL_W + plotW])
+      const xScale = scaleLinear().domain([v0, v1]).range([LABEL_W, LABEL_W + plotW])
       const plotBottom = TOP_H + qs.length * ROW_H
       const y = screenYToBase(screenY, TOP_H, plotBottom, yZoomRef.current)
       if (x < LABEL_W || x > LABEL_W + plotW || y < TOP_H || y >= plotBottom) return null
@@ -639,7 +647,7 @@ export function QueuesView({
       const layout = layoutsRef.current[row]
       const q = qs[row]!
       const span = Math.max(1, v1 - v0)
-      const { step } = timeTickValues(v0, v1, Math.max(4, Math.floor(plotW / 56)))
+      const { step } = timeTickValues(v0, v1, timeTickCount(plotW))
       const ts = xScale.invert(x)
       const marks =
         layout?.marks ?? transitionMarks(q, eventsRef.current, v0, v1)
@@ -745,12 +753,6 @@ export function QueuesView({
           )}
         </div>
       </div>
-      {queues.length > 0 && (
-        <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
-          Hover a transition · drag to pan · Shift-drag a rectangle to zoom · unfold resets vertical ·
-          pinch or ± for time zoom
-        </p>
-      )}
     </div>
   )
 }
