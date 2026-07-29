@@ -7,6 +7,7 @@ import { attach as attachGuestStats, detach as detachGuestStats } from '@/guestS
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
+import { attach as attachHostDisk, detach as detachHostDisk } from '@/hostDisk'
 import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
 import {
   attach as attachHostBt,
@@ -409,6 +410,10 @@ export function createQemuBackend(): PtyBackend {
       else detachHostInput()
       if (board.peripherals?.hostTrace) attachHostTrace(instance)
       else detachHostTrace()
+      // Gated on the sample rather than the board: a disk is per-sample, since
+      // only the sample that declares one has an image to follow.
+      if (sample.blankFiles?.length) attachHostDisk(instance)
+      else detachHostDisk()
       if (features.has('hci') && board.peripherals?.hostBt) attachHostBt(instance)
       else detachHostBt()
       // Not gated on board metadata: the monitor is a property of the emulator
