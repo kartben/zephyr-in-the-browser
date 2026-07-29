@@ -15,14 +15,14 @@ Use these spellings and senses everywhere learner-facing copy appears. Prefer th
 | peripheral | A device row in the dock (sensor, GPIO, …) | "gadget", "widget" |
 | instrument | Machine-level dock rows (Simulation, Trace, Debug) | calling instruments "peripherals" |
 | guided tour / tour | Markdown-driven stop-and-explain walkthrough | "walkthrough", "tutorial mode", "CodeTour" |
-| emulator | The running QEMU session (and the Zephyr image inside it, in learner copy) | "guest", "VM", "container" |
+| guest | The firmware / Zephyr image running in the emulator | "VM", "container"; do not say "emulator" when you mean the software inside it |
 | terminal | The serial console on the page | "UART panel" in UI chrome |
 | Trace | The CTF timeline instrument | "CTF panel" in learner UI (say Trace; mention CTF when teaching tracing) |
 | Debug | The debugger instrument | "GDB panel" in learner UI labels |
 
 **Capitalization:** In prose write board, app, device dock, terminal. Keep Trace / Debug / Simulation as the dock labels. Title-case a word only when matching an on-screen control label the learner should click.
 
-**Emulator vs firmware:** Prefer **emulator** when pointing at the running session (boot, pause, resume, peripherals appearing). Prefer **sample** / **app** / **Zephyr** when teaching the software itself. Avoid **guest** in learner copy.
+**Guest vs sample:** Prefer **guest** for the running session (boot, pause, resume, bus traffic, peripherals appearing). Prefer **sample** / **app** / **Zephyr** when teaching the software itself. "Emulator" is fine for the QEMU tool in maintainer docs; in learner copy, point at the guest or the sample instead.
 
 ## Zephyr concepts (learner-facing)
 
@@ -54,7 +54,7 @@ These are fine in `docs/` and code comments. In learner copy, mention them only 
 
 | Term | Learner-facing guidance |
 | --- | --- |
-| QEMU / WebAssembly / Emscripten | "emulator" is enough for most learners; one short phrase if needed ("running in your browser") |
+| QEMU / WebAssembly / Emscripten | One short phrase is enough ("running in your browser"); no stack tour |
 | virtio / bridge | Prefer what the learner sees ("the LED in the dock") |
 | Cortex-M3 / Cortex-A53 | Name the board the UI shows; do not explain why A53 is the engineering focus |
 | CTF tracing | Teach as "tracing" / Trace unless the sample is about CTF |

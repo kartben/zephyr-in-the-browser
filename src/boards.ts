@@ -82,7 +82,7 @@ export interface GuestSample {
    */
   primaryPanels?: PanelKind[]
   /**
-   * Default URL for the Network panel's "Talk to the emulator" GET tool.
+   * Default URL for the Network panel's "Talk to the guest" GET tool.
    * dumb_http_server listens on :8080; the full http_server sample on :80.
    */
   guestHttpUrl?: string

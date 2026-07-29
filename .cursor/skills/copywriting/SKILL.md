@@ -30,7 +30,7 @@ If a sentence only helps someone who already ships firmware for a living, cut it
 ## Punctuation
 
 - **Avoid em dashes** (`—`) in learner-facing copy. Prefer a period, comma, colon, or a short second sentence.
-- Waiting / empty states often read better as a status plus a progressive: "No peripherals yet. Waiting for the emulator to boot." rather than an em-dash command ("… — wait for…").
+- Waiting / empty states often read better as a status plus a progressive: "No peripherals yet. Waiting for the guest to boot." rather than an em-dash command ("… — wait for…").
 
 ## Consistency
 
@@ -89,9 +89,9 @@ Small string tweaks, typo fixes, and aligning an existing phrase to [terminology
 
 - [ ] A Zephyr learner is the implied reader, not a tool builder
 - [ ] Terms match [terminology.md](terminology.md); no alternate names for the same UI or Zephyr concept
-- [ ] No em dashes in learner-facing strings (prefer period / comma / second sentence)
+- [ ] Prefer "guest" for the running session (not "emulator" / "VM")
 - [ ] board / app / dock stay lowercase in prose unless quoting a control label
-- [ ] Prefer "emulator" over "guest"
+- [ ] No em dashes in learner-facing strings (prefer period / comma / second sentence)
 - [ ] UI stays clutter-free: no casual subtitles; tooltips for secondary detail; any subtitle pattern is consistent across peers of the same type/level
 - [ ] No emulator/build internals unless the learner must know them to act
 - [ ] Large new copy blocks are flagged for human review

@@ -37,13 +37,13 @@ export function SimulationBody() {
         values={stats.history}
         className="mt-1.5 text-primary"
         height={28}
-        ariaLabel="Recent emulator throughput"
+        ariaLabel="Recent guest throughput"
       />
       <p
         className="pt-1.5 text-[10px] leading-relaxed text-muted-foreground"
-        title="Emulator instructions retired per second"
+        title="Guest instructions retired per second"
       >
-        How fast the emulator is running: instructions per second.
+        How fast the guest is running: instructions per second.
       </p>
     </div>
   )

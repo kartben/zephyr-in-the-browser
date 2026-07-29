@@ -130,7 +130,7 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
         </div>
         {recent.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">
-            Nothing yet. Waiting for the emulator to touch the bus.
+            Nothing yet. Waiting for the guest to touch the bus.
           </p>
         ) : (
           <ul className="space-y-0.5 font-mono text-[10px]">
