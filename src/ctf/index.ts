@@ -78,6 +78,19 @@ export {
   type NetCoreSample,
 } from './netSockets'
 export {
+  idleThreadIds,
+  reconstructCpuResidency,
+  residencyWindowStats,
+  dutyBuckets,
+  formatResidencyDuration,
+  formatPct,
+  type CpuMode,
+  type CpuResidencySeg,
+  type WakeMark,
+  type CpuResidency,
+  type ResidencyWindowStats,
+} from './powerResidency'
+export {
   queueFlowEvents,
   queueChartEvents,
   nearestQueueChartEvent,
