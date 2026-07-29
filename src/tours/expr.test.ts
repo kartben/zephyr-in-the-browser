@@ -93,6 +93,17 @@ describe('evalWatch', () => {
     expect(await evalWatch('led', 'addr', target())).toMatchObject({ text: '0x2000' })
   })
 
+  it('gives back the value itself for `dec`, without reading through it', async () => {
+    // An argument register holding a stack size is a number, not a place: `u32`
+    // would go looking for memory at 2048 and report it as unreadable.
+    expect(await evalWatch('2048', 'dec', target())).toMatchObject({
+      text: '2048 · 0x800',
+      ok: true,
+    })
+    expect((await evalWatch('4', 'dec', target())).text).toBe('4')
+    expect((await evalWatch('2048', 'u32', target())).ok).toBe(false)
+  })
+
   it('follows a pointer for `ptr` and hexdumps for `bytes:N`', async () => {
     expect((await evalWatch('led', 'ptr', target())).text).toBe('0x3000')
     expect((await evalWatch('led+1p', 'bytes:4', target())).text).toBe('04 00 01 00')

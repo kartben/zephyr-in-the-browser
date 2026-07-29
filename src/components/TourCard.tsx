@@ -17,6 +17,7 @@ import { InlineMarkdown, Markdown } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
 import { TourHexdump } from '@/components/tour/TourHexdump'
+import { TourObjects } from '@/components/tour/TourObjects'
 import { TourOutline } from '@/components/tour/TourOutline'
 import { Button } from '@/components/ui/button'
 import { sampleSourceAsset, type Board } from '@/boards'
@@ -74,7 +75,7 @@ export function TourCard({ board, sampleId }: Props) {
 
   if (!card || !state.enabled) return null
 
-  const { step, anchor, paused, values, memory, registers, threads } = card
+  const { step, anchor, paused, values, memory, objects, registers, threads } = card
   const total = state.doc?.steps.length ?? 0
   const src = anchor?.file
     ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, baseName(anchor.file))}`
@@ -140,6 +141,8 @@ export function TourCard({ board, sampleId }: Props) {
           />
 
           {values.length > 0 && <Values values={values} live={state.live} />}
+
+          {objects && <TourObjects spec={objects} snap={snap} live={state.live} />}
 
           {memory && <TourHexdump memory={memory} />}
 

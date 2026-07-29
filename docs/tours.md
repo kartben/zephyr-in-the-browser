@@ -29,23 +29,23 @@ sample: samples/basic/blinky
 
 Optional introduction.
 
-## Nothing in this file says which pin
+## The numbers devicetree chose, arriving at the driver
 
 ```tour
-at: main
+at: gpio_virtio_pin_configure | qhg_pin_configure
 panel: gpio
 watch:
-  - controller = **led as string
-  - pin = led+1p as u8
+  - controller = *$arg0 as string
+  - pin = $arg1 as dec
 memory:
-  at: led
-  len: 16
-  mark: 0..1p
-  note: pointer to the GPIO controller
+  at: $arg0
+  len: 32
+  mark: 2p..3p
+  note: api — the driver's function table
 ```
 
-The machine is stopped on the first statement of `main()`, and `led` already
-holds everything this sample will ever know about the hardware…
+The pin the source would not tell you is right there in the second argument
+register…
 ````
 
 Dropping the file in is the whole wiring. Tours are picked up by an
@@ -155,8 +155,8 @@ A list of `label = expression as format` rows, read at the stop.
 
 ```yaml
 watch:
-  - controller = **led as string
-  - pin = led+1p as u8
+  - controller = *$arg0 as string
+  - owner = $arg0+2p as ptr
   - stopped in = $pc as code
 ```
 
@@ -165,11 +165,11 @@ and the format says how to read what is there.**
 
 | | |
 | --- | --- |
-| `led` | where the symbol lives (data symbols first, then functions) |
-| `led+8`, `led-4` | address arithmetic |
-| `led+1p` | `p` is one pointer width — 4 bytes on Cortex-M3 and RISC-V, 8 on Cortex-A53 |
-| `*led` | follow the pointer stored there |
-| `**led` | …twice |
+| `_kernel` | where the symbol lives (data symbols first, then functions) |
+| `_kernel+8`, `_kernel-4` | address arithmetic |
+| `$arg0+2p` | `p` is one pointer width — 4 bytes on Cortex-M3 and RISC-V, 8 on Cortex-A53 |
+| `*$arg0` | follow the pointer stored there |
+| `**$arg0` | …twice |
 | `$pc`, `$sp`, `$x0`, `$a0` | a register |
 | `$arg0`…`$arg3` | the ABI's argument registers, whichever this guest uses |
 | `0x40001000` | a literal |
@@ -182,8 +182,8 @@ a 32- and a 64-bit guest, and the same tour runs on all three boards.
 `z_impl_k_mutex_lock` and the mutex is right there; break ten lines in and the
 compiler has long since reused the register.
 
-Formats that name a C type **read** at the address; `addr` and `code` render
-the address itself:
+Formats that name a C type **read** at the address; `addr`, `code` and `dec`
+render the address itself:
 
 | Format | Shows |
 | --- | --- |
@@ -194,13 +194,25 @@ the address itself:
 | `bytes:N` | N bytes as an inline hexdump |
 | `addr` | the address itself, symbolised |
 | `code` | the address as `function+offset` |
+| `dec` | the value itself, in decimal and hex |
 
 The default is `u32`. Nothing here needs type information, which is exactly why
-it works against a build nobody prepared: `**led as string` walks spec →
-device → name without knowing what any of those structs look like.
+it works against a build nobody prepared: `*$arg0 as string` walks device →
+name without knowing what either struct looks like.
+
+`dec` is for the half of an ABI's arguments that are not addresses at all — a
+stack size, a pin number, a bitmask. `$arg2 as u32` on one of those goes looking
+for memory *at* 2048 and reports a thread's stack size as "unreadable".
 
 A read that fails is a value, not an error: a null pointer this early in boot is
 something the reader wants to see on the card.
+
+Optimised builds are why an expression should prefer a register to a symbol
+where it can. `-O2` folds a `static const` the sample only ever passes to inline
+accessors clean out of existence — blinky's `led` has a DWARF entry with no
+location and no `.symtab` address at all — so `led+1p as u8` can only ever say
+"no symbol `led`". Break where the pin *arrives* instead: the driver's
+`pin_configure` is handed it in `$arg1`, and no optimiser can take that away.
 
 ### `memory:`
 
@@ -254,6 +266,33 @@ pattern that matches nothing is dropped rather than guessed at — a highlight
 over the wrong lines is worse than none. The excerpt grows to cover whatever is
 marked, up to a cap.
 
+### `objects:`
+
+The kernel objects that exist at this stop, and what state they are in.
+
+```yaml
+objects: mutex          # one type
+objects: sem, mutex     # several
+objects: all            # everything this guest registered
+objects:                # …and which one the step is about
+  type: mutex
+  focus: $arg0
+```
+
+`CONFIG_OBJ_CORE` links every mutex, semaphore, message queue, mailbox, slab and
+thread onto a per-type list, so this needs no addresses and no offsets: the
+object cores say what exists, and the build's own DWARF says how to read each
+one. A `mutex` row shows its owner, lock depth and the owner's base priority; a
+`sem` row shows count and limit; a `msgq` row shows used and capacity.
+
+`focus:` is an address expression, and the object at that address is picked out
+of the list — `focus: $arg0` on `z_impl_k_mutex_lock` lights up the one this
+caller is asking for, next to the five it is not.
+
+Type names are the ones a person would write; Zephyr's four-letter codes
+(`MUTX`, `SEM4`) work too, and an unrecognised one fails the test rather than
+rendering as an empty list. Clicking a row opens Debug → Objects.
+
 ### `registers:` and `threads:`
 
 ```yaml
@@ -266,12 +305,32 @@ Debug → CPU). `threads:` shows the object-core thread list at this stop —
 states, priorities, stack use — using `CONFIG_OBJ_CORE` plus
 `CONFIG_DEBUG_THREAD_INFO`, both on in every packaged image.
 
+Both of these read the debugger's live walk rather than a copy taken when the
+card was built, because the walk lands a beat after the registers do. On a busy
+stop they fill in a moment after the prose.
+
+Which is also why neither works on a `stop: no` step, and why asking for one
+there is an authoring error rather than a slow card: `watch:` and `memory:` are
+read while the machine is still halted, but the walks are dozens of round-trips
+that have not finished by the time the guest is let go, and what is left on the
+card is a spinner nothing will resolve.
+
 ## How it runs
 
 1. The page loads the tour from its own bundle as the emulator starts.
-2. Opening the gdbstub stops the machine once, early in boot. Every anchor is
-   resolved at that stop, and the **first** step's breakpoint is planted —
-   before the guest can run past `main()`.
+2. A sample with a tour boots with the CPU **frozen at reset** (`-S`), and
+   attaching the gdbstub is what starts it. Every anchor is resolved at that
+   stop and the **first** step's breakpoint is planted before the guest has
+   executed an instruction.
+
+   Without the freeze this is a race the tour loses: opening the stub does stop
+   the machine, but only once the chardev is up a second or so in, and Zephyr
+   reaches `main()` long before that. A step anchored on anything the guest
+   passes exactly once — `main()`, a driver's configure call, the six
+   `k_thread_create()`s of a startup — was planted at an address already behind
+   the program counter, and the tour sat there waiting for a breakpoint that
+   could never fire again. If the stub never comes up at all, the monitor
+   starts the machine instead, and the sample runs untoured rather than frozen.
 3. Each stop is matched to a step by address. A stop nobody claims — the
    reader's own breakpoint, or the Pause button — is left alone.
 4. A firing step reads its values, reveals its panel, and puts up the card.

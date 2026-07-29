@@ -315,6 +315,21 @@ export function toggle() {
   else pause()
 }
 
+/**
+ * Start a machine that was frozen at reset by `-S`, unconditionally.
+ *
+ * {@link resume} refuses unless `paused` is set, and `paused` follows QEMU's
+ * STOP event — which a machine that was never started has not emitted. That is
+ * the right rule for the Pause button and the wrong one for the escape hatch a
+ * tour needs: `-S` is only added when the gdbstub is meant to take over, so if
+ * the stub never came up, this is what is left to get the guest running.
+ */
+export function kick() {
+  if (!available()) return
+  send({ execute: 'cont' })
+  if (stub) onPaused(false)
+}
+
 export function attach(mod: unknown) {
   detach()
   exports = mod as MonitorExports

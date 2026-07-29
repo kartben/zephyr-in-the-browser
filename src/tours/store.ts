@@ -54,6 +54,21 @@ export interface TourMemory {
   error: string | null
 }
 
+/**
+ * The live kernel objects a step's `objects:` block asked for.
+ *
+ * Only the question is stored. The answer is read from the debugger's
+ * object-core walk as the card renders, the same way `threads:` is: the walk
+ * runs a beat after the registers land, so a snapshot taken while building the
+ * card would show the *previous* stop's objects.
+ */
+export interface TourObjects {
+  /** Object-core type codes, or empty for every type. */
+  types: string[]
+  /** The one object this step is about, once its expression was evaluated. */
+  focus: number | null
+}
+
 /** A run of source lines to light up, inclusive, in the anchor's file. */
 export interface TourHighlight {
   start: number
@@ -70,6 +85,7 @@ export interface TourCard {
   hits: number
   values: TourValue[]
   memory: TourMemory | null
+  objects: TourObjects | null
   registers: Array<{ name: string; value: string }>
   threads: boolean
   /** Lines the step is *about*, which need not be the line it stopped on. */
@@ -642,6 +658,16 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     }
   }
 
+  let objects: TourObjects | null = null
+  if (step.objects) {
+    const focus = step.objects.focus
+    objects = {
+      types: step.objects.types,
+      // A focus that will not evaluate costs the highlight, not the list.
+      focus: focus === null ? null : await evalAddress(focus, target).catch(() => null),
+    }
+  }
+
   const regs = registerValues(snap.registers)
   const registers = step.registers.map((name) => {
     const value = regs.get(name.toLowerCase())
@@ -658,6 +684,7 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     hits: runtime.hits,
     values,
     memory,
+    objects,
     registers,
     threads: step.threads,
     highlight: resolveHighlights(step, runtime.anchor?.file ?? null),
@@ -807,6 +834,7 @@ function demoCard(runtime: StepRuntime): TourCard {
           error: null,
         }
       : null,
+    objects: step.objects ? { types: step.objects.types, focus: null } : null,
     registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: '—' })),
     threads: step.threads,
     highlight: resolveHighlights(step, null),

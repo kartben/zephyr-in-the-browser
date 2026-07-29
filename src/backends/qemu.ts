@@ -8,7 +8,11 @@ import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { attach as attachHostInput, detach as detachHostInput } from '@/hostInput'
 import { attach as attachHostTrace, detach as detachHostTrace } from '@/hostTrace'
 import { attach as attachHostDisk, detach as detachHostDisk } from '@/hostDisk'
-import { attach as attachHostMonitor, detach as detachHostMonitor } from '@/hostMonitor'
+import {
+  attach as attachHostMonitor,
+  detach as detachHostMonitor,
+  kick as kickMonitor,
+} from '@/hostMonitor'
 import {
   attach as attachHostBt,
   detach as detachHostBt,
@@ -21,6 +25,7 @@ import {
   setKernelImage as setHostGdbKernelImage,
 } from '@/hostGdb'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
+import { hasTour } from '@/tours/catalog'
 import { get as getGuestImage } from '@/guestImage'
 import { get as getDeviceTree, loadSampleDts } from '@/devicetree'
 import {
@@ -294,6 +299,18 @@ export function createQemuBackend(): PtyBackend {
       if (sample.extraArgs) args = [...args, ...sample.extraArgs]
 
       /*
+       * A tour breaks in places the guest passes exactly once — `main()`, a
+       * driver's configure call, the six `k_thread_create()`s of a startup.
+       * Opening the gdbstub stops the machine, but only once the chardev is up,
+       * and Zephyr reaches `main()` in less time than that takes: the tour
+       * planted its first breakpoint at an address the guest was already past,
+       * and nothing ever fired. So freeze the CPU at reset and let the attach
+       * below start it, once every anchor is resolved and step one is planted.
+       */
+      const frozen = features.has('gdb') && hasTour(sampleId)
+      if (frozen) args = [...args, '-S']
+
+      /*
        * A cold Pyodide + Bumble load takes longer than Zephyr's 10-second HCI
        * command timeout. Prepare the controller before main() so the guest's
        * first HCI Reset waits in the chardev ring for a ready consumer instead
@@ -423,7 +440,11 @@ export function createQemuBackend(): PtyBackend {
       if (features.has('gdb')) {
         bindHostGdb(instance, board.arch)
         // Attach after the machine is running so OPENED does not freeze boot.
-        void attachHostGdbSession()
+        void attachHostGdbSession().then((ok) => {
+          // `-S` (below) leaves the machine frozen at reset. Attaching resumes
+          // it; if the stub never came up, nothing else will, so let it run.
+          if (!ok && frozen) kickMonitor()
+        })
       }
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
