@@ -48,17 +48,24 @@ export function TopBar({
   customImage,
   onClearImage,
 }: Props) {
+  /*
+   * Three groups, in falling order of how often they are touched: what to run,
+   * the reference/layout tools, and the machine's state. Everything between the
+   * selectors and the status pill is allowed to shrink away on a narrow screen;
+   * Reset and the status pill never do — they used to be pushed off the right
+   * edge on a phone, which left no way to restart a wedged guest.
+   */
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-5">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 sm:gap-3 sm:px-5">
       <div className="flex shrink-0 items-center gap-2.5">
         <Cpu className="size-4 text-primary" aria-hidden />
         {/* The wordmark is the first thing to go when the bar gets tight. */}
-        <h1 className="hidden whitespace-nowrap text-sm font-semibold tracking-tight md:block">
+        <h1 className="hidden whitespace-nowrap text-sm font-semibold tracking-tight lg:block">
           Zephyr in the Browser
         </h1>
       </div>
 
-      <div className="ml-auto flex min-w-0 items-center gap-3">
+      <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
         <BoardSelect boardId={boardId} onBoardChange={onBoardChange} />
 
         <SampleGallery
@@ -70,17 +77,26 @@ export function TopBar({
           onClearImage={onClearImage}
         />
 
-        <RunningDtsButton />
-        <PartsCatalog />
-        <ClearPeripheralsControl />
+        {/* Reference and layout tools — the first things to fold away. */}
+        <span className="hidden items-center sm:flex">
+          <RunningDtsButton />
+          <PartsCatalog />
+          <ClearPeripheralsControl />
+        </span>
+
         <PauseDebugControl />
 
-        <PanelsMenu boardId={boardId} />
+        {/* The drawer itself is how you manage panels on a phone — every row
+            collapses in place, so the checklist is desktop-only chrome. */}
+        <span className="hidden sm:inline-flex">
+          <PanelsMenu boardId={boardId} />
+        </span>
         <DockToggle />
 
         <StatusPill status={status} detail={detail} />
 
         <Button
+          className="shrink-0"
           onClick={onRestart}
           disabled={status === 'loading'}
           title={
@@ -90,7 +106,7 @@ export function TopBar({
           }
         >
           {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
-          {hardRestart ? 'Reset' : 'Restart'}
+          <span className="hidden sm:inline">{hardRestart ? 'Reset' : 'Restart'}</span>
         </Button>
       </div>
     </header>
