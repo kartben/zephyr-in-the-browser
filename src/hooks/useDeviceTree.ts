@@ -26,6 +26,50 @@ import type { SpiChip } from '@/virtio/devices/spi'
 const NO_CHIPS: I2cChip[] = []
 const NO_SPI: SpiChip[] = []
 
+/*
+ * One-entry memo shared by every caller of this hook.
+ *
+ * Three components mount it at once — the dock, the floating windows and the
+ * Panels menu — and they all pass identical inputs, so without this each
+ * bridge coming up walked the devicetree and re-sorted the whole inventory
+ * three times over. deriveDeviceInventory is pure, so returning the previous
+ * result for the same inputs is exactly equivalent, and keeping one object
+ * identity also stops the second and third callers handing their memo'd rows a
+ * fresh `node` on every attach.
+ */
+let cache: { key: unknown[]; value: DeviceInventory } | null = null
+
+function deriveShared(
+  tree: Parameters<typeof deriveDeviceInventory>[0],
+  chips: readonly I2cChip[],
+  spiChips: readonly SpiChip[],
+  avail: Availability,
+  boardId: string,
+): DeviceInventory {
+  const key = [
+    tree,
+    chips,
+    spiChips,
+    boardId,
+    avail.gnss,
+    avail.bluetooth,
+    avail.gpio,
+    avail.audio,
+    avail.mic,
+    avail.net,
+    avail.i2c,
+    avail.spi,
+    avail.display,
+    avail.input,
+  ]
+  if (cache && cache.key.length === key.length && cache.key.every((v, i) => v === key[i])) {
+    return cache.value
+  }
+  const value = deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
+  cache = { key, value }
+  return value
+}
+
 export function useDeviceTree(boardId: string): DeviceInventory {
   const tree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
   const chips = useSyncExternalStore(
@@ -83,7 +127,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
 
   const inventory = useMemo(() => {
     const avail: Availability = { gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input }
-    return deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
+    return deriveShared(tree, chips, spiChips, avail, boardId)
   }, [tree, chips, spiChips, gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input, boardId])
 
   // Hand the inventory to dockReveal so a caller outside React — a tour step
