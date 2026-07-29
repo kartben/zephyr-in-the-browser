@@ -131,7 +131,8 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
   if (chord.shift) {
     parts.push(
       mac ? (
-        <ShiftIcon key="shift" className="size-3" />
+        // Optical size: a lone arrow reads smaller than ⌘ at the same box.
+        <ShiftIcon key="shift" className="size-3.5" />
       ) : (
         <span key="shift">Shift</span>
       ),
