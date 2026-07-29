@@ -11,10 +11,9 @@
  * collide with real hardware. See tools/qemu-patches/.
  *
  * There is no sensor here any more: sensors are simulated I2C parts, and this
- * board has no virtio bus for them, so it carries no sensor UI. (An inert
- * host-sensor MMIO device is still instantiated at 0x40060000 by
- * tools/qemu-patches/0001-...-host-sensor.patch; nothing binds it, and the
- * patch is retired in a dedicated qemu-wasm rebuild.)
+ * board has no virtio bus for them, so it carries no sensor UI. The
+ * qemu,host-sensor MMIO device that used to sit at 0x40060000 is gone from the
+ * emulator too — its patch was dropped once nothing bound it.
  *
  * The host GPIO controller also carries a gpio-leds node (led0 on pin 4) and a
  * polled gpio-keys node (sw0 on pin 0), so blinky drives a browser LED and the

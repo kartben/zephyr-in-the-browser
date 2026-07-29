@@ -722,8 +722,8 @@ export const BOARDS: Board[] = [
       hostNet: true,
     },
     samples: CORTEX_M3_SAMPLES,
-    // The shell is the one worth landing on: it is interactive, and it is where
-    // the host-sensor bridge is visible.
+    // The shell is the one worth landing on: it is interactive, and its `gpio`
+    // and `hostaudio` commands drive this board's browser bridges directly.
     defaultSampleId: 'shell',
     usesDataBundle: false,
   },

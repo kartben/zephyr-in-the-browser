@@ -143,9 +143,10 @@ SELECTED="$(echo "$EXPANDED" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
   exit 1
 }
 
-# This repo ships an out-of-tree Zephyr module: the qemu,host-sensor driver and
-# binding, plus the browser_bridge shield the module's board_root exposes and
-# the snippets its snippet_root exposes. Everything is passed as CMake args;
+# This repo ships an out-of-tree Zephyr module: the qemu,host-{gpio,audio,mic}
+# and virtio drivers with their bindings, plus the browser_bridge shield the
+# module's board_root exposes and the snippets its snippet_root exposes.
+# Everything is passed as CMake args;
 # note that current Zephyr *rejects* -DCONFIG_* on the command line, so Kconfig
 # tweaks travel in .conf fragments listed per app in the manifest / snippets.
 #
