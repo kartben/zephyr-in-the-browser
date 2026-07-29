@@ -264,13 +264,25 @@ export async function loadFor(
    */
   if (armWatchdog !== undefined) clearTimeout(armWatchdog)
   armWatchdog = setTimeout(() => {
-    if (state.armed) return
-    console.warn(
-      gdb.getSnapshot().attached
-        ? '[tour] gdb is attached but no step armed — see the problems above'
-        : '[tour] no gdb session, so the tour cannot break anywhere. ' +
-            'The emulator build needs the gdbstub chardev (features.json "gdb").',
-    )
+    if (!state.armed) {
+      console.warn(
+        gdb.getSnapshot().attached
+          ? '[tour] gdb is attached but no step armed — see the problems above'
+          : '[tour] no gdb session, so the tour cannot break anywhere. ' +
+              'The emulator build needs the gdbstub chardev (features.json "gdb").',
+      )
+      return
+    }
+    // Armed, and the machine has been stopped for a while with no card: the
+    // stops are not reaching the tour at all. That was a real bug once — a
+    // cleared stop filter — and it looked exactly like a tour that had simply
+    // not been reached yet, which is why it is worth naming.
+    if (gdb.getSnapshot().paused && state.current === null && state.seen.size === 0) {
+      console.warn(
+        '[tour] breakpoints are planted and the machine is stopped, but no step ' +
+          'claimed the stop. The tour is armed and not listening.',
+      )
+    }
   }, ARM_GRACE_MS)
 }
 

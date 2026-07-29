@@ -565,7 +565,15 @@ export function detach() {
   client = null
   ch = null
   mod = null
-  stopFilter = null
+  /*
+   * `attachHook` and `stopFilter` are deliberately *not* cleared. They are the
+   * page's wiring, registered once by the tour store and outliving any one
+   * machine — and bind() detaches first, so clearing them here unregistered
+   * whatever had already been set up for the guest about to start. That put a
+   * tour in a state where it still planted its breakpoints (via the hook) but
+   * never saw the stops (no filter): breakpoints in the panel, and no card,
+   * with nothing to say why. The store clears both in its own reset().
+   */
   frameRegs = NO_FRAME_REGS
   tempBp = null
   internalStep = false
