@@ -28,10 +28,9 @@ import {
   queueChartEvents,
   queueChartOpLabel,
   queueLabel,
-  reconstructQueues,
-  sortQueuesByPipelineOrder,
   timeTickValues,
   type QueueChartEvent,
+  type QueueFlowEvent,
   type QueueSample,
   type QueueSeries,
   type Trace,
@@ -532,12 +531,12 @@ function tipLines(tr: Trace, tip: HoverTip): string[] {
  */
 export function QueuesView({
   tr,
+  queues,
+  flowEvents,
   view0,
   view1,
   follow,
   eventCount,
-  nameById,
-  capacityById,
   svgRef,
   surfaceProps,
   toolbar,
@@ -546,14 +545,14 @@ export function QueuesView({
   yZoom = null,
 }: {
   tr: Trace
+  /** Shared reconstruction used by the timeline, synoptic, and depth chart. */
+  queues: QueueSeries[]
+  /** Shared flow batch so the synoptic reacts to the same publication as the chart. */
+  flowEvents: QueueFlowEvent[]
   view0: number
   view1: number
   follow: boolean
   eventCount: number
-  /** ELF/object-core names keyed by CTF object address. */
-  nameById?: Map<number, string> | null
-  /** Exact object-core bounds keyed by CTF object address. */
-  capacityById?: Map<number, number> | null
   svgRef: RefObject<SVGSVGElement | null>
   surfaceProps?: SVGAttributes<SVGSVGElement>
   /** Compact pan/zoom chrome — sits between the flow graph and the depth chart. */
@@ -570,16 +569,6 @@ export function QueuesView({
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
 
-  const queues = useMemo(
-    () =>
-      sortQueuesByPipelineOrder(
-        tr,
-        reconstructQueues(tr, nameById, capacityById),
-      ),
-    // eventCount bumps when CTF grows; object-core maps update on a GDB refresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, eventCount, nameById, capacityById],
-  )
   const chartEvents = useMemo(
     () => queueChartEvents(tr),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -713,7 +702,14 @@ export function QueuesView({
 
   return (
     <div className="flex flex-col gap-2">
-      {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
+      {queues.length > 0 && (
+        <QueueGraph
+          tr={tr}
+          queues={queues}
+          flowEvents={flowEvents}
+          eventCount={eventCount}
+        />
+      )}
       <div className="flex flex-col gap-1">
         {toolbar}
         <div ref={hostRef} className="relative w-full select-none">

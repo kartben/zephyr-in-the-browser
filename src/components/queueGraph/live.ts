@@ -82,9 +82,13 @@ export function liveQueueNodeState(
   return state
 }
 
-export function buildLiveQueueGraph(tr: Trace, queues: QueueSeries[]): LiveQueueGraph {
+export function buildLiveQueueGraph(
+  tr: Trace,
+  queues: QueueSeries[],
+  flowEvents?: QueueFlowEvent[],
+): LiveQueueGraph {
   const queueById = new Map(queues.map((queue) => [queue.id, queue]))
-  const flow = queueFlowEvents(tr)
+  const flow = flowEvents ?? queueFlowEvents(tr)
   const valid = flow.filter(
     (
       event,

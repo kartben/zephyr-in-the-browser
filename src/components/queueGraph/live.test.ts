@@ -119,4 +119,11 @@ describe('live queue graph adapter', () => {
       action: 'put',
     })
   })
+
+  it('uses the supplied publication flow instead of rescanning mutable trace history', () => {
+    const live = buildLiveQueueGraph(trace(), queues(), [])
+
+    expect(live.flow).toEqual([])
+    expect(live.graph.edges).toEqual([])
+  })
 })
