@@ -196,11 +196,6 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-/** Collapsed-badge helper: first axis, or idle when none. */
-export function primaryAxis(): StepperAxisSnapshot | undefined {
-  return getSnapshot().axes[0]
-}
-
 /** Test helper: drop GPIO watch and axis state. */
 export function resetForTests() {
   gpioUnsub?.()

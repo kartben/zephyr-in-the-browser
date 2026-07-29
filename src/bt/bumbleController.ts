@@ -852,11 +852,3 @@ export async function ensureController(opts: EnsureControllerOpts): Promise<BtCo
   }
   return handle
 }
-
-/** Test helper: drop the cached handle so the next ensure reloads. */
-export function resetControllerForTests() {
-  handle?.close()
-  handle = null
-  pyodideRef = null
-  peersChangedCb = null
-}

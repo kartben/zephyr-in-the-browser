@@ -17,7 +17,7 @@ import {
 import { decodeFields, type EventDef } from './metadata'
 import {
   applyNetAddressWidth,
-  needsNetAddressProbe,
+  hasNetAddressField,
   probeNetAddressWidth,
   type NetAddressWidth,
 } from './netAddressWidth'
@@ -313,7 +313,7 @@ export class TraceReader {
       }
 
       // Zephyr TSDL says address[46], but !NET_IPV6 guests emit 20-byte strings.
-      if (this.netAddressWidth == null && needsNetAddressProbe(edef)) {
+      if (this.netAddressWidth == null && hasNetAddressField(edef)) {
         const bodyOff = off + hsz
         const bodyAvail = n - bodyOff
         const probed = probeNetAddressWidth(this.defs, edef, bodyOff, bodyAvail, (nextOff) => {

@@ -170,7 +170,7 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
     case 'spi':
       return <SpiBody busLabel={node.busLabel} />
     case 'uart':
-      return <UartBody busKey={node.key} busLabel={node.busLabel} />
+      return <UartBody busKey={node.key} />
     case 'can':
       return <CanBody />
     case 'spi-flash':

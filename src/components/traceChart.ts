@@ -200,21 +200,6 @@ export function screenYToBase(
   return baseY0 + t * (baseY1 - baseY0)
 }
 
-/** Inverse of {@link screenYToBase}. */
-export function baseYToScreen(
-  baseY: number,
-  plotTop: number,
-  plotBottom: number,
-  yZoom: YZoom | null,
-): number {
-  const plotH = Math.max(1, plotBottom - plotTop)
-  const z = yZoom && !isIdentityYZoom(yZoom) ? yZoom : { f0: 0, f1: 1 }
-  const baseY0 = plotTop + z.f0 * plotH
-  const baseY1 = plotTop + z.f1 * plotH
-  const span = Math.max(1e-9, baseY1 - baseY0)
-  return plotTop + ((baseY - baseY0) / span) * plotH
-}
-
 /**
  * Compose a nested vertical zoom from a screen-space strip selection.
  * Returns `null` when the drag is too short.

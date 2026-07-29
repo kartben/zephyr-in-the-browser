@@ -113,12 +113,3 @@ function enqueuePcm(pcm: Int16Array, sampleRate: number, channels: number) {
   playhead += frames / sampleRate
   setSnapshot({ level: peak })
 }
-
-/** Test helper. */
-export function resetSpeakerAudioForTests() {
-  void ctx?.close()
-  ctx = null
-  playhead = 0
-  mutedPeers = new Set()
-  snapshot = { enabled: false, level: 0, framesDecoded: 0, lastError: '' }
-}

@@ -46,8 +46,3 @@ export function findSection(data: Uint8Array, name: string): ElfSection | null {
   }
   return null
 }
-
-/** True for a 64-bit ELF — the pointer width `*` follows in a tour expression. */
-export function elfPointerBytes(data: Uint8Array): 4 | 8 {
-  return data.length > 4 && data[4] === 2 ? 8 : 4
-}

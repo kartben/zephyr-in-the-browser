@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 import { createLm75 } from './lm75'
-import { createAdxl345 } from './adxl345'
-import { createLsm6dso } from './lsm6dso'
+import { adxl345Decl, createAdxl345 } from './adxl345'
+import { createLsm6dso, lsm6dsoDecl } from './lsm6dso'
 import { createLps22hh } from './lps22hh'
 import { createIna219 } from './ina219'
 import { createIsl29035 } from './isl29035'
+import { createTmp112, tmp112Decl } from './tmp112'
 
 /**
  * A made-up two-channel part exercising the machine directly (no bridge): an
@@ -359,5 +360,100 @@ describe('ISL29035', () => {
   it('starts with the sample\'s 4K lux range selected', () => {
     const chip = createIsl29035()
     expect(chip.getAttr('lux_range')).toBe(1)
+  })
+})
+
+describe('sensor peek / poke / setField', () => {
+  const pokeDecl: SensorDecl = {
+    name: 'Demo',
+    defaultAddress: 0x40,
+    registers: [
+      {
+        name: 'DATA',
+        addr: 0x00,
+        bytes: 2,
+        access: 'ro',
+        reset: 0,
+        fields: [{ name: 'LEVEL', lsb: 0, msb: 15 }],
+      },
+      {
+        name: 'CONFIG',
+        addr: 0x10,
+        bytes: 1,
+        access: 'rw',
+        reset: 0,
+        fields: [
+          { name: 'BOOST', lsb: 0, msb: 0 },
+          {
+            name: 'GAIN',
+            lsb: 1,
+            msb: 2,
+            values: [
+              { name: '1x', value: 0 },
+              { name: '4x', value: 2 },
+            ],
+          },
+        ],
+      },
+    ],
+    channels: [
+      {
+        key: 'level',
+        label: 'Level',
+        zephyr: 'gauge',
+        unit: '%',
+        min: 0,
+        max: 100,
+        reg: 0x00,
+        encode: (v) => Math.round(v),
+      },
+    ],
+  }
+
+  it('peeks the live encoded channel word and the pointer', () => {
+    const chip = createSensorChip(pokeDecl)
+    chip.setChannel('level', 40)
+    expect(chip.peek(0x00)).toBe(40)
+    chip.write(Uint8Array.of(0x10))
+    expect(chip.getPointer()).toBe(0x10)
+  })
+
+  it('pokes and setFields rw registers, ignores ro', () => {
+    const chip = createSensorChip(pokeDecl)
+    chip.poke(0x00, 0xffff)
+    expect(chip.peek(0x00)).toBe(0) // still channel-encoded; poke ignored
+    chip.setChannel('level', 0)
+    expect(chip.peek(0x00)).toBe(0)
+
+    chip.poke(0x10, 0x05) // GAIN=2, BOOST=1
+    expect(chip.peek(0x10)).toBe(0x05)
+    chip.setField(0x10, { lsb: 0, msb: 0 }, 0)
+    expect(chip.peek(0x10)).toBe(0x04)
+    chip.setField(0x10, { lsb: 1, msb: 2 }, 0)
+    expect(chip.peek(0x10)).toBe(0)
+  })
+})
+
+describe('JSON-backed chip maps', () => {
+  it('keeps TMP112 bus behaviour while exposing named Configuration fields', () => {
+    const chip = createTmp112({ celsius: 21 })
+    expect(tmp112Decl.registers.find((r) => r.addr === 0x01)?.name).toBe('Configuration')
+    expect(chip.peek(0x01)).toBe(0x60a0)
+    const before = chip.peek(0x00)
+    chip.setField(0x01, { lsb: 4, msb: 4 }, 1) // EM
+    expect(chip.getAttr('extended')).toBe(true)
+    // Encoding picks up EM immediately: bit 0 of the temp word mirrors it.
+    expect(chip.peek(0x00) & 1).toBe(1)
+    expect(chip.peek(0x00)).not.toBe(before)
+  })
+
+  it('loads ADXL345 and LSM6DSO maps with datasheet names', () => {
+    expect(adxl345Decl.registers[0]?.name).toBe('DEVID')
+    expect(createAdxl345().peek(0x00)).toBe(0xe5)
+    expect(lsm6dsoDecl.registers.find((r) => r.addr === 0x10)?.name).toBe('CTRL1_XL')
+    const imu = createLsm6dso()
+    expect(imu.peek(0x0f)).toBe(0x6c)
+    imu.setField(0x10, { lsb: 4, msb: 7 }, 1) // ODR 12.5 Hz
+    expect(imu.getAttr('accel_odr')).toBe(1)
   })
 })

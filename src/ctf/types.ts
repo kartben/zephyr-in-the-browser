@@ -1,6 +1,11 @@
 /**
  * Zephyr CTF event layouts: the minimal scheduling set used when the TSDL
  * metadata file cannot be fetched, mirroring scripts/tracing/trace_viewer.py.
+ *
+ * The event ids below are a complete mirror of that upstream id space, not
+ * only the subset this app currently decodes — several have no consumer here
+ * and are kept deliberately, so the enumeration stays diffable against Zephyr
+ * whenever the tracing subsystem adds, renames, or renumbers an event.
  */
 
 export type FieldType =

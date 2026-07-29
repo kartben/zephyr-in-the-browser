@@ -26,7 +26,7 @@
  */
 
 import tmp112Map from './maps/tmp112.json'
-import { registersFromJson, type RegisterMapJson } from './registerMap'
+import { registersFromJson, type RegisterMapJson } from '../registers'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 
 const REG_TEMPERATURE = 0x00

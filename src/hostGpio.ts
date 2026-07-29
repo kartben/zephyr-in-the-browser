@@ -418,16 +418,6 @@ export function available(): boolean {
   return mmio !== null || isBound(gpioModel.name)
 }
 
-/**
- * Devicetree label of the bound controller, quoted by the panel's `gpio` shell
- * hint. The loaded devicetree names it authoritatively; without one, fall back
- * to the labels the bundled overlays use — `host_gpio` on the Cortex-M3's MMIO
- * bridge, `virtio_gpio0` on the Cortex-A53.
- */
-export function controllerNode(): string {
-  return derived.node ?? (mmio ? 'host_gpio' : 'virtio_gpio0')
-}
-
 export function getInputs(): number {
   return inputs
 }

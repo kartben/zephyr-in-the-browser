@@ -33,9 +33,6 @@ export function hasNetAddressField(def: EventDef): boolean {
   return def.fields.some((f) => isWideNetAddressString(f.kind))
 }
 
-/** @deprecated use hasNetAddressField — alias kept for call sites. */
-export const needsNetAddressProbe = hasNetAddressField
-
 /** Rebuild a single event def with every net-address string set to `width`. */
 export function withNetAddressWidth(def: EventDef, width: NetAddressWidth): EventDef {
   const fields: FieldDecl[] = def.fields.map(({ name, kind }) => {

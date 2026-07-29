@@ -18,13 +18,6 @@ import type { Rgbw } from './lp50xx'
 /** On-wire color channel ids matching Zephyr's `dt-bindings/led/led.h`. */
 export type Ws2812ColorId = 'w' | 'r' | 'g' | 'b'
 
-const COLOR_FROM_ID: Record<number, Ws2812ColorId> = {
-  0: 'w',
-  1: 'r',
-  2: 'g',
-  3: 'b',
-}
-
 const SPI_FRAME_BITS = 8
 const BITS_PER_CHANNEL = 8
 
@@ -71,10 +64,6 @@ export function isWs2812(chip: SpiChip | null | undefined): chip is Ws2812Chip {
     typeof (chip as Ws2812Chip).chainLength === 'number' &&
     (chip as Ws2812Chip).moduleCount === (chip as Ws2812Chip).chainLength
   )
-}
-
-export function colorOrderFromMapping(ids: readonly number[]): Ws2812ColorId[] {
-  return ids.map((id) => COLOR_FROM_ID[id] ?? 'g')
 }
 
 export function createWs2812({

@@ -187,6 +187,3 @@ export function createLp5012({
     },
   }
 }
-
-/** Alias matching the Zephyr sample / family name. */
-export const createLp50xx = createLp5012
