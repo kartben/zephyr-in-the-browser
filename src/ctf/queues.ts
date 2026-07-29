@@ -30,8 +30,10 @@ export interface QueueSeries {
   name: string | null
   samples: QueueSample[]
   drops: number
-  /** Inferred from a failed msgq put while full; null if never observed full. */
+  /** Fixed object-core bound, inferred full depth, or null when still unknown. */
   cap: number | null
+  /** Whether the bound came from the kernel object or trace-event inference. */
+  capSource: 'object-core' | 'inferred' | null
   peak: number
 }
 
@@ -73,6 +75,7 @@ function pushSample(q: Acc, ts: number) {
 export function reconstructQueues(
   tr: Trace,
   nameById?: Map<number, string> | null,
+  capacityById?: Map<number, number> | null,
 ): QueueSeries[] {
   const kinds = classifyQueueKinds(tr.events)
   const map = new Map<number, Acc>()
@@ -121,13 +124,17 @@ export function reconstructQueues(
     // Hold the last depth through the live edge.
     const last = q.samples[q.samples.length - 1]!
     if (tr.t1 > last.ts) q.samples.push({ ts: tr.t1, depth: q.depth })
+    const objectCapacity = capacityById?.get(id)
+    const hasObjectCapacity =
+      objectCapacity != null && Number.isFinite(objectCapacity) && objectCapacity > 0
     out.push({
       id,
       kind: q.kind,
       name: nameById?.get(id) ?? null,
       samples: q.samples,
       drops: q.drops,
-      cap: q.cap,
+      cap: hasObjectCapacity ? objectCapacity : q.cap,
+      capSource: hasObjectCapacity ? 'object-core' : q.cap != null ? 'inferred' : null,
       peak: q.peak,
     })
   }

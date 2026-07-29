@@ -4,9 +4,9 @@
 # into public/qemu/zephyr/, where the qemu backend fetches them at runtime.
 #
 # Images stay unstripped so the in-page debugger can resolve
-# CONFIG_DEBUG_THREAD_INFO symbols (_kernel, _kernel_thread_info_offsets, …)
-# the same way OpenOCD does. Drop-in custom ELFs should likewise keep symbols
-# if you want the Threads tab.
+# CONFIG_DEBUG_THREAD_INFO plus CONFIG_OBJ_CORE symbols (_kernel,
+# z_obj_type_list, the object-core descriptor bounds, …). Drop-in custom ELFs
+# should likewise keep symbols for the Threads and Kernel Objects tabs.
 #
 #   tools/build-zephyr-image.sh [board|all] [app|all]
 #     board  a board from tools/samples.manifest, or "all" (the default)
@@ -170,8 +170,9 @@ build_one() {
   work="${ZEPHYR_BUILD_WORKDIR:-$ROOT/.zephyr-build}/$board_dir-$id"
   mkdir -p "$dest" "$work"
 
-  # debug-threads.conf → CONFIG_DEBUG_THREAD_INFO (OpenOCD-compatible thread
-  # awareness) + CONFIG_FRAME_POINTER (exact call stacks in the Debug panel).
+  # debug-threads.conf → CONFIG_DEBUG_THREAD_INFO (thread state/stack ABI),
+  # CONFIG_OBJ_CORE (typed live kernel-object inventory), and
+  # CONFIG_FRAME_POINTER (exact call stacks in the Debug panel).
   # Manifest fragments (relative to zephyr-module/) follow it.
   local conf_list="$MODULE/conf/debug-threads.conf"
   if [ -n "$confs" ]; then
@@ -226,9 +227,9 @@ build_one() {
       bash -lc "west build -p always -b '$board'$snippet_args '$src' -d /out/build -- $cmake_args"
   fi
 
-  # Ship the unstripped ELF so the page can resolve DEBUG_THREAD_INFO symbols
-  # (_kernel, _kernel_thread_info_offsets, …) like OpenOCD. Larger than the old
-  # stripped ~64 KB images (DWARF), but required for the Threads tab.
+  # Ship the unstripped ELF so the page can resolve DEBUG_THREAD_INFO and
+  # OBJ_CORE symbols / DWARF layouts. Larger than the old stripped ~64 KB
+  # images, but required for the Threads and Kernel Objects tabs.
   cp "$work/build/zephyr/zephyr.elf" "$dest/$id.elf"
   printf '    %-16s %8s bytes\n' "$id.elf" "$(command wc -c < "$dest/$id.elf" | xargs)"
 

@@ -10,6 +10,7 @@ import * as gdb from '@/hostGdb'
 import * as monitor from '@/hostMonitor'
 import type { ElfSymbol } from '@/debug/elfSymbols'
 import type { ZephyrThread } from '@/debug/kernel/threads'
+import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import type { StackFrame, UnwindMethod, UnwindResult } from '@/debug/callStack'
 
 export interface DebugSnapshot {
@@ -28,6 +29,8 @@ export interface DebugSnapshot {
   memory: { addr: number; hex: string } | null
   /** Guest ELF has CONFIG_DEBUG_THREAD_INFO symbols. */
   threadInfo: boolean
+  /** Guest ELF has CONFIG_OBJ_CORE metadata. */
+  objectCores: boolean
   hasSymbols: boolean
   symbols: ElfSymbol[]
   /** DWARF formals for the function at PC (empty if unknown). */
@@ -37,6 +40,9 @@ export interface DebugSnapshot {
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
+  objects: ObjectCoreSnapshot | null
+  objectsLoading: boolean
+  objectsError: string | null
   /** Call stack for the stopped context, innermost first (gdb only). */
   stack: StackFrame[]
   stackMethod: UnwindMethod
@@ -61,6 +67,7 @@ function snap(): DebugSnapshot {
       breakpoints: g.breakpoints,
       memory: g.memory,
       threadInfo: g.threadInfo,
+      objectCores: g.objectCores,
       hasSymbols: g.hasSymbols,
       symbols: g.symbols,
       regFormals: g.regFormals,
@@ -68,6 +75,9 @@ function snap(): DebugSnapshot {
       threads: g.threads,
       threadsLoading: g.threadsLoading,
       threadsError: g.threadsError,
+      objects: g.objects,
+      objectsLoading: g.objectsLoading,
+      objectsError: g.objectsError,
       stack: g.stack,
       stackMethod: g.stackMethod,
       stackLoading: g.stackLoading,
@@ -87,6 +97,7 @@ function snap(): DebugSnapshot {
     breakpoints: [],
     memory: null,
     threadInfo: false,
+    objectCores: false,
     hasSymbols: false,
     symbols: [],
     regFormals: [],
@@ -94,6 +105,9 @@ function snap(): DebugSnapshot {
     threads: [],
     threadsLoading: false,
     threadsError: null,
+    objects: null,
+    objectsLoading: false,
+    objectsError: null,
     stack: [],
     stackMethod: 'none',
     stackLoading: false,

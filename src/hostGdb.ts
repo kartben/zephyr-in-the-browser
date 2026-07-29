@@ -31,6 +31,14 @@ import {
 import { compactHex } from '@/debug/hexFormat'
 import { parseThreadInfoFromElf, type ThreadInfo } from '@/debug/kernel/meta'
 import { listThreads, type ZephyrThread } from '@/debug/kernel/threads'
+import {
+  objectCoreThreadAddresses,
+  objectCoreWaitObjects,
+  parseObjectCoreMeta,
+  readObjectCores,
+  type ObjectCoreMeta,
+  type ObjectCoreSnapshot,
+} from '@/debug/kernel/objectCores'
 import { buildStackRegions, type StackRegion } from '@/debug/elfStacks'
 import { buildWaitObjects, type WaitObject } from '@/debug/elfWaitObjects'
 import {
@@ -73,6 +81,8 @@ export interface GdbState {
   memory: { addr: number; hex: string } | null
   /** Guest ELF has CONFIG_DEBUG_THREAD_INFO symbols. */
   threadInfo: boolean
+  /** Guest ELF has CONFIG_OBJ_CORE metadata. */
+  objectCores: boolean
   /** Function symbols from an unstripped ELF (for BP picker / labels). */
   hasSymbols: boolean
   symbols: ElfSymbol[]
@@ -83,6 +93,9 @@ export interface GdbState {
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null
+  objects: ObjectCoreSnapshot | null
+  objectsLoading: boolean
+  objectsError: string | null
   /** Call stack for the stopped context, innermost first. */
   stack: StackFrame[]
   /** How the frames past #0 were recovered — the UI flags scans as guesses. */
@@ -104,6 +117,7 @@ const EMPTY: GdbState = {
   breakpoints: [],
   memory: null,
   threadInfo: false,
+  objectCores: false,
   hasSymbols: false,
   symbols: [],
   regFormals: [],
@@ -111,6 +125,9 @@ const EMPTY: GdbState = {
   threads: [],
   threadsLoading: false,
   threadsError: null,
+  objects: null,
+  objectsLoading: false,
+  objectsError: null,
   stack: [],
   stackMethod: 'none',
   stackLoading: false,
@@ -125,6 +142,7 @@ let ch: ChardevExports | null = null
 let client: RspClient | null = null
 let arch: GdbArch = 'arm'
 let threadInfo: ThreadInfo | null = null
+let objectCoreMeta: ObjectCoreMeta | null = null
 let symbolIndex: SymbolIndex | null = null
 let formalIndex: FormalIndex | null = null
 let stackRegions: StackRegion[] = []
@@ -285,7 +303,10 @@ async function refreshRegs() {
   } else {
     void refreshMemory()
   }
-  // Threads first: the walk gives the current thread's stack bounds, which is
+  // Object cores first: their typed live inventory drives thread enumeration
+  // and resolves wait-queue pointers without ELF-name guessing.
+  await refreshObjects()
+  // Threads next: the walk gives the current thread's stack bounds, which is
   // what stops the unwinder's scan from running off the end of the stack.
   await refreshThreads()
   await refreshStack()
@@ -315,13 +336,19 @@ async function refreshThreads() {
   }
   publish({ threadsLoading: true, threadsError: null })
   try {
+    const coreWaits = state.objects ? objectCoreWaitObjects(state.objects) : []
+    const coreThreads = state.objects ? objectCoreThreadAddresses(state.objects) : []
     const threads = await listThreads(
       threadInfo,
       async (addr, length) => {
         if (!client) throw new Error('no client')
         return client.readMemory(addr, length)
       },
-      { stacks: stackRegions, waitObjects },
+      {
+        stacks: stackRegions,
+        waitObjects: coreWaits.length > 0 ? coreWaits : waitObjects,
+        threadAddrs: coreThreads,
+      },
     )
     publish({ threads, threadsLoading: false, threadsError: null })
   } catch (err) {
@@ -329,6 +356,27 @@ async function refreshThreads() {
       threads: [],
       threadsLoading: false,
       threadsError: err instanceof Error ? err.message : 'Thread walk failed',
+    })
+  }
+}
+
+async function refreshObjects() {
+  if (!client || !state.paused || !objectCoreMeta) {
+    publish({ objects: null, objectsLoading: false, objectsError: null })
+    return
+  }
+  publish({ objectsLoading: true, objectsError: null })
+  try {
+    const objects = await readObjectCores(objectCoreMeta, async (addr, length) => {
+      if (!client) throw new Error('no client')
+      return client.readMemory(addr, length)
+    })
+    publish({ objects, objectsLoading: false, objectsError: null })
+  } catch (err) {
+    publish({
+      objects: null,
+      objectsLoading: false,
+      objectsError: err instanceof Error ? err.message : 'Object-core walk failed',
     })
   }
 }
@@ -410,6 +458,7 @@ export async function unwindThreadStack(tcbAddr: number): Promise<UnwindResult> 
 export function setKernelImage(elf: Uint8Array | null) {
   kernelElf = elf
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
+  objectCoreMeta = elf ? parseObjectCoreMeta(elf) : null
   symbolIndex = elf ? buildSymbolIndex(elf) : null
   formalIndex = elf ? buildFormalIndex(elf) : null
   stackRegions = elf ? buildStackRegions(elf) : []
@@ -417,11 +466,14 @@ export function setKernelImage(elf: Uint8Array | null) {
   if (state.available || state.attached) {
     publish({
       threadInfo: threadInfo !== null,
+      objectCores: objectCoreMeta !== null,
       hasSymbols: symbolIndex !== null,
       symbols: symbolIndex?.byName ?? [],
       regFormals: [],
       threads: [],
       threadsError: null,
+      objects: null,
+      objectsError: null,
       stack: [],
       stackMethod: 'none',
     })
@@ -435,6 +487,7 @@ export function setKernelImage(elf: Uint8Array | null) {
 export function bind(module: unknown, boardArch: string) {
   const keptElf = kernelElf
   const keptInfo = threadInfo
+  const keptObjectCoreMeta = objectCoreMeta
   const keptSyms = symbolIndex
   const keptFormals = formalIndex
   const keptStacks = stackRegions
@@ -442,6 +495,7 @@ export function bind(module: unknown, boardArch: string) {
   detach()
   kernelElf = keptElf
   threadInfo = keptInfo
+  objectCoreMeta = keptObjectCoreMeta
   symbolIndex = keptSyms
   formalIndex = keptFormals
   stackRegions = keptStacks
@@ -454,6 +508,7 @@ export function bind(module: unknown, boardArch: string) {
     ...EMPTY,
     available,
     threadInfo: threadInfo !== null,
+    objectCores: objectCoreMeta !== null,
     hasSymbols: symbolIndex !== null,
     symbols: symbolIndex?.byName ?? [],
     regArch: arch,
@@ -484,8 +539,13 @@ export async function attachSession(): Promise<boolean> {
   await sleep(50)
 
   const next = new RspClient(ch)
+  let starting = true
   next.setStopHandler((info) => {
     if (info.kind !== 'signal') return
+    // start() asks "why are you stopped?" as part of the handshake. That
+    // reply is consumed explicitly below; do not launch a second, concurrent
+    // full refresh from the ordinary asynchronous stop path.
+    if (starting) return
     // Step over / out drive their own refresh once they know where they
     // landed — let them, instead of racing a full walk per intermediate stop.
     if (internalStep) {
@@ -523,9 +583,16 @@ export async function attachSession(): Promise<boolean> {
   try {
     next.poll()
     const stop = await next.start()
+    starting = false
     // Claim the session before the hook runs: planting a breakpoint goes
     // through the same guards Pause does, and they check `attached`.
     publish({ attached: true, paused: stop !== null })
+    // The descriptor section can seed static object cores even when this stop
+    // precedes Zephyr's z_obj_core_init_all(). Keep that snapshot through the
+    // initial continue so Trace has exact fixed bounds before app code runs.
+    if (stop && objectCoreMeta) {
+      await refreshObjects()
+    }
     if (attachHook) {
       try {
         await attachHook()
@@ -579,6 +646,7 @@ export function detach() {
   internalStep = false
   kernelElf = null
   threadInfo = null
+  objectCoreMeta = null
   symbolIndex = null
   formalIndex = null
   stackRegions = []
@@ -611,6 +679,7 @@ export async function resume(): Promise<void> {
       paused: false,
       registersLoading: false,
       threadsLoading: false,
+      objectsLoading: false,
     })
   } catch {
     // ignore
