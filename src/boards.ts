@@ -128,6 +128,12 @@ export function withA53TraceVariants(samples: GuestSample[]): GuestSample[] {
 export interface Board {
   id: string
   label: string
+  /**
+   * Two or three characters for the top bar on a phone, where the full label
+   * truncates to "QE…". Every board is a QEMU machine, so the part worth
+   * keeping is the core.
+   */
+  shortLabel: string
   /** Zephyr board target, i.e. `west build -b <zephyrTarget>`. */
   zephyrTarget: string
   /** Guest architecture, for display. */
@@ -163,7 +169,7 @@ export interface Board {
     virtio?: boolean
     /**
      * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
-     * Needs `-semihosting` on the argv; the Trace stage panel follows it.
+     * Needs `-semihosting` on the argv; the Trace dock row follows it.
      */
     hostTrace?: boolean
     /**
@@ -558,7 +564,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   },
   {
     // Stock CTF + semihosting sample: writes tracing.bin into the emulator FS;
-    // the Trace stage panel follows it live (docs/tracing-feasibility.md).
+    // the Trace dock row follows it live (docs/tracing-feasibility.md).
     id: 'tracing',
     label: 'Tracing',
     description: 'Live CTF schedule view — thread lanes like Zephyr’s trace_viewer',
@@ -696,6 +702,7 @@ export const BOARDS: Board[] = [
   {
     id: 'qemu_cortex_m3',
     label: 'QEMU Cortex-M3',
+    shortLabel: 'M3',
     zephyrTarget: 'qemu_cortex_m3',
     arch: 'ARMv7-M',
     qemuBinary: 'qemu-system-arm',
@@ -730,6 +737,7 @@ export const BOARDS: Board[] = [
   {
     id: 'qemu_cortex_a53',
     label: 'QEMU Cortex-A53',
+    shortLabel: 'A53',
     zephyrTarget: 'qemu_cortex_a53',
     arch: 'ARMv8-A',
     qemuBinary: 'qemu-system-aarch64',
@@ -836,6 +844,7 @@ export const BOARDS: Board[] = [
   {
     id: 'qemu_riscv32',
     label: 'QEMU RISC-V 32',
+    shortLabel: 'RV32',
     zephyrTarget: 'qemu_riscv32',
     arch: 'RV32IMAFDC',
     qemuBinary: 'qemu-system-riscv32',
