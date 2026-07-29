@@ -10,6 +10,7 @@ other end of the wire.
 | [peripherals.md](peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the vendored drivers behind snippets, and touch input |
 | [pwm-leds.md](pwm-leds.md) | Spec: `pwm-leds` dock strip beside the PWM duty chart |
 | [gpio-controller.md](gpio-controller.md) | Spec (Proposal B): claimed-pin GPIO table + `used by` reveal |
+| [can-bus.md](can-bus.md) | The CAN bus class, where the page models *the rest of the network* — spec, plus what iteration 1 changed about it |
 | [networking.md](networking.md) | Why the page *is* the LAN, and exactly what does and does not leave the tab |
 | [bluetooth.md](bluetooth.md) | Zephyr host + in-page Bumble controller over `hci0` / H:4 |
 | [bluetooth-peer-ui-spec.md](bluetooth-peer-ui-spec.md) | Draft: select-one peer inspector for HRM / advertiser / scanner |
@@ -21,8 +22,21 @@ other end of the wire.
 | [tours.md](tours.md) | Guided tours — a Markdown DSL that breaks anywhere in a stock sample and shows what it finds |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
-| [debug-gdb-plan.md](debug-gdb-plan.md) | In-page debugging: QMP registers now, gdbstub next |
-| [trace-networking-plan.md](trace-networking-plan.md) | Spec: Trace panel **Networking** tab from Zephyr socket / `net_*` CTF |
+| [trace-networking-plan.md](trace-networking-plan.md) | Trace panel **Networking** tab from Zephyr socket / `net_*` CTF — the socket swimlanes shipped; the connection ribbon and cross-panel linking did not |
+
+## Shipped plans
+
+Written as proposals and kept as the design record, because the argument is why
+the code is shaped the way it is. Each opens with a status line saying what
+actually landed — including, in one case, a rule that was argued for and then
+deliberately reversed:
+
+- [debug-gdb-plan.md](debug-gdb-plan.md) — in-page debugging over QEMU's
+  gdbstub: the second browser chardev, the QMP fallback, breakpoints, memory,
+  Zephyr threads and the call stack. Still open: disassembly and source lines.
+- [debug-panel-plan.md](debug-panel-plan.md) — why debug left the TopBar
+  popover for a dockable panel, and how setting a breakpoint stopped requiring
+  a pause first.
 
 ## Investigations
 

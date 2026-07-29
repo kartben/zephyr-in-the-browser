@@ -11,15 +11,29 @@ Wiring for the board is in-tree:
 | Piece | Location |
 | --- | --- |
 | Softmmu patches (TCI) | `tools/qemu-riscv-patches/` |
-| Build target | `tools/build-qemu-wasm.sh riscv32-softmmu` (`all` still = arm+aarch64) |
+| Build target | `tools/build-qemu-wasm.sh riscv32-softmmu` (also built by `all`) |
 | Board registry | `src/boards.ts` → `qemu_riscv32` |
 | Shield overlay | `zephyr-module/boards/shields/browser_bridge/boards/qemu_riscv32.overlay` |
 | Snippets | `qemu_riscv32/qemu_riscv32` keys (reuse A53 overlay files) |
 | Samples | `tools/samples.manifest` (A53 set minus tracing) |
 | CI toolchain | `riscv64-zephyr-elf` in `.github/workflows/build-images.yml` |
 
-Still outstanding until a release build is cut: produce `qemu-system-riscv32.wasm`,
-package guest ELFs, smoke-test ramfb/LVGL under TCI, optional `-icount` / tracing.
+The board is no longer opt-in: `tools/build-qemu-wasm.sh` builds `riscv32-softmmu`
+as part of `all`, and `tools/package-emulator.sh` requires
+`qemu-system-riscv32` in the emulator tarball — matching the guest-image half,
+which already required `qemu_riscv32` ELFs.
+
+A local `riscv32-softmmu` build boots: `hello_world` reaches
+`Hello World! qemu_riscv32/qemu_virt_riscv32`, and `shell` comes up with the
+whole bridge set enumerated — seven sensors and the JHD1313 on `virtio_i2c0`,
+the PT6314 on `virtio_spi0` CS1, host audio at `0x10009000`, host mic at
+`0x1000a000`, virtio-net and virtio-input. Note the SPI bus realizes here, so
+`device-id=45` needs `tools/qemu-riscv-patches/0011-*` in whatever emulator
+ships.
+
+Still outstanding: LVGL rendering through ramfb under TCI (the device
+enumerates, the framebuffer path is unverified), and optional `-icount` /
+tracing.
 
 ## Goal
 
@@ -73,5 +87,5 @@ but run slower on TCI than A53 JIT.
 
 1. ramfb + fw_cfg ordering on pinned QEMU v10.1.0 for RISC-V virt
 2. TCI performance for LVGL / accel_chart
-3. Artifact size before folding riscv32 into `all` / release tarballs
+3. Release tarball size now that riscv32 is folded into `all`
 4. GNSS second UART IRQ wiring through Zephyr’s ns16550 + PLIC

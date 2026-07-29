@@ -62,7 +62,9 @@ driver's `SENSOR_CHAN_ACCEL_XYZ` handling temporarily reverted to force the
 - **`CONFIG_STACK_SENTINEL` at 4 KB** — the decider. The wild `PC=0` abort turned
   into a clean, self-identified `FATAL ERROR 2: Stack overflow`, with a register
   (`x17`) pointing *below* the main-stack limit. Definitive.
-- **Upstream TCI build** (`QEMU_AARCH64_ACCEL=tci`) — a red herring worth noting.
+- **Upstream TCI build** (`QEMU_AARCH64_ACCEL=tci`, a knob that has since been
+  removed — the A53 always builds against the JIT fork now) — a red herring
+  worth noting.
   The same ELF crashed under the interpreter too, but *earlier and differently*:
   a synchronous external abort reading the host-sensor MMIO at `0x90c0000` during
   `qhs_init`, with a perfectly clean register file. The upstream/TCI host-sensor
