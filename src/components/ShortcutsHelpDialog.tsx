@@ -157,21 +157,17 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
   )
 }
 
-/** Shift key glyph sized/stroked like Lucide Command — Unicode ⇧ is too tiny at 12px. */
+/** Shift key glyph sized like Lucide Command. Filled — a stroke outline reads too thin next to ⌘. */
 function ShiftIcon({ className }: { className?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
       className={className}
       aria-label="Shift"
     >
-      <path d="M12 3 3 14h6v7h6v-7h6L12 3z" />
+      <path d="M12 2.2 1.8 13.5h5.7V22h8.9v-8.5h5.8L12 2.2z" />
     </svg>
   )
 }
