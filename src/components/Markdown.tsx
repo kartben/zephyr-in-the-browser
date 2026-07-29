@@ -1,14 +1,14 @@
 /**
- * Renders the Markdown subset annotation bodies are written in.
+ * Renders the Markdown subset tour step bodies are written in.
  *
  * Every node here is a React element built from a parsed tree — no HTML string
  * is ever produced from author markup, so there is nothing to sanitise and
  * markup inside a body is text by construction. Fenced C blocks are the one
  * exception: highlight.js emits escaped HTML spans for tokens. See
- * src/annotations/markdown.ts for the grammar.
+ * src/tours/markdown.ts for the grammar.
  */
 
-import { parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/annotations/markdown'
+import { parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/tours/markdown'
 import { highlightCode, isCLanguage } from '@/lib/highlight'
 
 function Spans({ spans }: { spans: InlineSpan[] }) {

@@ -16,9 +16,8 @@ import { Dock } from '@/components/dock/Dock'
 import { FloatingWindows } from '@/components/dock/FloatingWindows'
 import { DropOverlay } from '@/components/DropOverlay'
 import { DtsPromptDialog } from '@/components/DtsPromptDialog'
-import { AnnotationCard } from '@/components/AnnotationCard'
-import { attachAnnotations } from '@/annotations/attach'
-import { loadFor as loadAnnotations, reset as resetAnnotations } from '@/annotations/store'
+import { TourCard } from '@/components/TourCard'
+import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import {
   STAGE_DISPLAY_KEY,
   getState as getDockState,
@@ -56,7 +55,8 @@ import {
   DEFAULT_BOARD_ID,
   getBoard,
   getSample,
-  sampleAnnotationsAsset,
+  sampleSourceAsset,
+  sampleTourAsset,
   samplePrimaryPanels,
   type PanelKind,
 } from '@/boards'
@@ -124,10 +124,10 @@ function StageOverlays({
 
   return (
     <>
-      {/* Above the stage panels, below the z-50 modals: an annotation may have
+      {/* Above the stage panels, below the z-50 modals: a tour step may have
           stopped the machine, so it must not end up behind a device card. */}
       <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
-        <AnnotationCard board={getBoard(boardId)} sampleId={sampleId} />
+        <TourCard board={getBoard(boardId)} sampleId={sampleId} />
       </div>
       <div
         ref={leftRef}
@@ -226,9 +226,8 @@ export default function App() {
 
   const backendRef = useRef<PtyBackend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const detachAnnotationsRef = useRef<(() => void) | null>(null)
 
-  const handleSession = useCallback(({ xterm, slave }: TerminalSession) => {
+  const handleSession = useCallback(({ slave }: TerminalSession) => {
     const ac = new AbortController()
     abortRef.current = ac
 
@@ -236,21 +235,24 @@ export default function App() {
     setStatus({ status: 'loading' })
 
     /*
-     * Annotations ride the console as OSC 9700 sequences, so the walkthrough
-     * needs the terminal itself — this is the only place that has it. The
-     * handler consumes what it matches, so an annotated sample's output looks
-     * exactly like an unannotated one's.
-     *
-     * The catalog fetch is fire-and-forget: a sample with no annotations has
-     * no JSON to find, and that is the normal case.
+     * The tour, if this sample has one. Fire-and-forget: most samples have no
+     * tour file to find, and that is the normal case. Loading it early matters
+     * — the store hands the debugger an attach hook, and the breakpoints have
+     * to be planted at the stop that opening the gdbstub produces, before the
+     * guest runs past main().
      */
-    resetAnnotations()
-    detachAnnotationsRef.current = attachAnnotations(xterm)
-    void loadAnnotations(
-      `${import.meta.env.BASE_URL}qemu/${sampleAnnotationsAsset(
+    resetTour()
+    void loadTour(
+      `${import.meta.env.BASE_URL}qemu/${sampleTourAsset(
         getBoard(configRef.current.boardId),
         configRef.current.sampleId,
       )}`,
+      (file) =>
+        `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(
+          getBoard(configRef.current.boardId),
+          configRef.current.sampleId,
+          file,
+        )}`,
     )
 
     // Drop status updates from a session that has already been torn down —
@@ -309,9 +311,7 @@ export default function App() {
   const handleTeardown = useCallback(() => {
     abortRef.current?.abort(new DOMException('terminal unmounted', 'AbortError'))
     abortRef.current = null
-    detachAnnotationsRef.current?.()
-    detachAnnotationsRef.current = null
-    resetAnnotations()
+    resetTour()
   }, [])
 
   /**

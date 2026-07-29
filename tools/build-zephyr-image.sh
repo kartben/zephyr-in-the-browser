@@ -238,29 +238,40 @@ build_one() {
   cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
   printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
 
-  # An annotated sample also emits its teaching prose and a display copy of its
-  # sources (tools/extract-annotations.py, run from the app's CMakeLists). None
-  # of it is in the ELF — the firmware carries ids, the page carries the words —
-  # so both ride along here beside the image, like the devicetree above.
+  # A sample with a guided tour ships the tour file beside its image, plus a
+  # verbatim copy of the sources it points at. Neither is in the ELF and neither
+  # changes it: a tour is Markdown the browser reads, and the addresses it
+  # breaks on are resolved at runtime from the DWARF already in the image.
   #
-  # The sources are the *stripped* copies, with the @annotate blocks removed:
-  # their text is already in the popup, and leaving it in would bury the code it
-  # explains. Line numbers in annotations.json are in those coordinates.
-  local ann="$work/build/annotations"
-  if [ -f "$ann/annotations.json" ]; then
-    cp "$ann/annotations.json" "$dest/$id.annotations.json"
-    printf '    %-16s %8s bytes\n' "$id.annotations.json" \
-      "$(command wc -c < "$dest/$id.annotations.json" | xargs)"
-    rm -rf "$dest/src/$id"
-    mkdir -p "$dest/src/$id"
-    cp -R "$ann/display/." "$dest/src/$id/"
-    printf '    %-16s %8s file(s)\n' "src/$id/" \
-      "$(find "$dest/src/$id" -type f | command wc -l | xargs)"
+  # The sources are copied unmodified, because the line numbers the page
+  # resolves out of `.debug_line` are in *those* coordinates. Only the base
+  # build ships them — a `_trace` twin is the same sources, and the page reads
+  # both from the base id's files.
+  local base_id="${id%_trace}"
+  local tour="$ROOT/tours/$base_id.tour.md"
+  if [ "$id" = "$base_id" ] && [ -f "$tour" ]; then
+    cp "$tour" "$dest/$base_id.tour.md"
+    printf '    %-16s %8s bytes\n' "$base_id.tour.md" \
+      "$(command wc -c < "$dest/$base_id.tour.md" | xargs)"
+
+    local sample_src="$ZEPHYR_WS/zephyr/$sample/src"
+    case "$sample" in
+      zephyr-module/*) sample_src="$ROOT/$sample/src" ;;
+    esac
+    if [ -d "$sample_src" ]; then
+      rm -rf "$dest/src/$base_id"
+      mkdir -p "$dest/src/$base_id"
+      find "$sample_src" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' \) \
+        -exec cp {} "$dest/src/$base_id/" \;
+      printf '    %-16s %8s file(s)\n' "src/$base_id/" \
+        "$(find "$dest/src/$base_id" -type f | command wc -l | xargs)"
+    else
+      echo "    WARNING: no sources at $sample_src — the tour will show no code." >&2
+    fi
   fi
 
   # The picker in the UI only shows ids it knows about. Traced twins are
   # synthesised in boards.ts (withA53TraceVariants), not listed as literals.
-  local base_id="${id%_trace}"
   if ! grep -q "id: '$base_id'" "$ROOT/src/boards.ts"; then
     echo "    WARNING: '$base_id' is not listed in src/boards.ts — the UI cannot offer it." >&2
   fi

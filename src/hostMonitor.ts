@@ -15,10 +15,9 @@
  * emits STOP and RESUME *events*, so the paused flag here is what QEMU actually
  * did rather than what we asked for. A pause from anywhere else stays in sync.
  *
- * Pausing is what makes an annotation readable: the popup can stop the guest on
- * the line it is talking about instead of narrating something that already
- * scrolled past. It is useful on its own too, which is why the top bar gets a
- * Pause button whether or not the running sample is annotated.
+ * Pausing is useful on its own — the top bar gets a Pause button on any sample.
+ * Guided tours stop the machine through the gdbstub instead (src/tours/), so
+ * this is the fallback control plane rather than the teaching one.
  *
  * Step 1 of in-page debugging reuses this same channel: when the machine is
  * stopped we ask for `info registers` (via `human-monitor-command`). There is
@@ -27,8 +26,8 @@
  * without a QEMU rebuild.
  *
  * Everything degrades to a no-op on an emulator built before the bridge —
- * `available()` is false, the button hides, annotations still show but stop
- * nothing. Old image tarballs stay bootable.
+ * `available()` is false and the button hides. Old image tarballs stay
+ * bootable.
  */
 
 import { parseRegisters } from '@/debug/parseRegisters'

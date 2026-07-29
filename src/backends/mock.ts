@@ -1,5 +1,5 @@
 import type { PtyBackend, Slave, StartOptions } from './types'
-import { sampleAnnotationsAsset, sampleDtsAsset } from '@/boards'
+import { sampleDtsAsset, sampleTourAsset } from '@/boards'
 import { loadSampleDts } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
@@ -7,7 +7,7 @@ import { attachMockDemo as attachHostBtDemo, detach as detachHostBt } from '@/ho
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { createFakeNetModule } from '@/net/testing/fakeModule'
 import { FakeGuest } from '@/net/testing/fakeGuest'
-import { startMockWalkthrough } from './mockWalkthrough'
+import { startDemo as startTourDemo } from '@/tours/store'
 
 /**
  * A tiny fake Zephyr shell.
@@ -161,13 +161,13 @@ export function createMockBackend(): PtyBackend {
         disposers.push(() => detachHostBt())
       }
 
-      // A guided sample replays its walkthrough here too. The records are the
-      // real ones, off the real catalog — only the guest producing them is
-      // fake, which is what makes the feature demoable on a bare checkout.
+      // A toured sample walks its steps here too, off the real tour file. There
+      // is no machine to break in, so the steps advance on a timer and the
+      // cards say plainly that their values would have come from the target —
+      // enough to read the tour on a bare checkout, honest about what it is.
       disposers.push(
-        startMockWalkthrough(
-          slave,
-          `${import.meta.env.BASE_URL}qemu/${sampleAnnotationsAsset(board, sampleId)}`,
+        startTourDemo(
+          `${import.meta.env.BASE_URL}qemu/${sampleTourAsset(board, sampleId)}`,
           signal,
         ),
       )

@@ -117,6 +117,8 @@ const EMPTY: GdbState = {
   stackTruncated: false,
 }
 
+let kernelElf: Uint8Array | null = null
+let attachHook: (() => Promise<void>) | null = null
 let mod: Record<string, unknown> | null = null
 let ch: ChardevExports | null = null
 let client: RspClient | null = null
@@ -170,6 +172,32 @@ export function subscribe(fn: () => void): () => void {
 
 export function getSnapshot(): GdbState {
   return state
+}
+
+/**
+ * The guest ELF, for readers that want more out of it than this module parses
+ * — the tour engine builds a DWARF line index from it on demand, and only when
+ * a sample actually carries a tour.
+ */
+export function getKernelElf(): Uint8Array | null {
+  return kernelElf
+}
+
+/** Symbol index for the running image (functions + data), or null. */
+export function getSymbolIndex(): SymbolIndex | null {
+  return symbolIndex
+}
+
+/**
+ * Run `fn` at the stop that opening the stub produces, before the machine is
+ * let go again.
+ *
+ * This is the only moment a tour can plant its breakpoints and be sure the
+ * guest has not already run past them — attaching happens while the machine is
+ * still in early boot, and `main()` is a long way after that.
+ */
+export function setAttachHook(fn: (() => Promise<void>) | null) {
+  attachHook = fn
 }
 
 /** ELF wait-queue objects (msgq/sem/…) for resolving CTF object ids to names. */
@@ -358,6 +386,7 @@ export async function unwindThreadStack(tcbAddr: number): Promise<UnwindResult> 
  * Needs an unstripped image; safe no-op on stripped ELFs.
  */
 export function setKernelImage(elf: Uint8Array | null) {
+  kernelElf = elf
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
   symbolIndex = elf ? buildSymbolIndex(elf) : null
   formalIndex = elf ? buildFormalIndex(elf) : null
@@ -382,12 +411,14 @@ export function setKernelImage(elf: Uint8Array | null) {
  * Does not open the stub yet — call {@link attachSession} after boot.
  */
 export function bind(module: unknown, boardArch: string) {
+  const keptElf = kernelElf
   const keptInfo = threadInfo
   const keptSyms = symbolIndex
   const keptFormals = formalIndex
   const keptStacks = stackRegions
   const keptWaits = waitObjects
   detach()
+  kernelElf = keptElf
   threadInfo = keptInfo
   symbolIndex = keptSyms
   formalIndex = keptFormals
@@ -451,14 +482,22 @@ export async function attachSession(): Promise<boolean> {
   try {
     next.poll()
     const stop = await next.start()
+    // Claim the session before the hook runs: planting a breakpoint goes
+    // through the same guards Pause does, and they check `attached`.
+    publish({ attached: true, paused: stop !== null })
+    if (attachHook) {
+      try {
+        await attachHook()
+      } catch (err) {
+        console.warn('[gdb] attach hook failed', err)
+      }
+    }
     // Connecting the stub often stops the VM; kick it again so boot is not
     // left frozen until the user notices Pause.
     if (stop) {
       await next.continue()
     }
-    // Only claim the session once RSP answers — otherwise Pause would leave
-    // QMP and hang on a dead stub.
-    publish({ attached: true, paused: false })
+    publish({ paused: false })
     console.info('[gdb] RSP session attached')
     return true
   } catch (err) {
@@ -488,6 +527,7 @@ export function detach() {
   frameRegs = NO_FRAME_REGS
   tempBp = null
   internalStep = false
+  kernelElf = null
   threadInfo = null
   symbolIndex = null
   formalIndex = null

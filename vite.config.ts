@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import react from '@vitejs/plugin-react'
@@ -61,74 +61,69 @@ function qemuAssetProbe(): Plugin {
 }
 
 /**
- * Serves annotation artifacts for the repo's own guided samples in dev.
+ * Serves tour artifacts in dev.
  *
- * tools/build-zephyr-image.sh emits `<app>.annotations.json` and the stripped
+ * tools/build-zephyr-image.sh drops `<app>.tour.md` and a copy of the sample's
  * sources next to each ELF, but that needs a containerised Zephyr build. A
  * checkout with no images still lands on the mock backend, and the mock can
- * replay a walkthrough — so run the extractor on demand and answer the same
- * asset URLs from its output.
+ * walk a tour — so answer the same asset URLs straight out of `tours/`.
+ *
+ * Sources are the one thing this cannot conjure: a tour now points at *stock*
+ * Zephyr samples, whose code lives in the Zephyr workspace rather than in this
+ * repo. When one is at hand (ZEPHYR_WS, default ~/zephyrproject) the excerpts
+ * work in dev too; when it is not, the tour reads fine without them.
  *
  * Dev only. A deployment has real images, and this must never mask them.
  */
-function guidedAnnotations(): Plugin {
-  const APPS = [{ id: 'guided', dir: path.join(root, 'zephyr-module', 'apps', 'guided_blinky') }]
-  const out = path.join(root, 'node_modules', '.zephyr-annotations')
+function tours(): Plugin {
+  const dir = path.join(root, 'tours')
+  const zephyrWs = process.env.ZEPHYR_WS ?? path.join(os.homedir(), 'zephyrproject')
 
-  const generate = (app: (typeof APPS)[number]) => {
-    const sources = readdirSync(path.join(app.dir, 'src'))
-      .filter((f) => f.endsWith('.c'))
-      .flatMap((f) => ['--source', path.join(app.dir, 'src', f)])
-    const dest = path.join(out, app.id)
-    const result = spawnSync(
-      'python3',
-      [
-        path.join(root, 'tools', 'extract-annotations.py'),
-        '--app', app.id,
-        '--source-root', app.dir,
-        ...sources,
-        '--out-header', path.join(dest, 'generated.h'),
-        '--out-json', path.join(dest, 'annotations.json'),
-        '--out-src-dir', path.join(dest, 'display'),
-      ],
-      { encoding: 'utf8' },
-    )
-    if (result.status !== 0) {
-      // Not fatal: without this the walkthrough simply does not appear in dev.
-      console.warn(`[annotations] ${app.id}: ${result.stderr?.trim() || 'extractor failed'}`)
+  /** app id → Zephyr sample path, straight out of the packaging manifest. */
+  const sampleForApp = (app: string): string | null => {
+    const manifest = path.join(root, 'tools', 'samples.manifest')
+    if (!existsSync(manifest)) return null
+    for (const line of readFileSync(manifest, 'utf8').split('\n')) {
+      if (line.startsWith('#') || line.trim() === '') continue
+      const [, id, sample] = line.split(':')
+      if (id === app && sample) return sample.trim()
     }
+    return null
   }
 
   return {
-    name: 'zephyr-guided-annotations',
+    name: 'zephyr-tours',
     apply: 'serve',
     configureServer(server) {
-      for (const app of APPS) generate(app)
-
-      // Regenerate when a guided sample is edited, so a reload shows the change.
-      server.watcher.on('change', (file) => {
-        const app = APPS.find((a) => file.startsWith(a.dir))
-        if (app) generate(app)
-      })
-
       server.middlewares.use((req, res, next) => {
-        // `/qemu/zephyr/<board>/<app>.annotations.json` and
+        // `/qemu/zephyr/<board>/<app>.tour.md` and
         // `/qemu/zephyr/<board>/src/<app>/<file>` — board is irrelevant here,
-        // since an in-repo sample's annotations do not vary by machine.
+        // since a tour and its sources do not vary by machine.
         const url = (req.url ?? '').split('?')[0]
-        const json = /\/qemu\/zephyr\/[^/]+\/([^/]+)\.annotations\.json$/.exec(url)
-        const source = /\/qemu\/zephyr\/[^/]+\/src\/([^/]+)\/(.+)$/.exec(url)
-        const app = APPS.find((a) => a.id === (json?.[1] ?? source?.[1]))
-        if (!app) return next()
-
-        const file = json
-          ? path.join(out, app.id, 'annotations.json')
-          : path.join(out, app.id, 'display', source![2])
+        const tour = /\/qemu\/zephyr\/[^/]+\/([^/]+)\.tour\.md$/.exec(url)
+        const source = /\/qemu\/zephyr\/[^/]+\/src\/([^/]+)\/([^/]+)$/.exec(url)
+        if (!tour && !source) return next()
         // A real build's artifacts win: only answer for what it has not shipped.
-        if (existsSync(path.join(QEMU_ASSET_DIR, url.split('/qemu/')[1] ?? '')) || !existsSync(file)) {
-          return next()
+        if (existsSync(path.join(QEMU_ASSET_DIR, url.split('/qemu/')[1] ?? ''))) return next()
+
+        let file: string | null = null
+        if (tour) {
+          file = path.join(dir, `${tour[1]}.tour.md`)
+        } else {
+          const sample = sampleForApp(source![1]!)
+          if (sample) {
+            const base = sample.startsWith('zephyr-module/')
+              ? path.join(root, sample)
+              : path.join(zephyrWs, 'zephyr', sample)
+            file = path.join(base, 'src', source![2]!)
+          }
         }
-        res.setHeader('Content-Type', json ? 'application/json' : 'text/plain; charset=utf-8')
+        if (!file || !existsSync(file)) return next()
+
+        res.setHeader(
+          'Content-Type',
+          tour ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8',
+        )
         res.end(readFileSync(file))
       })
     },
@@ -147,7 +142,7 @@ export default defineConfig({
     tailwindcss(),
     crossOriginIsolation(),
     qemuAssetProbe(),
-    guidedAnnotations(),
+    tours(),
   ],
   resolve: {
     alias: { '@': path.join(root, 'src') },
