@@ -76,6 +76,13 @@ describe('formatChord', () => {
   })
 })
 
+describe('shortcutsForHelp packing weights', () => {
+  it('keeps General as a short group (one row)', () => {
+    const general = shortcutsForHelp().find((g) => g.category === 'General')!
+    expect(general.items).toHaveLength(1)
+  })
+})
+
 describe('shortcutsForHelp', () => {
   it('groups by category and dedupes alternate help chords', () => {
     const groups = shortcutsForHelp()
