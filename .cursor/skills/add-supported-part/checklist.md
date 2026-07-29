@@ -28,18 +28,30 @@ deviceTopology.ts (class + body) → deviceBodies.tsx → *Body panel
 10. `tools/samples.manifest` + `src/boards.ts` — packaged sample / gallery row
 11. Tests beside peers; catalog coverage via `src/virtio/devices/parts.test.ts`
 
-## Other declaration frameworks
+## Category frameworks (UI + model — not a bus)
 
-| Kind | Model / chip dir | Registry | Body (usually unchanged) |
-| --- | --- | --- | --- |
-| EEPROM | `memory/` | I²C `registry.ts` | `MemoryBody` |
-| RTC | `rtc/` | I²C | `RtcBody` |
-| PWM | `pwm/` | I²C | `PwmBody` (+ `PwmLedsBody` if `pwm-leds`) |
-| DAC | `dac/` | I²C | `DacBody` |
-| Fuel gauge | `fuel-gauge/` | I²C | `FuelGaugeBody` |
-| SPI NOR | `flash/` | `spiRegistry.ts` | `SpiFlashBody` |
+**Kind ≠ bus.** An RTC, DAC, PWM, sensor, etc. can sit on I²C, SPI, or another bridge later. The dock card keys off the category handle (`isRtcChip`, `isDacChip`, …), not off which virtio bus created the chip. Today’s providers happen to be on I²C or SPI; that is packaging, not a rule.
 
-SPI parts: also `COMPAT_TO_SPI_CHIP`, SPI managed maps, SPI overlay / snippets.
+| Category | Declare in | Dock body (reuse) |
+| --- | --- | --- |
+| Sensor | `sensors/model.ts` | `SensorBody` |
+| EEPROM / byte memory | `memory/model.ts` | `MemoryBody` |
+| SPI NOR / flash image | `flash/model.ts` | `SpiFlashBody` |
+| RTC | `rtc/model.ts` | `RtcBody` |
+| PWM controller | `pwm/model.ts` | `PwmBody` (+ `PwmLedsBody` if tree has `pwm-leds`) |
+| DAC | `dac/model.ts` | `DacBody` |
+| Fuel gauge | `fuel-gauge/model.ts` | `FuelGaugeBody` |
+
+### Bus wiring (pick from the Zephyr binding)
+
+Whatever bus the upstream DT uses:
+
+| Bus | Attach factory | Compatible → id | Managed attach | Guest overlay area |
+| --- | --- | --- | --- | --- |
+| I²C | `registry.ts` | `COMPAT_TO_CHIP` | `MANAGED_I2C_*` | `snippets/virtio-i2c/`, `*-only` |
+| SPI | `spiRegistry.ts` | `COMPAT_TO_SPI_CHIP` | `MANAGED_SPI_*` | virtio-spi overlays / `*-only` |
+
+Same checklist steps as the sensor happy path: `parts.ts` identity, singleton in `virtio/index.ts`, conf + sample packaging. Only the registry / `COMPAT_TO_*` / overlay tree change with the bus.
 
 ## When UI topology must change
 
