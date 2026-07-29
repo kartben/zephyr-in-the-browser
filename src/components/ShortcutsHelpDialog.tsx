@@ -131,25 +131,35 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
   if (chord.shift) {
     parts.push(
       mac ? (
-        // Optical size: a lone arrow reads smaller than ⌘ at the same box.
-        <ShiftIcon key="shift" className="size-3.5" />
+        <ShiftIcon key="shift" className="size-3" />
       ) : (
         <span key="shift">Shift</span>
       ),
     )
   }
-  parts.push(<span key="key">{displayKey(chord.key)}</span>)
+  parts.push(
+    mac ? (
+      <span
+        key="key"
+        className="inline-flex h-3 items-center text-[12px] leading-none"
+      >
+        {displayKey(chord.key)}
+      </span>
+    ) : (
+      <span key="key">{displayKey(chord.key)}</span>
+    ),
+  )
 
   return (
     <kbd
       className={cn(
         'inline-flex shrink-0 items-center rounded border border-border bg-muted/50',
-        'px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-foreground/90',
-        mac ? 'gap-0.5' : 'gap-0',
+        'px-1.5 py-0.5 font-mono tabular-nums text-foreground/90',
+        mac ? 'gap-0.5' : 'gap-0 text-[10px]',
       )}
     >
       {parts.map((part, i) => (
-        <span key={i} className="inline-flex items-center">
+        <span key={i} className="inline-flex h-3 items-center">
           {i > 0 && !mac && <span className="px-0.5">+</span>}
           {part}
         </span>
@@ -158,7 +168,7 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
   )
 }
 
-/** Shift key glyph sized like Lucide Command. Filled — a stroke outline reads too thin next to ⌘. */
+/** Shift glyph in the same 24×24 box as Lucide Command/Option. */
 function ShiftIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -168,7 +178,8 @@ function ShiftIcon({ className }: { className?: string }) {
       className={className}
       aria-label="Shift"
     >
-      <path d="M12 2.2 1.8 13.5h5.7V22h8.9v-8.5h5.8L12 2.2z" />
+      {/* Inset like Lucide paths so ink height matches ⌘ at size-3. */}
+      <path d="M12 4 5 12.5h4V20h6v-7.5h4L12 4z" />
     </svg>
   )
 }
