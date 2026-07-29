@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   capacityFillFraction,
   compactCapacity,
@@ -16,6 +17,14 @@ import {
   type FlowAction,
   type PortRole,
 } from '@/components/queueGraph/model'
+import {
+  fitGraphCamera,
+  resizeGraphCamera,
+  zoomGraphCamera,
+  type GraphCamera,
+  type GraphViewportSize,
+} from '@/components/queueGraph/viewport'
+import { cn } from '@/lib/utils'
 
 const OBJECT_FILL = '#101a2b'
 const OBJECT_STROKE = '#7c8ba1'
@@ -24,6 +33,10 @@ const THREAD_STROKE = '#a78bfa'
 const TEXT = '#f1f5f9'
 const MUTED = '#94a3b8'
 const PANEL = '#080d18'
+const BUTTON_ZOOM_IN = 1.25
+const BUTTON_ZOOM_OUT = 1 / BUTTON_ZOOM_IN
+const MIN_FIT_SCALE_FACTOR = 0.35
+const MAX_SCALE = 4
 
 function markerId(action: FlowAction): string {
   return `mock-arrow-${action}`
@@ -435,6 +448,14 @@ export function QueueGraphCanvas({
   ariaLabel?: string
 }) {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
+  const [viewport, setViewport] = useState<GraphViewportSize>({ width: 0, height: 0 })
+  const [camera, setCamera] = useState<GraphCamera | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const hostRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const previousViewportRef = useRef<GraphViewportSize | null>(null)
+  const previousLayoutRef = useRef(layout)
+  const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
   const edgeById = useMemo(() => new Map(layout.edges.map((edge) => [edge.id, edge])), [layout])
   const actionByEdge = useMemo(
     () => new Map(layout.edges.map((edge) => [edge.id, edge.action])),
@@ -454,96 +475,266 @@ export function QueueGraphCanvas({
     [layout.nodes, nodeState],
   )
 
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    const measure = () => {
+      const rect = host.getBoundingClientRect()
+      setViewport({
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+      })
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (viewport.width === 0 || viewport.height === 0) return
+    const previousViewport = previousViewportRef.current
+    const layoutChanged = previousLayoutRef.current !== layout
+    setCamera((current) => {
+      if (!current || !previousViewport || layoutChanged) {
+        return fitGraphCamera(layout, viewport)
+      }
+      return resizeGraphCamera(current, previousViewport, viewport)
+    })
+    previousViewportRef.current = viewport
+    previousLayoutRef.current = layout
+  }, [layout, viewport])
+
+  const fitScale =
+    viewport.width > 0 && viewport.height > 0
+      ? fitGraphCamera(layout, viewport).scale
+      : 1
+  const minScale = fitScale * MIN_FIT_SCALE_FACTOR
+
+  const zoomAt = useCallback(
+    (factor: number, pivot = { x: viewport.width / 2, y: viewport.height / 2 }) => {
+      setCamera((current) =>
+        current
+          ? zoomGraphCamera(current, factor, pivot, minScale, MAX_SCALE)
+          : fitGraphCamera(layout, viewport),
+      )
+    },
+    [layout, minScale, viewport],
+  )
+
+  const fitAll = useCallback(() => {
+    if (viewport.width === 0 || viewport.height === 0) return
+    setCamera(fitGraphCamera(layout, viewport))
+  }, [layout, viewport])
+
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      const rect = svg.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) return
+      const delta =
+        event.deltaY *
+        (event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? rect.height
+            : 1)
+      const factor = Math.exp(-Math.max(-240, Math.min(240, delta)) * 0.0018)
+      zoomAt(factor, {
+        x: ((event.clientX - rect.left) / rect.width) * viewport.width,
+        y: ((event.clientY - rect.top) / rect.height) * viewport.height,
+      })
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => svg.removeEventListener('wheel', onWheel)
+  }, [viewport, zoomAt])
+
+  const currentCamera = camera ?? fitGraphCamera(layout, {
+    width: Math.max(1, viewport.width),
+    height: Math.max(1, viewport.height),
+  })
+  const transform = `translate(${currentCamera.x} ${currentCamera.y}) scale(${currentCamera.scale})`
+  const zoomPercent = Math.round((currentCamera.scale / fitScale) * 100)
+
   return (
-    <svg
-      viewBox={`0 0 ${layout.width} ${layout.height}`}
-      role="img"
-      aria-label={ariaLabel}
-      className="block h-auto w-full"
-      style={{ minWidth: Math.min(layout.width, 2400) }}
+    <div
+      ref={hostRef}
+      className="group relative h-[clamp(16rem,42vh,28rem)] min-h-64 overflow-hidden bg-[#080d18]"
     >
-      <defs>
-        <pattern id="mock-grid" width={24} height={24} patternUnits="userSpaceOnUse">
-          <path d="M24 0H0V24" fill="none" stroke="#243044" strokeWidth={0.5} opacity={0.42} />
-        </pattern>
-        {(['put', 'put-front', 'get', 'push', 'pop'] as const).map((action) => (
-          <marker
-            key={action}
-            id={markerId(action)}
-            viewBox="0 0 10 10"
-            refX={9}
-            refY={5}
-            markerWidth={8}
-            markerHeight={8}
-            markerUnits="userSpaceOnUse"
-            orient="auto"
-          >
-            <path d="M0 0L10 5L0 10Z" fill={flowActionColor(action)} />
-          </marker>
-        ))}
-      </defs>
-      <rect width={layout.width} height={layout.height} rx={18} fill={PANEL} />
-      <rect width={layout.width} height={layout.height} rx={18} fill="url(#mock-grid)" />
-      <g>
-        {layout.edges.map((edge) => (
-          <EdgeView
-            key={edge.id}
-            edge={edge}
-            active={hoveredEdge == null || hoveredEdge === edge.id}
-            activity={edgeActivity?.get(edge.id)}
-            onHover={setHoveredEdge}
-          />
-        ))}
-      </g>
-      <g pointerEvents="none">
-        {packets.map((packet) => {
-          const edge = edgeById.get(packet.edgeId)
-          if (!edge) return null
-          const path = roundedOrthogonalPath(edge.points)
-          return (
-            <circle
-              key={packet.id}
-              r={4}
-              fill={flowActionColor(edge.action)}
-              stroke="#f8fafc"
-              strokeWidth={0.8}
-            >
-              <animateMotion
-                dur="820ms"
-                begin={`${packet.delayMs ?? 0}ms`}
-                path={path}
-                fill="freeze"
-              />
-              <animate
-                attributeName="opacity"
-                values="1;1;0"
-                keyTimes="0;0.72;1"
-                dur="820ms"
-                begin={`${packet.delayMs ?? 0}ms`}
-                fill="freeze"
-              />
-              <animate
-                attributeName="r"
-                values="4;4;2.5"
-                keyTimes="0;0.72;1"
-                dur="820ms"
-                begin={`${packet.delayMs ?? 0}ms`}
-                fill="freeze"
-              />
-            </circle>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${Math.max(1, viewport.width)} ${Math.max(1, viewport.height)}`}
+        role="img"
+        aria-label={`${ariaLabel}. Drag to pan and use the mouse wheel to zoom.`}
+        className={cn(
+          'block size-full touch-none select-none',
+          dragging ? 'cursor-grabbing' : 'cursor-grab',
+        )}
+        onPointerDown={(event) => {
+          if (!event.isPrimary || event.button !== 0) return
+          window.getSelection()?.removeAllRanges()
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId)
+          } catch {
+            /* ignore */
+          }
+          dragRef.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+          }
+          setDragging(true)
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current
+          if (!drag || drag.pointerId !== event.pointerId) return
+          const dx = event.clientX - drag.x
+          const dy = event.clientY - drag.y
+          drag.x = event.clientX
+          drag.y = event.clientY
+          setCamera((current) =>
+            current ? { ...current, x: current.x + dx, y: current.y + dy } : current,
           )
-        })}
-      </g>
-      <g>
-        {displayNodes.map((node) => (
-          <NodeView
-            key={node.id}
-            node={node}
-            actionByEdge={actionByEdge}
-            active={highlightedNodes == null || highlightedNodes.has(node.id)}
-          />
-        ))}
-      </g>
-    </svg>
+        }}
+        onPointerUp={(event) => {
+          if (dragRef.current?.pointerId !== event.pointerId) return
+          dragRef.current = null
+          setDragging(false)
+          try {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          } catch {
+            /* ignore */
+          }
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null
+          setDragging(false)
+        }}
+      >
+        <defs>
+          <pattern id="mock-grid" width={24} height={24} patternUnits="userSpaceOnUse">
+            <path d="M24 0H0V24" fill="none" stroke="#243044" strokeWidth={0.5} opacity={0.42} />
+          </pattern>
+          {(['put', 'put-front', 'get', 'push', 'pop'] as const).map((action) => (
+            <marker
+              key={action}
+              id={markerId(action)}
+              viewBox="0 0 10 10"
+              refX={9}
+              refY={5}
+              markerWidth={8}
+              markerHeight={8}
+              markerUnits="userSpaceOnUse"
+              orient="auto"
+            >
+              <path d="M0 0L10 5L0 10Z" fill={flowActionColor(action)} />
+            </marker>
+          ))}
+        </defs>
+        <rect width="100%" height="100%" fill={PANEL} />
+        <g transform={transform}>
+          <rect width={layout.width} height={layout.height} rx={18} fill={PANEL} />
+          <rect width={layout.width} height={layout.height} rx={18} fill="url(#mock-grid)" />
+          <g>
+            {layout.edges.map((edge) => (
+              <EdgeView
+                key={edge.id}
+                edge={edge}
+                active={hoveredEdge == null || hoveredEdge === edge.id}
+                activity={edgeActivity?.get(edge.id)}
+                onHover={setHoveredEdge}
+              />
+            ))}
+          </g>
+          <g pointerEvents="none">
+            {packets.map((packet) => {
+              const edge = edgeById.get(packet.edgeId)
+              if (!edge) return null
+              const path = roundedOrthogonalPath(edge.points)
+              return (
+                <circle
+                  key={packet.id}
+                  r={4}
+                  fill={flowActionColor(edge.action)}
+                  stroke="#f8fafc"
+                  strokeWidth={0.8}
+                >
+                  <animateMotion
+                    dur="820ms"
+                    begin={`${packet.delayMs ?? 0}ms`}
+                    path={path}
+                    fill="freeze"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    values="1;1;0"
+                    keyTimes="0;0.72;1"
+                    dur="820ms"
+                    begin={`${packet.delayMs ?? 0}ms`}
+                    fill="freeze"
+                  />
+                  <animate
+                    attributeName="r"
+                    values="4;4;2.5"
+                    keyTimes="0;0.72;1"
+                    dur="820ms"
+                    begin={`${packet.delayMs ?? 0}ms`}
+                    fill="freeze"
+                  />
+                </circle>
+              )
+            })}
+          </g>
+          <g>
+            {displayNodes.map((node) => (
+              <NodeView
+                key={node.id}
+                node={node}
+                actionByEdge={actionByEdge}
+                active={highlightedNodes == null || highlightedNodes.has(node.id)}
+              />
+            ))}
+          </g>
+        </g>
+      </svg>
+      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-md border border-border/60 bg-slate-950/80 p-1 shadow-sm backdrop-blur-sm">
+        <button
+          type="button"
+          title="Zoom in"
+          aria-label="Zoom in"
+          onClick={() => zoomAt(BUTTON_ZOOM_IN)}
+          className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+        >
+          <ZoomIn className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          title="Zoom out"
+          aria-label="Zoom out"
+          onClick={() => zoomAt(BUTTON_ZOOM_OUT)}
+          className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+        >
+          <ZoomOut className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          title="Reset to fit"
+          aria-label="Reset topology to fit"
+          onClick={fitAll}
+          className="rounded p-0.5 text-muted-foreground touch-manipulation hover:bg-secondary hover:text-foreground"
+        >
+          <Maximize2 className="size-3.5" />
+        </button>
+        <span className="min-w-8 px-0.5 text-right font-mono text-[9px] tabular-nums text-muted-foreground">
+          {zoomPercent}%
+        </span>
+      </div>
+      <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-slate-950/70 px-1.5 py-0.5 text-[9px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
+        Wheel to zoom · drag to pan
+      </span>
+    </div>
   )
 }
