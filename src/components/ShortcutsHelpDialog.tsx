@@ -129,7 +129,20 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
     )
   }
   if (chord.shift) {
-    parts.push(<span key="shift">{mac ? '⇧' : 'Shift'}</span>)
+    parts.push(
+      mac ? (
+        // ⇧ sits small in the em-box at 10px mono; size it like Lucide Command.
+        <span
+          key="shift"
+          className="inline-flex size-3 items-center justify-center text-[15px] leading-none"
+          aria-label="Shift"
+        >
+          ⇧
+        </span>
+      ) : (
+        <span key="shift">Shift</span>
+      ),
+    )
   }
   parts.push(<span key="key">{displayKey(chord.key)}</span>)
 
