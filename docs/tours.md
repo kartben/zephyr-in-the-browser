@@ -262,9 +262,9 @@ threads: yes
 ```
 
 `registers:` spotlights those registers on the card (clicking one opens
-Debug → CPU). `threads:` shows the kernel thread list at this stop — states,
-priorities, stack use — which needs `CONFIG_DEBUG_THREAD_INFO`, on in every
-packaged image.
+Debug → CPU). `threads:` shows the object-core thread list at this stop —
+states, priorities, stack use — using `CONFIG_OBJ_CORE` plus
+`CONFIG_DEBUG_THREAD_INFO`, both on in every packaged image.
 
 ## How it runs
 

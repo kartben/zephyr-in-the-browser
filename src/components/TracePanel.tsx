@@ -93,6 +93,7 @@ import {
 import { getSnapshot, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
+import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import {
   STAGE_TRACE_KEY,
   effectiveExpandedIn,
@@ -191,30 +192,52 @@ function fitLabel(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
 
 const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue', 'stack'])
 
-function ipcNameMap(): Map<number, string> {
-  const map = new Map<number, string>()
+type IpcObjectMetadata = {
+  names: Map<number, string>
+  capacities: Map<number, number>
+}
+
+function ipcObjectMetadata(objects: ObjectCoreSnapshot | null): IpcObjectMetadata {
+  const names = new Map<number, string>()
+  const capacities = new Map<number, number>()
   for (const o of hostGdb.getWaitObjects()) {
     if (
       (o.kind && IPC_KINDS.has(o.kind)) ||
       /msgq|fifo|lifo|k_stack/.test(o.name.toLowerCase()) ||
       o.name.startsWith('q_')
     ) {
-      map.set(o.addr, o.name)
+      names.set(o.addr, o.name)
     }
   }
   for (const o of hostGdb.getWaitObjects()) {
-    if (!map.has(o.addr)) map.set(o.addr, o.name)
+    if (!names.has(o.addr)) names.set(o.addr, o.name)
   }
-  return map
+
+  for (const type of objects?.types ?? []) {
+    if (!['MSGQ', 'FIFO', 'LIFO', 'STCK'].includes(type.code)) continue
+    for (const object of type.objects) {
+      names.set(object.addr, object.name)
+      if (object.capacity != null && object.capacity > 0) {
+        capacities.set(object.addr, object.capacity)
+      }
+    }
+  }
+  return { names, capacities }
 }
 
 /** Stable queue swim lanes for Timeline overlay — pipeline order, named when known. */
-function msgqSwimLanes(tr: Trace, flow: QueueFlowEvent[]): MsgqSwimLane[] {
+function msgqSwimLanes(
+  tr: Trace,
+  flow: QueueFlowEvent[],
+  metadata: IpcObjectMetadata,
+): MsgqSwimLane[] {
   const seen = new Set(flow.map((ev) => ev.queueId))
   if (seen.size === 0) return []
   return sortQueuesByPipelineOrder(
     tr,
-    reconstructQueues(tr, ipcNameMap()).filter((q) => seen.has(q.id)),
+    reconstructQueues(tr, metadata.names, metadata.capacities).filter((q) =>
+      seen.has(q.id),
+    ),
   ).map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
 }
 
@@ -305,7 +328,8 @@ function paintSectionHeader(
 
 function depthLabel(series: QueueSeries, ts: number): string {
   const d = depthAt(series.samples, ts)
-  return series.cap != null && series.cap > 0 ? `${d}/${series.cap}` : String(d)
+  if (series.cap == null || series.cap <= 0) return String(d)
+  return series.capSource === 'inferred' ? `${d}/~${series.cap}` : `${d}/${series.cap}`
 }
 
 /** Vertical chevron — tip sits at `(x, y)` on the destination transition. */
@@ -985,6 +1009,11 @@ function plotBandForTab(tab: TraceTab, cssH: number): { plotTop: number; plotBot
 
 export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const gdbSnap = useSyncExternalStore(
+    hostGdb.subscribe,
+    hostGdb.getSnapshot,
+    hostGdb.getSnapshot,
+  )
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const [follow, setFollow] = useState(true)
   /** Lets the header Crosshair jump-to-live without keeping view state in the shell. */
@@ -1049,7 +1078,13 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       {!live ? (
         <p className="px-3 py-4 text-[11px] text-muted-foreground">Waiting for traces…</p>
       ) : (
-        <TracePanelBody snap={snap} follow={follow} setFollow={setFollow} apiRef={bodyApiRef} />
+        <TracePanelBody
+          snap={snap}
+          objectCores={gdbSnap.objects}
+          follow={follow}
+          setFollow={setFollow}
+          apiRef={bodyApiRef}
+        />
       )}
     </PanelFrame>
   )
@@ -1057,11 +1092,13 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
 
 function TracePanelBody({
   snap,
+  objectCores,
   follow,
   setFollow,
   apiRef,
 }: {
   snap: ReturnType<typeof getSnapshot>
+  objectCores: ObjectCoreSnapshot | null
   follow: boolean
   setFollow: (v: boolean) => void
   apiRef: MutableRefObject<{ jumpLive: () => void } | null>
@@ -1127,6 +1164,7 @@ function TracePanelBody({
   )
 
   const tr = snap.trace
+  const ipcMetadata = useMemo(() => ipcObjectMetadata(objectCores), [objectCores])
   const msgqEvents = useMemo(
     () => (tr ? queueFlowEvents(tr) : []),
     // revision bumps whenever the event ring changes
@@ -1134,10 +1172,10 @@ function TracePanelBody({
     [tr, snap.revision],
   )
   const queueLanes = useMemo(
-    () => (tr ? msgqSwimLanes(tr, msgqEvents) : []),
-    // names can appear once GDB wait-objects resolve; revision covers CTF growth
+    () => (tr ? msgqSwimLanes(tr, msgqEvents, ipcMetadata) : []),
+    // Object-core metadata can add exact names/capacities independently of CTF growth.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, msgqEvents, snap.revision],
+    [tr, msgqEvents, snap.revision, ipcMetadata],
   )
   const msgqEventsRef = useRef(msgqEvents)
   msgqEventsRef.current = msgqEvents
@@ -1863,6 +1901,8 @@ function TracePanelBody({
           view1={view.t1}
           follow={follow}
           eventCount={snap.revision}
+          nameById={ipcMetadata.names}
+          capacityById={ipcMetadata.capacities}
           svgRef={queuesSvgRef}
           surfaceProps={canvasHandlers}
           toolbar={chartToolbar}

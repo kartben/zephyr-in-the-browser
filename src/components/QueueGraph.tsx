@@ -92,6 +92,7 @@ type Pipe = {
   label: string
   kind: string
   cap: number
+  capSource: QueueSeries['capSource']
   depth: number
   drops: number
   x: number
@@ -611,6 +612,7 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
       label: queueLabel(q),
       kind: q.kind,
       cap: q.cap ?? Math.max(1, q.peak),
+      capSource: q.capSource,
       depth: q.samples.length ? q.samples[q.samples.length - 1]!.depth : 0,
       drops: q.drops,
       x: pos.x,
@@ -1268,12 +1270,24 @@ function updatePipeFill(
     .attr('fill', pipe.drops > 0 ? '#fb7185' : '#38bdf8')
 
   const name = fitEllipsis(pipe.label, PIPE_TEXT_MAX, GRAPH_FONT.tubeName)
+  const bound =
+    pipe.capSource === 'object-core'
+      ? `${pipe.depth}/${pipe.cap}`
+      : pipe.capSource === 'inferred'
+        ? `${pipe.depth}/~${pipe.cap}`
+        : `depth ${pipe.depth}`
   const meta = fitEllipsis(
-    `${pipe.kind} · ${pipe.depth}/${pipe.cap}${pipe.drops ? ` · ${pipe.drops} drop${pipe.drops === 1 ? '' : 's'}` : ''}`,
+    `${pipe.kind} · ${bound}${pipe.drops ? ` · ${pipe.drops} drop${pipe.drops === 1 ? '' : 's'}` : ''}`,
     PIPE_TEXT_MAX,
     GRAPH_FONT.tubeMeta,
   )
   g.select('text.name').text(name)
   g.select('text.meta').text(meta)
-  g.select('title').text(`${pipe.kind} ${pipe.label} — ${pipe.depth}/${pipe.cap}, ${pipe.drops} drops`)
+  const scale =
+    pipe.capSource === 'object-core'
+      ? `${pipe.depth}/${pipe.cap} (object-core limit)`
+      : pipe.capSource === 'inferred'
+        ? `${pipe.depth}/~${pipe.cap} (inferred)`
+        : `depth ${pipe.depth} (scaled to observed peak ${pipe.cap})`
+  g.select('title').text(`${pipe.kind} ${pipe.label} — ${scale}, ${pipe.drops} drops`)
 }
