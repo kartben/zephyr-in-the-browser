@@ -2,8 +2,8 @@
 # and qemu,host-mic (DMIC) drivers, plus the browser_bridge shield
 # (boards/shields/browser_bridge/), which wires the browser-fed peripherals into
 # the QEMU boards. It also carries vendored copies of the not-yet-upstream
-# virtio,gpu / virtio,gpio / virtio,spi drivers, the auxdisplay shell, and a
-# workqueue-based gpio-7-segment fix (drivers/vendor/).
+# virtio,gpu / virtio,gpio / virtio,spi / virtio,blk drivers, the auxdisplay
+# shell, and a workqueue-based gpio-7-segment fix (drivers/vendor/).
 
 # Vendored drivers, built only while Zephyr itself lacks them: an in-tree copy
 # would define the same symbols and break the link. See drivers/vendor/VENDOR.md.
@@ -20,6 +20,11 @@ endif()
 set(VENDORED_VIRTIO_SPI drivers/vendor/spi_virtio.c)
 if(EXISTS ${ZEPHYR_BASE}/drivers/spi/spi_virtio.c)
   set(VENDORED_VIRTIO_SPI "")
+endif()
+
+set(VENDORED_VIRTIO_BLK drivers/vendor/virtio_blk.c)
+if(EXISTS ${ZEPHYR_BASE}/drivers/disk/virtio_blk.c)
+  set(VENDORED_VIRTIO_BLK "")
 endif()
 
 set(VENDORED_AUXDISPLAY_SHELL drivers/vendor/auxdisplay_shell.c)
@@ -48,6 +53,7 @@ if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR CONFIG_QEMU_HOST_MIC OR (CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
    OR (CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
    OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
+   OR (CONFIG_DISK_DRIVER_VIRTIO_BLK AND VENDORED_VIRTIO_BLK)
    OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
    OR (CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
    OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ)
@@ -72,6 +78,25 @@ if(CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
   # the tree's drivers/spi and are not on the default include path for an
   # out-of-tree module source.
   zephyr_library_include_directories(${ZEPHYR_BASE}/drivers/spi)
+endif()
+
+if(CONFIG_DISK_DRIVER_VIRTIO_BLK AND VENDORED_VIRTIO_BLK)
+  zephyr_library_sources(${VENDORED_VIRTIO_BLK})
+  # Under CONFIG_MMU the driver calls arch_page_phys_get() to walk a buffer
+  # page by page. That is declared only in kernel/include/kernel_arch_interface.h
+  # -- a private kernel header -- and the driver does not include it, relying on
+  # whatever the in-tree drivers/disk build happens to have already pulled in.
+  # Out of tree neither the path nor the declaration is there.
+  #
+  # Forced from here rather than by editing the source, so the vendored copy
+  # stays byte-identical to upstream and drift stays a one-line diff. Delete
+  # this whole block, not just the guard, once the driver lands in-tree.
+  zephyr_library_include_directories(
+    ${ZEPHYR_BASE}/kernel/include
+    ${ZEPHYR_BASE}/arch/${ARCH}/include
+  )
+  set_property(SOURCE ${VENDORED_VIRTIO_BLK} APPEND PROPERTY
+    COMPILE_OPTIONS -include kernel_arch_interface.h)
 endif()
 
 if(CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
