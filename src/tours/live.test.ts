@@ -33,8 +33,19 @@ const inserted = new Set<number>()
 const removed: number[] = []
 let continues = 0
 let currentPc = 0
+/** What the stub thinks the vCPU is doing — see FakeRspClient. */
+let running = true
 
 class FakeRspClient {
+  /*
+   * Run state is part of the wire contract, not bookkeeping: QEMU's stub stops
+   * the machine on any byte that arrives mid-run and answers nothing, so the
+   * page must halt before it writes. Modelling it here is what makes the
+   * breakpoint plants below go through the real interrupt/continue dance.
+   */
+  isRunning() {
+    return running
+  }
   setStopHandler(fn: ((info: { kind: string }) => void) | null) {
     stopHandler = fn
   }
@@ -43,9 +54,12 @@ class FakeRspClient {
     return null // attached, machine already running
   }
   async continue() {
+    if (running) return // idempotent, like the real one
+    running = true
     continues++
   }
   async interrupt() {
+    running = false
     return { kind: 'signal' }
   }
   async step() {
@@ -128,6 +142,7 @@ const MODULE = {
 /** Deliver a breakpoint trap at `pc`, the way QEMU's stub would. */
 async function trapAt(pc: number) {
   currentPc = pc
+  running = false // a stop reply is the stub saying the vCPU has halted
   stopHandler?.({ kind: 'signal' })
   // The handler reads registers, publishes, and refreshes — all async.
   for (let i = 0; i < 20; i++) await Promise.resolve()
@@ -148,8 +163,8 @@ async function boot(order: 'tour-first' | 'gdb-first') {
   stopHandler = null
   inserted.clear()
   removed.length = 0
-  continues = 0
   currentPc = 0
+  running = true
   // A one-byte ELF stands in for the image: buildSymbolIndex is mocked, and
   // there is no line table, so `at: main` resolves through symbols alone.
   gdb.setKernelImage(new Uint8Array([0x7f, 0x45, 0x4c, 0x46]))
@@ -161,6 +176,9 @@ async function boot(order: 'tour-first' | 'gdb-first') {
     await tours.loadFor('blinky')
   }
   await gdb.attachSession()
+  // Planting the tour's breakpoints on a running machine costs a halt and a
+  // resume. Count only what the stop under test does.
+  continues = 0
 }
 
 beforeEach(async () => {
