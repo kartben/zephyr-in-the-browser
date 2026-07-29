@@ -23,6 +23,30 @@ function escapeKey(key: string): string {
 }
 
 /**
+ * Scroll one element into view and blink it, honouring reduced motion.
+ *
+ * The same gesture a dock row gets, on anything: a thread in the Threads list,
+ * a semaphore in the Objects list. Exported because "show me *that* one" is the
+ * whole point of a handoff, and three copies of the timing had already started
+ * to appear.
+ */
+export function pulseElement(el: HTMLElement): void {
+  el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  el.classList.remove('dock-row-attention', 'dock-row-attention-static')
+  // Force restart if re-clicked mid-blink.
+  void el.offsetWidth
+  const reduce =
+    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  el.classList.add(reduce ? 'dock-row-attention-static' : 'dock-row-attention')
+  window.setTimeout(
+    () => {
+      el.classList.remove('dock-row-attention', 'dock-row-attention-static')
+    },
+    reduce ? BLINK_STATIC_MS : BLINK_MS,
+  )
+}
+
+/**
  * Bring a dock row — device or instrument — into view and briefly highlight it.
  * `deviceClass` is required in ▤ view so a collapsed class group can open.
  *
@@ -50,25 +74,12 @@ function pulseDockKey(key: string): void {
     requestAnimationFrame(() => {
       const el = document.querySelector<HTMLElement>(`[data-dock-key="${escapeKey(key)}"]`)
       if (!el) return
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       const focusTarget =
         el.querySelector<HTMLElement>('[data-dock-focus]') ??
         el.querySelector<HTMLElement>('button') ??
         el
       focusTarget.focus({ preventScroll: true })
-
-      el.classList.remove('dock-row-attention', 'dock-row-attention-static')
-      // Force restart if re-clicked mid-blink.
-      void el.offsetWidth
-      const reduce =
-        typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-      el.classList.add(reduce ? 'dock-row-attention-static' : 'dock-row-attention')
-      window.setTimeout(
-        () => {
-          el.classList.remove('dock-row-attention', 'dock-row-attention-static')
-        },
-        reduce ? BLINK_STATIC_MS : BLINK_MS,
-      )
+      pulseElement(el)
     })
   })
 }

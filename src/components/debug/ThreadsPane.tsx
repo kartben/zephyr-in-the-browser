@@ -4,24 +4,7 @@ import { compactHex } from '@/debug/hexFormat'
 import { formatStackSize, describeThreadStatus } from '@/debug/kernel/threads'
 import * as debug from '@/debug/control'
 import * as debugUi from '@/lib/debugUi'
-
-const BLINK_MS = 900
-const BLINK_STATIC_MS = 600
-
-function pulseAttention(el: HTMLElement) {
-  el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  el.classList.remove('dock-row-attention', 'dock-row-attention-static')
-  void el.offsetWidth
-  const reduce =
-    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-  el.classList.add(reduce ? 'dock-row-attention-static' : 'dock-row-attention')
-  window.setTimeout(
-    () => {
-      el.classList.remove('dock-row-attention', 'dock-row-attention-static')
-    },
-    reduce ? BLINK_STATIC_MS : BLINK_MS,
-  )
-}
+import { pulseElement } from '@/lib/dockReveal'
 
 export function ThreadsPane({
   snap,
@@ -58,7 +41,7 @@ export function ThreadsPane({
 
     // Wait a frame so the Threads tab / expand has painted.
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => pulseAttention(el!))
+      requestAnimationFrame(() => pulseElement(el!))
     })
   }, [focus.nonce, focus.section, focus.threadAddr, focus.threadName, snap.threads])
 
@@ -92,7 +75,7 @@ export function ThreadsPane({
     <div className="space-y-1.5">
       {threads.some((thread) => thread.objectCore) && (
         <div className="flex items-center justify-between px-1 text-[9px] uppercase tracking-wide text-foreground/40">
-          <span>Live object-core inventory</span>
+          <span>Live from the kernel</span>
           <span className="font-mono tabular-nums">{threads.length} threads</span>
         </div>
       )}

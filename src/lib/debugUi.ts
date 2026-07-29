@@ -27,6 +27,8 @@ export interface DebugUiState {
   threadAddr: number | null
   /** Name fallback when the live list has not caught up yet. */
   threadName: string | null
+  /** Kernel object address to highlight in the Objects tab. */
+  objectAddr: number | null
 }
 
 let state: DebugUiState = {
@@ -34,6 +36,7 @@ let state: DebugUiState = {
   section: 'breakpoints',
   threadAddr: null,
   threadName: null,
+  objectAddr: null,
 }
 const listeners = new Set<() => void>()
 
@@ -59,6 +62,7 @@ export function focusDebug(section: DebugSection = 'breakpoints'): void {
     section,
     threadAddr: null,
     threadName: null,
+    objectAddr: null,
   }
   notify()
   revealDockRow(STAGE_DEBUG_KEY)
@@ -78,6 +82,30 @@ export function focusDebugThread(addr: number, name?: string | null): void {
     section: 'threads',
     threadAddr: addr,
     threadName: name ?? null,
+    objectAddr: null,
+  }
+  notify()
+  revealDockRow(STAGE_DEBUG_KEY)
+}
+
+/**
+ * Open Debug → Objects and blink the matching object.
+ *
+ * The counterpart of {@link focusDebugThread}, and the same reasoning: a
+ * semaphore or a mutex is a *thing* in the running kernel, so pointing at one
+ * means showing it where the rest of its kind are listed — not dropping the
+ * reader into a hex window at its address and leaving them to recognise it.
+ */
+export function focusDebugObject(addr: number): void {
+  setHidden(STAGE_DEBUG_KEY, false)
+  setExpanded(STAGE_DEBUG_KEY, true)
+  if (!debug.getSnapshot().paused) debug.pause()
+  state = {
+    nonce: state.nonce + 1,
+    section: 'objects',
+    threadAddr: null,
+    threadName: null,
+    objectAddr: addr,
   }
   notify()
   revealDockRow(STAGE_DEBUG_KEY)
