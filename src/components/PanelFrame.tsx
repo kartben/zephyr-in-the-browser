@@ -1,9 +1,14 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { ChevronDown, Dock, PictureInPicture2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { useDragResize, clampBox } from '@/hooks/useDragResize'
-import { loadPanelLayout, savePanelLayout, type PanelBox } from '@/lib/panelLayout'
+import { useDragResize, clampBox, type ResizeEdge } from '@/hooks/useDragResize'
+import {
+  loadPanelLayout,
+  savePanelLayout,
+  type PanelBox,
+  type PanelLayout,
+} from '@/lib/panelLayout'
 
 /** 1rem in CSS px, matching the Tailwind default so rem widths convert cleanly. */
 const REM = 16
@@ -41,8 +46,7 @@ interface PanelFrameProps {
   /** Extra header buttons, placed before the built-in undock/collapse/close. */
   actions?: ReactNode
   /**
-   * Fill the parent up to `dockedWidth` — the stage Trace panel uses this so a
-   * phone gets a nearly full-bleed timeline without every dock card stretching.
+   * Fill the parent up to `dockedWidth`, rather than sizing to it.
    */
   fill?: boolean
   /**
@@ -107,10 +111,24 @@ export function PanelFrame({
     collapsed ? { visibleHeight: FLOATING_HEADER_H } : undefined,
   )
 
-  // Persist only the floating layout; collapse/dismiss stay session-only.
+  /*
+   * Persist only the floating layout; collapse/dismiss stay session-only.
+   *
+   * Debounced because `rect` changes on every pointermove of a drag or resize,
+   * and localStorage.setItem is a synchronous, disk-backed write — persisting
+   * inline put one of those in the middle of every dragged frame. The dock's
+   * own width handle avoids this by only telling its store on release; a panel
+   * has no single release point (the window-resize clamp moves it too), so it
+   * debounces and flushes on unmount instead — closing a window right after
+   * nudging it must not throw the nudge away.
+   */
+  const pendingLayout = useRef<PanelLayout>({ floating, rect })
+  pendingLayout.current = { floating, rect }
   useEffect(() => {
-    savePanelLayout(id, { floating, rect })
+    const handle = setTimeout(() => savePanelLayout(id, pendingLayout.current), 150)
+    return () => clearTimeout(handle)
   }, [id, floating, rect])
+  useEffect(() => () => savePanelLayout(id, pendingLayout.current), [id])
 
   const setCollapsedSafe = (next: boolean | ((c: boolean) => boolean)) => {
     const collapsedNext = typeof next === 'function' ? next(collapsed) : next
@@ -220,21 +238,52 @@ export function PanelFrame({
         <div className={cn(floating && 'min-h-0 flex-1 overflow-auto')}>{children}</div>
       )}
 
-      {/* Corner resize grip — floating only. */}
+      {/* Resize grips — floating only, on every edge and corner. */}
       {floating && !collapsed && (
-        <div
-          {...resizeHandlers}
-          role="presentation"
-          className="absolute bottom-0 right-0 size-4 cursor-se-resize touch-none"
-          style={{
-            background:
-              'linear-gradient(135deg, transparent 0 50%, var(--color-border) 50% 60%, transparent 60% 70%, var(--color-border) 70% 80%, transparent 80%)',
-          }}
-        />
+        <>
+          {RESIZE_GRIPS.map(({ edge, className }) => (
+            <div
+              key={edge}
+              {...resizeHandlers(edge)}
+              role="presentation"
+              aria-hidden
+              className={cn('absolute touch-none', className)}
+            />
+          ))}
+          {/* The bottom-right corner keeps its visible hatch: it is the one
+              people look for, and an invisible grip is not an affordance. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute bottom-0 right-0 size-4"
+            style={{
+              background:
+                'linear-gradient(135deg, transparent 0 50%, var(--color-border) 50% 60%, transparent 60% 70%, var(--color-border) 70% 80%, transparent 80%)',
+            }}
+          />
+        </>
       )}
     </div>
   )
 }
+
+/**
+ * Hit areas for the eight resize grips.
+ *
+ * They sit *inside* the frame — the card clips its overflow, so an overhanging
+ * grip would simply not be there — and stay narrow enough that the header drag
+ * and the body's own controls keep the rest of the edge. Corners come last in
+ * DOM order so they win where they overlap an edge.
+ */
+const RESIZE_GRIPS: Array<{ edge: ResizeEdge; className: string }> = [
+  { edge: 'n', className: 'top-0 left-3.5 right-3.5 h-2 cursor-ns-resize' },
+  { edge: 's', className: 'bottom-0 left-3.5 right-3.5 h-2 cursor-ns-resize' },
+  { edge: 'w', className: 'left-0 top-3.5 bottom-3.5 w-2 cursor-ew-resize' },
+  { edge: 'e', className: 'right-0 top-3.5 bottom-3.5 w-2 cursor-ew-resize' },
+  { edge: 'nw', className: 'top-0 left-0 size-3.5 cursor-nwse-resize' },
+  { edge: 'ne', className: 'top-0 right-0 size-3.5 cursor-nesw-resize' },
+  { edge: 'sw', className: 'bottom-0 left-0 size-3.5 cursor-nesw-resize' },
+  { edge: 'se', className: 'bottom-0 right-0 size-4 cursor-nwse-resize' },
+]
 
 /** First-pop-out box: docked width, hugging the panel's edge, high enough to clear the chrome. */
 function seedBox(dockedWidth: number, seedHeight: number, side: 'left' | 'right'): PanelBox {

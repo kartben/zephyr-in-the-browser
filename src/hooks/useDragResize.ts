@@ -37,7 +37,39 @@ export function clampBox(box: PanelBox, opts?: ClampBoxOpts): PanelBox {
   }
 }
 
-type Gesture = { pointerX: number; pointerY: number; box: PanelBox; mode: 'move' | 'resize' }
+/**
+ * Which edge (or corner) a resize gesture is pulling. A window can be sized
+ * from any of them, the way a window manager's are — there is no reason the
+ * bottom-right corner should be the only way to make a card wider.
+ */
+export type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+type Gesture = {
+  pointerX: number
+  pointerY: number
+  box: PanelBox
+  mode: 'move' | ResizeEdge
+}
+
+/**
+ * Apply a pointer delta to one edge. Pulling the north or west side moves the
+ * origin as well as the size, and stops moving it once MIN is reached — so a
+ * card being shrunk from the top does not creep downward past its minimum.
+ */
+export function resizeBox(box: PanelBox, edge: ResizeEdge, dx: number, dy: number): PanelBox {
+  let { x, y, w, h } = box
+  if (edge.includes('e')) w = box.w + dx
+  if (edge.includes('s')) h = box.h + dy
+  if (edge.includes('w')) {
+    w = Math.max(MIN_W, box.w - dx)
+    x = box.x + (box.w - w)
+  }
+  if (edge.includes('n')) {
+    h = Math.max(MIN_H, box.h - dy)
+    y = box.y + (box.h - h)
+  }
+  return { x, y, w, h }
+}
 
 export function useDragResize(
   rect: PanelBox | null,
@@ -61,7 +93,7 @@ export function useDragResize(
   }, [])
 
   const begin = useCallback(
-    (mode: 'move' | 'resize') => (event: ReactPointerEvent) => {
+    (mode: 'move' | ResizeEdge) => (event: ReactPointerEvent) => {
       // Let clicks on the header controls (undock/collapse/close) through — a
       // drag must never swallow a button press.
       if (event.target instanceof Element && event.target.closest('button')) return
@@ -86,7 +118,7 @@ export function useDragResize(
     const next =
       g.mode === 'move'
         ? { ...g.box, x: g.box.x + dx, y: g.box.y + dy }
-        : { ...g.box, w: g.box.w + dx, h: g.box.h + dy }
+        : resizeBox(g.box, g.mode, dx, dy)
     // Resize always clamps against the live box height; move may use a
     // shorter visibleHeight (collapsed header) so the strip can sit lower.
     const clampOpts = g.mode === 'move' ? latest.current.opts : undefined
@@ -103,12 +135,16 @@ export function useDragResize(
     }
   }, [])
 
-  const handlers = (mode: 'move' | 'resize') => ({
+  const handlers = (mode: 'move' | ResizeEdge) => ({
     onPointerDown: begin(mode),
     onPointerMove: move,
     onPointerUp: end,
     onPointerCancel: end,
   })
 
-  return { dragHandlers: handlers('move'), resizeHandlers: handlers('resize') }
+  return {
+    dragHandlers: handlers('move'),
+    /** Pointer handlers for one edge or corner grip. */
+    resizeHandlers: (edge: ResizeEdge) => handlers(edge),
+  }
 }
