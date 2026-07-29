@@ -129,25 +129,61 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
     )
   }
   if (chord.shift) {
-    parts.push(<span key="shift">{mac ? '⇧' : 'Shift'}</span>)
+    parts.push(
+      mac ? (
+        <ShiftIcon key="shift" className="size-3" />
+      ) : (
+        <span key="shift">Shift</span>
+      ),
+    )
   }
-  parts.push(<span key="key">{displayKey(chord.key)}</span>)
+  parts.push(
+    mac ? (
+      <span
+        key="key"
+        className="inline-flex h-3 items-center text-[12px] leading-none"
+      >
+        {displayKey(chord.key)}
+      </span>
+    ) : (
+      <span key="key">{displayKey(chord.key)}</span>
+    ),
+  )
 
   return (
     <kbd
       className={cn(
         'inline-flex shrink-0 items-center rounded border border-border bg-muted/50',
-        'px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-foreground/90',
-        mac ? 'gap-0.5' : 'gap-0',
+        'px-1.5 py-0.5 font-mono tabular-nums text-foreground/90',
+        mac ? 'gap-0.5' : 'gap-0 text-[10px]',
       )}
     >
       {parts.map((part, i) => (
-        <span key={i} className="inline-flex items-center">
+        <span key={i} className="inline-flex h-3 items-center">
           {i > 0 && !mac && <span className="px-0.5">+</span>}
           {part}
         </span>
       ))}
     </kbd>
+  )
+}
+
+/** Shift glyph — same 24×24 box and stroke as Lucide Command/Option. */
+function ShiftIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-label="Shift"
+    >
+      <path d="M12 4 4 13h5v7h6v-7h5L12 4z" />
+    </svg>
   )
 }
 
