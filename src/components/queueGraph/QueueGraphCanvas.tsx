@@ -432,6 +432,7 @@ export interface QueueGraphPacket {
   id: string
   edgeId: string
   delayMs?: number
+  durationMs?: number
 }
 
 export function QueueGraphCanvas({
@@ -654,6 +655,7 @@ export function QueueGraphCanvas({
               const edge = edgeById.get(packet.edgeId)
               if (!edge) return null
               const path = roundedOrthogonalPath(edge.points)
+              const duration = `${packet.durationMs ?? 360}ms`
               return (
                 <circle
                   key={packet.id}
@@ -663,7 +665,7 @@ export function QueueGraphCanvas({
                   strokeWidth={0.8}
                 >
                   <animateMotion
-                    dur="820ms"
+                    dur={duration}
                     begin={`${packet.delayMs ?? 0}ms`}
                     path={path}
                     fill="freeze"
@@ -672,7 +674,7 @@ export function QueueGraphCanvas({
                     attributeName="opacity"
                     values="1;1;0"
                     keyTimes="0;0.72;1"
-                    dur="820ms"
+                    dur={duration}
                     begin={`${packet.delayMs ?? 0}ms`}
                     fill="freeze"
                   />
@@ -680,7 +682,7 @@ export function QueueGraphCanvas({
                     attributeName="r"
                     values="4;4;2.5"
                     keyTimes="0;0.72;1"
-                    dur="820ms"
+                    dur={duration}
                     begin={`${packet.delayMs ?? 0}ms`}
                     fill="freeze"
                   />
