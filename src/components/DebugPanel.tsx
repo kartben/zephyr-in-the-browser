@@ -16,6 +16,7 @@ import { BreakpointsPane } from '@/components/debug/BreakpointsPane'
 import { MemoryPane } from '@/components/debug/MemoryPane'
 import { StackPane } from '@/components/debug/StackPane'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
+import { KernelObjectsPane } from '@/components/debug/KernelObjectsPane'
 import { compactHex } from '@/debug/hexFormat'
 import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
@@ -31,9 +32,15 @@ import {
   tabIn,
 } from '@/lib/dockStore'
 
-type InspectTab = 'cpu' | 'stack' | 'memory' | 'threads'
+type InspectTab = 'cpu' | 'stack' | 'memory' | 'threads' | 'objects'
 
-const INSPECT_TABS = ['cpu', 'stack', 'memory', 'threads'] as const satisfies readonly InspectTab[]
+const INSPECT_TABS = [
+  'cpu',
+  'stack',
+  'memory',
+  'threads',
+  'objects',
+] as const satisfies readonly InspectTab[]
 
 export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
@@ -210,11 +217,13 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
                   ['stack', 'Stack'],
                   ['memory', 'Mem'],
                   ['threads', 'Threads'],
+                  ['objects', 'Objects'],
                 ] as const
               ).map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
+                  title={id === 'objects' ? 'Kernel objects' : undefined}
                   className={cn(
                     'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
                     tab === id
@@ -269,6 +278,13 @@ export function DebugPanel({ defaultExpanded = false }: { defaultExpanded?: bool
                     setStackThread(addr)
                     setTab('stack')
                   }}
+                />
+              )}
+              {tab === 'objects' && (
+                <KernelObjectsPane
+                  snap={snap}
+                  onPeek={onPeek}
+                  onThread={(addr) => debugUi.focusDebugThread(addr)}
                 />
               )}
             </div>

@@ -5,7 +5,7 @@
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
  * zoom). Optional queue swim lanes line data-passing objects (msgq / fifo /
  * lifo / k_queue / k_stack) under the threads, with dotted put/get connectors
- * from the actor thread to each queue rail. Lane groups (THREADS, QUEUES, …)
+ * from the actor context to each queue rail. Lane groups (THREADS, QUEUES, …)
  * carry small uppercase section headers. Queues: per-object flow graph + depth
  * from put/put_front/get exits.
  */
@@ -51,10 +51,14 @@ import {
   contextSwitchesIn,
   depthAt,
   fmtTime,
+  isrActiveAt,
   isPutOp,
   msgqOpColor,
+  queueActorKey,
+  queueActorLabel,
   queueAxisMax,
   queueChartOpLabel,
+  queueFlowEffectTs,
   queueFlowEvents,
   queueLabel,
   reconstructQueues,
@@ -93,6 +97,7 @@ import {
 import { getSnapshot, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
+import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import {
   STAGE_TRACE_KEY,
   effectiveExpandedIn,
@@ -191,31 +196,46 @@ function fitLabel(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
 
 const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue', 'stack'])
 
-function ipcNameMap(): Map<number, string> {
-  const map = new Map<number, string>()
+type IpcObjectMetadata = {
+  names: Map<number, string>
+  capacities: Map<number, number>
+}
+
+function ipcObjectMetadata(objects: ObjectCoreSnapshot | null): IpcObjectMetadata {
+  const names = new Map<number, string>()
+  const capacities = new Map<number, number>()
   for (const o of hostGdb.getWaitObjects()) {
     if (
       (o.kind && IPC_KINDS.has(o.kind)) ||
       /msgq|fifo|lifo|k_stack/.test(o.name.toLowerCase()) ||
       o.name.startsWith('q_')
     ) {
-      map.set(o.addr, o.name)
+      names.set(o.addr, o.name)
     }
   }
   for (const o of hostGdb.getWaitObjects()) {
-    if (!map.has(o.addr)) map.set(o.addr, o.name)
+    if (!names.has(o.addr)) names.set(o.addr, o.name)
   }
-  return map
+
+  for (const type of objects?.types ?? []) {
+    if (!['MSGQ', 'FIFO', 'LIFO', 'STCK'].includes(type.code)) continue
+    for (const object of type.objects) {
+      names.set(object.addr, object.name)
+      if (object.capacity != null && object.capacity > 0) {
+        capacities.set(object.addr, object.capacity)
+      }
+    }
+  }
+  return { names, capacities }
 }
 
 /** Stable queue swim lanes for Timeline overlay — pipeline order, named when known. */
-function msgqSwimLanes(tr: Trace, flow: QueueFlowEvent[]): MsgqSwimLane[] {
+function msgqSwimLanes(flow: QueueFlowEvent[], queues: QueueSeries[]): MsgqSwimLane[] {
   const seen = new Set(flow.map((ev) => ev.queueId))
   if (seen.size === 0) return []
-  return sortQueuesByPipelineOrder(
-    tr,
-    reconstructQueues(tr, ipcNameMap()).filter((q) => seen.has(q.id)),
-  ).map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
+  return queues
+    .filter((q) => seen.has(q.id))
+    .map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
 }
 
 function timelineGeom(
@@ -225,7 +245,7 @@ function timelineGeom(
   metrics: LaneMetrics,
 ): TimelineGeom {
   const lanes = visibleLanes(tr)
-  const hasIsr = tr.isrSpans.length > 0
+  const hasIsr = tr.isrSpans.length > 0 || tr.isrOpenStart != null
   const showQueues = showMsgq && queueCount > 0
   const threadBlockRows = lanes.length + (hasIsr ? 1 : 0)
 
@@ -305,7 +325,8 @@ function paintSectionHeader(
 
 function depthLabel(series: QueueSeries, ts: number): string {
   const d = depthAt(series.samples, ts)
-  return series.cap != null && series.cap > 0 ? `${d}/${series.cap}` : String(d)
+  if (series.cap == null || series.cap <= 0) return String(d)
+  return series.capSource === 'inferred' ? `${d}/~${series.cap}` : `${d}/${series.cap}`
 }
 
 /** Vertical chevron — tip sits at `(x, y)` on the destination transition. */
@@ -549,7 +570,7 @@ function paint(
   const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
   const layout = { labelW: LABEL_W, pad: PAD, view0, view1, t0: tr.t0 }
-  const depthProbeTs = playheadTs ?? view1
+  const depthProbeTs = snapTs ?? playheadTs ?? view1
   const hoverActive =
     selectedEdge != null ||
     (hover != null && (hover.eventIndex != null || hover.queueId != null))
@@ -624,7 +645,11 @@ function paint(
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.fillText('[ISR]', 4, y + laneH / 2)
-    for (const [s, e] of tr.isrSpans) {
+    const isrSpans =
+      tr.isrOpenStart == null
+        ? tr.isrSpans
+        : [...tr.isrSpans, [tr.isrOpenStart, Math.max(tr.isrOpenStart, tr.t1)] as [number, number]]
+    for (const [s, e] of isrSpans) {
       if (e <= view0 || s >= view1) continue
       const x0 = LABEL_W + ((Math.max(s, view0) - view0) / span) * plotW
       const x1 = LABEL_W + ((Math.min(e, view1) - view0) / span) * plotW
@@ -660,8 +685,8 @@ function paint(
         const innerH = Math.max(2, msgqLaneH - innerPad * 2)
         const samples = q.series.samples
 
-        // Exact ns→x ranges (same as thread states). Column rasterisation
-        // smeared depth steps relative to enter-anchored edges.
+        // Exact ns→x ranges (same as thread states). Flow connectors use the
+        // operation effect/exit clock below, matching these depth steps.
         for (let i = 0; i < samples.length; i++) {
           const s = samples[i]!
           const e = i + 1 < samples.length ? samples[i + 1]!.ts : view1
@@ -708,10 +733,12 @@ function paint(
     const lastXByKey = new Map<string, number>()
     const visible: QueueFlowEvent[] = []
     for (const ev of msgqEvents) {
-      if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
-      if (!threadRowOf.has(ev.threadId)) continue
-      const thinKey = `${ev.threadId}|${ev.queueId}`
-      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
+      const effectTs = queueFlowEffectTs(ev)
+      if (effectTs < view0 || effectTs > view1 || ev.actor.kind === 'unknown') continue
+      if (ev.actor.kind === 'thread' && !threadRowOf.has(ev.actor.threadId)) continue
+      if (ev.actor.kind === 'isr' && !hasIsr) continue
+      const thinKey = `${queueActorKey(ev.actor)}|${ev.queueId}`
+      const x = LABEL_W + ((effectTs - view0) / span) * plotW
       const prev = lastXByKey.get(thinKey)
       if (prev != null && x - prev < MSGQ_MARK_MIN_GAP_PX) continue
       lastXByKey.set(thinKey, x)
@@ -728,9 +755,11 @@ function paint(
         : visible
 
     for (const ev of ordered) {
-      const tRow = threadRowOf.get(ev.threadId!)!
-      const x = LABEL_W + ((ev.ts - view0) / span) * plotW
-      const threadY = lanesTop + tRow * laneH + laneH / 2
+      const actorY =
+        ev.actor.kind === 'thread'
+          ? lanesTop + threadRowOf.get(ev.actor.threadId)! * laneH + laneH / 2
+          : lanesTop + lanes.length * laneH + laneH / 2
+      const x = LABEL_W + ((queueFlowEffectTs(ev) - view0) / span) * plotW
       const color = msgqOpColor(ev.op, ev.ok)
       const qRow = queueRowOf.get(ev.queueId)
       const queueY =
@@ -749,11 +778,11 @@ function paint(
 
       ctx.globalAlpha = dim ? 0.1 : hot ? 1 : 0.42
 
-      if (queueY != null && Math.abs(queueY - threadY) > markR * 2 + arrowH) {
+      if (queueY != null && Math.abs(queueY - actorY) > markR * 2 + arrowH) {
         // put: thread ○ →↓ queue    get: queue ○ →↑ thread
         // Timestamps are raw CTF ns; x is a pure linear map of those ns.
-        const startY = put ? threadY : queueY
-        const tipY = put ? queueY : threadY
+        const startY = put ? actorY : queueY
+        const tipY = put ? queueY : actorY
         const dir: 'up' | 'down' = tipY > startY ? 'down' : 'up'
         const edgeStart = dir === 'down' ? startY + markR : startY - markR
         const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
@@ -765,13 +794,13 @@ function paint(
         strokeMsgqConnector(
           ctx,
           x,
-          threadY - laneH / 2 + 2,
-          threadY + laneH / 2 - 2,
+          actorY - laneH / 2 + 2,
+          actorY + laneH / 2 - 2,
           color,
           kind,
           zw,
         )
-        paintMsgqMark(ctx, x, threadY, markR, color, kind)
+        paintMsgqMark(ctx, x, actorY, markR, color, kind)
       }
 
       ctx.globalAlpha = 1
@@ -808,8 +837,9 @@ function nearestMsgqNear(
   let best: QueueFlowEvent | null = null
   let bestDist = Infinity
   for (const ev of events) {
-    if (ev.ts < view0 || ev.ts > view1) continue
-    const d = Math.abs(ev.ts - ts)
+    const effectTs = queueFlowEffectTs(ev)
+    if (effectTs < view0 || effectTs > view1) continue
+    const d = Math.abs(effectTs - ts)
     if (d < bestDist) {
       bestDist = d
       best = ev
@@ -847,19 +877,27 @@ function hitTestMsgqEdge(
   let bestDist = MSGQ_EDGE_HIT_PX
   const lastXByKey = new Map<string, number>()
   for (const ev of msgqEvents) {
-    if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
-    const tRow = threadRowOf.get(ev.threadId)
+    const effectTs = queueFlowEffectTs(ev)
+    if (effectTs < view0 || effectTs > view1 || ev.actor.kind === 'unknown') continue
+    const actorY =
+      ev.actor.kind === 'thread'
+        ? (() => {
+            const row = threadRowOf.get(ev.actor.threadId)
+            return row == null ? null : geom.lanesTop + row * geom.laneH + geom.laneH / 2
+          })()
+        : geom.hasIsr
+          ? geom.lanesTop + geom.lanes.length * geom.laneH + geom.laneH / 2
+          : null
     const qRow = queueRowOf.get(ev.queueId)
-    if (tRow == null || qRow == null) continue
-    const ex = LABEL_W + ((ev.ts - view0) / span) * plotW
-    const thinKey = `${ev.threadId}|${ev.queueId}`
+    if (actorY == null || qRow == null) continue
+    const ex = LABEL_W + ((effectTs - view0) / span) * plotW
+    const thinKey = `${queueActorKey(ev.actor)}|${ev.queueId}`
     const prev = lastXByKey.get(thinKey)
     if (prev != null && ex - prev < MSGQ_MARK_MIN_GAP_PX) continue
     lastXByKey.set(thinKey, ex)
-    const threadY = geom.lanesTop + tRow * geom.laneH + geom.laneH / 2
     const queueY = geom.queueTop + qRow * geom.msgqLaneH + geom.msgqLaneH / 2
-    const y0 = Math.min(threadY, queueY)
-    const y1 = Math.max(threadY, queueY)
+    const y0 = Math.min(actorY, queueY)
+    const y1 = Math.max(actorY, queueY)
     if (y < y0 - MSGQ_EDGE_HIT_PX || y > y1 + MSGQ_EDGE_HIT_PX) continue
     const dx = Math.abs(x - ex)
     if (dx <= bestDist) {
@@ -985,6 +1023,11 @@ function plotBandForTab(tab: TraceTab, cssH: number): { plotTop: number; plotBot
 
 export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const gdbSnap = useSyncExternalStore(
+    hostGdb.subscribe,
+    hostGdb.getSnapshot,
+    hostGdb.getSnapshot,
+  )
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const [follow, setFollow] = useState(true)
   /** Lets the header Crosshair jump-to-live without keeping view state in the shell. */
@@ -1049,7 +1092,13 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
       {!live ? (
         <p className="px-3 py-4 text-[11px] text-muted-foreground">Waiting for traces…</p>
       ) : (
-        <TracePanelBody snap={snap} follow={follow} setFollow={setFollow} apiRef={bodyApiRef} />
+        <TracePanelBody
+          snap={snap}
+          objectCores={gdbSnap.objects}
+          follow={follow}
+          setFollow={setFollow}
+          apiRef={bodyApiRef}
+        />
       )}
     </PanelFrame>
   )
@@ -1057,11 +1106,13 @@ export function TracePanel({ defaultExpanded = false }: { defaultExpanded?: bool
 
 function TracePanelBody({
   snap,
+  objectCores,
   follow,
   setFollow,
   apiRef,
 }: {
   snap: ReturnType<typeof getSnapshot>
+  objectCores: ObjectCoreSnapshot | null
   follow: boolean
   setFollow: (v: boolean) => void
   apiRef: MutableRefObject<{ jumpLive: () => void } | null>
@@ -1127,17 +1178,29 @@ function TracePanelBody({
   )
 
   const tr = snap.trace
+  const ipcMetadata = useMemo(() => ipcObjectMetadata(objectCores), [objectCores])
   const msgqEvents = useMemo(
     () => (tr ? queueFlowEvents(tr) : []),
     // revision bumps whenever the event ring changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, snap.revision],
   )
-  const queueLanes = useMemo(
-    () => (tr ? msgqSwimLanes(tr, msgqEvents) : []),
-    // names can appear once GDB wait-objects resolve; revision covers CTF growth
+  const queueSeries = useMemo(
+    () => {
+      if (!tr || (msgqEvents.length === 0 && tab !== 'queues')) return []
+      return sortQueuesByPipelineOrder(
+        tr,
+        reconstructQueues(tr, ipcMetadata.names, ipcMetadata.capacities),
+        msgqEvents,
+      )
+    },
+    // Keep one queue reconstruction shared by the timeline, synoptic, and depth chart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, msgqEvents, snap.revision],
+    [tr, msgqEvents, snap.revision, ipcMetadata, tab],
+  )
+  const queueLanes = useMemo(
+    () => msgqSwimLanes(msgqEvents, queueSeries),
+    [msgqEvents, queueSeries],
   )
   const msgqEventsRef = useRef(msgqEvents)
   msgqEventsRef.current = msgqEvents
@@ -1170,7 +1233,8 @@ function TracePanelBody({
   const snapTs = useMemo(() => {
     const idx = msgqHover?.eventIndex ?? selectedEdge
     if (idx == null) return null
-    return msgqEvents.find((ev) => ev.index === idx)?.ts ?? null
+    const event = msgqEvents.find((ev) => ev.index === idx)
+    return event ? queueFlowEffectTs(event) : null
   }, [msgqHover, selectedEdge, msgqEvents])
   const snapTsRef = useRef(snapTs)
   snapTsRef.current = snapTs
@@ -1344,6 +1408,7 @@ function TracePanelBody({
   // (live edge when following) — same role as the Python viewer's cursor.
   const probeTs = playhead?.ts ?? view?.t1 ?? tr?.t1 ?? 0
   const runningTid = tr ? threadRunningAt(tr, probeTs) : null
+  const probeInIsr = tr ? isrActiveAt(tr, probeTs) : false
   const [st, reason] =
     tr && lane !== null ? stateAt(tr, lane, probeTs) : ([null, ''] as [ThreadState | null, string])
   const stats = tr && view ? windowStats(tr, view.t0, view.t1) : null
@@ -1382,13 +1447,13 @@ function TracePanelBody({
           ? (msgqEvents.find((ev) => ev.index === selectedEdge) ?? null)
           : null
     // Tip / playhead snap to the event’s raw CTF ns when we have one.
-    const tipTs = msgq?.ts ?? playhead.ts
+    const tipTs = msgq ? queueFlowEffectTs(msgq) : playhead.ts
 
     // Queue-lane tip: keep it about the queue / op — not who is running.
     if (msgqHover?.overQueueLane && q) {
       const lines: string[] = []
       if (msgq) {
-        const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+        const who = queueActorLabel(tr, msgq.actor)
         const fail = msgq.ok ? '' : ' fail'
         const arrow = isPutOp(msgq.op) ? '→' : '←'
         lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} ${arrow} ${q.label}`)
@@ -1405,7 +1470,12 @@ function TracePanelBody({
     const cssW = canvasRef.current?.clientWidth ?? 480
     const step = windowTimeStep(view.t0, view.t1, plotWidth(cssW, LABEL_W, PAD))
     const guest = formatGuestTime(tipTs, step)
-    const runLabel = runningTid != null ? threadLabel(tr, runningTid) : '(idle)'
+    const tipRunningTid = threadRunningAt(tr, tipTs)
+    const runLabel = isrActiveAt(tr, tipTs)
+      ? '[ISR]'
+      : tipRunningTid != null
+        ? threadLabel(tr, tipRunningTid)
+        : '(idle)'
     // Absolute guest CTF ns from timing_ns_get (not relative to first event).
     const lines = [`${guest} · ${runLabel}`]
 
@@ -1425,11 +1495,11 @@ function TracePanelBody({
     }
 
     if (msgq) {
-      const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+      const who = queueActorLabel(tr, msgq.actor)
       const qName = q?.label ?? `0x${msgq.queueId.toString(16)}`
       const fail = msgq.ok ? '' : ' fail'
       const arrow = isPutOp(msgq.op) ? '→' : '←'
-      const depth = q ? ` · depth ${depthLabel(q.series, msgq.ts)}` : ''
+      const depth = q ? ` · depth ${depthLabel(q.series, queueFlowEffectTs(msgq))}` : ''
       lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} ${arrow} ${qName}${depth}`)
     }
     return lines
@@ -1859,6 +1929,8 @@ function TracePanelBody({
       {tab === 'queues' && view ? (
         <QueuesView
           tr={tr}
+          queues={queueSeries}
+          flowEvents={msgqEvents}
           view0={view.t0}
           view1={view.t1}
           follow={follow}
@@ -2113,10 +2185,14 @@ function TracePanelBody({
           <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
             <div>
               <span className="text-muted-foreground">running: </span>
-              <span className="font-mono text-foreground">
-                {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
+              <span className={cn('font-mono text-foreground', probeInIsr && 'text-purple-300')}>
+                {probeInIsr
+                  ? '[ISR]'
+                  : runningTid !== null
+                    ? threadLabel(tr, runningTid)
+                    : '(none)'}
               </span>
-              {runningTid !== null && (
+              {!probeInIsr && runningTid !== null && (
                 <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
               )}
             </div>

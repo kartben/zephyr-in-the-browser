@@ -60,6 +60,7 @@ describe('reconstructQueues', () => {
     expect(series[0]!.peak).toBe(2)
     expect(series[0]!.drops).toBe(0)
     expect(series[0]!.cap).toBeNull()
+    expect(series[0]!.capSource).toBeNull()
   })
 
   it('counts failed puts as drops and infers capacity', () => {
@@ -77,9 +78,30 @@ describe('reconstructQueues', () => {
     const [s] = reconstructQueues(reader.tr)
     expect(s!.drops).toBe(1)
     expect(s!.cap).toBe(2)
+    expect(s!.capSource).toBe('inferred')
     expect(queueAxisMax(s!)).toBe(2)
     expect(depthAt(s!.samples, 350)).toBe(2)
     expect(depthAt(s!.samples, 450)).toBe(1)
+  })
+
+  it('uses the object-core capacity without waiting to observe a full queue', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const q = 0x20002500
+    reader.feed(Uint8Array.from([...putExit(100, q, 0), ...putExit(200, q, 0)]))
+
+    const [series] = reconstructQueues(
+      reader.tr,
+      new Map([[q, 'bounded_queue']]),
+      new Map([[q, 8]]),
+    )
+
+    expect(series).toMatchObject({
+      name: 'bounded_queue',
+      peak: 2,
+      cap: 8,
+      capSource: 'object-core',
+    })
+    expect(queueAxisMax(series!)).toBe(8)
   })
 
   it('resets depth on purge and resolves ELF names', () => {

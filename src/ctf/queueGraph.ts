@@ -19,12 +19,18 @@ import {
   isNestedQueueEvent,
   type QueueFlowOp,
 } from './queueKinds'
-import { threadLabel, threadRunningAt, type Trace } from './reader'
+import { isrActiveAt, scheduledThreadAt, threadLabel, type Trace } from './reader'
 
 export type { QueueFlowOp }
 
 /** Depth-chart ops: flow exits plus purge (empties the ring). */
 export type QueueChartOp = QueueFlowOp | 'purge'
+
+/** Confirmed execution context for a queue operation. */
+export type QueueActor =
+  | { kind: 'thread'; threadId: number }
+  | { kind: 'isr' }
+  | { kind: 'unknown' }
 
 /** Which end of the pipe an op touches. */
 export type MsgqMouth = 'end' | 'front'
@@ -53,9 +59,24 @@ export interface QueueFlowEvent {
   exitTs?: number
   op: QueueFlowOp
   queueId: number
-  /** Running thread at {@link ts}, or null if unknown / ISR. */
+  /** Explicit execution context; distinguishes confirmed ISR from trace loss. */
+  actor: QueueActor
+  /** Thread actor id retained for thread-oriented consumers, otherwise null. */
   threadId: number | null
   ok: boolean
+}
+
+/**
+ * Timestamp where the operation takes effect in queue/depth visualizations.
+ *
+ * `ts` may intentionally point back to a much earlier blocking enter for
+ * scheduler causality. The exit is where the operation completes and where
+ * reconstructed depth changes are sampled.
+ */
+export function queueFlowEffectTs(
+  event: Pick<QueueFlowEvent, 'ts' | 'exitTs'>,
+): number {
+  return event.exitTs ?? event.ts
 }
 
 /** Queue event surfaced on the depth-chart hover tip (includes purge). */
@@ -64,6 +85,7 @@ export interface QueueChartEvent {
   ts: number
   op: QueueChartOp
   queueId: number
+  actor: QueueActor
   threadId: number | null
   ok: boolean
 }
@@ -75,11 +97,77 @@ function enterKey(op: QueueFlowOp, queueId: number): string {
 /** Lookback when falling back from exit to a concurrent waiter ready. */
 const WAKE_LOOKBACK_NS = 1_000_000 // 1 ms
 
-type EnterMark = { ts: number; threadId: number | null }
+type EnterMark = { ts: number; actor: QueueActor }
+
+/**
+ * Resolve execution context in record order, not from timestamps alone.
+ *
+ * Multiple CTF records can share one clock tick. In particular, a queue exit
+ * immediately followed by isr_exit may have the same timestamp. A half-open
+ * time-span lookup would call the queue exit post-ISR even though its record
+ * precedes the exit boundary.
+ */
+function queueActorsByEvent(tr: Trace): Map<number, QueueActor> {
+  const first = tr.events[0]
+  const startedBeforeFirst =
+    first != null &&
+    (tr.isrSpans.some(([start, end]) => start < first.ts && first.ts < end) ||
+      (tr.isrOpenStart != null && tr.isrOpenStart < first.ts))
+  let isrDepth =
+    first != null &&
+    (startedBeforeFirst || (first.name !== 'isr_enter' && isrActiveAt(tr, first.ts)))
+      ? 1
+      : 0
+  const actors = new Map<number, QueueActor>()
+
+  for (let i = 0; i < tr.events.length; i++) {
+    const ev = tr.events[i]!
+    if (
+      isrDepth > 0 &&
+      (ev.name === 'thread_switched_in' || ev.name === 'thread_switched_out')
+    ) {
+      // Same conservative recovery as TraceReader when an ISR exit was lost.
+      isrDepth = 0
+    }
+    if (ev.name === 'isr_enter') isrDepth++
+
+    if (/^(msgq|fifo|lifo|stack|queue)_/.test(ev.name)) {
+      const threadId = isrDepth > 0 ? null : scheduledThreadAt(tr, ev.ts)
+      actors.set(
+        i,
+        isrDepth > 0
+          ? { kind: 'isr' }
+          : threadId == null
+            ? { kind: 'unknown' }
+            : { kind: 'thread', threadId },
+      )
+    }
+
+    if (
+      isrDepth > 0 &&
+      (ev.name === 'isr_exit' || ev.name === 'isr_exit_to_scheduler')
+    ) {
+      isrDepth--
+    }
+  }
+  return actors
+}
+
+export function queueActorKey(actor: QueueActor): string {
+  if (actor.kind === 'thread') return `thread:${actor.threadId}`
+  return actor.kind
+}
+
+export function queueActorLabel(tr: Trace, actor: QueueActor): string {
+  if (actor.kind === 'thread') return threadLabel(tr, actor.threadId)
+  if (actor.kind === 'isr') return '[ISR]'
+  return '?'
+}
 
 /** All successful/failed put / put_front / get exits in timestamp order. */
 export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
   const kinds = classifyQueueKinds(tr.events)
+  const actors = queueActorsByEvent(tr)
   const out: QueueFlowEvent[] = []
   /** Unmatched enter marks per op|queue (stack — single-CPU nest-safe). */
   const enters = new Map<string, EnterMark[]>()
@@ -106,7 +194,7 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
       const stack = enters.get(key) ?? []
       // Record who was running at enter — used later to reject stale pairs
       // (e.g. main's leftover enter claimed by a worker's exit).
-      stack.push({ ts: ev.ts, threadId: threadRunningAt(tr, ev.ts) })
+      stack.push({ ts: ev.ts, actor: actors.get(i)! })
       enters.set(key, stack)
       continue
     }
@@ -120,20 +208,21 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
     const exitTs = ev.ts
     // Actor is always who ran the exit (the thread that called put/get).
     // Mark X may snap back to enter/wake for causality; never reattribute.
-    const actorAtExit = threadRunningAt(tr, exitTs)
+    const actorAtExit = actors.get(i)!
+    const threadAtExit = actorAtExit.kind === 'thread' ? actorAtExit.threadId : null
     let ts = exitTs
     if (
       enterMark != null &&
-      (enterMark.threadId == null ||
-        actorAtExit == null ||
-        enterMark.threadId === actorAtExit)
+      (enterMark.actor.kind === 'unknown' ||
+        actorAtExit.kind === 'unknown' ||
+        queueActorKey(enterMark.actor) === queueActorKey(actorAtExit))
     ) {
       ts = enterMark.ts
     } else if (
       enterMark == null &&
       lastWakeTs != null &&
       lastWakeTid != null &&
-      lastWakeTid !== actorAtExit &&
+      lastWakeTid !== threadAtExit &&
       lastWakeTs <= exitTs &&
       exitTs - lastWakeTs <= WAKE_LOOKBACK_NS
     ) {
@@ -148,7 +237,8 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
       exitTs,
       op: classified.flowOp,
       queueId: classified.id,
-      threadId: actorAtExit,
+      actor: actorAtExit,
+      threadId: threadAtExit,
       ok: classified.ok,
     })
   }
@@ -191,6 +281,7 @@ export function advanceFlowCursor(
  */
 export function queueChartEvents(tr: Trace): QueueChartEvent[] {
   const kinds = classifyQueueKinds(tr.events)
+  const actors = queueActorsByEvent(tr)
   const out: QueueChartEvent[] = []
   for (let i = 0; i < tr.events.length; i++) {
     const ev = tr.events[i]!
@@ -200,12 +291,14 @@ export function queueChartEvents(tr: Trace): QueueChartEvent[] {
     // queue_remove is depth-only (get without a flow mouth) — still tip as get.
     const chartOp: QueueChartOp =
       classified.flowOp ?? (classified.depthAction === 'purge' ? 'purge' : classified.depthAction)
+    const actor = actors.get(i)!
     out.push({
       index: i,
       ts: ev.ts,
       op: chartOp,
       queueId: classified.id,
-      threadId: threadRunningAt(tr, ev.ts),
+      actor,
+      threadId: actor.kind === 'thread' ? actor.threadId : null,
       ok: classified.ok,
     })
   }
@@ -276,22 +369,22 @@ export function msgqOpColor(op: QueueFlowOp | QueueChartOp, ok = true): string {
 }
 
 export interface FlowEdgeKey {
-  threadId: number
+  actorKey: string
   queueId: number
   op: QueueFlowOp
 }
 
 export function flowEdgeId(e: FlowEdgeKey): string {
-  return `${e.threadId}|${e.queueId}|${e.op}`
+  return `${e.actorKey}|${e.queueId}|${e.op}`
 }
 
 /** Put/get counts per thread for bipartite left/right placement. put_front counts as put. */
 export function threadFlowScores(events: QueueFlowEvent[]): Map<number, number> {
   const score = new Map<number, number>()
   for (const ev of events) {
-    if (ev.threadId == null || !ev.ok) continue
+    if (ev.actor.kind !== 'thread' || !ev.ok) continue
     const delta = isPutOp(ev.op) ? 1 : -1
-    score.set(ev.threadId, (score.get(ev.threadId) ?? 0) + delta)
+    score.set(ev.actor.threadId, (score.get(ev.actor.threadId) ?? 0) + delta)
   }
   return score
 }
@@ -306,25 +399,30 @@ type PipelineQueue = { id: number; name?: string | null }
  * Longest-path ranks on the thread↔queue flow DAG (Sugiyama layer assignment).
  * Producer→queue→consumer→queue pipelines read top-to-bottom / early-to-late.
  */
-export function queuePipelineRanks(tr: Trace, queueIds: Iterable<number>): Map<number, number> {
+export function queuePipelineRanks(
+  tr: Trace,
+  queueIds: Iterable<number>,
+  flowEvents?: QueueFlowEvent[],
+): Map<number, number> {
   const qids = [...new Set(queueIds)]
   const ranks = new Map(qids.map((id) => [id, 0]))
   if (qids.length === 0) return ranks
 
-  const flow = queueFlowEvents(tr)
-  const valid = flow.filter((ev) => ev.ok && ev.threadId != null && ranks.has(ev.queueId))
-  const threadIds = [...new Set(valid.map((ev) => ev.threadId!))]
+  const flow = flowEvents ?? queueFlowEvents(tr)
+  const valid = flow.filter((ev) => ev.ok && ev.actor.kind !== 'unknown' && ranks.has(ev.queueId))
+  const actorIds = [...new Set(valid.map((ev) => queueActorKey(ev.actor)))]
 
-  const nodeIds = [...threadIds.map((tid) => `t:${tid}`), ...qids.map((id) => `q:${id}`)]
+  const nodeIds = [...actorIds.map((id) => `a:${id}`), ...qids.map((id) => `q:${id}`)]
   const outgoing = new Map(nodeIds.map((id) => [id, new Set<string>()]))
   const indegree = new Map(nodeIds.map((id) => [id, 0]))
   const seen = new Set<string>()
   for (const ev of valid) {
-    const edge = `${ev.threadId}|${ev.queueId}|${ev.op}`
+    const actorId = `a:${queueActorKey(ev.actor)}`
+    const edge = `${actorId}|${ev.queueId}|${ev.op}`
     if (seen.has(edge)) continue
     seen.add(edge)
-    const from = ev.op === 'get' ? `q:${ev.queueId}` : `t:${ev.threadId}`
-    const to = ev.op === 'get' ? `t:${ev.threadId}` : `q:${ev.queueId}`
+    const from = ev.op === 'get' ? `q:${ev.queueId}` : actorId
+    const to = ev.op === 'get' ? actorId : `q:${ev.queueId}`
     if (!outgoing.get(from)!.has(to)) {
       outgoing.get(from)!.add(to)
       indegree.set(to, (indegree.get(to) ?? 0) + 1)
@@ -350,11 +448,16 @@ export function queuePipelineRanks(tr: Trace, queueIds: Iterable<number>): Map<n
  * Order queues for the depth chart and topology graph: longest-path pipeline
  * rank first, then name / id. Matches the Sugiyama layering used for layout.
  */
-export function sortQueuesByPipelineOrder<T extends PipelineQueue>(tr: Trace, queues: T[]): T[] {
+export function sortQueuesByPipelineOrder<T extends PipelineQueue>(
+  tr: Trace,
+  queues: T[],
+  flowEvents?: QueueFlowEvent[],
+): T[] {
   if (queues.length <= 1) return queues
   const ranks = queuePipelineRanks(
     tr,
     queues.map((q) => q.id),
+    flowEvents,
   )
   return [...queues].sort((a, b) => {
     const ra = ranks.get(a.id) ?? 0

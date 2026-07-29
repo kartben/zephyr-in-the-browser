@@ -46,6 +46,8 @@ export interface ZephyrThread {
   pendedOn: number | null
   /** Named object for pendedOn, when matched in the ELF. */
   waitingOn: { name: string; addr: number; kind: string | null } | null
+  /** Thread address came from CONFIG_OBJ_CORE's live thread-type list. */
+  objectCore: boolean
 }
 
 export type MemReader = (addr: number, length: number) => Promise<Uint8Array>
@@ -55,6 +57,8 @@ export interface ListThreadsOptions {
   stacks?: StackRegion[]
   /** ELF sync objects for pended_on→name matching. */
   waitObjects?: WaitObject[]
+  /** Authoritative TCB addresses from the object-core thread type. */
+  threadAddrs?: number[]
   limit?: number
 }
 
@@ -157,12 +161,17 @@ export async function listThreads(
   const stacks = opts.stacks ?? []
   const waitObjects = opts.waitObjects ?? []
 
+  const objectCoreThreads = opts.threadAddrs?.filter((addr) => addr > 0) ?? []
   const threadsOff = off(info, ThreadInfoOffset.K_THREADS)
   const nextOff = off(info, ThreadInfoOffset.T_NEXT_THREAD)
-  if (threadsOff === null || nextOff === null) return []
+  if (objectCoreThreads.length === 0 && (threadsOff === null || nextOff === null)) return []
 
   const ptr = info.ptrBytes
-  const head = readPtr(await read(info.kernel + threadsOff, ptr), ptr)
+  const head =
+    objectCoreThreads.length > 0
+      ? objectCoreThreads[0]!
+      : readPtr(await read(info.kernel + threadsOff!, ptr), ptr)
+  let objectCoreIndex = objectCoreThreads.length > 0 ? 1 : -1
 
   let current = 0
   const currOff = off(info, ThreadInfoOffset.K_CURR_THREAD)
@@ -302,12 +311,17 @@ export async function listThreads(
       stackSize,
       pendedOn,
       waitingOn,
+      objectCore: objectCoreThreads.length > 0,
     })
 
-    try {
-      node = readPtr(await read(node + nextOff, ptr), ptr)
-    } catch {
-      break
+    if (objectCoreIndex >= 0) {
+      node = objectCoreThreads[objectCoreIndex++] ?? 0
+    } else {
+      try {
+        node = readPtr(await read(node + nextOff!, ptr), ptr)
+      } catch {
+        break
+      }
     }
   }
 

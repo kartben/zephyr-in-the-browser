@@ -21,22 +21,20 @@ import {
 } from 'react'
 import {
   depthAt,
-  flowThreadLabel,
   fmtAxisTime,
   nearestQueueChartEvent,
   queueAxisMax,
+  queueActorLabel,
   queueChartEvents,
   queueChartOpLabel,
   queueLabel,
-  reconstructQueues,
-  sortQueuesByPipelineOrder,
   timeTickValues,
   type QueueChartEvent,
+  type QueueFlowEvent,
   type QueueSample,
   type QueueSeries,
   type Trace,
 } from '@/ctf'
-import { getWaitObjects } from '@/hostGdb'
 import { QueueGraph } from '@/components/QueueGraph'
 import { formatGuestTime, screenYToBase, yZoomSvgTransform, type YZoom } from '@/components/traceChart'
 
@@ -59,7 +57,7 @@ const AXIS_FILL = 'rgba(203, 213, 225, 0.95)'
 const GRID_STROKE = 'rgba(148, 163, 184, 0.14)'
 const AREA_FILL = 'rgba(96, 165, 250, 0.35)'
 const LINE_STROKE = 'rgba(147, 197, 253, 0.95)'
-const CAP_STROKE = 'rgba(244, 63, 94, 0.75)'
+const CAP_STROKE = 'rgba(56, 189, 248, 0.55)'
 const DOT_FILL = 'rgba(147, 197, 253, 0.55)'
 const DOT_STROKE = 'rgba(147, 197, 253, 0.35)'
 /** Skip a mark if it lands within this many CSS pixels of the previous drawn one. */
@@ -90,25 +88,6 @@ type RowLayout = {
   yScale: d3.ScaleLinear<number, number>
   points: QueueSample[]
   marks: TransitionMark[]
-}
-
-const IPC_KINDS = new Set(['msgq', 'fifo', 'lifo', 'queue', 'stack'])
-
-function ipcNameMap(): Map<number, string> {
-  const map = new Map<number, string>()
-  for (const o of getWaitObjects()) {
-    if (
-      (o.kind && IPC_KINDS.has(o.kind)) ||
-      /msgq|fifo|lifo|k_stack/.test(o.name.toLowerCase()) ||
-      o.name.startsWith('q_')
-    ) {
-      map.set(o.addr, o.name)
-    }
-  }
-  for (const o of getWaitObjects()) {
-    if (!map.has(o.addr)) map.set(o.addr, o.name)
-  }
-  return map
 }
 
 function depthTicks(yMax: number): number[] {
@@ -413,10 +392,16 @@ function renderChart(
       .attr('x', LABEL_W + plotW - 2)
       .attr('y', hasCap ? d.yScale(d.queue.cap!) - 2 : 0)
       .attr('text-anchor', 'end')
-      .attr('fill', hasCap ? 'rgba(244, 63, 94, 0.85)' : 'none')
+      .attr('fill', hasCap ? 'rgba(125, 211, 252, 0.8)' : 'none')
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '9px')
-      .text(hasCap ? `cap=${d.queue.cap}` : '')
+      .text(
+        hasCap
+          ? d.queue.capSource === 'object-core'
+            ? `limit=${d.queue.cap}`
+            : `cap≈${d.queue.cap}`
+          : '',
+      )
 
     g.select<SVGPathElement>('path.depth-area')
       .attr('d', area(d.points) ?? '')
@@ -526,12 +511,13 @@ function renderChart(
 /** Tip: guest time · depth, then op · thread when snapped to an event. */
 function tipLines(tr: Trace, tip: HoverTip): string[] {
   const depth =
-    tip.queue.cap != null ? `d${tip.depth}/${tip.queue.cap}` : `d${tip.depth}`
+    tip.queue.cap != null
+      ? `d${tip.depth}/${tip.queue.capSource === 'inferred' ? '~' : ''}${tip.queue.cap}`
+      : `d${tip.depth}`
   const guest = formatGuestTime(tip.ts, tip.step)
   const lines = [`${guest} · ${depth}`]
   if (tip.event) {
-    const who =
-      tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : '?'
+    const who = queueActorLabel(tr, tip.event.actor)
     const fail = tip.event.ok || tip.event.op === 'purge' ? '' : '!'
     lines.push(`${queueChartOpLabel(tip.event.op)}${fail} · ${who}`)
   }
@@ -544,6 +530,8 @@ function tipLines(tr: Trace, tip: HoverTip): string[] {
  */
 export function QueuesView({
   tr,
+  queues,
+  flowEvents,
   view0,
   view1,
   follow,
@@ -556,6 +544,10 @@ export function QueuesView({
   yZoom = null,
 }: {
   tr: Trace
+  /** Shared reconstruction used by the timeline, synoptic, and depth chart. */
+  queues: QueueSeries[]
+  /** Shared flow batch so the synoptic reacts to the same publication as the chart. */
+  flowEvents: QueueFlowEvent[]
   view0: number
   view1: number
   follow: boolean
@@ -576,12 +568,6 @@ export function QueuesView({
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
 
-  const queues = useMemo(
-    () => sortQueuesByPipelineOrder(tr, reconstructQueues(tr, ipcNameMap())),
-    // eventCount bumps when CTF grows; wait-object names are read live inside.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, eventCount],
-  )
   const chartEvents = useMemo(
     () => queueChartEvents(tr),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -715,7 +701,14 @@ export function QueuesView({
 
   return (
     <div className="flex flex-col gap-2">
-      {queues.length > 0 && <QueueGraph tr={tr} queues={queues} eventCount={eventCount} />}
+      {queues.length > 0 && (
+        <QueueGraph
+          tr={tr}
+          queues={queues}
+          flowEvents={flowEvents}
+          eventCount={eventCount}
+        />
+      )}
       <div className="flex flex-col gap-1">
         {toolbar}
         <div ref={hostRef} className="relative w-full select-none">

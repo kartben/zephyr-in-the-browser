@@ -69,13 +69,37 @@ selects `THREAD_MONITOR` + `THREAD_NAME` and emits:
 - `_kernel_thread_info_offsets` (and size / count helpers)
 
 Packaged images ship **unstripped** ELFs so the page can resolve those symbols,
-read the offset table, then walk `_kernel.threads` over gdb memory reads.
+read the offset table, then decode thread fields over gdb memory reads.
 **Threads** tab: name, priority, state, stack size (matched via SP → ELF stack
 symbols, or `stack_info` when DWARF has it), and Memory links for the stack /
-TCB. Semaphores and mutexes got a partial answer: a PENDING thread's
-`base.pended_on` is matched back to a named `STT_OBJECT` in the ELF
-(`src/debug/elfWaitObjects.ts`), so a row reads *pending on `my_sem`* with a
-Memory link. Object cores are still not read.
+TCB. Where object cores are unavailable — a custom ELF built without
+`CONFIG_OBJ_CORE` — a PENDING thread's `base.pended_on` is still matched back
+to a named `STT_OBJECT` in the ELF (`src/debug/elfWaitObjects.ts`), so a row
+reads *pending on `my_sem`* with a Memory link.
+
+Packaged images also set `CONFIG_OBJ_CORE=y`. The debugger reads
+`_k_obj_core_desc_list_start/end` for type metadata, then walks the live
+`z_obj_type_list` and every per-type object list. The Threads tab uses the
+object-core thread list as its authoritative inventory and object cores resolve
+wait targets by type instead of by symbol-name guesses.
+
+At the GDB stub's initial boot stop, descriptor address ranges seed static
+objects before `z_obj_core_init_all()` has necessarily linked the live lists.
+The snapshot is retained when boot resumes, then later stops merge in dynamic
+objects and statistics from the initialized lists.
+
+The **Objects** tab groups every linked kernel object by four-character type ID,
+names static objects from the ELF, decodes useful fields for common primitives,
+and links object/core/pointer addresses into Memory. Packaged images also enable
+`CONFIG_OBJ_CORE_STATS`; raw stats buffers and their decoded thread/CPU/system
+cycle or memory-pool fields appear under each participating object. Custom ELFs
+without statistics remain supported.
+
+Trace queue swim lanes, depth charts, and the queue synoptic reuse the live
+object-core bounds for fixed-capacity objects (for example `k_msgq.max_msgs`
+and `k_stack` entry capacity). Their vertical/fill scales therefore reflect the
+kernel's actual limit; failed-put inference and observed-peak scaling remain
+clearly marked fallbacks for images or object types without a fixed bound.
 
 ### Phase E — Call stack + richer stepping (shipped)
 

@@ -131,6 +131,48 @@ describe('TraceReader', () => {
     expect(reader.tr.events[0]?.name).toBe('isr_enter')
   })
 
+  it('does not report the interrupted thread as running inside a closed or live ISR', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thread = 0x1000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thread), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(thread), ...encName('worker')]),
+        ...record(200, 0x1b, []),
+      ]),
+    )
+
+    // The outer ISR is still open at the live edge.
+    expect(threadRunningAt(reader.tr, 250)).toBeNull()
+
+    reader.feed(record(300, 0x1c, []))
+    expect(threadRunningAt(reader.tr, 199)).toBe(thread)
+    expect(threadRunningAt(reader.tr, 200)).toBeNull()
+    expect(threadRunningAt(reader.tr, 299)).toBeNull()
+    expect(threadRunningAt(reader.tr, 300)).toBe(thread)
+  })
+
+  it('closes an ISR span at the next context switch when its exit was dropped', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const main = 0x1000
+    const worker = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(main), ...encName('main')]),
+        ...record(10, 0x13, [...encU32(worker), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(main), ...encName('main')]),
+        ...record(200, 0x1b, []),
+        // ISR exit and switched_out were dropped; switched_in proves it ended.
+        ...record(300, 0x11, [...encU32(worker), ...encName('worker')]),
+      ]),
+    )
+
+    expect(reader.tr.isrOpenStart).toBeNull()
+    expect(reader.tr.isrSpans).toContainEqual([200, 300])
+    expect(threadRunningAt(reader.tr, 250)).toBeNull()
+    expect(threadRunningAt(reader.tr, 300)).toBe(worker)
+  })
+
   it('flags desync on an unknown event id without consuming past it', () => {
     const reader = new TraceReader(fallbackDefs())
     const bad = record(1, 0xdead, [1, 2, 3, 4])

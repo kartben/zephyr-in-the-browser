@@ -7,6 +7,7 @@ import {
   nearestQueueChartEvent,
   queueChartEvents,
   queueChartOpLabel,
+  queueFlowEffectTs,
   queueFlowEvents,
   advanceFlowCursor,
   sortQueuesByPipelineOrder,
@@ -64,6 +65,99 @@ describe('queueFlowEvents', () => {
     expect(scores.get(thr)).toBe(0)
   })
 
+  it('does not attribute an ISR queue operation to the interrupted thread', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thread = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thread), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(thread), ...encName('worker')]),
+        ...record(200, 0x1b, []),
+        ...record(220, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+        ...record(240, 0x1c, []),
+        ...record(260, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(2)
+    expect(flow[0]).toMatchObject({ queueId: q, actor: { kind: 'isr' }, threadId: null, ts: 220 })
+    expect(flow[1]).toMatchObject({
+      queueId: q,
+      actor: { kind: 'thread', threadId: thread },
+      threadId: thread,
+      ts: 260,
+    })
+
+    const chart = queueChartEvents(reader.tr)
+    expect(chart[0]).toMatchObject({ queueId: q, actor: { kind: 'isr' }, threadId: null, ts: 220 })
+    expect(chart[1]).toMatchObject({
+      queueId: q,
+      actor: { kind: 'thread', threadId: thread },
+      threadId: thread,
+      ts: 260,
+    })
+  })
+
+  it('uses record order when a queue exit shares the ISR-exit timestamp', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const thread = 0x1000
+    const q = 0x2000
+    const stack = 0x3000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(thread), ...encName('worker')]),
+        ...record(100, 0x11, [...encU32(thread), ...encName('worker')]),
+        ...record(200, 0x1b, []),
+        ...record(220, 0x8a, [...encU32(q), ...encU32(0)]),
+        // The put finishes before ISR exit in record order, but both records
+        // have the same clock value.
+        ...record(240, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+        ...record(240, 0x143, [...encU32(stack), ...encI32(0)]),
+        ...record(240, 0x1c, []),
+        // A later record at that same clock value is back in thread context.
+        ...record(240, 0x8a, [...encU32(q), ...encU32(0)]),
+        ...record(240, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
+      ]),
+    )
+
+    const flow = queueFlowEvents(reader.tr)
+    expect(flow).toHaveLength(3)
+    expect(flow[0]).toMatchObject({
+      actor: { kind: 'isr' },
+      threadId: null,
+      ts: 220,
+      exitTs: 240,
+    })
+    expect(flow[1]).toMatchObject({
+      op: 'put',
+      queueId: stack,
+      actor: { kind: 'isr' },
+      threadId: null,
+      ts: 240,
+      exitTs: 240,
+    })
+    expect(flow[2]).toMatchObject({
+      actor: { kind: 'thread', threadId: thread },
+      threadId: thread,
+      ts: 240,
+      exitTs: 240,
+    })
+
+    const chart = queueChartEvents(reader.tr)
+    expect(chart[0]).toMatchObject({ actor: { kind: 'isr' }, threadId: null })
+    expect(chart[1]).toMatchObject({
+      queueId: stack,
+      actor: { kind: 'isr' },
+      threadId: null,
+    })
+    expect(chart[2]).toMatchObject({
+      actor: { kind: 'thread', threadId: thread },
+      threadId: thread,
+    })
+  })
+
   it('anchors flow marks on put enter so ready is not before the edge', () => {
     const reader = new TraceReader(fallbackDefs())
     const producer = 0x1000
@@ -90,6 +184,25 @@ describe('queueFlowEvents', () => {
       exitTs: 250,
     })
     expect(flow[0]!.ts).toBeLessThanOrEqual(220)
+    expect(queueFlowEffectTs(flow[0]!)).toBe(250)
+  })
+
+  it('visualizes a blocking get when it completes, not at its earlier enter', () => {
+    const reader = new TraceReader(fallbackDefs())
+    const input = 0x1000
+    const q = 0x2000
+    reader.feed(
+      Uint8Array.from([
+        ...record(0, 0x13, [...encU32(input), ...encName('input')]),
+        ...record(50, 0x11, [...encU32(input), ...encName('input')]),
+        ...record(100, 0x8d, [...encU32(q), ...encU32(0xffffffff)]),
+        ...record(1_000, 0x8f, [...encU32(q), ...encU32(0xffffffff), ...encI32(0)]),
+      ]),
+    )
+
+    const [get] = queueFlowEvents(reader.tr)
+    expect(get).toMatchObject({ op: 'get', ts: 100, exitTs: 1_000 })
+    expect(queueFlowEffectTs(get!)).toBe(1_000)
   })
 
   it('falls back to concurrent sched_ready when put enter is missing', () => {
@@ -304,9 +417,9 @@ describe('queueChartEvents / nearestQueueChartEvent', () => {
 describe('advanceFlowCursor', () => {
   it('returns first/delta normally and recovers after an index rewind (trim)', () => {
     const flow = [
-      { index: 10, ts: 1, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
-      { index: 11, ts: 2, op: 'get' as const, queueId: 1, threadId: 1, ok: true },
-      { index: 20, ts: 3, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 10, ts: 1, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
+      { index: 11, ts: 2, op: 'get' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
+      { index: 20, ts: 3, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
     ]
     expect(advanceFlowCursor(flow, -1)).toMatchObject({ kind: 'first', nextIndex: 20, newest: [] })
     const delta = advanceFlowCursor(flow, 10)
@@ -316,15 +429,15 @@ describe('advanceFlowCursor', () => {
 
     // After hostTrace trims the ring, indices restart — must not stall.
     const trimmed = [
-      { index: 0, ts: 100, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
-      { index: 1, ts: 101, op: 'get' as const, queueId: 1, threadId: 1, ok: true },
+      { index: 0, ts: 100, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
+      { index: 1, ts: 101, op: 'get' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
     ]
     const rewind = advanceFlowCursor(trimmed, 20)
     expect(rewind).toMatchObject({ kind: 'trimmed', nextIndex: 1, newest: [] })
     const after = advanceFlowCursor(
       [
         ...trimmed,
-        { index: 2, ts: 102, op: 'put' as const, queueId: 1, threadId: 1, ok: true },
+        { index: 2, ts: 102, op: 'put' as const, queueId: 1, actor: { kind: 'thread' as const, threadId: 1 }, threadId: 1, ok: true },
       ],
       rewind.nextIndex,
     )
