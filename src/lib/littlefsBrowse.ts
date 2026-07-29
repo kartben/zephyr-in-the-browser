@@ -17,6 +17,12 @@ import {
   LFS_TYPE_REG,
   type LFSInfo,
 } from '@/vendor/littlefs-js/lfs_js.js'
+import {
+  previewFileContent,
+  type FsTreeDir,
+  type FsTreeFile,
+  type FsTreeNode,
+} from '@/lib/fsTree'
 
 /**
  * Dreagonmon littlefs-js is one Emscripten/Asyncify module. Overlapping
@@ -34,22 +40,15 @@ export function withLittlefsLock<T>(fn: () => Promise<T>): Promise<T> {
   return run
 }
 
-export interface LittlefsTreeFile {
-  kind: 'file'
-  name: string
-  path: string
-  size: number
-  content: Uint8Array
-}
-
-export interface LittlefsTreeDir {
-  kind: 'dir'
-  name: string
-  path: string
-  children: LittlefsTreeNode[]
-}
-
-export type LittlefsTreeNode = LittlefsTreeFile | LittlefsTreeDir
+/*
+ * The tree shape is shared with the FAT browser (src/lib/fsTree.ts) so one
+ * component renders both. Re-exported under the old names because that is what
+ * this module's callers and tests already say.
+ */
+export type LittlefsTreeFile = FsTreeFile
+export type LittlefsTreeDir = FsTreeDir
+export type LittlefsTreeNode = FsTreeNode
+export { previewFileContent }
 
 export interface LittlefsSuperblockInfo {
   blockSize: number
@@ -296,31 +295,4 @@ async function readFile(lfs: LFS, path: string, hintSize: number): Promise<Uint8
   }
 }
 
-/** Decode file bytes as UTF-8 when printable; otherwise hex. */
-export function previewFileContent(
-  bytes: Uint8Array,
-  max = 512,
-): { kind: 'text' | 'hex'; text: string } {
-  const slice = bytes.length > max ? bytes.subarray(0, max) : bytes
-  let printable = true
-  for (let i = 0; i < slice.length; i++) {
-    const b = slice[i]!
-    if (b === 9 || b === 10 || b === 13) continue
-    if (b < 32 || b > 126) {
-      printable = false
-      break
-    }
-  }
-  if (printable) {
-    const text = new TextDecoder().decode(slice) + (bytes.length > max ? '…' : '')
-    return { kind: 'text', text }
-  }
-  let hex = ''
-  for (let i = 0; i < slice.length; i++) {
-    if (i && i % 16 === 0) hex += '\n'
-    else if (i) hex += ' '
-    hex += slice[i]!.toString(16).padStart(2, '0')
-  }
-  if (bytes.length > max) hex += '\n…'
-  return { kind: 'hex', text: hex }
-}
+/* previewFileContent now lives in fsTree.ts; re-exported at the top. */
