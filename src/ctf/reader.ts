@@ -45,6 +45,8 @@ export interface Trace {
   /** Running-thread spans: [start, end, tid] */
   segments: Array<[number, number, number]>
   isrSpans: Array<[number, number]>
+  /** Start of an ISR span that has not received its outermost exit yet. */
+  isrOpenStart: number | null
   states: Map<number, StateSeg[]>
   stateStarts: Map<number, number[]>
   t0: number
@@ -91,6 +93,7 @@ function emptyTrace(): Trace {
     threads: new Map(),
     segments: [],
     isrSpans: [],
+    isrOpenStart: null,
     states: new Map(),
     stateStarts: new Map(),
     t0: 0,
@@ -113,7 +116,6 @@ export class TraceReader {
   private curTid: number | null = null
   private segStart: number | null = null
   private isrDepth = 0
-  private isrStart: number | null = null
   private stCur = new Map<number, [ThreadState, number, string]>()
   private stHint = new Map<number, [ThreadState, string]>()
   private running: number | null = null
@@ -148,6 +150,13 @@ export class TraceReader {
   private stSet(tid: number, ts: number, state: ThreadState, reason = '') {
     this.stClose(tid, ts)
     this.stCur.set(tid, [state, ts, reason])
+  }
+
+  private closeIsrSpan(ts: number) {
+    const start = this.tr.isrOpenStart
+    if (start !== null && ts > start) this.tr.isrSpans.push([start, ts])
+    this.tr.isrOpenStart = null
+    this.isrDepth = 0
   }
 
   private dropProvisional() {
@@ -255,6 +264,16 @@ export class TraceReader {
       }
     }
 
+    if (
+      (eid === THREAD_SWITCHED_IN || eid === THREAD_SWITCHED_OUT) &&
+      this.isrDepth > 0
+    ) {
+      // A context switch cannot complete inside the outer ISR. If async CTF
+      // dropped its exit record, use the next switch as the conservative end
+      // rather than masking every subsequent actor as ISR-originated.
+      this.closeIsrSpan(ts)
+    }
+
     if (eid === THREAD_SWITCHED_IN) {
       if (this.curTid !== null && this.segStart !== null) {
         tr.segments.push([this.segStart, ts, this.curTid])
@@ -270,15 +289,12 @@ export class TraceReader {
     }
 
     if (eid === ISR_ENTER) {
-      if (this.isrDepth === 0) this.isrStart = ts
+      if (this.isrDepth === 0) tr.isrOpenStart = ts
       this.isrDepth++
     } else if (eid === ISR_EXIT || eid === ISR_EXIT_TO_SCHEDULER) {
       if (this.isrDepth > 0) {
         this.isrDepth--
-        if (this.isrDepth === 0 && this.isrStart !== null) {
-          tr.isrSpans.push([this.isrStart, ts])
-          this.isrStart = null
-        }
+        if (this.isrDepth === 0) this.closeIsrSpan(ts)
       }
     }
 
@@ -567,8 +583,30 @@ export function stateAt(tr: Trace, tid: number, ts: number): [ThreadState | null
   return [null, '']
 }
 
-/** Running thread at ts (single-CPU), or null. */
+/** Whether `ts` falls inside a closed or currently-open ISR span. */
+function isrActiveAt(tr: Trace, ts: number): boolean {
+  const spans = tr.isrSpans
+  let lo = 0
+  let hi = spans.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (spans[mid]![1] <= ts) lo = mid + 1
+    else hi = mid
+  }
+  if (lo < spans.length) {
+    const [s, e] = spans[lo]!
+    if (s <= ts && ts < e) return true
+  }
+  return tr.isrOpenStart !== null && tr.isrOpenStart <= ts
+}
+
+/** Running thread at ts (single-CPU), or null when unknown / in an ISR. */
 export function threadRunningAt(tr: Trace, ts: number): number | null {
+  // The interrupted thread remains the scheduler's current thread throughout
+  // an ISR. Mask it here so ISR-originated kernel operations are not falsely
+  // attributed to that thread.
+  if (isrActiveAt(tr, ts)) return null
+
   // Prefer closed schedule segments — they survive a missing switched_out in
   // the per-thread state machine (common under async CTF drop).
   const segs = tr.segments
