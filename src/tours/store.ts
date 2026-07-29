@@ -118,6 +118,11 @@ let steps: StepRuntime[] = []
 let lineIndex: LineIndex | null = null
 let lineIndexFor: Uint8Array | null = null
 let demoTimer: ReturnType<typeof setTimeout> | undefined
+/**
+ * The step the stop filter decided on, waiting for the full stop to land.
+ * Hits are counted once, in the filter; this carries the verdict across.
+ */
+let pendingFire: StepRuntime | null = null
 /** Shipped sources by basename, fetched for pattern anchors. */
 let sources = new Map<string, string[]>()
 /** How to reach a shipped source file — the board and sample live in App. */
@@ -248,6 +253,7 @@ export async function loadFor(url: string, sourceFor?: (file: string) => string)
   // on. If the session is already up — a tour loaded after boot — plant now and
   // accept that anything already executed is behind us.
   gdb.setAttachHook(arm)
+  gdb.setStopFilter(claimStop)
   if (gdb.sessionActive()) void arm()
 }
 
@@ -333,7 +339,61 @@ let pauseEpoch = 0
 let handledEpoch = -1
 
 /**
- * Watch the debugger for stops that belong to this tour.
+ * Decide, at the raw stop, whether this hit is one the reader should see.
+ *
+ * This runs before the debugger has done anything expensive, and it is the
+ * only place hits are counted. A step conditioned on `hits % 10 == 0` rejects
+ * nine hits out of ten and each rejection costs one register read and a
+ * continue — no pause published, no thread walk, no card. Without that, a
+ * condition on anything hotter than a once-a-second blink would be unusable,
+ * and `when:` would be a promise the implementation could not keep.
+ *
+ * Returning true means "not this one, let it go".
+ */
+function claimStop(pcHex: string): boolean {
+  if (!state.enabled) return false
+  const pc = normalizeAddr(Number.parseInt(pcHex, 16), gdb.getSnapshot().regArch)
+  if (!Number.isFinite(pc)) return false
+
+  /*
+   * More than one step can sit on the same address — "the line that does the
+   * work" and "the same line, ten passes later" are both about the toggle in
+   * blinky's loop. Every step there counts the hit; the first whose condition
+   * fires is the one shown, preferring one the reader has not seen.
+   */
+  const here = steps.filter((s) => s.planted && s.anchor?.addr === pc)
+  // Somebody else's breakpoint, or the reader hit Pause. Not ours to swallow.
+  if (here.length === 0) return false
+
+  // A card is already up (a `stop: no` step, with the guest still running).
+  // Swallow without counting, so a `when: first` step further on is still
+  // waiting to happen rather than quietly used up.
+  if (state.current !== null) return true
+
+  const firing: StepRuntime[] = []
+  for (const candidate of here) {
+    candidate.hits++
+    const verdict = whenFires(candidate.step.when, candidate.hits)
+    if (verdict.invalid) {
+      publish({
+        problems: [
+          ...state.problems,
+          `step ${candidate.step.index + 1}: \`when: ${candidate.step.when}\` is not a hit condition`,
+        ],
+      })
+    }
+    if (verdict.fires) firing.push(candidate)
+  }
+
+  const runtime = firing.find((s) => s.card === null) ?? firing[0]
+  if (!runtime) return true // counted, not wanted: run on
+
+  pendingFire = runtime
+  return false
+}
+
+/**
+ * Watch the debugger for the stops the filter kept.
  *
  * A stop is only interesting once the registers have been read back, which is
  * when the PC is known; before that the snapshot still holds the previous
@@ -353,55 +413,27 @@ function onDebugChange() {
   if (snap.registersLoading || !snap.pc) return
   if (handledEpoch === pauseEpoch) return
   handledEpoch = pauseEpoch
-  const pc = normalizeAddr(Number.parseInt(snap.pc, 16), snap.regArch)
-  if (Number.isFinite(pc)) void onStop(pc)
+  void showPending()
 }
 
 gdb.subscribe(onDebugChange)
 
-async function onStop(pc: number): Promise<void> {
-  if (!state.enabled || state.current !== null) return
-  /*
-   * More than one step can sit on the same address — "the line that does the
-   * work" and "the same line, forty passes later" are both about the toggle in
-   * blinky's loop. Every step there counts the hit; the first whose condition
-   * fires is the one shown, preferring one the reader has not seen.
-   */
-  const here = steps.filter((s) => s.planted && s.anchor?.addr === pc)
-  // Somebody else's breakpoint, or the reader hit Pause. Not ours to resume.
-  if (here.length === 0) return
-
-  const firing: StepRuntime[] = []
-  for (const candidate of here) {
-    candidate.hits++
-    const verdict = whenFires(candidate.step.when, candidate.hits)
-    if (verdict.invalid) {
-      publish({
-        problems: [
-          ...state.problems,
-          `step ${candidate.step.index + 1}: \`when: ${candidate.step.when}\` is not a hit condition`,
-        ],
-      })
-    }
-    if (verdict.fires) firing.push(candidate)
-  }
-
-  const runtime = firing.find((s) => s.card === null) ?? firing[0]
-  if (!runtime) {
-    // No step wanted this pass. Slip past without the reader seeing the stop.
-    debug.resume()
-    return
-  }
+/** Put up the card for the step the filter picked, if there was one. */
+async function showPending(): Promise<void> {
+  const runtime = pendingFire
+  pendingFire = null
+  if (!runtime || !state.enabled || state.current !== null) return
 
   const card = await buildCard(runtime)
   runtime.card = card
 
-  if (!runtime.step.repeat) {
+  if (!runtime.step.repeat && runtime.anchor) {
+    const addr = runtime.anchor.addr
     runtime.planted = false
     // The address may still belong to another step; only lift the breakpoint
     // once nothing is waiting on it.
-    if (!steps.some((s) => s.planted && s.anchor?.addr === pc)) {
-      void debug.removeBreakpoint(pc)
+    if (!steps.some((s) => s.planted && s.anchor?.addr === addr)) {
+      void debug.removeBreakpoint(addr)
     }
   }
 
@@ -556,6 +588,8 @@ export function reset(): void {
   if (demoTimer !== undefined) clearTimeout(demoTimer)
   demoTimer = undefined
   gdb.setAttachHook(null)
+  gdb.setStopFilter(null)
+  pendingFire = null
   steps = []
   sources = new Map()
   sourceUrl = null

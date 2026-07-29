@@ -12,6 +12,10 @@ let pc = '00008004'
 const breakpoints = new Set<number>()
 const resumed: number[] = []
 let gdbListeners: Array<() => void> = []
+/** The store's stop filter, as hostGdb would hold it. */
+let stopFilter: ((pc: string) => boolean) | null = null
+/** Hits the filter waved through without ever publishing a pause. */
+const swallowed: string[] = []
 
 const gdbSnapshot = () => ({
   attached: true,
@@ -37,6 +41,9 @@ vi.mock('@/hostGdb', () => ({
     objects: new Map([['led', { name: 'led', addr: 0x2000, size: 8 }]]),
   }),
   setAttachHook: () => {},
+  setStopFilter: (fn: ((pc: string) => boolean) | null) => {
+    stopFilter = fn
+  },
   sessionActive: () => true,
 }))
 
@@ -108,10 +115,20 @@ at: 0x9000
 Prose.
 `
 
-/** Deliver a stop at `addr`, the way the gdb poll loop would. */
+/**
+ * Deliver a stop at `addr`, the way hostGdb would: read the PC, offer it to the
+ * filter, and only publish a pause for the stops the filter keeps. A rejected
+ * one is continued without the guest ever appearing stopped, which is the whole
+ * reason `when:` can sit on a hot breakpoint.
+ */
 async function stopAt(addr: number) {
+  const hex = addr.toString(16).padStart(8, '0')
+  if (stopFilter?.(hex)) {
+    swallowed.push(hex)
+    return
+  }
   paused = true
-  pc = addr.toString(16).padStart(8, '0')
+  pc = hex
   for (const fn of gdbListeners) fn()
   // Let the card's memory reads settle.
   await new Promise((r) => setTimeout(r, 0))
@@ -125,6 +142,8 @@ beforeEach(async () => {
   breakpoints.clear()
   resumed.length = 0
   revealed.length = 0
+  swallowed.length = 0
+  stopFilter = null
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response(TOUR, { headers: { 'content-type': 'text/markdown' } })),
@@ -147,6 +166,7 @@ describe('stops', () => {
   it('ignores a stop that belongs to nobody', async () => {
     await stopAt(0x1234)
     expect(getSnapshot().current).toBeNull()
+    expect(swallowed).toHaveLength(0) // not ours to swallow — Pause must work
     expect(resumed).toHaveLength(0)
   })
 
@@ -170,13 +190,23 @@ describe('stops', () => {
     expect(getSteps()[1]!.planted).toBe(true)
   })
 
-  it('slips past hits no step asked for', async () => {
+  it('slips past hits no step asked for, without ever pausing', async () => {
     await stopAt(0x8000)
     next() // step 1 fires and is done
     await stopAt(0x8000) // hit 2 — step 2 wants every fourth
     expect(getSnapshot().current).toBeNull()
-    expect(resumed).toHaveLength(2) // the `next()` above, then this stop
+    // The rejected hit never reached the expensive path: no pause published,
+    // no thread walk, and the store did not have to resume anything.
+    expect(swallowed).toEqual(['00008000'])
+    expect(resumed).toHaveLength(1) // just the `next()` above
     expect(paused).toBe(false)
+  })
+
+  it('does not spend a step\'s hits while another card is up', async () => {
+    await stopAt(0x8000) // step 1 fires, card up, machine stopped
+    await stopAt(0x8000) // could not happen while stopped, but must be safe
+    expect(swallowed).toEqual(['00008000'])
+    expect(getSteps()[1]!.hits).toBe(1) // not counted a second time
   })
 
   it('fires the repeating step on its hit and runs on when `stop: no`', async () => {
@@ -185,6 +215,7 @@ describe('stops', () => {
     await stopAt(0x8000)
     await stopAt(0x8000)
     await stopAt(0x8000) // hit 4
+    expect(swallowed).toHaveLength(2) // hits 2 and 3 cost nothing
     const card = getSnapshot().current
     expect(card?.step.title).toBe('Every fourth pass')
     expect(card?.paused).toBe(false)
