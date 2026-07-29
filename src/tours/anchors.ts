@@ -15,6 +15,17 @@
  * still means what it meant. CodeTour learnt the same lesson and grew the same
  * feature.
  *
+ * It has one weakness the others do not: searching source text needs the source
+ * text, which arrives with the guest images rather than with the page, and an
+ * older image tarball does not carry it. So `at:` takes alternatives, tried in
+ * order and separated by `|`:
+ *
+ *     at: main.c:/gpio_pin_toggle_dt/ | main.c:38
+ *
+ * The pattern when the sources are there, the line number when they are not.
+ * Each covers the other's failure: the line drifts with upstream, the pattern
+ * depends on an artifact somebody else built.
+ *
  * All four are looked up in the ELF the page already fetched to boot the guest,
  * which is why a tour can point at code it does not own: `at: z_impl_k_sleep`
  * breaks inside the kernel, and the sample it is teaching never knows.
@@ -70,7 +81,27 @@ const FILE_LINE = /^(\S+\.[A-Za-z]\w*):(\d+)$/
 const SYMBOL_OFFSET = /^([A-Za-z_]\w*)\s*\+\s*(0x[0-9a-f]+|\d+)$/i
 const SYMBOL = /^[A-Za-z_]\w*$/
 
+/**
+ * Resolve an `at:`, trying each `|`-separated alternative in turn.
+ *
+ * The first that resolves wins. If none do, the reader gets every reason rather
+ * than only the last, since "no line matches" and "no such function" point at
+ * quite different mistakes.
+ */
 export function resolveAnchor(at: string, ctx: AnchorContext): AnchorResult {
+  const alternatives = at.split('|').map((part) => part.trim()).filter((part) => part !== '')
+  if (alternatives.length === 0) return { ok: false, error: '`at:` is empty' }
+
+  const errors: string[] = []
+  for (const alternative of alternatives) {
+    const result = resolveOne(alternative, ctx)
+    if (result.ok) return result
+    errors.push(result.error)
+  }
+  return { ok: false, error: errors.join('; ') }
+}
+
+function resolveOne(at: string, ctx: AnchorContext): AnchorResult {
   const raw = at.trim()
 
   if (ADDRESS.test(raw)) {
@@ -176,8 +207,14 @@ function findSource(ctx: AnchorContext, file: string): string[] | null {
   return null
 }
 
-/** Every file a tour needs the text of, so the store knows what to fetch. */
+/**
+ * The file a tour needs the text of, so the store knows what to fetch. Checks
+ * every alternative, since the pattern may not be the first one written.
+ */
 export function patternFile(at: string): string | null {
-  const match = FILE_PATTERN.exec(at.trim())
-  return match ? match[1]!.toLowerCase() : null
+  for (const alternative of at.split('|')) {
+    const match = FILE_PATTERN.exec(alternative.trim())
+    if (match) return match[1]!.toLowerCase()
+  }
+  return null
 }

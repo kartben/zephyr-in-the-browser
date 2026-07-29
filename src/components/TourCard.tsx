@@ -170,7 +170,7 @@ export function TourCard({ board, sampleId }: Props) {
 
           {src && anchor?.line && <SourceSnippet src={src} line={anchor.line} />}
 
-          {import.meta.env.DEV && state.problems.length > 0 && (
+          {state.problems.length > 0 && (
             <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-600 dark:text-amber-400">
               {state.problems.map((problem) => (
                 <li key={problem}>{problem}</li>

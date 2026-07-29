@@ -47,7 +47,7 @@ The threads are created `K_FOREVER`, which means "do not schedule this yet". The
 ## Dijkstra's rule, in five lines
 
 ```tour
-at: main.c:/if \(is_last_philosopher/
+at: main.c:/if \(is_last_philosopher/ | main.c:151
 when: first
 ```
 
@@ -119,7 +119,7 @@ fires once and the breakpoint is lifted.
 ## Eating is a sleep, and sleeping is scheduling
 
 ```tour
-at: main.c:/EATING/
+at: main.c:/EATING/ | main.c:168
 when: hits == 6
 stop: no
 threads: yes

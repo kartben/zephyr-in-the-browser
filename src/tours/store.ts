@@ -25,10 +25,14 @@ import * as gdb from '@/hostGdb'
 import { revealPanelKind } from '@/lib/dockReveal'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
+import { loadTourSource } from '@/tours/catalog'
 import { parseTour, type TourDoc, type TourStep } from '@/tours/parse'
 import { whenFires } from '@/tours/when'
 
 const ENABLED_KEY = 'zephyr-tours-enabled'
+
+/** How long to wait for a gdb session before complaining that there is none. */
+const ARM_GRACE_MS = 25_000
 
 /** One evaluated `watch:` row. */
 export interface TourValue {
@@ -118,6 +122,7 @@ let steps: StepRuntime[] = []
 let lineIndex: LineIndex | null = null
 let lineIndexFor: Uint8Array | null = null
 let demoTimer: ReturnType<typeof setTimeout> | undefined
+let armWatchdog: ReturnType<typeof setTimeout> | undefined
 /**
  * The step the stop filter decided on, waiting for the full stop to land.
  * Hits are counted once, in the filter; this carries the verdict across.
@@ -207,32 +212,22 @@ function liveTarget(): TourTarget {
  * ------------------------------------------------------------------ */
 
 /*
- * Cached by URL, misses included: a sample with no tour is as cacheable as one
- * with them. Same shape as the .dts cache in src/devicetree.ts.
+ * Cached by sample id, misses included: a sample with no tour is as cacheable
+ * as one with them. Same shape as the .dts cache in src/devicetree.ts.
  */
 const cache = new Map<string, TourDoc | null>()
 
 /**
- * Fetch and parse a tour. Never throws — a missing file, a dev server answering
- * with index.html, or a document with no steps all read as "no tour here".
+ * Parse a sample's tour. Never throws — a sample with no tour file, and a
+ * document with no steps, both read as "no tour here".
  */
-export async function fetchTour(url: string): Promise<TourDoc | null> {
-  const cached = cache.get(url)
+export async function fetchTour(sampleId: string): Promise<TourDoc | null> {
+  const cached = cache.get(sampleId)
   if (cached !== undefined) return cached
-  let doc: TourDoc | null = null
-  try {
-    const res = await fetch(url)
-    if (res.ok && !(res.headers.get('content-type') ?? '').includes('text/html')) {
-      const text = await res.text()
-      if (!text.trimStart().startsWith('<')) {
-        const parsed = parseTour(text)
-        doc = parsed.steps.length > 0 ? parsed : null
-      }
-    }
-  } catch {
-    // Absence and network failure are the same thing here.
-  }
-  cache.set(url, doc)
+  const text = await loadTourSource(sampleId)
+  const parsed = text === null ? null : parseTour(text)
+  const doc = parsed && parsed.steps.length > 0 ? parsed : null
+  cache.set(sampleId, doc)
   return doc
 }
 
@@ -241,11 +236,15 @@ export async function fetchTour(url: string): Promise<TourDoc | null> {
  *
  * `sourceFor` maps a file's basename to the URL its shipped copy lives at; a
  * tour that anchors by pattern needs the text to search, and only the caller
- * knows which board's assets are in play.
+ * knows which board's assets are in play. Those come from the image build,
+ * so they can be absent where the tour itself never is.
  */
-export async function loadFor(url: string, sourceFor?: (file: string) => string): Promise<void> {
+export async function loadFor(
+  sampleId: string,
+  sourceFor?: (file: string) => string,
+): Promise<void> {
   sourceUrl = sourceFor ?? null
-  const doc = await fetchTour(url)
+  const doc = await fetchTour(sampleId)
   if (!doc) return
   steps = doc.steps.map((step) => ({ step, anchor: null, planted: false, hits: 0, card: null }))
   publish({ doc, problems: [...doc.problems], finished: false, seen: new Set() })
@@ -255,6 +254,24 @@ export async function loadFor(url: string, sourceFor?: (file: string) => string)
   gdb.setAttachHook(arm)
   gdb.setStopFilter(claimStop)
   if (gdb.sessionActive()) void arm()
+
+  /*
+   * A tour that never arms should say which of the three ways it failed, not
+   * sit there looking like a sample with no tour. The reader sees the same
+   * nothing whether the images are older than the tour, the emulator was built
+   * without the gdbstub, or every anchor missed — and only the first of those
+   * is something they can do anything about.
+   */
+  if (armWatchdog !== undefined) clearTimeout(armWatchdog)
+  armWatchdog = setTimeout(() => {
+    if (state.armed) return
+    console.warn(
+      gdb.getSnapshot().attached
+        ? '[tour] gdb is attached but no step armed — see the problems above'
+        : '[tour] no gdb session, so the tour cannot break anywhere. ' +
+            'The emulator build needs the gdbstub chardev (features.json "gdb").',
+    )
+  }, ARM_GRACE_MS)
 }
 
 /**
@@ -289,7 +306,22 @@ export async function arm(): Promise<void> {
       problems.push(`step ${runtime.step.index + 1}: the stub refused a breakpoint at \`${runtime.step.at}\``)
     }
   }
-  publish({ armed: steps.some((s) => s.planted), live: true, problems })
+  if (armWatchdog !== undefined) clearTimeout(armWatchdog)
+  armWatchdog = undefined
+  const armed = steps.some((s) => s.planted)
+  /*
+   * Say something when a tour cannot run. Until now this was silent in
+   * production: the gallery badges the sample as guided, the reader waits, and
+   * nothing ever happens — indistinguishable from a sample with no tour. The
+   * usual cause is an image tarball older than the tour (no shipped sources for
+   * a pattern anchor to search), which is worth being able to see from the
+   * console rather than by reading this file.
+   */
+  if (problems.length > 0) {
+    console.warn(`[tour] ${problems.length} step(s) could not be armed:\n  ${problems.join('\n  ')}`)
+  }
+  if (!armed) console.warn('[tour] no step resolved against this build; the tour will not run')
+  publish({ armed, live: true, problems })
 }
 
 /**
@@ -587,6 +619,8 @@ export function setEnabled(enabled: boolean): void {
 export function reset(): void {
   if (demoTimer !== undefined) clearTimeout(demoTimer)
   demoTimer = undefined
+  if (armWatchdog !== undefined) clearTimeout(armWatchdog)
+  armWatchdog = undefined
   gdb.setAttachHook(null)
   gdb.setStopFilter(null)
   pendingFire = null
@@ -617,8 +651,8 @@ const DEMO_STEP_MS = 3200
  * inventing a number — a fabricated `pin = 4` on a page whose whole premise is
  * "this is really running" would be the wrong kind of convincing.
  */
-export function startDemo(url: string, signal: AbortSignal): () => void {
-  void fetchTour(url).then((doc) => {
+export function startDemo(sampleId: string, signal: AbortSignal): () => void {
+  void fetchTour(sampleId).then((doc) => {
     if (!doc || signal.aborted) return
     steps = doc.steps.map((step) => ({ step, anchor: null, planted: false, hits: 0, card: null }))
     publish({ doc, live: false, armed: false, problems: [...doc.problems] })

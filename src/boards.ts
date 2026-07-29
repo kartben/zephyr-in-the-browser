@@ -950,14 +950,6 @@ function baseSampleId(sampleId: string): string {
 }
 
 /**
- * The tour shipped next to the image, for a sample that carries one. Absent for
- * every other sample, which is a supported state — see src/tours/store.ts.
- */
-export function sampleTourAsset(board: Board, sampleId: string): string {
-  return `zephyr/${board.zephyrTarget}/${baseSampleId(sampleId)}.tour.md`
-}
-
-/**
  * One of a sample's shipped source files — a verbatim copy of what was built,
  * so the line numbers a tour resolves out of DWARF index straight into it.
  */
