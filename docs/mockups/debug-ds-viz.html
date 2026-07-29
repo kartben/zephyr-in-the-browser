@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debug · View as data structure — mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #12141a;
+      --bg-elev: #1a1d26;
+      --bg-soft: #222632;
+      --line: #2e3340;
+      --fg: #e8e6e1;
+      --fg-dim: #9a9aa3;
+      --fg-mute: #6b6e78;
+      --accent: #c4a574;
+      --accent-soft: rgba(196, 165, 116, 0.14);
+      --danger: #c97b7b;
+      --ok: #7aab8a;
+      --rb-red: #e07a6a;
+      --rb-red-fill: #3a2220;
+      --rb-black: #8b93a7;
+      --rb-black-fill: #1c2230;
+      --ring-used: #5b9fd4;
+      --ring-free: #2a3140;
+      --ring-put: #34d399;
+      --ring-get: #f0b429;
+      --ptr: #7dd3fc;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      --sans: "IBM Plex Sans", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--fg);
+      background:
+        radial-gradient(900px 500px at 8% -10%, #1c2433 0%, transparent 55%),
+        radial-gradient(700px 400px at 100% 0%, #1a221c 0%, transparent 50%),
+        var(--bg);
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      padding: 1.25rem 1.5rem 2rem;
+    }
+    header.page {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem 1.5rem;
+    }
+    header.page h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    header.page p {
+      margin: 0.25rem 0 0;
+      color: var(--fg-dim);
+      font-size: 0.85rem;
+      max-width: 44rem;
+      line-height: 1.45;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      align-items: center;
+      font-size: 0.8rem;
+      color: var(--fg-dim);
+    }
+    .toggle {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg-elev);
+    }
+    .toggle button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg-dim);
+      font: 500 0.75rem/1 var(--sans);
+      padding: 0.45rem 0.85rem;
+      cursor: pointer;
+    }
+    .toggle button[aria-pressed="true"] {
+      background: var(--bg-soft);
+      color: var(--fg);
+    }
+
+    .stage {
+      display: grid;
+      gap: 1rem;
+      align-items: start;
+      flex: 1;
+    }
+    body[data-width="dock"] .stage {
+      grid-template-columns: 1fr min(24rem, 100%);
+    }
+    body[data-width="float"] .stage {
+      grid-template-columns: 1fr min(40rem, 100%);
+    }
+    @media (max-width: 900px) {
+      body[data-width="dock"] .stage,
+      body[data-width="float"] .stage { grid-template-columns: 1fr; }
+    }
+
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.65rem;
+      background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .topbar .brand {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--fg-mute);
+      margin-right: 0.5rem;
+    }
+    .spacer { flex: 1; }
+    .ghost { font-size: 0.75rem; color: var(--fg-mute); }
+
+    .terminal {
+      background: #0c0e12;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      min-height: 14rem;
+      padding: 0.85rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: #b8c0cc;
+      line-height: 1.55;
+    }
+    .terminal .prompt { color: var(--ok); }
+    .terminal .dim { color: var(--fg-mute); }
+
+    .panel {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 32rem;
+    }
+    .panel-hd {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg-soft);
+    }
+    .panel-hd h2 {
+      margin: 0;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .panel-hd .meta {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--fg-mute);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.65rem;
+      color: var(--fg-dim);
+      font-family: var(--mono);
+    }
+    .pill i {
+      width: 0.4rem;
+      height: 0.4rem;
+      border-radius: 50%;
+      background: var(--accent);
+      display: inline-block;
+    }
+    .win { display: flex; margin-left: auto; }
+    .win button, .icon-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg-mute);
+      width: 1.45rem;
+      height: 1.45rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .win button:hover, .icon-btn:hover { background: var(--bg); color: var(--fg); }
+
+    .status-line {
+      padding: 0.35rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--fg);
+    }
+
+    .section-label {
+      font-size: 0.58rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--fg-mute);
+      padding: 0.55rem 0.75rem 0.2rem;
+    }
+    .bp-list {
+      list-style: none;
+      margin: 0;
+      padding: 0.2rem 0.55rem 0.55rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+    }
+    .bp-list li {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.25rem 0.35rem;
+      border-radius: 5px;
+      color: var(--fg-dim);
+    }
+    .bp-list .name { flex: 1; color: var(--fg); }
+
+    .tabs {
+      display: flex;
+      gap: 0.2rem;
+      padding: 0.35rem 0.65rem 0;
+      border-top: 1px solid var(--line);
+    }
+    .tabs button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg-mute);
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.55rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .tabs button[aria-selected="true"] {
+      background: var(--bg-soft);
+      color: var(--fg);
+    }
+
+    .mem {
+      padding: 0.55rem 0.65rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      flex: 1;
+      min-height: 0;
+    }
+    .row {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .row input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      height: 1.75rem;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg) 70%, var(--bg-soft));
+      color: var(--fg);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0 0.5rem;
+      outline: none;
+    }
+    .row input:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+    .btn {
+      appearance: none;
+      height: 1.75rem;
+      padding: 0 0.55rem;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      color: var(--fg-dim);
+      font: 500 0.7rem/1 var(--sans);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover { color: var(--fg); border-color: color-mix(in srgb, var(--fg-mute) 50%, var(--line)); }
+    .btn.primary {
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+      color: var(--accent);
+    }
+    .btn.icon { width: 1.75rem; padding: 0; display: grid; place-items: center; }
+
+    .view-wrap { position: relative; }
+    .view-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      z-index: 20;
+      min-width: 11.5rem;
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 0.3rem;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      display: none;
+    }
+    .view-menu.open { display: block; }
+    .view-menu button {
+      appearance: none;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      color: var(--fg);
+      font: 500 0.72rem/1.2 var(--sans);
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .view-menu button:hover { background: var(--bg-soft); }
+    .view-menu button[aria-checked="true"] {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .view-menu button:disabled {
+      color: var(--fg-mute);
+      cursor: default;
+    }
+    .view-menu button:disabled:hover { background: transparent; }
+    .view-menu .tag {
+      font-family: var(--mono);
+      font-size: 0.58rem;
+      color: var(--fg-mute);
+      font-weight: 400;
+    }
+    .view-menu hr {
+      border: 0;
+      border-top: 1px solid var(--line);
+      margin: 0.25rem 0.2rem;
+    }
+
+    .hex {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      line-height: 1.45;
+      color: var(--fg-dim);
+      background: #10131a;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.45rem 0.5rem;
+      overflow: auto;
+      flex: 1;
+    }
+    .hex .addr { color: var(--fg-mute); margin-right: 0.55rem; }
+    .hex .hi { color: var(--accent); }
+
+    .viz {
+      display: none;
+      flex-direction: column;
+      gap: 0.45rem;
+      flex: 1;
+      min-height: 0;
+    }
+    .viz.active { display: flex; }
+
+    .struct-hd {
+      background: #141821;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.45rem 0.55rem;
+    }
+    .struct-hd .type {
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.3rem;
+    }
+    .fields {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.15rem 0.55rem;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+    }
+    .fields .k { color: var(--fg-mute); }
+    .fields .v { color: var(--fg); }
+    .fields .ptr {
+      color: var(--ptr);
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-color: color-mix(in srgb, var(--ptr) 35%, transparent);
+      text-underline-offset: 2px;
+    }
+    .fields .ptr:hover { color: #b8ecff; }
+    .meta-line {
+      margin-top: 0.35rem;
+      font-family: var(--mono);
+      font-size: 0.58rem;
+      color: var(--fg-mute);
+    }
+
+    .canvas-wrap {
+      flex: 1;
+      min-height: 14rem;
+      background: #10131a;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+    }
+    .canvas-wrap svg { display: block; width: 100%; height: 100%; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      font: 500 0.62rem/1 var(--mono);
+      color: var(--fg-mute);
+      padding: 0 0.1rem;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .swatch {
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 3px;
+      border: 1px solid transparent;
+    }
+    .swatch.red { background: var(--rb-red-fill); border-color: var(--rb-red); }
+    .swatch.black { background: var(--rb-black-fill); border-color: var(--rb-black); }
+    .swatch.ellip {
+      background: transparent;
+      border-style: dashed;
+      border-color: var(--fg-mute);
+    }
+    .swatch.used { background: var(--ring-used); }
+    .swatch.free { background: var(--ring-free); border-color: var(--line); }
+    .swatch.put { background: var(--ring-put); }
+    .swatch.get { background: var(--ring-get); }
+
+    .sel-card {
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.4rem 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--fg-dim);
+      min-height: 2.4rem;
+    }
+    .sel-card strong { color: var(--fg); font-weight: 500; }
+    .sel-card .empty { color: var(--fg-mute); }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .toolbar .grow { flex: 1; }
+
+    footer.page {
+      font-size: 0.72rem;
+      color: var(--fg-mute);
+      max-width: 48rem;
+      line-height: 1.45;
+    }
+    footer.page code {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--fg-dim);
+    }
+
+    /* tree node boxes */
+    .node-box { cursor: pointer; }
+    .node-box rect {
+      stroke-width: 1.25;
+      rx: 5; ry: 5;
+    }
+    .node-box.red rect { fill: var(--rb-red-fill); stroke: var(--rb-red); }
+    .node-box.black rect { fill: var(--rb-black-fill); stroke: var(--rb-black); }
+    .node-box.ellipsis rect {
+      fill: #151922;
+      stroke: var(--fg-mute);
+      stroke-dasharray: 3 2;
+    }
+    .node-box.selected rect {
+      stroke: var(--accent);
+      stroke-width: 2;
+      filter: drop-shadow(0 0 6px rgba(196, 165, 116, 0.35));
+    }
+    .node-box text {
+      fill: var(--fg);
+      font-family: var(--mono);
+      font-size: 9px;
+      pointer-events: none;
+    }
+    .node-box.ellipsis text { fill: var(--fg-dim); }
+    .node-box .sub { fill: var(--fg-mute); font-size: 8px; }
+    .link {
+      fill: none;
+      stroke: #3a4558;
+      stroke-width: 1.25;
+    }
+    .link.hot { stroke: color-mix(in srgb, var(--ptr) 55%, #3a4558); }
+
+    .note-callout {
+      margin: 0;
+      font-size: 0.78rem;
+      color: var(--fg-mute);
+      line-height: 1.5;
+      max-width: 48rem;
+    }
+  </style>
+</head>
+<body data-width="dock" data-view="hex">
+  <header class="page">
+    <div>
+      <h1>Debug · View as data structure</h1>
+      <p>
+        Mem already has an address. <strong>View as…</strong> interprets that
+        address as a Zephyr <code>sys</code> container — start with
+        <code>rbtree</code> and <code>ring_buf</code> — and draws the live
+        pointer graph instead of a hex dump.
+      </p>
+    </div>
+    <div class="controls">
+      Panel width
+      <div class="toggle" role="group" aria-label="Panel width">
+        <button type="button" id="w-dock" aria-pressed="true">Dock</button>
+        <button type="button" id="w-float" aria-pressed="false">Undocked</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="topbar">
+      <span class="brand">zephyr · a53</span>
+      <span class="spacer"></span>
+      <span class="ghost">Panels ▾</span>
+    </div>
+
+    <div class="terminal" aria-hidden="true">
+      <div><span class="prompt">uart:~$</span> kernel stacks</div>
+      <div class="dim">  0x4002a100  timer_rb · 17 nodes</div>
+      <div class="dim">  0x40031000  uart_rx_ring · 64 / 256 B</div>
+      <div><span class="prompt">uart:~$</span> █</div>
+    </div>
+
+    <aside class="panel" aria-label="Debug panel">
+      <div class="panel-hd">
+        <h2>Debug</h2>
+        <span class="meta">gdb</span>
+        <span class="pill" style="margin-left:0.35rem"><i></i> paused</span>
+        <div class="win">
+          <button type="button" title="Collapse">–</button>
+          <button type="button" title="Undock">↗</button>
+          <button type="button" title="Close">×</button>
+        </div>
+      </div>
+      <div class="status-line">shell_process+0x14</div>
+
+      <div class="section-label">Breakpoints</div>
+      <ul class="bp-list">
+        <li><span class="name">shell_process</span><span>4003b018</span></li>
+        <li><span class="name">k_msleep+0x2c</span><span>4001a044</span></li>
+      </ul>
+
+      <div class="tabs" role="tablist">
+        <button type="button">CPU</button>
+        <button type="button" aria-selected="true">Mem</button>
+        <button type="button">Threads</button>
+        <button type="button">Objects</button>
+      </div>
+
+      <div class="mem">
+        <div class="row">
+          <input id="addr" type="text" value="4002a100" aria-label="Address" spellcheck="false" />
+          <button type="button" class="btn">Read</button>
+          <div class="view-wrap">
+            <button type="button" class="btn primary" id="view-btn" aria-haspopup="menu" aria-expanded="false">
+              View as ▾
+            </button>
+            <div class="view-menu" id="view-menu" role="menu">
+              <button type="button" role="menuitemradio" data-view="hex" aria-checked="true">
+                Hex dump <span class="tag">default</span>
+              </button>
+              <hr />
+              <button type="button" role="menuitemradio" data-view="rbtree" aria-checked="false">
+                rbtree <span class="tag">sys/rb.h</span>
+              </button>
+              <button type="button" role="menuitemradio" data-view="ring" aria-checked="false">
+                ring_buf <span class="tag">sys/ring_buffer.h</span>
+              </button>
+              <hr />
+              <button type="button" disabled>sys_dlist <span class="tag">later</span></button>
+              <button type="button" disabled>sys_slist <span class="tag">later</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <input type="text" placeholder='Find · hex or "ascii"' disabled />
+          <button type="button" class="btn icon" title="Search down" disabled>↓</button>
+          <button type="button" class="btn" disabled>Find</button>
+        </div>
+
+        <!-- Hex (default) -->
+        <div class="viz active" id="viz-hex" data-pane="hex">
+          <div class="hex" id="hex-body" aria-label="Memory dump"></div>
+        </div>
+
+        <!-- rbtree -->
+        <div class="viz" id="viz-rbtree" data-pane="rbtree">
+          <div class="struct-hd">
+            <div class="type">struct rbtree</div>
+            <div class="fields">
+              <span class="k">@</span><span class="v ptr" data-goto="4002a100">4002a100</span>
+              <span class="k">root</span><span class="v ptr" data-goto="4002b040">4002b040</span>
+              <span class="k">lessthan_fn</span><span class="v ptr" data-goto="40001480">40001480</span>
+              <span class="k">max_depth</span><span class="v">7</span>
+            </div>
+            <div class="meta-line" id="rb-meta">17 nodes · showing 9 · 2 folds</div>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="btn" id="rb-expand">Expand folds</button>
+            <button type="button" class="btn" id="rb-collapse">Collapse</button>
+            <span class="grow"></span>
+            <button type="button" class="btn" data-view-switch="hex">← Hex</button>
+          </div>
+          <div class="legend">
+            <span><i class="swatch red"></i>red</span>
+            <span><i class="swatch black"></i>black</span>
+            <span><i class="swatch ellip"></i>… folded</span>
+          </div>
+          <div class="canvas-wrap" id="rb-canvas"></div>
+          <div class="sel-card" id="rb-sel"><span class="empty">Click a node — children and color bit from children[0] LSB.</span></div>
+        </div>
+
+        <!-- ring_buf -->
+        <div class="viz" id="viz-ring" data-pane="ring">
+          <div class="struct-hd">
+            <div class="type">struct ring_buf</div>
+            <div class="fields">
+              <span class="k">@</span><span class="v ptr" data-goto="40031000">40031000</span>
+              <span class="k">buffer</span><span class="v ptr" data-goto="40031100">40031100</span>
+              <span class="k">size</span><span class="v">256</span>
+              <span class="k">put.tail</span><span class="v">196</span>
+              <span class="k">get.tail</span><span class="v">132</span>
+              <span class="k">used</span><span class="v">64 / 256</span>
+            </div>
+            <div class="meta-line">byte mode · put/get claim heads omitted when equal to tail</div>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="btn" id="ring-toggle-size">Large buffer (…)</button>
+            <span class="grow"></span>
+            <button type="button" class="btn" data-view-switch="hex">← Hex</button>
+          </div>
+          <div class="legend">
+            <span><i class="swatch used"></i>used</span>
+            <span><i class="swatch free"></i>free</span>
+            <span><i class="swatch put"></i>put</span>
+            <span><i class="swatch get"></i>get</span>
+          </div>
+          <div class="canvas-wrap" id="ring-canvas"></div>
+          <div class="sel-card" id="ring-sel"><span class="empty">Click the belt or strip — shows byte window around that index.</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <p class="note-callout">
+    Color bit lives in <code>rbnode.children[0]</code> LSB (BLACK=1). Ring indices
+    are <code>uint16_t</code> unless <code>CONFIG_RING_BUFFER_LARGE</code>. Viz uses
+    d3 hierarchy for the tree; no Mermaid/Graphviz at runtime.
+  </p>
+  <footer class="page">
+    Plan: <code>docs/debug-ds-viz-plan.md</code> · toggle Dock / Undocked for width.
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script>
+    /* ---------- chrome ---------- */
+    const body = document.body
+    const viewBtn = document.getElementById('view-btn')
+    const viewMenu = document.getElementById('view-menu')
+    const addrInput = document.getElementById('addr')
+
+    document.getElementById('w-dock').addEventListener('click', () => {
+      body.dataset.width = 'dock'
+      document.getElementById('w-dock').setAttribute('aria-pressed', 'true')
+      document.getElementById('w-float').setAttribute('aria-pressed', 'false')
+      relayout()
+    })
+    document.getElementById('w-float').addEventListener('click', () => {
+      body.dataset.width = 'float'
+      document.getElementById('w-dock').setAttribute('aria-pressed', 'false')
+      document.getElementById('w-float').setAttribute('aria-pressed', 'true')
+      relayout()
+    })
+
+    viewBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const open = !viewMenu.classList.contains('open')
+      viewMenu.classList.toggle('open', open)
+      viewBtn.setAttribute('aria-expanded', open ? 'true' : 'false')
+    })
+    document.addEventListener('click', () => {
+      viewMenu.classList.remove('open')
+      viewBtn.setAttribute('aria-expanded', 'false')
+    })
+
+    function setView(view) {
+      body.dataset.view = view
+      viewMenu.querySelectorAll('[data-view]').forEach((b) => {
+        b.setAttribute('aria-checked', b.dataset.view === view ? 'true' : 'false')
+      })
+      document.querySelectorAll('.viz').forEach((el) => {
+        el.classList.toggle('active', el.dataset.pane === view)
+      })
+      const labels = { hex: 'View as ▾', rbtree: 'rbtree ▾', ring: 'ring_buf ▾' }
+      viewBtn.textContent = labels[view] || 'View as ▾'
+      if (view === 'rbtree') addrInput.value = '4002a100'
+      if (view === 'ring') addrInput.value = '40031000'
+      if (view === 'hex') {/* keep */}
+      viewMenu.classList.remove('open')
+      viewBtn.setAttribute('aria-expanded', 'false')
+      relayout()
+    }
+
+    viewMenu.querySelectorAll('[data-view]').forEach((b) => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setView(b.dataset.view)
+      })
+    })
+    document.querySelectorAll('[data-view-switch]').forEach((b) => {
+      b.addEventListener('click', () => setView(b.dataset.viewSwitch))
+    })
+
+    /* ---------- hex dump ---------- */
+    function paintHex() {
+      const lines = []
+      let base = 0x4002a100
+      for (let r = 0; r < 12; r++) {
+        const addr = (base + r * 16).toString(16)
+        const bytes = Array.from({ length: 16 }, (_, i) =>
+          ((r * 3 + i * 7 + 0x2a) & 0xff).toString(16).padStart(2, '0')
+        )
+        const hi = r === 0 ? ' hi' : ''
+        lines.push(
+          `<div><span class="addr">${addr}</span>` +
+          bytes.map((b, i) => `<span class="${i < 8 && r === 0 ? 'hi' : ''}">${b}</span>`).join(' ') +
+          `</div>`
+        )
+      }
+      document.getElementById('hex-body').innerHTML = lines.join('')
+    }
+    paintHex()
+
+    /* ---------- synthetic rbtree ---------- */
+    // Build a plausible RB tree, then fold some subtrees for the “…” story.
+    function makeTree() {
+      // ids are short hex-ish labels; color: 'red' | 'black'
+      const nodes = {
+        A: { addr: '4002b040', color: 'black', label: 'timer' },
+        B: { addr: '4002b080', color: 'red', label: 'work' },
+        C: { addr: '4002b0c0', color: 'red', label: 'msg' },
+        D: { addr: '4002b100', color: 'black', label: 'irq' },
+        E: { addr: '4002b140', color: 'black', label: 'sem' },
+        F: { addr: '4002b180', color: 'black', label: 'fifo' },
+        G: { addr: '4002b1c0', color: 'black', label: 'slab' },
+        H: { addr: '4002b200', color: 'red', label: 'heap' },
+        I: { addr: '4002b240', color: 'black', label: 'net' },
+        J: { addr: '4002b280', color: 'red', label: 'dns' },
+        K: { addr: '4002b2c0', color: 'black', label: 'udp' },
+        L: { addr: '4002b300', color: 'red', label: 'tcp' },
+        M: { addr: '4002b340', color: 'black', label: 'sock' },
+        N: { addr: '4002b380', color: 'black', label: 'poll' },
+        O: { addr: '4002b3c0', color: 'red', label: 'shell' },
+        P: { addr: '4002b400', color: 'black', label: 'log' },
+        Q: { addr: '4002b440', color: 'black', label: 'fs' },
+      }
+      const edges = {
+        A: ['B', 'C'],
+        B: ['D', 'E'],
+        C: ['F', 'G'],
+        D: ['H', null],
+        E: ['I', 'J'],
+        F: [null, 'K'],
+        G: ['L', 'M'],
+        H: [null, null],
+        I: ['N', null],
+        J: [null, null],
+        K: [null, null],
+        L: ['O', 'P'],
+        M: [null, 'Q'],
+        N: [null, null],
+        O: [null, null],
+        P: [null, null],
+        Q: [null, null],
+      }
+      return { nodes, edges, root: 'A' }
+    }
+
+    const RB = makeTree()
+    // Folded: hide deep limbs under E and G by default (show as ellipsis).
+    let folded = new Set(['E', 'G'])
+    let selected = null
+
+    function hierarchyFrom(foldSet) {
+      function build(id) {
+        if (!id) return null
+        const n = RB.nodes[id]
+        const [L, R] = RB.edges[id]
+        // Fold replaces *children* with one ellipsis chip; the node itself stays.
+        if (foldSet.has(id) && (L || R)) {
+          const hidden = countDescendants(id)
+          return {
+            id,
+            addr: n.addr,
+            color: n.color,
+            label: n.addr.slice(-4),
+            sub: n.label,
+            folded: false,
+            children: [{
+              id: id + ':…',
+              addr: n.addr,
+              color: 'ellipsis',
+              label: '…',
+              sub: `+${hidden}`,
+              folded: true,
+              foldRoot: id,
+              children: [],
+            }],
+          }
+        }
+        const kids = []
+        const left = build(L)
+        const right = build(R)
+        if (left) kids.push(left)
+        if (right) kids.push(right)
+        return {
+          id,
+          addr: n.addr,
+          color: n.color,
+          label: n.addr.slice(-4),
+          sub: n.label,
+          folded: false,
+          children: kids,
+        }
+      }
+      return build(RB.root)
+    }
+
+    function countDescendants(id) {
+      let c = 0
+      function walk(x) {
+        if (!x) return
+        c++
+        const [L, R] = RB.edges[x]
+        walk(L)
+        walk(R)
+      }
+      walk(id)
+      return c - 1 // exclude the fold root itself
+    }
+
+    function visibleStats(foldSet) {
+      let shown = 0, folds = 0, total = Object.keys(RB.nodes).length
+      function walk(id) {
+        if (!id) return
+        shown++
+        const [L, R] = RB.edges[id]
+        if (foldSet.has(id) && (L || R)) {
+          folds++
+          shown++ // ellipsis chip
+          return
+        }
+        walk(L)
+        walk(R)
+      }
+      walk(RB.root)
+      return { shown, folds, total }
+    }
+
+    function paintRbMeta() {
+      const s = visibleStats(folded)
+      document.getElementById('rb-meta').textContent =
+        `${s.total} nodes · showing ${s.shown} · ${s.folds} fold${s.folds === 1 ? '' : 's'}`
+    }
+
+    const rbCanvas = document.getElementById('rb-canvas')
+    const rbSvg = d3.select(rbCanvas).append('svg')
+    const rbG = rbSvg.append('g')
+    const rbLinkG = rbG.append('g')
+    const rbNodeG = rbG.append('g')
+
+    function layoutRb() {
+      const wrap = rbCanvas.getBoundingClientRect()
+      const W = Math.max(280, wrap.width || 360)
+      const H = Math.max(220, wrap.height || 280)
+      rbSvg.attr('viewBox', `0 0 ${W} ${H}`)
+
+      const root = d3.hierarchy(hierarchyFrom(folded))
+      const BOX_W = 56, BOX_H = 34
+      const tree = d3.tree().nodeSize([BOX_W + 14, BOX_H + 28])
+      tree(root)
+
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+      root.each((d) => {
+        if (d.x < x0) x0 = d.x
+        if (d.x > x1) x1 = d.x
+        if (d.y < y0) y0 = d.y
+        if (d.y > y1) y1 = d.y
+      })
+      const padX = 36, padY = 28
+      const spanX = Math.max(1, x1 - x0)
+      const spanY = Math.max(1, y1 - y0)
+      const scale = Math.min(1, (W - padX * 2) / (spanX + BOX_W), (H - padY * 2) / (spanY + BOX_H))
+      const ox = (W - spanX * scale) / 2 - x0 * scale
+      const oy = padY - y0 * scale
+
+      const links = root.links()
+      const linkSel = rbLinkG.selectAll('path').data(links, (d) => d.target.data.id)
+      linkSel.exit().remove()
+      linkSel.enter().append('path').attr('class', 'link')
+        .merge(linkSel)
+        .attr('d', (d) => {
+          const x1 = d.source.x * scale + ox
+          const y1 = d.source.y * scale + oy + BOX_H / 2
+          const x2 = d.target.x * scale + ox
+          const y2 = d.target.y * scale + oy - BOX_H / 2
+          const my = (y1 + y2) / 2
+          return `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`
+        })
+        .classed('hot', (d) => selected && (d.source.data.id === selected || d.target.data.id === selected))
+
+      const nodes = root.descendants()
+      const nodeSel = rbNodeG.selectAll('g.node-box').data(nodes, (d) => d.data.id + (d.data.folded ? ':e' : ''))
+      nodeSel.exit().remove()
+      const enter = nodeSel.enter().append('g').attr('class', 'node-box')
+      enter.append('rect').attr('width', BOX_W).attr('height', BOX_H).attr('x', -BOX_W / 2).attr('y', -BOX_H / 2)
+      enter.append('text').attr('class', 'main').attr('text-anchor', 'middle').attr('dy', '-0.1em')
+      enter.append('text').attr('class', 'sub').attr('text-anchor', 'middle').attr('dy', '1.1em')
+
+      enter.merge(nodeSel)
+        .attr('transform', (d) => `translate(${d.x * scale + ox},${d.y * scale + oy})`)
+        .attr('class', (d) => {
+          const c = ['node-box', d.data.color]
+          if (selected === d.data.id || selected === d.data.foldRoot) c.push('selected')
+          return c.join(' ')
+        })
+        .on('click', (event, d) => {
+          event.stopPropagation()
+          if (d.data.folded) {
+            folded.delete(d.data.foldRoot)
+            selected = d.data.foldRoot
+            paintRb()
+            return
+          }
+          selected = d.data.id
+          paintRbSelection()
+          layoutRb()
+        })
+
+      enter.merge(nodeSel).select('text.main').text((d) => d.data.folded ? '…' : d.data.label)
+      enter.merge(nodeSel).select('text.sub').text((d) => d.data.sub)
+    }
+
+    function paintRbSelection() {
+      const el = document.getElementById('rb-sel')
+      if (!selected) {
+        el.innerHTML = '<span class="empty">Click a node — children and color bit from children[0] LSB.</span>'
+        return
+      }
+      const n = RB.nodes[selected]
+      const [L, R] = RB.edges[selected]
+      const left = L ? RB.nodes[L].addr : 'NULL'
+      const right = R ? RB.nodes[R].addr : 'NULL'
+      const bit = n.color === 'black' ? 1 : 0
+      el.innerHTML =
+        `<strong>rbnode</strong> @ ${n.addr} · <strong>${n.color}</strong> (LSB=${bit})<br/>` +
+        `children[0] → ${left} &nbsp; children[1] → ${right}<br/>` +
+        `<span style="color:var(--fg-mute)">intrusive · no parent ptr · label “${n.label}” is mock payload</span>`
+    }
+
+    function paintRb() {
+      paintRbMeta()
+      paintRbSelection()
+      layoutRb()
+    }
+
+    document.getElementById('rb-expand').addEventListener('click', () => {
+      folded = new Set()
+      paintRb()
+    })
+    document.getElementById('rb-collapse').addEventListener('click', () => {
+      folded = new Set(['E', 'G'])
+      paintRb()
+    })
+
+    /* ---------- ring_buf ---------- */
+    let ringLarge = false
+    const ringCanvas = document.getElementById('ring-canvas')
+    const ringSvg = d3.select(ringCanvas).append('svg')
+
+    function ringState() {
+      if (ringLarge) {
+        return { size: 4096, get: 3800, put: 220, used: 516, ellipsis: true }
+      }
+      return { size: 256, get: 132, put: 196, used: 64, ellipsis: false }
+    }
+
+    function paintRing() {
+      const st = ringState()
+      const wrap = ringCanvas.getBoundingClientRect()
+      const W = Math.max(280, wrap.width || 360)
+      const H = Math.max(240, wrap.height || 280)
+      ringSvg.attr('viewBox', `0 0 ${W} ${H}`)
+      ringSvg.selectAll('*').remove()
+
+      const cx = W / 2
+      const cy = Math.min(H * 0.38, 110)
+      const R = Math.min(78, W * 0.28)
+      const r = R - 16
+
+      const g = ringSvg.append('g')
+
+      // free ring
+      g.append('circle').attr('cx', cx).attr('cy', cy).attr('r', (R + r) / 2)
+        .attr('fill', 'none').attr('stroke', 'var(--ring-free)').attr('stroke-width', R - r)
+
+      // used arc — from get to put clockwise
+      const tau = 2 * Math.PI
+      const a0 = -Math.PI / 2 + (st.get / st.size) * tau
+      const a1 = -Math.PI / 2 + (st.put / st.size) * tau
+      const arc = d3.arc().innerRadius(r).outerRadius(R).startAngle(a0 + Math.PI / 2).endAngle(
+        (st.put >= st.get ? a1 : a1 + tau) + Math.PI / 2
+      )
+      // d3 arc angles are from north with different convention — use manual path
+      function polar(a, rad) {
+        return [cx + Math.cos(a) * rad, cy + Math.sin(a) * rad]
+      }
+      function donut(start, end) {
+        let e = end
+        if (e <= start) e += tau
+        const large = e - start > Math.PI ? 1 : 0
+        const [x0, y0] = polar(start, R)
+        const [x1, y1] = polar(e, R)
+        const [x2, y2] = polar(e, r)
+        const [x3, y3] = polar(start, r)
+        return `M${x0},${y0} A${R},${R} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x3},${y3} Z`
+      }
+      g.append('path').attr('d', donut(a0, a1)).attr('fill', 'var(--ring-used)').attr('opacity', 0.85)
+        .style('cursor', 'pointer')
+        .on('click', () => selectRing('used band', st))
+
+      // markers
+      function marker(idx, color, label) {
+        const a = -Math.PI / 2 + (idx / st.size) * tau
+        const [x, y] = polar(a, R + 10)
+        const [ix, iy] = polar(a, r - 4)
+        g.append('line').attr('x1', ix).attr('y1', iy).attr('x2', x).attr('y2', y)
+          .attr('stroke', color).attr('stroke-width', 2)
+        g.append('circle').attr('cx', x).attr('cy', y).attr('r', 4.5)
+          .attr('fill', color).style('cursor', 'pointer')
+          .on('click', () => selectRing(label, st, idx))
+        g.append('text').attr('x', x).attr('y', y - 10)
+          .attr('text-anchor', 'middle')
+          .attr('fill', color)
+          .attr('font-family', 'var(--mono)')
+          .attr('font-size', 9)
+          .text(label)
+      }
+      marker(st.get, 'var(--ring-get)', 'get')
+      marker(st.put, 'var(--ring-put)', 'put')
+
+      g.append('text').attr('x', cx).attr('y', cy - 4)
+        .attr('text-anchor', 'middle').attr('fill', 'var(--fg)')
+        .attr('font-family', 'var(--mono)').attr('font-size', 12).attr('font-weight', 600)
+        .text(`${st.used}`)
+      g.append('text').attr('x', cx).attr('y', cy + 12)
+        .attr('text-anchor', 'middle').attr('fill', 'var(--fg-mute)')
+        .attr('font-family', 'var(--mono)').attr('font-size', 9)
+        .text(`/ ${st.size} B`)
+
+      // linear unwrap
+      const stripY = Math.min(H - 70, cy + R + 48)
+      const stripX = 16
+      const stripW = W - 32
+      const stripH = 28
+      const sg = ringSvg.append('g').attr('transform', `translate(${stripX},${stripY})`)
+
+      if (!st.ellipsis) {
+        // continuous strip 0..size
+        sg.append('rect').attr('width', stripW).attr('height', stripH).attr('rx', 6)
+          .attr('fill', 'var(--ring-free)').attr('stroke', 'var(--line)')
+        const xGet = (st.get / st.size) * stripW
+        const xPut = (st.put / st.size) * stripW
+        if (st.put >= st.get) {
+          sg.append('rect').attr('x', xGet).attr('width', Math.max(2, xPut - xGet))
+            .attr('height', stripH).attr('fill', 'var(--ring-used)').attr('opacity', 0.9)
+        } else {
+          sg.append('rect').attr('x', xGet).attr('width', stripW - xGet)
+            .attr('height', stripH).attr('fill', 'var(--ring-used)').attr('opacity', 0.9)
+          sg.append('rect').attr('x', 0).attr('width', xPut)
+            .attr('height', stripH).attr('fill', 'var(--ring-used)').attr('opacity', 0.9)
+        }
+        tick(sg, 0, '0')
+        tick(sg, stripW, String(st.size))
+        pin(sg, xGet, 'get', 'var(--ring-get)')
+        pin(sg, xPut, 'put', 'var(--ring-put)')
+      } else {
+        // head window · … · tail window (wrap case for large buffer)
+        const leftW = stripW * 0.38
+        const rightW = stripW * 0.38
+        const gap = stripW - leftW - rightW
+        // left: near get (high indices)
+        sg.append('rect').attr('width', leftW).attr('height', stripH).attr('rx', 6)
+          .attr('fill', 'var(--ring-free)').attr('stroke', 'var(--line)')
+        sg.append('rect').attr('x', leftW * 0.35).attr('width', leftW * 0.65)
+          .attr('height', stripH).attr('fill', 'var(--ring-used)').attr('opacity', 0.9)
+        // ellipsis gap
+        sg.append('text').attr('x', leftW + gap / 2).attr('y', stripH / 2 + 4)
+          .attr('text-anchor', 'middle').attr('fill', 'var(--fg-mute)')
+          .attr('font-family', 'var(--mono)').attr('font-size', 14)
+          .text('···')
+        // right: near put (low indices after wrap)
+        const rx = leftW + gap
+        sg.append('rect').attr('x', rx).attr('width', rightW).attr('height', stripH).attr('rx', 6)
+          .attr('fill', 'var(--ring-free)').attr('stroke', 'var(--line)')
+        sg.append('rect').attr('x', rx).attr('width', rightW * 0.45)
+          .attr('height', stripH).attr('fill', 'var(--ring-used)').attr('opacity', 0.9)
+        tick(sg, 0, String(st.get - 40))
+        tick(sg, leftW, String(st.size - 1))
+        tick(sg, rx, '0')
+        tick(sg, stripW, String(st.put + 40))
+        pin(sg, leftW * 0.35, 'get', 'var(--ring-get)')
+        pin(sg, rx + rightW * 0.45, 'put', 'var(--ring-put)')
+      }
+
+      function tick(parent, x, label) {
+        parent.append('text').attr('x', x).attr('y', stripH + 14)
+          .attr('text-anchor', x < 8 ? 'start' : x > stripW - 8 ? 'end' : 'middle')
+          .attr('fill', 'var(--fg-mute)').attr('font-family', 'var(--mono)').attr('font-size', 9)
+          .text(label)
+      }
+      function pin(parent, x, label, color) {
+        parent.append('line').attr('x1', x).attr('x2', x).attr('y1', -6).attr('y2', stripH + 2)
+          .attr('stroke', color).attr('stroke-width', 1.5)
+        parent.append('circle').attr('cx', x).attr('cy', -6).attr('r', 3.5).attr('fill', color)
+      }
+
+      // update header numbers when large toggled
+      const hd = document.querySelector('#viz-ring .fields')
+      if (ringLarge) {
+        hd.innerHTML = `
+          <span class="k">@</span><span class="v ptr" data-goto="40031000">40031000</span>
+          <span class="k">buffer</span><span class="v ptr" data-goto="40031100">40031100</span>
+          <span class="k">size</span><span class="v">4096</span>
+          <span class="k">put.tail</span><span class="v">220</span>
+          <span class="k">get.tail</span><span class="v">3800</span>
+          <span class="k">used</span><span class="v">516 / 4096</span>`
+        bindPtrs(hd)
+      } else {
+        hd.innerHTML = `
+          <span class="k">@</span><span class="v ptr" data-goto="40031000">40031000</span>
+          <span class="k">buffer</span><span class="v ptr" data-goto="40031100">40031100</span>
+          <span class="k">size</span><span class="v">256</span>
+          <span class="k">put.tail</span><span class="v">196</span>
+          <span class="k">get.tail</span><span class="v">132</span>
+          <span class="k">used</span><span class="v">64 / 256</span>`
+        bindPtrs(hd)
+      }
+    }
+
+    function selectRing(what, st, idx) {
+      const el = document.getElementById('ring-sel')
+      const at = idx != null ? ` · index ${idx}` : ''
+      const base = 0x40031100
+      const windowAddr = idx != null ? (base + (idx % st.size)).toString(16) : (base + st.get).toString(16)
+      el.innerHTML =
+        `<strong>${what}</strong>${at}<br/>` +
+        `buffer @ ${windowAddr} &nbsp; used ${st.used}/${st.size}` +
+        (st.ellipsis
+          ? `<br/><span style="color:var(--fg-mute)">large buffer — strip shows get-window · ··· · put-window</span>`
+          : `<br/><span style="color:var(--fg-mute)">click put/get markers or the used arc</span>`)
+    }
+
+    document.getElementById('ring-toggle-size').addEventListener('click', () => {
+      ringLarge = !ringLarge
+      document.getElementById('ring-toggle-size').textContent =
+        ringLarge ? 'Compact buffer' : 'Large buffer (…)'
+      paintRing()
+      document.getElementById('ring-sel').innerHTML =
+        '<span class="empty">Click the belt or strip — shows byte window around that index.</span>'
+    })
+
+    function bindPtrs(root) {
+      root.querySelectorAll('.ptr').forEach((el) => {
+        el.addEventListener('click', () => {
+          addrInput.value = el.dataset.goto
+        })
+      })
+    }
+    document.querySelectorAll('.ptr').forEach((el) => {
+      el.addEventListener('click', () => { addrInput.value = el.dataset.goto })
+    })
+
+    function relayout() {
+      requestAnimationFrame(() => {
+        if (body.dataset.view === 'rbtree') paintRb()
+        if (body.dataset.view === 'ring') paintRing()
+      })
+    }
+
+    // Initial paints (hidden panes still need first layout when shown)
+    paintRb()
+    paintRing()
+    window.addEventListener('resize', relayout)
+
+    // Deep-link helpers for screenshots / review: ?view=rbtree|ring|hex
+    const q = new URLSearchParams(location.search).get('view')
+    if (q === 'rbtree' || q === 'ring' || q === 'hex') setView(q)
+    const wq = new URLSearchParams(location.search).get('width')
+    if (wq === 'float') {
+      body.dataset.width = 'float'
+      document.getElementById('w-dock').setAttribute('aria-pressed', 'false')
+      document.getElementById('w-float').setAttribute('aria-pressed', 'true')
+    }
+    if (new URLSearchParams(location.search).get('large') === '1') {
+      ringLarge = true
+      document.getElementById('ring-toggle-size').textContent = 'Compact buffer'
+      if (body.dataset.view === 'ring') paintRing()
+    }
+    if (wq === 'float') relayout()
+  </script>
+</body>
+</html>
