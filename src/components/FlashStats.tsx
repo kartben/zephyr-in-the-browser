@@ -9,7 +9,7 @@
 
 import { useEffect, useReducer } from 'react'
 import { cn } from '@/lib/utils'
-import { useFluidCols } from '@/hooks/useFluidCols'
+import { SectorGrid, selectedCellCount, type ByteRange } from '@/components/SectorGrid'
 import {
   flashTotalErases,
   flashUsedFraction,
@@ -74,7 +74,7 @@ function cellTone(erases: number, dirty: boolean, frac: number): string {
 }
 
 /** Byte range currently shown in the hex dump — sectors that overlap light up. */
-export type FlashViewRange = { start: number; end: number }
+export type FlashViewRange = ByteRange
 
 export function FlashStatsView({
   chip,
@@ -175,19 +175,10 @@ function SectorWearMap({
   onSectorClick?: (address: number) => void
   viewRange?: FlashViewRange | null
 }) {
-  const { ref: gridRef, cols } = useFluidCols(stats.sectorCount)
   const scaleLabel = enduranceCycles
     ? `wear / ${formatFlashCount(enduranceCycles)} cycle rating`
     : 'wear relative to busiest sector'
-  const viewFirst =
-    viewRange && viewRange.end > viewRange.start
-      ? Math.max(0, Math.floor(viewRange.start / sectorSize))
-      : -1
-  const viewLast =
-    viewFirst >= 0 && viewRange
-      ? Math.min(stats.sectorCount - 1, Math.floor((viewRange.end - 1) / sectorSize))
-      : -1
-  const selectedCount = viewFirst >= 0 ? viewLast - viewFirst + 1 : 0
+  const selectedCount = selectedCellCount(viewRange, sectorSize, stats.sectorCount)
 
   return (
     <div className="space-y-1">
@@ -204,47 +195,23 @@ function SectorWearMap({
         </span>
         <span className="font-mono tabular-nums">{scaleLabel}</span>
       </div>
-      <div
-        ref={gridRef}
-        className="grid w-full gap-px rounded-sm bg-border/60 p-px"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-        role="img"
-        aria-label={`Sector wear map, ${stats.sectorCount} sectors${selectedCount ? `, ${selectedCount} in hex view` : ''}`}
-      >
-        {Array.from({ length: stats.sectorCount }, (_, si) => {
+      <SectorGrid
+        count={stats.sectorCount}
+        cellBytes={sectorSize}
+        onCellClick={onSectorClick}
+        viewRange={viewRange}
+        ariaLabel={`Sector wear map, ${stats.sectorCount} sectors${selectedCount ? `, ${selectedCount} in hex view` : ''}`}
+        cell={(si, selected) => {
           const erases = stats.sectorEraseCounts[si] ?? 0
-          const dirty = (stats.sectorUsedBytes[si] ?? 0) > 0
+          const used = stats.sectorUsedBytes[si] ?? 0
           const frac = wearFraction(erases, stats, enduranceCycles)
           const addr = si * sectorSize
-          const used = stats.sectorUsedBytes[si] ?? 0
-          const selected = si >= viewFirst && si <= viewLast
-          const label = `sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}${selected ? ' · in hex view' : ''}${onSectorClick ? ' — click to show in hex' : ''}`
-          const tone = cn(
-            'aspect-square min-h-0 w-full rounded-[1px]',
-            cellTone(erases, dirty, frac),
-            selected &&
-              'relative z-[1] shadow-[0_0_0_2px_var(--primary)]',
-          )
-          if (onSectorClick) {
-            return (
-              <button
-                key={si}
-                type="button"
-                title={label}
-                aria-label={label}
-                aria-pressed={selected}
-                onClick={() => onSectorClick(addr)}
-                className={cn(
-                  tone,
-                  'cursor-pointer hover:brightness-110',
-                  !selected && 'hover:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_60%,transparent)]',
-                )}
-              />
-            )
+          return {
+            tone: cellTone(erases, used > 0, frac),
+            label: `sector ${si} · 0x${addr.toString(16)} · ${used} B used · ${erases} erase${erases === 1 ? '' : 's'}${selected ? ' · in hex view' : ''}${onSectorClick ? ' — click to show in hex' : ''}`,
           }
-          return <div key={si} title={label} className={tone} />
-        })}
-      </div>
+        }}
+      />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[9px] tabular-nums text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <span className="size-2 rounded-[1px] bg-muted" /> erased
