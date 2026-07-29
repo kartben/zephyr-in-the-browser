@@ -12,11 +12,11 @@ import * as d3 from 'd3'
 import {
   advanceFlowCursor,
   flowEdgeId,
-  flowThreadLabel,
   isPutOp,
   msgqOpColor,
+  queueActorKey,
+  queueActorLabel,
   queueFlowEvents,
-  threadFlowScores,
   type QueueFlowEvent,
   type QueueFlowOp,
 } from '@/ctf/queueGraph'
@@ -65,9 +65,10 @@ const PIPE_TEXT_MAX = PIPE_W - MOUTH_RX * 4 - 12
 
 const CLIP_PILL = 'qg-clip-pill'
 
-type ThreadNode = {
+type ActorNode = {
   id: string
-  tid: number
+  key: string
+  kind: 'thread' | 'isr'
   label: string
   x: number
   y: number
@@ -75,7 +76,7 @@ type ThreadNode = {
 
 type FlowLink = {
   id: string
-  threadId: number
+  actorKey: string
   queueId: number
   op: QueueFlowOp
   /** Index into the queue mouth fan (top→bottom). */
@@ -108,17 +109,17 @@ type EdgeState = {
   untilHot: number
   untilWarm: number
   queueId: number
-  threadId: number
+  actorKey: string
 }
 
 type Layout = {
   w: number
   h: number
   pipes: Pipe[]
-  threads: ThreadNode[]
+  actors: ActorNode[]
   links: FlowLink[]
   byPipe: Map<number, Pipe>
-  byThread: Map<number, ThreadNode>
+  byActor: Map<string, ActorNode>
 }
 
 type Layers = {
@@ -141,7 +142,7 @@ function pipeFrontX(pipe: Pipe): number {
  * Which pill edge an edge uses. Puts leave toward the pipe; gets arrive from it.
  */
 function threadAttachSide(
-  thread: ThreadNode,
+  thread: ActorNode,
   pipe: Pipe,
   op: QueueFlowOp,
 ): 'east' | 'west' {
@@ -150,7 +151,7 @@ function threadAttachSide(
 }
 
 /** Y of side-port `port` among `count` live ports, centered on the pill. */
-function threadPortY(thread: ThreadNode, port: number, count: number): number {
+function threadPortY(thread: ActorNode, port: number, count: number): number {
   const n = Math.max(1, Math.min(THREAD_SIDE_PORTS, count))
   const slot = Math.max(0, Math.min(n - 1, port))
   if (n <= 1) return thread.y
@@ -160,7 +161,7 @@ function threadPortY(thread: ThreadNode, port: number, count: number): number {
 }
 
 function threadEdgePoint(
-  thread: ThreadNode,
+  thread: ActorNode,
   side: 'east' | 'west',
   port: number,
   portCount: number,
@@ -175,15 +176,15 @@ function threadEdgePoint(
  * Assign threadPort indices per pill side so co-located arrows fan across the
  * east/west edge instead of sharing one midpoint.
  */
-function assignThreadPorts(links: FlowLink[], byThread: Map<number, ThreadNode>, byPipe: Map<number, Pipe>) {
+function assignThreadPorts(links: FlowLink[], byActor: Map<string, ActorNode>, byPipe: Map<number, Pipe>) {
   type Key = string
   const groups = new Map<Key, FlowLink[]>()
   for (const link of links) {
-    const thread = byThread.get(link.threadId)
+    const thread = byActor.get(link.actorKey)
     const pipe = byPipe.get(link.queueId)
     if (!thread || !pipe) continue
     const side = threadAttachSide(thread, pipe, link.op)
-    const key = `${link.threadId}:${side}`
+    const key = `${link.actorKey}:${side}`
     const bucket = groups.get(key) ?? []
     bucket.push(link)
     groups.set(key, bucket)
@@ -506,7 +507,7 @@ function routeAvoidingTubes(
 }
 
 function edgePath(
-  thread: ThreadNode,
+  thread: ActorNode,
   pipe: Pipe,
   link: FlowLink,
   pipes: Pipe[],
@@ -534,7 +535,7 @@ function edgePath(
   return routeAvoidingTubes(start, tip, obstacles, leaveSide === 'east' ? 'hvh' : 'east', 'start', leaveSide)
 }
 
-function burstBadgePosition(thread: ThreadNode, pipe: Pipe, link: FlowLink, pipes: Pipe[]) {
+function burstBadgePosition(thread: ActorNode, pipe: Pipe, link: FlowLink, pipes: Pipe[]) {
   const { op } = link
   if (op === 'put_front') {
     const y = nearestChannel(pipe.y - PIPE_H / 2 - ARC_CLEAR, channelYs(pipes.map(pipeObstacle)))
@@ -564,29 +565,55 @@ function markerFor(op: QueueFlowOp): string {
 
 function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   const flow = queueFlowEvents(tr)
-  const valid = flow.filter((ev) => ev.ok && ev.threadId != null && queues.some((q) => q.id === ev.queueId))
-  const threadIds = [...new Set(valid.map((ev) => ev.threadId!))].sort((a, b) =>
-    flowThreadLabel(tr, a).localeCompare(flowThreadLabel(tr, b)) || a - b,
+  const valid = flow.filter(
+    (ev) => ev.ok && ev.actor.kind !== 'unknown' && queues.some((q) => q.id === ev.queueId),
   )
-  const puts = new Map<number, number[]>()
-  const gets = new Map<number, number[]>()
+  const actorSpecs = new Map<
+    string,
+    { key: string; kind: ActorNode['kind']; label: string }
+  >()
+  for (const ev of valid) {
+    const key = queueActorKey(ev.actor)
+    actorSpecs.set(key, {
+      key,
+      kind: ev.actor.kind === 'isr' ? 'isr' : 'thread',
+      label: queueActorLabel(tr, ev.actor),
+    })
+  }
+  const actorKeys = [...actorSpecs.keys()].sort((a, b) => {
+    const aa = actorSpecs.get(a)!
+    const bb = actorSpecs.get(b)!
+    return aa.label.localeCompare(bb.label) || a.localeCompare(b)
+  })
+  const puts = new Map<number, string[]>()
+  const gets = new Map<number, string[]>()
   for (const q of queues) {
     puts.set(q.id, [])
     gets.set(q.id, [])
   }
   for (const ev of valid) {
     const bucket = isPutOp(ev.op) ? puts.get(ev.queueId)! : gets.get(ev.queueId)!
-    if (!bucket.includes(ev.threadId!)) bucket.push(ev.threadId!)
+    const actorKey = queueActorKey(ev.actor)
+    if (!bucket.includes(actorKey)) bucket.push(actorKey)
   }
 
   const links: FlowLink[] = []
   const seen = new Set<string>()
   for (const ev of valid) {
-    const id = flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op })
+    const actorKey = queueActorKey(ev.actor)
+    const id = flowEdgeId({ actorKey, queueId: ev.queueId, op: ev.op })
     if (seen.has(id)) continue
     seen.add(id)
     // Port indices filled after placement so mouth + thread fans match Y order.
-    links.push({ id, threadId: ev.threadId!, queueId: ev.queueId, op: ev.op, port: 0, threadPort: 0, threadPortCount: 1 })
+    links.push({
+      id,
+      actorKey,
+      queueId: ev.queueId,
+      op: ev.op,
+      port: 0,
+      threadPort: 0,
+      threadPortCount: 1,
+    })
   }
 
   // Pipe Y follows the caller’s queue order (sortQueuesByPipelineOrder) so the
@@ -623,13 +650,25 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   })
   const byPipe = new Map(pipes.map((p) => [p.queueId, p]))
 
-  const scores = threadFlowScores(valid)
+  const scores = new Map<string, number>()
+  for (const ev of valid) {
+    const key = queueActorKey(ev.actor)
+    const delta = isPutOp(ev.op) ? 1 : -1
+    scores.set(key, (scores.get(key) ?? 0) + delta)
+  }
   type Side = 'left' | 'right'
-  type Draft = { tid: number; side: Side; y: number; anchorKey: string; label: string }
-  const draft: Draft[] = threadIds.map((tid) => {
-    const mine = links.filter((link) => link.threadId === tid)
-    const label = flowThreadLabel(tr, tid)
-    const score = scores.get(tid) ?? 0
+  type Draft = {
+    key: string
+    kind: ActorNode['kind']
+    side: Side
+    y: number
+    anchorKey: string
+    label: string
+  }
+  const draft: Draft[] = actorKeys.map((key) => {
+    const spec = actorSpecs.get(key)!
+    const mine = links.filter((link) => link.actorKey === key)
+    const score = scores.get(key) ?? 0
     const hasGet = mine.some((link) => link.op === 'get')
     const hasPut = mine.some((link) => isPutOp(link.op))
     // Mouth affinity: end is west, front is east. Bridge threads (put+get) sit
@@ -649,13 +688,15 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     const ys = mine.map((link) => byPipe.get(link.queueId)?.y).filter((y): y is number => y != null)
     const y = anchorPipe?.y ?? (ys.length ? (d3.mean(ys) ?? PAD_Y + DETOUR_HEADROOM) : PAD_Y + DETOUR_HEADROOM)
     const anchorKey = `${side}:${primary?.queueId ?? 'none'}`
-    return { tid, side, y, anchorKey, label }
+    return { ...spec, side, y, anchorKey }
   })
 
   // Stack each producer/consumer family on its pipe, ordered by label so the
   // vertical order is stable and matches mouth port order (no criss-cross).
   for (const group of d3.groups(draft, (node) => node.anchorKey)) {
-    const members = group[1].sort((a, b) => a.label.localeCompare(b.label) || a.tid - b.tid)
+    const members = group[1].sort(
+      (a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key),
+    )
     const anchorY = members[0]?.y ?? PAD_Y + DETOUR_HEADROOM
     members.forEach((node, i) => {
       node.y = anchorY + (i - (members.length - 1) / 2) * SIDE_GAP
@@ -663,7 +704,12 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   }
 
   for (const side of ['left', 'right'] as const) {
-    const group = draft.filter((node) => node.side === side).sort((a, b) => a.y - b.y || a.label.localeCompare(b.label) || a.tid - b.tid)
+    const group = draft
+      .filter((node) => node.side === side)
+      .sort(
+        (a, b) =>
+          a.y - b.y || a.label.localeCompare(b.label) || a.key.localeCompare(b.key),
+      )
     for (let i = 1; i < group.length; i++) {
       const prev = group[i - 1]!
       const cur = group[i]!
@@ -671,14 +717,15 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     }
   }
 
-  const threads = draft.map((node) => ({
-    id: `t:${node.tid}`,
-    tid: node.tid,
+  const actors = draft.map((node) => ({
+    id: `actor:${node.key}`,
+    key: node.key,
+    kind: node.kind,
     label: node.label,
     x: node.side === 'left' ? leftX : rightX,
     y: node.y,
   }))
-  const byThread = new Map(threads.map((t) => [t.tid, t]))
+  const byActor = new Map(actors.map((actor) => [actor.key, actor]))
 
   // Mouth ports follow visual top→bottom order so edges to the same aperture
   // never cross when threads are already sorted on their side.
@@ -686,9 +733,9 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
     const grouped = d3.group(links.filter(pred), (link) => link.queueId)
     for (const [, group] of grouped) {
       group.sort((a, b) => {
-        const ay = byThread.get(a.threadId)?.y ?? 0
-        const by = byThread.get(b.threadId)?.y ?? 0
-        return ay - by || a.threadId - b.threadId
+        const ay = byActor.get(a.actorKey)?.y ?? 0
+        const by = byActor.get(b.actorKey)?.y ?? 0
+        return ay - by || a.actorKey.localeCompare(b.actorKey)
       })
       group.forEach((link, port) => {
         link.port = port
@@ -697,13 +744,13 @@ function buildLayout(tr: Trace, queues: QueueSeries[], hostW: number): Layout {
   }
   assignPorts((link) => isPutOp(link.op))
   assignPorts((link) => link.op === 'get')
-  assignThreadPorts(links, byThread, byPipe)
+  assignThreadPorts(links, byActor, byPipe)
 
-  const maxThreadY = threads.reduce((m, t) => Math.max(m, t.y), 0)
+  const maxThreadY = actors.reduce((m, actor) => Math.max(m, actor.y), 0)
   const maxPipeY = pipes.reduce((m, p) => Math.max(m, p.y), 0)
   const contentW = Math.max(hostW, rightX + PILL_W / 2 + PAD_X)
   const contentH = Math.max(120, PAD_Y + Math.max(maxThreadY + PILL_H / 2, maxPipeY + PIPE_H / 2 + 14) + PAD_Y)
-  return { w: contentW, h: contentH, pipes, threads, links, byPipe, byThread }
+  return { w: contentW, h: contentH, pipes, actors, links, byPipe, byActor }
 }
 
 export function QueueGraph({
@@ -722,7 +769,9 @@ export function QueueGraph({
   const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
   const layersRef = useRef<Layers | null>(null)
   const positionOverridesRef = useRef(new Map<string, { x: number; y: number }>())
-  const threadDragRef = useRef<d3.DragBehavior<SVGGElement, ThreadNode, ThreadNode | d3.SubjectPosition> | null>(null)
+  const actorDragRef = useRef<
+    d3.DragBehavior<SVGGElement, ActorNode, ActorNode | d3.SubjectPosition> | null
+  >(null)
   const pipeDragRef = useRef<d3.DragBehavior<SVGGElement, Pipe, Pipe | d3.SubjectPosition> | null>(null)
   const [layoutTick, setLayoutTick] = useState(0)
 
@@ -774,7 +823,10 @@ export function QueueGraph({
         .on('zoom', (event) => scene.attr('transform', event.transform.toString())),
     )
 
-    const move = (event: d3.D3DragEvent<SVGGElement, ThreadNode | Pipe, unknown>, d: ThreadNode | Pipe) => {
+    const move = (
+      event: d3.D3DragEvent<SVGGElement, ActorNode | Pipe, unknown>,
+      d: ActorNode | Pipe,
+    ) => {
       const svgNode = svg.node()
       if (!svgNode) return
       const [screenX, screenY] = d3.pointer(event.sourceEvent, svgNode)
@@ -786,9 +838,15 @@ export function QueueGraph({
         .selectAll<SVGGElement, Pipe>('g.pipe')
         .filter((candidate) => candidate.id === d.id)
         .attr('transform', `translate(${d.x},${d.y})`)
-      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current, threadDragRef.current)
+      if (layoutRef.current) {
+        paintFrame(layers, layoutRef.current, edgeStateRef.current, actorDragRef.current)
+      }
     }
-    threadDragRef.current = d3.drag<SVGGElement, ThreadNode>().on('drag', function (event, d) { move(event, d) })
+    actorDragRef.current = d3
+      .drag<SVGGElement, ActorNode>()
+      .on('drag', function (event, d) {
+        move(event, d)
+      })
     pipeDragRef.current = d3.drag<SVGGElement, Pipe>().on('drag', function (event, d) { move(event, d) })
     svgRef.current = svg
     const ro = new ResizeObserver(() => setLayoutTick((n) => n + 1))
@@ -816,13 +874,13 @@ export function QueueGraph({
     }
 
     const layout = buildLayout(tr, queues, host.clientWidth || 320)
-    const liveIds = new Set([...layout.pipes, ...layout.threads].map((node) => node.id))
+    const liveIds = new Set([...layout.pipes, ...layout.actors].map((node) => node.id))
     for (const id of [...positionOverridesRef.current.keys()]) {
       if (!liveIds.has(id)) positionOverridesRef.current.delete(id)
     }
     // Only user drags stick — auto-freeze was locking nodes on the wrong side
     // and forcing the router into long wraps.
-    for (const node of [...layout.pipes, ...layout.threads]) {
+    for (const node of [...layout.pipes, ...layout.actors]) {
       const dragged = positionOverridesRef.current.get(node.id)
       if (dragged) Object.assign(node, dragged)
     }
@@ -832,9 +890,9 @@ export function QueueGraph({
       const grouped = d3.group(layout.links.filter(pred), (link) => link.queueId)
       for (const [, group] of grouped) {
         group.sort((a, b) => {
-          const ay = layout.byThread.get(a.threadId)?.y ?? 0
-          const by = layout.byThread.get(b.threadId)?.y ?? 0
-          return ay - by || a.threadId - b.threadId
+          const ay = layout.byActor.get(a.actorKey)?.y ?? 0
+          const by = layout.byActor.get(b.actorKey)?.y ?? 0
+          return ay - by || a.actorKey.localeCompare(b.actorKey)
         })
         group.forEach((link, port) => {
           link.port = port
@@ -843,7 +901,7 @@ export function QueueGraph({
     }
     assignPorts((link) => isPutOp(link.op))
     assignPorts((link) => link.op === 'get')
-    assignThreadPorts(layout.links, layout.byThread, layout.byPipe)
+    assignThreadPorts(layout.links, layout.byActor, layout.byPipe)
 
     layoutRef.current = layout
     svg.attr('viewBox', `0 0 ${layout.w} ${layout.h}`).attr('height', layout.h)
@@ -868,35 +926,46 @@ export function QueueGraph({
     lastIndexRef.current = adv.nextIndex
     if (adv.kind === 'delta' && adv.newest.length) {
       const bursts = d3.group(
-        adv.newest.filter((ev) => ev.ok && ev.threadId != null),
-        (ev) => flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }),
+        adv.newest.filter((ev) => ev.ok && ev.actor.kind !== 'unknown'),
+        (ev) =>
+          flowEdgeId({
+            actorKey: queueActorKey(ev.actor),
+            queueId: ev.queueId,
+            op: ev.op,
+          }),
       )
       for (const events of bursts.values()) {
         fireBurst(events, layout, layers.packets, edgeStateRef.current)
       }
     } else if (adv.kind === 'first') {
-      const recent = flow.filter((ev) => ev.ok && ev.threadId != null).slice(-10)
+      const recent = flow.filter((ev) => ev.ok && ev.actor.kind !== 'unknown').slice(-10)
       const now = performance.now()
       for (const ev of recent) {
         edgeStateRef.current.set(
-          flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }),
+          flowEdgeId({
+            actorKey: queueActorKey(ev.actor),
+            queueId: ev.queueId,
+            op: ev.op,
+          }),
           {
             op: ev.op,
             count: 1,
             untilHot: now + 350,
             untilWarm: now + WARM_MS,
             queueId: ev.queueId,
-            threadId: ev.threadId!,
+            actorKey: queueActorKey(ev.actor),
           },
         )
       }
     }
     // adv.kind === 'trimmed': cursor rewound with the ring; wait for new appends.
 
-    paintFrame(layers, layout, edgeStateRef.current, threadDragRef.current)
+    paintFrame(layers, layout, edgeStateRef.current, actorDragRef.current)
 
     const interval = window.setInterval(() => {
-      if (layoutRef.current) paintFrame(layers, layoutRef.current, edgeStateRef.current, threadDragRef.current)
+      if (layoutRef.current) {
+        paintFrame(layers, layoutRef.current, edgeStateRef.current, actorDragRef.current)
+      }
     }, 180)
     return () => window.clearInterval(interval)
   }, [tr, queues, eventCount, layoutTick])
@@ -918,13 +987,17 @@ function fireBurst(
 ) {
   const ev = events.at(-1)
   if (!ev) return
-  if (ev.threadId == null) return
+  if (ev.actor.kind === 'unknown') return
+  const actorKey = queueActorKey(ev.actor)
   const pipe = layout.byPipe.get(ev.queueId)
-  const thread = layout.byThread.get(ev.threadId)
-  const link = layout.links.find((candidate) => candidate.id === flowEdgeId({ threadId: ev.threadId!, queueId: ev.queueId, op: ev.op }))
-  if (!pipe || !thread || !link) return
+  const actor = layout.byActor.get(actorKey)
+  const link = layout.links.find(
+    (candidate) =>
+      candidate.id === flowEdgeId({ actorKey, queueId: ev.queueId, op: ev.op }),
+  )
+  if (!pipe || !actor || !link) return
 
-  const key = flowEdgeId({ threadId: ev.threadId, queueId: ev.queueId, op: ev.op })
+  const key = flowEdgeId({ actorKey, queueId: ev.queueId, op: ev.op })
   const now = performance.now()
   edgeState.set(key, {
     op: ev.op,
@@ -932,10 +1005,10 @@ function fireBurst(
     untilHot: now + HOT_MS,
     untilWarm: now + WARM_MS,
     queueId: ev.queueId,
-    threadId: ev.threadId,
+    actorKey,
   })
 
-  const p = edgePath(thread, pipe, link, layout.pipes)
+  const p = edgePath(actor, pipe, link, layout.pipes)
   // The badge below represents every event. Limit moving dots only so a busy
   // slice remains readable rather than becoming a solid line.
   for (let index = 0; index < Math.min(events.length, MAX_PACKETS_PER_BURST); index++) {
@@ -979,12 +1052,12 @@ function paintFrame(
   layers: Layers,
   layout: Layout,
   edgeState: Map<string, EdgeState>,
-  threadDrag?: d3.DragBehavior<SVGGElement, ThreadNode, ThreadNode | d3.SubjectPosition> | null,
+  actorDrag?: d3.DragBehavior<SVGGElement, ActorNode, ActorNode | d3.SubjectPosition> | null,
 ) {
   const now = performance.now()
   const active: Array<{
     key: string
-    thread: ThreadNode
+    actor: ActorNode
     pipe: Pipe
     link: FlowLink
     count: number
@@ -997,22 +1070,22 @@ function paintFrame(
       continue
     }
     const pipe = layout.byPipe.get(st.queueId)
-    const thread = layout.byThread.get(st.threadId)
+    const actor = layout.byActor.get(st.actorKey)
     const link = layout.links.find((candidate) => candidate.id === key)
-    if (!pipe || !thread || !link) continue
-    active.push({ key, thread, pipe, link, count: st.count, hot: now < st.untilHot })
+    if (!pipe || !actor || !link) continue
+    active.push({ key, actor, pipe, link, count: st.count, hot: now < st.untilHot })
   }
 
   const activeLinks = new Set(active.map((a) => a.key))
   const structural: typeof active = []
   for (const link of layout.links) {
     const pipe = layout.byPipe.get(link.queueId)
-    const thread = layout.byThread.get(link.threadId)
-    if (!pipe || !thread) continue
+    const actor = layout.byActor.get(link.actorKey)
+    if (!pipe || !actor) continue
     // An active operation owns its lane; do not leave a second, structural
     // arrow underneath it just because that thread also uses normal put.
     if (activeLinks.has(link.id)) continue
-    structural.push({ key: `struct:${link.id}`, thread, pipe, link, count: 0, hot: false })
+    structural.push({ key: `struct:${link.id}`, actor, pipe, link, count: 0, hot: false })
   }
 
   const allLinks = [...structural, ...active]
@@ -1033,7 +1106,7 @@ function paintFrame(
     .attr('stroke', (d) => strokeFor(d.link.op))
     .attr('stroke-width', (d) => (d.key.startsWith('struct:') ? 1.1 : d.hot ? 1.6 : 1.25))
     .attr('opacity', (d) => (d.key.startsWith('struct:') ? 0.55 : d.hot ? 0.98 : 0.78))
-    .attr('d', (d) => edgePath(d.thread, d.pipe, d.link, layout.pipes).d)
+    .attr('d', (d) => edgePath(d.actor, d.pipe, d.link, layout.pipes).d)
 
   const burstBadge = layers.packets
     .selectAll<SVGTextElement, (typeof active)[0]>('text.burst-count')
@@ -1051,8 +1124,8 @@ function paintFrame(
     .attr('stroke', '#020617')
     .attr('stroke-width', 3)
     .merge(burstBadge)
-    .attr('x', (entry) => burstBadgePosition(entry.thread, entry.pipe, entry.link, layout.pipes).x)
-    .attr('y', (entry) => burstBadgePosition(entry.thread, entry.pipe, entry.link, layout.pipes).y)
+    .attr('x', (entry) => burstBadgePosition(entry.actor, entry.pipe, entry.link, layout.pipes).x)
+    .attr('y', (entry) => burstBadgePosition(entry.actor, entry.pipe, entry.link, layout.pipes).y)
     .attr('fill', (entry) => packetFill(entry.link.op))
     .text((entry) => `×${entry.count}`)
 
@@ -1061,10 +1134,10 @@ function paintFrame(
     updatePipeFill(d3.select(this), d, hotQueues.has(d.id))
   })
 
-  const hotThreads = new Set(active.filter((a) => a.hot).map((a) => a.thread.id))
+  const hotActors = new Set(active.filter((entry) => entry.hot).map((entry) => entry.actor.id))
   const pillSel = layers.pills
-    .selectAll<SVGGElement, ThreadNode>('g.pill')
-    .data(layout.threads, (d) => d.id)
+    .selectAll<SVGGElement, ActorNode>('g.pill')
+    .data(layout.actors, (d) => d.id)
   pillSel.exit().remove()
   const pillEnter = pillSel.enter().append('g').attr('class', 'pill')
   pillEnter
@@ -1085,19 +1158,28 @@ function paintFrame(
 
   const pillMerged = pillEnter.merge(pillSel)
   pillMerged.attr('transform', (d) => `translate(${d.x},${d.y})`)
-  if (threadDrag) pillMerged.call(threadDrag)
+  if (actorDrag) pillMerged.call(actorDrag)
   pillMerged.each(function (d) {
     const g = d3.select(this)
-    const hot = hotThreads.has(d.id)
+    const hot = hotActors.has(d.id)
+    const isr = d.kind === 'isr'
     g.select('rect')
       .attr(
         'fill',
-        hot ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.08)',
+        isr
+          ? hot
+            ? 'rgba(168, 85, 247, 0.3)'
+            : 'rgba(168, 85, 247, 0.12)'
+          : hot
+            ? 'rgba(96, 165, 250, 0.22)'
+            : 'rgba(96, 165, 250, 0.08)',
       )
-      .attr('stroke', '#60a5fa')
+      .attr('stroke', isr ? '#c084fc' : '#60a5fa')
       .attr('stroke-width', hot ? 1.6 : 1.1)
+      .attr('stroke-dasharray', isr ? '5 3' : null)
     g.select('text')
-      .attr('fill', 'rgba(248,250,252,0.95)')
+      .attr('fill', isr ? 'rgba(233, 213, 255, 0.98)' : 'rgba(248,250,252,0.95)')
+      .attr('font-weight', isr ? 700 : 500)
       .text(fitEllipsis(d.label, PILL_TEXT_MAX, GRAPH_FONT.pill))
     g.attr('aria-label', d.label)
     g.selectAll('title').remove()

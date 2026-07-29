@@ -5,7 +5,7 @@
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
  * zoom). Optional queue swim lanes line data-passing objects (msgq / fifo /
  * lifo / k_queue / k_stack) under the threads, with dotted put/get connectors
- * from the actor thread to each queue rail. Lane groups (THREADS, QUEUES, …)
+ * from the actor context to each queue rail. Lane groups (THREADS, QUEUES, …)
  * carry small uppercase section headers. Queues: per-object flow graph + depth
  * from put/put_front/get exits.
  */
@@ -51,8 +51,11 @@ import {
   contextSwitchesIn,
   depthAt,
   fmtTime,
+  isrActiveAt,
   isPutOp,
   msgqOpColor,
+  queueActorKey,
+  queueActorLabel,
   queueAxisMax,
   queueChartOpLabel,
   queueFlowEvents,
@@ -248,7 +251,7 @@ function timelineGeom(
   metrics: LaneMetrics,
 ): TimelineGeom {
   const lanes = visibleLanes(tr)
-  const hasIsr = tr.isrSpans.length > 0
+  const hasIsr = tr.isrSpans.length > 0 || tr.isrOpenStart != null
   const showQueues = showMsgq && queueCount > 0
   const threadBlockRows = lanes.length + (hasIsr ? 1 : 0)
 
@@ -648,7 +651,11 @@ function paint(
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.fillText('[ISR]', 4, y + laneH / 2)
-    for (const [s, e] of tr.isrSpans) {
+    const isrSpans =
+      tr.isrOpenStart == null
+        ? tr.isrSpans
+        : [...tr.isrSpans, [tr.isrOpenStart, Math.max(tr.isrOpenStart, tr.t1)] as [number, number]]
+    for (const [s, e] of isrSpans) {
       if (e <= view0 || s >= view1) continue
       const x0 = LABEL_W + ((Math.max(s, view0) - view0) / span) * plotW
       const x1 = LABEL_W + ((Math.min(e, view1) - view0) / span) * plotW
@@ -732,9 +739,10 @@ function paint(
     const lastXByKey = new Map<string, number>()
     const visible: QueueFlowEvent[] = []
     for (const ev of msgqEvents) {
-      if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
-      if (!threadRowOf.has(ev.threadId)) continue
-      const thinKey = `${ev.threadId}|${ev.queueId}`
+      if (ev.ts < view0 || ev.ts > view1 || ev.actor.kind === 'unknown') continue
+      if (ev.actor.kind === 'thread' && !threadRowOf.has(ev.actor.threadId)) continue
+      if (ev.actor.kind === 'isr' && !hasIsr) continue
+      const thinKey = `${queueActorKey(ev.actor)}|${ev.queueId}`
       const x = LABEL_W + ((ev.ts - view0) / span) * plotW
       const prev = lastXByKey.get(thinKey)
       if (prev != null && x - prev < MSGQ_MARK_MIN_GAP_PX) continue
@@ -752,9 +760,11 @@ function paint(
         : visible
 
     for (const ev of ordered) {
-      const tRow = threadRowOf.get(ev.threadId!)!
+      const actorY =
+        ev.actor.kind === 'thread'
+          ? lanesTop + threadRowOf.get(ev.actor.threadId)! * laneH + laneH / 2
+          : lanesTop + lanes.length * laneH + laneH / 2
       const x = LABEL_W + ((ev.ts - view0) / span) * plotW
-      const threadY = lanesTop + tRow * laneH + laneH / 2
       const color = msgqOpColor(ev.op, ev.ok)
       const qRow = queueRowOf.get(ev.queueId)
       const queueY =
@@ -773,11 +783,11 @@ function paint(
 
       ctx.globalAlpha = dim ? 0.1 : hot ? 1 : 0.42
 
-      if (queueY != null && Math.abs(queueY - threadY) > markR * 2 + arrowH) {
+      if (queueY != null && Math.abs(queueY - actorY) > markR * 2 + arrowH) {
         // put: thread ○ →↓ queue    get: queue ○ →↑ thread
         // Timestamps are raw CTF ns; x is a pure linear map of those ns.
-        const startY = put ? threadY : queueY
-        const tipY = put ? queueY : threadY
+        const startY = put ? actorY : queueY
+        const tipY = put ? queueY : actorY
         const dir: 'up' | 'down' = tipY > startY ? 'down' : 'up'
         const edgeStart = dir === 'down' ? startY + markR : startY - markR
         const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
@@ -789,13 +799,13 @@ function paint(
         strokeMsgqConnector(
           ctx,
           x,
-          threadY - laneH / 2 + 2,
-          threadY + laneH / 2 - 2,
+          actorY - laneH / 2 + 2,
+          actorY + laneH / 2 - 2,
           color,
           kind,
           zw,
         )
-        paintMsgqMark(ctx, x, threadY, markR, color, kind)
+        paintMsgqMark(ctx, x, actorY, markR, color, kind)
       }
 
       ctx.globalAlpha = 1
@@ -871,19 +881,26 @@ function hitTestMsgqEdge(
   let bestDist = MSGQ_EDGE_HIT_PX
   const lastXByKey = new Map<string, number>()
   for (const ev of msgqEvents) {
-    if (ev.ts < view0 || ev.ts > view1 || ev.threadId == null) continue
-    const tRow = threadRowOf.get(ev.threadId)
+    if (ev.ts < view0 || ev.ts > view1 || ev.actor.kind === 'unknown') continue
+    const actorY =
+      ev.actor.kind === 'thread'
+        ? (() => {
+            const row = threadRowOf.get(ev.actor.threadId)
+            return row == null ? null : geom.lanesTop + row * geom.laneH + geom.laneH / 2
+          })()
+        : geom.hasIsr
+          ? geom.lanesTop + geom.lanes.length * geom.laneH + geom.laneH / 2
+          : null
     const qRow = queueRowOf.get(ev.queueId)
-    if (tRow == null || qRow == null) continue
+    if (actorY == null || qRow == null) continue
     const ex = LABEL_W + ((ev.ts - view0) / span) * plotW
-    const thinKey = `${ev.threadId}|${ev.queueId}`
+    const thinKey = `${queueActorKey(ev.actor)}|${ev.queueId}`
     const prev = lastXByKey.get(thinKey)
     if (prev != null && ex - prev < MSGQ_MARK_MIN_GAP_PX) continue
     lastXByKey.set(thinKey, ex)
-    const threadY = geom.lanesTop + tRow * geom.laneH + geom.laneH / 2
     const queueY = geom.queueTop + qRow * geom.msgqLaneH + geom.msgqLaneH / 2
-    const y0 = Math.min(threadY, queueY)
-    const y1 = Math.max(threadY, queueY)
+    const y0 = Math.min(actorY, queueY)
+    const y1 = Math.max(actorY, queueY)
     if (y < y0 - MSGQ_EDGE_HIT_PX || y > y1 + MSGQ_EDGE_HIT_PX) continue
     const dx = Math.abs(x - ex)
     if (dx <= bestDist) {
@@ -1382,6 +1399,7 @@ function TracePanelBody({
   // (live edge when following) — same role as the Python viewer's cursor.
   const probeTs = playhead?.ts ?? view?.t1 ?? tr?.t1 ?? 0
   const runningTid = tr ? threadRunningAt(tr, probeTs) : null
+  const probeInIsr = tr ? isrActiveAt(tr, probeTs) : false
   const [st, reason] =
     tr && lane !== null ? stateAt(tr, lane, probeTs) : ([null, ''] as [ThreadState | null, string])
   const stats = tr && view ? windowStats(tr, view.t0, view.t1) : null
@@ -1426,7 +1444,7 @@ function TracePanelBody({
     if (msgqHover?.overQueueLane && q) {
       const lines: string[] = []
       if (msgq) {
-        const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+        const who = queueActorLabel(tr, msgq.actor)
         const fail = msgq.ok ? '' : ' fail'
         const arrow = isPutOp(msgq.op) ? '→' : '←'
         lines.push(`${queueChartOpLabel(msgq.op)}${fail} · ${who} ${arrow} ${q.label}`)
@@ -1443,7 +1461,12 @@ function TracePanelBody({
     const cssW = canvasRef.current?.clientWidth ?? 480
     const step = windowTimeStep(view.t0, view.t1, plotWidth(cssW, LABEL_W, PAD))
     const guest = formatGuestTime(tipTs, step)
-    const runLabel = runningTid != null ? threadLabel(tr, runningTid) : '(idle)'
+    const tipRunningTid = threadRunningAt(tr, tipTs)
+    const runLabel = isrActiveAt(tr, tipTs)
+      ? '[ISR]'
+      : tipRunningTid != null
+        ? threadLabel(tr, tipRunningTid)
+        : '(idle)'
     // Absolute guest CTF ns from timing_ns_get (not relative to first event).
     const lines = [`${guest} · ${runLabel}`]
 
@@ -1463,7 +1486,7 @@ function TracePanelBody({
     }
 
     if (msgq) {
-      const who = msgq.threadId != null ? threadLabel(tr, msgq.threadId) : '?'
+      const who = queueActorLabel(tr, msgq.actor)
       const qName = q?.label ?? `0x${msgq.queueId.toString(16)}`
       const fail = msgq.ok ? '' : ' fail'
       const arrow = isPutOp(msgq.op) ? '→' : '←'
@@ -2153,10 +2176,14 @@ function TracePanelBody({
           <div className="rounded border border-border/50 bg-muted/20 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
             <div>
               <span className="text-muted-foreground">running: </span>
-              <span className="font-mono text-foreground">
-                {runningTid !== null ? threadLabel(tr, runningTid) : '(none)'}
+              <span className={cn('font-mono text-foreground', probeInIsr && 'text-purple-300')}>
+                {probeInIsr
+                  ? '[ISR]'
+                  : runningTid !== null
+                    ? threadLabel(tr, runningTid)
+                    : '(none)'}
               </span>
-              {runningTid !== null && (
+              {!probeInIsr && runningTid !== null && (
                 <span className="ml-1 font-mono opacity-70">0x{runningTid.toString(16)}</span>
               )}
             </div>

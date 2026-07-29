@@ -26,6 +26,7 @@ export {
   renderStateRows,
   forEachStateInView,
   stateAt,
+  isrActiveAt,
   threadRunningAt,
   windowStats,
   contextSwitchesIn,
@@ -85,6 +86,8 @@ export {
   threadFlowScores,
   flowEdgeId,
   flowThreadLabel,
+  queueActorKey,
+  queueActorLabel,
   isPutOp,
   mouthForOp,
   queuePipelineRanks,
@@ -93,5 +96,6 @@ export {
   type QueueChartEvent,
   type QueueChartOp,
   type QueueFlowOp,
+  type QueueActor,
   type MsgqMouth,
 } from './queueGraph'
