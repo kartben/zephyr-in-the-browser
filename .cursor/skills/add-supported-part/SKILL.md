@@ -48,11 +48,13 @@ If two compatibles are **not** wire-compatible (different register maps or proto
 
 Default: **declaration into an existing framework**, not a new panel. Docs line: *adding a part is a declaration, not another panel*.
 
-| Kind / shape | Prefer | Dock body |
+**Category ≠ bus.** Choose the framework from what the part *is* (sensor, RTC, DAC, …). The bus (I²C, SPI, …) comes from the Zephyr binding and only changes which registry / `COMPAT_TO_*` / overlay you wire — not which dock body. A SPI RTC should still reuse `RtcBody`.
+
+| Category | Prefer | Dock body |
 | --- | --- | --- |
 | Temperature, pressure, light, IMU, power monitor, … | `sensors/model.ts` + map JSON | `SensorBody` |
 | EEPROM / byte-addressable memory | `memory/model.ts` | `MemoryBody` |
-| SPI NOR | `flash/model.ts` | `SpiFlashBody` |
+| Flash / NOR image | `flash/model.ts` | `SpiFlashBody` |
 | RTC | `rtc/model.ts` | `RtcBody` |
 | PWM controller | `pwm/model.ts` | `PwmBody` |
 | DAC | `dac/model.ts` | `DacBody` |
@@ -80,7 +82,7 @@ Learner-facing strings: follow the [copywriting](../copywriting/SKILL.md) skill.
 1. Confirm datasheet + Zephyr driver/bindings + compatible set.
 2. Choose framework / UI path (reuse vs ask about new UI).
 3. Implement chip model (+ register map JSON when peers have one).
-4. Wire identity (`parts.ts`), registry (`registry.ts` or `spiRegistry.ts`), DT maps (`insights.ts`), managed attach (`virtio/index.ts`).
+4. Wire identity (`parts.ts`); attach on the bus the Zephyr binding uses (`registry.ts` vs `spiRegistry.ts`, matching `COMPAT_TO_*`); managed attach in `virtio/index.ts`.
 5. Package guest side: overlay / `*-only` snippet, `conf/<id>.conf`, `tools/samples.manifest`, gallery row in `src/boards.ts` when there is a demo sample.
 6. Topology / `deviceBodies.tsx` only if no existing `BodyKind` fits.
 7. Tests as peers do; `parts.test.ts` requires every attach type in `PARTS` (with datasheet).
