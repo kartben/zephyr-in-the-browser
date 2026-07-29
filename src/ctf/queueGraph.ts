@@ -19,7 +19,7 @@ import {
   isNestedQueueEvent,
   type QueueFlowOp,
 } from './queueKinds'
-import { isrActiveAt, threadLabel, threadRunningAt, type Trace } from './reader'
+import { isrActiveAt, scheduledThreadAt, threadLabel, type Trace } from './reader'
 
 export type { QueueFlowOp }
 
@@ -86,10 +86,58 @@ const WAKE_LOOKBACK_NS = 1_000_000 // 1 ms
 
 type EnterMark = { ts: number; actor: QueueActor }
 
-function queueActorAt(tr: Trace, ts: number): QueueActor {
-  if (isrActiveAt(tr, ts)) return { kind: 'isr' }
-  const threadId = threadRunningAt(tr, ts)
-  return threadId == null ? { kind: 'unknown' } : { kind: 'thread', threadId }
+/**
+ * Resolve execution context in record order, not from timestamps alone.
+ *
+ * Multiple CTF records can share one clock tick. In particular, a queue exit
+ * immediately followed by isr_exit may have the same timestamp. A half-open
+ * time-span lookup would call the queue exit post-ISR even though its record
+ * precedes the exit boundary.
+ */
+function queueActorsByEvent(tr: Trace): Map<number, QueueActor> {
+  const first = tr.events[0]
+  const startedBeforeFirst =
+    first != null &&
+    (tr.isrSpans.some(([start, end]) => start < first.ts && first.ts < end) ||
+      (tr.isrOpenStart != null && tr.isrOpenStart < first.ts))
+  let isrDepth =
+    first != null &&
+    (startedBeforeFirst || (first.name !== 'isr_enter' && isrActiveAt(tr, first.ts)))
+      ? 1
+      : 0
+  const actors = new Map<number, QueueActor>()
+
+  for (let i = 0; i < tr.events.length; i++) {
+    const ev = tr.events[i]!
+    if (
+      isrDepth > 0 &&
+      (ev.name === 'thread_switched_in' || ev.name === 'thread_switched_out')
+    ) {
+      // Same conservative recovery as TraceReader when an ISR exit was lost.
+      isrDepth = 0
+    }
+    if (ev.name === 'isr_enter') isrDepth++
+
+    if (/^(msgq|fifo|lifo|stack|queue)_/.test(ev.name)) {
+      const threadId = isrDepth > 0 ? null : scheduledThreadAt(tr, ev.ts)
+      actors.set(
+        i,
+        isrDepth > 0
+          ? { kind: 'isr' }
+          : threadId == null
+            ? { kind: 'unknown' }
+            : { kind: 'thread', threadId },
+      )
+    }
+
+    if (
+      isrDepth > 0 &&
+      (ev.name === 'isr_exit' || ev.name === 'isr_exit_to_scheduler')
+    ) {
+      isrDepth--
+    }
+  }
+  return actors
 }
 
 export function queueActorKey(actor: QueueActor): string {
@@ -106,6 +154,7 @@ export function queueActorLabel(tr: Trace, actor: QueueActor): string {
 /** All successful/failed put / put_front / get exits in timestamp order. */
 export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
   const kinds = classifyQueueKinds(tr.events)
+  const actors = queueActorsByEvent(tr)
   const out: QueueFlowEvent[] = []
   /** Unmatched enter marks per op|queue (stack — single-CPU nest-safe). */
   const enters = new Map<string, EnterMark[]>()
@@ -132,7 +181,7 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
       const stack = enters.get(key) ?? []
       // Record who was running at enter — used later to reject stale pairs
       // (e.g. main's leftover enter claimed by a worker's exit).
-      stack.push({ ts: ev.ts, actor: queueActorAt(tr, ev.ts) })
+      stack.push({ ts: ev.ts, actor: actors.get(i)! })
       enters.set(key, stack)
       continue
     }
@@ -146,7 +195,7 @@ export function queueFlowEvents(tr: Trace): QueueFlowEvent[] {
     const exitTs = ev.ts
     // Actor is always who ran the exit (the thread that called put/get).
     // Mark X may snap back to enter/wake for causality; never reattribute.
-    const actorAtExit = queueActorAt(tr, exitTs)
+    const actorAtExit = actors.get(i)!
     const threadAtExit = actorAtExit.kind === 'thread' ? actorAtExit.threadId : null
     let ts = exitTs
     if (
@@ -219,6 +268,7 @@ export function advanceFlowCursor(
  */
 export function queueChartEvents(tr: Trace): QueueChartEvent[] {
   const kinds = classifyQueueKinds(tr.events)
+  const actors = queueActorsByEvent(tr)
   const out: QueueChartEvent[] = []
   for (let i = 0; i < tr.events.length; i++) {
     const ev = tr.events[i]!
@@ -228,7 +278,7 @@ export function queueChartEvents(tr: Trace): QueueChartEvent[] {
     // queue_remove is depth-only (get without a flow mouth) — still tip as get.
     const chartOp: QueueChartOp =
       classified.flowOp ?? (classified.depthAction === 'purge' ? 'purge' : classified.depthAction)
-    const actor = queueActorAt(tr, ev.ts)
+    const actor = actors.get(i)!
     out.push({
       index: i,
       ts: ev.ts,
