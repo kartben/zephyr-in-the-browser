@@ -655,21 +655,46 @@ export function detach() {
   notify()
 }
 
+/**
+ * Coalesce Pause clicks.
+ *
+ * A stop costs a register read, a memory peek, an object-core walk, a thread
+ * walk and a stack unwind — enough RSP round-trips that a second click lands
+ * well inside the first one's refresh. Without this each click started its own
+ * cascade, and the two interleaved on a pipe that answers one packet at a time.
+ */
+let pausePending: Promise<void> | null = null
+
 export async function pause(): Promise<void> {
-  if (!client || !state.attached) return
+  const c = client
+  if (!c || !state.attached) return
   if (state.paused) return
-  try {
-    await client.interrupt()
-    publish({ paused: true, registersLoading: true })
-    await clearTempBreakpoint()
-    await refreshRegs()
-  } catch {
-    // leave state; user can retry
-  }
+  if (pausePending) return pausePending
+  pausePending = (async () => {
+    try {
+      await c.interrupt()
+      publish({ paused: true, registersLoading: true })
+      await clearTempBreakpoint()
+      await refreshRegs()
+    } catch (err) {
+      console.warn('[gdb] pause failed', err)
+    } finally {
+      pausePending = null
+    }
+  })()
+  return pausePending
 }
 
+/**
+ * Let the machine go.
+ *
+ * Deliberately not gated on `state.paused`. That guard was how a stall became
+ * permanent: once anything left the flag false over a stopped machine, Resume
+ * refused to send `vCont;c` and nothing could restart the guest. `continue()`
+ * is a no-op on a machine that is already running, so asking is always safe.
+ */
 export async function resume(): Promise<void> {
-  if (!client || !state.attached || !state.paused) return
+  if (!client || !state.attached) return
   try {
     await client.continue()
     // Keep the last register / memory / thread snapshot so the inspect tabs
@@ -788,10 +813,32 @@ export async function stepOver(): Promise<void> {
   }
 }
 
+/**
+ * Run `fn` with the machine halted, then put it back the way it was.
+ *
+ * Breakpoint edits are the one bit of stub traffic reachable while the guest
+ * runs, and the stub cannot take them then: QEMU stops the vCPU on any byte
+ * that arrives mid-run and sends no stop reply, so the edit would land and the
+ * guest would freeze with the page still showing "running". Halting first costs
+ * a round-trip and keeps that from happening. `paused` is left alone — this is
+ * a hiccup in the guest's execution, not a pause anybody asked to look at.
+ */
+async function whileStopped<T>(fn: () => Promise<T>): Promise<T> {
+  const c = client
+  if (!c) throw new Error('gdb: no session')
+  if (!c.isRunning()) return fn()
+  await c.interrupt()
+  try {
+    return await fn()
+  } finally {
+    await c.continue()
+  }
+}
+
 export async function addBreakpoint(addr: number): Promise<boolean> {
   if (!client || !state.attached) return false
   const kind = breakpointKind(arch)
-  const ok = await client.insertSwBreakpoint(addr, kind)
+  const ok = await whileStopped(() => client!.insertSwBreakpoint(addr, kind))
   if (ok) {
     const bp: Breakpoint = {
       addr,
@@ -808,7 +855,7 @@ export async function addBreakpoint(addr: number): Promise<boolean> {
 export async function removeBreakpoint(addr: number): Promise<boolean> {
   if (!client || !state.attached) return false
   const kind = breakpointKind(arch)
-  const ok = await client.removeSwBreakpoint(addr, kind)
+  const ok = await whileStopped(() => client!.removeSwBreakpoint(addr, kind))
   if (ok) {
     publish({ breakpoints: state.breakpoints.filter((b) => b.addr !== addr) })
   }
