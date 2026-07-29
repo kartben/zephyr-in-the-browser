@@ -37,6 +37,7 @@
  * reported (see `problems`) instead of vanishing.
  */
 
+import { OBJECT_TYPES, objectTypeCode } from '@/debug/kernel/objectCores'
 import { FORMATS, isKnownFormat } from '@/tours/expr'
 
 /** One row of a step's `watch:` list — `label = expression as format`. */
@@ -80,6 +81,21 @@ export interface MemorySpec {
   note: string | null
 }
 
+/**
+ * A step's `objects:` block — which live kernel objects to put on the card.
+ *
+ * Zephyr's `CONFIG_OBJ_CORE` links every mutex, semaphore, message queue and
+ * thread onto a per-type list the debugger can walk, so "show me the six forks
+ * and who holds them" needs no expression and no struct offsets: the object
+ * cores already say what exists and the DWARF already says how to read it.
+ */
+export interface ObjectsSpec {
+  /** Object-core type codes to show. Empty means every type the guest has. */
+  types: string[]
+  /** Address expression for the one object this step is about. */
+  focus: string | null
+}
+
 export interface TourStep {
   /** 0-based position, which is also the order the author wrote them in. */
   index: number
@@ -107,6 +123,7 @@ export interface TourStep {
   highlight: HighlightSpec[]
   watch: WatchSpec[]
   memory: MemorySpec | null
+  objects: ObjectsSpec | null
   /** Register names to spotlight, as the arch spells them. */
   registers: string[]
   /** Show the kernel thread list at this stop. */
@@ -303,6 +320,40 @@ function parseMemory(value: Directive | undefined, problems: string[]): MemorySp
   }
 }
 
+/**
+ * Parse `objects:` — the live kernel objects to show.
+ *
+ *     objects: mutex               one type
+ *     objects: sem, mutex          several
+ *     objects: all                 everything this guest registered
+ *     objects:                     …and which one the step is about
+ *       type: mutex
+ *       focus: $arg0
+ *
+ * Type names are the ones a person would write (`mutex`, `semaphores`), not the
+ * four-letter codes the kernel stamps into each `k_obj_type`, though those work
+ * too. An unknown name is an authoring mistake worth failing the test over: it
+ * would otherwise render as an empty list, which reads exactly like a guest
+ * with no objects of that type.
+ */
+function parseObjects(value: Directive | undefined, problems: string[]): ObjectsSpec | null {
+  if (value === undefined) return null
+  const map =
+    typeof value === 'string' || Array.isArray(value) ? { type: parseList(value).join(',') } : value
+  const written = parseList(map.types ?? map.type ?? '')
+  const types: string[] = []
+  for (const name of written) {
+    if (['all', 'yes', 'true', 'on'].includes(name.toLowerCase())) continue
+    const code = objectTypeCode(name)
+    if (code === null) {
+      problems.push(`\`objects: ${name}\` is not a kernel object type (${OBJECT_TYPES.join(', ')})`)
+      continue
+    }
+    if (!types.includes(code)) types.push(code)
+  }
+  return { types, focus: map.focus?.trim() || null }
+}
+
 const HIGHLIGHT_RANGE = /^(\d+)\s*(?:-\s*(\d+))?$/
 const HIGHLIGHT_PATTERN = /^\/(.+)\/(?:\s*\+\s*(\d+))?$/
 
@@ -368,11 +419,32 @@ function buildStep(
 
   const memory = parseMemory(parsed.values.get('memory'), problems)
 
+  const objectProblems: string[] = []
+  const objects = parseObjects(parsed.values.get('objects'), objectProblems)
+  for (const problem of objectProblems) problems.push(`${where}: ${problem}`)
+
   const highlight: HighlightSpec[] = []
   for (const row of parseList(parsed.values.get('highlight'))) {
     const spec = parseHighlight(row)
     if (spec) highlight.push(spec)
     else problems.push(`${where}: \`highlight: ${row}\` is not a line, a range or a /pattern/`)
+  }
+
+  const stop = asBool(parsed.values.get('stop'), true)
+  const threads = asBool(parsed.values.get('threads'), false)
+  /*
+   * `watch:` and `memory:` are read while the machine is still stopped, so they
+   * survive `stop: no`. The thread and object walks do not: they are dozens of
+   * RSP round-trips that the debugger starts a beat after the registers land,
+   * and a `stop: no` step has let the guest go before they finish. What is left
+   * on the card is a spinner that never resolves.
+   */
+  const walkable = stop || !(threads || objects)
+  if (!walkable) {
+    problems.push(
+      `${where}: \`stop: no\` cannot show \`${threads ? 'threads' : 'objects'}:\` — ` +
+        'the machine runs on before the walk finishes',
+    )
   }
 
   return {
@@ -381,14 +453,16 @@ function buildStep(
     body: body.trim(),
     at,
     when: asScalar(parsed.values.get('when')),
-    stop: asBool(parsed.values.get('stop'), true),
+    stop,
     repeat: asBool(parsed.values.get('repeat'), false),
     panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
     highlight,
     watch,
     memory,
+    // Dropped rather than rendered as a spinner nothing will ever resolve.
+    objects: walkable ? objects : null,
     registers: parseList(parsed.values.get('registers')),
-    threads: asBool(parsed.values.get('threads'), false),
+    threads: walkable && threads,
   }
 }
 

@@ -107,6 +107,61 @@ const TYPE_NAMES: Record<string, string> = {
   TIMR: 'Timers',
 }
 
+/**
+ * The names a person would use for a type, mapped to Zephyr's four-letter code.
+ *
+ * The codes are `K_OBJ_TYPE_ID_GEN("SEM4")` and friends — exactly what the
+ * kernel stamps into each `k_obj_type` — and nobody writing a tour should have
+ * to know that. Both spellings are accepted; `sem` and `SEM4` are the same ask.
+ */
+const TYPE_ALIASES: Record<string, string> = {
+  condvar: 'COND',
+  condvars: 'COND',
+  cpu: 'CPU_',
+  cpus: 'CPU_',
+  event: 'EVNT',
+  events: 'EVNT',
+  fifo: 'FIFO',
+  fifos: 'FIFO',
+  kernel: 'KRNL',
+  lifo: 'LIFO',
+  lifos: 'LIFO',
+  mailbox: 'MBOX',
+  mailboxes: 'MBOX',
+  mbox: 'MBOX',
+  memblock: 'MBLK',
+  memblocks: 'MBLK',
+  msgq: 'MSGQ',
+  msgqs: 'MSGQ',
+  mutex: 'MUTX',
+  mutexes: 'MUTX',
+  pipe: 'PIPE',
+  pipes: 'PIPE',
+  sem: 'SEM4',
+  semaphore: 'SEM4',
+  semaphores: 'SEM4',
+  slab: 'SLAB',
+  slabs: 'SLAB',
+  stack: 'STCK',
+  stacks: 'STCK',
+  thread: 'THRD',
+  threads: 'THRD',
+  timer: 'TIMR',
+  timers: 'TIMR',
+}
+
+/** Resolve a written type name to its object-core code, or null. */
+export function objectTypeCode(name: string): string | null {
+  const raw = name.trim()
+  if (raw === '') return null
+  const upper = raw.toUpperCase()
+  if (Object.hasOwn(TYPE_NAMES, upper)) return upper
+  return TYPE_ALIASES[raw.toLowerCase()] ?? null
+}
+
+/** Every type name a tour may write, for the docs and for validation. */
+export const OBJECT_TYPES = [...new Set(Object.keys(TYPE_ALIASES))].sort()
+
 const STRUCT_FOR_CODE: Record<string, string> = {
   COND: 'k_condvar',
   CPU_: '_cpu',

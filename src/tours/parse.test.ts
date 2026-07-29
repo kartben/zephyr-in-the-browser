@@ -62,6 +62,7 @@ An introduction.
 \`\`\`tour
 at: main
 panel: gpio
+threads: yes
 watch:
   - pin = led+1p as u8
 memory:
@@ -84,7 +85,6 @@ at: main.c:/toggle/
 when: hits % 40 == 0
 repeat: yes
 stop: no
-threads: yes
 registers: pc, sp
 \`\`\`
 
@@ -131,7 +131,8 @@ describe('parseTour', () => {
     expect(second!.when).toBe('hits % 40 == 0')
     expect(second!.repeat).toBe(true)
     expect(second!.stop).toBe(false)
-    expect(second!.threads).toBe(true)
+    expect(first!.threads).toBe(true)
+    expect(second!.threads).toBe(false)
     expect(second!.registers).toEqual(['pc', 'sp'])
   })
 
@@ -150,6 +151,51 @@ describe('parseTour', () => {
   it('reads a document that is not a tour as having no steps', () => {
     expect(parseTour('<!doctype html>\n<html></html>').steps).toEqual([])
     expect(parseTour('').steps).toEqual([])
+  })
+})
+
+describe('objects', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('takes one type, several, or a block with a focus', () => {
+    expect(step('objects: mutex').steps[0]!.objects).toEqual({ types: ['MUTX'], focus: null })
+    expect(step('objects: semaphores, msgq').steps[0]!.objects).toEqual({
+      types: ['SEM4', 'MSGQ'],
+      focus: null,
+    })
+    expect(step('objects:\n  type: mutex\n  focus: $arg0').steps[0]!.objects).toEqual({
+      types: ['MUTX'],
+      focus: '$arg0',
+    })
+  })
+
+  it('reads `all` as every type, which is the empty filter', () => {
+    expect(step('objects: all').steps[0]!.objects).toEqual({ types: [], focus: null })
+  })
+
+  it('accepts the kernel’s own four-letter codes', () => {
+    expect(step('objects: SEM4').steps[0]!.objects).toEqual({ types: ['SEM4'], focus: null })
+  })
+
+  it('reports a type it does not know rather than showing an empty list', () => {
+    // An empty list is what a guest with no objects of that type looks like, so
+    // a typo would be indistinguishable from a true answer at runtime.
+    const doc = step('objects: mutices')
+    expect(doc.steps[0]!.objects).toEqual({ types: [], focus: null })
+    expect(doc.problems[0]).toContain('mutices')
+  })
+
+  it('is absent when the step does not ask for it', () => {
+    expect(step('panel: gpio').steps[0]!.objects).toBeNull()
+  })
+
+  it('refuses a walk on a step that lets the machine run on', () => {
+    // The walk needs the guest halted for dozens of round-trips; `stop: no` has
+    // let it go long before then, so the card would hold a spinner for ever.
+    const doc = step('stop: no\nobjects: mutex\nthreads: yes')
+    expect(doc.steps[0]!.objects).toBeNull()
+    expect(doc.steps[0]!.threads).toBe(false)
+    expect(doc.problems[0]).toContain('stop: no')
   })
 })
 

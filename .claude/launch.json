@@ -13,6 +13,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5183", "--strictPort"],
       "port": 5183
+    },
+    {
+      "// ": "Third port, for a second worktree running alongside the other two.",
+      "name": "zephyr-in-the-browser (worktree 2)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5193", "--strictPort"],
+      "port": 5193
     }
   ]
 }

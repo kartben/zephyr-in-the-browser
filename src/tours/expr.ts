@@ -12,6 +12,7 @@
  *     led+1p as u8         the pin number, one pointer past the port pointer
  *     **led as string      the controller's name (spec → device → name)
  *     $pc as code          the function the machine is stopped in
+ *     $arg2 as dec         a register holding a count, not an address
  *     led as bytes:12      the whole spec as a hexdump
  *
  * `1p` is a pointer width — 4 bytes on Cortex-M3 and RISC-V, 8 on Cortex-A53.
@@ -300,6 +301,18 @@ export async function evalWatch(
   if (format === 'code') {
     return { text: target.label(addr) ?? hex(addr), detail: hex(addr), ok: true, addr }
   }
+  if (format === 'dec') {
+    // The number the expression came to, with nothing read through it. Half of
+    // what an ABI passes in a register is not an address at all — a stack size,
+    // a pin, a bitmask — and `as u32` on one of those goes looking for memory
+    // at 2048 and reports the size of a thread stack as "unreadable".
+    return {
+      text: addr < 10 ? `${addr}` : `${addr} · ${hex(addr)}`,
+      detail: null,
+      ok: true,
+      addr,
+    }
+  }
   if (format === 'string') {
     const bytes = await readCString(addr, target)
     if (!bytes) return fail('unreadable')
@@ -349,14 +362,19 @@ export const FORMATS = [
   'ptr',
   'addr',
   'code',
+  'dec',
   'bytes:N',
 ]
+
+/** Formats that render the expression itself rather than reading through it. */
+const VALUE_FORMATS = ['addr', 'code', 'dec']
 
 /** True for a format the parser will accept — `bytes:N` needs its count. */
 export function isKnownFormat(format: string): boolean {
   return (
     format in INT_FORMATS ||
-    ['bool', 'char', 'string', 'ptr', 'addr', 'code'].includes(format) ||
+    ['bool', 'char', 'string', 'ptr'].includes(format) ||
+    VALUE_FORMATS.includes(format) ||
     /^bytes:\d+$/.test(format)
   )
 }
