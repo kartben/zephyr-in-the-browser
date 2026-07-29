@@ -32,7 +32,7 @@ type EdgeActivityState = {
 function groupNewEvents(events: QueueFlowEvent[]): Map<string, QueueFlowEvent[]> {
   const grouped = new Map<string, QueueFlowEvent[]>()
   for (const event of events) {
-    if (!event.ok || event.threadId == null) continue
+    if (!event.ok || event.actor.kind === 'unknown') continue
     const id = liveEdgeId(event)
     const group = grouped.get(id) ?? []
     group.push(event)
@@ -98,7 +98,9 @@ export function QueueGraph({
     const now = performance.now()
 
     if (advanced.kind === 'first') {
-      for (const event of live.flow.filter((candidate) => candidate.ok && candidate.threadId != null).slice(-10)) {
+      for (const event of live.flow
+        .filter((candidate) => candidate.ok && candidate.actor.kind !== 'unknown')
+        .slice(-10)) {
         activityRef.current.set(liveEdgeId(event), {
           count: 1,
           untilHot: now + 350,
@@ -200,7 +202,8 @@ export function QueueGraph({
           <LegendItem color={flowActionColor('put')} label="put / push" />
           <LegendItem color={flowActionColor('put-front')} label="put front" />
           <LegendItem color={flowActionColor('get')} label="get / pop" />
-          <LegendItem color="#a78bfa" label="thread" />
+          <LegendItem color="#60a5fa" label="thread" />
+          <LegendItem color="#c084fc" label="ISR" />
         </span>
       </div>
       <div>

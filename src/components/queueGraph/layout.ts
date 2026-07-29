@@ -11,6 +11,7 @@ import type {
   SemanticNode,
   SemanticPort,
 } from './model'
+import { isActorNode } from './model'
 
 const PORT_SIZE = 7
 const PORT_PITCH = 17
@@ -54,7 +55,7 @@ function maxPortsOnSide(node: SemanticNode): number {
 
 function nodeSize(node: SemanticNode): { width: number; height: number } {
   const pitchExtent = maxPortsOnSide(node) * PORT_PITCH + 30
-  if (node.kind === 'thread') {
+  if (isActorNode(node)) {
     return { width: 142, height: Math.max(62, pitchExtent) }
   }
   if (node.kind === 'stack') {

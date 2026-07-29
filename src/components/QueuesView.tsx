@@ -21,10 +21,10 @@ import {
 } from 'react'
 import {
   depthAt,
-  flowThreadLabel,
   fmtAxisTime,
   nearestQueueChartEvent,
   queueAxisMax,
+  queueActorLabel,
   queueChartEvents,
   queueChartOpLabel,
   queueLabel,
@@ -518,8 +518,7 @@ function tipLines(tr: Trace, tip: HoverTip): string[] {
   const guest = formatGuestTime(tip.ts, tip.step)
   const lines = [`${guest} · ${depth}`]
   if (tip.event) {
-    const who =
-      tip.event.threadId != null ? flowThreadLabel(tr, tip.event.threadId) : '?'
+    const who = queueActorLabel(tr, tip.event.actor)
     const fail = tip.event.ok || tip.event.op === 'purge' ? '' : '!'
     lines.push(`${queueChartOpLabel(tip.event.op)}${fail} · ${who}`)
   }

@@ -584,7 +584,7 @@ export function stateAt(tr: Trace, tid: number, ts: number): [ThreadState | null
 }
 
 /** Whether `ts` falls inside a closed or currently-open ISR span. */
-function isrActiveAt(tr: Trace, ts: number): boolean {
+export function isrActiveAt(tr: Trace, ts: number): boolean {
   const spans = tr.isrSpans
   let lo = 0
   let hi = spans.length
@@ -600,13 +600,14 @@ function isrActiveAt(tr: Trace, ts: number): boolean {
   return tr.isrOpenStart !== null && tr.isrOpenStart <= ts
 }
 
-/** Running thread at ts (single-CPU), or null when unknown / in an ISR. */
-export function threadRunningAt(tr: Trace, ts: number): number | null {
-  // The interrupted thread remains the scheduler's current thread throughout
-  // an ISR. Mask it here so ISR-originated kernel operations are not falsely
-  // attributed to that thread.
-  if (isrActiveAt(tr, ts)) return null
-
+/**
+ * Scheduler-selected thread at `ts`, even when an ISR is interrupting it.
+ *
+ * Most callers want {@link threadRunningAt}; event-order reconstruction uses
+ * this lower-level lookup after deciding whether that specific record is in
+ * ISR context.
+ */
+export function scheduledThreadAt(tr: Trace, ts: number): number | null {
   // Prefer closed schedule segments — they survive a missing switched_out in
   // the per-thread state machine (common under async CTF drop).
   const segs = tr.segments
@@ -639,6 +640,15 @@ export function threadRunningAt(tr: Trace, ts: number): number | null {
     }
   }
   return best
+}
+
+/** Running thread at ts (single-CPU), or null when unknown / in an ISR. */
+export function threadRunningAt(tr: Trace, ts: number): number | null {
+  // The interrupted thread remains the scheduler's current thread throughout
+  // an ISR. Mask it here so ISR-originated kernel operations are not falsely
+  // attributed to that thread.
+  if (isrActiveAt(tr, ts)) return null
+  return scheduledThreadAt(tr, ts)
 }
 
 /**

@@ -5,17 +5,17 @@ export type FlowAction = 'put' | 'put-front' | 'get' | 'push' | 'pop'
 export type PortSide = 'NORTH' | 'EAST' | 'SOUTH' | 'WEST'
 
 export type PortRole =
-  | 'thread-in'
-  | 'thread-out'
+  | 'actor-in'
+  | 'actor-out'
   | 'tail-in'
   | 'head-in'
   | 'head-out'
   | 'top-in'
   | 'top-out'
 
-export interface ThreadNodeSpec {
+export interface ActorNodeSpec {
   id: string
-  kind: 'thread'
+  kind: 'thread' | 'isr'
   label: string
   detail?: string
 }
@@ -28,11 +28,11 @@ export interface DataObjectNodeSpec {
   capacity: number | null
 }
 
-export type FlowNodeSpec = ThreadNodeSpec | DataObjectNodeSpec
+export type FlowNodeSpec = ActorNodeSpec | DataObjectNodeSpec
 
 export interface FlowSpec {
   id: string
-  threadId: string
+  actorId: string
   objectId: string
   action: FlowAction
 }
@@ -63,6 +63,12 @@ export interface SemanticEdge {
 export interface SemanticGraph {
   nodes: SemanticNode[]
   edges: SemanticEdge[]
+}
+
+export function isActorNode(
+  node: FlowNodeSpec,
+): node is ActorNodeSpec {
+  return node.kind === 'thread' || node.kind === 'isr'
 }
 
 function groupPortsBySide(ports: SemanticPort[]): Map<PortSide, SemanticPort[]> {
@@ -110,7 +116,7 @@ function portId(nodeId: string, edgeId: string): string {
 
 /**
  * Build a graph whose direction follows the data:
- * thread → object for writes, object → thread for reads.
+ * actor → object for writes, object → actor for reads.
  *
  * Each flow receives a unique port at both endpoints. Port order is filled in
  * after grouping by side so ELK never needs to stack unrelated tips.
@@ -121,19 +127,19 @@ export function buildSemanticGraph(nodeSpecs: FlowNodeSpec[], flowSpecs: FlowSpe
   const edges: SemanticEdge[] = []
 
   for (const flow of flowSpecs) {
-    const thread = byId.get(flow.threadId)
+    const actor = byId.get(flow.actorId)
     const object = byId.get(flow.objectId)
-    if (!thread || thread.kind !== 'thread') throw new Error(`Missing thread ${flow.threadId}`)
-    if (!object || object.kind === 'thread') throw new Error(`Missing data object ${flow.objectId}`)
+    if (!actor || !isActorNode(actor)) throw new Error(`Missing actor ${flow.actorId}`)
+    if (!object || isActorNode(object)) throw new Error(`Missing data object ${flow.objectId}`)
 
     const endpoint = objectEndpoint(object.kind, flow.action)
     const writes = endpoint.direction === 'in'
-    const threadPort: SemanticPort = {
-      id: portId(thread.id, flow.id),
-      nodeId: thread.id,
+    const actorPort: SemanticPort = {
+      id: portId(actor.id, flow.id),
+      nodeId: actor.id,
       edgeId: flow.id,
       side: writes ? 'EAST' : 'WEST',
-      role: writes ? 'thread-out' : 'thread-in',
+      role: writes ? 'actor-out' : 'actor-in',
       direction: writes ? 'out' : 'in',
       order: 0,
     }
@@ -144,16 +150,16 @@ export function buildSemanticGraph(nodeSpecs: FlowNodeSpec[], flowSpecs: FlowSpe
       ...endpoint,
       order: 0,
     }
-    thread.ports.push(threadPort)
+    actor.ports.push(actorPort)
     object.ports.push(objectPort)
 
     edges.push({
       id: flow.id,
       action: flow.action,
-      sourceNodeId: writes ? thread.id : object.id,
-      sourcePortId: writes ? threadPort.id : objectPort.id,
-      targetNodeId: writes ? object.id : thread.id,
-      targetPortId: writes ? objectPort.id : threadPort.id,
+      sourceNodeId: writes ? actor.id : object.id,
+      sourcePortId: writes ? actorPort.id : objectPort.id,
+      targetNodeId: writes ? object.id : actor.id,
+      targetPortId: writes ? objectPort.id : actorPort.id,
     })
   }
 
@@ -166,8 +172,8 @@ export function buildSemanticGraph(nodeSpecs: FlowNodeSpec[], flowSpecs: FlowSpe
             'tail-in': 0,
             'head-in': 0,
             'top-in': 0,
-            'thread-in': 0,
-            'thread-out': 1,
+            'actor-in': 0,
+            'actor-out': 1,
             'head-out': 1,
             'top-out': 1,
           }

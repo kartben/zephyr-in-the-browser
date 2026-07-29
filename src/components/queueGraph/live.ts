@@ -1,7 +1,10 @@
 import {
   flowEdgeId,
   flowThreadLabel,
+  queueActorKey,
+  queueActorLabel,
   queueFlowEvents,
+  type QueueActor,
   type QueueFlowEvent,
   type QueueFlowOp,
 } from '@/ctf/queueGraph'
@@ -19,14 +22,20 @@ export function liveThreadNodeId(threadId: number): string {
   return `thread:${threadId}`
 }
 
+export const LIVE_ISR_NODE_ID = 'actor:isr'
+
+export function liveActorNodeId(actor: Exclude<QueueActor, { kind: 'unknown' }>): string {
+  return actor.kind === 'thread' ? liveThreadNodeId(actor.threadId) : LIVE_ISR_NODE_ID
+}
+
 export function liveObjectNodeId(queueId: number): string {
   return `object:${queueId}`
 }
 
-export function liveEdgeId(event: Pick<QueueFlowEvent, 'threadId' | 'queueId' | 'op'>): string {
-  if (event.threadId == null) throw new Error('Cannot create a live edge without a thread')
+export function liveEdgeId(event: Pick<QueueFlowEvent, 'actor' | 'queueId' | 'op'>): string {
+  if (event.actor.kind === 'unknown') throw new Error('Cannot create a live edge without an actor')
   return `flow:${flowEdgeId({
-    threadId: event.threadId,
+    actorKey: queueActorKey(event.actor),
     queueId: event.queueId,
     op: event.op,
   })}`
@@ -66,6 +75,10 @@ export function liveQueueNodeState(
       detail: info.prio == null ? `tid 0x${threadId.toString(16)}` : `priority ${info.prio}`,
     })
   }
+  state.set(LIVE_ISR_NODE_ID, {
+    label: '[ISR]',
+    detail: 'interrupt context',
+  })
   return state
 }
 
@@ -77,22 +90,38 @@ export function buildLiveQueueGraph(
   const queueById = new Map(queues.map((queue) => [queue.id, queue]))
   const flow = flowEvents ?? queueFlowEvents(tr)
   const valid = flow.filter(
-    (event): event is QueueFlowEvent & { threadId: number } =>
-      event.ok && event.threadId != null && queueById.has(event.queueId),
+    (
+      event,
+    ): event is QueueFlowEvent & {
+      actor: Exclude<QueueActor, { kind: 'unknown' }>
+    } => event.ok && event.actor.kind !== 'unknown' && queueById.has(event.queueId),
   )
-  const threadIds = [...new Set(valid.map((event) => event.threadId))].sort((a, b) => {
-    const labelOrder = flowThreadLabel(tr, a).localeCompare(flowThreadLabel(tr, b))
-    return labelOrder || a - b
-  })
+  const actors = new Map<
+    string,
+    {
+      actor: Exclude<QueueActor, { kind: 'unknown' }>
+      label: string
+    }
+  >()
+  for (const event of valid) {
+    const key = queueActorKey(event.actor)
+    actors.set(key, { actor: event.actor, label: queueActorLabel(tr, event.actor) })
+  }
+  const actorSpecs = [...actors.values()].sort((a, b) => a.label.localeCompare(b.label))
 
   const nodes: FlowNodeSpec[] = [
-    ...threadIds.map((threadId): FlowNodeSpec => {
-      const info = tr.threads.get(threadId)
+    ...actorSpecs.map(({ actor, label }): FlowNodeSpec => {
+      const info = actor.kind === 'thread' ? tr.threads.get(actor.threadId) : null
       return {
-        id: liveThreadNodeId(threadId),
-        kind: 'thread',
-        label: flowThreadLabel(tr, threadId),
-        detail: info?.prio == null ? `tid 0x${threadId.toString(16)}` : `priority ${info.prio}`,
+        id: liveActorNodeId(actor),
+        kind: actor.kind,
+        label,
+        detail:
+          actor.kind === 'isr'
+            ? 'interrupt context'
+            : info?.prio == null
+              ? `tid 0x${actor.threadId.toString(16)}`
+              : `priority ${info.prio}`,
       }
     }),
     ...queues.map(
@@ -115,7 +144,7 @@ export function buildLiveQueueGraph(
     const queue = queueById.get(event.queueId)!
     flows.push({
       id,
-      threadId: liveThreadNodeId(event.threadId),
+      actorId: liveActorNodeId(event.actor),
       objectId: liveObjectNodeId(event.queueId),
       action: liveFlowAction(queue.kind, event.op),
     })
