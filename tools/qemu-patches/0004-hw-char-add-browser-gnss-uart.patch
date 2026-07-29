@@ -1,8 +1,8 @@
 diff --git a/hw/arm/stellaris.c b/hw/arm/stellaris.c
-index 031ea3a..f6f61d8 100644
+index 031ea3a..0d33d34 100644
 --- a/hw/arm/stellaris.c
 +++ b/hw/arm/stellaris.c
-@@ -25,6 +25,7 @@
+@@ -30,6 +30,7 @@
  #include "migration/vmstate.h"
  #include "hw/misc/unimp.h"
  #include "hw/timer/stellaris-gptm.h"
@@ -10,8 +10,7 @@ index 031ea3a..f6f61d8 100644
  #include "hw/qdev-clock.h"
  #include "qom/object.h"
  #include "qobject/qlist.h"
-@@ -1218,8 +1219,10 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
- 
+@@ -1218,7 +1219,9 @@ static void stellaris_init(MachineState *ms, stellaris_board_info *board)
              dev = qdev_new("pl011_luminary");
              object_property_add_child(soc_container, "uart[*]", OBJECT(dev));
              sbd = SYS_BUS_DEVICE(dev);
@@ -23,45 +22,20 @@ index 031ea3a..f6f61d8 100644
              sysbus_mmio_map(sbd, 0, 0x4000c000 + i * 0x1000);
              sysbus_connect_irq(sbd, 0, qdev_get_gpio_in(nvic, uart_irq[i]));
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 4a8c19d..8c71845 100644
+index b1d8d8e..42a7fb6 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -6,6 +6,7 @@ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+@@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
+ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
- system_ss.add(when: 'CONFIG_QEMU_HOST_SENSOR', if_true: files('qemu-host-sensor.c'))
 +system_ss.add(files('qemu-browser-gnss.c'))
  system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
  system_ss.add(when: 'CONFIG_LED', if_true: files('led.c'))
  system_ss.add(when: 'CONFIG_PVPANIC_COMMON', if_true: files('pvpanic.c'))
-diff --git a/include/hw/misc/qemu-browser-gnss.h b/include/hw/misc/qemu-browser-gnss.h
-new file mode 100644
-index 0000000..fe5651e
---- /dev/null
-+++ b/include/hw/misc/qemu-browser-gnss.h
-@@ -0,0 +1,19 @@
-+/*
-+ * Browser-fed NMEA character backend.
-+ *
-+ * SPDX-License-Identifier: GPL-2.0-or-later
-+ */
-+
-+#ifndef HW_MISC_QEMU_BROWSER_GNSS_H
-+#define HW_MISC_QEMU_BROWSER_GNSS_H
-+
-+#include "chardev/char.h"
-+
-+/*
-+ * Returns a singleton backend. The browser fills its lock-free byte ring and
-+ * a QEMU timer drains those bytes into the UART frontend on the QEMU thread.
-+ */
-+int qemu_browser_gnss_feed_byte(int value);
-+Chardev *qemu_browser_gnss_chardev(void);
-+
-+#endif
 diff --git a/hw/misc/qemu-browser-gnss.c b/hw/misc/qemu-browser-gnss.c
 new file mode 100644
-index 0000000..8478406
+index 0000000..3d04eed
 --- /dev/null
 +++ b/hw/misc/qemu-browser-gnss.c
 @@ -0,0 +1,103 @@
@@ -168,3 +142,28 @@ index 0000000..8478406
 +              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + GNSS_POLL_MS);
 +    return s->chr;
 +}
+diff --git a/include/hw/misc/qemu-browser-gnss.h b/include/hw/misc/qemu-browser-gnss.h
+new file mode 100644
+index 0000000..fa2b37f
+--- /dev/null
++++ b/include/hw/misc/qemu-browser-gnss.h
+@@ -0,0 +1,19 @@
++/*
++ * Browser-fed NMEA character backend.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_MISC_QEMU_BROWSER_GNSS_H
++#define HW_MISC_QEMU_BROWSER_GNSS_H
++
++#include "chardev/char.h"
++
++/*
++ * Returns a singleton backend. The browser fills its lock-free byte ring and
++ * a QEMU timer drains those bytes into the UART frontend on the QEMU thread.
++ */
++int qemu_browser_gnss_feed_byte(int value);
++Chardev *qemu_browser_gnss_chardev(void);
++
++#endif

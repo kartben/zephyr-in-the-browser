@@ -28,7 +28,7 @@ index 164f6fd..602c01a 100644
  specific_virtio_ss.add(files('virtio.c'))
 diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
 new file mode 100644
-index 0000000..7c06366
+index 0000000..7e18656
 --- /dev/null
 +++ b/hw/virtio/virtio-browser.c
 @@ -0,0 +1,856 @@

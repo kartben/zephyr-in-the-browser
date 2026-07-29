@@ -1,11 +1,18 @@
 diff --git a/hw/arm/virt.c b/hw/arm/virt.c
-index 3d07a95..ad92055 100644
+index 4cc30bc..de77a10 100644
 --- a/hw/arm/virt.c
 +++ b/hw/arm/virt.c
-@@ -2391,6 +2391,13 @@ static void machvirt_init(MachineState *machine)
-      */
-     sysbus_create_simple("qemu-host-sensor", 0x090c0000, NULL);
+@@ -2383,6 +2383,20 @@ static void machvirt_init(MachineState *machine)
+                     qemu_browser_gnss_chardev(), true);
+     }
  
++    /*
++     * Host-backed sensor bridge. Not part of the real virt platform; 0x090c0000
++     * sits in the hole between the secure GPIO (0x090b0000) and the virtio
++     * region (0x0a000000), so it cannot collide with anything the machine maps.
++     * The guest finds it via devicetree, not by probing.
++     */
++
 +    /*
 +     * Host-backed audio-out bridge, in the next slot of the same hole: the
 +     * guest pushes PCM into a ring the QEMU host drains (under qemu-wasm, a
@@ -17,13 +24,13 @@ index 3d07a95..ad92055 100644
          create_secure_ram(vms, secure_sysmem, secure_tag_sysmem);
      }
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index d437b69..5d484e7 100644
+index ba185a9..4385a3f 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -6,6 +6,7 @@ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
+@@ -5,6 +5,7 @@ system_ss.add(when: 'CONFIG_ISA_DEBUG', if_true: files('debugexit.c'))
+ system_ss.add(when: 'CONFIG_ISA_TESTDEV', if_true: files('pc-testdev.c'))
  system_ss.add(when: 'CONFIG_PCI_TESTDEV', if_true: files('pci-testdev.c'))
  system_ss.add(files('qemu-browser-gnss.c'))
- system_ss.add(files('qemu-host-sensor.c'))
 +system_ss.add(files('qemu-host-audio.c'))
  system_ss.add(when: 'CONFIG_UNIMP', if_true: files('unimp.c'))
  system_ss.add(when: 'CONFIG_EMPTY_SLOT', if_true: files('empty_slot.c'))
@@ -37,7 +44,7 @@ index 0000000..541daf9
 +/*
 + * Host-backed audio-out device.
 + *
-+ * A companion to qemu-host-sensor.c and qemu-host-gpio.c, built on the same
++ * A companion to qemu-host-mic.c, built on the same
 + * idea: it models no real hardware. The guest pushes 16-bit mono PCM samples
 + * through a data register into a ring the QEMU *host* drains -- under
 + * qemu-wasm, page JavaScript feeding the Web Audio API. Nothing here is

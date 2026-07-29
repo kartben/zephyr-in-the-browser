@@ -94,7 +94,7 @@ index 0000000..e71d3a8
 +# CONFIG_PCI_DEVICES=n
 diff --git a/configs/devices/arm-softmmu/browser.mak b/configs/devices/arm-softmmu/browser.mak
 new file mode 100644
-index 0000000..06f5c21
+index 0000000..16d5fc3
 --- /dev/null
 +++ b/configs/devices/arm-softmmu/browser.mak
 @@ -0,0 +1,86 @@
