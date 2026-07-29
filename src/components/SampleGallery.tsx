@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { DtsViewer } from '@/components/DtsViewer'
+import { registerCommand } from '@/lib/commands'
 import { cn } from '@/lib/utils'
 import { getBoard, getSample, sampleDtsAsset } from '@/boards'
 import type { GuestSample, PanelKind } from '@/boards'
@@ -182,6 +183,8 @@ export function SampleGallery({
   const [manifest, setManifest] = useState<DocsManifest | null>(null)
   const [dtsSample, setDtsSample] = useState<GuestSample | null>(null)
   const board = getBoard(boardId)
+
+  useEffect(() => registerCommand('open-samples', () => setOpen(true)), [])
 
   // The manifest is gallery furniture, not boot data: fetch it lazily on the
   // first open, and tolerate its absence (dev checkouts have no /docs).

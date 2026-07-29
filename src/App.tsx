@@ -16,7 +16,10 @@ import { Dock } from '@/components/dock/Dock'
 import { FloatingWindows } from '@/components/dock/FloatingWindows'
 import { DropOverlay } from '@/components/DropOverlay'
 import { DtsPromptDialog } from '@/components/DtsPromptDialog'
+import { ShortcutsHelpDialog } from '@/components/ShortcutsHelpDialog'
 import { TourCard } from '@/components/TourCard'
+import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
+import { registerCommand } from '@/lib/commands'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import {
   STAGE_DISPLAY_KEY,
@@ -174,6 +177,7 @@ function readSelection() {
 }
 
 export default function App() {
+  useGlobalShortcuts()
   const [backendId] = useState<BackendId>(() => readSelection().backendId)
   const [boardId, setBoardId] = useState(() => readSelection().boardId)
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
@@ -491,6 +495,8 @@ export default function App() {
     setNonce((n) => n + 1)
   }, [])
 
+  useEffect(() => registerCommand('restart', handleRestart), [handleRestart])
+
   return (
     <div className="flex h-full flex-col">
       <TopBar
@@ -580,6 +586,8 @@ export default function App() {
         }}
         onDismiss={() => setPendingElf(null)}
       />
+
+      <ShortcutsHelpDialog />
     </div>
   )
 }
