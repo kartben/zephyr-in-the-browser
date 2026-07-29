@@ -168,18 +168,21 @@ function ChordKbd({ chord }: { chord: KeyChord }) {
   )
 }
 
-/** Shift glyph in the same 24×24 box as Lucide Command/Option. */
+/** Shift glyph — same 24×24 box and stroke as Lucide Command/Option. */
 function ShiftIcon({ className }: { className?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       className={className}
       aria-label="Shift"
     >
-      {/* Inset like Lucide paths so ink height matches ⌘ at size-3. */}
-      <path d="M12 4 5 12.5h4V20h6v-7.5h4L12 4z" />
+      <path d="M12 4 4 13h5v7h6v-7h5L12 4z" />
     </svg>
   )
 }
