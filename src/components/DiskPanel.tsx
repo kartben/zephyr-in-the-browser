@@ -66,8 +66,8 @@ export function DiskBody({
 
   const labels = useMemo(
     () => ({
-      title: 'virtio-blk · FAT',
-      description: 'FAT volume on the VIRTIO block disk',
+      title: 'Disk · FAT',
+      description: 'FAT volume on this block disk',
       loading: 'Reading the disk…',
       empty:
         'Nothing formatted yet — the guest mkfs’s the image on its first mount, then this fills in.',
@@ -80,7 +80,7 @@ export function DiskBody({
   if (!snap.available) {
     return (
       <p className="px-3 py-3 text-xs text-muted-foreground">
-        Waiting for the disk image. It appears once the emulator has started.
+        Waiting for the disk — it appears once the guest starts.
       </p>
     )
   }

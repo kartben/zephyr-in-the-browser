@@ -136,7 +136,7 @@ export function PartsCatalog() {
           <DialogTitle>Supported parts</DialogTitle>
           {/* The columns already say manufacturer / compatible / datasheet. */}
           <DialogDescription>
-            Chips the browser can attach on virtio-i2c and virtio-spi.
+            Chips you can attach on I²C and SPI while the guest runs.
           </DialogDescription>
         </DialogHeader>
 

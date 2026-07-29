@@ -1027,7 +1027,7 @@ export function TraceBody() {
   if (snap.eventCount === 0) {
     return (
       <p className="px-3 py-4 text-[11px] text-muted-foreground">
-        No CTF events yet — this build may not have tracing enabled.
+        No Trace events yet — pick a traced App, or one that embeds tracing.
       </p>
     )
   }

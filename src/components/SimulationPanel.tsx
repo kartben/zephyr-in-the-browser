@@ -39,9 +39,11 @@ export function SimulationBody() {
         height={28}
         ariaLabel="Recent guest throughput"
       />
-      <p className="pt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-        Guest instructions retired per second, read from the wasm JIT through{' '}
-        <code className="font-mono text-foreground">-icount</code>.
+      <p
+        className="pt-1.5 text-[10px] leading-relaxed text-muted-foreground"
+        title="Guest instructions retired per second"
+      >
+        How fast the guest is running — instructions per second.
       </p>
     </div>
   )

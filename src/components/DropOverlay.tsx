@@ -65,9 +65,9 @@ export function DropOverlay({ onFiles }: { onFiles: (files: File[]) => void }) {
         <FileUp className="size-7 text-primary" aria-hidden />
         <p className="text-sm font-medium">Drop an ELF to boot it</p>
         <p className="max-w-xs text-xs text-muted-foreground">
-          Replaces the board's stock image. The machine stays whatever the board
-          selector says, so the ELF has to be built for it. Drop the build's
-          zephyr.dts with it and the peripheral panels follow the devicetree.
+          Replaces this Board’s stock App. Keep the Board selector matching the
+          build. Drop the build’s zephyr.dts with it and the device dock follows
+          the devicetree.
         </p>
       </div>
     </div>

@@ -130,7 +130,7 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
 
       {devices.length === 0 && instruments.length === 0 && (
         <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
-          Nothing ready to show yet.
+          No instruments or peripherals ready yet.
         </p>
       )}
 

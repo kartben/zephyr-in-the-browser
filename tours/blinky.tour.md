@@ -1,12 +1,14 @@
 ---
-tour: Blinky, explained
+tour: Blinky: LED, GPIO, sleep
 sample: samples/basic/blinky
 ---
 
-Twenty lines of C that turn an LED on and off — and almost none of them say
-anything about the hardware. That is the point of this sample, and it is the
-part you cannot see by reading it. So here is where each missing piece comes
-from, on the board you are running.
+This is Zephyr’s blinky sample: configure an LED pin, toggle it in a loop, and
+sleep between toggles.
+
+Watch the LED in the **device dock** while you step. The stops show how the
+sample finds that pin in **devicetree**, calls the GPIO **API**, and yields with
+`k_msleep()` so the **kernel** can schedule other work.
 
 ## Nothing here says which pin
 
@@ -16,14 +18,12 @@ highlight: /GPIO_DT_SPEC_GET/
 panel: gpio
 ```
 
-The highlighted line is the only place this sample learns about hardware, and
-it has already run. `GPIO_DT_SPEC_GET` is a devicetree macro: it looks up the
-`led0` alias **while the code is compiling** and expands into three constants —
-which GPIO controller, which pin on it, and how that pin is wired.
+**Devicetree** describes the board’s hardware. `GPIO_DT_SPEC_GET` looks up the
+`led0` alias at **build** time and fills a `gpio_dt_spec` — controller, pin, and
+flags — so this file never hard-codes a pin number.
 
-So there is no pin number in this file, and nothing is looked up while the
-program runs. Porting blinky to a new board is a devicetree change, not a code
-change.
+That lookup already happened before `main` ran. Change boards by changing
+devicetree (or the **Board**), not by editing this sample’s pin math.
 
 ## What devicetree chose, arriving at the driver
 
@@ -38,20 +38,16 @@ memory:
   at: $arg0
   len: 32
   mark: 2p..3p
-  note: the driver's function table for this controller
+  note: GPIO driver entry for this controller
 ```
 
-The same call, one layer down. `gpio_pin_configure_dt()` is a thin inline
-wrapper over the GPIO API, and the API hands the work to whichever driver is
-bound to that controller — here it is, with the values devicetree picked.
+`gpio_pin_configure_dt()` takes that `gpio_dt_spec` and asks the GPIO **driver**
+bound to the controller to set the pin up.
 
-`GPIO_OUTPUT_ACTIVE` means an output that starts in its *active* state, which is
-not the same as high. If devicetree marked the pin `GPIO_ACTIVE_LOW`, the driver
-drives it low to make it active, and nothing in the sample changes.
-
-Every device in Zephyr carries a pointer to its driver's function table, marked
-above. That indirection is what lets one call reach seven different GPIO
-drivers.
+Check the GPIO / LED rows in the **device dock**: the pin is an output.
+`GPIO_OUTPUT_ACTIVE` means “start in the active state,” which is **not** the same
+as logic high — if the pin is `GPIO_ACTIVE_LOW` in devicetree, active means
+driven low. The sample code stays the same either way.
 
 ## One call, and no register write in sight
 
@@ -61,13 +57,12 @@ when: first
 panel: led
 ```
 
-The whole loop body. `gpio_pin_toggle_dt()` reads the pin's current level and
-writes back the opposite — through the same API, so the inversion for an
-active-low pin is handled for you.
+The loop body is `gpio_pin_toggle_dt()`. The GPIO API flips the pin’s logical
+level and handles active-low for you.
 
-Underneath, that reaches memory-mapped registers on one board and a VIRTIO
-request to a device on another. The sample cannot tell which, and does not need
-to. Watch the LED: it is on the far side of that dispatch.
+Watch the LED in the **device dock** (and the `LED state:` lines in the
+**terminal**). You do not need to know how this Board wires GPIO underneath —
+the sample only talks to the API.
 
 ## `k_msleep()` gives the CPU up
 
@@ -77,17 +72,13 @@ when: first
 threads: yes
 ```
 
-This is not a delay loop. The thread asks the kernel to be woken in a
-millisecond's time, and the kernel takes it off the run queue and arms a timer —
-so the CPU is free to run another thread, or to idle until the timeout expires.
+This is not a busy-wait. `k_msleep()` asks the **kernel** to wake this **thread**
+later, takes it off the run queue, and arms a timer so another thread can run —
+or the **idle** thread can run until the timeout.
 
-Below is every thread alive right now. `main` is the one running blinky, and it
-is about to leave the list; `idle` is what the kernel runs when nothing else is
-ready.
-
-Sleeping is only allowed from a thread. Doing it in an interrupt handler is a
-kernel error, which is why blinking from an ISR wants a `k_timer` or a work item
-instead.
+Open the thread list in **Debug** on this stop (`main` is blinky; it is about to
+leave the ready set). Sleeping is only legal from a thread; from an **interrupt
+handler** (ISR) you would use a `k_timer` or work item instead.
 
 ## Every write is a mask of pins
 
@@ -97,17 +88,10 @@ when: hits % 10 == 0
 repeat: yes
 stop: no
 panel: led
-watch:
-  - pins = $arg1 as dec
-  - in = $pc as code
 ```
 
-Ten blinks later, at the bottom of the stack. Whatever the API is asked to do to
-*one* pin arrives at the driver as an operation on a **mask** of pins: `16` is
-`BIT(4)`, pin 4 and nothing else.
+Ten blinks later, deeper in the stack, a single-pin toggle becomes a **bitmask**
+on the port — `16` is `BIT(4)`, pin 4 and nothing else.
 
-That is why a driver only has to implement a handful of port-level operations —
-set, clear, toggle, read — and gets per-pin calls, active-low handling and
-devicetree specs for free from the layers above. It also means you can flip
-several pins in one bus transaction when you want to, with
-`gpio_port_toggle_bits()`.
+Prefer watching the LED again over reading the mask. If you want the public API
+for flipping several pins at once, that is `gpio_port_toggle_bits()`.

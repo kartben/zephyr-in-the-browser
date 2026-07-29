@@ -57,10 +57,8 @@ export function BluetoothView({ snap, live }: { snap: BtSnapshot; live: boolean 
     <div className="space-y-3 px-3 py-2.5 text-[12px]">
       {!live && (
         <p className="text-muted-foreground">
-          No <code className="font-mono text-[11px]">hci0</code> chardev — rebuild qemu-wasm with
-          the HCI patches, or pick a Bluetooth sample once the emulator lists{' '}
-          <code className="font-mono text-[11px]">hci</code> in{' '}
-          <code className="font-mono text-[11px]">features.json</code>.
+          Bluetooth isn’t available on this Board yet. Pick a Bluetooth sample
+          once the guest is ready.
         </p>
       )}
 

@@ -58,9 +58,8 @@ export function KernelObjectsPane({
   if (!snap.objectCores) {
     return (
       <div className="rounded-md border border-dashed border-border/70 px-3 py-3 text-[11px] leading-relaxed text-foreground/60">
-        No object-core metadata. Build this image with{' '}
-        <code className="font-mono text-foreground/80">CONFIG_OBJ_CORE=y</code> and keep its
-        ELF symbols.
+        No kernel object list in this App. Use a build with object-core support
+        (and symbols) to inspect queues, mutexes, and threads here.
       </div>
     )
   }

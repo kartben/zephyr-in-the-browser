@@ -85,7 +85,7 @@ export function DebugBody() {
   return (
     <>
       {!live ? (
-        <p className="px-3 py-4 text-[11px] text-muted-foreground">Attaching to the gdb stub…</p>
+        <p className="px-3 py-4 text-[11px] text-muted-foreground">Attaching the debugger…</p>
       ) : (
         <div className="space-y-3 p-2.5">
           {/* Run control leads the body: the thing you reach for first. */}

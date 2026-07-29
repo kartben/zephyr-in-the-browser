@@ -23,7 +23,7 @@ function text(snap: BtSnapshot, live = true): string {
 describe('BluetoothView', () => {
   afterEach(() => detach())
 
-  it('explains a missing hci0 chardev when not live', () => {
+  it('explains when Bluetooth is unavailable', () => {
     const out = text(
       {
         available: false,
@@ -37,8 +37,8 @@ describe('BluetoothView', () => {
       },
       false,
     )
-    expect(out).toContain('hci0')
-    expect(out).toContain('features.json')
+    expect(out).toContain('Bluetooth isn’t available on this Board yet')
+    expect(out).toContain('Bluetooth sample')
   })
 
   it('lists the controller on the air and offers Add peer', async () => {
