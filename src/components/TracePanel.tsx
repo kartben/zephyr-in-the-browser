@@ -1,13 +1,14 @@
 /**
- * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Networking.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + Ready + Queues + Networking.
  *
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
  * zoom). Optional queue swim lanes line data-passing objects (msgq / fifo /
  * lifo / k_queue / k_stack) under the threads, with dotted put/get connectors
  * from the actor context to each queue rail. Lane groups (THREADS, QUEUES, …)
- * carry small uppercase section headers. Queues: per-object flow graph + depth
- * from put/put_front/get exits.
+ * carry small uppercase section headers. Ready: live priority ladder of the
+ * ready queue at the window's right edge, with a flash on priority preemption.
+ * Queues: per-object flow graph + depth from put/put_front/get exits.
  */
 
 import {
@@ -32,6 +33,7 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
+import { ReadyView } from '@/components/ReadyView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
 import {
   Select,
@@ -149,7 +151,7 @@ function laneMetricsFor(size: LaneSize): LaneMetrics {
   return { laneH, msgqLaneH: Math.round(laneH * 1.5) }
 }
 
-type TraceTab = 'schedule' | 'queues' | 'net'
+type TraceTab = 'schedule' | 'ready' | 'queues' | 'net'
 
 type MsgqSwimLane = { id: number; label: string; kind: string; series: QueueSeries }
 
@@ -484,7 +486,7 @@ function resolveMsgqHover(
   return { queueId: msgq.queueId, eventIndex: msgq.index, overQueueLane: false }
 }
 
-const TRACE_TABS = ['schedule', 'queues', 'net'] as const satisfies readonly TraceTab[]
+const TRACE_TABS = ['schedule', 'ready', 'queues', 'net'] as const satisfies readonly TraceTab[]
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -1854,6 +1856,7 @@ function TracePanelBody({
         {(
           [
             ['schedule', 'Timeline'],
+            ['ready', 'Ready'],
             ['queues', 'Queues'],
             ['net', 'Networking'],
           ] as const
@@ -1874,7 +1877,17 @@ function TracePanelBody({
         ))}
       </div>
 
-      {tab === 'queues' && view ? (
+      {tab === 'ready' && view ? (
+        <ReadyView
+          tr={tr}
+          view0={view.t0}
+          view1={view.t1}
+          follow={follow}
+          eventCount={snap.revision}
+          toolbar={chartToolbar}
+          overlay={boxZoomOverlay}
+        />
+      ) : tab === 'queues' && view ? (
         <QueuesView
           tr={tr}
           queues={queueSeries}

@@ -77,6 +77,17 @@ export {
   type NetCoreSample,
 } from './netSockets'
 export {
+  readyQueueAt,
+  priorityPreemptionsIn,
+  latestPriorityPreemption,
+  compareReadyOrder,
+  isHigherPriority,
+  readyStateLabel,
+  type ReadyRung,
+  type ReadySnapshot,
+  type PriorityPreemption,
+} from './readyQueue'
+export {
   queueFlowEvents,
   queueChartEvents,
   nearestQueueChartEvent,
