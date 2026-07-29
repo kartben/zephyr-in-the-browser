@@ -35,6 +35,40 @@ virtio-gpio and virtio-spi that driver is vendored
 ([VENDOR.md](../zephyr-module/drivers/vendor/VENDOR.md)); for I2C it does not
 exist in Zephyr yet and has to be written.
 
+### When *not* to use the bridge: virtio-blk
+
+The bridge exists because `hw/virtio/` had nothing usable for the devices this
+project wanted. For block storage it does: `virtio-blk-device` is stock, and it
+was already linked into the packaged emulators — `configs/devices/*/browser.mak`
+never disables `CONFIG_VIRTIO_BLK`, which is `default y depends on VIRTIO`. So
+the `virtio_blk` sample uses plain QEMU, with a raw image the page allocates in
+the Emscripten filesystem:
+
+```
+-drive file=/pack/virtio-blk.img,if=none,id=vblk,format=raw,cache=unsafe,file.locking=off
+-device virtio-blk-device,drive=vblk,bus=virtio-mmio-bus.6
+```
+
+(`cache=unsafe` keeps guest flushes from becoming fsync round trips on MEMFS;
+`file.locking=off` skips the `fcntl(F_OFD_SETLK)` probe Emscripten does not
+implement.)
+
+Reaching for the bridge here would have been the wrong call — a virtio-blk
+device model in TypeScript, reimplementing a protocol QEMU already implements
+correctly. What it *would* buy is the two things the stock path gives up:
+
+- **Persistence.** The image lives in MEMFS, so a page reload starts from a
+  blank disk. A page-side model could keep sectors in IndexedDB the way
+  `src/virtio/devices/flash/model.ts` keeps the SPI NOR in localStorage.
+- **Observability.** Sector traffic would show up in the bus log, instead of
+  the page only being able to poll the resulting bytes
+  ([`src/hostDisk.ts`](../src/hostDisk.ts)).
+
+Both are worth having, neither is worth a from-scratch device model today. If
+someone does build it, `device-id=2` is `VIRTIO_ID_BLOCK` and stock QEMU already
+names it, so — like GPIO and I2C, and unlike SPI — it needs no `VIRTIO_ID_*`
+backport patch.
+
 ## Shape
 
 ```

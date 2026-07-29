@@ -216,7 +216,7 @@ tarballs), the old hardcoded tables in
 
 ## The vendored drivers
 
-The module also carries pristine copies of two not-yet-upstream Zephyr drivers
+The module also carries pristine copies of not-yet-upstream Zephyr drivers
 ([`zephyr-module/drivers/vendor/`](../zephyr-module/drivers/vendor)), each opt-in
 behind a snippet:
 
@@ -246,6 +246,37 @@ behind a snippet:
   whatever comes next, and adding one needs no QEMU rebuild. See
   [virtio-bridge.md](virtio-bridge.md). The Cortex-M3 keeps its MMIO
   device: the LM3S6965 machine has no virtio-mmio bus.
+- **virtio-blk** (`-S virtio-blk`) gives the guest a block device on
+  virtio-mmio slot 6, and the `virtio_blk` sample puts a FAT volume on it.
+  Vendored from [zephyr#112581](https://github.com/zephyrproject-rtos/zephyr/pull/112581).
+
+  This is the **odd one out**, and worth understanding as the counter-example to
+  everything above: virtio-blk is a device QEMU already ships, so there is no
+  downstream patch, no generic bridge, and no TypeScript device model. The
+  emulator artifacts already contained `virtio-blk-device` and the full block
+  layer, so it cost no rebuild at all. What backs the disk is a raw image the
+  *page* allocates in the Emscripten filesystem — `blankFiles` on the sample in
+  [`src/boards.ts`](../src/boards.ts) — which QEMU's own block layer then reads
+  and writes.
+
+  In the dock it is an ordinary device row, under Memory beside the SPI NOR —
+  not an Instrument, because the guest's tree really does declare it, and the
+  NOR is both the other storage medium and the panel this one is modelled on.
+
+  That inverts the usual data flow, and the Disk row's body follows from it. Every
+  other peripheral here is modelled in the page, so the page knows what changed
+  and pushes updates; here QEMU owns the bytes, so
+  [`src/hostDisk.ts`](../src/hostDisk.ts) polls them back out of MEMFS (a stat
+  for the mtime, then a zero-copy view) exactly the way
+  [`src/hostTrace.ts`](../src/hostTrace.ts) follows the CTF stream. The panel
+  is otherwise the flash card's parts reused: the same `SectorGrid` block map,
+  the same `HexView` over a `HexBacked` facade, and the same filesystem dialog
+  — with a read-only FAT reader ([`src/lib/fatBrowse.ts`](../src/lib/fatBrowse.ts))
+  where the flash side has littlefs-js.
+
+  Because the image lives in MEMFS and nothing writes it back, the disk is
+  **not** persistent: reload the page and the boot counter starts at 1 again.
+  The SPI NOR does persist, because the page owns those bytes.
 
 ## Touch input: the display panel is a tablet
 
