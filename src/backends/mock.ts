@@ -1,5 +1,5 @@
 import type { PtyBackend, Slave, StartOptions } from './types'
-import { sampleDtsAsset, sampleTourAsset } from '@/boards'
+import { sampleDtsAsset } from '@/boards'
 import { loadSampleDts } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
@@ -166,10 +166,7 @@ export function createMockBackend(): PtyBackend {
       // cards say plainly that their values would have come from the target —
       // enough to read the tour on a bare checkout, honest about what it is.
       disposers.push(
-        startTourDemo(
-          `${import.meta.env.BASE_URL}qemu/${sampleTourAsset(board, sampleId)}`,
-          signal,
-        ),
+        startTourDemo(sampleId, signal),
       )
     },
 
