@@ -1,5 +1,5 @@
 /**
- * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Networking.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Networking + Power.
  *
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
@@ -36,6 +36,7 @@ import {
 import { PanelFrame } from '@/components/PanelFrame'
 import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
+import { PowerView, POWER_LABEL_W } from '@/components/PowerView'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -154,7 +155,7 @@ function laneMetricsFor(size: LaneSize): LaneMetrics {
   return { laneH, msgqLaneH: Math.round(laneH * 1.5) }
 }
 
-type TraceTab = 'schedule' | 'queues' | 'net'
+type TraceTab = 'schedule' | 'queues' | 'net' | 'power'
 
 type MsgqSwimLane = { id: number; label: string; kind: string; series: QueueSeries }
 
@@ -489,7 +490,7 @@ function resolveMsgqHover(
   return { queueId: msgq.queueId, eventIndex: msgq.index, overQueueLane: false }
 }
 
-const TRACE_TABS = ['schedule', 'queues', 'net'] as const satisfies readonly TraceTab[]
+const TRACE_TABS = ['schedule', 'queues', 'net', 'power'] as const satisfies readonly TraceTab[]
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -1116,6 +1117,7 @@ function TracePanelBody({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const queuesSvgRef = useRef<SVGSVGElement>(null)
   const netCanvasRef = useRef<HTMLCanvasElement>(null)
+  const powerCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
@@ -1153,7 +1155,14 @@ function TracePanelBody({
   const followRef = useRef(follow)
   followRef.current = follow
   viewRef.current = view
-  const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
+  const gutterW =
+    tab === 'queues'
+      ? QUEUES_LABEL_W
+      : tab === 'net'
+        ? NET_LABEL_W
+        : tab === 'power'
+          ? POWER_LABEL_W
+          : LABEL_W
   const yZoom = yZoomByTab[tab] ?? null
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
@@ -1903,6 +1912,7 @@ function TracePanelBody({
             ['schedule', 'Timeline'],
             ['queues', 'Queues'],
             ['net', 'Networking'],
+            ['power', 'Power'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -1947,6 +1957,22 @@ function TracePanelBody({
             follow={follow}
             eventCount={snap.revision}
             canvasRef={netCanvasRef}
+            canvasProps={canvasHandlers}
+            overlay={boxZoomOverlay}
+            boxZoomArmed={boxZoomArmed}
+            yZoom={yZoom}
+          />
+        </div>
+      ) : tab === 'power' && view ? (
+        <div className="flex flex-col gap-1">
+          {chartToolbar}
+          <PowerView
+            tr={tr}
+            view0={view.t0}
+            view1={view.t1}
+            follow={follow}
+            eventCount={snap.revision}
+            canvasRef={powerCanvasRef}
             canvasProps={canvasHandlers}
             overlay={boxZoomOverlay}
             boxZoomArmed={boxZoomArmed}

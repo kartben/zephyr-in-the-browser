@@ -23,6 +23,7 @@ other end of the wire.
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 | [debug-gdb-plan.md](debug-gdb-plan.md) | In-page debugging: QMP registers now, gdbstub next |
 | [trace-networking-plan.md](trace-networking-plan.md) | Spec: Trace panel **Networking** tab from Zephyr socket / `net_*` CTF |
+| [trace-power-plan.md](trace-power-plan.md) | Spec: Trace panel **Power** tab — CPU idle residency (+ future `pm_*` CTF) |
 
 ## Investigations
 
