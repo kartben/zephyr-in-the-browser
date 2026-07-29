@@ -8,18 +8,23 @@ import { layoutSemanticGraph, type QueueGraphLayout } from '@/components/queueGr
 import {
   buildLiveQueueGraph,
   liveEdgeId,
+  liveObjectNodeId,
   liveQueueNodeState,
+  queueDepthEnvelope,
+  type QueueDepthEnvelope,
 } from '@/components/queueGraph/live'
 import { flowActionColor } from '@/components/queueGraph/model'
 import { advanceFlowCursor, type QueueFlowEvent } from '@/ctf/queueGraph'
 import type { QueueSeries, Trace } from '@/ctf'
 
-/** A reaction must finish before the next normal 500 ms trace publication. */
-const PACKET_MS = 360
-const PACKET_STAGGER_MS = 60
+/** Complete inside the queue tab's 200 ms detail publication cadence. */
+const PACKET_MS = 150
+const PACKET_STAGGER_MS = 30
 const PACKET_CLEANUP_MS = PACKET_MS + PACKET_STAGGER_MS + 80
-const HOT_MS = 420
-const WARM_MS = 1600
+const HOT_MS = 180
+const WARM_MS = 900
+const OCCUPANCY_ENVELOPE_MS = 420
+const OCCUPANCY_CLEANUP_MS = OCCUPANCY_ENVELOPE_MS + 40
 const MAX_PACKETS_PER_BURST = 3
 const MAX_LIVE_PACKETS = 48
 
@@ -28,6 +33,8 @@ type EdgeActivityState = {
   untilHot: number
   untilWarm: number
 }
+
+type DisplayedDepthEnvelope = QueueDepthEnvelope & { sequence: number }
 
 function groupNewEvents(events: QueueFlowEvent[]): Map<string, QueueFlowEvent[]> {
   const grouped = new Map<string, QueueFlowEvent[]>()
@@ -66,7 +73,21 @@ export function QueueGraph({
     [tr, queues, flowEvents, eventCount],
   )
   const graphForLayout = useMemo(() => live.graph, [live.topologyKey])
-  const nodeState = useMemo(() => liveQueueNodeState(tr, queues), [tr, queues, eventCount])
+  const [depthEnvelopes, setDepthEnvelopes] = useState(
+    () => new Map<number, DisplayedDepthEnvelope>(),
+  )
+  const nodeState = useMemo(() => {
+    const state = liveQueueNodeState(tr, queues)
+    for (const [queueId, envelope] of depthEnvelopes) {
+      const node = state.get(liveObjectNodeId(queueId))
+      if (!node) continue
+      node.batchMinDepth = envelope.minDepth
+      node.batchMaxDepth = envelope.maxDepth
+      node.batchDurationMs = OCCUPANCY_ENVELOPE_MS
+      node.batchSequence = envelope.sequence
+    }
+    return state
+  }, [tr, queues, eventCount, depthEnvelopes])
   const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
   const [layoutError, setLayoutError] = useState<string | null>(null)
   const [clock, setClock] = useState(() => performance.now())
@@ -75,6 +96,12 @@ export function QueueGraph({
   const activityRef = useRef(new Map<string, EdgeActivityState>())
   const packetSequenceRef = useRef(0)
   const packetTimeoutsRef = useRef<number[]>([])
+  const depthCursorRef = useRef<{
+    t1: number
+    depths: Map<number, number>
+  } | null>(null)
+  const occupancyTimeoutRef = useRef<number | undefined>(undefined)
+  const occupancySequenceRef = useRef(0)
 
   useEffect(() => {
     let current = true
@@ -91,6 +118,47 @@ export function QueueGraph({
       current = false
     }
   }, [graphForLayout])
+
+  useEffect(() => {
+    const depths = new Map(
+      queues.map((queue) => [queue.id, queue.samples.at(-1)?.depth ?? 0]),
+    )
+    const previous = depthCursorRef.current
+    depthCursorRef.current = { t1: tr.t1, depths }
+
+    if (occupancyTimeoutRef.current !== undefined) {
+      window.clearTimeout(occupancyTimeoutRef.current)
+      occupancyTimeoutRef.current = undefined
+    }
+    if (!previous || tr.t1 < previous.t1) {
+      setDepthEnvelopes((current) => (current.size === 0 ? current : new Map()))
+      return
+    }
+
+    const next = new Map<number, DisplayedDepthEnvelope>()
+    const sequence = occupancySequenceRef.current++
+    for (const queue of queues) {
+      const envelope = queueDepthEnvelope(
+        queue,
+        previous.t1,
+        previous.depths.get(queue.id) ?? 0,
+      )
+      if (
+        envelope &&
+        (envelope.minDepth !== envelope.finalDepth ||
+          envelope.maxDepth !== envelope.finalDepth)
+      ) {
+        next.set(queue.id, { ...envelope, sequence })
+      }
+    }
+    setDepthEnvelopes((current) => (next.size === 0 && current.size === 0 ? current : next))
+    if (next.size > 0) {
+      occupancyTimeoutRef.current = window.setTimeout(() => {
+        setDepthEnvelopes((current) => (current.size === 0 ? current : new Map()))
+        occupancyTimeoutRef.current = undefined
+      }, OCCUPANCY_CLEANUP_MS)
+    }
+  }, [eventCount, queues, tr.t1])
 
   useEffect(() => {
     const advanced = advanceFlowCursor(live.flow, lastIndexRef.current)
@@ -171,6 +239,9 @@ export function QueueGraph({
   useEffect(
     () => () => {
       for (const timeout of packetTimeoutsRef.current) window.clearTimeout(timeout)
+      if (occupancyTimeoutRef.current !== undefined) {
+        window.clearTimeout(occupancyTimeoutRef.current)
+      }
     },
     [],
   )
