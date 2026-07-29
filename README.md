@@ -31,7 +31,7 @@ Any row pops out into a floating window; collapsed rows keep a live readout.
 | **I²C** | The bus itself, on its controller node: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump (persisted across reloads; erase clears it) or the SSD1306 OLED's pixels. A chip the devicetree declares but nothing answers for shows as a ghost row — the NAK made visible |
 | **SPI** | A virtio-spi bus with a 1 MiB W25Q-class JEDEC NOR on CS0 — hex dump, LittleFS browser (`Filesystem` dialog via real littlefs / Dreagonmon littlefs-js), and sparse persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same CS0 can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
 | **Network** | Real Ethernet — the page itself implements the LAN, with throughput charts and a tcpdump-style capture |
-| **Guided samples** | A sample that explains itself: teaching notes written as ordinary comments pop up as it runs, point the dock at the peripheral involved, and **stop the emulated machine** so you can read them. Try **Guided Blinky**; see [docs/sample-annotations.md](docs/sample-annotations.md) |
+| **Guided tours** | A **stock** sample that explains itself. A tour is a Markdown file the page reads: each step breaks somewhere in the running guest — in the sample or inside the kernel — **stops the emulated machine**, and shows what it finds there: live values, a hexdump of the struct under discussion with the interesting bytes lit, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
 
 ## Quick start
 

@@ -1,7 +1,7 @@
 /**
- * The Markdown subset annotation bodies are written in.
+ * The Markdown subset tour step bodies are written in.
  *
- * Annotations are prose about code, so they want inline `code`, emphasis,
+ * A tour step is prose about code, so it wants inline `code`, emphasis,
  * links to the Zephyr docs, lists and the occasional fenced block — and
  * nothing else. That is a small enough grammar to parse here rather than take
  * a dependency, which is also how DtsViewer handles its value tinting.

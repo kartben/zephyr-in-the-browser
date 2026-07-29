@@ -1,6 +1,7 @@
 /**
- * Function symbols from an unstripped Zephyr ELF — for PC labels and
- * breakpoint pickers. No DWARF; just .symtab STT_FUNC entries.
+ * Symbols from an unstripped Zephyr ELF — functions for PC labels and
+ * breakpoint pickers, data symbols for tour expressions. No DWARF; just
+ * .symtab.
  */
 
 export interface ElfSymbol {
@@ -10,10 +11,16 @@ export interface ElfSymbol {
 }
 
 export interface SymbolIndex {
-  /** Sorted by address ascending. */
+  /** Functions, sorted by address ascending. */
   byAddr: ElfSymbol[]
-  /** Sorted by name for the picker. */
+  /** Functions, sorted by name for the picker. */
   byName: ElfSymbol[]
+  /**
+   * Data symbols (STT_OBJECT), by name. Kept apart from the function lists so
+   * PC labels and the breakpoint picker stay functions-only; a tour watching
+   * `led+8` needs them, and nothing else does.
+   */
+  objects: Map<string, ElfSymbol>
 }
 
 export interface ResolvedSymbol {
@@ -23,10 +30,16 @@ export interface ResolvedSymbol {
   offset: number
 }
 
+const STT_OBJECT = 1
 const STT_FUNC = 2
 const STT_GNU_IFUNC = 10
 
-function parseSymtab(data: Uint8Array): ElfSymbol[] | null {
+interface TypedSymbol extends ElfSymbol {
+  /** True for STT_OBJECT — a variable rather than a function. */
+  object: boolean
+}
+
+function parseSymtab(data: Uint8Array): TypedSymbol[] | null {
   if (data.length < 64 || data[0] !== 0x7f || data[1] !== 0x45) return null
   const elfclass = data[4] as 1 | 2
   const little = data[5] === 1
@@ -43,7 +56,7 @@ function parseSymtab(data: Uint8Array): ElfSymbol[] | null {
   const eShentsize = elfclass === 2 ? u16(58) : u16(46)
   const eShnum = elfclass === 2 ? u16(60) : u16(48)
 
-  const out: ElfSymbol[] = []
+  const out: TypedSymbol[] = []
   const decoder = new TextDecoder()
 
   for (let i = 0; i < eShnum; i++) {
@@ -80,14 +93,15 @@ function parseSymtab(data: Uint8Array): ElfSymbol[] | null {
         shndx = u16(eo + 14)
       }
       const type = info & 0xf
-      if (type !== STT_FUNC && type !== STT_GNU_IFUNC) continue
+      const object = type === STT_OBJECT
+      if (type !== STT_FUNC && type !== STT_GNU_IFUNC && !object) continue
       if (shndx === 0 || value === 0) continue // UND / null
 
       let end = nameOff
       while (end < strtab.length && strtab[end] !== 0) end++
       const name = decoder.decode(strtab.subarray(nameOff, end))
       if (!name || !isUsefulSymbol(name)) continue
-      out.push({ name, addr: value, size: size || 0 })
+      out.push({ name, addr: value, size: size || 0, object })
     }
   }
   return out
@@ -112,9 +126,16 @@ function isUsefulSymbol(name: string): boolean {
 export function buildSymbolIndex(elf: Uint8Array): SymbolIndex | null {
   const syms = parseSymtab(elf)
   if (!syms || syms.length === 0) return null
-  const byAddr = [...syms].sort((a, b) => a.addr - b.addr || a.name.localeCompare(b.name))
-  const byName = [...syms].sort((a, b) => a.name.localeCompare(b.name) || a.addr - b.addr)
-  return { byAddr, byName }
+  const functions = syms.filter((s) => !s.object)
+  const byAddr = [...functions].sort((a, b) => a.addr - b.addr || a.name.localeCompare(b.name))
+  const byName = [...functions].sort((a, b) => a.name.localeCompare(b.name) || a.addr - b.addr)
+  const objects = new Map<string, ElfSymbol>()
+  for (const s of syms) {
+    // Statics repeat across translation units; first one wins, which is the
+    // lowest address and so the one a tour written against the sample means.
+    if (s.object && !objects.has(s.name)) objects.set(s.name, { name: s.name, addr: s.addr, size: s.size })
+  }
+  return { byAddr, byName, objects }
 }
 
 /** Nearest enclosing function symbol for an address. */

@@ -86,7 +86,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     return deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
   }, [tree, chips, spiChips, gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input, boardId])
 
-  // Hand the inventory to dockReveal so a caller outside React — an annotation
+  // Hand the inventory to dockReveal so a caller outside React — a tour step
   // naming a panel, say — can turn a PanelKind into the row that represents it.
   // This is the one place the inventory is derived, so it is the only honest
   // place to publish it from.

@@ -3,7 +3,7 @@
  *
  * highlight.js is registered with only the C grammar so the bundle stays small.
  * Callers get escaped HTML — safe to inject via dangerouslySetInnerHTML when
- * the source is our own shipped samples / annotation bodies.
+ * the source is our own shipped samples / tour step bodies.
  */
 
 import hljs from 'highlight.js/lib/core'

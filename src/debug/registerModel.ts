@@ -51,6 +51,52 @@ function displayName(name: string, role: ReturnType<typeof roleOf>): string {
   return name.toUpperCase()
 }
 
+/**
+ * Register values by name, for `$pc` and friends in a tour expression.
+ *
+ * Every register is offered under the name the dump used *and* under its
+ * canonical spelling, so `$pc` finds R15 on Cortex-M and PC on AArch64, and
+ * `$x0` finds the `X00` the decoder prints. Values are JS numbers: addresses
+ * on these guests are well inside the safe range, and a watch is a reading aid
+ * rather than an arithmetic unit.
+ */
+export function registerValues(dump: string | null | undefined): Map<string, number> {
+  const values = new Map<string, number>()
+  if (!dump?.trim()) return values
+
+  const put = (name: string, value: number) => {
+    const key = name.toLowerCase()
+    if (!values.has(key)) values.set(key, value)
+  }
+
+  const layout = organizeRegisters(dump)
+  const all = [...layout.featured, ...layout.general, ...layout.status]
+  for (const entry of all) {
+    const value = Number.parseInt(entry.value, 16)
+    if (!Number.isFinite(value)) continue
+    put(entry.name, value)
+    // R03 → r3, X00 → x0: the dump pads for alignment, nobody types the pad.
+    const padded = /^([A-Za-z]+)0*(\d+)$/.exec(entry.name)
+    if (padded) put(`${padded[1]}${padded[2]}`, value)
+  }
+
+  /*
+   * `$arg0`…`$arg3`, so a tour can break on a kernel function and read what it
+   * was called with without knowing which ABI it is looking at. Each of these
+   * three calling conventions passes the first four arguments in registers;
+   * only their names differ. Valid at a function's entry line — once the body
+   * has run, the compiler owns them again.
+   */
+  const argBase = values.has('a0') ? 'a' : values.has('x0') ? 'x' : values.has('r0') ? 'r' : null
+  if (argBase) {
+    for (let i = 0; i < 4; i++) {
+      const value = values.get(`${argBase}${i}`)
+      if (value !== undefined) put(`arg${i}`, value)
+    }
+  }
+  return values
+}
+
 /** Parse NAME=value and "name  value" pairs into a structured layout. */
 export function organizeRegisters(dump: string | null | undefined): RegisterLayout {
   const empty: RegisterLayout = {

@@ -272,13 +272,6 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     primaryPanels: ['led', 'gpio'],
   },
   {
-    id: 'guided',
-    label: 'Guided Blinky',
-    description: 'Blinky, annotated — it stops and explains itself as it runs',
-    zephyrSample: 'zephyr-module/apps/guided_blinky',
-    primaryPanels: ['led', 'gpio'],
-  },
-  {
     // gpio-buzzer on host_gpio pin 5; LED0 stays on pin 4. Frequency args are
     // on/off only for the GPIO backend — the dock shakes + vibrates/buzzes.
     id: 'buzzer',
@@ -597,13 +590,6 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     label: 'Blinky',
     description: 'Blinks LED0 over a VIRTIO GPIO device',
     zephyrSample: 'samples/basic/blinky',
-    primaryPanels: ['led', 'gpio'],
-  },
-  {
-    id: 'guided',
-    label: 'Guided Blinky',
-    description: 'Blinky, annotated — it stops and explains itself as it runs',
-    zephyrSample: 'zephyr-module/apps/guided_blinky',
     primaryPanels: ['led', 'gpio'],
   },
   {
@@ -956,19 +942,25 @@ export function sampleDtsAsset(board: Board, sampleId: string): string {
 }
 
 /**
- * The annotation catalog shipped next to the image, for a sample that carries
- * a walkthrough. Absent for every other sample, which is a supported state —
- * see src/annotations/catalog.ts.
+ * A CTF-traced twin runs the same sources as the sample it was expanded from,
+ * so it reads the same tour and the same shipped sources.
  */
-export function sampleAnnotationsAsset(board: Board, sampleId: string): string {
-  return `zephyr/${board.zephyrTarget}/${sampleId}.annotations.json`
+function baseSampleId(sampleId: string): string {
+  return sampleId.replace(/_trace$/, '')
 }
 
 /**
- * One of a sample's shipped source files. These are the *stripped* copies the
- * extractor emits — the `@annotate` blocks removed, because their text is
- * already in the popup — so line numbers match what the catalog records.
+ * The tour shipped next to the image, for a sample that carries one. Absent for
+ * every other sample, which is a supported state — see src/tours/store.ts.
+ */
+export function sampleTourAsset(board: Board, sampleId: string): string {
+  return `zephyr/${board.zephyrTarget}/${baseSampleId(sampleId)}.tour.md`
+}
+
+/**
+ * One of a sample's shipped source files — a verbatim copy of what was built,
+ * so the line numbers a tour resolves out of DWARF index straight into it.
  */
 export function sampleSourceAsset(board: Board, sampleId: string, file: string): string {
-  return `zephyr/${board.zephyrTarget}/src/${sampleId}/${file}`
+  return `zephyr/${board.zephyrTarget}/src/${baseSampleId(sampleId)}/${file}`
 }

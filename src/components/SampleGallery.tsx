@@ -44,7 +44,7 @@ import { DtsViewer } from '@/components/DtsViewer'
 import { cn } from '@/lib/utils'
 import { getBoard, getSample, sampleDtsAsset } from '@/boards'
 import type { GuestSample, PanelKind } from '@/boards'
-import { isGuided } from '@/annotations/guided'
+import { isGuided } from '@/tours/guided'
 import { peekSampleDts } from '@/devicetree'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
@@ -401,7 +401,7 @@ function SampleRow({
           {isGuided(sample) && (
             <span
               className="flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-              title="Stops and explains itself as it runs"
+              title="Carries a guided tour: it stops and explains itself as it runs"
             >
               <GraduationCap className="size-2.5" aria-hidden />
               guided

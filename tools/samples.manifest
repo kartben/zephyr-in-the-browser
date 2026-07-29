@@ -54,7 +54,6 @@ qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
 qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf
 qemu_cortex_m3:hello_world:samples/hello_world
 qemu_cortex_m3:blinky:samples/basic/blinky
-qemu_cortex_m3:guided:zephyr-module/apps/guided_blinky
 qemu_cortex_m3:basic_button:samples/basic/button
 qemu_cortex_m3:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:gpio-buzzer
 qemu_cortex_m3:stepper:samples/drivers/stepper/generic:conf/stepper.conf:gpio-step-dir
@@ -92,7 +91,6 @@ qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:tracing_pipeline:samples/subsys/tracing/pipeline
 qemu_cortex_a53:msg_queue:samples/kernel/msg_queue
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
-qemu_cortex_a53:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
 qemu_cortex_a53:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_cortex_a53:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gpio,gpio-step-dir
@@ -139,7 +137,6 @@ qemu_riscv32:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c,mc
 qemu_riscv32:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only
 qemu_riscv32:philosophers:samples/philosophers
 qemu_riscv32:blinky:samples/basic/blinky::virtio-gpio
-qemu_riscv32:guided:zephyr-module/apps/guided_blinky::virtio-gpio
 qemu_riscv32:basic_button:samples/basic/button::virtio-gpio
 qemu_riscv32:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_riscv32:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gpio,gpio-step-dir

@@ -5,46 +5,7 @@
  * units that only use DW_AT_ranges. Returns [] when .debug_info is missing.
  */
 
-function findSection(
-  data: Uint8Array,
-  name: string,
-): { offset: number; size: number } | null {
-  if (data.length < 64 || data[0] !== 0x7f) return null
-  const elfclass = data[4] as 1 | 2
-  const little = data[5] === 1
-  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  const u16 = (o: number) => (little ? dv.getUint16(o, true) : dv.getUint16(o, false))
-  const u32 = (o: number) => (little ? dv.getUint32(o, true) : dv.getUint32(o, false))
-  const u64 = (o: number) => {
-    const lo = u32(o)
-    const hi = u32(o + 4)
-    return little ? lo + hi * 0x1_0000_0000 : hi + lo * 0x1_0000_0000
-  }
-
-  const eShoff = elfclass === 2 ? u64(40) : u32(32)
-  const eShentsize = elfclass === 2 ? u16(58) : u16(46)
-  const eShnum = elfclass === 2 ? u16(60) : u16(48)
-  const eShstrndx = elfclass === 2 ? u16(62) : u16(50)
-  const strSh = eShoff + eShstrndx * eShentsize
-  const strOff = elfclass === 2 ? u64(strSh + 24) : u32(strSh + 16)
-  const strSize = elfclass === 2 ? u64(strSh + 32) : u32(strSh + 20)
-  const shstr = data.subarray(strOff, strOff + strSize)
-  const dec = new TextDecoder()
-
-  for (let i = 0; i < eShnum; i++) {
-    const sh = eShoff + i * eShentsize
-    const nameOff = u32(sh)
-    let end = nameOff
-    while (end < shstr.length && shstr[end] !== 0) end++
-    const n = dec.decode(shstr.subarray(nameOff, end))
-    if (n !== name) continue
-    return {
-      offset: elfclass === 2 ? u64(sh + 24) : u32(sh + 16),
-      size: elfclass === 2 ? u64(sh + 32) : u32(sh + 20),
-    }
-  }
-  return null
-}
+import { findSection } from '@/debug/elfSections'
 
 function uleb(data: Uint8Array, i: { at: number }): number {
   let result = 0

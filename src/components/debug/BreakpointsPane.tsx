@@ -15,7 +15,7 @@ export function BreakpointsPane({ snap }: { snap: debug.DebugSnapshot }) {
   const suggestions = useMemo(() => {
     if (!snap.hasSymbols) return [] as ElfSymbol[]
     return filterSymbols(
-      { byAddr: snap.symbols, byName: snap.symbols },
+      { byAddr: snap.symbols, byName: snap.symbols, objects: new Map() },
       text.startsWith('0x') || /^[0-9a-f]+$/i.test(text.trim()) ? '' : text,
       36,
     )

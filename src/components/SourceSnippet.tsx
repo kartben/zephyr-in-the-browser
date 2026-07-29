@@ -1,13 +1,9 @@
 /**
- * The few lines of C an annotation is pointing at.
+ * The few lines of C a tour step is stopped on.
  *
- * The build ships each annotated sample's sources beside its ELF — the
- * *stripped* copies, with the `@annotate` blocks removed, so what the reader
- * sees is the code rather than the prose they are already reading above it.
- * Line numbers in the catalog are in those same stripped coordinates.
- *
- * The SAMPLE_SHOW*() calls stay, dimmed: they are real executable code, and
- * seeing how an annotation is wired is part of the lesson.
+ * The build ships each toured sample's sources beside its ELF, copied verbatim
+ * — the line the step resolved to came out of that build's own DWARF, so the
+ * two agree by construction rather than by a convention someone has to keep.
  *
  * Tokens are coloured with highlight.js (C only); the HTML is escaped by the
  * highlighter before it lands in the DOM.
@@ -23,10 +19,8 @@ const CONTEXT = 5
 interface Props {
   /** Full URL of the shipped source file. */
   src: string
-  /** 1-based line the annotation points at. */
+  /** 1-based line the step is anchored at. */
   line: number
-  /** 1-based lines holding the macro calls that fire it. */
-  fireLines?: number[]
 }
 
 /*
@@ -54,7 +48,7 @@ async function fetchSource(url: string): Promise<string[] | null> {
   return lines
 }
 
-export function SourceSnippet({ src, line, fireLines = [] }: Props) {
+export function SourceSnippet({ src, line }: Props) {
   const [lines, setLines] = useState<string[] | null>(null)
 
   useEffect(() => {
@@ -79,7 +73,6 @@ export function SourceSnippet({ src, line, fireLines = [] }: Props) {
 
   const start = Math.max(1, line - CONTEXT)
   const end = Math.min(lines.length, line + CONTEXT)
-  const fire = new Set(fireLines)
 
   return (
     <div className="overflow-x-auto rounded border border-border bg-muted/40">
@@ -93,7 +86,6 @@ export function SourceSnippet({ src, line, fireLines = [] }: Props) {
               className={cn(
                 'flex whitespace-pre px-1',
                 isAnchor && 'bg-primary/15',
-                !isAnchor && fire.has(n) && 'opacity-45',
               )}
             >
               <span

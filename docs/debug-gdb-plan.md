@@ -22,7 +22,7 @@ Basic guest debugging without cluttering the existing UI.
 **Phase B (host RSP + control plane)**
 
 - Thin RSP client: `src/debug/gdb/*`, `src/hostGdb.ts`
-- Façade `src/debug/control.ts` — Pause/Step/annotations use gdb when attached,
+- Façade `src/debug/control.ts` — Pause/Step/tours use gdb when attached,
   else QMP
 - Step button appears only when gdb session is live
 
@@ -108,9 +108,9 @@ also make Step over exact, since a disassembler can see a call coming.
 
 ## Control plane
 
-When gdb is **attached** (RSP handshake succeeded): Pause / Step / annotation
+When gdb is **attached** (RSP handshake succeeded): Pause / Step / tour
 pause → RSP only. Label in the popover reads `gdb`.
 
 When not (missing feature, attach race, or handshake failure): QMP only. Label
 reads `CPU · QMP`. Step / breakpoint / memory tabs stay hidden. One façade so
-TopBar and annotations cannot diverge.
+TopBar and tours cannot diverge.

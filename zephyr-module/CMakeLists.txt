@@ -35,8 +35,8 @@ if(EXISTS ${ZEPHYR_BASE}/drivers/i2c/i2c_virtio.c)
   set(OWN_VIRTIO_I2C "")
 endif()
 
-# The module's public headers: qemu_host_audio.h for the audio API, and
-# sample_annotation.h for annotated samples. Unconditional — this used to sit
+# The module's public headers: qemu_host_audio.h for the audio API.
+# Unconditional — this used to sit
 # inside the CONFIG_QEMU_HOST_AUDIO block below, where it only resolved because
 # the browser_bridge shield happens to instantiate a qemu,host-audio node on
 # every board. Building without the shield turned a missing -I into an error
@@ -50,8 +50,7 @@ if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
    OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
    OR (CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
-   OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ
-   OR CONFIG_SAMPLE_ANNOTATIONS)
+   OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ)
   zephyr_library()
 endif()
 
@@ -102,14 +101,3 @@ if(CONFIG_QEMU_HOST_MIC)
   zephyr_library_sources(drivers/qemu_host_mic.c)
 endif()
 
-if(CONFIG_SAMPLE_ANNOTATIONS)
-  zephyr_library_sources(subsys/sample_annotation.c)
-  # The annotation table the generated header instantiates. Each entry is four
-  # bytes of read-only data, and the subsystem walks the section at startup to
-  # tell the page what this build actually linked in.
-  zephyr_iterable_section(NAME sample_annotation GROUP RODATA_REGION)
-  # The qemu boards build with the template-based linker
-  # (CONFIG_CMAKE_LINKER_GENERATOR=n), which ignores the call above; emit the
-  # section from a .ld fragment too so both pipelines define the iterable.
-  zephyr_linker_sources(SECTIONS subsys/sample_annotation.ld)
-endif()
