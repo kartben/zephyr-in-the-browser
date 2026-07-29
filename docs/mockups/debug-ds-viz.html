@@ -539,9 +539,10 @@
       <h1>Debug · View as data structure</h1>
       <p>
         Mem already has an address. <strong>View as…</strong> interprets that
-        address as a Zephyr <code>sys</code> container — start with
-        <code>rbtree</code> and <code>ring_buf</code> — and draws the live
-        pointer graph instead of a hex dump.
+        address as a Zephyr <code>sys</code> container —
+        <code>rbtree</code>, <code>ring_buf</code>, <code>sys_slist</code>,
+        <code>sys_dlist</code> — and draws the live pointer graph instead of a hex dump.
+        Soft “maybe” hints are ok; auto-detect is not.
       </p>
     </div>
     <div class="controls">
@@ -612,9 +613,14 @@
               <button type="button" role="menuitemradio" data-view="ring" aria-checked="false">
                 ring_buf <span class="tag">sys/ring_buffer.h</span>
               </button>
+              <button type="button" role="menuitemradio" data-view="slist" aria-checked="false">
+                sys_slist <span class="tag">sys/slist.h</span>
+              </button>
+              <button type="button" role="menuitemradio" data-view="dlist" aria-checked="false">
+                sys_dlist <span class="tag">sys/dlist.h</span>
+              </button>
               <hr />
-              <button type="button" disabled>sys_dlist <span class="tag">later</span></button>
-              <button type="button" disabled>sys_slist <span class="tag">later</span></button>
+              <button type="button" disabled>sys_sflist <span class="tag">later</span></button>
             </div>
           </div>
         </div>
@@ -684,6 +690,68 @@
           <div class="canvas-wrap" id="ring-canvas"></div>
           <div class="sel-card" id="ring-sel"><span class="empty">Click the belt or strip — shows byte window around that index.</span></div>
         </div>
+
+        <!-- sys_slist -->
+        <div class="viz" id="viz-slist" data-pane="slist">
+          <div class="struct-hd">
+            <div class="type">sys_slist_t</div>
+            <div class="fields">
+              <span class="k">@</span><span class="v ptr" data-goto="40022000">40022000</span>
+              <span class="k">head</span><span class="v ptr" data-goto="40022100">40022100</span>
+              <span class="k">tail</span><span class="v ptr" data-goto="40022800">40022800</span>
+            </div>
+            <div class="meta-line">12 nodes · showing 9 · 3 folded</div>
+          </div>
+          <div class="toolbar">
+            <span class="grow"></span>
+            <button type="button" class="btn" data-view-switch="hex">← Hex</button>
+          </div>
+          <div class="canvas-wrap" style="min-height:5rem;display:flex;align-items:center;padding:0.75rem;gap:0.35rem;overflow:auto">
+            <div style="font:500 0.65rem/1.2 var(--mono);padding:0.45rem 0.55rem;border:1px solid var(--accent);border-radius:6px;background:#2a2418;color:var(--fg)">head<br/><span style="color:var(--ptr)">2100</span></div>
+            <span style="color:var(--fg-mute)">→</span>
+            <div style="font:500 0.65rem/1.2 var(--mono);padding:0.45rem 0.55rem;border:1px solid var(--rb-black);border-radius:6px;background:var(--rb-black-fill)">2200</div>
+            <span style="color:var(--fg-mute)">→</span>
+            <div style="font:500 0.65rem/1.2 var(--mono);padding:0.45rem 0.55rem;border:1px dashed var(--fg-mute);border-radius:6px;color:var(--fg-dim)">… +3</div>
+            <span style="color:var(--fg-mute)">→</span>
+            <div style="font:500 0.65rem/1.2 var(--mono);padding:0.45rem 0.55rem;border:1px solid var(--rb-black);border-radius:6px;background:var(--rb-black-fill)">2700</div>
+            <span style="color:var(--fg-mute)">→</span>
+            <div style="font:500 0.65rem/1.2 var(--mono);padding:0.45rem 0.55rem;border:1px solid var(--accent);border-radius:6px;background:#2a2418;color:var(--fg)">tail<br/><span style="color:var(--ptr)">2800</span></div>
+          </div>
+        </div>
+
+        <!-- sys_dlist -->
+        <div class="viz" id="viz-dlist" data-pane="dlist">
+          <div class="struct-hd">
+            <div class="type">sys_dlist_t</div>
+            <div class="fields">
+              <span class="k">@</span><span class="v ptr" data-goto="40023000">40023000</span>
+              <span class="k">head</span><span class="v ptr" data-goto="40023100">40023100</span>
+              <span class="k">tail</span><span class="v ptr" data-goto="40023400">40023400</span>
+            </div>
+            <div class="meta-line">4 nodes · list sentinel in the ring</div>
+          </div>
+          <div class="toolbar">
+            <span class="grow"></span>
+            <button type="button" class="btn" data-view-switch="hex">← Hex</button>
+          </div>
+          <div class="canvas-wrap" style="min-height:11rem;display:grid;place-items:center">
+            <svg viewBox="0 0 280 180" width="100%" height="180" aria-label="dlist ring">
+              <circle cx="140" cy="90" r="58" fill="none" stroke="#3a4558" stroke-width="1.2"/>
+              <g font-family="var(--mono)" font-size="9" text-anchor="middle">
+                <rect x="114" y="18" width="52" height="28" rx="5" fill="#2a2418" stroke="var(--accent)"/>
+                <text x="140" y="36" fill="var(--fg)">list</text>
+                <rect x="198" y="56" width="52" height="28" rx="5" fill="var(--rb-black-fill)" stroke="var(--rb-black)"/>
+                <text x="224" y="74" fill="var(--fg)">3100</text>
+                <rect x="198" y="96" width="52" height="28" rx="5" fill="var(--rb-black-fill)" stroke="var(--rb-black)"/>
+                <text x="224" y="114" fill="var(--fg)">3200</text>
+                <rect x="114" y="134" width="52" height="28" rx="5" fill="var(--rb-black-fill)" stroke="var(--rb-black)"/>
+                <text x="140" y="152" fill="var(--fg)">3400</text>
+                <rect x="30" y="76" width="52" height="28" rx="5" fill="var(--rb-black-fill)" stroke="var(--rb-black)"/>
+                <text x="56" y="94" fill="var(--fg)">3300</text>
+              </g>
+            </svg>
+          </div>
+        </div>
       </div>
     </aside>
   </div>
@@ -737,11 +805,12 @@
       document.querySelectorAll('.viz').forEach((el) => {
         el.classList.toggle('active', el.dataset.pane === view)
       })
-      const labels = { hex: 'View as ▾', rbtree: 'rbtree ▾', ring: 'ring_buf ▾' }
+      const labels = { hex: 'View as ▾', rbtree: 'rbtree ▾', ring: 'ring_buf ▾', slist: 'sys_slist ▾', dlist: 'sys_dlist ▾' }
       viewBtn.textContent = labels[view] || 'View as ▾'
       if (view === 'rbtree') addrInput.value = '4002a100'
       if (view === 'ring') addrInput.value = '40031000'
-      if (view === 'hex') {/* keep */}
+      if (view === 'slist') addrInput.value = '40022000'
+      if (view === 'dlist') addrInput.value = '40023000'
       viewMenu.classList.remove('open')
       viewBtn.setAttribute('aria-expanded', 'false')
       relayout()
@@ -1241,7 +1310,7 @@
 
     // Deep-link helpers for screenshots / review: ?view=rbtree|ring|hex
     const q = new URLSearchParams(location.search).get('view')
-    if (q === 'rbtree' || q === 'ring' || q === 'hex') setView(q)
+    if (q === 'rbtree' || q === 'ring' || q === 'hex' || q === 'slist' || q === 'dlist') setView(q)
     const wq = new URLSearchParams(location.search).get('width')
     if (wq === 'float') {
       body.dataset.width = 'float'

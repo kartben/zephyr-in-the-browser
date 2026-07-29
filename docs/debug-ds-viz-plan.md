@@ -1,23 +1,15 @@
 # Debug · View as data structure
 
-**Status: mockup.** Interactive HTML at
-[`docs/mockups/debug-ds-viz.html`](mockups/debug-ds-viz.html). No app code yet.
+**Status: implementing.** Mockup at
+[`docs/mockups/debug-ds-viz.html`](mockups/debug-ds-viz.html); app code under
+`src/debug/ds/` + `src/components/debug/ds/`.
 
 ## Why yes
 
 Learners already pause and poke guest RAM as a hex dump. Zephyr’s
-`include/zephyr/sys` containers are **intrusive, header-stable, and small**:
-`rbnode` is two pointers (color in the LSB of `children[0]`); `ring_buf` is a
-buffer pointer plus put/get indices and a size. Walking them from a paused GDB
-session is the same RSP `m` traffic Mem already uses — just interpreted.
-
-That is a good fit for Zephyr in the Browser:
-
-- Hex alone hides topology (who points where, red vs black, wrap of a ring).
-- Objects already decodes kernel cores into fields; this is the **pointer-graph**
-  sibling for `sys/*` containers the sample author embeds.
-- ABIs change rarely; we can hard-code layouts (or later DWARF-check them) without
-  inventing a general type system.
+`include/zephyr/sys` containers are **intrusive, header-stable, and small**.
+Walking them from a paused GDB session is the same RSP `m` traffic Mem already
+uses — just interpreted.
 
 ## Placement
 
@@ -28,60 +20,57 @@ That is a good fit for Zephyr in the Browser:
 [ Find · hex or "ascii" ] [↓] [Find]
 ```
 
-`View as` picks a layout for **the address in the bar** (the `struct rbtree *`
-or `struct ring_buf *`, not a random interior byte). Default remains the hex
-dump. Choosing a type replaces the dump with a typed pane; **Hex** returns.
+`View as` picks a layout for **the address in the bar** (the container root,
+not a random interior byte). Default remains the hex dump.
 
-Do **not** add a new Debug tab until the Mem chrome feels crowded. Kernel
-Objects can later offer “Open as rbtree…” that seeds Mem’s address + type via
-`debugUi`.
-
-## First types
+## Types
 
 | Type | Decode | Viz |
 |------|--------|-----|
-| `rbtree` / `rbnode` | `root`, `lessthan_fn`, `max_depth`; walk with `children[0]` color bit cleared | Layered tree of address boxes; red/black fill; collapse deep/wide limbs to `…` |
-| `ring_buf` | `buffer`, `put`/`get` `{head,tail,base}`, `size` | Circular belt + linear unwrap; used arc; put/get markers; large buffers show head/tail windows with `…` |
+| `rbtree` | `root`, `lessthan_fn`, `max_depth`; walk `children[]` with color LSB | Layered tree of address boxes; red/black; fold deep limbs to `… +n` |
+| `ring_buf` | `buffer`, `put`/`get` `{head,tail,base}`, `size` | Circular belt + linear unwrap; large → get-window · `···` · put-window |
+| `sys_slist` | `head`, `tail`; chase `next` | Horizontal chain of node boxes; head/tail pins; fold middle to `…` |
+| `sys_dlist` | list node is in the ring (`head`/`tail` ≡ `next`/`prev`); empty = self-pointers | Circular / ring of boxes including the list sentinel |
 
-Later candidates (same Mem entry point): `sys_slist`, `sys_dlist`, `sys_sflist`,
-`k_msgq` buffer layout. Prefer types with a single stable root struct.
+Later: `sys_sflist` (flagged next), `k_msgq` buffer layout.
+
+## Heuristics — can we guess the type?
+
+**Not reliably enough to auto-switch.** Soft ranking in the menu is fine; silent
+auto-detect is not.
+
+| Signal | Helps? | Failure mode |
+|--------|--------|--------------|
+| `ring_buf.size` in a sane range, indices `< 2×size`, `buffer` looks like RAM | Medium | Any struct with a pointer + small ints can fake it; `CONFIG_RING_BUFFER_LARGE` changes index width |
+| `rbtree.lessthan_fn` in text, `max_depth` ∈ 0…64, root NULL or aligned | Medium | Two pointers + an int is a common pattern; color bit only shows up after chasing nodes |
+| `sys_dlist` empty = both words equal the list address | Strong for **empty** lists | Non-empty looks like any circular doubly-linked structure (including Linux-style lists) |
+| `sys_slist` head/tail both NULL, or short walk ending at `tail` | Weak–medium | Indistinguishable from any `{ptr,ptr}` pair until you walk |
+
+Better sources of truth, in order:
+
+1. **User pick** (this UI).
+2. **DWARF** type at the address / symbol (when the ELF has it).
+3. **Objects / tours** seeding Mem with a known type via `debugUi`.
+4. Optional **soft scores** in the View-as menu (“ring_buf · maybe”) — never
+   applied without a click.
+
+v1 ships user pick + optional soft scores; no auto-apply.
 
 ## Viz tech
 
-Reuse what we already ship:
+- Hand-drawn SVG / light d3 (same language as Trace Queues) — no Mermaid/Graphviz
+  at runtime.
+- Pointers are clickable address chips → re-seed Mem / peek hex.
+- Collapse: full graph up to ~24 nodes; beyond that fold siblings into `… +n`.
 
-- **d3-hierarchy** (`d3.tree` / `cluster`) for rbtree layout — same d3 family as
-  Trace Queues charts; no Graphviz/Mermaid dependency in the page.
-- Hand-drawn SVG (QueueGraph style) is fine if d3 hierarchy feels heavy; avoid
-  ELK unless the graph is multi-root / cyclic.
-- Pointers are **address chips** you can click → re-seed Mem / highlight hex.
-- Collapse rule of thumb: show full tree up to ~24 nodes; beyond that keep the
-  path to the selection expanded and fold sibling subtrees into `… (n)`.
+## ABI notes
 
-Mermaid/Graphviz are great for static docs; they are the wrong runtime for a
-live, clickable, theme-matched dock pane.
+- **rbtree color:** `((uintptr_t)node->children[0]) & 1` — BLACK=1, RED=0; mask
+  `~1` before chase. No parent pointer.
+- **ring_buf_idx_t:** `uint16_t` unless `CONFIG_RING_BUFFER_LARGE`. Prefer DWARF
+  offsets when present; else try uint16 layout and sanity-check.
+- **slist:** `{ head, tail }` + nodes with one `next`.
+- **dlist:** `sys_dlist_t` and `sys_dnode_t` are the same `_dnode` shape; the
+  list struct sits in the ring. Empty ⟺ `head == tail == &list`.
 
-## ABI notes (AArch64 / AArch32)
-
-Confirmed from upstream `rb.c` / `ring_buffer.h`:
-
-- Color bit: `((uintptr_t)node->children[0]) & 1` — **BLACK = 1**, **RED = 0**.
-  Left child pointer must mask `~1` before chase.
-- No parent pointer — host builds the tree by chasing children only (cap depth /
-  node count; detect cycles).
-- `ring_buf_idx_t` is `uint16_t` unless `CONFIG_RING_BUFFER_LARGE` (`uint32_t`).
-  Prefer reading both and sanity-checking against `size`, or DWARF when present.
-
-## Mockup covers
-
-1. Mem toolbar with **View as** menu (Hex / rbtree / ring_buf; future types muted).
-2. rbtree pane: header fields, d3 tree, selection, ellipsis folds, expand-on-click.
-3. ring_buf pane: field strip, circular used/free, linear unwrap with `…`, put/get.
-4. Narrow dock width + wider undocked stage (toggle in the mockup).
-
-## Out of scope for v1
-
-- Editing structure fields in place
-- Automatic type guess from DWARF without user pick
-- Walking container-of payloads (show node addresses; optional later “container”
-  offset once DWARF knows the embedder)
+Pointer width follows `regArch` (8 on AArch64, 4 on arm / riscv32).

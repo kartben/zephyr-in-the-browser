@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HexView } from '@/components/HexView'
+import { DsPane } from '@/components/debug/ds/DsPane'
+import { ViewAsMenu, type ViewAsKind } from '@/components/debug/ds/ViewAsMenu'
 import { compactHex } from '@/debug/hexFormat'
+import { guessDsKinds, ptrWidthForArch, type DsGuess } from '@/debug/ds'
 import * as debug from '@/debug/control'
 import {
   createDebugMemoryChip,
@@ -78,6 +81,8 @@ export function MemoryPane({
   const [searchStatus, setSearchStatus] = useState<string | null>(null)
   const searchAbort = useRef<AbortController | null>(null)
   const lastHit = useRef<number | null>(null)
+  const [viewAs, setViewAs] = useState<ViewAsKind>('hex')
+  const [guesses, setGuesses] = useState<DsGuess[]>([])
 
   const loadAt = async (addr: number) => {
     const top = addr >>> 0
@@ -176,6 +181,21 @@ export function MemoryPane({
   useEffect(() => {
     return () => searchAbort.current?.abort()
   }, [])
+
+  // Soft shape hints for the View-as menu — never auto-applied.
+  useEffect(() => {
+    if (!snap.paused || viewAs !== 'hex') return
+    const addr = parseAddr(addrText)
+    if (addr === null) return
+    let cancelled = false
+    const width = ptrWidthForArch(snap.regArch)
+    void guessDsKinds((a, n) => debug.readMemoryRaw(a, n), addr, width).then((g) => {
+      if (!cancelled) setGuesses(g)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [snap.paused, snap.regArch, addrText, viewAs])
 
   useEffect(() => {
     if (snap.paused) return
@@ -345,6 +365,13 @@ export function MemoryPane({
     }
   }
 
+  const peekToHex = (addrHex: string) => {
+    setViewAs('hex')
+    setAddrText(addrHex)
+    const addr = parseAddr(addrHex)
+    if (addr !== null) void loadAt(addr)
+  }
+
   return (
     <div className="space-y-2 px-1">
       <div className="flex gap-1">
@@ -366,6 +393,18 @@ export function MemoryPane({
         >
           Read
         </Button>
+        <ViewAsMenu
+          value={viewAs}
+          onChange={(v) => {
+            setViewAs(v)
+            if (v !== 'hex') {
+              const addr = parseAddr(addrText)
+              if (addr !== null) void loadAt(addr)
+            }
+          }}
+          guesses={guesses}
+          disabled={!snap.paused}
+        />
       </div>
       <div className="flex gap-1">
         <input
@@ -428,7 +467,16 @@ export function MemoryPane({
           {searching ? `scan ${searchStatus}` : searchStatus}
         </p>
       )}
-      {chip ? (
+      {viewAs !== 'hex' ? (
+        <DsPane
+          kind={viewAs}
+          addr={parseAddr(addrText) ?? viewAddr.current}
+          arch={snap.regArch}
+          paused={snap.paused}
+          onPeek={peekToHex}
+          onBackHex={() => setViewAs('hex')}
+        />
+      ) : chip ? (
         <div
           ref={shellRef}
           className="overscroll-contain outline-none focus:ring-1 focus:ring-ring"
