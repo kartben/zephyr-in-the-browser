@@ -35,7 +35,6 @@ const ENGINE_RUN = 0x02
 const SET_PWM_MSB = 1 << 6
 
 const PWM_REGS = [REG_B_PWM, REG_G_PWM, REG_R_PWM, REG_W_PWM] as const
-const CHANNEL_NAMES = ['B', 'G', 'R', 'W'] as const
 
 const LP5562_REGISTERS = registersFromJson(lp5562Map as RegisterMapJson)
 
@@ -252,9 +251,4 @@ export function createLp5562({
       }
     },
   }
-}
-
-export const lp5562Meta = {
-  CHANNEL_NAMES,
-  PWM_REGS,
 }

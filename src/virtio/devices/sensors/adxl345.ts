@@ -22,7 +22,7 @@
  */
 
 import adxl345Map from './maps/adxl345.json'
-import { registersFromJson, type RegisterMapJson } from './registerMap'
+import { registersFromJson, type RegisterMapJson } from '../registers'
 import { createSensorChip, type SensorChip, type SensorDecl } from './model'
 
 const REG_DATAX = 0x32

@@ -19,13 +19,6 @@ export interface LiveSourceInfo {
   label: string
 }
 
-export const LIVE_SOURCES: Record<LiveSourceKind, LiveSourceInfo> = {
-  'orientation-x': { label: 'device tilt' },
-  'orientation-y': { label: 'device tilt' },
-  'orientation-z': { label: 'device tilt' },
-  battery: { label: 'battery level' },
-}
-
 /**
  * One browser sensor feeds several channels — the three orientation axes are
  * one physical tilt. Grouping is what lets a chip offer a single "follow

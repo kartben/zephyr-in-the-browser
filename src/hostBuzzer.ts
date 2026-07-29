@@ -273,12 +273,6 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-/** Latched sounding for UI shake. */
-export function isSounding(): boolean {
-  ensureWatching()
-  return sounding
-}
-
 /** Arm host sound/haptics; must run from a UI event (browser activation). */
 export function enable() {
   ensureWatching()

@@ -51,7 +51,6 @@ const SNAP_PX = 10
 /** Shared with TracePanel box-zoom plot-band math. */
 export const QUEUES_TOP_H = TOP_H
 export const QUEUES_BOTTOM_AXIS_H = BOTTOM_AXIS_H
-export const QUEUES_ROW_H = ROW_H
 
 const AXIS_STROKE = 'rgba(148, 163, 184, 0.55)'
 const AXIS_FILL = 'rgba(203, 213, 225, 0.95)'
@@ -758,4 +757,3 @@ export function QueuesView({
 
 /** Hit-test / pan gutter — TracePanel must use the same width. */
 export const QUEUES_LABEL_W = LABEL_W
-export const QUEUES_PAD = PAD

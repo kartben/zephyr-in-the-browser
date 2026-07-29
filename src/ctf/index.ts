@@ -9,7 +9,6 @@ export {
 export {
   applyNetAddressWidth,
   hasNetAddressField,
-  needsNetAddressProbe,
   withNetAddressWidth,
   type NetAddressWidth,
 } from './netAddressWidth'

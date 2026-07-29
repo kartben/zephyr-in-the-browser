@@ -2,10 +2,7 @@
  * GDB Remote Serial Protocol framing: `$payload#CS` plus ack bytes.
  *
  * Checksum is the sum of payload bytes modulo 256, as two lowercase hex digits.
- * Binary escaping uses `}` XOR 0x20 for `$`, `#`, `}` and `*`.
  */
-
-const ESCAPE = new Set([0x24, 0x23, 0x7d, 0x2a]) // $ # } *
 
 export function checksum(payload: string): string {
   let sum = 0
@@ -16,20 +13,6 @@ export function checksum(payload: string): string {
 /** Encode a packet body into `$…#CS`. */
 export function encodePacket(payload: string): string {
   return `$${payload}#${checksum(payload)}`
-}
-
-/** Escape binary for `X` / binary memory writes (hex `M` is used instead). */
-export function escapeBinary(data: Uint8Array): string {
-  let out = ''
-  for (let i = 0; i < data.length; i++) {
-    const b = data[i]!
-    if (ESCAPE.has(b)) {
-      out += `}${String.fromCharCode(b ^ 0x20)}`
-    } else {
-      out += String.fromCharCode(b)
-    }
-  }
-  return out
 }
 
 export type Decoded =

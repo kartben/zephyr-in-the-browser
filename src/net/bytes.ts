@@ -64,11 +64,6 @@ export function macFromString(s: string): Uint8Array | null {
   return mac
 }
 
-export function macEquals(a: Uint8Array, b: Uint8Array): boolean {
-  for (let i = 0; i < 6; i++) if (a[i] !== b[i]) return false
-  return true
-}
-
 export const MAC_BROADCAST = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
 
 export function concat(...parts: Uint8Array[]): Uint8Array {

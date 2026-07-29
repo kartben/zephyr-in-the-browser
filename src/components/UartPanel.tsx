@@ -8,13 +8,7 @@ import type { DeviceNode } from '@/deviceTopology'
  * Roster rows navigate to the dock card for that peripheral; there is no
  * attach picker yet because page-side UART parts are still a short list.
  */
-export function UartBody({
-  busKey,
-}: {
-  busKey: string
-  /** Kept for callers; UART roster no longer prints a guest-shell hint. */
-  busLabel?: string
-}) {
+export function UartBody({ busKey }: { busKey: string }) {
   const devices = useSyncExternalStore(
     subscribeInventory,
     useCallback(() => devicesOnBus(busKey), [busKey]),

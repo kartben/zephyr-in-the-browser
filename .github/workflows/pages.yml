@@ -71,12 +71,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Releases cut before the emulator/images split carry a single
-          # combined asset. Fall back to it so an existing EMULATOR_RELEASE
-          # keeps deploying unchanged.
-          LEGACY=qemu-wasm-artifacts.tar.gz
-          legacy_from=''
-
           has_asset() {
             gh release view "$1" --json assets -q '.assets[].name' 2>/dev/null \
               | grep -qx "$2"
@@ -91,29 +85,17 @@ jobs:
           if [ -n "$EMULATOR_TAG" ]; then
             if has_asset "$EMULATOR_TAG" qemu-wasm-emulator.tar.gz; then
               fetch "$EMULATOR_TAG" qemu-wasm-emulator.tar.gz
-            elif has_asset "$EMULATOR_TAG" "$LEGACY"; then
-              echo "note: $EMULATOR_TAG predates the split, using $LEGACY"
-              fetch "$EMULATOR_TAG" "$LEGACY"
-              legacy_from="$EMULATOR_TAG"
             else
-              echo "::error::release '$EMULATOR_TAG' has neither qemu-wasm-emulator.tar.gz nor $LEGACY"
+              echo "::error::release '$EMULATOR_TAG' has no qemu-wasm-emulator.tar.gz"
               exit 1
             fi
           fi
 
           if [ -n "$IMAGES_TAG" ]; then
             if has_asset "$IMAGES_TAG" zephyr-images.tar.gz; then
-              # Drop anything the emulator's legacy tarball brought along, so a
-              # sample deleted from the manifest does not linger in the deploy.
-              if [ -n "$legacy_from" ]; then rm -rf public/qemu/zephyr; fi
               fetch "$IMAGES_TAG" zephyr-images.tar.gz
-            elif [ "$legacy_from" = "$IMAGES_TAG" ]; then
-              echo "--- guest images already unpacked from $LEGACY ---"
-            elif has_asset "$IMAGES_TAG" "$LEGACY"; then
-              echo "note: $IMAGES_TAG predates the split, using $LEGACY"
-              fetch "$IMAGES_TAG" "$LEGACY"
             else
-              echo "::error::release '$IMAGES_TAG' has neither zephyr-images.tar.gz nor $LEGACY"
+              echo "::error::release '$IMAGES_TAG' has no zephyr-images.tar.gz"
               exit 1
             fi
           fi
@@ -150,7 +132,8 @@ jobs:
           if [ -n "$EMULATOR_TAG" ]; then
             test -f dist/qemu/qemu-system-arm.js \
               && test -f dist/qemu/qemu-system-aarch64.js \
-              || { echo "::error::emulator release did not contain both JS loaders"; exit 1; }
+              && test -f dist/qemu/qemu-system-riscv32.js \
+              || { echo "::error::emulator release did not contain a JS loader for every board in src/boards.ts"; exit 1; }
             ls dist/qemu/*.wasm >/dev/null 2>&1 \
               || { echo "::error::emulator release did not contain a .wasm"; exit 1; }
           fi
@@ -160,7 +143,8 @@ jobs:
               || { echo "::error::images release did not contain a guest image"; exit 1; }
             test -f dist/qemu/zephyr/qemu_cortex_m3/gnss.elf \
               && test -f dist/qemu/zephyr/qemu_cortex_a53/gnss.elf \
-              || { echo "::error::images release did not contain both GNSS images"; exit 1; }
+              && test -f dist/qemu/zephyr/qemu_riscv32/gnss.elf \
+              || { echo "::error::images release did not contain a GNSS image for every board in src/boards.ts"; exit 1; }
             # A .dts next to each image is expected of tarballs built since the
             # devicetree-aware UI, but older releases without them still deploy
             # fine — the app falls back to its static tables.

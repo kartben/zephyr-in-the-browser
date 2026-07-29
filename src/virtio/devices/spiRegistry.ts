@@ -12,7 +12,6 @@ import { createWs2812 } from './chips/ws2812'
 import { createTmc50xx } from './chips/tmc50xx'
 import { createMcp2515 } from './chips/mcp2515'
 import { createSpiLoopback, createW25q } from './chips/w25q'
-import { partById, type PartIdentity } from './parts'
 
 export interface SpiChipType {
   id: string
@@ -82,10 +81,4 @@ export const SPI_CHIP_TYPES: SpiChipType[] = [
 
 export function spiChipType(id: string): SpiChipType | undefined {
   return SPI_CHIP_TYPES.find((t) => t.id === id)
-}
-
-export function spiChipIdentity(id: string): PartIdentity | undefined {
-  const type = spiChipType(id)
-  if (!type?.catalogued) return undefined
-  return partById(id)
 }

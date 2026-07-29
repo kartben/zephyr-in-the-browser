@@ -11,9 +11,15 @@ release assets**, pinned independently:
 | `zephyr-images.tar.gz` | `IMAGES_RELEASE` | `tools/build-zephyr-image.sh` | minutes, small |
 
 They are separate so the slow half can stay where it is. `IMAGES_RELEASE` falls
-back to `EMULATOR_RELEASE` when unset, and releases cut before the split — which
-carry a single `qemu-wasm-artifacts.tar.gz` — still deploy unchanged. Without
-either variable, Pages ships the mock backend only.
+back to `EMULATOR_RELEASE` when unset. Without either variable, Pages ships the
+mock backend only.
+
+Both assets must cover all three boards. `tools/package-emulator.sh` refuses to
+build a tarball missing any of `qemu-system-arm`, `qemu-system-aarch64` or
+`qemu-system-riscv32`, and refuses an images tarball missing any board's
+`gnss.elf`; the workflow's "Verify deployable output" step checks the same
+thing against `dist/`. Deploying a half-populated pair is what left the RISC-V
+board in the picker with no emulator behind it.
 
 Prerequisites for anything below are Docker and an authenticated
 [GitHub CLI](https://cli.github.com/) (`gh auth login`).

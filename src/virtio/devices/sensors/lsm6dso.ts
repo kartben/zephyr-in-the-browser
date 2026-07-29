@@ -24,7 +24,7 @@
  */
 
 import lsm6dsoMap from './maps/lsm6dso.json'
-import { registersFromJson, type RegisterMapJson } from './registerMap'
+import { registersFromJson, type RegisterMapJson } from '../registers'
 import { createSensorChip, type CodecCtx, type SensorChip, type SensorDecl } from './model'
 
 const REG_CTRL1_XL = 0x10

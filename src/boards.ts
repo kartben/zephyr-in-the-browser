@@ -798,11 +798,11 @@ export const BOARDS: Board[] = [
       // TypeScript file rather than an emulator rebuild.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
-      // SPI (virtio-mmio slot 5, device-id 45) is intentionally omitted until
-      // the published emulator ships the VIRTIO_ID_SPI backport in
-      // tools/qemu-jit-patches/0013-*. QEMU v10.1.0's virtio_device_names only
-      // goes to GPIO (41); realizing device-id=45 aborts in virtio_id_to_name
-      // and takes down every guest on this board. Re-add with:
+      // SPI on virtio-mmio slot 5. device-id=45 requires the VIRTIO_ID_SPI
+      // backport in tools/qemu-jit-patches/0013-*: stock QEMU v10.1.0's
+      // virtio_device_names only goes to GPIO (41), and realizing an unnamed
+      // id aborts in virtio_id_to_name, taking down every guest on this
+      // board. The packaged emulator carries that patch.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
         'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
@@ -873,9 +873,9 @@ export const BOARDS: Board[] = [
         'queues=2,features=0x1,config=1000000000000000',
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
-      // SPI (slot 5, device-id 45) omitted until the published emulator includes
-      // tools/qemu-riscv-patches/0011-* (VIRTIO_ID_SPI backport). Same abort as
-      // on A53 — see the qemu_cortex_a53 comment above. Re-add with:
+      // SPI on slot 5. device-id=45 requires the VIRTIO_ID_SPI backport in
+      // tools/qemu-riscv-patches/0011-*, for the same reason as the A53 board
+      // above. The packaged emulator carries that patch.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
         'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',

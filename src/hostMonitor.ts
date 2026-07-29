@@ -355,11 +355,6 @@ export function attachStub(registers = 'R15=0000abcd\n') {
   notify()
 }
 
-/** Test helper: push a raw QMP line through the parser. */
-export function injectForTests(line: string) {
-  handleMessage(JSON.parse(line) as Record<string, unknown>)
-}
-
 /** Test helper: reset module state between cases. */
 export function resetForTests() {
   detach()

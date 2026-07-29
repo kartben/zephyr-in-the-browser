@@ -707,28 +707,6 @@ export function skip(): void {
   if (wasStopped && state.live) debug.resume()
 }
 
-/**
- * Turn tours off for good (or back on).
- *
- * Turning them off has to resume a machine stopped on a step, or the reader is
- * left with a frozen guest and nothing on screen explaining why.
- */
-export function setEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(ENABLED_KEY, enabled ? 'on' : 'off')
-  } catch {
-    // Preference is a nicety; the toggle still works for this session.
-  }
-  const wasStopped = state.current?.paused ?? false
-  publish({ enabled, current: enabled ? state.current : null })
-  if (!enabled) {
-    void disarm()
-    if (wasStopped && state.live) debug.resume()
-  } else if (gdb.sessionActive()) {
-    void arm()
-  }
-}
-
 /** Drop everything — a new guest is starting. */
 export function reset(): void {
   if (demoTimer !== undefined) clearTimeout(demoTimer)

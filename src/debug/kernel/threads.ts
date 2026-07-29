@@ -97,16 +97,6 @@ function decodeCString(bytes: Uint8Array): string {
   return out
 }
 
-/** @deprecated Prefer {@link describeThreadStatus}. */
-export function threadStateLabel(state: number | null, current: boolean): string {
-  return describeThreadStatus({
-    state,
-    current,
-    waitingOn: null,
-    pendedOn: null,
-  }).label
-}
-
 /**
  * Human-readable status for the Threads list — keep labels short; put the
  * wait target in `detail` so the UI can show it on its own line.
