@@ -180,7 +180,7 @@ export function QueueGraph({
           <LegendItem color="#a78bfa" label="thread" />
         </span>
       </div>
-      <div className="overflow-x-auto overflow-y-hidden">
+      <div>
         {layoutError ? (
           <div className="grid h-32 place-items-center px-6 text-sm text-rose-300">
             Could not lay out IPC topology: {layoutError}
