@@ -149,6 +149,8 @@ describe('virtio-i2c model', () => {
       byteLength: 2,
     })
     expect(log[log.length - 1].bytes).toEqual(Uint8Array.of(0x00, 0xaa))
+    expect(typeof log[log.length - 1].atMs).toBe('number')
+    expect(log[log.length - 1].atMs).toBeGreaterThan(0)
   })
 
   it('keeps a fixed ring of transactions without shifting the array', () => {

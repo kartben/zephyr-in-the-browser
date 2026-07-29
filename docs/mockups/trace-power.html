@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Trace · Power tab mockup</title>
+  <title>Trace · Power — CPU + peripherals</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -11,7 +11,8 @@
     :root {
       --bg: #0f1419; --elev: #171d26; --soft: #1e2633; --line: #2a3342;
       --fg: #e7e4de; --dim: #9aa3b0; --mute: #6a7382;
-      --active: #f59e0b; --idle: #64748b; --wake: #34d399; --duty: #38bdf8;
+      --active: #f59e0b; --idle: #64748b; --wake: #34d399;
+      --i2c: #38bdf8; --spi: #fb923c; --gpio: #2dd4bf; --duty: #38bdf8;
       --mono: "IBM Plex Mono", ui-monospace, monospace;
       --sans: "IBM Plex Sans", system-ui, sans-serif;
     }
@@ -25,7 +26,7 @@
       padding: 1.25rem 1.5rem 2rem; display: flex; flex-direction: column; gap: 1rem;
     }
     h1 { margin: 0; font-size: 1.05rem; font-weight: 600; }
-    .sub { margin: 0.35rem 0 0; color: var(--dim); font-size: 0.85rem; max-width: 46rem; line-height: 1.45; }
+    .sub { margin: 0.35rem 0 0; color: var(--dim); font-size: 0.85rem; max-width: 48rem; line-height: 1.45; }
     .panel { background: var(--elev); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     .bar {
       display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
@@ -38,13 +39,12 @@
     }
     .tabs span.on { background: #2a3344; color: var(--fg); }
     .metrics {
-      margin-left: auto; display: flex; flex-wrap: wrap; gap: 0.85rem;
-      font: 500 0.7rem/1 var(--mono); color: var(--dim);
+      margin-left: auto; display: flex; flex-wrap: wrap; gap: 0.75rem;
+      font: 500 0.68rem/1 var(--mono); color: var(--dim);
     }
     .metrics b { color: var(--fg); font-weight: 600; }
     .metrics .busy { color: var(--active); }
-    .metrics .idle { color: #94a3b8; }
-    .metrics .wake { color: var(--wake); }
+    .metrics .peri { color: var(--i2c); }
     .controls {
       display: flex; gap: 0.4rem; padding: 0.5rem 0.75rem;
       border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: center;
@@ -54,50 +54,41 @@
       font: 500 0.72rem/1 var(--sans); padding: 0.4rem 0.65rem; border-radius: 7px; cursor: pointer;
     }
     button.primary { background: rgba(52,211,153,0.12); border-color: rgba(52,211,153,0.35); color: var(--wake); }
-    .legend { margin-left: auto; display: flex; gap: 0.9rem; font: 500 0.68rem/1 var(--mono); color: var(--dim); }
-    .legend i { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; vertical-align: -1px; margin-right: 0.28rem; }
+    .legend { margin-left: auto; display: flex; gap: 0.7rem; font: 500 0.65rem/1 var(--mono); color: var(--dim); flex-wrap: wrap; }
+    .legend i { display: inline-block; width: 0.65rem; height: 0.65rem; border-radius: 2px; vertical-align: -1px; margin-right: 0.2rem; }
     .legend .active { background: var(--active); }
     .legend .idle { background: var(--idle); }
-    .legend .wake { background: var(--wake); }
-    #stage { background: #121821; position: relative; }
+    .legend .i2c { background: var(--i2c); }
+    .legend .spi { background: var(--spi); }
+    .legend .gpio { background: var(--gpio); }
+    #stage { background: #121821; }
     #stage svg { display: block; width: 100%; height: auto; }
     .lane-label { font: 500 0.68rem/1.2 var(--mono); fill: var(--dim); }
-    .lane-label strong { fill: var(--fg); font-weight: 600; }
-    .axis { font: 500 0.6rem/1 var(--mono); fill: var(--mute); }
-    .strip-label { font: 600 0.6rem/1 var(--sans); letter-spacing: 0.05em; text-transform: uppercase; fill: var(--mute); }
+    .axis { font: 500 0.58rem/1 var(--mono); fill: var(--mute); }
+    .strip-label { font: 600 0.58rem/1 var(--sans); letter-spacing: 0.05em; text-transform: uppercase; fill: var(--mute); }
     .detail {
       display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 1rem;
       padding: 0.65rem 0.85rem; border-top: 1px solid var(--line);
       font: 500 0.72rem/1.35 var(--mono); color: var(--dim); background: #141a22;
     }
     .detail strong { color: var(--fg); }
-    .note { font-size: 0.78rem; color: var(--mute); line-height: 1.5; max-width: 46rem; }
+    .note { font-size: 0.78rem; color: var(--mute); line-height: 1.5; max-width: 48rem; }
     .note code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
     @keyframes bloom {
       from { opacity: 0; transform: scaleY(0.35); }
       to { opacity: 1; transform: scaleY(1); }
     }
-    @keyframes tick {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .band { transform-box: fill-box; transform-origin: center bottom; animation: bloom 0.5s ease-out both; }
-    .band:nth-of-type(odd) { animation-delay: 0.04s; }
-    .band:nth-of-type(even) { animation-delay: 0.1s; }
-    .wake-tick { animation: tick 0.4s ease-out both; }
-    .wake-tick:nth-child(3n) { animation-delay: 0.08s; }
-    .wake-tick:nth-child(3n+1) { animation-delay: 0.16s; }
-    @media (prefers-reduced-motion: reduce) {
-      .band, .wake-tick { animation: none; }
-    }
+    .band, .tick { transform-box: fill-box; transform-origin: center bottom; animation: bloom 0.45s ease-out both; }
+    .tick:nth-child(3n) { animation-delay: 0.06s; }
+    @media (prefers-reduced-motion: reduce) { .band, .tick { animation: none; } }
   </style>
 </head>
 <body>
   <header>
     <h1>Trace · Power</h1>
     <p class="sub">
-      Spec mockup for a Trace tab: CPU idle residency and wake marks reconstructed from
-      schedule CTF — sharing Timeline’s time window. Real <code>pm_*</code> state lanes wait on upstream CTF.
+      CPU idle residency from schedule CTF, plus peripheral activity from the page’s I²C / SPI / GPIO
+      bridges — so you see when chips were on the bus while the core was idle or awake.
     </p>
   </header>
 
@@ -110,10 +101,10 @@
         <span class="on">Power</span>
       </div>
       <div class="metrics">
-        <span class="busy">busy <b>18%</b></span>
-        <span class="idle">idle <b>82%</b></span>
-        <span class="wake">wakes <b>14</b></span>
-        <span>mean idle <b>12.4 ms</b></span>
+        <span class="busy">busy <b>22%</b></span>
+        <span>idle <b>78%</b></span>
+        <span>wakes <b>11</b></span>
+        <span class="peri">peri <b>48</b> <span style="color:var(--mute)">(31 i2c · 9 spi · 8 gpio)</span></span>
       </div>
     </div>
     <div class="controls">
@@ -122,30 +113,32 @@
       <button type="button" class="primary">Live</button>
       <button type="button">Fit</button>
       <div class="legend">
-        <span><i class="active"></i>active</span>
-        <span><i class="idle"></i>idle</span>
-        <span><i class="wake"></i>wake</span>
+        <span><i class="active"></i>cpu active</span>
+        <span><i class="idle"></i>cpu idle</span>
+        <span><i class="i2c"></i>i2c</span>
+        <span><i class="spi"></i>spi</span>
+        <span><i class="gpio"></i>gpio</span>
       </div>
     </div>
     <div id="stage">
-      <svg viewBox="0 0 920 260" role="img" aria-label="Power residency mockup">
+      <svg viewBox="0 0 920 380" role="img" aria-label="Power with peripherals mockup">
         <defs>
           <linearGradient id="idleFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="#64748b" stop-opacity="0.55" />
             <stop offset="100%" stop-color="#64748b" stop-opacity="0.22" />
           </linearGradient>
           <linearGradient id="activeFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.95" />
-            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.45" />
+            <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.95" />
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.5" />
           </linearGradient>
         </defs>
 
         <g stroke="#1e2633" stroke-width="1">
-          <line x1="148" y1="28" x2="148" y2="210" />
-          <line x1="300" y1="28" x2="300" y2="210" />
-          <line x1="460" y1="28" x2="460" y2="210" />
-          <line x1="620" y1="28" x2="620" y2="210" />
-          <line x1="780" y1="28" x2="780" y2="210" />
+          <line x1="148" y1="28" x2="148" y2="330" />
+          <line x1="300" y1="28" x2="300" y2="330" />
+          <line x1="460" y1="28" x2="460" y2="330" />
+          <line x1="620" y1="28" x2="620" y2="330" />
+          <line x1="780" y1="28" x2="780" y2="330" />
         </g>
         <g class="axis">
           <text x="148" y="18">0.0s</text>
@@ -155,96 +148,137 @@
           <text x="780" y="18">2.0s</text>
         </g>
 
-        <text class="lane-label" x="12" y="78"><tspan font-weight="600" fill="#e7e4de">CPU</tspan></text>
-        <text class="lane-label" x="12" y="94">residency</text>
-
-        <!-- idle / active bands -->
-        <rect class="band" x="148" y="56" width="90" height="56" rx="3" fill="url(#idleFill)" />
-        <rect class="band" x="238" y="56" width="28" height="56" rx="3" fill="url(#activeFill)" />
-        <rect class="band" x="266" y="56" width="120" height="56" rx="3" fill="url(#idleFill)" />
-        <rect class="band" x="386" y="56" width="18" height="56" rx="3" fill="url(#activeFill)" />
-        <rect class="band" x="404" y="56" width="150" height="56" rx="3" fill="url(#idleFill)" />
-        <rect class="band" x="554" y="56" width="42" height="56" rx="3" fill="url(#activeFill)" />
-        <rect class="band" x="596" y="56" width="110" height="56" rx="3" fill="url(#idleFill)" />
-        <rect class="band" x="706" y="56" width="22" height="56" rx="3" fill="url(#activeFill)" />
-        <rect class="band" x="728" y="56" width="120" height="56" rx="3" fill="url(#idleFill)" />
-
-        <!-- wake ticks -->
+        <!-- CPU -->
+        <text class="lane-label" x="12" y="62"><tspan font-weight="600" fill="#e7e4de">CPU</tspan></text>
+        <text class="lane-label" x="12" y="78">residency</text>
+        <rect x="148" y="40" width="720" height="48" fill="#0f172a" opacity="0.55" />
+        <rect class="band" x="148" y="40" width="100" height="48" fill="url(#idleFill)" />
+        <rect class="band" x="248" y="40" width="36" height="48" fill="url(#activeFill)" />
+        <rect class="band" x="284" y="40" width="140" height="48" fill="url(#idleFill)" />
+        <rect class="band" x="424" y="40" width="22" height="48" fill="url(#activeFill)" />
+        <rect class="band" x="446" y="40" width="170" height="48" fill="url(#idleFill)" />
+        <rect class="band" x="616" y="40" width="48" height="48" fill="url(#activeFill)" />
+        <rect class="band" x="664" y="40" width="120" height="48" fill="url(#idleFill)" />
+        <rect class="band" x="784" y="40" width="28" height="48" fill="url(#activeFill)" />
+        <rect class="band" x="812" y="40" width="56" height="48" fill="url(#idleFill)" />
         <g stroke="#34d399" stroke-width="2">
-          <line class="wake-tick" x1="238" y1="48" x2="238" y2="118" />
-          <line class="wake-tick" x1="386" y1="48" x2="386" y2="118" />
-          <line class="wake-tick" x1="554" y1="48" x2="554" y2="118" />
-          <line class="wake-tick" x1="706" y1="48" x2="706" y2="118" />
-        </g>
-        <g fill="#34d399">
-          <circle class="wake-tick" cx="238" cy="46" r="3" />
-          <circle class="wake-tick" cx="386" cy="46" r="3" />
-          <circle class="wake-tick" cx="554" cy="46" r="3" />
-          <circle class="wake-tick" cx="706" cy="46" r="3" />
+          <line x1="248" y1="34" x2="248" y2="88" />
+          <line x1="424" y1="34" x2="424" y2="88" />
+          <line x1="616" y1="34" x2="616" y2="88" />
+          <line x1="784" y1="34" x2="784" y2="88" />
         </g>
 
-        <!-- duty strip -->
-        <line x1="12" y1="140" x2="908" y2="140" stroke="#2a3342" />
-        <text class="strip-label" x="12" y="158">duty · bucketed busy %</text>
+        <!-- Peripherals -->
+        <line x1="12" y1="104" x2="908" y2="104" stroke="#2a3342" />
+        <text class="strip-label" x="12" y="120">peripherals · host bus / gpio (approx)</text>
+
+        <text class="lane-label" x="12" y="148"><tspan font-weight="600" fill="#e7e4de">TMP112</tspan></text>
+        <text class="lane-label" x="12" y="162">I²C</text>
+        <rect x="148" y="136" width="720" height="22" fill="#0f172a" opacity="0.4" />
+        <g fill="#38bdf8">
+          <rect class="tick" x="256" y="140" width="3" height="14" rx="1" />
+          <rect class="tick" x="268" y="138" width="3" height="18" rx="1" />
+          <rect class="tick" x="430" y="140" width="3" height="14" rx="1" />
+          <rect class="tick" x="438" y="139" width="3" height="16" rx="1" />
+          <rect class="tick" x="628" y="137" width="3" height="18" rx="1" />
+          <rect class="tick" x="640" y="140" width="3" height="14" rx="1" />
+          <rect class="tick" x="652" y="138" width="3" height="16" rx="1" />
+          <rect class="tick" x="792" y="140" width="3" height="14" rx="1" />
+        </g>
+
+        <text class="lane-label" x="12" y="184"><tspan font-weight="600" fill="#e7e4de">INA219</tspan></text>
+        <text class="lane-label" x="12" y="198">I²C</text>
+        <rect x="148" y="172" width="720" height="22" fill="#0f172a" opacity="0.4" />
+        <g fill="#38bdf8">
+          <rect class="tick" x="260" y="176" width="3" height="14" rx="1" />
+          <rect class="tick" x="434" y="174" width="3" height="16" rx="1" />
+          <rect class="tick" x="632" y="176" width="3" height="14" rx="1" />
+          <rect class="tick" x="796" y="175" width="3" height="15" rx="1" />
+        </g>
+
+        <text class="lane-label" x="12" y="220"><tspan font-weight="600" fill="#e7e4de">W25Q</tspan></text>
+        <text class="lane-label" x="12" y="234">SPI</text>
+        <rect x="148" y="208" width="720" height="22" fill="#0f172a" opacity="0.4" />
+        <g fill="#fb923c">
+          <rect class="tick" x="620" y="210" width="4" height="18" rx="1" />
+          <rect class="tick" x="632" y="212" width="3" height="14" rx="1" />
+          <rect class="tick" x="644" y="211" width="4" height="16" rx="1" />
+          <rect class="tick" x="656" y="213" width="3" height="12" rx="1" />
+          <rect class="tick" x="668" y="210" width="4" height="18" rx="1" />
+        </g>
+
+        <text class="lane-label" x="12" y="256"><tspan font-weight="600" fill="#e7e4de">GPIO</tspan></text>
+        <text class="lane-label" x="12" y="270">out</text>
+        <rect x="148" y="244" width="720" height="22" fill="#0f172a" opacity="0.4" />
+        <g fill="#2dd4bf">
+          <rect class="tick" x="250" y="248" width="3" height="14" rx="1" />
+          <rect class="tick" x="270" y="248" width="3" height="14" rx="1" />
+          <rect class="tick" x="618" y="246" width="3" height="16" rx="1" />
+          <rect class="tick" x="648" y="248" width="3" height="14" rx="1" />
+          <rect class="tick" x="786" y="247" width="3" height="15" rx="1" />
+          <rect class="tick" x="804" y="248" width="3" height="14" rx="1" />
+        </g>
+
+        <!-- Duty -->
+        <line x1="12" y1="282" x2="908" y2="282" stroke="#2a3342" />
+        <text class="strip-label" x="12" y="298">duty · bucketed busy %</text>
         <g fill="#38bdf8" opacity="0.85">
-          <rect x="152" y="188" width="12" height="8" rx="1" />
-          <rect x="172" y="180" width="12" height="16" rx="1" />
-          <rect x="192" y="168" width="12" height="28" rx="1" />
-          <rect x="212" y="172" width="12" height="24" rx="1" />
-          <rect x="232" y="156" width="12" height="40" rx="1" />
-          <rect x="252" y="184" width="12" height="12" rx="1" />
-          <rect x="272" y="190" width="12" height="6" rx="1" />
-          <rect x="292" y="188" width="12" height="8" rx="1" />
-          <rect x="312" y="186" width="12" height="10" rx="1" />
-          <rect x="332" y="182" width="12" height="14" rx="1" />
-          <rect x="352" y="178" width="12" height="18" rx="1" />
-          <rect x="372" y="160" width="12" height="36" rx="1" />
-          <rect x="392" y="186" width="12" height="10" rx="1" />
-          <rect x="412" y="190" width="12" height="6" rx="1" />
-          <rect x="432" y="188" width="12" height="8" rx="1" />
-          <rect x="452" y="186" width="12" height="10" rx="1" />
-          <rect x="472" y="184" width="12" height="12" rx="1" />
-          <rect x="492" y="180" width="12" height="16" rx="1" />
-          <rect x="512" y="176" width="12" height="20" rx="1" />
-          <rect x="532" y="150" width="12" height="46" rx="1" />
-          <rect x="552" y="158" width="12" height="38" rx="1" />
-          <rect x="572" y="170" width="12" height="26" rx="1" />
-          <rect x="592" y="186" width="12" height="10" rx="1" />
-          <rect x="612" y="190" width="12" height="6" rx="1" />
-          <rect x="632" y="188" width="12" height="8" rx="1" />
-          <rect x="652" y="184" width="12" height="12" rx="1" />
-          <rect x="672" y="180" width="12" height="16" rx="1" />
-          <rect x="692" y="154" width="12" height="42" rx="1" />
-          <rect x="712" y="168" width="12" height="28" rx="1" />
-          <rect x="732" y="186" width="12" height="10" rx="1" />
-          <rect x="752" y="190" width="12" height="6" rx="1" />
-          <rect x="772" y="188" width="12" height="8" rx="1" />
-          <rect x="792" y="186" width="12" height="10" rx="1" />
-          <rect x="812" y="184" width="12" height="12" rx="1" />
+          <rect x="152" y="320" width="10" height="6" rx="1" />
+          <rect x="172" y="312" width="10" height="14" rx="1" />
+          <rect x="192" y="300" width="10" height="26" rx="1" />
+          <rect x="212" y="296" width="10" height="30" rx="1" />
+          <rect x="232" y="288" width="10" height="38" rx="1" />
+          <rect x="252" y="308" width="10" height="18" rx="1" />
+          <rect x="272" y="318" width="10" height="8" rx="1" />
+          <rect x="292" y="316" width="10" height="10" rx="1" />
+          <rect x="312" y="314" width="10" height="12" rx="1" />
+          <rect x="332" y="310" width="10" height="16" rx="1" />
+          <rect x="352" y="306" width="10" height="20" rx="1" />
+          <rect x="372" y="300" width="10" height="26" rx="1" />
+          <rect x="392" y="292" width="10" height="34" rx="1" />
+          <rect x="412" y="286" width="10" height="40" rx="1" />
+          <rect x="432" y="310" width="10" height="16" rx="1" />
+          <rect x="452" y="318" width="10" height="8" rx="1" />
+          <rect x="472" y="316" width="10" height="10" rx="1" />
+          <rect x="492" y="314" width="10" height="12" rx="1" />
+          <rect x="512" y="312" width="10" height="14" rx="1" />
+          <rect x="532" y="308" width="10" height="18" rx="1" />
+          <rect x="552" y="300" width="10" height="26" rx="1" />
+          <rect x="572" y="292" width="10" height="34" rx="1" />
+          <rect x="592" y="284" width="10" height="42" rx="1" />
+          <rect x="612" y="288" width="10" height="38" rx="1" />
+          <rect x="632" y="296" width="10" height="30" rx="1" />
+          <rect x="652" y="310" width="10" height="16" rx="1" />
+          <rect x="672" y="316" width="10" height="10" rx="1" />
+          <rect x="692" y="314" width="10" height="12" rx="1" />
+          <rect x="712" y="312" width="10" height="14" rx="1" />
+          <rect x="732" y="308" width="10" height="18" rx="1" />
+          <rect x="752" y="300" width="10" height="26" rx="1" />
+          <rect x="772" y="290" width="10" height="36" rx="1" />
+          <rect x="792" y="286" width="10" height="40" rx="1" />
+          <rect x="812" y="304" width="10" height="22" rx="1" />
         </g>
-        <text class="axis" x="860" y="170">100%</text>
-        <text class="axis" x="860" y="196">0%</text>
 
-        <line x1="848" y1="28" x2="848" y2="210" stroke="#e7e4de" stroke-width="1" stroke-dasharray="3 4" opacity="0.35" />
+        <line x1="848" y1="28" x2="848" y2="330" stroke="#e7e4de" stroke-width="1" stroke-dasharray="3 4" opacity="0.35" />
       </svg>
     </div>
     <div class="detail">
       <div>
-        <strong>idle</strong> · last wake ISR · actor <strong>idle</strong><br />
-        app threads: 3 sleeping · 0 blocked · 0 running
+        <strong>active</strong> · wake ISR · actor <strong>sensor_sample</strong><br />
+        TMP112 read · INA219 read · GPIO LED0 toggle — bus marks ≈ guest time while Live
       </div>
       <div style="text-align:right">
-        bout <strong>18.2 ms</strong><br />
-        busy in window <strong style="color:var(--active)">18%</strong>
+        peri in window <strong style="color:var(--i2c)">48</strong><br />
+        busy <strong style="color:var(--active)">22%</strong>
       </div>
     </div>
   </div>
 
   <p class="note">
     Spec: <code>docs/trace-power-plan.md</code>.
-    Phase 1 uses schedule CTF only (idle thread + ISR). System / device PM
-    states need upstream CTF emitters for <code>pm_system_suspend_*</code> and
-    <code>pm_device_runtime_*</code> (already present in SystemView).
+    Peripheral lanes use host <code>performance.now()</code> stamps on I²C/SPI/GPIO,
+    mapped onto guest CTF ns under Live follow — not <code>pm_device_runtime_*</code>
+    (that still needs upstream CTF).
   </p>
 </body>
 </html>

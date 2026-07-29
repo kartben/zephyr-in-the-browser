@@ -250,6 +250,23 @@ export function getSnapshot(): TraceSnapshot {
   return snapshot
 }
 
+/**
+ * Map a host `performance.now()` stamp onto approximate guest CTF ns using the
+ * last Trace publish as an anchor (`tr.t1` at `lastPublishAt`). Valid only while
+ * the decoder is following and roughly live — icount stalls make this drift.
+ * Returns null when there is no trace to anchor against.
+ */
+export function guestNsApproxFromHostMs(hostMs: number): number | null {
+  const tr = snapshot.trace
+  if (!tr || tr.events.length === 0 || lastPublishAt <= 0) return null
+  return tr.t1 + (hostMs - lastPublishAt) * 1e6
+}
+
+/** Host ms of the last Trace snapshot publish — for tests / affine checks. */
+export function lastTracePublishHostMs(): number {
+  return lastPublishAt
+}
+
 /** Test helper: push synthetic CTF bytes as if the guest wrote them. */
 export function debugFeed(bytes: Uint8Array) {
   if (!reader) reader = new TraceReader(defs)

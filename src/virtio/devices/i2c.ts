@@ -87,6 +87,8 @@ export interface I2cTransaction {
   ok: boolean
   /** Name of the chip that answered, or null when nothing did. */
   chip: string | null
+  /** Host `performance.now()` when the transfer completed (not guest CTF ns). */
+  atMs: number
 }
 
 export interface I2cModel extends VirtioDeviceModel {
@@ -176,8 +178,8 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     logNotifyTimer = setTimeout(publishLog, LOG_NOTIFY_MS)
   }
 
-  function record(entry: Omit<I2cTransaction, 'id'>) {
-    const row: I2cTransaction = { id: nextId++, ...entry }
+  function record(entry: Omit<I2cTransaction, 'id' | 'atMs'>) {
+    const row: I2cTransaction = { id: nextId++, atMs: performance.now(), ...entry }
     if (logLen < LOG_CAP) {
       log[(logHead + logLen) % LOG_CAP] = row
       logLen++

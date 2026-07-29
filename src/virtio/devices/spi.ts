@@ -67,6 +67,8 @@ export interface SpiTransaction {
   ok: boolean
   chip: string | null
   csChange: boolean
+  /** Host `performance.now()` when the transfer completed (not guest CTF ns). */
+  atMs: number
 }
 
 export interface SpiModel extends VirtioDeviceModel {
@@ -132,8 +134,8 @@ export function createSpiModel(name = 'spi'): SpiModel {
     logNotifyTimer = setTimeout(publishLog, LOG_NOTIFY_MS)
   }
 
-  function record(entry: Omit<SpiTransaction, 'id'>) {
-    const row: SpiTransaction = { id: nextId++, ...entry }
+  function record(entry: Omit<SpiTransaction, 'id' | 'atMs'>) {
+    const row: SpiTransaction = { id: nextId++, atMs: performance.now(), ...entry }
     if (logLen < LOG_CAP) {
       log[(logHead + logLen) % LOG_CAP] = row
       logLen++

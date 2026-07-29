@@ -1,12 +1,13 @@
 /**
- * CPU residency lane + duty strip — shares the Trace time window.
- * Phase 1 of docs/trace-power-plan.md (schedule-derived; not pm_* CTF yet).
+ * CPU residency + host peripheral activity — shares the Trace time window.
+ * See docs/trace-power-plan.md.
  */
 
 import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type CanvasHTMLAttributes,
   type ReactNode,
   type RefObject,
@@ -24,23 +25,43 @@ import {
   fmtTime,
   niceTimeStep,
 } from '@/ctf'
+import {
+  collectPeripheralMarks,
+  peripheralWindowStats,
+  reconstructPeripheralLanes,
+  type PeripheralLane,
+} from '@/power/peripheralActivity'
+import { i2cModel, spiModel } from '@/virtio'
 
 const LABEL_W = 108
 const PAD = 8
 const AXIS_H = 28
-const LANE_H = 64
-const STRIP_H = 56
-const STRIP_GAP = 10
+const LANE_H = 52
+const PERIPH_ROW_H = 28
+const STRIP_H = 44
+const STRIP_GAP = 8
+const MAX_PERIPH_LANES = 6
 
 const COL_ACTIVE = 'rgba(245, 158, 11, 0.82)'
 const COL_ACTIVE_TOP = 'rgba(251, 191, 36, 0.95)'
 const COL_IDLE = 'rgba(100, 116, 139, 0.42)'
 const COL_WAKE = 'rgba(52, 211, 153, 0.95)'
 const COL_DUTY = 'rgba(56, 189, 248, 0.85)'
+const COL_I2C = 'rgba(56, 189, 248, 0.92)'
+const COL_SPI = 'rgba(251, 146, 60, 0.92)'
+const COL_GPIO = 'rgba(45, 212, 191, 0.9)'
+const COL_ERR = 'rgba(248, 113, 113, 0.95)'
+
+function busColor(bus: PeripheralLane['bus']): string {
+  if (bus === 'i2c') return COL_I2C
+  if (bus === 'spi') return COL_SPI
+  return COL_GPIO
+}
 
 function paint(
   canvas: HTMLCanvasElement,
   res: CpuResidency,
+  periphLanes: PeripheralLane[],
   view0: number,
   view1: number,
   follow: boolean,
@@ -48,7 +69,11 @@ function paint(
 ) {
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
-  const cssH = Math.max(140, AXIS_H + LANE_H + STRIP_GAP + STRIP_H + 8)
+  const periphH = periphLanes.length > 0 ? 18 + periphLanes.length * PERIPH_ROW_H : 28
+  const cssH = Math.max(
+    160,
+    AXIS_H + LANE_H + STRIP_GAP + periphH + STRIP_GAP + STRIP_H + 8,
+  )
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width = Math.floor(cssW * dpr)
     canvas.height = Math.floor(cssH * dpr)
@@ -92,20 +117,19 @@ function paint(
   }
 
   ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
-  const leftLbl = fmtTime(view0)
+  ctx.fillText(fmtTime(view0), LABEL_W, 26)
   const rightLbl = fmtTime(view1)
-  ctx.fillText(leftLbl, LABEL_W, 26)
   ctx.fillText(rightLbl, LABEL_W + plotW - ctx.measureText(rightLbl).width, 26)
   if (follow) {
     ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
     ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
   }
 
+  applyYZoomTransform(ctx, AXIS_H, cssH, yZoom)
+
   const laneTop = AXIS_H + 4
   const laneBottom = AXIS_H + LANE_H - 4
   const laneMid = (laneTop + laneBottom) / 2
-
-  applyYZoomTransform(ctx, AXIS_H, cssH, yZoom)
 
   ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
   ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -114,71 +138,103 @@ function paint(
   ctx.font = '10px ui-sans-serif, system-ui, sans-serif'
   ctx.fillText('residency', 10, laneMid + 10)
 
-  if (res.segments.length === 0) {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.85)'
-    ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
-    ctx.fillText('Waiting for schedule CTF…', LABEL_W, laneMid)
-    ctx.fillStyle = 'rgba(100, 116, 139, 0.95)'
-    ctx.font = '10px ui-sans-serif, system-ui, sans-serif'
-    ctx.fillText(
-      'Idle residency is derived from the idle thread’s run spans (any *_trace sample).',
-      LABEL_W,
-      laneMid + 16,
-    )
-    canvas.style.height = `${cssH}px`
-    return
-  }
-
-  // Track behind the bands
   ctx.fillStyle = 'rgba(15, 23, 42, 0.55)'
   ctx.fillRect(LABEL_W, laneTop, plotW, laneBottom - laneTop)
 
-  for (const seg of res.segments) {
-    if (seg.end <= view0 || seg.start >= view1) continue
-    const x0 = Math.max(LABEL_W, xAt(seg.start))
-    const x1 = Math.min(LABEL_W + plotW, xAt(seg.end))
-    const w = Math.max(1, x1 - x0)
-    if (seg.mode === 'active') {
-      const g = ctx.createLinearGradient(0, laneTop, 0, laneBottom)
-      g.addColorStop(0, COL_ACTIVE_TOP)
-      g.addColorStop(1, COL_ACTIVE)
-      ctx.fillStyle = g
-    } else {
-      ctx.fillStyle = COL_IDLE
+  if (res.segments.length === 0) {
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.85)'
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
+    ctx.fillText('Waiting for schedule CTF…', LABEL_W + 6, laneMid + 4)
+  } else {
+    for (const seg of res.segments) {
+      if (seg.end <= view0 || seg.start >= view1) continue
+      const x0 = Math.max(LABEL_W, xAt(seg.start))
+      const x1 = Math.min(LABEL_W + plotW, xAt(seg.end))
+      const w = Math.max(1, x1 - x0)
+      if (seg.mode === 'active') {
+        const g = ctx.createLinearGradient(0, laneTop, 0, laneBottom)
+        g.addColorStop(0, COL_ACTIVE_TOP)
+        g.addColorStop(1, COL_ACTIVE)
+        ctx.fillStyle = g
+      } else {
+        ctx.fillStyle = COL_IDLE
+      }
+      ctx.fillRect(x0, laneTop, w, laneBottom - laneTop)
     }
-    ctx.fillRect(x0, laneTop, w, laneBottom - laneTop)
+    for (const wake of res.wakes) {
+      if (wake.ts < view0 || wake.ts > view1) continue
+      const x = xAt(wake.ts)
+      if (x < LABEL_W || x > LABEL_W + plotW) continue
+      ctx.strokeStyle = COL_WAKE
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(x, laneTop - 6)
+      ctx.lineTo(x, laneBottom)
+      ctx.stroke()
+      ctx.fillStyle = COL_WAKE
+      ctx.beginPath()
+      ctx.arc(x, laneTop - 6, 2.4, 0, Math.PI * 2)
+      ctx.fill()
+    }
   }
 
-  // Wake ticks
-  for (const wake of res.wakes) {
-    if (wake.ts < view0 || wake.ts > view1) continue
-    const x = xAt(wake.ts)
-    if (x < LABEL_W || x > LABEL_W + plotW) continue
-    ctx.strokeStyle = COL_WAKE
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.moveTo(x, laneTop - 6)
-    ctx.lineTo(x, laneBottom)
-    ctx.stroke()
-    ctx.fillStyle = COL_WAKE
-    ctx.beginPath()
-    ctx.arc(x, laneTop - 6, 2.4, 0, Math.PI * 2)
-    ctx.fill()
-  }
+  // Peripheral lanes
+  const periphTop = AXIS_H + LANE_H + STRIP_GAP
+  ctx.strokeStyle = 'rgba(42, 51, 66, 0.95)'
+  ctx.beginPath()
+  ctx.moveTo(8, periphTop - 4)
+  ctx.lineTo(cssW - 8, periphTop - 4)
+  ctx.stroke()
 
-  if (!res.hasIdleThread) {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.75)'
+  ctx.fillStyle = 'rgba(106, 115, 130, 0.95)'
+  ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif'
+  ctx.fillText('PERIPHERALS · HOST BUS / GPIO (APPROX)', 10, periphTop + 10)
+
+  if (periphLanes.length === 0) {
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif'
-    ctx.fillText('No thread named idle — showing all run time as active.', LABEL_W, laneBottom + 14)
+    ctx.fillText(
+      follow
+        ? 'No I²C / SPI / GPIO activity in this window yet.'
+        : 'Peripheral marks need Live follow (host↔guest clock is approximate).',
+      LABEL_W,
+      periphTop + 28,
+    )
+  } else {
+    periphLanes.forEach((lane, i) => {
+      const y = periphTop + 16 + i * PERIPH_ROW_H
+      const rowMid = y + PERIPH_ROW_H / 2
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.4)'
+      ctx.fillRect(LABEL_W, y + 4, plotW, PERIPH_ROW_H - 8)
+
+      ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
+      ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.fillText(lane.label, 10, rowMid - 2)
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
+      ctx.font = '9px ui-sans-serif, system-ui, sans-serif'
+      ctx.fillText(lane.sub, 10, rowMid + 10)
+
+      const color = busColor(lane.bus)
+      for (const m of lane.marks) {
+        const x = xAt(m.ts)
+        if (x < LABEL_W || x > LABEL_W + plotW) continue
+        const h = Math.max(8, Math.min(18, 6 + (m.bytes ?? 2)))
+        ctx.fillStyle = m.ok ? color : COL_ERR
+        ctx.globalAlpha = 0.9
+        ctx.fillRect(x - 1.5, rowMid - h / 2, 3, h)
+      }
+      ctx.globalAlpha = 1
+    })
   }
 
   // Duty strip
-  const stripTop = AXIS_H + LANE_H + STRIP_GAP
-  const stripBottom = stripTop + STRIP_H - 8
+  const stripTop =
+    periphTop + (periphLanes.length > 0 ? 16 + periphLanes.length * PERIPH_ROW_H : 36) + 4
+  const stripBottom = stripTop + STRIP_H - 6
   ctx.strokeStyle = 'rgba(42, 51, 66, 0.95)'
   ctx.beginPath()
-  ctx.moveTo(8, stripTop - 4)
-  ctx.lineTo(cssW - 8, stripTop - 4)
+  ctx.moveTo(8, stripTop - 2)
+  ctx.lineTo(cssW - 8, stripTop - 2)
   ctx.stroke()
 
   ctx.fillStyle = 'rgba(106, 115, 130, 0.95)'
@@ -188,24 +244,30 @@ function paint(
   const bucketCount = Math.max(24, Math.min(64, Math.floor(plotW / 10)))
   const buckets = dutyBuckets(res, view0, view1, bucketCount)
   const bw = plotW / buckets.length
-  const barH = stripBottom - (stripTop + 16)
+  const barH = Math.max(8, stripBottom - (stripTop + 14))
   for (let i = 0; i < buckets.length; i++) {
     const frac = buckets[i]!
     const h = Math.max(frac > 0 ? 2 : 0, frac * barH)
-    const x = LABEL_W + i * bw
-    const y = stripBottom - h
     ctx.fillStyle = COL_DUTY
     ctx.globalAlpha = 0.35 + frac * 0.65
-    ctx.fillRect(x + 1, y, Math.max(1, bw - 2), h)
+    ctx.fillRect(LABEL_W + i * bw + 1, stripBottom - h, Math.max(1, bw - 2), h)
   }
   ctx.globalAlpha = 1
 
-  ctx.fillStyle = 'rgba(106, 115, 130, 0.9)'
-  ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-  ctx.fillText('100%', LABEL_W + plotW + 4 > cssW - 4 ? cssW - 36 : LABEL_W + plotW - 28, stripTop + 18)
-  ctx.fillText('0%', LABEL_W + plotW - 18, stripBottom)
-
   canvas.style.height = `${cssH}px`
+}
+
+function subscribeBus(fn: () => void) {
+  const u1 = i2cModel.subscribe(fn)
+  const u2 = spiModel.subscribe(fn)
+  return () => {
+    u1()
+    u2()
+  }
+}
+
+function busRevision() {
+  return i2cModel.transactionCount() * 1_000_003 + spiModel.transactionCount()
 }
 
 export function PowerView({
@@ -231,6 +293,7 @@ export function PowerView({
   boxZoomArmed?: boolean
   yZoom?: YZoom | null
 }) {
+  const busRev = useSyncExternalStore(subscribeBus, busRevision, () => 0)
   const residency = useMemo(
     () => reconstructCpuResidency(tr),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,22 +303,41 @@ export function PowerView({
     () => residencyWindowStats(residency, view0, view1),
     [residency, view0, view1],
   )
+  const periphLanes = useMemo(() => {
+    const marks = collectPeripheralMarks()
+    const lanes = reconstructPeripheralLanes(marks, view0, view1)
+    return lanes.slice(0, MAX_PERIPH_LANES)
+    // busRev + eventCount refresh host marks against the live CTF anchor
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view0, view1, eventCount, busRev, follow])
+  const periphStats = useMemo(() => peripheralWindowStats(periphLanes), [periphLanes])
+
   const resRef = useRef(residency)
+  const lanesRef = useRef(periphLanes)
   const yZoomRef = useRef(yZoom)
   resRef.current = residency
+  lanesRef.current = periphLanes
   yZoomRef.current = yZoom
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, residency, view0, view1, follow, yZoom)
-  }, [residency, view0, view1, follow, canvasRef, yZoom])
+    paint(canvas, residency, periphLanes, view0, view1, follow, yZoom)
+  }, [residency, periphLanes, view0, view1, follow, canvasRef, yZoom])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      paint(canvas, resRef.current, view0, view1, follow, yZoomRef.current)
+      paint(
+        canvas,
+        resRef.current,
+        lanesRef.current,
+        view0,
+        view1,
+        follow,
+        yZoomRef.current,
+      )
     })
     ro.observe(canvas)
     return () => ro.disconnect()
@@ -265,8 +347,7 @@ export function PowerView({
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10px] text-muted-foreground">
         <span>
-          busy{' '}
-          <span className="font-mono text-amber-400/90">{formatPct(stats.busyPct)}</span>
+          busy <span className="font-mono text-amber-400/90">{formatPct(stats.busyPct)}</span>
         </span>
         <span>
           idle <span className="font-mono text-slate-300/90">{formatPct(stats.idlePct)}</span>
@@ -280,18 +361,33 @@ export function PowerView({
             {formatResidencyDuration(stats.meanIdleNs)}
           </span>
         </span>
-        <span className="ml-auto inline-flex items-center gap-2">
+        <span>
+          peri{' '}
+          <span className="font-mono text-sky-400/90">
+            {periphStats.marks}
+          </span>
+          <span className="text-muted-foreground/80">
+            {' '}
+            ({periphStats.buses.i2c} i2c · {periphStats.buses.spi} spi · {periphStats.buses.gpio}{' '}
+            gpio)
+          </span>
+        </span>
+        <span className="ml-auto inline-flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1">
             <i className="inline-block size-1.5 rounded-sm bg-amber-400" />
-            active
+            cpu
           </span>
           <span className="inline-flex items-center gap-1">
-            <i className="inline-block size-1.5 rounded-sm bg-slate-500" />
-            idle
+            <i className="inline-block size-1.5 rounded-sm bg-sky-400" />
+            i2c
           </span>
           <span className="inline-flex items-center gap-1">
-            <i className="inline-block size-1.5 rounded-sm bg-emerald-400" />
-            wake
+            <i className="inline-block size-1.5 rounded-sm bg-orange-400" />
+            spi
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <i className="inline-block size-1.5 rounded-sm bg-teal-400" />
+            gpio
           </span>
         </span>
       </div>
@@ -310,5 +406,4 @@ export function PowerView({
   )
 }
 
-/** Hit-test / pan gutter — TracePanel must use the same width. */
 export const POWER_LABEL_W = LABEL_W

@@ -13,11 +13,14 @@ Phases 2–3 need upstream CTF and/or a demo sample with `CONFIG_PM`.
 
 1. Add a Trace tab — **Power** — that makes CPU idle / busy residency readable
    the way Schedule shows threads and Networking shows sockets.
-2. Share the Trace panel’s time window (zoom / pan / live-follow) so a sleepy
-   sample (blinky, philosophers) can be correlated Schedule ↔ Power.
-3. Stay **guest-CTF-first** for Phase 1: derive residency from scheduling
-   events already in `./tracing.bin`. Do not invent host-side power models.
-4. Document the CTF gap for system / device PM events so Phase 2 is an
+2. Show **peripheral activity** (I²C / SPI transfers, GPIO output edges) on the
+   same time axis so “chip was on the bus” correlates with “core was idle.”
+3. Share the Trace panel’s time window (zoom / pan / live-follow) so a sleepy
+   sample (blinky, philosophers, sensors) can be correlated Schedule ↔ Power.
+4. Stay **guest-CTF-first** for CPU residency; use **host bus stamps** for
+   peripherals (mapped onto approximate guest ns while Live). Do not invent
+   milliwatt models.
+5. Document the CTF gap for system / device PM events so a later phase is an
    upstream-shaped change, not a browser invent.
 
 ## Non-goals (this feature)
@@ -57,6 +60,18 @@ residency can be reconstructed from the schedule stream without waiting.
 | Point `idle` event (`0x1E`) | `sys_trace_idle` when `CONFIG_TRACING_IDLE` | Optional marker; Schedule reconstruction does not depend on it |
 | Sleep / blocked | existing thread state machine | Why the CPU is *not* idle (detail strip) |
 
+### Phase 1b — Host peripheral activity (this PR)
+
+| Signal | Source | Role for UI |
+| --- | --- | --- |
+| I²C transfer | `i2cModel.transactions()` + `atMs` | Per-chip swimlane marks |
+| SPI transfer | `spiModel.transactions()` + `atMs` | Per-CS swimlane marks |
+| GPIO output edge | virtio-gpio `subscribe` word deltas | Single GPIO lane marks |
+
+Host stamps are `performance.now()`. Under Live follow they map to guest CTF ns
+via `guestNsApproxFromHostMs` (anchor: last Trace publish `tr.t1`). Label the
+strip **approx** — icount stalls make this drift when paused/scrubbing.
+
 ### Phase 2 — need upstream CTF (SystemView already has them)
 
 | Event | Fields that matter |
@@ -73,16 +88,16 @@ pretend to show `PM_STATE_SUSPEND_TO_IDLE` etc.
 ## Relationship to other panels
 
 ```
-┌─ Schedule ──────────────────┐     ┌─ Trace · Power ───────────────┐
-│ Thread Gantt · busy %       │     │ CPU residency · wake marks    │
-│ “who ran”                   │     │ “was the core idle?”          │
-└─────────────────────────────┘     └───────────────────────────────┘
-         ▲                                      ▲
-         └──────── same CTF schedule stream ────┘
+┌─ Schedule ──────────────────┐     ┌─ Trace · Power ───────────────────────┐
+│ Thread Gantt · busy %       │     │ CPU residency · wake marks            │
+│ “who ran”                   │     │ Peripheral lanes (I²C / SPI / GPIO)   │
+└─────────────────────────────┘     │ “was the core idle / was the chip on?”│
+         ▲                          └───────────────────────────────────────┘
+         └──────── CTF schedule + host bus stamps (Live approx) ────────────┘
 
-┌─ Dock · INA219 / fuel gauge ┐
-│ Bus voltage · SoC %         │   electrical, not PM policy
-└─────────────────────────────┘
+┌─ Dock · I²C / SPI / GPIO ───┐     ┌─ Dock · INA219 / fuel gauge ──────────┐
+│ Live traffic / pin state    │     │ Electrical readings (not residency)   │
+└─────────────────────────────┘     └───────────────────────────────────────┘
 ```
 
 ## Proposed UX
@@ -95,10 +110,15 @@ Shared Trace chrome (tabs + zoom/pan/live). Body:
 
 ```
 ┌─ Trace ── [Timeline] [Queues] [Networking] [Power] ─── ± live ─┐
-│  busy 18% · idle 82% · wakes 14 · mean idle 12.4 ms              │
+│  busy 22% · idle 78% · wakes 11 · peri 48 (31 i2c · 9 spi · 8 gpio) │
 │                                                                  │
 │  CPU   ████░░░░█████░░░░░░██░░░░████████░░░░░░░  ← active / idle │
 │        ↑      ↑         ↑ wake (ISR / thread)                    │
+│  ──────── peripherals · host bus / gpio (approx) ─────────────── │
+│  TMP112  ··┃┃········┃┃········┃┃┃······┃·     I²C               │
+│  INA219  ··┃·········┃·········┃·······┃·      I²C               │
+│  W25Q    ······················┃┃┃┃┃······      SPI               │
+│  GPIO    ··┃·┃················┃··┃····┃·┃·      out               │
 │  ──────── duty (bucketed busy %) ─────────────────────────────── │
 │        ▁▂▃▂▁▁▁▅▇▅▁▁▁▂▁▁▁▇█▇▁▁▁                                   │
 └──────────────────────────────────────────────────────────────────┘
@@ -106,16 +126,20 @@ Shared Trace chrome (tabs + zoom/pan/live). Body:
 
 **Rules**
 
-- **One CPU residency lane** is the hero — active = warm amber, idle = cool
-  slate. No card chrome; same canvas language as Networking.
+- **One CPU residency lane** plus **peripheral swimlanes** — active = warm
+  amber, idle = cool slate; I²C = sky, SPI = orange, GPIO = teal. No card
+  chrome; same canvas language as Networking.
 - **Wake marks** sit on idle→busy edges (ISR enter during idle, or switch to
   a non-idle thread). Tick marks, not badges.
-- **Duty strip** under the lane: bucketed busy fraction across the visible
-  window. Collapse only if the window is empty.
-- Empty / early state: “Waiting for schedule CTF…” — every traced sample
-  already qualifies; no extra Kconfig for Phase 1.
-- Do **not** invent milliwatt estimates. Copy talks about residency and
-  wakes, not joules.
+- **Peripheral marks** are host-stamped bus/GPIO events mapped onto guest ns
+  while Live; height scales lightly with byte length. Cap visible lanes.
+- **Duty strip** under the peripherals: bucketed busy fraction across the
+  visible window.
+- Empty / early state: “Waiting for schedule CTF…” / “No I²C / SPI / GPIO
+  activity…” — traced samples already qualify for CPU; peripherals appear
+  when the guest talks to a bridge chip.
+- Do **not** invent milliwatt estimates. Copy talks about residency, wakes,
+  and bus activity — not joules.
 
 ### Selection / info strip
 
