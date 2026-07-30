@@ -27,9 +27,9 @@ import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
 
 /**
- * Compact app picker: one row per sample, with tracing as an inline choice
- * rather than a duplicate entry. Tags come from the sample's primary panels;
- * docs and source are the only outbound links.
+ * Compact app picker: one row per sample. When a CTF twin exists, a Tracing
+ * toggle picks that build instead of listing it twice. Tags come from the
+ * sample's primary panels; docs and source are the only outbound links.
  */
 
 const PANEL_TAGS: Record<PanelKind, string> = {
@@ -370,7 +370,7 @@ function SampleGroupRow({
               className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
               title="This sample embeds tracing in its own configuration"
             >
-              traced
+              tracing
             </span>
           )}
         </div>
@@ -390,26 +390,10 @@ function SampleGroupRow({
 
       <span className="flex shrink-0 items-center gap-1 self-center">
         {traced && (
-          <span
-            role="group"
-            aria-label="Tracing build"
-            className="flex items-center rounded-md border border-border p-0.5"
-            onClick={stop}
-            onKeyDown={stop}
-          >
-            <TraceChoice
-              label="Sample"
-              title="Boot without tracing"
-              pressed={activeBase || (!active && !preferTraced)}
-              onPick={() => onSelect(base.id)}
-            />
-            <TraceChoice
-              label="Traced"
-              title="Boot with tracing. Opens Trace and Debug"
-              pressed={activeTraced || (!active && preferTraced)}
-              onPick={() => onSelect(traced.id)}
-            />
-          </span>
+          <TracingToggle
+            on={activeTraced || (!active && preferTraced)}
+            onPick={(withTracing) => onSelect(withTracing ? traced.id : base.id)}
+          />
         )}
         {docs.canonicalHref && (
           <RowLink
@@ -432,34 +416,39 @@ function SampleGroupRow({
   )
 }
 
-function TraceChoice({
-  label,
-  title,
-  pressed,
+/**
+ * Same sample, optional tracing build. Not a second sample; a toggle that
+ * boots the CTF twin (opens Trace and Debug) or the plain build.
+ */
+function TracingToggle({
+  on,
   onPick,
 }: {
-  label: string
-  title: string
-  pressed: boolean
-  onPick: () => void
+  on: boolean
+  onPick: (withTracing: boolean) => void
 }) {
   return (
     <button
       type="button"
-      title={title}
-      aria-pressed={pressed}
+      title={
+        on
+          ? 'Tracing on. Opens Trace and Debug. Click for the build without tracing.'
+          : 'Boot with tracing. Opens Trace and Debug.'
+      }
+      aria-pressed={on}
+      aria-label="Tracing"
       onClick={(e) => {
         e.stopPropagation()
-        onPick()
+        onPick(!on)
       }}
       className={cn(
-        'rounded px-1.5 py-0.5 text-[10px] font-medium leading-none transition-colors',
-        pressed
-          ? 'bg-primary/15 text-primary'
-          : 'text-muted-foreground hover:text-foreground',
+        'rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none transition-colors',
+        on
+          ? 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-400'
+          : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
       )}
     >
-      {label}
+      Tracing
     </button>
   )
 }
