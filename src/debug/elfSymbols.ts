@@ -147,6 +147,65 @@ export function buildSymbolIndex(elf: Uint8Array): SymbolIndex | null {
 }
 
 /**
+ * Read bytes at a *virtual* address straight out of the ELF image.
+ *
+ * The point is to answer questions about ROM contents without a live target: an
+ * unstripped image already holds every `const` the guest will ever see, at the
+ * addresses it will see them, so anything in .rodata can be read offline —
+ * before the machine boots, and with the debugger detached.
+ *
+ * Returns null for an address in no loaded section, or in .bss (SHT_NOBITS has
+ * no bytes in the file, only a size), which is the honest answer: that memory
+ * only exists at runtime.
+ */
+export function readElfVirtual(elf: Uint8Array, addr: number, length: number): Uint8Array | null {
+  if (elf.length < 64 || elf[0] !== 0x7f || elf[1] !== 0x45) return null
+  if (!Number.isFinite(addr) || length <= 0) return null
+  const elfclass = elf[4] as 1 | 2
+  const little = elf[5] === 1
+  const dv = new DataView(elf.buffer, elf.byteOffset, elf.byteLength)
+  const u16 = (o: number) => dv.getUint16(o, little)
+  const u32 = (o: number) => dv.getUint32(o, little)
+  const u64 = (o: number) => {
+    const lo = u32(o)
+    const hi = u32(o + 4)
+    return little ? lo + hi * 0x1_0000_0000 : hi + lo * 0x1_0000_0000
+  }
+
+  const eShoff = elfclass === 2 ? u64(40) : u32(32)
+  const eShentsize = elfclass === 2 ? u16(58) : u16(46)
+  const eShnum = elfclass === 2 ? u16(60) : u16(48)
+
+  for (let i = 0; i < eShnum; i++) {
+    const sh = eShoff + i * eShentsize
+    const shType = u32(sh + 4)
+    if (shType === 0 || shType === 8) continue // SHT_NULL / SHT_NOBITS (.bss)
+    const shFlags = elfclass === 2 ? u64(sh + 8) : u32(sh + 8)
+    if ((shFlags & 0x2) === 0) continue // not SHF_ALLOC: not in the address space
+    const shAddr = elfclass === 2 ? u64(sh + 16) : u32(sh + 12)
+    const shOffset = elfclass === 2 ? u64(sh + 24) : u32(sh + 16)
+    const shSize = elfclass === 2 ? u64(sh + 32) : u32(sh + 20)
+    if (shAddr === 0 || addr < shAddr || addr >= shAddr + shSize) continue
+    const start = shOffset + (addr - shAddr)
+    // Clamp rather than fail: a string near the end of a section is still
+    // readable up to the section boundary.
+    const end = Math.min(start + length, shOffset + shSize, elf.length)
+    return end > start ? elf.subarray(start, end) : null
+  }
+  return null
+}
+
+/** A NUL-terminated C string at a virtual address, or null. */
+export function readElfCString(elf: Uint8Array, addr: number, max = 64): string | null {
+  const bytes = readElfVirtual(elf, addr, max)
+  if (!bytes) return null
+  let end = 0
+  while (end < bytes.length && bytes[end] !== 0) end++
+  if (end === 0) return null
+  return new TextDecoder().decode(bytes.subarray(0, end))
+}
+
+/**
  * All defined data and linker symbols. Unlike {@link buildSymbolIndex}, this
  * includes STT_NOTYPE section bounds such as `_k_obj_core_desc_list_start`.
  */
