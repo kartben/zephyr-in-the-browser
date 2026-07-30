@@ -30,15 +30,15 @@
 import {
   PM_DEVICE_ACTION_RUN_ENTER,
   PM_DEVICE_ACTION_RUN_EXIT,
-  PM_RESUME_DEVICES_ENTER,
-  PM_RESUME_DEVICES_EXIT,
   PM_STATE_SET_ENTER,
   PM_STATE_SET_EXIT,
-  PM_SUSPEND_DEVICES_ENTER,
-  PM_SUSPEND_DEVICES_EXIT,
   PM_SYSTEM_SUSPEND_ENTER,
   PM_SYSTEM_SUSPEND_EXIT,
 } from './types'
+
+/** `enum pm_device_action`: the first two are the system-managed walk's. */
+const ACTION_SUSPEND = 0
+const ACTION_RESUME = 1
 
 /** `enum pm_state` value for "awake". Stored as a gap, never as a segment. */
 export const PM_ACTIVE = 0
@@ -198,6 +198,10 @@ export class CpuPowerTracker {
   private openAction: { start: number; dev: number; action: number } | null = null
   /** cpu → state entered since the current `pm_system_suspend_enter`. */
   private enteredSince = new Map<number, number>()
+  /** Between `pm_system_suspend_enter` and its exit: the device-walk window. */
+  private inSystemPm = false
+  /** Whether this window reached a state, i.e. the suspend walk did not abort. */
+  private sawStateSet = false
   /** CPUs whose open segment was published by `seal`, to undo in `unseal`. */
   private sealed: number[] = []
 
@@ -216,23 +220,14 @@ export class CpuPowerTracker {
       case PM_SYSTEM_SUSPEND_ENTER:
         // A second enter with no exit between means the first took the
         // early-return path. Overwriting is the normal case, not an anomaly.
+        this.closeWalk()
         this.pendingEnter.set(0, { ts, ticks: numField(fields, 'ticks') })
         this.enteredSince.delete(0)
+        this.inSystemPm = true
+        this.sawStateSet = false
         break
       case PM_SYSTEM_SUSPEND_EXIT:
         this.systemExit(ts, fields)
-        break
-      case PM_SUSPEND_DEVICES_ENTER:
-        this.walk = { start: ts, kind: 'suspend', count: 0, actions: [] }
-        break
-      case PM_RESUME_DEVICES_ENTER:
-        this.walk = { start: ts, kind: 'resume', count: numField(fields, 'count'), actions: [] }
-        break
-      case PM_SUSPEND_DEVICES_EXIT:
-        this.walkExit(ts, numField(fields, 'count'), numField(fields, 'ok') !== 0)
-        break
-      case PM_RESUME_DEVICES_EXIT:
-        this.walkExit(ts, this.walk?.count ?? 0, true)
         break
       case PM_DEVICE_ACTION_RUN_ENTER:
         this.openAction = {
@@ -268,6 +263,9 @@ export class CpuPowerTracker {
     }
     this.open.set(cpu, { since: ts, state, substateId: numField(fields, 'substate_id') })
     this.enteredSince.set(cpu, state)
+    // The suspend walk is over, and reaching a state means it succeeded.
+    this.sawStateSet = true
+    this.closeWalk()
   }
 
   private stateExit(ts: number, fields: Record<string, string | number>) {
@@ -288,6 +286,8 @@ export class CpuPowerTracker {
   }
 
   private systemExit(ts: number, fields: Record<string, string | number>) {
+    this.closeWalk()
+    this.inSystemPm = false
     const cpu = 0
     const pending = this.pendingEnter.get(cpu)
     this.pendingEnter.delete(cpu)
@@ -305,16 +305,30 @@ export class CpuPowerTracker {
     })
   }
 
-  private walkExit(ts: number, count: number, ok: boolean) {
+  /**
+   * Publish the open walk, deriving what the dropped bracket events used to say.
+   *
+   * `count` is actions that returned 0, because device_system_managed.c
+   * increments num_susp only after the -ENOSYS/-ENOTSUP/-EALREADY ignore and the
+   * error return — so a zero return is exactly "this one was suspended".
+   *
+   * `ok` is false only for a suspend walk in a window that never reached
+   * `pm_state_set_enter`: pm.c rolls the devices back and returns without
+   * entering a state, which is the abort path and the only way a walk fails.
+   */
+  private closeWalk() {
     const walk = this.walk
     this.walk = null
-    if (!walk || ts < walk.start) return
+    if (!walk || walk.actions.length === 0) return
+    const start = walk.actions[0].start
+    const end = walk.actions[walk.actions.length - 1].end
+    if (end < start) return
     this.out.walks.push({
-      start: walk.start,
-      end: ts,
+      start,
+      end,
       kind: walk.kind,
-      count,
-      ok,
+      count: walk.actions.filter((a) => a.ret === 0).length,
+      ok: walk.kind === 'resume' || this.sawStateSet,
       actions: walk.actions,
     })
   }
@@ -323,17 +337,35 @@ export class CpuPowerTracker {
     const open = this.openAction
     this.openAction = null
     const dev = numField(fields, 'dev')
+    const code = numField(fields, 'action')
     const action: PmDeviceAction = {
       start: open && open.dev === dev ? open.start : ts,
       end: ts,
       dev,
-      action: numField(fields, 'action'),
+      action: code,
       ret: numField(fields, 'ret'),
     }
-    // Device runtime PM and power domains run actions too, outside any walk.
-    // Those are not part of the system-managed story, so they are dropped here
-    // rather than attributed to a walk that was not running.
-    if (this.walk) this.walk.actions.push(action)
+
+    /*
+     * Only actions inside a system-PM window belong to the walk. Device runtime
+     * PM and power domains run actions too, and attributing those to a walk
+     * would invent one that never ran.
+     *
+     * Scoping by position is sound because pm.c calls pm_suspend_devices()
+     * strictly before pm_state_set_enter and pm_resume_devices() strictly after
+     * pm_state_set_exit, and kernel/idle.c holds arch_irq_lock() across the whole
+     * of pm_system_suspend() — so nothing can interleave into the window.
+     */
+    if (!this.inSystemPm) return
+    if (code !== ACTION_SUSPEND && code !== ACTION_RESUME) return
+
+    // Split on the action code rather than on the phase: the abort path runs a
+    // suspend walk *and* a rollback resume walk inside one window, with no
+    // state_set pair between them to separate the two.
+    const kind = code === ACTION_SUSPEND ? 'suspend' : 'resume'
+    if (this.walk && this.walk.kind !== kind) this.closeWalk()
+    if (!this.walk) this.walk = { start: action.start, kind, count: 0, actions: [] }
+    this.walk.actions.push(action)
   }
 
   private push(cpu: number, open: PmOpenState, end: number) {

@@ -127,7 +127,7 @@ describe('address[46] decode does not desync following events', () => {
       // pm_state_set_enter: cpu 0, state 3 (standby), substate 1 — a 3-byte
       // body, so a reader that mis-sized it would land mid-header next.
       ...record(1000, 0x149, [0, 3, 1]),
-      ...record(2000, 0x15a, [...encU32(0x4001_0a80), 0, ...encU32(0xffff_ffa8)]),
+      ...record(2000, 0x156, [...encU32(0x4001_0a80), 0, ...encU32(0xffff_ffa8)]),
       ...record(3000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
     const reader = new TraceReader(fallbackDefs())
@@ -220,12 +220,8 @@ describe('the shipped metadata asset', () => {
       [0x149, 'pm_state_set_enter', 3],
       [0x14a, 'pm_state_set_exit', 3],
       [0x14b, 'pm_device_runtime_get_enter', 4],
-      [0x155, 'pm_suspend_devices_enter', 0],
-      [0x156, 'pm_suspend_devices_exit', 5],
-      [0x157, 'pm_resume_devices_enter', 4],
-      [0x158, 'pm_resume_devices_exit', 0],
-      [0x159, 'pm_device_action_run_enter', 5],
-      [0x15a, 'pm_device_action_run_exit', 9],
+      [0x155, 'pm_device_action_run_enter', 5],
+      [0x156, 'pm_device_action_run_exit', 9],
     ]
     for (const [eid, name, size] of expected) {
       const def = defs.get(eid)

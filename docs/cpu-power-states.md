@@ -27,18 +27,47 @@ falsifiable rather than asserted.
 
 ## What the guest emits
 
-Twenty CTF events, `0x147`–`0x15A`. Six of them are new here — Zephyr had trace
-hooks for device *runtime* PM but none for the system-managed suspend walk, so the
-event this feature most needs did not exist:
+Sixteen CTF events, `0x147`–`0x156`. Two of them are new here — Zephyr had trace
+hooks for device *runtime* PM but none for `pm_device_action_run()` itself, which
+is the one place every device PM transition passes through:
 
 | id | event | fields |
 | --- | --- | --- |
 | `0x147` / `0x148` | `pm_system_suspend_enter` / `_exit` | `i32 ticks` / `+ u8 state` |
 | `0x149` / `0x14A` | `pm_state_set_enter` / `_exit` | `u8 cpu, state, substate_id` |
 | `0x14B`–`0x154` | `pm_device_runtime_*` | `u32 dev`, `i32 ret` |
-| `0x155` / `0x156` | `pm_suspend_devices_enter` / `_exit` | — / `u32 count; u8 ok` |
-| `0x157` / `0x158` | `pm_resume_devices_enter` / `_exit` | `u32 count` / — |
-| `0x159` / `0x15A` | `pm_device_action_run_enter` / `_exit` | `u32 dev; u8 action` / `+ i32 ret` |
+| `0x155` / `0x156` | `pm_device_action_run_enter` / `_exit` | `u32 dev; u8 action` / `+ i32 ret` |
+
+### Why there are no hooks around the walk itself
+
+A first cut also bracketed `pm_suspend_devices()` and `pm_resume_devices()`, four
+more events carrying `count` and `ok`. They were cut, because everything they said
+is derivable from the per-device actions plus the events already upstream:
+
+- **Which walk an action belongs to** — by position. `pm.c` calls
+  `pm_suspend_devices()` strictly before `pm_state_set_enter` and
+  `pm_resume_devices()` strictly after `pm_state_set_exit`, and `kernel/idle.c`
+  holds `arch_irq_lock()` across the whole of `pm_system_suspend()`, so nothing
+  can interleave into that window. Anything outside it is runtime PM or a power
+  domain.
+- **`count`** — actions that returned 0. `device_system_managed.c` increments
+  `num_susp` only after the `-ENOSYS`/`-ENOTSUP`/`-EALREADY` ignore and the error
+  return, so a zero return *is* "this one was suspended".
+- **`ok`** — false only for a suspend walk in a window that never reached
+  `pm_state_set_enter`. That is the abort path: the core rolls the devices back
+  and returns without entering a state.
+- **Suspend vs resume within one window** — from the action code, not the phase.
+  The abort path runs a suspend walk *and* a rollback resume walk with no
+  `pm_state_set` pair between them, so splitting on phase would merge the two.
+
+What that costs: a walk in which *every* device is filtered by the pre-checks
+(not ready, busy, a wakeup source, or runtime-PM managed) emits nothing at all,
+because those `continue` before `pm_device_action_run()`. "The core walked your
+devices and suspended none of them" is then inferable from the state plus
+`zephyr,pm-device-disabled` rather than being a fact in the stream. That was
+judged not worth four event ids — and the remaining pair is strictly more useful
+than the brackets were, because it covers device runtime PM and power domains too,
+not only the system-managed walk.
 
 `pm_state_set_enter`/`_exit` is the spine and everything visual hangs off it. The
 two bracket the SoC code that parks the CPU with no statements between, so the

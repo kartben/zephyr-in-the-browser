@@ -52,17 +52,13 @@ export const ISR_EXIT_TO_SCHEDULER = 0x1d
 export const IDLE = 0x1e
 export const THREAD_SCHED_PRIO_SET = 0xe9
 
-/** Power management (Zephyr TSDL 0x147–0x15A). */
+/** Power management (Zephyr TSDL 0x147–0x156). */
 export const PM_SYSTEM_SUSPEND_ENTER = 0x147
 export const PM_SYSTEM_SUSPEND_EXIT = 0x148
 export const PM_STATE_SET_ENTER = 0x149
 export const PM_STATE_SET_EXIT = 0x14a
-export const PM_SUSPEND_DEVICES_ENTER = 0x155
-export const PM_SUSPEND_DEVICES_EXIT = 0x156
-export const PM_RESUME_DEVICES_ENTER = 0x157
-export const PM_RESUME_DEVICES_EXIT = 0x158
-export const PM_DEVICE_ACTION_RUN_ENTER = 0x159
-export const PM_DEVICE_ACTION_RUN_EXIT = 0x15a
+export const PM_DEVICE_ACTION_RUN_ENTER = 0x155
+export const PM_DEVICE_ACTION_RUN_EXIT = 0x156
 
 /**
  * `enum pm_state` (include/zephyr/pm/state.h), indexed by the `state` field the
@@ -358,24 +354,14 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
-  0x155: { name: 'pm_suspend_devices_enter', fields: [] },
-  0x156: {
-    name: 'pm_suspend_devices_exit',
-    fields: [
-      ['count', 'uint32_t'],
-      ['ok', 'uint8_t'],
-    ],
-  },
-  0x157: { name: 'pm_resume_devices_enter', fields: [['count', 'uint32_t']] },
-  0x158: { name: 'pm_resume_devices_exit', fields: [] },
-  0x159: {
+  0x155: {
     name: 'pm_device_action_run_enter',
     fields: [
       ['dev', 'uint32_t'],
       ['action', 'uint8_t'],
     ],
   },
-  0x15a: {
+  0x156: {
     name: 'pm_device_action_run_exit',
     fields: [
       ['dev', 'uint32_t'],
