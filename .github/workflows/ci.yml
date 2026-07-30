@@ -42,3 +42,23 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # The uplink gateway is its own tiny package (gateway/, node:test, one dep).
+  # ~10 s, so no paths filter: every branch proves the proxy still pipes.
+  gateway:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Test the gateway proxy
+        working-directory: gateway
+        run: |
+          npm ci
+          npm test

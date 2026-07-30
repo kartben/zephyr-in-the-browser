@@ -194,6 +194,11 @@ describe('dhcp', () => {
     expect(parsed.yiaddr).toBe(GUEST_IP)
     expect(parsed.serverId).toBe(GW_IP)
     expect(macToString(parsed.chaddr)).toBe(macToString(GUEST_MAC))
+    // The server-side options the uplink sniffer reads back out.
+    expect(parsed.subnetMask).toBe(ipFromString('255.255.255.0')!)
+    expect(parsed.router).toBe(GW_IP)
+    expect(parsed.dns).toBe(ipFromString('192.0.2.3')!)
+    expect(parsed.leaseSecs).toBe(86400)
   })
 
   it('parses a client Discover with requested IP', () => {

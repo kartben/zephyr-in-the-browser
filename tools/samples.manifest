@@ -99,11 +99,11 @@ qemu_cortex_a53:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio
 qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-sensors-extra,virtio-spi,virtio-gpio,auxdisplays
 qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
-qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf
-qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf:virtio-gpio
-qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf
-qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf
-qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf
+qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf
+qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf,conf/net-uplink.conf:virtio-gpio
+qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf
+qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf
+qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf
 qemu_cortex_a53:hello_world:samples/hello_world
 
 # RISC-V 32-bit virt: same virtio / browser-bridge shape as A53. Built with
@@ -146,9 +146,9 @@ qemu_riscv32:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gp
 qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-sensors-extra,virtio-spi,virtio-gpio,auxdisplays
 qemu_riscv32:oled:samples/drivers/display::virtio-i2c,oled
 qemu_riscv32:hsm:samples/subsys/smf/hsm_psicc2
-qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf
-qemu_riscv32:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
-qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf
-qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf
-qemu_riscv32:zperf:samples/net/zperf:conf/net.conf
+qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf
+qemu_riscv32:http_server:samples/net/sockets/dumb_http_server:conf/net.conf,conf/net-uplink.conf
+qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf
+qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf
+qemu_riscv32:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf
 qemu_riscv32:hello_world:samples/hello_world
