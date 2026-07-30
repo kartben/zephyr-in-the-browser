@@ -153,7 +153,7 @@ interface on the gateway's host — outbound TCP/UDP/ICMP as that machine.
 | `HOST` | `0.0.0.0` | bind address |
 | `TOKEN` | random hex | `?token=` value; `none` disables auth |
 | `MAX_CLIENTS` | `8` | concurrent connections; excess closed `4002` |
-| `PASST_DEFAULT_ARGS` | `-4 --mtu 1500` | replaces the baseline passt flags |
+| `PASST_DEFAULT_ARGS` | `-4 --mtu 1500 --dns-forward 192.0.2.3 --dns 192.0.2.3` | replaces the baseline passt flags; a `--dns-host <first resolv.conf nameserver>` is appended automatically unless the flags already carry one |
 | `PASST_ARGS` | — | appended after the defaults (e.g. `-t 4242`) |
 | `TUNNEL` | — | `quick` starts the bundled cloudflared quick tunnel |
 | `PAGES_URL` | the GitHub Pages app | base for the printed `?net=` deep link |
@@ -193,8 +193,8 @@ This framing is exactly what passt serves on its unix socket and what QEMU's
 | Reach the guest's `echo_server` (:4242) | `docker run … -p 4242:4242 -e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 4242" …` then `nc localhost 4242` |
 | Browse the guest's `http_server` (:80) | `docker run … -p 8080:80 -e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 80" …` then `http://localhost:8080/` — from the LAN, use the gateway machine's address |
 | Static guest addressing instead of DHCP | `PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2"` (the sandbox's addresses — the server samples above configure 192.0.2.1 themselves, which is why their recipes carry it) |
-| Keep IPv6 NDP/DHCPv6 on | `PASST_DEFAULT_ARGS="--mtu 1500"` (the shipped guest images are IPv4-only, so the default is `-4`) |
-| Different DNS | `PASST_ARGS="--dns-forward <addr>"` |
+| Keep IPv6 NDP/DHCPv6 on | `PASST_DEFAULT_ARGS="--mtu 1500 --dns-forward 192.0.2.2"` (the shipped guest images are IPv4-only, so the default is `-4`) |
+| Different DNS answer address | override `--dns-forward` via `PASST_DEFAULT_ARGS`; the default serves DNS at `192.0.2.3`, the same address the sandbox serves DNS on |
 
 ## 7. Troubleshooting
 
@@ -205,7 +205,7 @@ This framing is exactly what passt serves on its unix socket and what QEMU's
 | Gateway exits at startup citing seccomp / `4003` on every connect | The `--security-opt seccomp=unconfined` flag is missing (the startup probe prints exactly this). Podman users: rootless podman may allow passt's sandbox without it — try plain first. |
 | Connects, DHCP never binds | Check the gateway log for `[passt#n]` lines — passt says why (bad extra flags in `PASST_ARGS` are the usual cause). |
 | Large downloads stall, small requests fine | The MTU guard is missing — you overrode `PASST_DEFAULT_ARGS` without `--mtu 1500`. |
-| DNS broken under a compose user-defined network | The container's resolver is a loopback stub passt can't hand to the guest — set `PASST_ARGS="--dns-forward <real resolver>"`. |
+| DNS broken after overriding `PASST_DEFAULT_ARGS` | Keep both `--dns-forward 192.0.2.3` and `--dns 192.0.2.3` in the override. Without it, loopback-stub resolvers (compose networks, systemd-resolved hosts) cannot be handed to the guest, and nothing answers DNS at the advertised address. |
 | Corporate proxy kills the tunnel | Quick tunnels ride HTTPS and usually pass; raw `ws://` to a remote host won't. Prefer `TUNNEL=quick`. |
 | Stale lease after gateway restart | Usually nothing to do: a fresh passt mirrors the same subnet, so the old lease keeps routing. To force a new exchange, `net dhcpv4 client start 1` in the guest shell, or restart the emulator (⟳). |
 | `4003` for every client after the first, log says `Address in use` | `PASST_ARGS="-t …"` port forwards bind once per gateway, so forwards imply a single client — set `MAX_CLIENTS=1` to make that explicit. (A page reload can trip this transiently; the app's reconnect heals it in under a second.) |

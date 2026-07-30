@@ -23,7 +23,7 @@ import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,7 +60,17 @@ export function configFromEnv(env = process.env) {
     token: env.TOKEN === 'none' ? null : (env.TOKEN ?? randomBytes(16).toString('hex')),
     maxClients,
     passtBin: env.PASST_BIN ?? 'passt',
-    passtDefaultArgs: splitArgs(env.PASST_DEFAULT_ARGS ?? '-4 --mtu 1500'),
+    // DNS by way of passt itself: --dns-forward makes passt answer queries at
+    // 192.0.2.3 (the sandbox's DNS address, kept off the gateway address),
+    // and --dns advertises that same address in DHCP leases instead of
+    // copying the container's resolv.conf. The trap: --dns also REPLACES the
+    // upstream list --dns-host defaults from, so without an explicit
+    // --dns-host passt forwards queries to itself and every lookup times
+    // out. The upstream differs per host, so it is derived from
+    // /etc/resolv.conf at startup (see dnsHostArgs) rather than hardcoded.
+    passtDefaultArgs: splitArgs(
+      env.PASST_DEFAULT_ARGS ?? '-4 --mtu 1500 --dns-forward 192.0.2.3 --dns 192.0.2.3',
+    ),
     passtExtraArgs: splitArgs(env.PASST_ARGS ?? ''),
     tunnel: env.TUNNEL === 'quick',
     pagesUrl: env.PAGES_URL ?? 'https://kartben.github.io/zephyr-in-the-browser/',
@@ -72,6 +82,28 @@ export class ConfigError extends Error {}
 /** Naive whitespace split — passt flags never need quoting. */
 function splitArgs(raw) {
   return raw.split(/\s+/).filter(Boolean)
+}
+
+/** First nameserver from resolv.conf, or null when unreadable/absent. */
+export function firstNameserver(path = '/etc/resolv.conf') {
+  try {
+    const match = readFileSync(path, 'utf8').match(/^\s*nameserver\s+(\S+)/m)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The explicit upstream for --dns-forward. Required whenever --dns is in the
+ * flags (it clobbers the implicit default and passt would forward to
+ * itself); skipped when the user already chose a --dns-host.
+ */
+function dnsHostArgs(cfg) {
+  const args = [...cfg.passtDefaultArgs, ...cfg.passtExtraArgs]
+  if (args.includes('--dns-host')) return []
+  const upstream = firstNameserver()
+  return upstream ? ['--dns-host', upstream] : []
 }
 
 function tokenMatches(expected, offered) {
@@ -205,7 +237,15 @@ function connectClient({ id, peer, ws, cfg, sockDir, clients, say }) {
 
   const passt = spawn(
     cfg.passtBin,
-    [...cfg.passtDefaultArgs, ...cfg.passtExtraArgs, '--foreground', '--one-off', '--socket', sockPath],
+    [
+      ...cfg.passtDefaultArgs,
+      ...cfg.passtExtraArgs,
+      ...dnsHostArgs(cfg),
+      '--foreground',
+      '--one-off',
+      '--socket',
+      sockPath,
+    ],
     { stdio: ['ignore', 'ignore', 'pipe'] },
   )
   passt.stderr.setEncoding('utf8')
