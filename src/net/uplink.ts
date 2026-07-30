@@ -55,7 +55,7 @@ export class StreamFramer {
         ((buf[off] << 24) | (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3]) >>> 0
       if (len < MIN_WIRE_FRAME || len > MAX_WIRE_FRAME) {
         this.pending = null
-        throw new FramingError(`bad frame length ${len} — stream desynced`)
+        throw new FramingError(`bad frame length ${len}; stream desynced`)
       }
       if (buf.length - off - WIRE_HDR < len) break
       out.push(buf.slice(off + WIRE_HDR, off + WIRE_HDR + len))
@@ -86,8 +86,8 @@ export function mixedContentHint(url: string): string {
   const loopback =
     host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost')
   return loopback
-    ? 'Safari blocks ws:// even to localhost — use the wss:// tunnel URL there'
-    : 'ws:// from an https page is blocked — use a wss:// tunnel URL'
+    ? 'Safari blocks ws:// even to localhost; use the wss:// tunnel URL there'
+    : 'ws:// from an https page is blocked; use a wss:// tunnel URL'
 }
 
 export interface UplinkHooks {
@@ -275,7 +275,7 @@ export class UplinkSink {
         this.counters.oversizeRx += 1
         countersMoved = true
         if (this.detail === '') {
-          this.detail = `oversize frame (${frame.length} B) — clamp the gateway MTU to 1500`
+          this.detail = `oversize frame (${frame.length} B); clamp the gateway MTU to 1500`
         }
       } else {
         if (this.sniffer.onRx(frame)) countersMoved = true
@@ -298,7 +298,7 @@ export class UplinkSink {
     else if (ev.code === 4002) detail = 'gateway is full (4002)'
     else if (ev.code === 4003) detail = 'gateway backend failed (4003)'
     else if (ev.code === 1006 || ev.code === 1015) {
-      detail = ['gateway unreachable', mixedContentHint(this.url)].filter(Boolean).join(' — ')
+      detail = ['gateway unreachable', mixedContentHint(this.url)].filter(Boolean).join('; ')
     } else {
       detail = `connection closed (${ev.code}${ev.reason ? `: ${ev.reason}` : ''})`
     }

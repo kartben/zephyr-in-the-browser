@@ -89,6 +89,14 @@ Alternatives, if you'd rather not use the bundled binary:
 Quick-tunnel URLs are ephemeral by design — they die with the process, which
 for a "give my browser guest internet for an hour" tool is a feature.
 
+A tunnel is a public **URL**, not a public IP. It fronts HTTP/WebSocket
+traffic only — exactly the browser↔gateway channel — and resolves to
+Cloudflare's shared edge addresses, not to your machine. It cannot carry the
+guest's port forwards (`-t`), which stay reachable only from the gateway
+machine's own network. For guest servers reachable from the internet, run the
+gateway on a machine with a public address, or put a TCP tunnel in front of
+the forwarded port (`ngrok tcp 4242`).
+
 ## 3. Security
 
 **Treat the printed URL as a secret.** Anyone holding it gets a NAT'd network

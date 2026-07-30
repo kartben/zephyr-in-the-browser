@@ -174,9 +174,9 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
         <Disclosure title="Talk to the guest" {...fold('tools', false)}>
           {snapshot.mode === 'uplink' ? (
             <p className="text-[11px] text-muted-foreground">
-              Not available in gateway mode — GET, Browser and echo dial in through the simulated
-              LAN. Reach guest servers through your gateway&apos;s port forwards instead
-              (<code className="font-mono">PASST_ARGS=&quot;-t 4242&quot;</code>).
+              Not available in gateway mode: GET, Browser and echo dial in through the simulated
+              LAN. Reach servers the guest runs through your gateway&apos;s port forwards instead.
+              The Uplink section&apos;s ⓘ shows how.
             </p>
           ) : (
             <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
@@ -196,20 +196,20 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
       <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
         <p>
           <span className="font-medium">This network is your gateway.</span> Every frame the guest
-          sends leaves the tab over a WebSocket to the gateway you run, which answers with real
-          DHCP, DNS, TCP/UDP and ICMP from its own network.
+          sends leaves the tab for the gateway you run, which answers with real DHCP, DNS, TCP/UDP
+          and ICMP from its own network.
         </p>
         <p>
-          <span className="font-medium text-success">Real:</span> everything the gateway&apos;s host
-          can reach — DHCP leases, DNS, HTTPS, raw TCP/UDP, even ping.
+          <span className="font-medium text-success">Real:</span> DHCP leases, DNS, HTTPS, raw
+          TCP/UDP, even ping. Everything the gateway&apos;s machine can reach.
         </p>
         <p>
-          <span className="font-medium text-warning">Simulated:</span> nothing in the page — but
-          capture, throughput and impairments still ride the same wire below the tunnel.
+          <span className="font-medium text-warning">Simulated:</span> nothing in the page.
+          Capture, throughput and impairments still watch the same wire.
         </p>
         <p>
           <span className="font-medium text-destructive">Impossible:</span> the panel&apos;s GET,
-          Browser and echo tools — they dial in through the simulated LAN. Use the gateway&apos;s
+          Browser and echo tools, which dial in through the simulated LAN. Use the gateway&apos;s
           port forwards to reach servers the guest runs.
         </p>
       </div>
@@ -363,21 +363,12 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
         <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
           <p>
             <span className="font-medium">Run the gateway</span> on any machine with Docker. It puts
-            the guest on that machine&apos;s network via{' '}
-            <a
-              className="underline decoration-dotted underline-offset-2 hover:text-primary"
-              href="https://passt.top/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              passt
-            </a>
-            :
+            the guest on that machine&apos;s network:
           </p>
           <CopyableCommand command={GATEWAY_ONE_LINER} />
           <p>
             Paste the <code className="font-mono">ws://…?token=…</code> URL it prints below and
-            restart the emulator — or just open the printed deep link. Safari and remote gateways
+            restart the guest (⟳). Or just open the deep link it prints. Safari and remote gateways
             need a <code className="font-mono">wss://</code> URL: add{' '}
             <code className="font-mono">-e TUNNEL=quick</code> for a free tunnel.
           </p>
@@ -394,15 +385,14 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
             .
           </p>
           <p>
-            The guest&apos;s address lives inside the gateway — passt translates, it doesn&apos;t
-            bridge — so servers the guest runs are reached through port forwards. The HTTP Server
-            sample on :80, say:
+            The guest&apos;s address lives inside the gateway, so servers the guest runs are
+            reached through port forwards. To reach the HTTP Server sample on port 80:
           </p>
           <CopyableCommand command={GATEWAY_FORWARD_80} />
           <p>
             Then open <code className="font-mono">http://localhost:8080/</code> on the gateway
-            machine — from your LAN, swap <code className="font-mono">localhost</code> for that
-            machine&apos;s address.
+            machine. From your LAN, use that machine&apos;s address instead of{' '}
+            <code className="font-mono">localhost</code>.
           </p>
         </div>
       )}
@@ -431,7 +421,7 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
 
       {queryForced && (
         <p className="text-[11px] text-muted-foreground">
-          Set by the <code className="font-mono">?{NET_QUERY_PARAM}=</code> URL parameter — remove
+          Set by the <code className="font-mono">?{NET_QUERY_PARAM}=</code> URL parameter. Remove
           it to use this panel&apos;s setting.
         </p>
       )}
@@ -475,7 +465,7 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
 
       {pendingRestart && (
         <p className="text-[11px] text-muted-foreground">
-          Applies when the emulator restarts (⟳ in the toolbar).
+          Applies after the guest restarts (⟳ in the top bar).
         </p>
       )}
     </div>
