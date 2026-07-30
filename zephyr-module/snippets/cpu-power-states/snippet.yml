@@ -1,0 +1,16 @@
+name: cpu-power-states
+description: Give the A53 CPU a ladder of suspend states, so CONFIG_PM has something to walk.
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently, leaving the build with no
+# power states. That failure is especially nasty here: CONFIG_PM stays on, the
+# policy finds an empty state list, and the guest simply never suspends, which
+# reads as a PM bug rather than a missing overlay. Both qualified spellings are
+# listed for the same reason.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

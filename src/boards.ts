@@ -599,6 +599,18 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     zephyrSample: 'samples/philosophers',
   },
   {
+    // The one sample here that suspends the CPU. Stock upstream, unmodified:
+    // its own Kconfig does `select HAS_PM` and it supplies the two SoC hooks
+    // itself, which is how CONFIG_PM works at all on a board whose SoC does not
+    // select HAS_PM. The state ladder and the PM demo devices come from the
+    // cpu-power-states snippet. Traced twin only — the CPU power band is a
+    // Trace view, and the base build has nothing to show.
+    id: 'pm_latency',
+    label: 'Power states',
+    description: 'CPU drops through runtime-idle, suspend-to-idle and standby',
+    zephyrSample: 'samples/subsys/pm/latency',
+  },
+  {
     // Stock CTF + semihosting sample: writes tracing.bin into the emulator FS;
     // the Trace dock row follows it live (docs/tracing-feasibility.md).
     id: 'tracing',
@@ -942,9 +954,16 @@ export const BOARDS: Board[] = [
     },
     // Same guest apps as A53 base (no `_trace` twins — ARM semihosting CTF path,
     // and this board has no hostTrace peripheral to feed it). Drop dedicated
-    // tracing demos; zperf is already net-only in the base list.
+    // tracing demos; zperf is already net-only in the base list. `pm_latency`
+    // goes too: the RISC-V virt SoC does not select HAS_PM either, and the
+    // cpu-power-states snippet only carries an A53 overlay, so the sample would
+    // build with no state ladder and never suspend.
     samples: CORTEX_A53_SAMPLES_BASE.filter(
-      (s) => s.id !== 'tracing' && s.id !== 'tracing_pipeline' && s.id !== 'msg_queue',
+      (s) =>
+        s.id !== 'tracing' &&
+        s.id !== 'tracing_pipeline' &&
+        s.id !== 'msg_queue' &&
+        s.id !== 'pm_latency',
     ),
     defaultSampleId: 'hello_world',
     extraFiles: [

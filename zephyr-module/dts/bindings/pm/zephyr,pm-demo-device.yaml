@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  A device that exists only to have power management.
+
+  System-managed device power management (CONFIG_PM_DEVICE_SYSTEM_MANAGED) has
+  the PM core suspend every device before the CPU enters a power state, and
+  resume them on the way out. Nothing on the QEMU boards this repo runs can
+  demonstrate that: not one driver in a browser_bridge build implements a PM
+  action callback, so pm_suspend_devices() walks the whole device list, gets
+  -ENOSYS from all of it, and honestly reports that it suspended nothing.
+
+  This device does implement the callback, and deliberately burns a configurable
+  number of microseconds doing it, so the suspend and resume walks have
+  measurable width in a trace instead of being instantaneous. That width is the
+  engineering point of the feature: entering a deep state is not free, and the
+  device walk is where a good part of the cost lives.
+
+  Instantiate a few. pm_suspend_devices() walks the static device list backwards
+  and resumes in the reverse of that, so the visit order is devicetree order
+  reversed — fixed and reproducible, which is what a trace wants:
+
+    pm_demo_sensor: pm-demo-sensor {
+            compatible = "zephyr,pm-demo-device";
+            suspend-time-us = <150>;
+            resume-time-us = <300>;
+    };
+
+compatible: "zephyr,pm-demo-device"
+
+include: base.yaml
+
+properties:
+  suspend-time-us:
+    type: int
+    default: 0
+    description: |
+      Microseconds to spend in PM_DEVICE_ACTION_SUSPEND, busy-waiting. The
+      default of 0 makes the action free, which is valid but invisible.
+
+  resume-time-us:
+    type: int
+    default: 0
+    description: |
+      Microseconds to spend in PM_DEVICE_ACTION_RESUME, busy-waiting. Resume is
+      usually the more expensive direction on real hardware, so it is worth
+      setting this higher than suspend-time-us.
