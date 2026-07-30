@@ -1,0 +1,20 @@
+name: virtio-input
+description: >
+  Turn on the stock virtio-tablet on virtio-mmio slot 3, which the board
+  devicetree declares and points `zephyr,touch` at, so clicks and drags on the
+  display panel reach the guest. Pair with conf/touch.conf, which builds the
+  input subsystem the driver needs. Only the pointer-driven samples ask for it
+  (touch, lvgl_music); see docs/peripherals.md, "Touch input".
+
+# A53 and RISC-V only: the Cortex-M3 machine has no virtio-mmio bus.
+# See host-audio/snippet.yml for why every qualified spelling is listed.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay

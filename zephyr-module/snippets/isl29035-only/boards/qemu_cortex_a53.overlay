@@ -2,21 +2,9 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/sensor/isl29035: light sensor only. EEPROM and OLED stay on the bus.
+ * samples/sensor/isl29035: the light sensor alone. Requires -S virtio-i2c.
  */
 
 &isl29035_0 {
 	status = "okay";
-};
-
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
 };

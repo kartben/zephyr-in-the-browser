@@ -1,0 +1,22 @@
+name: host-mic
+description: >
+  Turn on the qemu,host-mic DMIC bridge the browser_bridge shield declares, and
+  alias it `dmic0`. The page feeds it from getUserMedia capture. Pair with
+  conf/host-mic.conf, which builds the DMIC subsystem and the `dmic` shell
+  commands — devicetree and Kconfig halves of one peripheral.
+
+# See host-audio/snippet.yml for why every qualified spelling is listed and why
+# one overlay serves every board.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay

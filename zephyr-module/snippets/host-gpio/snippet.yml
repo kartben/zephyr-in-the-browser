@@ -1,0 +1,13 @@
+name: host-gpio
+description: >
+  Turn on the Cortex-M3's qemu,host-gpio controller and the LED / button nodes
+  wired to it (led0 on pin 4, sw0 on pin 0), so blinky and the button sample run
+  against the browser GPIO panel. Pair with conf/host-gpio.conf. This is the
+  LM3S6965's counterpart to virtio-gpio on the boards that have a virtio bus —
+  a bespoke register block, no interrupt line, so its gpio-keys is polled.
+
+# Cortex-M3 only: the A53 and RISC-V reach GPIO through virtio-gpio instead.
+boards:
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay

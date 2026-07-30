@@ -1,0 +1,21 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the virtio-tablet the browser_bridge shield declares disabled, on
+ * slot 3 of the virtio-mmio array. Same labels on the A53 and RISC-V, so one
+ * overlay serves both.
+ *
+ * The device model is entirely stock on both sides — QEMU's own
+ * virtio-tablet-device, Zephyr's own virtio,input driver. What this repo adds
+ * is the way in: the browser input bridge feeds QEMU's input core from page
+ * JavaScript (src/hostInput.ts). Nothing to declare for that here.
+ */
+
+&virtio_mmio3 {
+	status = "okay";
+};
+
+&virtio_input0 {
+	status = "okay";
+};

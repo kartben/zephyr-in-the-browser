@@ -2,54 +2,10 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/auxdisplay: JHD1313 only. Stock sample binds
- * DT_NODELABEL(auxdisplay_0).
+ * samples/drivers/auxdisplay: the JHD1313 alone. Stock sample binds
+ * DT_NODELABEL(auxdisplay_0). Requires -S virtio-i2c.
  */
 
 &auxdisplay_0 {
 	status = "okay";
-};
-
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
-};
-
-&ssd1306_0 {
-	status = "disabled";
-};
-
-&eeprom0 {
-	status = "disabled";
-};
-
-&ht16k33_0 {
-	status = "disabled";
-};
-
-&pca9685_0 {
-	status = "disabled";
-};
-
-&mcp4725_0 {
-	status = "disabled";
-};
-
-&max17048_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
-	status = "disabled";
-};
-
-&lp5012_0 {
-	status = "disabled";
 };

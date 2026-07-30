@@ -1,0 +1,25 @@
+name: host-audio
+description: >
+  Turn on the qemu,host-audio I2S bridge the browser_bridge shield declares, so
+  the guest can play into the page's Web Audio output. Pair with
+  conf/host-audio.conf, which is what builds the I2S subsystem and the
+  `hostaudio` shell commands — devicetree and Kconfig halves of one peripheral.
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently, leaving the build with a
+# disabled bridge. All spellings are listed for that reason. One overlay serves
+# every board: the shield gives the node the same label on each, and enabling it
+# needs nothing machine-specific.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay

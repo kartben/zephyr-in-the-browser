@@ -2,63 +2,16 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/rtc: PCF8523 only. Stock sample binds DT_ALIAS(rtc).
+ * samples/drivers/rtc: the PCF8523 alone. Stock sample binds DT_ALIAS(rtc),
+ * so the alias travels with the part. Requires -S virtio-i2c.
  */
 
 &pcf8523_0 {
 	status = "okay";
 };
 
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
-};
-
-&ssd1306_0 {
-	status = "disabled";
-};
-
-&eeprom0 {
-	status = "disabled";
-};
-
-&auxdisplay_0 {
-	status = "disabled";
-};
-
-&ht16k33_0 {
-	status = "disabled";
-};
-
 / {
 	aliases {
 		rtc = &pcf8523_0;
 	};
-};
-
-&pca9685_0 {
-	status = "disabled";
-};
-
-&mcp4725_0 {
-	status = "disabled";
-};
-
-&max17048_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
-	status = "disabled";
-};
-
-&lp5012_0 {
-	status = "disabled";
 };

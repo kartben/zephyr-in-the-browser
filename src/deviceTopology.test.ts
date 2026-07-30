@@ -81,7 +81,15 @@ const A53_DEFAULT_CHIPS: I2cChip[] = [
   fakeSensor(0x53, 'ADXL345 accelerometer'),
 ]
 
-/** Shell with i2c-sensors-extra + auxdisplays: defaults plus optional parts. */
+/**
+ * The chips on the shell fixture's bus. That fixture is a curated *maximal*
+ * tree — a GNSS receiver on its own UART, a ramfb, a NIC and eleven I²C parts
+ * — kept because it exercises every branch here at once, not because it mirrors
+ * what the shell image ships today (it never did: virtio_gpio0 is disabled in
+ * it, and the packaged shell has had a GPIO controller for a while). Since
+ * tools/samples.manifest went opt-in per device, no single real image has all
+ * of this, which is exactly why the fixture stays.
+ */
 const jhd1313Pair = createJhd1313Pair()
 const A53_SHELL_CHIPS: I2cChip[] = [
   ...A53_DEFAULT_CHIPS,

@@ -8,6 +8,20 @@
  * virtio-i2c bus (tmp112/lm75/adxl345), and the accel0 alias for the LVGL
  * accelerometer chart lives in that snippet, not this shield.
  *
+ * **Every device here is declared `status = "disabled"`**, and a snippet named
+ * after it is what turns it on: `-S gnss`, `-S host-audio`, `-S host-mic`,
+ * `-S ramfb`, `-S virtio-input`, `-S net`, and the `-S virtio-*` bridges below.
+ * The shield's job is to say where the devices *are* on this machine; which of
+ * them a given image carries is the manifest's call, one row per sample.
+ *
+ * That is not a micro-optimisation — a disabled node costs nothing either way.
+ * It is what the dock shows. The page grounds its device list in the running
+ * build's flattened devicetree (docs/peripherals.md, "The devicetree is the
+ * source of truth"), so a node left okay out of convenience is a peripheral
+ * card the user has to look past. Hello World had a GNSS receiver, a speaker,
+ * a microphone, a display, a network interface and a touchscreen in its dock,
+ * and exercised none of them.
+ *
  * The host audio out sits at 0x090d0000 and the host microphone at 0x090e0000
  * — holes in virt's MMIO map between the secure GPIO (0x090b0000) and the
  * virtio region (0x0a000000), so they cannot collide with anything the machine
@@ -24,12 +38,13 @@
  */
 
 / {
-	aliases {
-		gnss = &gnss;
-		dmic0 = &host_mic;
-	};
-
 	soc {
+		/*
+		 * The GNSS receiver and its UART: `-S gnss`, which also adds the
+		 * `gnss` alias. Both nodes carry a status, because Zephyr's
+		 * devicetree marks a node okay or not on its own — a child of a
+		 * disabled UART would still compile its driver in.
+		 */
 		uart1: uart@9040000 {
 			compatible = "arm,pl011";
 			reg = <0x0 0x09040000 0x0 0x1000>;
@@ -37,30 +52,56 @@
 			interrupt-names = "irq_0";
 			clocks = <&uartclk>;
 			current-speed = <9600>;
-			status = "okay";
+			status = "disabled";
 
 			gnss: gnss-nmea-generic {
 				compatible = "gnss-nmea-generic";
+				status = "disabled";
 			};
 		};
 
+		/* `-S host-audio`, pairing with conf/host-audio.conf. */
 		host_audio: audio@90d0000 {
 			compatible = "qemu,host-audio";
 			reg = <0x0 0x090d0000 0x0 0x1000>;
-			status = "okay";
+			status = "disabled";
 		};
 
+		/* `-S host-mic`, which also adds the `dmic0` alias. */
 		host_mic: audio@90e0000 {
 			compatible = "qemu,host-mic";
 			reg = <0x0 0x090e0000 0x0 0x1000>;
-			status = "okay";
+			status = "disabled";
 		};
 	};
 };
 
+/*
+ * The framebuffer: `-S ramfb`. Zephyr's board devicetree leaves it okay and
+ * 1024x768; both are wrong here. Only five samples draw anything (display,
+ * touch, lvgl_music, accel_chart, and oled — which swaps it for the SSD1306),
+ * and 1024x768 is unnecessarily large for a panel every refresh of which QEMU
+ * emulates and uploads as a browser texture. 600x400 keeps a useful 3:2
+ * display while reducing the pixel count by 69.5%.
+ */
 &ramfb0 {
 	width = <600>;
 	height = <400>;
+	status = "disabled";
+};
+
+/*
+ * The touchscreen: a stock virtio-tablet on slot 3, which the board devicetree
+ * declares and points `zephyr,touch` at. `-S virtio-input` turns it on; only
+ * the samples that read a pointer (touch, lvgl_music) ask for it, and they pair
+ * it with conf/touch.conf for CONFIG_INPUT. See docs/peripherals.md.
+ */
+&virtio_mmio3 {
+	status = "disabled";
+};
+
+&virtio_input0 {
+	status = "disabled";
 };
 
 /*
@@ -213,16 +254,20 @@
  * (0x0a000000, SPI 16). The MAC must stay in step with the `mac=` property
  * in src/boards.ts: QEMU's virtio-net model filters inbound unicast against
  * it, and Zephyr's driver takes its address from devicetree without ever
- * programming the device. Costs non-networking samples nothing — the driver
- * stack only builds behind NET_L2_ETHERNET.
+ * programming the device.
+ *
+ * Declared disabled: `-S net` turns it on, alongside conf/net.conf. It used to
+ * be unconditional on the grounds that the driver stack only builds behind
+ * NET_L2_ETHERNET, so a non-networking sample paid nothing for it. True of the
+ * ELF, but the dock reads the devicetree, so every sample grew a Network row.
  */
 &virtio_mmio0 {
-	status = "okay";
+	status = "disabled";
 
 	virtio_net0: virtio-net {
 		compatible = "virtio,net";
 		local-mac-address = [02 00 00 00 00 01];
-		status = "okay";
+		status = "disabled";
 	};
 };
 

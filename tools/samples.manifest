@@ -9,18 +9,44 @@
 #                    apps when it starts with "zephyr-module/"
 # - conf             optional Kconfig fragments, relative to zephyr-module/,
 #                    comma-separated
-# - snippet          optional snippets (west build -S ...), comma-separated.
-#                    zephyr-module/snippets/ supplies virtio-gpu, virtio-gpio,
-#                    virtio-i2c, virtio-spi, virtio-blk, gpio-buzzer,
-#                    gpio-step-dir,
-#                    i2c-sensors-extra, auxdisplays, eeprom-only,
-#                    jhd1313-only, ht16k33-only, pca9685-only, mcp4725-only,
-#                    max17048-only, lp5562-only, lp5012-only, sct2024-only,
-#                    mcp2515-only, bt-hci-uart, bt-settings-spi,
-#                    ws2812-only, tmc50xx-only, pt6314-only, browser-tracing,
-#                    browser-tracing-net, and the *-only sensor / RTC snippets;
-#                    leave the conf field empty (a bare "::") to use snippets
-#                    without fragments.
+# - snippet          optional snippets (west build -S ...), comma-separated and
+#                    applied in the order written, so a bus comes before the
+#                    parts on it. Leave the conf field empty (a bare "::") to
+#                    use snippets without fragments.
+#
+# THE SNIPPET LIST IS THE SAMPLE'S BILL OF MATERIALS. The browser_bridge shield
+# declares every browser-fed device disabled and says only where it sits on the
+# machine; each line below is what solders the parts on. Keep it to what the
+# sample can actually exercise — the device dock is grounded in the running
+# build's flattened devicetree (docs/peripherals.md), so an extra node is a
+# peripheral card the user has to look past, not a free unused driver.
+#
+# Bridges, from zephyr-module/snippets/:
+#   gnss ......... NMEA receiver on a spare UART
+#   host-audio ... I2S out into Web Audio          (pairs with conf/host-audio.conf)
+#   host-mic ..... DMIC in from getUserMedia       (pairs with conf/host-mic.conf)
+#   host-gpio .... qemu,host-gpio + LED/button     (Cortex-M3; pairs with conf/host-gpio.conf)
+#   net .......... virtio-net, or the Stellaris MAC on the M3 (pairs with conf/net.conf)
+#   ramfb ........ the 600x400 framebuffer         (virt machines)
+#   virtio-input . the tablet behind the display   (virt machines; pairs with conf/touch.conf)
+#   virtio-gpio .. VIRTIO GPIO + its LED/button    (virt machines)
+#   virtio-i2c ... VIRTIO I2C adapter; declares every chip the page models, all
+#                  disabled, and a `<part>-only` snippet solders one on:
+#                  adxl345-only, eeprom-only, lsm6dso-only, lps22hh-only,
+#                  ina219-only, isl29035-only, pcf8523-only, jhd1313-only,
+#                  ht16k33-only, lp5562-only, lp5012-only, pca9685-only,
+#                  mcp4725-only, max17048-only — or i2c-shell for the whole set
+#                  the shell's commands can drive
+#   virtio-spi ... VIRTIO SPI + a JEDEC NOR on CS0; self-contained alternatives
+#                  on the same bus are pt6314-only, sct2024-only, ws2812-only,
+#                  tmc50xx-only, mcp2515-only, bt-settings-spi
+#   virtio-blk ... a stock QEMU block device (no page-side model)
+#   virtio-gpu ... the display behind virtio-gpu instead of ramfb
+#   oled ......... SSD1306 on the I2C bus, as `zephyr,display` instead of ramfb
+#   auxdisplays .. every auxdisplay the shell can drive (I2C LCD, SPI VFD, 7-seg)
+#   accel-display  shrink ramfb to 480x320 for the accelerometer chart
+#   bt-hci-uart .. H:4 controller on a spare UART
+#   browser-tracing, browser-tracing-net — added automatically, see below
 #
 # Cortex-A53 focus (docs/focus.md): build-zephyr-image.sh expands every A53
 # entry into a twin with id <app>_trace that adds snippets browser-tracing
@@ -28,9 +54,7 @@
 # already embed CTF in their own prj.conf (tracing, tracing_pipeline). Do not
 # list *_trace ids here — the UI mirrors the same expansion in src/boards.ts.
 #
-# Every build also applies the browser_bridge shield (zephyr-module/boards/
-# shields/browser_bridge), which adds the browser-fed peripherals and their
-# aliases (accel0, temp0, ...). Rebuild everything with:
+# Rebuild everything with:
 #
 #   tools/build-zephyr-image.sh
 #
@@ -47,23 +71,23 @@
 # (192.0.2.2), DNS (192.0.2.3), and every remote host at once. conf/net.conf
 # keeps the guests IPv4-only and on the Ethernet (not SLIP) QEMU path.
 
-qemu_cortex_m3:gnss:samples/drivers/gnss
-qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-gpio.conf,conf/host-audio.conf
+qemu_cortex_m3:gnss:samples/drivers/gnss::gnss
+qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-gpio.conf,conf/host-audio.conf:host-gpio,host-audio
 qemu_cortex_m3:hsm:samples/subsys/smf/hsm_psicc2
-qemu_cortex_m3:dhcp:samples/net/dhcpv4_client:conf/net.conf
-qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
-qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf
+qemu_cortex_m3:dhcp:samples/net/dhcpv4_client:conf/net.conf:net
+qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf:net
+qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf:net
 qemu_cortex_m3:hello_world:samples/hello_world
-qemu_cortex_m3:blinky:samples/basic/blinky
-qemu_cortex_m3:basic_button:samples/basic/button
-qemu_cortex_m3:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:gpio-buzzer
-qemu_cortex_m3:stepper:samples/drivers/stepper/generic:conf/stepper.conf:gpio-step-dir
+qemu_cortex_m3:blinky:samples/basic/blinky::host-gpio
+qemu_cortex_m3:basic_button:samples/basic/button::host-gpio
+qemu_cortex_m3:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:host-gpio,gpio-buzzer
+qemu_cortex_m3:stepper:samples/drivers/stepper/generic:conf/stepper.conf:host-gpio,gpio-step-dir
 
-qemu_cortex_a53:gnss:samples/drivers/gnss
-qemu_cortex_a53:display:samples/drivers/display
-qemu_cortex_a53:touch:samples/subsys/input/draw_touch_events
-qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf
-qemu_cortex_a53:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,accel-display
+qemu_cortex_a53:gnss:samples/drivers/gnss::gnss
+qemu_cortex_a53:display:samples/drivers/display::ramfb
+qemu_cortex_a53:touch:samples/subsys/input/draw_touch_events::ramfb,virtio-input
+qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf:ramfb,virtio-input
+qemu_cortex_a53:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,adxl345-only,ramfb,accel-display
 qemu_cortex_a53:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c,lsm6dso-only
 qemu_cortex_a53:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps22hh-only
 qemu_cortex_a53:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
@@ -96,24 +120,24 @@ qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
 qemu_cortex_a53:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_cortex_a53:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gpio,gpio-step-dir
-qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-sensors-extra,virtio-spi,virtio-gpio,auxdisplays
+qemu_cortex_a53:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-shell,virtio-spi,virtio-gpio,auxdisplays,host-audio,host-mic
 qemu_cortex_a53:oled:samples/drivers/display::virtio-i2c,oled
 qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
-qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf
-qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf,conf/net-uplink.conf:virtio-gpio
-qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf
-qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf,conf/http-get-stack.conf
-qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf
+qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf:net
+qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf,conf/net-uplink.conf:net,virtio-gpio
+qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf:net
+qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf,conf/http-get-stack.conf:net
+qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf:net
 qemu_cortex_a53:hello_world:samples/hello_world
 
 # RISC-V 32-bit virt: same virtio / browser-bridge shape as A53. Built with
 # tools/build-qemu-wasm.sh riscv32-softmmu (TCI). Tracing samples are omitted —
 # they ride ARM semihosting on A53.
-qemu_riscv32:gnss:samples/drivers/gnss
-qemu_riscv32:display:samples/drivers/display
-qemu_riscv32:touch:samples/subsys/input/draw_touch_events
-qemu_riscv32:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf
-qemu_riscv32:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,accel-display
+qemu_riscv32:gnss:samples/drivers/gnss::gnss
+qemu_riscv32:display:samples/drivers/display::ramfb
+qemu_riscv32:touch:samples/subsys/input/draw_touch_events::ramfb,virtio-input
+qemu_riscv32:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf:ramfb,virtio-input
+qemu_riscv32:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,adxl345-only,ramfb,accel-display
 qemu_riscv32:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c,lsm6dso-only
 qemu_riscv32:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:virtio-i2c,lps22hh-only
 qemu_riscv32:ina219:samples/sensor/ina219:conf/ina219.conf:virtio-i2c,ina219-only
@@ -143,12 +167,12 @@ qemu_riscv32:blinky:samples/basic/blinky::virtio-gpio
 qemu_riscv32:basic_button:samples/basic/button::virtio-gpio
 qemu_riscv32:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer
 qemu_riscv32:stepper:samples/drivers/stepper/generic:conf/stepper.conf:virtio-gpio,gpio-step-dir
-qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-sensors-extra,virtio-spi,virtio-gpio,auxdisplays
+qemu_riscv32:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/host-audio.conf,conf/host-mic.conf,conf/i2c.conf,conf/flash-fs.conf,conf/auxdisplay-shell.conf:virtio-i2c,i2c-shell,virtio-spi,virtio-gpio,auxdisplays,host-audio,host-mic
 qemu_riscv32:oled:samples/drivers/display::virtio-i2c,oled
 qemu_riscv32:hsm:samples/subsys/smf/hsm_psicc2
-qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf
-qemu_riscv32:http_server:samples/net/sockets/dumb_http_server:conf/net.conf,conf/net-uplink.conf
-qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf
-qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf
-qemu_riscv32:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf
+qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf:net
+qemu_riscv32:http_server:samples/net/sockets/dumb_http_server:conf/net.conf,conf/net-uplink.conf:net
+qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf:net
+qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf:net
+qemu_riscv32:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf:net
 qemu_riscv32:hello_world:samples/hello_world

@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn the LM3S6965's Stellaris MAC back on. Unlike the virtio bridges this is
+ * a device the machine has always had and the board devicetree leaves okay —
+ * the browser_bridge shield disables it so a non-networking sample does not
+ * show a Network card it never touches. src/boards.ts attaches the browser
+ * netdev to it with `-nic browser,model=stellaris`.
+ */
+
+&eth {
+	status = "okay";
+};

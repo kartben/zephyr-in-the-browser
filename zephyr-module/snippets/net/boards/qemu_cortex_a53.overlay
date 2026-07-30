@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the browser network bridge the browser_bridge shield declares
+ * disabled: virtio-net on slot 0 of the virtio-mmio array. Same labels on the
+ * A53 and RISC-V, so one overlay serves both.
+ *
+ * The MAC is the shield's; it must stay in step with the `mac=` property in
+ * src/boards.ts, because QEMU's virtio-net model filters inbound unicast
+ * against it and Zephyr's driver never programs the device.
+ */
+
+&virtio_mmio0 {
+	status = "okay";
+};
+
+&virtio_net0 {
+	status = "okay";
+};

@@ -11,11 +11,13 @@ new device should reuse — see [next-drivers.md](next-drivers.md) and
 ## The browser_bridge shield
 
 The browser-fed peripherals — GNSS UART, host GPIO, host audio out (I2S), host
-microphone (DMIC), and the browser-sized ramfb — reach the guest through a
-Zephyr shield, **`browser_bridge`**
+microphone (DMIC), the browser-sized ramfb, and the virtio bridges — reach the
+guest through a Zephyr shield, **`browser_bridge`**
 ([zephyr-module/boards/shields/browser_bridge/](../zephyr-module/boards/shields/browser_bridge)),
-applied to every packaged build. Building any app against the browser machines
-is just:
+applied to every packaged build. Applying the shield is what makes the devices
+*addressable*; which ones a given image actually declares is a separate,
+per-sample choice — see [Every device is opt-in](#every-device-is-opt-in) below.
+Building any app against the browser machines is just:
 
 ```console
 west build -b qemu_cortex_m3 <app> -- -DZEPHYR_EXTRA_MODULES=<repo>/zephyr-module -DSHIELD=browser_bridge
@@ -26,6 +28,39 @@ Stellaris patches in `tools/qemu-patches/` put the GPIO controller at
 0x40061000, the audio out at 0x40062000 and the microphone at 0x40063000; the
 virt patches in `tools/qemu-jit-patches/` put the audio out at 0x090d0000 and
 the microphone at 0x090e0000.
+
+### Every device is opt-in
+
+The shield declares all of them **`status = "disabled"`**. It says where each
+device sits on this machine and nothing more; a snippet named after the device
+is what turns it on, and each sample's line in
+[`tools/samples.manifest`](../tools/samples.manifest) lists the ones it
+exercises:
+
+| Snippet | Device | Pairs with |
+| --- | --- | --- |
+| `-S gnss` | NMEA receiver on a spare UART | — |
+| `-S host-audio` | I²S out into Web Audio | `conf/host-audio.conf` |
+| `-S host-mic` | DMIC in from `getUserMedia`, aliased `dmic0` | `conf/host-mic.conf` |
+| `-S host-gpio` | `qemu,host-gpio` + its LED / button (Cortex-M3) | `conf/host-gpio.conf` |
+| `-S net` | virtio-net, or the Stellaris MAC on the M3 | `conf/net.conf` |
+| `-S ramfb` | the 600×400 framebuffer | — |
+| `-S virtio-input` | the tablet behind the display | `conf/touch.conf` |
+| `-S virtio-gpio` / `-S virtio-i2c` / `-S virtio-spi` / `-S virtio-blk` / `-S virtio-gpu` | the virtio-mmio bridges | — |
+
+That split exists because of the section below: **the dock is the flattened
+devicetree**. A node left okay for convenience is not a free unused driver, it
+is a peripheral card in front of the user. Before this, Hello World shipped a
+GNSS receiver, a speaker, a microphone, a display, a network interface and a
+touchscreen it never touched, and every I²C sample carried the four chips it
+did not read alongside the one it did.
+
+So the rule for a manifest line is: *what can this sample actually exercise?*
+For the shell — where the answer is "whatever has a shell command" — that is
+nine I²C parts, three auxdisplays, the SPI NOR with LittleFS on it, the GPIO
+controller, the speaker and the microphone, and deliberately **not** the
+display, the GNSS receiver or the NIC, none of which the shell can reach. For
+the accelerometer chart it is one ADXL345 and the framebuffer.
 
 Sensors used to be here too, as a `qemu,host-sensor` MMIO device aliased
 `accel0`/`temp0`/`light0`/…, so stock sensor samples bound to a bespoke device
@@ -43,23 +78,30 @@ one commit per patch, dropping the host-sensor commit, and letting `git rebase`
 ## Simulated I²C chips
 
 The A53's VIRTIO I²C adapter (`-S virtio-i2c`) carries chips that are
-*TypeScript*, not C: TMP112 and LM75 thermometers, an ADXL345 accelerometer,
-an AT24 EEPROM and an SSD1306 OLED by default, under
-[`src/virtio/devices/`](../src/virtio/devices). Optional extras — an LSM6DSO
-IMU, an LPS22HH barometer, an INA219 power monitor, an ISL29035 light
-sensor, a PCF8523 RTC, a JHD1313 character LCD (Grove RGB, with its
-PCA9633-style backlight at `0x62`), an HT16K33 LED matrix at `0x70`, an
-LP5562 RGBW LED at `0x30`, a
-PCA9685 PWM controller at `0x60`, an MCP4725 DAC at `0x61`, and a MAX17048
-fuel gauge at `0x36` —
-stay `status = "disabled"` in the
-virtio-i2c overlay so everyday builds (accel chart, OLED display, …) do not
-clutter the dock. The shell turns most of them on with `-S i2c-sensors-extra`;
-each dedicated sensor / RTC / auxdisplay / LED / PWM / DAC / fuel-gauge sample uses a `*-only` snippet that
-enables that part and disables the default temperature / accel nodes. The
-EEPROM sample uses `-S eeprom-only` the same way (sensors and OLED off,
-`eeprom-0` aliased). The page attaches matching models only while the guest
-tree marks those nodes okay.
+*TypeScript*, not C, under [`src/virtio/devices/`](../src/virtio/devices):
+TMP112 and LM75 thermometers, an ADXL345 accelerometer, an AT24 EEPROM, an
+SSD1306 OLED, an LSM6DSO IMU, an LPS22HH barometer, an INA219 power monitor,
+an ISL29035 light sensor, a PCF8523 RTC, a JHD1313 character LCD (Grove RGB,
+with its PCA9633-style backlight at `0x62`), an HT16K33 LED matrix at `0x70`,
+an LP5562 RGBW LED at `0x30`, a PCA9685 PWM controller at `0x60`, an MCP4725
+DAC at `0x61`, and a MAX17048 fuel gauge at `0x36`.
+
+The virtio-i2c overlay is a **parts bin**: every one of those is declared
+`status = "disabled"`, and a `<part>-only` snippet is what solders one onto a
+given image — `-S adxl345-only` for the accelerometer chart, `-S eeprom-only`
+(which also aliases `eeprom-0`) for the EEPROM sample, and so on. `-S i2c-shell`
+fits the whole set the shell's commands can drive: the AT24, both thermometers,
+the ADXL345, the LSM6DSO, the LPS22HH, the INA219, the ISL29035 and the RTC, so
+`i2c scan` finds nine chips and `sensor` / `eeprom` / `rtc` each have something
+to read. The page attaches matching models only while the guest tree marks
+those nodes okay.
+
+It used to work the other way round — five chips okay by default, and a
+disable-list at the top of every `-only` snippet to take them back off. That
+cost a dozen stanzas per snippet, drifted (`lsm6dso-only` never disabled the
+EEPROM or the OLED; `pcf8523-only` did), and still left an EEPROM, two
+thermometers and an OLED in the dock of a sample that wanted one accelerometer.
+Opt-in is one stanza per snippet and cannot drift.
 
 The guest side is entirely stock — `ti,tmp112`, `lm75`, `adi,adxl345`,
 `st,lsm6dso`, `st,lps22hh`, `ti,ina219`, `isil,isl29035`, `nxp,pcf8523`,
@@ -171,9 +213,13 @@ and a `CONFIG_*` in [`conf/i2c.conf`](../zephyr-module/conf/i2c.conf).
 Because the bus is page-side, chips can be **attached and detached while the
 guest runs**. Detaching one the devicetree declares makes its driver NAK
 exactly as if the part fell off the board; attaching at an address the
-devicetree does not declare answers `i2c scan` but binds no driver. The
-`accel0` alias lives in the virtio-i2c snippet rather than the shield, so a
-build without the bus never carries a dangling alias.
+devicetree does not declare answers `i2c scan` but binds no driver.
+
+Aliases follow the same opt-in rule as the parts. `accel0` lives in
+`adxl345-only`, `eeprom-0` in `eeprom-only`, `rtc` in `pcf8523-only`,
+`fuel-gauge0` in `max17048-only`, `dmic0` in `host-mic`, `gnss` in `gnss` — so a
+build either resolves `DT_ALIAS(...)` to a real, driver-bound node or carries no
+such name at all, and never a name pointing at a disabled one.
 
 ## The devicetree is the source of truth
 
@@ -206,7 +252,12 @@ that the peripheral surfaces read:
   controller is an attached `PwmChip` (brightness from channel duty; see
   [pwm-leds.md](pwm-leds.md)),
 - which panels exist at all — a build without the virtio-i2c snippet shows no
-  I2C panel even though the machine always carries the adapter.
+  I2C panel even though the machine always carries the adapter, and one without
+  `-S ramfb` shows no Display even though every virt machine has a framebuffer.
+
+That last bullet is why the shield declares everything disabled and the manifest
+opts each sample in: this list *is* the dock, so the bill of materials in
+`tools/samples.manifest` is a UI decision as much as a build one.
 
 A user-supplied ELF gets the same treatment when its `zephyr.dts` is dropped
 or picked alongside it; without one, every panel the machine exposes shows

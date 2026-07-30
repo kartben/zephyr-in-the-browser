@@ -14,14 +14,15 @@
  *   0x10100000  fw_cfg (stock)
  *
  * Virtio-mmio bases are stock: 0x10001000 + n×0x1000 (PLIC IRQs 1–8).
+ *
+ * Like the A53 overlay, every device here is declared `status = "disabled"`
+ * and a snippet named after it turns it on — `-S gnss`, `-S host-audio`,
+ * `-S host-mic`, `-S ramfb`, `-S virtio-input`, `-S net`. See that file's
+ * header for why; the snippets share its overlay wherever the node names
+ * match, which is everywhere except the two this board declares itself.
  */
 
 / {
-	aliases {
-		gnss = &gnss;
-		dmic0 = &host_mic;
-	};
-
 	chosen {
 		zephyr,display = &ramfb0;
 		zephyr,touch = &virtio_input0;
@@ -44,16 +45,18 @@
 		};
 	};
 
+	/* `-S ramfb`. */
 	ramfb0: ramfb {
 		compatible = "qemu,ramfb";
 		fwcfg = <&fwcfg0>;
 		memory-region = <&ramfb_mem>;
 		width = <600>;
 		height = <400>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	soc {
+		/* `-S gnss`, which also adds the `gnss` alias. */
 		uart1: uart@1000b000 {
 			compatible = "ns16550";
 			reg = <0x1000b000 0x100>;
@@ -62,23 +65,26 @@
 			current-speed = <9600>;
 			interrupt-parent = <&plic>;
 			interrupts = <12 1>;
-			status = "okay";
+			status = "disabled";
 
 			gnss: gnss-nmea-generic {
 				compatible = "gnss-nmea-generic";
+				status = "disabled";
 			};
 		};
 
+		/* `-S host-audio`. */
 		host_audio: audio@10009000 {
 			compatible = "qemu,host-audio";
 			reg = <0x10009000 0x1000>;
-			status = "okay";
+			status = "disabled";
 		};
 
+		/* `-S host-mic`, which also adds the `dmic0` alias. */
 		host_mic: audio@1000a000 {
 			compatible = "qemu,host-mic";
 			reg = <0x1000a000 0x1000>;
-			status = "okay";
+			status = "disabled";
 		};
 	};
 };
@@ -111,13 +117,14 @@
 	};
 };
 
+/* The touchscreen: `-S virtio-input`, paired with conf/touch.conf. */
 &virtio_mmio3 {
-	status = "okay";
+	status = "disabled";
 
 	virtio_input0: virtio-input {
 		compatible = "virtio,input";
 		display = <&ramfb0>;
-		status = "okay";
+		status = "disabled";
 	};
 };
 
@@ -159,12 +166,13 @@
 	};
 };
 
+/* Browser network bridge on slot 0: `-S net`, alongside conf/net.conf. */
 &virtio_mmio0 {
-	status = "okay";
+	status = "disabled";
 
 	virtio_net0: virtio-net {
 		compatible = "virtio,net";
 		local-mac-address = [02 00 00 00 00 01];
-		status = "okay";
+		status = "disabled";
 	};
 };

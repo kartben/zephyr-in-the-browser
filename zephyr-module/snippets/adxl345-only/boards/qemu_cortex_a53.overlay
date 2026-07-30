@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * accelerometer_chart: the ADXL345 alone, aliased accel0 so the sample's
+ * DEVICE_DT_GET(DT_ALIAS(accel0)) resolves without an application change.
+ * The page can point the part's axes at the device's own tilt.
+ *
+ * Requires -S virtio-i2c, which declares adxl345_0 disabled and turns the bus on.
+ */
+
+&adxl345_0 {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		accel0 = &adxl345_0;
+	};
+};

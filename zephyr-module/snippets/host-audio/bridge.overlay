@@ -1,0 +1,12 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the host audio out the browser_bridge shield declares disabled — a
+ * qemu,host-audio register block at 0x090d0000 (A53), 0x10009000 (RISC-V) or
+ * 0x40062000 (Cortex-M3). Same label on every board, so one overlay does.
+ */
+
+&host_audio {
+	status = "okay";
+};

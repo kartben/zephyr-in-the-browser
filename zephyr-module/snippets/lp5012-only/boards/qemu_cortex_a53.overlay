@@ -2,54 +2,10 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/led/lp50xx: LP5012 only. Stock sample binds
- * DEVICE_DT_GET_ANY(ti_lp5012).
+ * samples/drivers/led/lp50xx: the LP5012 alone. Stock sample binds
+ * DEVICE_DT_GET_ANY(ti_lp5012). Requires -S virtio-i2c.
  */
 
 &lp5012_0 {
 	status = "okay";
-};
-
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
-};
-
-&ssd1306_0 {
-	status = "disabled";
-};
-
-&eeprom0 {
-	status = "disabled";
-};
-
-&auxdisplay_0 {
-	status = "disabled";
-};
-
-&ht16k33_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
-	status = "disabled";
-};
-
-&pca9685_0 {
-	status = "disabled";
-};
-
-&mcp4725_0 {
-	status = "disabled";
-};
-
-&max17048_0 {
-	status = "disabled";
 };
