@@ -35,10 +35,11 @@ hardcoded MAC, so they must never share an L2 segment) and pipes bytes.
 | `TUNNEL` | — | `quick` = bundled cloudflared quick tunnel |
 | `PAGES_URL` | the hosted app | base for the printed deep link |
 
-Example — let the host reach the guest's `echo_server`:
+Example — let the host (and its LAN) reach the guest's `echo_server`, which
+configures `192.0.2.1` itself, hence the pinned static addressing:
 
 ```console
-docker run --rm --security-opt seccomp=unconfined -p 8737:8737 -p 4242:4242 -e PASST_ARGS="-t 4242" ghcr.io/kartben/zephyr-in-the-browser/gateway
+docker run --rm --security-opt seccomp=unconfined -p 8737:8737 -p 4242:4242 -e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 4242" ghcr.io/kartben/zephyr-in-the-browser/gateway
 ```
 
 ## Security

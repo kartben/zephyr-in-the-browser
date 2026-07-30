@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Download, Globe, Info, Pause, Play, Trash2 } from 'lucide-react'
+import { Check, Copy, Download, Globe, Info, Pause, Play, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SliderControl } from '@/components/controls/ControlRow'
 import { Disclosure } from '@/components/dock/Disclosure'
@@ -252,6 +252,46 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
 const GATEWAY_ONE_LINER =
   'docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/zephyr-in-the-browser/gateway'
 
+/**
+ * The HTTP Server sample configures 192.0.2.1 itself, so the gateway pins the
+ * same static addressing (-a/-n/-g) and forwards host 8080 → guest 80.
+ */
+const GATEWAY_FORWARD_80 =
+  'docker run --rm --security-opt seccomp=unconfined -p 8737:8737 -p 8080:80 ' +
+  '-e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 80" ' +
+  'ghcr.io/kartben/zephyr-in-the-browser/gateway'
+
+/** A command snippet with a copy button — the whole point of a one-liner. */
+function CopyableCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="relative">
+      <code className="block whitespace-pre-wrap break-all rounded bg-background/60 p-1.5 pr-8 font-mono text-[10px] leading-4">
+        {command}
+      </code>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute right-0.5 top-0.5 size-5"
+        aria-label={copied ? 'Copied' : 'Copy command'}
+        onClick={() => {
+          navigator.clipboard
+            .writeText(command)
+            .then(() => {
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            })
+            .catch(() => {
+              /* clipboard blocked — the text is still selectable */
+            })
+        }}
+      >
+        {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+      </Button>
+    </div>
+  )
+}
+
 function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
   const settings = useSyncExternalStore(subscribeNet, getNetSettings, getNetSettings)
   const [url, setUrlLocal] = useState(settings.url)
@@ -322,8 +362,8 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
       {showHelp && (
         <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
           <p>
-            <span className="font-medium">Run the gateway</span> on any machine with Docker — it
-            bridges the guest onto that machine&apos;s network via{' '}
+            <span className="font-medium">Run the gateway</span> on any machine with Docker. It puts
+            the guest on that machine&apos;s network via{' '}
             <a
               className="underline decoration-dotted underline-offset-2 hover:text-primary"
               href="https://passt.top/"
@@ -334,17 +374,15 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
             </a>
             :
           </p>
-          <code className="block whitespace-pre-wrap break-all rounded bg-background/60 p-1.5 font-mono text-[10px] leading-4">
-            {GATEWAY_ONE_LINER}
-          </code>
+          <CopyableCommand command={GATEWAY_ONE_LINER} />
           <p>
-            Then paste the <code className="font-mono">ws://…?token=…</code> URL it prints into the
-            field below and restart the emulator — or just open the deep link it prints. Safari and
-            remote gateways need the <code className="font-mono">wss://</code> tunnel URL instead:
-            add <code className="font-mono">-e TUNNEL=quick</code>.
+            Paste the <code className="font-mono">ws://…?token=…</code> URL it prints below and
+            restart the emulator — or just open the printed deep link. Safari and remote gateways
+            need a <code className="font-mono">wss://</code> URL: add{' '}
+            <code className="font-mono">-e TUNNEL=quick</code> for a free tunnel.
           </p>
           <p>
-            Port forwards, security notes and alternatives:{' '}
+            Security notes, more recipes, alternatives:{' '}
             <a
               className="underline decoration-dotted underline-offset-2 hover:text-primary"
               href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/net-gateway.md"
@@ -354,6 +392,17 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
               docs/net-gateway.md
             </a>
             .
+          </p>
+          <p>
+            The guest&apos;s address lives inside the gateway — passt translates, it doesn&apos;t
+            bridge — so servers the guest runs are reached through port forwards. The HTTP Server
+            sample on :80, say:
+          </p>
+          <CopyableCommand command={GATEWAY_FORWARD_80} />
+          <p>
+            Then open <code className="font-mono">http://localhost:8080/</code> on the gateway
+            machine — from your LAN, swap <code className="font-mono">localhost</code> for that
+            machine&apos;s address.
           </p>
         </div>
       )}

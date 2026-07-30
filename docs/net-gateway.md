@@ -182,8 +182,9 @@ This framing is exactly what passt serves on its unix socket and what QEMU's
 
 | Goal | How |
 | --- | --- |
-| Reach a server the guest runs (e.g. `echo_server` on 4242) | `docker run … -p 4242:4242 -e PASST_ARGS="-t 4242" …` then `nc localhost 4242` |
-| Static guest addressing instead of DHCP | `PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2"` (matches the sandbox's addresses) |
+| Reach the guest's `echo_server` (:4242) | `docker run … -p 4242:4242 -e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 4242" …` then `nc localhost 4242` |
+| Browse the guest's `http_server` (:80) | `docker run … -p 8080:80 -e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 80" …` then `http://localhost:8080/` — from the LAN, use the gateway machine's address |
+| Static guest addressing instead of DHCP | `PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2"` (the sandbox's addresses — the server samples above configure 192.0.2.1 themselves, which is why their recipes carry it) |
 | Keep IPv6 NDP/DHCPv6 on | `PASST_DEFAULT_ARGS="--mtu 1500"` (the shipped guest images are IPv4-only, so the default is `-4`) |
 | Different DNS | `PASST_ARGS="--dns-forward <addr>"` |
 
