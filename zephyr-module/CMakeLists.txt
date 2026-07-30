@@ -83,6 +83,21 @@ endif()
 
 if(CONFIG_DISK_DRIVER_VIRTIO_BLK AND VENDORED_VIRTIO_BLK)
   zephyr_library_sources(${VENDORED_VIRTIO_BLK})
+  # Under CONFIG_MMU the driver calls arch_page_phys_get() to walk a buffer
+  # page by page. That is declared only in kernel/include/kernel_arch_interface.h
+  # -- a private kernel header -- and the driver does not include it, relying on
+  # whatever the in-tree drivers/disk build happens to have already pulled in.
+  # Out of tree neither the path nor the declaration is there.
+  #
+  # Forced from here rather than by editing the source, so the vendored copy
+  # stays byte-identical to upstream and drift stays a one-line diff. Delete
+  # this whole block, not just the guard, once the driver lands in-tree.
+  zephyr_library_include_directories(
+    ${ZEPHYR_BASE}/kernel/include
+    ${ZEPHYR_BASE}/arch/${ARCH}/include
+  )
+  set_property(SOURCE ${VENDORED_VIRTIO_BLK} APPEND PROPERTY
+    COMPILE_OPTIONS -include kernel_arch_interface.h)
 endif()
 
 if(CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
