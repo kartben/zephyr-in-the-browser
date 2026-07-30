@@ -2826,3 +2826,176 @@ event {
 		int32_t ret;
 	};
 };
+
+/* System Power Management */
+event {
+	name = pm_system_suspend_enter;
+	id = 0x147;
+	fields := struct {
+		int32_t ticks;
+	};
+};
+
+event {
+	name = pm_system_suspend_exit;
+	id = 0x148;
+	fields := struct {
+		int32_t ticks;
+		uint8_t state;
+	};
+};
+
+event {
+	name = pm_state_set_enter;
+	id = 0x149;
+	fields := struct {
+		uint8_t cpu;
+		uint8_t state;
+		uint8_t substate_id;
+	};
+};
+
+event {
+	name = pm_state_set_exit;
+	id = 0x14A;
+	fields := struct {
+		uint8_t cpu;
+		uint8_t state;
+		uint8_t substate_id;
+	};
+};
+
+/* Device Runtime Power Management */
+event {
+	name = pm_device_runtime_get_enter;
+	id = 0x14B;
+	fields := struct {
+		uint32_t dev;
+	};
+};
+
+event {
+	name = pm_device_runtime_get_exit;
+	id = 0x14C;
+	fields := struct {
+		uint32_t dev;
+		int32_t ret;
+	};
+};
+
+event {
+	name = pm_device_runtime_put_enter;
+	id = 0x14D;
+	fields := struct {
+		uint32_t dev;
+	};
+};
+
+event {
+	name = pm_device_runtime_put_exit;
+	id = 0x14E;
+	fields := struct {
+		uint32_t dev;
+		int32_t ret;
+	};
+};
+
+event {
+	name = pm_device_runtime_put_async_enter;
+	id = 0x14F;
+	fields := struct {
+		uint32_t dev;
+		uint32_t delay;
+	};
+};
+
+event {
+	name = pm_device_runtime_put_async_exit;
+	id = 0x150;
+	fields := struct {
+		uint32_t dev;
+		uint32_t delay;
+		int32_t ret;
+	};
+};
+
+event {
+	name = pm_device_runtime_enable_enter;
+	id = 0x151;
+	fields := struct {
+		uint32_t dev;
+	};
+};
+
+event {
+	name = pm_device_runtime_enable_exit;
+	id = 0x152;
+	fields := struct {
+		uint32_t dev;
+		int32_t ret;
+	};
+};
+
+event {
+	name = pm_device_runtime_disable_enter;
+	id = 0x153;
+	fields := struct {
+		uint32_t dev;
+	};
+};
+
+event {
+	name = pm_device_runtime_disable_exit;
+	id = 0x154;
+	fields := struct {
+		uint32_t dev;
+		int32_t ret;
+	};
+};
+
+/* System Managed Device Power Management */
+event {
+	name = pm_suspend_devices_enter;
+	id = 0x155;
+};
+
+event {
+	name = pm_suspend_devices_exit;
+	id = 0x156;
+	fields := struct {
+		uint32_t count;
+		uint8_t ok;
+	};
+};
+
+event {
+	name = pm_resume_devices_enter;
+	id = 0x157;
+	fields := struct {
+		uint32_t count;
+	};
+};
+
+event {
+	name = pm_resume_devices_exit;
+	id = 0x158;
+};
+
+event {
+	name = pm_device_action_run_enter;
+	id = 0x159;
+	fields := struct {
+		uint32_t dev;
+		uint8_t action;
+	};
+};
+
+event {
+	name = pm_device_action_run_exit;
+	id = 0x15A;
+	fields := struct {
+		uint32_t dev;
+		uint8_t action;
+		int32_t ret;
+	};
+};

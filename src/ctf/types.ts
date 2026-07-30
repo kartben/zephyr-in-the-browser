@@ -39,8 +39,48 @@ export const THREAD_NAME_SET = 0x1a
 export const ISR_ENTER = 0x1b
 export const ISR_EXIT = 0x1c
 export const ISR_EXIT_TO_SCHEDULER = 0x1d
+/**
+ * Deliberately without a consumer, and it should stay that way. `sys_trace_idle`
+ * is a point event: no exit, no duration, no cpu field. Deriving an end from
+ * "the next event" would fabricate residency, which is the one number the CPU
+ * power band exists to report honestly — so the band is built from the balanced
+ * `pm_state_set_*` pair instead (see cpuPower.ts). It also fires without
+ * CONFIG_PM, so folding it in would draw a power band for guests that have no
+ * power management at all. If it ever earns a consumer, the honest home is a
+ * tick on the idle thread's own lane.
+ */
 export const IDLE = 0x1e
 export const THREAD_SCHED_PRIO_SET = 0xe9
+
+/** Power management (Zephyr TSDL 0x147–0x15A). */
+export const PM_SYSTEM_SUSPEND_ENTER = 0x147
+export const PM_SYSTEM_SUSPEND_EXIT = 0x148
+export const PM_STATE_SET_ENTER = 0x149
+export const PM_STATE_SET_EXIT = 0x14a
+export const PM_SUSPEND_DEVICES_ENTER = 0x155
+export const PM_SUSPEND_DEVICES_EXIT = 0x156
+export const PM_RESUME_DEVICES_ENTER = 0x157
+export const PM_RESUME_DEVICES_EXIT = 0x158
+export const PM_DEVICE_ACTION_RUN_ENTER = 0x159
+export const PM_DEVICE_ACTION_RUN_EXIT = 0x15a
+
+/**
+ * `enum pm_state` (include/zephyr/pm/state.h), indexed by the `state` field the
+ * PM events carry. Index 0 is ACTIVE, i.e. "not suspended at all" — which the
+ * band stores as a gap rather than a segment.
+ */
+export const PM_STATE_NAMES = [
+  'active',
+  'runtime-idle',
+  'suspend-to-idle',
+  'standby',
+  'suspend-to-ram',
+  'suspend-to-disk',
+  'soft-off',
+] as const
+
+/** `enum pm_device_action` (include/zephyr/pm/device.h). */
+export const PM_DEVICE_ACTION_NAMES = ['suspend', 'resume', 'turn-on', 'turn-off'] as const
 
 /** Message-queue CTF ids (Zephyr TSDL). Depth is reconstructed from exits alone. */
 export const MSGQ_PUT_EXIT = 0x8c
@@ -244,6 +284,102 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
     fields: [
       ['id', 'uint32_t'],
       ['timeout', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x147: { name: 'pm_system_suspend_enter', fields: [['ticks', 'int32_t']] },
+  0x148: {
+    name: 'pm_system_suspend_exit',
+    fields: [
+      ['ticks', 'int32_t'],
+      ['state', 'uint8_t'],
+    ],
+  },
+  0x149: {
+    name: 'pm_state_set_enter',
+    fields: [
+      ['cpu', 'uint8_t'],
+      ['state', 'uint8_t'],
+      ['substate_id', 'uint8_t'],
+    ],
+  },
+  0x14a: {
+    name: 'pm_state_set_exit',
+    fields: [
+      ['cpu', 'uint8_t'],
+      ['state', 'uint8_t'],
+      ['substate_id', 'uint8_t'],
+    ],
+  },
+  0x14b: { name: 'pm_device_runtime_get_enter', fields: [['dev', 'uint32_t']] },
+  0x14c: {
+    name: 'pm_device_runtime_get_exit',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x14d: { name: 'pm_device_runtime_put_enter', fields: [['dev', 'uint32_t']] },
+  0x14e: {
+    name: 'pm_device_runtime_put_exit',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x14f: {
+    name: 'pm_device_runtime_put_async_enter',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['delay', 'uint32_t'],
+    ],
+  },
+  0x150: {
+    name: 'pm_device_runtime_put_async_exit',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['delay', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x151: { name: 'pm_device_runtime_enable_enter', fields: [['dev', 'uint32_t']] },
+  0x152: {
+    name: 'pm_device_runtime_enable_exit',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x153: { name: 'pm_device_runtime_disable_enter', fields: [['dev', 'uint32_t']] },
+  0x154: {
+    name: 'pm_device_runtime_disable_exit',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x155: { name: 'pm_suspend_devices_enter', fields: [] },
+  0x156: {
+    name: 'pm_suspend_devices_exit',
+    fields: [
+      ['count', 'uint32_t'],
+      ['ok', 'uint8_t'],
+    ],
+  },
+  0x157: { name: 'pm_resume_devices_enter', fields: [['count', 'uint32_t']] },
+  0x158: { name: 'pm_resume_devices_exit', fields: [] },
+  0x159: {
+    name: 'pm_device_action_run_enter',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['action', 'uint8_t'],
+    ],
+  },
+  0x15a: {
+    name: 'pm_device_action_run_exit',
+    fields: [
+      ['dev', 'uint32_t'],
+      ['action', 'uint8_t'],
       ['ret', 'int32_t'],
     ],
   },
