@@ -188,3 +188,17 @@ config VIRTIO_GPU_DISPLAY_QUEUE_SIZE
 	  Number of descriptors allocated for each VIRTIO GPU virtqueue. This
 	  value must be a power of two.
 
+
+# A prop, not a driver: it exists so system-managed device PM has something to
+# suspend. Nothing in a browser_bridge build implements a PM action callback, so
+# without this the suspend walk returns -ENOSYS for every device and honestly
+# reports suspending none of them. See drivers/pm_demo_device.c.
+config PM_DEMO_DEVICE
+	bool "Power management demo device"
+	default y
+	depends on DT_HAS_ZEPHYR_PM_DEMO_DEVICE_ENABLED
+	depends on PM_DEVICE
+	help
+	  Devices that implement nothing but PM_DEVICE_ACTION_SUSPEND and
+	  PM_DEVICE_ACTION_RESUME, each burning the microseconds its node asks
+	  for, so the PM core's device walk has measurable width in a trace.

@@ -56,7 +56,8 @@ if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR (CONFIG_DISK_DRIVER_VIRTIO_BLK AND VENDORED_VIRTIO_BLK)
    OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
    OR (CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
-   OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ)
+   OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ
+   OR CONFIG_PM_DEMO_DEVICE)
   zephyr_library()
 endif()
 
@@ -124,5 +125,9 @@ endif()
 
 if(CONFIG_QEMU_HOST_MIC)
   zephyr_library_sources(drivers/qemu_host_mic.c)
+endif()
+
+if(CONFIG_PM_DEMO_DEVICE)
+  zephyr_library_sources(drivers/pm_demo_device.c)
 endif()
 
