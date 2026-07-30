@@ -184,7 +184,8 @@ sample's `build/zephyr/zephyr.dts` next to its ELF; the page parses it
 ([`src/dts/`](../src/dts)) into a store ([`src/devicetree.ts`](../src/devicetree.ts))
 that the peripheral surfaces read:
 
-- which I2C addresses have a bound driver (the "driver"/"bus only" tags, from
+- which I2C addresses have a bound driver (the "in devicetree" / "not in devicetree"
+  tags, from
   the bridged `virtio,i2c` node's enabled children),
 - the GPIO panel's buttons (from `gpio-keys`) and the LED-class `gpio-leds` row, and
   the controller name its shell hints quote,

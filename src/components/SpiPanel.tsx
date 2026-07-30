@@ -62,16 +62,16 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
                 {hasSpiDriver(chip.cs) ? (
                   <span
                     className="text-[10px] text-emerald-400"
-                    title="The guest devicetree binds a driver here"
+                    title="The devicetree declares this chip, so the app can use it."
                   >
-                    driver
+                    in devicetree
                   </span>
                 ) : (
                   <span
-                    className="text-[10px] text-muted-foreground"
-                    title="Answers on the bus, but no guest driver binds here"
+                    className="whitespace-nowrap text-[10px] text-muted-foreground"
+                    title="This chip answers on the bus, but the devicetree does not declare it. The app ignores it."
                   >
-                    bus only
+                    not in devicetree
                   </span>
                 )}
               </button>
@@ -254,8 +254,8 @@ function AttachRow({ chips }: { chips: number[] }) {
       ) : valid ? (
         <p className="text-[10px] text-muted-foreground">
           {hasSpiDriver(parsed)
-            ? 'The devicetree binds a driver here.'
-            : 'Bus only — no guest driver on this chip select.'}
+            ? 'The devicetree declares a chip here. The app can use it.'
+            : 'The devicetree declares nothing here. The app will ignore this chip.'}
         </p>
       ) : (
         <p className="text-[10px] text-destructive">Enter a chip select between 0 and 255.</p>

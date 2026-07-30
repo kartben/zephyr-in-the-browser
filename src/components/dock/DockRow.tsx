@@ -63,7 +63,7 @@ export interface DockRowShellProps {
   secondary?: ReactNode
   /** Right-edge live summary, so collapsed never means blind. */
   badge?: ReactNode
-  /** Small qualifier chip after the name ('bus only'). */
+  /** Small qualifier chip after the name ('not in devicetree'). */
   tag?: ReactNode
   depth?: number
   /** False for rows that only document topology — no chevron, no body. */

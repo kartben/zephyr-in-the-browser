@@ -180,7 +180,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(tmp.nodeName).toBe('tmp112@48')
   })
 
-  it('tags a chip attached where the tree declares nothing as bus only', () => {
+  it('tags a chip attached where the tree declares nothing', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Shell),
       [fakeSensor(0x60, 'FakeTemp sensor')],
@@ -190,7 +190,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     )
     const stray = nodeByKey(inv, 'virtio_i2c0:60')
     expect(stray.presence).toBe('interactive')
-    expect(stray.tag).toBe('bus only')
+    expect(stray.tag).toBe('not in devicetree')
     expect(stray.nodeName).toBe('faketemp@60')
   })
 
