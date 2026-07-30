@@ -140,7 +140,7 @@ export interface DeviceNode {
   presence: 'interactive' | 'inert' | 'ghost'
   /** Short annotation ('→ terminal', 'no page model', 'NAK — detached'). */
   note?: string
-  /** Small qualifier chip ('bus only' for an attached-but-undeclared part). */
+  /** Small qualifier chip ('not in devicetree' for an attached-but-undeclared part). */
   tag?: string
   body?: BodyKind
   /** ▤-view breadcrumb locating the row on the hardware ('virtio_i2c0 · 0x48'). */
@@ -419,7 +419,7 @@ function liveBusChildren(
         path: `${busPath}/${slot?.nodeName ?? synthChipNodeName(chip)}`,
         parentKey: busKey,
         presence: 'interactive',
-        tag: slot ? undefined : 'bus only',
+        tag: slot ? undefined : 'not in devicetree',
         body: chipBody(cls, chip),
         crumb,
         chip,
@@ -512,7 +512,7 @@ function liveSpiBusChildren(
         path: `${busPath}/${slot?.nodeName ?? `spi-dev@${cs}`}`,
         parentKey: busKey,
         presence: 'interactive',
-        tag: slot ? undefined : 'bus only',
+        tag: slot ? undefined : 'not in devicetree',
         body: flash
           ? 'spi-flash'
           : ledBar

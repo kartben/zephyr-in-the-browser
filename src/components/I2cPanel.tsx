@@ -90,18 +90,24 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
                   {chip.name}
                 </span>
                 {hasDriver(chip.address) ? (
-                  <span className="text-[10px] text-emerald-400" title="The guest devicetree binds a driver here">
-                    driver
+                  <span
+                    className="text-[10px] text-emerald-400"
+                    title="The devicetree declares this chip, so the app can use it."
+                  >
+                    in devicetree
                   </span>
                 ) : (
-                  <span className="text-[10px] text-muted-foreground" title="Answers on the bus, but no guest driver binds here">
-                    bus only
+                  <span
+                    className="whitespace-nowrap text-[10px] text-muted-foreground"
+                    title="This chip answers on the bus, but the devicetree does not declare it. The app ignores it."
+                  >
+                    not in devicetree
                   </span>
                 )}
               </button>
               <button
                 aria-label={`Detach ${chip.name}`}
-                title="Detach — the guest driver will start to NAK"
+                title="Detach this chip. The guest driver's transfers will start to NAK."
                 onClick={() => {
                   detachUserI2c(...detachAddresses(chip, chips))
                 }}
@@ -254,11 +260,11 @@ function AttachRow({ chips }: { chips: number[] }) {
         <p className="text-[10px] text-muted-foreground">
           {secondary
             ? hasDriver(parsed)
-              ? 'Places both endpoints; the guest driver binds at the LCD address.'
-              : 'Places both endpoints (bus only — no guest driver at the LCD address).'
+              ? 'Places both endpoints. The devicetree declares the LCD address, so the app can use it.'
+              : 'Places both endpoints. The devicetree declares nothing at the LCD address, so the app will ignore it.'
             : hasDriver(parsed)
-              ? 'The devicetree binds a driver here.'
-              : 'Bus only — no guest driver binds.'}
+              ? 'The devicetree declares a chip here. The app can use it.'
+              : 'The devicetree declares nothing here. The app will ignore this chip.'}
         </p>
       ) : (
         <p className="text-[10px] text-destructive">Enter an address between 0x03 and 0x77.</p>

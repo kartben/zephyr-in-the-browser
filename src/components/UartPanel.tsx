@@ -41,16 +41,16 @@ export function UartBody({ busKey }: { busKey: string }) {
                 {device.presence === 'interactive' ? (
                   <span
                     className="text-[10px] text-emerald-400"
-                    title="The guest has a driver for this UART child"
+                    title="This device is live on the page. Open its row in the dock to use it."
                   >
-                    driver
+                    live
                   </span>
                 ) : (
                   <span
-                    className="text-[10px] text-muted-foreground"
-                    title="Declared on the UART, but nothing answers yet"
+                    className="whitespace-nowrap text-[10px] text-muted-foreground"
+                    title="The devicetree declares this device, but the page has no controls for it."
                   >
-                    bus only
+                    listed only
                   </span>
                 )}
               </button>
