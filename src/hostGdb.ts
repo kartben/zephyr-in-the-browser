@@ -41,6 +41,7 @@ import {
 } from '@/debug/kernel/objectCores'
 import { buildStackRegions, type StackRegion } from '@/debug/elfStacks'
 import { buildWaitObjects, type WaitObject } from '@/debug/elfWaitObjects'
+import { readElfDeviceNames, type ElfDeviceNames } from '@/debug/elfDevices'
 import {
   buildSymbolIndex,
   formatSymbol,
@@ -147,6 +148,7 @@ let symbolIndex: SymbolIndex | null = null
 let formalIndex: FormalIndex | null = null
 let stackRegions: StackRegion[] = []
 let waitObjects: WaitObject[] = []
+let deviceNames: ElfDeviceNames | null = null
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
 /** Numeric PC/SP/FP/LR from the last `g` read — input to the unwinder. */
@@ -243,6 +245,17 @@ export function setStopFilter(fn: ((pc: string) => boolean) | null) {
 /** ELF wait-queue objects (msgq/sem/…) for resolving CTF object ids to names. */
 export function getWaitObjects(): WaitObject[] {
   return waitObjects
+}
+
+/**
+ * `struct device *` → name, for the pointers the PM device events carry.
+ *
+ * Read straight out of the image, so unlike everything else here it needs no gdb
+ * session at all — `name` is the first member of `struct device` and both it and
+ * the string live in .rodata. See debug/elfDevices.ts.
+ */
+export function getDeviceNames(): ElfDeviceNames | null {
+  return deviceNames
 }
 
 export function sessionActive(): boolean {
@@ -463,6 +476,7 @@ export function setKernelImage(elf: Uint8Array | null) {
   formalIndex = elf ? buildFormalIndex(elf) : null
   stackRegions = elf ? buildStackRegions(elf) : []
   waitObjects = elf ? buildWaitObjects(elf) : []
+  deviceNames = elf ? readElfDeviceNames(elf) : null
   if (state.available || state.attached) {
     publish({
       threadInfo: threadInfo !== null,
