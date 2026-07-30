@@ -26,6 +26,7 @@ import {
   clear as clearDeviceTree,
   clearStashedDts,
   get as getDeviceTree,
+  markAbsent as markDeviceTreeAbsent,
   setUserDts,
   stashUserDts,
   subscribe as subscribeDeviceTree,
@@ -279,7 +280,7 @@ export default function App() {
           return
         }
         if (dts) setUserDts(dts.name, dts.text)
-        else await clearDeviceTree()
+        else await markDeviceTreeAbsent()
         setGuestImage(image)
         setNonce((n) => n + 1)
       } catch (err) {

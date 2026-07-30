@@ -8,7 +8,12 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { deriveDeviceInventory, type Availability, type DeviceInventory } from '@/deviceTopology'
-import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import {
+  get as getDeviceTree,
+  getPhase as getDeviceTreePhase,
+  subscribe as subscribeDeviceTree,
+  type DeviceTreePhase,
+} from '@/devicetree'
 import * as hostAudio from '@/hostAudio'
 import * as hostDisplay from '@/hostDisplay'
 import * as hostDisk from '@/hostDisk'
@@ -46,12 +51,14 @@ function deriveShared(
   spiChips: readonly SpiChip[],
   avail: Availability,
   boardId: string,
+  phase: DeviceTreePhase,
 ): DeviceInventory {
   const key = [
     tree,
     chips,
     spiChips,
     boardId,
+    phase,
     avail.gnss,
     avail.bluetooth,
     avail.gpio,
@@ -66,13 +73,18 @@ function deriveShared(
   if (cache && cache.key.length === key.length && cache.key.every((v, i) => v === key[i])) {
     return cache.value
   }
-  const value = deriveDeviceInventory(tree, chips, spiChips, avail, boardId)
+  const value = deriveDeviceInventory(tree, chips, spiChips, avail, boardId, phase)
   cache = { key, value }
   return value
 }
 
 export function useDeviceTree(boardId: string): DeviceInventory {
   const tree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
+  const phase = useSyncExternalStore(
+    subscribeDeviceTree,
+    getDeviceTreePhase,
+    (): DeviceTreePhase => 'pending',
+  )
   const chips = useSyncExternalStore(
     i2cModel.subscribe,
     i2cModel.chips,
@@ -133,8 +145,25 @@ export function useDeviceTree(boardId: string): DeviceInventory {
 
   const inventory = useMemo(() => {
     const avail: Availability = { gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input, disk }
-    return deriveShared(tree, chips, spiChips, avail, boardId)
-  }, [tree, chips, spiChips, gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input, disk, boardId])
+    return deriveShared(tree, chips, spiChips, avail, boardId, phase)
+  }, [
+    tree,
+    chips,
+    spiChips,
+    gnss,
+    bluetooth,
+    gpio,
+    audio,
+    mic,
+    net,
+    i2c,
+    spi,
+    display,
+    input,
+    disk,
+    boardId,
+    phase,
+  ])
 
   // Hand the inventory to dockReveal so a caller outside React — a tour step
   // naming a panel, say — can turn a PanelKind into the row that represents it.

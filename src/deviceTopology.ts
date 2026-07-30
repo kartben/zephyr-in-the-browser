@@ -167,7 +167,12 @@ export interface DeviceNode {
 
 export interface DeviceInventory {
   nodes: DeviceNode[]
-  source: 'devicetree' | 'fallback'
+  /**
+   * - `devicetree` — derived from the running sample/user `.dts`
+   * - `fallback` — confirmed no tree; static board inventory
+   * - `pending` — tree still expected (initial load / fetch in flight); empty
+   */
+  source: 'devicetree' | 'fallback' | 'pending'
   /** Root `model` string, shown on the ⌗ view's root row. */
   rootName?: string
   /** The .dts file name, when a tree is loaded. */
@@ -1446,6 +1451,11 @@ function deriveFallback(
 /**
  * The inventory: what the dock shows, before any view is chosen. Pure — the
  * caller (hooks/useDeviceTree) supplies the tree, the chips and availability.
+ *
+ * `phase` comes from the devicetree store: while a sample `.dts` is still
+ * expected (`pending`), return an empty inventory rather than the packed
+ * static fallback — otherwise the dock flashes every board peripheral and
+ * then shrinks to the sample's enabled nodes when the fetch lands.
  */
 export function deriveDeviceInventory(
   tree: Pick<DeviceTreeState, 'name' | 'doc' | 'insights'> | null,
@@ -1453,6 +1463,7 @@ export function deriveDeviceInventory(
   spiChips: readonly SpiChip[],
   avail: Availability,
   boardId: string,
+  phase: 'pending' | 'ready' | 'absent' = 'absent',
 ): DeviceInventory {
   if (tree?.doc && tree.insights) {
     return {
@@ -1461,6 +1472,9 @@ export function deriveDeviceInventory(
       rootName: tree.insights.model,
       treeName: tree.name,
     }
+  }
+  if (phase === 'pending') {
+    return { nodes: [], source: 'pending' }
   }
   return {
     nodes: deriveFallback(boardId, chips, spiChips, avail),

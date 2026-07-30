@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clear, setUserDts } from '@/devicetree'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clear, markAbsent, setUserDts } from '@/devicetree'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import a53Sct2024 from '@/dts/fixtures/qemu_cortex_a53_sct2024.dts?raw'
@@ -87,6 +87,13 @@ afterEach(async () => {
   syncManagedChips()
 })
 
+beforeEach(async () => {
+  // clear() leaves the store pending (empty bus). These tests exercise the
+  // confirmed-absent fallback tables, so mark that before each case.
+  await markAbsent()
+  syncManagedChips()
+})
+
 const addresses = () => i2cModel.chips().map((c) => c.address).sort((a, b) => a - b)
 
 describe('syncManagedChips', () => {
@@ -100,6 +107,13 @@ describe('syncManagedChips', () => {
     expect(i2cModel.chips()).not.toContain(ina219)
     expect(i2cModel.chips()).not.toContain(isl29035)
     expect(i2cModel.chips()).not.toContain(pcf8523)
+  })
+
+  it('leaves the bus empty while a sample tree is still expected', async () => {
+    await clear()
+    syncManagedChips()
+    expect(addresses()).toEqual([])
+    expect(spiModel.chips()).toEqual([])
   })
 
   it('attaches every shell extra when the shell tree arrives', () => {
@@ -166,7 +180,7 @@ describe('syncManagedChips', () => {
     setUserDts('blinky.dts', a53Blinky)
     expect(i2cModel.chips()).not.toContain(eeprom)
 
-    await clear()
+    await markAbsent()
     syncManagedChips()
     expect(i2cModel.chips()).toContain(eeprom)
     expect(eeprom.memory[0]).toBe(0xab)
@@ -227,7 +241,7 @@ describe('syncManagedChips', () => {
     setUserDts('sct2024.dts', a53Sct2024)
     expect(spiModel.chips()).toEqual([sct2024])
 
-    await clear()
+    await markAbsent()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
@@ -236,7 +250,7 @@ describe('syncManagedChips', () => {
     setUserDts('ws2812.dts', a53Ws2812)
     expect(spiModel.chips()).toEqual([ws2812])
 
-    await clear()
+    await markAbsent()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
@@ -245,7 +259,7 @@ describe('syncManagedChips', () => {
     setUserDts('pt6314.dts', a53Pt6314)
     expect(spiModel.chips()).toEqual([pt6314])
 
-    await clear()
+    await markAbsent()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })
@@ -254,7 +268,7 @@ describe('syncManagedChips', () => {
     setUserDts('tmc50xx.dts', a53Tmc50xx)
     expect(spiModel.chips()).toEqual([tmc50xx])
 
-    await clear()
+    await markAbsent()
     syncManagedChips()
     expect(spiModel.chips()).toEqual([w25q])
   })

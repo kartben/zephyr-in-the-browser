@@ -16,6 +16,10 @@
  * text in the viewer, `insights: null` sends every consumer to its hardcoded
  * fallback. Nothing here is allowed to make a boot worse than the pre-DTS
  * behavior.
+ *
+ * **Phase** tracks whether a tree is still expected, so the device dock does
+ * not briefly paint the full static fallback while a sample `.dts` is in
+ * flight (or before the first load has been asked for).
  */
 
 import { computeInsights, parseDts } from '@/dts'
@@ -36,7 +40,19 @@ export interface DeviceTreeState {
   insights: DtsInsights | null
 }
 
+/**
+ * Whether a usable tree is known, still expected, or confirmed missing.
+ *
+ * - `pending` — initial state, cleared between samples, or a fetch in flight.
+ *   The dock stays empty; managed chips stay off the bus.
+ * - `ready` — a sample or user tree is installed.
+ * - `absent` — a fetch missed, or the user skipped the DTS prompt. Consumers
+ *   may use their static fallback tables.
+ */
+export type DeviceTreePhase = 'pending' | 'ready' | 'absent'
+
 let current: DeviceTreeState | null = null
+let phase: DeviceTreePhase = 'pending'
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -51,6 +67,11 @@ export function subscribe(fn: () => void): () => void {
 /** The devicetree in effect, or null when none is known. */
 export function get(): DeviceTreeState | null {
   return current
+}
+
+/** Whether a tree is ready, still expected, or confirmed missing. */
+export function getPhase(): DeviceTreePhase {
+  return phase
 }
 
 function build(source: 'sample' | 'user', name: string, text: string): DeviceTreeState {
@@ -69,6 +90,7 @@ function build(source: 'sample' | 'user', name: string, text: string): DeviceTre
 export function setUserDts(name: string, text: string) {
   fetchEpoch++ // a stale sample fetch must not clobber this
   current = build('user', name, text)
+  phase = 'ready'
   notify()
   // Persist so Reload keeps the tree with the custom ELF (same contract as
   // guestImage.set). Sample trees are never written here.
@@ -77,11 +99,31 @@ export function setUserDts(name: string, text: string) {
   })
 }
 
-/** Forget the devicetree — e.g. when the guest changes under it. */
+/**
+ * Forget the devicetree — e.g. when the guest changes under it. Leaves the
+ * store in `pending` so the dock does not flash the full fallback while the
+ * next sample's `.dts` is fetched. Call {@link markAbsent} when nothing more
+ * is expected (user skipped the DTS prompt).
+ */
 export async function clear(): Promise<void> {
   fetchEpoch++ // ...nor resurrect what was just cleared
-  const had = current !== null
+  const had = current !== null || phase !== 'pending'
   current = null
+  phase = 'pending'
+  if (had) notify()
+  await clearStashedDts()
+}
+
+/**
+ * Confirm that no devicetree is coming — panels and managed chips may use
+ * their static fallback tables. Used when the user boots an ELF without a
+ * `.dts`. Sample fetch misses set `absent` inside {@link loadSampleDts}.
+ */
+export async function markAbsent(): Promise<void> {
+  fetchEpoch++
+  const had = current !== null || phase !== 'absent'
+  current = null
+  phase = 'absent'
   if (had) notify()
   await clearStashedDts()
 }
@@ -129,6 +171,10 @@ let fetchEpoch = 0
  * throws; an absent or malformed asset clears the store instead, which is the
  * pre-DTS behavior.
  *
+ * Marks the store `pending` (and drops any previous tree) as soon as the fetch
+ * starts, so the device dock does not paint the full static fallback for a
+ * beat and then shrink to the sample's enabled nodes.
+ *
  * Only the newest *state* wins: every mutation of the store — a newer sample
  * fetch, a user devicetree, a clear — bumps the epoch, so a fetch that was
  * still in flight when any of those happened (a sample's .dts queued behind
@@ -137,9 +183,21 @@ let fetchEpoch = 0
  */
 export async function loadSampleDts(assetUrl: string, name: string): Promise<void> {
   const epoch = ++fetchEpoch
+  // Drop the previous tree immediately so a sample switch cannot keep showing
+  // the old inventory (or the packed fallback) while this fetch is in flight.
+  const changed = current !== null || phase !== 'pending'
+  current = null
+  phase = 'pending'
+  if (changed) notify()
   const text = await fetchDtsText(assetUrl)
   if (epoch !== fetchEpoch) return
-  current = text === null ? null : build('sample', name, text)
+  if (text === null) {
+    current = null
+    phase = 'absent'
+  } else {
+    current = build('sample', name, text)
+    phase = 'ready'
+  }
   notify()
 }
 
@@ -171,5 +229,6 @@ export async function claimStashedDts(): Promise<void> {
   if (!record) return
   fetchEpoch++ // a claimed handoff outranks any in-flight sample fetch
   current = build('user', record.name, record.text)
+  phase = 'ready'
   notify()
 }
