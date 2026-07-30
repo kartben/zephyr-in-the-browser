@@ -15,6 +15,7 @@ import {
   type ThreadState,
 } from './types'
 import { decodeFields, type EventDef } from './metadata'
+import { CpuPowerTracker, emptyCpuPower, type CpuPowerTimelines } from './cpuPower'
 import {
   applyNetAddressWidth,
   hasNetAddressField,
@@ -49,6 +50,8 @@ export interface Trace {
   isrOpenStart: number | null
   states: Map<number, StateSeg[]>
   stateStarts: Map<number, number[]>
+  /** CPU power states, empty unless the guest has CONFIG_PM. See cpuPower.ts. */
+  cpuPower: CpuPowerTimelines
   t0: number
   t1: number
 }
@@ -96,6 +99,7 @@ function emptyTrace(): Trace {
     isrOpenStart: null,
     states: new Map(),
     stateStarts: new Map(),
+    cpuPower: emptyCpuPower(),
     t0: 0,
     t1: 0,
   }
@@ -120,6 +124,7 @@ export class TraceReader {
   private stHint = new Map<number, [ThreadState, string]>()
   private running: number | null = null
   private provisional: number[] = []
+  private pm = new CpuPowerTracker(this.tr.cpuPower)
 
   constructor(defs: Map<number, EventDef>, hasTs = true) {
     this.defs = defs
@@ -298,6 +303,8 @@ export class TraceReader {
       }
     }
 
+    this.pm.event(ts, eid, fields)
+
     this.stateMachine(ts, name, fields, tid)
   }
 
@@ -365,8 +372,10 @@ export class TraceReader {
     merged.set(chunk, this.buf.length)
     this.buf = merged
     this.dropProvisional()
+    this.pm.unseal()
     const neu = this.decodeBuf()
     this.addProvisional()
+    this.pm.seal(this.tr.t1)
     return neu
   }
 }
