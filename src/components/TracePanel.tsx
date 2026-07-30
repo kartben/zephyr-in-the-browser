@@ -23,6 +23,7 @@ import {
   type WheelEventHandler,
 } from 'react'
 import {
+  BatteryLow,
   BoxSelect,
   Crosshair,
   Maximize2,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react'
 import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
+import { PowerView, POWER_LABEL_W } from '@/components/PowerView'
 import {
   Select,
   SelectContent,
@@ -42,13 +44,21 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import {
+  PM_NOTCH_COLOR,
+  PM_RAMP,
   STATE_COLOR,
   STATE_LABEL,
   contextSwitchesIn,
+  cpuPowerLanes,
+  decisionsInView,
   depthAt,
+  forEachPmInView,
   fmtTime,
   isrActiveAt,
   isPutOp,
+  pmFill,
+  pmStateAtOrOpen,
+  pmWindowStats,
   msgqOpColor,
   queueActorKey,
   queueActorLabel,
@@ -66,11 +76,19 @@ import {
   visibleLanes,
   windowStats,
   forEachStateInView,
+  type CpuPowerTimelines,
   type QueueFlowEvent,
   type QueueSeries,
   type ThreadState,
   type Trace,
 } from '@/ctf'
+import {
+  dtRankCount,
+  dtRankOf,
+  findDtState,
+  pmTupleLabel,
+  type PowerStatesInfo,
+} from '@/dts'
 import {
   applyYZoomTransform,
   clampPlotX,
@@ -88,8 +106,11 @@ import {
   windowTimeStep,
   xAt,
   yZoomFromScreenSelection,
+  type TraceTimeLayout,
   type YZoom,
 } from '@/components/traceChart'
+import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import { readPowerStates } from '@/dts'
 import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
@@ -122,8 +143,8 @@ const SECTION_GAP = 4
 
 type LaneSize = 's' | 'm' | 'l'
 
-/** Known Timeline lane groups (threads + data-passing queues). */
-type TimelineSectionId = 'threads' | 'msgq'
+/** Known Timeline lane groups (cpu power + threads + data-passing queues). */
+type TimelineSectionId = 'cpu' | 'threads' | 'msgq'
 
 type TimelineSection = {
   id: TimelineSectionId
@@ -143,23 +164,38 @@ const LANE_SIZES: Record<LaneSize, { thread: number; label: string }> = {
   l: { thread: 40, label: 'Tall' },
 }
 
-/** Queue swim lanes stay ~1.5× thread height at every size. */
+/**
+ * Queue swim lanes stay ~1.5× thread height at every size.
+ *
+ * CPU rows go the other way and are clamped to 14..24. Queue lanes scale up
+ * because they draw a depth histogram that gains from height; a CPU row draws a
+ * two-level bar that gains nothing above ~24px, and at Tall a 40px band would
+ * dominate a section that is meant to be read at a glance and then ignored.
+ */
 function laneMetricsFor(size: LaneSize): LaneMetrics {
   const laneH = LANE_SIZES[size].thread
-  return { laneH, msgqLaneH: Math.round(laneH * 1.5) }
+  return {
+    laneH,
+    msgqLaneH: Math.round(laneH * 1.5),
+    cpuLaneH: Math.min(24, Math.max(14, laneH)),
+  }
 }
 
-type TraceTab = 'schedule' | 'queues' | 'net'
+type TraceTab = 'schedule' | 'queues' | 'net' | 'power'
 
 type MsgqSwimLane = { id: number; label: string; kind: string; series: QueueSeries }
 
-type LaneMetrics = { laneH: number; msgqLaneH: number }
+type LaneMetrics = { laneH: number; msgqLaneH: number; cpuLaneH: number }
 
 type TimelineGeom = {
   lanes: number[]
   hasIsr: boolean
   /** All painted groups in top→bottom order (headers + lanes). */
   sections: TimelineSection[]
+  /** CPU power rows, one per cpu id seen. Empty when the guest has no PM. */
+  cpus: number[]
+  showCpu: boolean
+  cpuTop: number
   lanesTop: number
   threadBlockRows: number
   threadsBottom: number
@@ -171,6 +207,7 @@ type TimelineGeom = {
   contentBottom: number
   laneH: number
   msgqLaneH: number
+  cpuLaneH: number
 }
 
 /** Ellipsize `text` so it fits in `maxW` with the current canvas font. */
@@ -232,18 +269,65 @@ function msgqSwimLanes(flow: QueueFlowEvent[], queues: QueueSeries[]): MsgqSwimL
     .map((q) => ({ id: q.id, label: queueLabel(q), kind: q.kind, series: q }))
 }
 
-function timelineGeom(
-  tr: Trace,
-  showMsgq: boolean,
-  queueCount: number,
-  metrics: LaneMetrics,
-): TimelineGeom {
+/**
+ * An options object rather than positional arguments because the counts are the
+ * transposable part: `queueCount` and any sibling count are both plain numbers,
+ * and this is called from five places.
+ */
+type TimelineGeomOpts = {
+  tr: Trace
+  showMsgq: boolean
+  queueCount: number
+  metrics: LaneMetrics
+  /** Off hides the CPU section even when the guest has PM events. */
+  showCpu?: boolean
+}
+
+function timelineGeom({
+  tr,
+  showMsgq,
+  queueCount,
+  metrics,
+  showCpu = true,
+}: TimelineGeomOpts): TimelineGeom {
   const lanes = visibleLanes(tr)
   const hasIsr = tr.isrSpans.length > 0 || tr.isrOpenStart != null
   const showQueues = showMsgq && queueCount > 0
   const threadBlockRows = lanes.length + (hasIsr ? 1 : 0)
 
-  const threadsHeaderTop = AXIS_H
+  /*
+   * CPU power sits above THREADS. Top-to-bottom then reads substrate → actors →
+   * objects, but the load-bearing reason is positional stability: visibleLanes()
+   * grows as threads are created during boot, so a section *below* the threads
+   * would slide downward while someone is watching it in a live view that
+   * repaints every 500 ms. Above them it is pinned at a constant y.
+   *
+   * Conditional on data exactly like showQueues and hasIsr below, so a guest
+   * without CONFIG_PM gets a byte-identical panel — no header, no lane, no shift.
+   */
+  const cpus = showCpu ? cpuPowerLanes(tr.cpuPower) : []
+  const showCpuSection = cpus.length > 0
+  const sections: TimelineSection[] = []
+
+  let cursor = AXIS_H
+  let cpuTop = cursor
+  if (showCpuSection) {
+    const cpuHeaderTop = cursor
+    cpuTop = cpuHeaderTop + SECTION_HEADER_H
+    const cpuBottom = cpuTop + cpus.length * metrics.cpuLaneH
+    sections.push({
+      id: 'cpu',
+      title: 'CPU',
+      headerTop: cpuHeaderTop,
+      lanesTop: cpuTop,
+      laneH: metrics.cpuLaneH,
+      rowCount: cpus.length,
+      bottom: cpuBottom,
+    })
+    cursor = cpuBottom + SECTION_GAP
+  }
+
+  const threadsHeaderTop = cursor
   const lanesTop = threadsHeaderTop + SECTION_HEADER_H
   const threadsBottom = lanesTop + threadBlockRows * metrics.laneH
   const threads: TimelineSection = {
@@ -256,7 +340,7 @@ function timelineGeom(
     bottom: threadsBottom,
   }
 
-  const sections: TimelineSection[] = [threads]
+  sections.push(threads)
   let queueHeaderTop = threadsBottom
   let queueTop = threadsBottom
   let queueBlockH = 0
@@ -283,6 +367,9 @@ function timelineGeom(
     lanes,
     hasIsr,
     sections,
+    cpus,
+    showCpu: showCpuSection,
+    cpuTop,
     lanesTop,
     threadBlockRows,
     threadsBottom,
@@ -293,7 +380,109 @@ function timelineGeom(
     contentBottom,
     laneH: metrics.laneH,
     msgqLaneH: metrics.msgqLaneH,
+    cpuLaneH: metrics.cpuLaneH,
   }
+}
+
+/** What the CPU band needs to draw and label itself. */
+type CpuPaint = {
+  timelines: CpuPowerTimelines
+  /** Devicetree ladder, when the build declares one. Supplies names and rank. */
+  dt: PowerStatesInfo | null
+}
+
+/**
+ * One band per CPU: fill is the state, a 2px baseline notch strip marks the
+ * instants the policy looked and declined to sleep.
+ *
+ * ACTIVE draws nothing at all — not grey, not a hairline. It is a gap, and the
+ * lane trough showing through *is* the encoding, which is what keeps a row quiet
+ * on a guest that is mostly awake.
+ */
+function paintCpuPower(
+  ctx: CanvasRenderingContext2D,
+  cpu: CpuPaint,
+  geom: TimelineGeom,
+  layout: TraceTimeLayout,
+  cssW: number,
+  view0: number,
+  view1: number,
+  plotW: number,
+  /**
+   * Where the gutter reads its "state right now" from. The caller clamps this to
+   * the last event: every transition emits one, so the state after the final
+   * event is *known* — whatever was last entered — and a guest that parks in
+   * standby forever simply stops producing events. Probing past it would find no
+   * segment and report the CPU awake, the one thing it certainly is not.
+   */
+  probeTs: number,
+) {
+  const { cpuLaneH, cpuTop, cpus } = geom
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
+  ctx.fillRect(LABEL_W, cpuTop, plotW, cpus.length * cpuLaneH)
+
+  cpus.forEach((id, row) => {
+    const y = cpuTop + row * cpuLaneH
+    const fillTop = y + 2
+    const fillH = Math.max(4, cpuLaneH - 7)
+    const notchY = y + cpuLaneH - 4
+    const rankCount = cpu.dt ? dtRankCount(cpu.dt, id) : 0
+
+    // Exact ns→x, not the column raster: the transition is the thing worth being
+    // accurate about, and one band does not need the raster's speed.
+    forEachPmInView(cpu.timelines, id, view0, view1, (start, end, state, sub) => {
+      const rank = (cpu.dt && dtRankOf(cpu.dt, id, state, sub)) ?? state
+      const { fill, full } = pmFill(rank, rankCount, state)
+      const x0 = xAt(layout, cssW, start)
+      const x1 = xAt(layout, cssW, end)
+      const w = Math.max(1, x1 - x0)
+      const h = full ? fillH : Math.max(3, Math.round(fillH * 0.6))
+      ctx.fillStyle = fill
+      ctx.fillRect(x0, fillTop + (fillH - h), w, h)
+    })
+
+    // Policy declines, pixel-thinned exactly like the msgq marks.
+    ctx.fillStyle = PM_NOTCH_COLOR
+    let lastNotchX = -Infinity
+    for (const decision of decisionsInView(cpu.timelines, view0, view1)) {
+      if (!decision.declined || decision.cpu !== id) continue
+      const x = xAt(layout, cssW, decision.ts)
+      if (x - lastNotchX < MSGQ_MARK_MIN_GAP_PX) continue
+      lastNotchX = x
+      ctx.fillRect(x, notchY, 2, 2)
+    }
+
+    // Gutter: name left, state at the playhead right — the same two-part idiom
+    // the queue gutter uses for live depth.
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'left'
+    const now = pmStateAtOrOpen(cpu.timelines, id, probeTs)
+    const nowLabel = now
+      ? pmTupleLabel(
+          cpu.dt ? findDtState(cpu.dt, id, now.state, now.substateId) : null,
+          now.state,
+          now.substateId,
+        )
+      : '—'
+    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+    const nowW = ctx.measureText(nowLabel).width
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillText(fitLabel(ctx, `cpu${id}`, LABEL_W - PAD * 2 - nowW - 6), PAD, y + cpuLaneH / 2)
+
+    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.textAlign = 'right'
+    if (now) {
+      const rank = (cpu.dt && dtRankOf(cpu.dt, id, now.state, now.substateId)) ?? now.state
+      ctx.fillStyle = pmFill(rank, rankCount, now.state).fill
+    } else {
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.55)'
+    }
+    ctx.fillText(nowLabel, LABEL_W - PAD, y + cpuLaneH / 2)
+    ctx.textAlign = 'left'
+  })
 }
 
 /** Small uppercase group title above a lane block. */
@@ -452,6 +641,8 @@ function resolveMsgqHover(
   view0: number,
   view1: number,
   showMsgq: boolean,
+  /** Must match what paint() used, or every row is offset by the CPU section. */
+  showCpu: boolean,
   queueLanes: MsgqSwimLane[],
   msgqEvents: QueueFlowEvent[],
   metrics: LaneMetrics,
@@ -459,7 +650,7 @@ function resolveMsgqHover(
   maxDeltaNs: number,
 ): MsgqHover | null {
   if (!playhead || !showMsgq) return null
-  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics, showCpu })
   const overQueue =
     geom.showQueues &&
     playhead.y >= geom.queueTop &&
@@ -484,7 +675,7 @@ function resolveMsgqHover(
   return { queueId: msgq.queueId, eventIndex: msgq.index, overQueueLane: false }
 }
 
-const TRACE_TABS = ['schedule', 'queues', 'net'] as const satisfies readonly TraceTab[]
+const TRACE_TABS = ['schedule', 'queues', 'net', 'power'] as const satisfies readonly TraceTab[]
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -528,28 +719,52 @@ function zoomAround(
   return clampView(tr, t0, t0 + next)
 }
 
-function paint(
-  canvas: HTMLCanvasElement,
-  tr: Trace,
-  view0: number,
-  view1: number,
-  follow: boolean,
-  selectedLane: number | null,
-  playheadTs: number | null,
-  showMsgq: boolean,
-  msgqEvents: QueueFlowEvent[],
-  queueLanes: MsgqSwimLane[],
-  metrics: LaneMetrics,
-  hover: MsgqHover | null,
-  /** When set, playhead snaps to this raw CTF ns (tip event). */
-  snapTs: number | null,
-  /** Sticky click-selected msgq edge (event index). */
-  selectedEdge: number | null,
-  yZoom: YZoom | null,
-) {
+/**
+ * Everything one Timeline repaint needs.
+ *
+ * An options object, and grouped per feature, because this grew to fifteen
+ * positional parameters across two call sites — one of which mirrored them
+ * through eight refs, and had already drifted (it read `follow` and
+ * `selectedLane` from its own dependency array while taking everything else from
+ * refs). One object assigned per render means there is only one thing to keep in
+ * sync, and a new feature arrives as one key rather than two more positions.
+ */
+type TimelinePaint = {
+  tr: Trace
+  view0: number
+  view1: number
+  follow: boolean
+  selectedLane: number | null
+  playheadTs: number | null
+  metrics: LaneMetrics
+  yZoom: YZoom | null
+  msgq: {
+    show: boolean
+    events: QueueFlowEvent[]
+    lanes: MsgqSwimLane[]
+    hover: MsgqHover | null
+    /** When set, playhead snaps to this raw CTF ns (tip event). */
+    snapTs: number | null
+    /** Sticky click-selected msgq edge (event index). */
+    selectedEdge: number | null
+  }
+  /** Absent when the toggle is off; the section then does not exist at all. */
+  cpu?: CpuPaint
+}
+
+function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
+  const { tr, view0, view1, follow, selectedLane, playheadTs, metrics, yZoom } = p
+  const { show: showMsgq, events: msgqEvents, lanes: queueLanes, hover } = p.msgq
+  const { snapTs, selectedEdge } = p.msgq
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
-  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  const geom = timelineGeom({
+    tr,
+    showMsgq,
+    queueCount: queueLanes.length,
+    metrics,
+    showCpu: p.cpu != null,
+  })
   const { lanes, hasIsr, lanesTop, laneH, msgqLaneH, showQueues, queueTop, contentBottom } = geom
   const cssH = Math.max(120, contentBottom + 8)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
@@ -588,6 +803,12 @@ function paint(
 
   for (const section of geom.sections) {
     paintSectionHeader(ctx, section.title, section.headerTop, cssW)
+  }
+
+  // --- CPU power band ----------------------------------------------------
+  if (p.cpu && geom.showCpu) {
+    const cpuProbeTs = Math.min(depthProbeTs, tr.t1)
+    paintCpuPower(ctx, p.cpu, geom, layout, cssW, view0, view1, plotW, cpuProbeTs)
   }
 
   // --- Thread lanes ------------------------------------------------------
@@ -855,12 +1076,14 @@ function hitTestMsgqEdge(
   x: number,
   y: number,
   showMsgq: boolean,
+  /** Must match what paint() used, or every row is offset by the CPU section. */
+  showCpu: boolean,
   msgqEvents: QueueFlowEvent[],
   queueLanes: MsgqSwimLane[],
   metrics: LaneMetrics,
 ): number | null {
   if (!showMsgq || queueLanes.length === 0) return null
-  const geom = timelineGeom(tr, showMsgq, queueLanes.length, metrics)
+  const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics, showCpu })
   if (!geom.showQueues) return null
   const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
@@ -1046,14 +1269,16 @@ function TracePanelBody({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const queuesSvgRef = useRef<SVGSVGElement>(null)
   const netCanvasRef = useRef<HTMLCanvasElement>(null)
+  const powerCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
-  const viewRef = useRef<{ t0: number; t1: number } | null>(null)
   /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
   const [selectedLane, setSelectedLane] = useState<number | null>(null)
   /** Line msgq put/get/put_front marks onto thread lanes. */
   const [showMsgq, setShowMsgq] = useState(true)
+  /** CPU suspend-state band. Self-gates on data, so the toggle only ever hides. */
+  const [showCpu, setShowCpu] = useState(true)
   const [laneSize, setLaneSize] = useState<LaneSize>('m')
   /** Sticky click-selected msgq edge (tr.events index). */
   const [selectedEdge, setSelectedEdge] = useState<number | null>(null)
@@ -1070,13 +1295,21 @@ function TracePanelBody({
   const [yZoomByTab, setYZoomByTab] = useState<Partial<Record<TraceTab, YZoom>>>({})
   const playheadRef = useRef(playhead)
   playheadRef.current = playhead
-  const showMsgqRef = useRef(showMsgq)
-  showMsgqRef.current = showMsgq
   const boxZoomModeRef = useRef(boxZoomMode)
   boxZoomModeRef.current = boxZoomMode
   const laneMetrics = useMemo(() => laneMetricsFor(laneSize), [laneSize])
-  const laneMetricsRef = useRef(laneMetrics)
-  laneMetricsRef.current = laneMetrics
+
+  /*
+   * The devicetree is what turns `state 3 substate 1` into `standby` and, more
+   * importantly, what ranks two states that share one pm_state value. Read
+   * straight from the store rather than through useDeviceTree, which derives the
+   * whole dock inventory this has no use for.
+   */
+  const dtsTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
+  const powerStates = useMemo(
+    () => (dtsTree?.doc ? readPowerStates(dtsTree.doc) : null),
+    [dtsTree],
+  )
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
@@ -1087,8 +1320,14 @@ function TracePanelBody({
   }, [tab])
   const followRef = useRef(follow)
   followRef.current = follow
-  viewRef.current = view
-  const gutterW = tab === 'queues' ? QUEUES_LABEL_W : tab === 'net' ? NET_LABEL_W : LABEL_W
+  const gutterW =
+    tab === 'queues'
+      ? QUEUES_LABEL_W
+      : tab === 'net'
+        ? NET_LABEL_W
+        : tab === 'power'
+          ? POWER_LABEL_W
+          : LABEL_W
   const yZoom = yZoomByTab[tab] ?? null
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
@@ -1109,6 +1348,9 @@ function TracePanelBody({
   )
 
   const tr = snap.trace
+  const hasPm = tr != null && cpuPowerLanes(tr.cpuPower).length > 0
+  const cpuPaint: CpuPaint | undefined =
+    tr && showCpu && hasPm ? { timelines: tr.cpuPower, dt: powerStates } : undefined
   const ipcMetadata = useMemo(() => ipcObjectMetadata(objectCores), [objectCores])
   const msgqEvents = useMemo(
     () => (tr ? queueFlowEvents(tr) : []),
@@ -1133,10 +1375,6 @@ function TracePanelBody({
     () => msgqSwimLanes(msgqEvents, queueSeries),
     [msgqEvents, queueSeries],
   )
-  const msgqEventsRef = useRef(msgqEvents)
-  msgqEventsRef.current = msgqEvents
-  const queueLanesRef = useRef(queueLanes)
-  queueLanesRef.current = queueLanes
 
   const msgqHover = useMemo(() => {
     if (!tr || !view || !playhead) return null
@@ -1153,24 +1391,19 @@ function TracePanelBody({
       view.t0,
       view.t1,
       showMsgq,
+      cpuPaint != null,
       queueLanes,
       msgqEvents,
       laneMetrics,
       maxDeltaNs,
     )
-  }, [playhead, tr, view, showMsgq, queueLanes, msgqEvents, laneMetrics, yZoom])
-  const msgqHoverRef = useRef(msgqHover)
-  msgqHoverRef.current = msgqHover
+  }, [playhead, tr, view, showMsgq, cpuPaint, queueLanes, msgqEvents, laneMetrics, yZoom])
   const snapTs = useMemo(() => {
     const idx = msgqHover?.eventIndex ?? selectedEdge
     if (idx == null) return null
     const event = msgqEvents.find((ev) => ev.index === idx)
     return event ? queueFlowEffectTs(event) : null
   }, [msgqHover, selectedEdge, msgqEvents])
-  const snapTsRef = useRef(snapTs)
-  snapTsRef.current = snapTs
-  const selectedEdgeRef = useRef(selectedEdge)
-  selectedEdgeRef.current = selectedEdge
 
   useEffect(() => {
     if (!showMsgq) setSelectedEdge(null)
@@ -1183,72 +1416,54 @@ function TracePanelBody({
     }
   }, [tr, follow, liveWindowNs, snap.revision])
 
+  /*
+   * The single source of truth for a repaint. Both callers below read this, so
+   * the ResizeObserver cannot drift from the render effect the way the old
+   * parallel argument lists did.
+   */
+  const paintArgs: TimelinePaint | null =
+    tr && view
+      ? {
+          tr,
+          view0: view.t0,
+          view1: view.t1,
+          follow,
+          selectedLane,
+          playheadTs: playhead?.ts ?? null,
+          metrics: laneMetrics,
+          yZoom,
+          msgq: {
+            show: showMsgq,
+            events: msgqEvents,
+            lanes: queueLanes,
+            hover: msgqHover,
+            snapTs,
+            selectedEdge,
+          },
+          cpu: cpuPaint,
+        }
+      : null
+  const paintArgsRef = useRef(paintArgs)
+  paintArgsRef.current = paintArgs
+
   useEffect(() => {
     if (tab !== 'schedule') return
     const canvas = canvasRef.current
-    if (!canvas || !tr || !view) return
-    paint(
-      canvas,
-      tr,
-      view.t0,
-      view.t1,
-      follow,
-      selectedLane,
-      playhead?.ts ?? null,
-      showMsgq,
-      msgqEvents,
-      queueLanes,
-      laneMetrics,
-      msgqHover,
-      snapTs,
-      selectedEdge,
-      yZoom,
-    )
-  }, [
-    tr,
-    view,
-    follow,
-    snap.revision,
-    selectedLane,
-    tab,
-    playhead,
-    showMsgq,
-    msgqEvents,
-    queueLanes,
-    laneMetrics,
-    msgqHover,
-    snapTs,
-    selectedEdge,
-    yZoom,
-  ])
+    if (!canvas || !paintArgs) return
+    paint(canvas, paintArgs)
+  }, [tab, paintArgs, snap.revision])
 
   useEffect(() => {
     if (tab !== 'schedule') return
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      if (!tr || !viewRef.current) return
-      paint(
-        canvas,
-        tr,
-        viewRef.current.t0,
-        viewRef.current.t1,
-        follow,
-        selectedLane,
-        playheadRef.current?.ts ?? null,
-        showMsgqRef.current,
-        msgqEventsRef.current,
-        queueLanesRef.current,
-        laneMetricsRef.current,
-        msgqHoverRef.current,
-        snapTsRef.current,
-        selectedEdgeRef.current,
-        yZoomRef.current,
-      )
+      const args = paintArgsRef.current
+      if (args) paint(canvas, args)
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [tr, follow, selectedLane, tab])
+  }, [tab])
 
   useEffect(() => {
     if (tab !== 'schedule') {
@@ -1315,6 +1530,7 @@ function TracePanelBody({
     setFollow(true)
   }, [view, setFollow])
 
+
   const panByFraction = useCallback(
     (frac: number) => {
       if (!tr || !view) return
@@ -1351,6 +1567,17 @@ function TracePanelBody({
     cpuBusy = Math.max(0, Math.min(1, (runTotal - idleRun) / stats.spanNs))
   }
   const secs = stats ? stats.spanNs / 1e9 : 0
+  /**
+   * Fraction of the visible window this CPU spent suspended. Null — and so
+   * omitted entirely — unless the guest reported power states, so the metrics
+   * line is unchanged for every build without CONFIG_PM. cpu0 only: a second
+   * fraction per CPU belongs in the Power tab, not on a one-line strip.
+   */
+  const sleptFraction =
+    tr && view && cpuPaint
+      ? pmWindowStats(tr.cpuPower, cpuPaint.timelines.segs.keys().next().value ?? 0, view.t0, view.t1)
+          .sleptFraction
+      : null
 
   const scheduleTip = (() => {
     if (!playhead || !tr || !view) return null
@@ -1394,6 +1621,70 @@ function TracePanelBody({
     const cssW = canvasRef.current?.clientWidth ?? 480
     const step = windowTimeStep(view.t0, view.t1, plotWidth(cssW, LABEL_W, PAD))
     const guest = formatGuestTime(tipTs, step)
+
+    /*
+     * CPU-section tip: keep it about the CPU, mirroring the queue-lane rule
+     * above. The devicetree supplies everything but the timestamps — the events
+     * themselves carry only three integers.
+     *
+     * Numbers, not grades: min-residency is a policy *input*, compared against
+     * predicted idle time, so a ✓/✗ verdict on achieved residency would be a
+     * confident judgement on an emulated clock. "early wake" is a fact; the
+     * reader draws the conclusion.
+     */
+    if (cpuPaint) {
+      const cssHC = canvasRef.current?.clientHeight ?? 120
+      const { plotTop, plotBottom } = plotBandForTab('schedule', cssHC)
+      const baseY = screenYToBase(playhead.y, plotTop, plotBottom, yZoom)
+      const geom = timelineGeom({
+        tr,
+        showMsgq,
+        queueCount: queueLanes.length,
+        metrics: laneMetrics,
+        showCpu: true,
+      })
+      const row = Math.floor((baseY - geom.cpuTop) / geom.cpuLaneH)
+      if (baseY >= geom.cpuTop && row >= 0 && row < geom.cpus.length) {
+        const id = geom.cpus[row]!
+        const lines = [`${guest} · cpu${id}`]
+        const held = pmStateAtOrOpen(cpuPaint.timelines, id, tipTs)
+        if (held) {
+          const dt = cpuPaint.dt
+            ? findDtState(cpuPaint.dt, id, held.state, held.substateId)
+            : null
+          lines.push(pmTupleLabel(dt, held.state, held.substateId))
+          // Still open: report elapsed-so-far rather than a residency it has not
+          // finished accruing, and never call that an early wake.
+          const heldNs = (held.end ?? tr.t1) - held.since
+          const min = dt?.minResidencyUs
+          const exit = dt?.exitLatencyUs
+          const bracket = [
+            min != null ? `min ${fmtTime(min * 1000)}` : null,
+            exit != null && exit > 0 ? `exit ${fmtTime(exit * 1000)}` : null,
+          ].filter(Boolean)
+          lines.push(
+            `${fmtTime(heldNs)}${bracket.length > 0 ? `  (${bracket.join(', ')})` : ''}`,
+          )
+          if (held.end != null && min != null && heldNs < min * 1000) {
+            lines.push('early wake')
+          }
+        } else {
+          lines.push('active')
+        }
+        const decision = decisionsInView(cpuPaint.timelines, view.t0, view.t1)
+          .filter((d) => d.cpu === id && d.ts <= tipTs)
+          .at(-1)
+        if (decision?.declined) {
+          lines.push(
+            decision.ticks != null
+              ? `policy declined · budget ${decision.ticks} ticks`
+              : 'policy declined',
+          )
+        }
+        return lines
+      }
+    }
+
     const tipRunningTid = threadRunningAt(tr, tipTs)
     const runLabel = isrActiveAt(tr, tipTs)
       ? '[ISR]'
@@ -1408,7 +1699,7 @@ function TracePanelBody({
       const cssH = canvasRef.current?.clientHeight ?? 120
       const { plotTop, plotBottom } = plotBandForTab('schedule', cssH)
       const baseY = screenYToBase(playhead.y, plotTop, plotBottom, yZoom)
-      const geom = timelineGeom(tr, showMsgq, queueLanes.length, laneMetrics)
+      const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics: laneMetrics, showCpu: cpuPaint != null })
       const row = Math.floor((baseY - geom.lanesTop) / geom.laneH)
       if (row >= 0 && row < geom.lanes.length) {
         const tid = geom.lanes[row]!
@@ -1613,6 +1904,7 @@ function TracePanelBody({
         x,
         y,
         showMsgq,
+        cpuPaint != null,
         msgqEvents,
         queueLanes,
         laneMetrics,
@@ -1626,7 +1918,7 @@ function TracePanelBody({
     }
     // Tap on a lane label selects it and opens Debug → Threads.
     if (x < LABEL_W && y >= AXIS_H) {
-      const geom = timelineGeom(tr, showMsgq, queueLanes.length, laneMetrics)
+      const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics: laneMetrics, showCpu: cpuPaint != null })
       const row = Math.floor((y - geom.lanesTop) / geom.laneH)
       if (row >= 0 && row < geom.lanes.length) selectLane(geom.lanes[row]!)
     }
@@ -1856,6 +2148,7 @@ function TracePanelBody({
             ['schedule', 'Timeline'],
             ['queues', 'Queues'],
             ['net', 'Networking'],
+            ['power', 'Power'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -1906,6 +2199,34 @@ function TracePanelBody({
             yZoom={yZoom}
           />
         </div>
+      ) : tab === 'power' && view ? (
+        hasPm ? (
+          <PowerView
+            tr={tr}
+            timelines={tr.cpuPower}
+            dt={powerStates}
+            deviceNames={hostGdb.getDeviceNames()}
+            view0={view.t0}
+            view1={view.t1}
+            eventCount={snap.revision}
+            canvasRef={powerCanvasRef}
+            canvasProps={canvasHandlers}
+            overlay={boxZoomOverlay}
+            boxZoomArmed={boxZoomArmed}
+            yZoom={yZoom}
+            toolbar={chartToolbar}
+          />
+        ) : (
+          /* Empty states name the missing CONFIG_*, per the house convention. */
+          <div className="px-2 py-6 text-center text-[11px] leading-relaxed text-muted-foreground">
+            No CPU power-state events in this trace.
+            <br />
+            Needs a guest built with <span className="font-mono text-foreground">CONFIG_PM=y</span>{' '}
+            and a <span className="font-mono text-foreground">power-states</span> node its cpu
+            references — try the <span className="text-foreground">Power states · traced</span>{' '}
+            sample.
+          </div>
+        )
       ) : (
         <>
           <div className="flex flex-col gap-1">
@@ -1926,6 +2247,25 @@ function TracePanelBody({
                 >
                   <Waypoints className="size-3.5" />
                 </button>
+                {/* Only offered when the guest has power states — a toggle for a
+                    section that cannot appear is itself the clutter. */}
+                {hasPm && (
+                  <button
+                    type="button"
+                    title="Show CPU power states"
+                    aria-label="Show CPU power states"
+                    aria-pressed={showCpu}
+                    onClick={() => setShowCpu((v) => !v)}
+                    className={cn(
+                      'rounded p-0.5 touch-manipulation',
+                      showCpu
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                    )}
+                  >
+                    <BatteryLow className="size-3.5" />
+                  </button>
+                )}
                 <Select value={laneSize} onValueChange={(v) => setLaneSize(v as LaneSize)}>
                   <SelectTrigger
                     className="h-6 w-[5.75rem] touch-manipulation border-0 bg-transparent px-1.5 text-[10px] shadow-none hover:bg-secondary"
@@ -2061,12 +2401,46 @@ function TracePanelBody({
                 </span>
               </>
             )}
+            {/*
+              One item, not seven. This line already carries nine on a wrapping
+              10px row; a six-way ordinal scale is not something a legend is good
+              at anyway, so the gradient shows the direction and the names live in
+              the tooltip and the Power tab.
+            */}
+            {cpuPaint && (
+              <>
+                <span className="text-border">|</span>
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className="inline-block h-2.5 w-6 rounded-sm"
+                    style={{
+                      background: `linear-gradient(to right, ${PM_RAMP[0]}, ${PM_RAMP[2]}, ${PM_RAMP[5]})`,
+                    }}
+                  />
+                  cpu sleep (deeper →)
+                </span>
+              </>
+            )}
           </div>
 
           {/* Metrics line — CPU busy + ctxsw over the visible window. */}
           {stats && (
             <div className="rounded border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
               <span className="text-foreground">CPU {(cpuBusy * 100).toFixed(0)}%</span>
+              {/*
+                `slept`, not a second `CPU` percentage. The two answer different
+                questions and are not complements — CPU% is the host-side busy
+                heuristic, this is guest-declared suspend time — so two adjacent
+                percentages that sum past 100 would read as a bug.
+              */}
+              {sleptFraction != null && (
+                <>
+                  {' · '}
+                  <span className="text-foreground">
+                    slept {(sleptFraction * 100).toFixed(0)}%
+                  </span>
+                </>
+              )}
               {' · '}
               <span>
                 ctxsw {switches}
