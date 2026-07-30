@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { emptyCpuPower } from '@/ctf'
 import type { QueueSeries, Trace } from '@/ctf'
 import {
   buildLiveQueueGraph,
@@ -34,6 +35,7 @@ function trace(): Trace {
     isrOpenStart: null,
     states: new Map(),
     stateStarts: new Map(),
+    cpuPower: emptyCpuPower(),
     t0: 0,
     t1: 300,
   }
