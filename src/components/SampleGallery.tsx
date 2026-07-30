@@ -417,8 +417,8 @@ function SampleGroupRow({
 }
 
 /**
- * Same sample, optional tracing build. Not a second sample; a toggle that
- * boots the CTF twin (opens Trace and Debug) or the plain build.
+ * Same sample, optional tracing build. A real on/off switch (not a chip):
+ * on boots the CTF twin and opens Trace and Debug.
  */
 function TracingToggle({
   on,
@@ -428,28 +428,43 @@ function TracingToggle({
   onPick: (withTracing: boolean) => void
 }) {
   return (
-    <button
-      type="button"
-      title={
-        on
-          ? 'Tracing on. Opens Trace and Debug. Click for the build without tracing.'
-          : 'Boot with tracing. Opens Trace and Debug.'
-      }
-      aria-pressed={on}
-      aria-label="Tracing"
-      onClick={(e) => {
-        e.stopPropagation()
-        onPick(!on)
-      }}
-      className={cn(
-        'rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none transition-colors',
-        on
-          ? 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-400'
-          : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
-      )}
+    <span
+      className="flex items-center gap-1.5"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
     >
-      Tracing
-    </button>
+      <span className="text-[10px] text-muted-foreground" aria-hidden>
+        Tracing
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label="Tracing"
+        title={
+          on
+            ? 'Tracing on. Opens Trace and Debug. Turn off for the build without tracing.'
+            : 'Turn on to boot with tracing. Opens Trace and Debug.'
+        }
+        onClick={(e) => {
+          e.stopPropagation()
+          onPick(!on)
+        }}
+        className={cn(
+          'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          on ? 'bg-amber-500' : 'bg-border hover:bg-muted-foreground/40',
+        )}
+      >
+        <span
+          aria-hidden
+          className={cn(
+            'absolute top-0.5 size-3 rounded-full bg-background shadow-sm transition-transform',
+            on ? 'left-3.5' : 'left-0.5',
+          )}
+        />
+      </button>
+    </span>
   )
 }
 
