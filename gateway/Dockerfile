@@ -13,9 +13,30 @@
 # pre-approved fallback is node:24-bookworm-slim + `apt-get install passt`
 # and the cloudflared .deb.
 
+# passt is built from source at a pinned release because every packaged
+# version in Alpine 3.24 (and Debian stable) predates upstream commit
+# f072bc0, first shipped in 2026_07_16: older passt drops any IPv4 frame
+# whose L2 payload outruns its IP datagram — exactly what guests whose NICs
+# pad short frames to the 60-byte Ethernet minimum produce (the Cortex-M3's
+# stellaris MAC pads in silicon). Every short TCP segment (SYN, pure ACK,
+# FIN) then vanishes without a log line while DNS and DHCP, always long
+# enough, keep working: TCP through the gateway hangs and nothing says why.
+# The web app also trims that padding client-side, but the gateway must not
+# depend on every client being current.
+# 2026_07_16 exactly: the first release with the fix, and the one Alpine's
+# own edge package proves builds patch-free on musl (later tags grew a
+# close_range() call musl has no wrapper for).
+FROM node:24-alpine AS passt-build
+ARG PASST_VERSION=2026_07_16.090d739
+# coreutils: passt's seccomp.sh needs `fmt`, which busybox does not carry.
+RUN apk add --no-cache build-base linux-headers git coreutils
+RUN git clone --depth 1 --branch ${PASST_VERSION} https://passt.top/passt /passt \
+    && make -C /passt passt VERSION=${PASST_VERSION} \
+    && install -m 0755 /passt/passt /usr/local/bin/passt
+
 FROM node:24-alpine
 
-RUN apk add --no-cache passt
+COPY --from=passt-build /usr/local/bin/passt /usr/local/bin/passt
 
 # Pinned, multi-arch (TARGETARCH is amd64/arm64 under buildx).
 ARG CLOUDFLARED_VERSION=2026.7.3

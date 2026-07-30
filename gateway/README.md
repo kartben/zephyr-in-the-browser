@@ -53,6 +53,10 @@ spec and alternative gateways:
 ## Without Docker
 
 `npm ci && node server.mjs` works on **Linux with passt installed** (it is in
-Debian, Fedora, Alpine, Arch). passt does not run on macOS/Windows — use the
-container there. `npm test` runs the proxy's tests against a fake passt, so
-they pass anywhere.
+Debian, Fedora, Alpine, Arch) — but insist on passt **2026_07_16 or newer**:
+older releases silently drop the Ethernet-padded short TCP segments some
+guest NICs emit, and TCP through the gateway hangs while DNS keeps working
+(the container image builds a fixed passt from source for exactly this
+reason). passt does not run on macOS/Windows — use the container there.
+`npm test` runs the proxy's tests against a fake passt, so they pass
+anywhere.
