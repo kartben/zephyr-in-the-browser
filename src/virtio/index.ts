@@ -8,7 +8,11 @@
  * docs/virtio-bridge.md.
  */
 
-import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import {
+  get as getDeviceTree,
+  getPhase as getDeviceTreePhase,
+  subscribe as subscribeDeviceTree,
+} from '@/devicetree'
 import { createGpioModel } from './devices/gpio'
 import { createI2cModel } from './devices/i2c'
 import type { I2cChip } from './devices/i2c'
@@ -289,6 +293,10 @@ function wantedManagedAddresses(): Set<number> {
     if (addrs.has(0x3e)) addrs.add(0x62)
     return addrs
   }
+  // Only the confirmed-absent path fans out the static defaults. While a
+  // sample `.dts` is still expected, leave the bus empty so chips do not
+  // attach-then-detach when the real tree lands.
+  if (getDeviceTreePhase() !== 'absent') return new Set()
   return new Set(Object.keys(FALLBACK_DT_SLOTS).map(Number))
 }
 
@@ -447,9 +455,12 @@ function wantedManagedSpiChips(): Map<number, SpiChip> {
     }
     return wanted
   }
-  // Same idea as I²C FALLBACK_DT_SLOTS: before the sample DTS lands (or when
-  // none is shipped), keep answering CS0 as the NOR so JEDEC probe at driver
-  // init does not race an empty bus into "device not ready".
+  // Same idea as I²C FALLBACK_DT_SLOTS: only when no tree is shipped (or the
+  // user skipped one) keep answering CS0 as the NOR so JEDEC probe at driver
+  // init does not race an empty bus into "device not ready". While a sample
+  // `.dts` is still expected, leave SPI empty — the fetch is tiny next to the
+  // kernel and usually lands before guest probe.
+  if (getDeviceTreePhase() !== 'absent') return new Map()
   return new Map([[w25q.cs, w25q]])
 }
 

@@ -503,8 +503,14 @@ describe('deriveDeviceInventory from a devicetree', () => {
 })
 
 describe('deriveDeviceInventory fallback (no devicetree)', () => {
+  it('stays empty while a sample tree is still expected', () => {
+    const inv = deriveDeviceInventory(null, A53_DEFAULT_CHIPS, [], ALL, 'qemu_cortex_a53', 'pending')
+    expect(inv.source).toBe('pending')
+    expect(inv.nodes).toEqual([])
+  })
+
   it('mirrors the A53 overlays', () => {
-    const inv = deriveDeviceInventory(null, A53_DEFAULT_CHIPS, [], ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(null, A53_DEFAULT_CHIPS, [], ALL, 'qemu_cortex_a53', 'absent')
 
     expect(inv.source).toBe('fallback')
     expect(inv.nodes.filter((n) => n.parentKey === 'virtio_i2c0').map((n) => n.key)).toEqual([
@@ -527,7 +533,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
 
   it('ghosts a detached declared chip exactly like the devicetree path', () => {
     const chips = A53_DEFAULT_CHIPS.filter((chip) => chip.address !== 0x53)
-    const inv = deriveDeviceInventory(null, chips, [], ALL, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(null, chips, [], ALL, 'qemu_cortex_a53', 'absent')
     const adxl = nodeByKey(inv, 'virtio_i2c0:53')
     expect(adxl.presence).toBe('ghost')
     expect(adxl.deviceClass).toBe('sensor')
@@ -535,7 +541,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
   })
 
   it('mirrors the M3 board: stellaris names, no bus, no display', () => {
-    const inv = deriveDeviceInventory(null, [], [], ALL, 'qemu_cortex_m3')
+    const inv = deriveDeviceInventory(null, [], [], ALL, 'qemu_cortex_m3', 'absent')
 
     expect(nodeByKey(inv, 'net').nodeName).toBe('ethernet@40048000')
     expect(nodeByKey(inv, 'net').crumb).toBe('eth0')
@@ -559,7 +565,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
       input: false,
       disk: false,
     }
-    const inv = deriveDeviceInventory(null, [], [], none, 'qemu_cortex_a53')
+    const inv = deriveDeviceInventory(null, [], [], none, 'qemu_cortex_a53', 'absent')
     expect(inv.source).toBe('fallback')
     expect(nodeByKey(inv, 'virtio_i2c0').presence).toBe('inert')
     expect(nodeByKey(inv, 'virtio_i2c0:48').presence).toBe('inert')

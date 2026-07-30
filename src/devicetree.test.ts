@@ -4,7 +4,9 @@ import {
   clear,
   clearStashedDts,
   get,
+  getPhase,
   loadSampleDts,
+  markAbsent,
   setUserDts,
   stashUserDts,
   subscribe,
@@ -18,9 +20,15 @@ afterEach(async () => {
 })
 
 describe('devicetree store', () => {
+  it('starts pending with no tree', () => {
+    expect(get()).toBeNull()
+    expect(getPhase()).toBe('pending')
+  })
+
   it('parses a user devicetree into insights', () => {
     setUserDts('zephyr.dts', a53Shell)
     const state = get()
+    expect(getPhase()).toBe('ready')
     expect(state?.source).toBe('user')
     expect(state?.name).toBe('zephyr.dts')
     expect(state?.doc).not.toBeNull()
@@ -33,6 +41,36 @@ describe('devicetree store', () => {
     expect(state?.text).toContain('unterminated')
     expect(state?.doc).toBeNull()
     expect(state?.insights).toBeNull()
+  })
+
+  it('marks pending as soon as a sample fetch starts, then ready on hit', async () => {
+    let release!: (res: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      () => new Promise<Response>((resolve) => (release = resolve)),
+    )
+
+    const pending = loadSampleDts('/qemu/zephyr/qemu_cortex_m3/hello_world.dts', 'hello_world.dts')
+    expect(get()).toBeNull()
+    expect(getPhase()).toBe('pending')
+
+    release(
+      new Response('/dts-v1/; / { model = "test"; };', {
+        headers: { 'content-type': 'text/plain' },
+      }),
+    )
+    await pending
+
+    expect(getPhase()).toBe('ready')
+    expect(get()?.source).toBe('sample')
+    expect(get()?.name).toBe('hello_world.dts')
+  })
+
+  it('marks absent when a sample .dts is missing', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('', { status: 404 })))
+    await loadSampleDts('/qemu/zephyr/missing.dts', 'missing.dts')
+    expect(get()).toBeNull()
+    expect(getPhase()).toBe('absent')
   })
 
   it('lets a user devicetree outrank a slower in-flight sample fetch', async () => {
@@ -52,6 +90,7 @@ describe('devicetree store', () => {
 
     expect(get()?.source).toBe('user')
     expect(get()?.name).toBe('zephyr.dts')
+    expect(getPhase()).toBe('ready')
   })
 
   it('notifies subscribers on set and clear', async () => {
@@ -61,9 +100,17 @@ describe('devicetree store', () => {
     expect(calls).toBe(1)
     await clear()
     expect(calls).toBe(2)
+    expect(getPhase()).toBe('pending')
     await clear() // already clear — no spurious notification
     expect(calls).toBe(2)
     unsubscribe()
+  })
+
+  it('markAbsent confirms no tree is coming', async () => {
+    setUserDts('zephyr.dts', a53Shell)
+    await markAbsent()
+    expect(get()).toBeNull()
+    expect(getPhase()).toBe('absent')
   })
 
   describe('session persistence', () => {
@@ -78,6 +125,7 @@ describe('devicetree store', () => {
       await claimStashedDts()
       expect(get()?.name).toBe('zephyr.dts')
       expect(get()?.source).toBe('user')
+      expect(getPhase()).toBe('ready')
 
       // Reload: claim again without clearing — row must still be there.
       await claimStashedDts()
