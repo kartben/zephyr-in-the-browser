@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LevelDot } from '@/components/LevelDot'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { revealDockRow } from '@/lib/dockReveal'
 import { attachUserSpi, detachUserSpi, spiModel } from '@/virtio'
@@ -54,7 +55,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
                   revealDockRow(`${busLabel}:${chip.cs.toString(16)}`, spiChipClass(chip))
                 }
               >
-                <code className="font-mono text-[11px] text-primary">CS{chip.cs}</code>
+                <SpiCsDot cs={chip.cs} showLabel className="text-[11px] text-primary" />
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                   {chip.name}
                 </span>
@@ -115,6 +116,49 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
       </div>
 
     </div>
+  )
+}
+
+/**
+ * Chip-select state for one line, as a GPIO-style level dot: lit while the
+ * guest is clocking that chip. Worn by the bus roster, by every SPI part's card
+ * header, and by its dock row while collapsed — the same dot in all three, so a
+ * card and its row never disagree about who is selected.
+ *
+ * A real assert is microseconds wide; the model stretches it to be visible (see
+ * CS_LIT_MS in devices/spi.ts), so a busy chip reads as steady-lit rather than
+ * as a flicker.
+ */
+export function SpiCsDot({
+  cs,
+  showLabel = false,
+  className,
+}: {
+  cs: number
+  /** Prefix the dot with `CS0`, for surfaces that don't name the line already. */
+  showLabel?: boolean
+  className?: string
+}) {
+  const asserted = useSyncExternalStore(
+    spiModel.subscribe,
+    useCallback(() => spiModel.csAsserted(cs), [cs]),
+    () => false,
+  )
+
+  return (
+    <span
+      role="img"
+      aria-label={`CS${cs} ${asserted ? 'asserted' : 'idle'}`}
+      title={
+        asserted
+          ? `CS${cs} asserted. The guest is talking to this chip.`
+          : `CS${cs} idle. The guest is not selecting this chip.`
+      }
+      className={cn('flex shrink-0 items-center gap-1', className)}
+    >
+      {showLabel && <code className="font-mono">CS{cs}</code>}
+      <LevelDot high={asserted} />
+    </span>
   )
 }
 

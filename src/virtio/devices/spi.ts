@@ -32,6 +32,17 @@ const LOG_CAP = 500
 const LOG_NOTIFY_MS = 50
 const LOG_BYTE_CAP = 8
 
+/**
+ * How long a chip select keeps reading as asserted after its last transfer.
+ *
+ * CS is a GPIO the controller drives low around a message, and a real assert is
+ * microseconds wide — far too short to see. The model stretches it so the UI can
+ * show the line at all: a single transfer lights CS for this long, a stream of
+ * them holds it lit. A message that leaves CS asserted between transfers
+ * (`cs_change` clear) is lit for as long as the guest actually holds it.
+ */
+const CS_LIT_MS = 180
+
 export interface SpiTransferOpts {
   /** Deassert CS after this transfer (virtio_spi_transfer_head.cs_change). */
   csChange: boolean
@@ -73,12 +84,27 @@ export interface SpiModel extends VirtioDeviceModel {
   attachChip(chip: SpiChip): () => void
   detachChip(cs: number): void
   chips(): SpiChip[]
+  /**
+   * True while this chip select reads as asserted — the guest is clocking the
+   * chip, or held CS low, or did so within the last {@link CS_LIT_MS}.
+   * Subscribers are notified on both edges.
+   */
+  csAsserted(cs: number): boolean
   transactions(): readonly SpiTransaction[]
   clearTransactions(): void
   subscribe(fn: () => void): () => void
   transactionCount(): number
   /** Config-space CS count, once the bridge has attached config. */
   csMaxNumber(): number
+}
+
+/** Live state of one chip-select line, as the UI reads it. */
+interface CsLine {
+  asserted: boolean
+  /** Last transfer left CS low (`cs_change` clear), so it is genuinely held. */
+  held: boolean
+  litUntil: number
+  timer?: ReturnType<typeof setTimeout>
 }
 
 function copyLogBytes(src: Uint8Array): { bytes: Uint8Array; byteLength: number } {
@@ -101,6 +127,7 @@ export function createSpiModel(name = 'spi'): SpiModel {
   let logDirty = false
   let chipsSnapshot: SpiChip[] = []
   let csMax = 4
+  const csLines = new Map<number, CsLine>()
 
   const refreshChips = () => {
     chipsSnapshot = [...bus.values()].sort((a, b) => a.cs - b.cs)
@@ -108,6 +135,51 @@ export function createSpiModel(name = 'spi'): SpiModel {
 
   const notify = () => {
     for (const fn of listeners) fn()
+  }
+
+  /** Drop a chip select back to idle once its lit window has run out. */
+  const sweepCs = (cs: number) => {
+    const line = csLines.get(cs)
+    if (!line) return
+    line.timer = undefined
+    // Held low by the guest: nothing to sweep until a cs_change transfer.
+    if (line.held) return
+    const remaining = line.litUntil - performance.now()
+    if (remaining > 0) {
+      line.timer = setTimeout(() => sweepCs(cs), remaining)
+      return
+    }
+    if (!line.asserted) return
+    line.asserted = false
+    notify()
+  }
+
+  /** CS went low for a transfer; `held` is `cs_change` clear — it stays low. */
+  const assertCs = (cs: number, held: boolean) => {
+    let line = csLines.get(cs)
+    if (!line) {
+      line = { asserted: false, held: false, litUntil: 0 }
+      csLines.set(cs, line)
+    }
+    line.held = held
+    line.litUntil = performance.now() + CS_LIT_MS
+    if (!line.asserted) {
+      // The rising edge is worth a render immediately; the fall rides the
+      // sweep timer, so a busy bus costs one notify per lit window per line.
+      line.asserted = true
+      notify()
+    }
+    if (!held && line.timer === undefined) {
+      line.timer = setTimeout(() => sweepCs(cs), CS_LIT_MS)
+    }
+  }
+
+  /** Forget a line's state — the part on it is going away. */
+  const forgetCs = (cs: number) => {
+    const line = csLines.get(cs)
+    if (!line) return
+    if (line.timer !== undefined) clearTimeout(line.timer)
+    csLines.delete(cs)
   }
 
   const materializeLog = (): SpiTransaction[] => {
@@ -199,6 +271,10 @@ export function createSpiModel(name = 'spi'): SpiModel {
     out[req.inCap - 1] = ok ? TRANS_OK : TRANS_ERR
     req.reply(out)
 
+    // The controller drove CS for this transfer whether or not anything
+    // answered on it — an empty chip select still shows the guest trying.
+    assertCs(cs, !csChange)
+
     const loggedTx = copyLogBytes(txPayload.length > 0 ? txPayload : tx.subarray(0, len))
     const loggedRx = copyLogBytes(rxLen > 0 ? rx.subarray(0, rxLen) : rx.subarray(0, len))
     record({
@@ -216,6 +292,16 @@ export function createSpiModel(name = 'spi'): SpiModel {
     name,
     handle,
 
+    /** The guest reset: nothing holds a chip select any more, so all go dark. */
+    reset() {
+      let lit = false
+      for (const [cs, line] of [...csLines]) {
+        lit ||= line.asserted
+        forgetCs(cs)
+      }
+      if (lit) notify()
+    },
+
     attachConfig(config) {
       if (config.length >= 1 && config[0]! > 0) csMax = config[0]!
     },
@@ -227,11 +313,13 @@ export function createSpiModel(name = 'spi'): SpiModel {
         )
       }
       bus.set(chip.cs, chip)
+      forgetCs(chip.cs)
       refreshChips()
       notify()
       return () => {
         if (bus.get(chip.cs) === chip) {
           bus.delete(chip.cs)
+          forgetCs(chip.cs)
           refreshChips()
           notify()
         }
@@ -240,12 +328,14 @@ export function createSpiModel(name = 'spi'): SpiModel {
 
     detachChip(cs) {
       if (bus.delete(cs)) {
+        forgetCs(cs)
         refreshChips()
         notify()
       }
     },
 
     chips: () => chipsSnapshot,
+    csAsserted: (cs) => csLines.get(cs)?.asserted === true,
     transactions() {
       if (logDirty) {
         if (logNotifyTimer !== undefined) {

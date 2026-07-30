@@ -159,6 +159,8 @@ export interface DeviceNode {
   pwmLeds?: Array<{ channel: number; label: string }>
   /** Controller label scoping an 'i2c'/'spi'/'uart' body's roster/traffic. */
   busLabel?: string
+  /** Chip select this part sits on, for rows under a SPI bus — drives the CS dot. */
+  spiCs?: number
   /** The legacy panel kind whose expand-on-boot rule this row inherits. */
   panelKind?: PanelKind
 }
@@ -528,6 +530,7 @@ function liveSpiBusChildren(
         chip,
         partId,
         busLabel,
+        spiCs: cs,
         panelKind: flash
           ? 'spi'
           : ledBar || ledStrip
