@@ -1,26 +1,25 @@
-# Copyright (c) 2026 Benjamin Cabé <benjamin@zephyrproject.org>
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 description: |
-  VIRTIO SPI controller device (ID:45).
-
-  This node must be a child of a VIRTIO transport node, for example:
-
-    &virtio_mmio0 {
-            status = "okay";
-
-            virtio_spi: virtio-spi {
-                    compatible = "virtio,spi";
-                    status = "okay";
-                    #address-cells = <1>;
-                    #size-cells = <0>;
-            };
-    };
-
-  The chip select of a device on the bus is given by the "reg" property of its
-  node, and is passed to the VIRTIO device, which drives the corresponding chip
-  select line. The number of usable chip selects is reported by the device.
+  VIRTIO SPI controller device (ID:45)
 
 compatible: "virtio,spi"
 
 include: [spi-controller.yaml]
+
+examples:
+  - |
+    virtio_mmio0: virtio_mmio@a000000 {
+            compatible = "virtio,mmio";
+            reg = <0xa000000 0x200>;
+            interrupts = <0 16 4>;
+            status = "okay";
+
+            virtio_spi0: virtio-spi {
+                    compatible = "virtio,spi";
+                    #address-cells = <1>;
+                    #size-cells = <0>;
+                    status = "okay";
+            };
+    };

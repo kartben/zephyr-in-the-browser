@@ -94,31 +94,38 @@ and with the same CMake guard — here on
 
 ## `spi_virtio.c`
 
-VIRTIO SPI controller driver (virtio SPI controller device, ID 45).
+VIRTIO SPI controller driver (virtio spec 1.4, section 5.21).
 
 | | |
 | --- | --- |
-| Upstream | <https://github.com/kartben/zephyr/pull/469> |
-| Commit | `b41b55d7a6e50bf272eb249cb95c8ce17e9574d6` — *drivers: spi: add virtio SPI controller driver* |
+| Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/115010> |
+| Commit | `74fd577141bf822e20eb43440fdb3ac0fb53ef09` — *drivers: spi: add VIRTIO SPI driver* |
 | Path | `drivers/spi/spi_virtio.c` |
-| SHA-256 | `906d17b2d90d3f815aa6d2c2491884276078a6afd8f6925b043e63355b638e88` |
+| SHA-256 | `e5b9a411bbe90f08dd0d29e7134170acca951b11f7361b3e47cdfb1214ed6c51` |
 
 Shipped alongside it, also unmodified from the same commit:
 
 - `zephyr-module/dts/bindings/spi/virtio,spi.yaml` — the `virtio,spi`
   binding (`dts/bindings/spi/virtio,spi.yaml` upstream),
-  SHA-256 `7e0ae0c6f848d3166b89ecceb5ccc04ac44258b8016d01574c1725f6757618b0`.
+  SHA-256 `3450e2876dd50da8df353839c220581341f1b316cb94ff1b3460ba4602d9e303`.
 
-The upstream branch also carries board enablement for `qemu_x86`; this repo
+The upstream branch also carries a `tests/drivers/build_all/spi` entry, which
+is not vendored — it tests the driver in the Zephyr tree, not here. This repo
 needs the driver on `qemu_cortex_a53` / `qemu_riscv32` (virtio-mmio), so it
 ships its own snippet at `zephyr-module/snippets/virtio-spi/` and its own
 devicetree node in the `browser_bridge` shield. The driver source itself is
 architecture-neutral.
 
+As with GPIO, the device this driver talks to is **not** stock QEMU but the
+generic browser virtio bridge, whose SPI device model is TypeScript —
+`src/virtio/devices/spi.ts`. See `docs/virtio-bridge.md`. The request layout
+that model decodes (32-byte head, then TX, then RX, then a 1-byte result) is
+fixed by the spec, so re-pinning the driver does not move it.
+
 ### Checking for drift
 
 ```console
-diff <(gh api "repos/kartben/zephyr/contents/drivers/spi/spi_virtio.c?ref=claude/virtio-spi-driver-l5hpsb" --jq .content | base64 -d) \
+diff <(gh api "repos/kartben/zephyr/contents/drivers/spi/spi_virtio.c?ref=virtio_spi" --jq .content | base64 -d) \
      zephyr-module/drivers/vendor/spi_virtio.c
 ```
 
