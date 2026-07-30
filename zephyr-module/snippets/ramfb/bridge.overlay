@@ -1,0 +1,16 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the ramfb the browser_bridge shield sizes to 600x400 and leaves
+ * disabled. Same label on the A53 (where the board devicetree declares it) and
+ * on RISC-V (where the shield does), so one overlay serves both.
+ *
+ * `zephyr,display` already points here from the board devicetree; this only
+ * makes the target real. accel-display resizes it afterwards, and virtio-gpu /
+ * oled disable it again to point the chosen somewhere else.
+ */
+
+&ramfb0 {
+	status = "okay";
+};

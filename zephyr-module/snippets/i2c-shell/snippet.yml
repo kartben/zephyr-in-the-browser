@@ -1,0 +1,21 @@
+name: i2c-shell
+description: >
+  Put every browser-modelled I²C part a Zephyr shell command can drive on the
+  bus at once — AT24, TMP112, LM75, ADXL345, LSM6DSO, LPS22HH, INA219, ISL29035
+  and the PCF8523 RTC — so `i2c scan` finds nine chips and `sensor` / `eeprom` /
+  `rtc` each have something to read. Pair with virtio-i2c and conf/i2c.conf.
+  The parts with no shell command stay off; see the overlay for why.
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently, leaving the bus empty.
+# Both qualified spellings are listed for the same reason.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

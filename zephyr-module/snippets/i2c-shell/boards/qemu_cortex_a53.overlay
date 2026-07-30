@@ -1,0 +1,63 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The shell's I²C bench: every browser-modelled part that a Zephyr shell
+ * command can actually drive, on the bus at once. Requires -S virtio-i2c,
+ * which declares all of these disabled, and pairs with conf/i2c.conf, which
+ * builds the drivers and the shell modules that reach them:
+ *
+ *   i2c scan virtio_i2c0        finds all nine, and NAKs everywhere else
+ *   eeprom write EEPROM_0 ...   at24@50        (CONFIG_EEPROM_SHELL)
+ *   sensor get tmp112@48        two thermometers a strap apart, so `i2c scan`
+ *   sensor get lm75@49          and `sensor` both have something to compare
+ *   sensor get adxl345@53       accel — the page can feed it device tilt
+ *   sensor get lsm6dso@6a       IMU, incl. sensor_attr_set ODR writes
+ *   sensor get lps22hh@5c       pressure
+ *   sensor get ina219@40        bus voltage / current / power
+ *   sensor get isl29035@44      ambient light
+ *   rtc get pcf8523@68          time + alarms       (CONFIG_RTC_SHELL)
+ *
+ * Deliberately *not* here: the SSD1306, and the LED / PWM / DAC / fuel-gauge
+ * parts. Not because they are expensive — nothing on this bus is — but because
+ * this build has no command that reaches them, so each would be a dock card
+ * that never changes. The character LCD is the exception that proves the rule:
+ * it is a shell device (`auxdisplay write jhd1313@3e ...`), so it comes along,
+ * from -S auxdisplays alongside the SPI VFD and the 7-segment module.
+ */
+
+&eeprom0 {
+	status = "okay";
+};
+
+&tmp112_0 {
+	status = "okay";
+};
+
+&lm75_0 {
+	status = "okay";
+};
+
+&adxl345_0 {
+	status = "okay";
+};
+
+&lsm6dso_0 {
+	status = "okay";
+};
+
+&lps22hh_0 {
+	status = "okay";
+};
+
+&ina219_0 {
+	status = "okay";
+};
+
+&isl29035_0 {
+	status = "okay";
+};
+
+&pcf8523_0 {
+	status = "okay";
+};

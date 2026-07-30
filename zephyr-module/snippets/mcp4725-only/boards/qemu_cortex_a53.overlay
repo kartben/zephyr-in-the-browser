@@ -2,44 +2,13 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/dac: MCP4725 + /zephyr,user channel props. Stock sample
- * binds DT_PROP(DT_PATH(zephyr_user), dac) and dac-channel-id / dac-resolution.
+ * samples/drivers/dac: the MCP4725 alone, plus the /zephyr,user channel props
+ * the stock sample binds — DT_PROP(DT_PATH(zephyr_user), dac) and
+ * dac-channel-id / dac-resolution. Requires -S virtio-i2c.
  */
 
 &mcp4725_0 {
 	status = "okay";
-};
-
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
-};
-
-&ssd1306_0 {
-	status = "disabled";
-};
-
-&eeprom0 {
-	status = "disabled";
-};
-
-&auxdisplay_0 {
-	status = "disabled";
-};
-
-&ht16k33_0 {
-	status = "disabled";
-};
-
-&pca9685_0 {
-	status = "disabled";
 };
 
 / {
@@ -48,16 +17,4 @@
 		dac-channel-id = <0>;
 		dac-resolution = <12>;
 	};
-};
-
-&max17048_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
-	status = "disabled";
-};
-
-&lp5012_0 {
-	status = "disabled";
 };

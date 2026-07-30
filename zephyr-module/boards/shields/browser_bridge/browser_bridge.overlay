@@ -11,14 +11,24 @@
  * machine-specific addresses (an MMIO gap on the LM3S6965, a spare PL011 slot
  * on virt), so there is nothing meaningful to add for an arbitrary board.
  *
- * boards/qemu_cortex_m3.overlay — GNSS NMEA UART, qemu,host-gpio,
- *   qemu,host-audio (I2S out), and qemu,host-mic (DMIC in, aliased dmic0). No
- *   sensor: sensors are simulated I2C parts and this board has no virtio bus.
- * boards/qemu_cortex_a53.overlay — GNSS NMEA UART, browser-sized qemu,ramfb,
- *   qemu,host-audio, qemu,host-mic, and three virtio-mmio devices declared
- *   disabled behind snippets: virtio,gpu (-S virtio-gpu), virtio,gpio
- *   (-S virtio-gpio) and virtio,i2c (-S virtio-i2c), the last carrying the
- *   simulated tmp112/lm75/adxl345 sensors.
+ * **Every device the shield declares is disabled**, and a snippet named after
+ * it turns it on, one row per sample in tools/samples.manifest:
+ *
+ *   -S gnss          GNSS NMEA receiver on a spare UART (all three machines)
+ *   -S host-audio    qemu,host-audio  — I2S out into Web Audio
+ *   -S host-mic      qemu,host-mic    — DMIC in from getUserMedia, aliased dmic0
+ *   -S host-gpio     qemu,host-gpio + its LED/button nodes (Cortex-M3 only)
+ *   -S net           virtio-net, or the Stellaris MAC on the Cortex-M3
+ *   -S ramfb         browser-sized qemu,ramfb          (virt machines only)
+ *   -S virtio-input  the stock virtio tablet behind it (virt machines only)
+ *   -S virtio-gpu / virtio-gpio / virtio-i2c / virtio-spi / virtio-blk
+ *                    the virtio-mmio bridges          (virt machines only)
+ *
+ * The shield's job is to say where each device sits on this machine; which of
+ * them an image carries is the manifest's call. That split is what keeps a
+ * sample's device dock about the sample: the page grounds the dock in the
+ * running build's flattened devicetree (docs/peripherals.md), so a node left
+ * okay for convenience is a card the user has to look past.
  *
  * The two boards reach GPIO differently. The Cortex-M3 has qemu,host-gpio, a
  * bespoke register block: fast (a pin read never leaves the guest) but with no

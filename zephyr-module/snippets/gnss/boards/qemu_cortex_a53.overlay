@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the GNSS receiver and the UART it hangs off, both declared disabled
+ * by the browser_bridge shield (the A53's spare PL011 at 0x09040000, the
+ * RISC-V's second 16550 at 0x1000b000). Shared by both boards: same labels.
+ *
+ * The alias lives here rather than in the shield for the same reason accel0
+ * lives in the virtio-i2c snippet — a build without the receiver should not
+ * carry a name that points at a disabled node.
+ */
+
+&uart1 {
+	status = "okay";
+};
+
+&gnss {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		gnss = &gnss;
+	};
+};

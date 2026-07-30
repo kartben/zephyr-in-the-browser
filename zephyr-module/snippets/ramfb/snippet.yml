@@ -1,0 +1,21 @@
+name: ramfb
+description: >
+  Turn on the browser-sized ramfb the browser_bridge shield declares, so
+  `zephyr,display` resolves to a real panel. Only the samples that draw
+  something ask for it — display, touch, lvgl_music, accel_chart — since every
+  refresh is emulated by QEMU and painted as a browser texture, and a sample
+  that never calls the display API would only be showing an empty dock card.
+  The oled snippet is the alternative: same chosen, an I²C SSD1306 instead.
+
+# A53 and RISC-V only: the Cortex-M3 machine has no framebuffer at all.
+# See host-audio/snippet.yml for why every qualified spelling is listed.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay

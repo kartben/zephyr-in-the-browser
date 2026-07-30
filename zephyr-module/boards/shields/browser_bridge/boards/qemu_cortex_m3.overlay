@@ -20,44 +20,50 @@
  * button sample reads a browser button through the input subsystem. Pins follow
  * the browser panel's convention (src/hostGpio.ts): 0-3 are inputs, 4-7 are
  * outputs. gpio-keys is polled because the host-gpio device models no IRQ line.
+ *
+ * As on the A53 (see that overlay's header), every device here is declared
+ * `status = "disabled"` and a snippet named after it turns it on: `-S gnss`,
+ * `-S host-gpio`, `-S host-audio`, `-S host-mic`, `-S net`. The shield says
+ * where the devices are; the manifest says which of them each image carries,
+ * because the dock is grounded in the running build's devicetree.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
 / {
-	aliases {
-		gnss = &gnss;
-		dmic0 = &host_mic;
-		led0 = &led0;
-		sw0 = &button0;
-	};
-
 	soc {
+		/*
+		 * `-S host-gpio`, which also turns on the leds/keys nodes below
+		 * and adds the led0/sw0 aliases. Pairs with conf/host-gpio.conf.
+		 */
 		host_gpio: gpio@40061000 {
 			compatible = "qemu,host-gpio";
 			reg = <0x40061000 0x1000>;
 			gpio-controller;
 			#gpio-cells = <2>;
 			ngpios = <8>;
-			status = "okay";
+			status = "disabled";
 		};
 
+		/* `-S host-audio`, pairing with conf/host-audio.conf. */
 		host_audio: audio@40062000 {
 			compatible = "qemu,host-audio";
 			reg = <0x40062000 0x1000>;
-			status = "okay";
+			status = "disabled";
 		};
 
+		/* `-S host-mic`, which also adds the `dmic0` alias. */
 		host_mic: audio@40063000 {
 			compatible = "qemu,host-mic";
 			reg = <0x40063000 0x1000>;
-			status = "okay";
+			status = "disabled";
 		};
 	};
 
-	leds {
+	host_leds: leds {
 		compatible = "gpio-leds";
+		status = "disabled";
 
 		led0: led_0 {
 			gpios = <&host_gpio 4 GPIO_ACTIVE_HIGH>;
@@ -65,11 +71,12 @@
 		};
 	};
 
-	keys {
+	host_keys: keys {
 		compatible = "gpio-keys";
 		/* No IRQ line on the host-gpio device, so poll the pin instead. */
 		polling-mode;
 		debounce-interval-ms = <30>;
+		status = "disabled";
 
 		button0: button_0 {
 			gpios = <&host_gpio 0 GPIO_ACTIVE_HIGH>;
@@ -79,11 +86,26 @@
 	};
 };
 
+/*
+ * The GNSS receiver: `-S gnss`, which also adds the `gnss` alias. uart1 itself
+ * stays okay — unlike the A53's spare PL011 this is a board UART, and the board
+ * devicetree points `zephyr,uart-pipe` at it.
+ */
 &uart1 {
 	current-speed = <9600>;
 	status = "okay";
 
 	gnss: gnss-nmea-generic {
 		compatible = "gnss-nmea-generic";
+		status = "disabled";
 	};
+};
+
+/*
+ * The machine's Stellaris MAC, which src/boards.ts pairs with the browser
+ * netdev. `-S net` turns it on, alongside conf/net.conf; the board devicetree
+ * leaves it okay, which gave every non-networking sample a Network dock row.
+ */
+&eth {
+	status = "disabled";
 };

@@ -1,0 +1,23 @@
+name: net
+description: >
+  Turn on the machine's network interface — virtio-net on virtio-mmio slot 0
+  (A53, RISC-V) or the Stellaris MAC (Cortex-M3) — both of which src/boards.ts
+  pairs with the browser netdev, so the page plays the whole LAN. Pair with
+  conf/net.conf, which is what builds the IPv4 Ethernet stack above it.
+
+# Two overlays, because the two machines have different NICs; qemu_riscv32
+# shares the A53's virtio-net. See host-audio/snippet.yml for why every
+# qualified spelling is listed.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay

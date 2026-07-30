@@ -1,0 +1,18 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the GNSS receiver the browser_bridge shield hangs off uart1. Unlike
+ * the A53 and RISC-V overlays there is no UART to enable: this is a board UART
+ * that the LM3S6965 devicetree already leaves okay (it is `zephyr,uart-pipe`).
+ */
+
+&gnss {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		gnss = &gnss;
+	};
+};

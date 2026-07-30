@@ -2,55 +2,18 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/eeprom: EEPROM only. The stock sample binds DT_ALIAS(eeprom_0).
+ * samples/drivers/eeprom: the AT24 alone. The stock sample binds
+ * DT_ALIAS(eeprom_0), so the alias travels with the part.
+ *
+ * Requires -S virtio-i2c, which declares eeprom0 disabled and turns the bus on.
  */
 
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
-};
-
-&ssd1306_0 {
-	status = "disabled";
-};
-
-&auxdisplay_0 {
-	status = "disabled";
-};
-
-&ht16k33_0 {
-	status = "disabled";
+&eeprom0 {
+	status = "okay";
 };
 
 / {
 	aliases {
 		eeprom-0 = &eeprom0;
 	};
-};
-
-&pca9685_0 {
-	status = "disabled";
-};
-
-&mcp4725_0 {
-	status = "disabled";
-};
-
-&max17048_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
-	status = "disabled";
-};
-
-&lp5012_0 {
-	status = "disabled";
 };

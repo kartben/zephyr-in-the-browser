@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the host microphone the browser_bridge shield declares disabled — a
+ * qemu,host-mic register block at 0x090e0000 (A53), 0x1000a000 (RISC-V) or
+ * 0x40063000 (Cortex-M3). Same label on every board, so one overlay does.
+ *
+ * The alias travels with the node: `dmic0` is what CONFIG_AUDIO_DMIC_SHELL's
+ * `dmic vu dmic0` quotes, and a build without the bridge should not carry a
+ * name that points at a disabled device.
+ */
+
+&host_mic {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		dmic0 = &host_mic;
+	};
+};

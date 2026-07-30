@@ -1,0 +1,25 @@
+name: gnss
+description: >
+  Turn on the browser-fed GNSS receiver the browser_bridge shield declares, and
+  alias it `gnss`. The page plays the NMEA talker (src/hostGnss.ts); the guest
+  runs Zephyr's stock gnss-nmea-generic over its UART. Only samples/drivers/gnss
+  reads it, so every other image leaves it off — nothing else in the tree has a
+  shell command or an API that reaches a GNSS device.
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently, leaving the build with a
+# disabled receiver and a dangling chosen. All spellings are listed for that
+# reason. qemu_riscv32 shares the A53 overlay: same node labels.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay

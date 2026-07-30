@@ -2,54 +2,10 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * samples/drivers/ht16k33: HT16K33 only. Stock sample binds
- * DT_COMPAT_GET_ANY_STATUS_OKAY(holtek_ht16k33).
+ * samples/drivers/ht16k33: the HT16K33 alone. Stock sample binds
+ * DT_COMPAT_GET_ANY_STATUS_OKAY(holtek_ht16k33). Requires -S virtio-i2c.
  */
 
 &ht16k33_0 {
 	status = "okay";
-};
-
-&tmp112_0 {
-	status = "disabled";
-};
-
-&lm75_0 {
-	status = "disabled";
-};
-
-&adxl345_0 {
-	status = "disabled";
-};
-
-&ssd1306_0 {
-	status = "disabled";
-};
-
-&eeprom0 {
-	status = "disabled";
-};
-
-&auxdisplay_0 {
-	status = "disabled";
-};
-
-&pca9685_0 {
-	status = "disabled";
-};
-
-&mcp4725_0 {
-	status = "disabled";
-};
-
-&max17048_0 {
-	status = "disabled";
-};
-
-&lp5562_0 {
-	status = "disabled";
-};
-
-&lp5012_0 {
-	status = "disabled";
 };

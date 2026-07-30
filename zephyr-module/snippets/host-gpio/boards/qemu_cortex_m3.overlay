@@ -1,0 +1,32 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the host GPIO controller the browser_bridge shield declares disabled,
+ * plus the gpio-leds and gpio-keys nodes hanging off it, and alias them the way
+ * the stock samples expect (led0, sw0).
+ *
+ * The mirror of virtio-gpio on the other two boards, down to the pin
+ * convention: 0-3 are inputs the page drives, 4-7 are outputs the guest drives
+ * (src/hostGpio.ts). gpio-buzzer and gpio-step-dir compose on top, taking pins
+ * 5 and 6/7 respectively.
+ */
+
+&host_gpio {
+	status = "okay";
+};
+
+&host_leds {
+	status = "okay";
+};
+
+&host_keys {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		led0 = &led0;
+		sw0 = &button0;
+	};
+};

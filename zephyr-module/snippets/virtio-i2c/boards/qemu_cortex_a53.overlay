@@ -7,14 +7,26 @@
  * browser_bridge shield, whose overlay documents the slot and the QEMU side.
  *
  * The chips are page-side models (src/virtio/devices/), so this overlay and
- * src/virtio/index.ts have to agree on what is soldered where. Extra sensors
- * start disabled; enabling snippets turn them on, and the page attaches the
- * matching models only while those nodes are okay. A node whose address the
- * page is not answering for simply fails to bind — a chip the page detaches
- * NAKs exactly like one that fell off the board.
+ * src/virtio/index.ts have to agree on what is soldered where. A node whose
+ * address the page is not answering for simply fails to bind — a chip the page
+ * detaches NAKs exactly like one that fell off the board.
+ *
+ * **Every chip below is declared `status = "disabled"`.** This file is the
+ * parts bin: it says what the browser can model and at which address, and a
+ * `<part>-only` snippet is what solders one onto a given image. `-S i2c-shell`
+ * fits the whole set the shell's commands can drive.
+ *
+ * It used to be the other way round — five chips okay by default and a growing
+ * disable-list at the top of every `-only` snippet. That cost twelve stanzas
+ * per snippet, went stale (lsm6dso-only never disabled the EEPROM or the OLED,
+ * pcf8523-only did), and put an EEPROM, two thermometers and an OLED in the
+ * dock of every sample that wanted one accelerometer. Opt-in is O(1) per
+ * snippet and cannot drift: a part is on this bus only where it is asked for.
  *
  * Snippet overlays are applied after the shield's, so virtio_i2c0 already
- * exists by the time this runs.
+ * exists by the time this runs; and snippets are applied in command-line
+ * order, so `-S virtio-i2c` must come before the `-only` snippet that enables
+ * a chip declared here.
  */
 
 #include <zephyr/dt-bindings/led/led.h>
@@ -29,6 +41,7 @@
 	/*
 	 * Matches createAt24({ address: 0x50 }) in src/virtio/index.ts. The
 	 * page models one-byte word addressing, which is the AT24C02 part.
+	 * `-S eeprom-only`, which also adds the eeprom-0 alias.
 	 */
 	eeprom0: eeprom@50 {
 		compatible = "atmel,at24";
@@ -37,52 +50,56 @@
 		pagesize = <8>;
 		address-width = <8>;
 		timeout = <5>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/*
 	 * Matches createTmp112({ address: 0x48 }) in src/virtio/index.ts, whose
 	 * temperature its sensor card drives directly. Zephyr's stock ti,tmp112
 	 * binds to it and talks over the real bus — `sensor get tmp112@48` reads a
-	 * value the page made up, through an unmodified in-tree driver.
+	 * value the page made up, through an unmodified in-tree driver. No sample
+	 * of its own; `-S i2c-shell` is what puts it on the bus.
 	 */
 	tmp112_0: tmp112@48 {
 		compatible = "ti,tmp112";
 		reg = <0x48>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/*
 	 * Matches createLm75({ address: 0x49 }) in src/virtio/index.ts — a
 	 * second, simpler temperature part one strap along, so both share the
 	 * bus. `sensor get lm75@49` reads it through Zephyr's stock driver.
+	 * Like the TMP112, it rides `-S i2c-shell`: two thermometers on one bus
+	 * is a shell story (`i2c scan` finds both), not a demo of its own.
 	 */
 	lm75_0: lm75@49 {
 		compatible = "lm75";
 		reg = <0x49>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/*
 	 * Matches createAdxl345({ address: 0x53 }) in src/virtio/index.ts: a
 	 * 3-axis accelerometer whose card can follow the device's own tilt.
-	 * `accel0` (below) points here, so the LVGL accelerometer_chart sample
-	 * reads it unmodified; `sensor get adxl345@53` reads it from the shell.
+	 * `-S adxl345-only` turns it on and aliases it accel0, which is how the
+	 * LVGL accelerometer_chart sample reads it unmodified; `-S i2c-shell`
+	 * also carries it, for `sensor get adxl345@53`.
 	 */
 	adxl345_0: adxl345@53 {
 		compatible = "adi,adxl345";
 		reg = <0x53>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/*
-	 * Extra sensors / RTC stay disabled here so everyday virtio-i2c builds
-	 * (accel_chart, oled, …) do not clutter the dock. Enable them with:
-	 *   -S i2c-sensors-extra   (shell: all optional parts)
-	 *   -S lsm6dso-only / lps22hh-only / ina219-only / isl29035-only /
- *     pcf8523-only / jhd1313-only / ht16k33-only / lp5562-only /
- *     lp5012-only / pca9685-only / mcp4725-only / max17048-only
-	 *     (dedicated sample: that part alone, defaults off)
+	 * Enable any of the parts below with:
+	 *   -S i2c-shell   (the whole set the shell's commands can drive)
+	 *   -S adxl345-only / eeprom-only / lsm6dso-only / lps22hh-only /
+	 *      ina219-only / isl29035-only / pcf8523-only / jhd1313-only /
+	 *      ht16k33-only / lp5562-only / lp5012-only / pca9685-only /
+	 *      mcp4725-only / max17048-only
+	 *      (dedicated sample: that part alone, nothing else on the bus)
 	 *
 	 * The page attaches matching TypeScript models only while these nodes
 	 * are okay — see syncManagedChips in src/virtio/index.ts.
@@ -118,9 +135,9 @@
 	};
 
 	/*
-	 * NXP PCF8523 RTC (Adafruit shield address 0x68). Optional like the
-	 * extra sensors: shell enables it via i2c-sensors-extra; the dedicated
-	 * samples/drivers/rtc build uses -S pcf8523-only.
+	 * NXP PCF8523 RTC (Adafruit shield address 0x68). The shell reaches it
+	 * via -S i2c-shell; the dedicated samples/drivers/rtc build uses
+	 * -S pcf8523-only, which also adds the `rtc` alias it binds.
 	 */
 	pcf8523_0: pcf8523@68 {
 		compatible = "nxp,pcf8523";
@@ -132,9 +149,10 @@
 
 	/*
 	 * Matches createSsd1306({ address: 0x3c }) in src/virtio/index.ts, whose
-	 * GDDRAM the OLED panel paints onto a canvas. Declared here so it shows up
-	 * in `i2c scan`, but it only becomes the display when the `oled` snippet
-	 * repoints zephyr,display at it — the board is otherwise on ramfb.
+	 * GDDRAM the OLED panel paints onto a canvas. `-S oled` is what turns it
+	 * on, and it repoints zephyr,display here at the same time — the board is
+	 * otherwise on ramfb. Nothing but a display driver can drive an OLED, so
+	 * there is no build where the panel is worth carrying dark.
 	 *
 	 * The timing and charge-pump properties are the datasheet's defaults; the
 	 * page ignores them, but they are required by the binding and a real part
@@ -152,7 +170,7 @@
 		prechargep = <0x22>;
 		segment-remap;
 		com-invdir;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/*
@@ -279,15 +297,11 @@
 };
 
 /*
- * Point the generic accelerometer alias at the ADXL345 on this bus, and the
- * EEPROM sample's eeprom-0 at the AT24. Both live in the snippet, not the
- * shield, so a build without I2C never carries a dangling alias — and a build
- * with it resolves DEVICE_DT_GET(DT_ALIAS(accel0)) / DT_ALIAS(eeprom_0) to a
- * real, driver-bound node.
+ * No aliases here. accel0 and eeprom-0 used to live at the bottom of this file
+ * because the parts they name were on the bus unconditionally. Now that the
+ * parts are opt-in, each alias travels with the snippet that solders its chip
+ * on — accel0 in adxl345-only, eeprom-0 in eeprom-only, rtc in pcf8523-only,
+ * fuel-gauge0 in max17048-only. Same rule that kept them out of the shield:
+ * a build resolves DT_ALIAS(...) to a real, driver-bound node, or carries no
+ * such name at all.
  */
-/ {
-	aliases {
-		accel0 = &adxl345_0;
-		eeprom-0 = &eeprom0;
-	};
-};
