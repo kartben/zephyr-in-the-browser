@@ -123,7 +123,7 @@ describe('dockStore persistence', () => {
   })
 
   it('round-trips stage panel tabs and rejects unknown ids', () => {
-    const allowed = ['schedule', 'queues', 'net'] as const
+    const allowed = ['schedule', 'queues', 'sync', 'net'] as const
     expect(dock.tabIn(dock.getState(), dock.STAGE_TRACE_KEY, allowed, 'schedule')).toBe(
       'schedule',
     )
@@ -149,13 +149,13 @@ describe('dockStore persistence', () => {
 
   it('keeps panel tabs across sample reseeds', () => {
     dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false })
-    dock.setTab(dock.STAGE_TRACE_KEY, 'net')
+    dock.setTab(dock.STAGE_TRACE_KEY, 'sync')
     dock.setTab(dock.STAGE_DEBUG_KEY, 'memory')
 
     dock.seedForSelection('a53:display', { primary: ['display'], expandAll: false })
-    expect(dock.getTab(dock.STAGE_TRACE_KEY, ['schedule', 'queues', 'net'], 'schedule')).toBe(
-      'net',
-    )
+    expect(
+      dock.getTab(dock.STAGE_TRACE_KEY, ['schedule', 'queues', 'sync', 'net'], 'schedule'),
+    ).toBe('sync')
     expect(dock.getTab(dock.STAGE_DEBUG_KEY, ['cpu', 'memory', 'threads'], 'cpu')).toBe('memory')
   })
 })
