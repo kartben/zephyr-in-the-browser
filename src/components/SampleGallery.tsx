@@ -1,36 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  BookOpen,
-  Cable,
   ChevronDown,
-  CircuitBoard,
   ExternalLink,
-  FileCode2,
   FileUp,
-  Gauge,
   GitBranch,
   GraduationCap,
-  Activity,
-  BatteryCharging,
-  Bug,
-  Grid3x3,
-  Gamepad2,
-  HardDrive,
-  Monitor,
-  Network,
-  Satellite,
   Search,
-  Terminal,
-  Thermometer,
-  Tv,
-  Vibrate,
-  RotateCw,
-  Volume2,
-  Waves,
-  Bluetooth,
   X,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -41,54 +18,21 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { DtsViewer } from '@/components/DtsViewer'
 import { registerCommand } from '@/lib/commands'
 import { cn } from '@/lib/utils'
-import { getBoard, getSample, sampleDtsAsset } from '@/boards'
+import { getBoard, getSample } from '@/boards'
 import type { GuestSample, PanelKind } from '@/boards'
 import { isGuided } from '@/tours/guided'
-import { peekSampleDts } from '@/devicetree'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
 
 /**
- * The app picker as a compact, searchable catalog: one row per sample with
- * title and description (from the mirrored Zephyr docs when available), what
- * hardware it exercises, and where to read more — plus the devicetree of the
- * exact build that will boot.
- *
- * Replaces a plain dropdown. Choosing an app is the biggest decision on the
- * page, and a dropdown gave it one truncated line.
+ * Compact app picker: one row per sample, with tracing as an inline choice
+ * rather than a duplicate entry. Tags come from the sample's primary panels;
+ * docs and source are the only outbound links.
  */
 
-/** The panel a sample is primarily about picks its row icon. */
-const PANEL_ICONS: Record<PanelKind, LucideIcon> = {
-  display: Monitor,
-  gnss: Satellite,
-  sensor: Thermometer,
-  gpio: CircuitBoard,
-  keys: Gamepad2,
-  buzzer: Vibrate,
-  stepper: RotateCw,
-  audio: Volume2,
-  perf: Gauge,
-  net: Network,
-  i2c: Cable,
-  spi: Cable,
-  oled: Tv,
-  auxdisplay: Monitor,
-  led: Grid3x3,
-  pwm: Activity,
-  dac: Waves,
-  disk: HardDrive,
-  'fuel-gauge': BatteryCharging,
-  can: Network,
-  bluetooth: Bluetooth,
-  trace: Activity,
-  debug: Bug,
-}
-
-const PANEL_BADGES: Record<PanelKind, string> = {
+const PANEL_TAGS: Record<PanelKind, string> = {
   display: 'display',
   gnss: 'GNSS',
   sensor: 'sensors',
@@ -99,7 +43,7 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   audio: 'audio',
   perf: 'perf',
   net: 'network',
-  i2c: 'I2C',
+  i2c: 'I²C',
   spi: 'SPI',
   oled: 'OLED',
   auxdisplay: 'text',
@@ -114,6 +58,9 @@ const PANEL_BADGES: Record<PanelKind, string> = {
   debug: 'debug',
 }
 
+/** Panels the traced twin adds; hide them on the shared tag row. */
+const TRACE_TWIN_PANELS = new Set<PanelKind>(['trace', 'debug'])
+
 interface Props {
   boardId: string
   sampleId: string
@@ -124,51 +71,78 @@ interface Props {
   onClearImage: () => void
 }
 
-interface CatalogEntry {
-  sample: GuestSample
+/** One gallery row: base sample plus optional CTF-traced twin. */
+export interface SampleGroup {
+  base: GuestSample
+  traced: GuestSample | null
   docs: SampleDocs
 }
 
-function buildCatalog(samples: GuestSample[], manifest: DocsManifest | null): CatalogEntry[] {
-  return samples
-    .map((sample) => ({ sample, docs: sampleDocs(sample, manifest) }))
-    .sort((a, b) => {
-      // Keep base + traced twins adjacent: sort by base id, then untraced first.
-      const aBase = a.sample.tracedFrom ?? a.sample.id
-      const bBase = b.sample.tracedFrom ?? b.sample.id
-      const aTitle = sampleDocs(
-        samples.find((s) => s.id === aBase) ?? a.sample,
-        manifest,
-      ).title
-      const bTitle = sampleDocs(
-        samples.find((s) => s.id === bBase) ?? b.sample,
-        manifest,
-      ).title
-      const byTitle = aTitle.localeCompare(bTitle, undefined, { sensitivity: 'base' })
-      if (byTitle !== 0) return byTitle
-      return (a.sample.tracedFrom ? 1 : 0) - (b.sample.tracedFrom ? 1 : 0)
+export function buildSampleGroups(
+  samples: GuestSample[],
+  manifest: DocsManifest | null,
+): SampleGroup[] {
+  const byId = new Map(samples.map((s) => [s.id, s]))
+  const groups: SampleGroup[] = []
+
+  for (const sample of samples) {
+    if (sample.tracedFrom) continue
+    const traced = byId.get(`${sample.id}_trace`) ?? null
+    // Only treat an explicit twin (tracedFrom → this base) as the paired build.
+    const twin =
+      traced?.tracedFrom === sample.id
+        ? traced
+        : samples.find((s) => s.tracedFrom === sample.id) ?? null
+    groups.push({
+      base: sample,
+      traced: twin,
+      docs: sampleDocs(sample, manifest),
     })
+  }
+
+  return groups.sort((a, b) =>
+    a.docs.title.localeCompare(b.docs.title, undefined, { sensitivity: 'base' }),
+  )
 }
 
-function matchesQuery(entry: CatalogEntry, query: string): boolean {
-  if (!query) return true
-  const haystack = [
-    entry.docs.title,
-    entry.docs.description,
-    entry.sample.label,
-    entry.sample.description,
-    entry.sample.id,
-    entry.sample.zephyrSample,
-    ...(entry.sample.tracedFrom ? ['traced', 'tracing', 'ctf'] : []),
-    ...(entry.sample.primaryPanels ?? []).map((kind) => PANEL_BADGES[kind]),
+/** Tags shown on the row: panels the sample is about, not the twin's extras. */
+export function sampleTags(group: SampleGroup): PanelKind[] {
+  const panels = group.base.primaryPanels ?? []
+  if (!group.traced) return panels
+  return panels.filter((kind) => !TRACE_TWIN_PANELS.has(kind))
+}
+
+function groupHaystack(group: SampleGroup): string {
+  return [
+    group.docs.title,
+    group.docs.description,
+    group.base.label,
+    group.base.description,
+    group.base.id,
+    group.base.zephyrSample,
+    ...(group.traced
+      ? [group.traced.id, group.traced.label, 'traced', 'tracing', 'ctf']
+      : []),
+    ...sampleTags(group).map((kind) => PANEL_TAGS[kind]),
+    ...(group.base.primaryPanels?.includes('trace') ? ['traced', 'tracing', 'ctf'] : []),
   ]
     .join(' ')
     .toLowerCase()
+}
+
+export function matchesGroupQuery(group: SampleGroup, query: string): boolean {
+  if (!query) return true
+  const haystack = groupHaystack(group)
   return query
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
     .every((token) => haystack.includes(token))
+}
+
+/** Prefer the traced twin when the query is clearly about tracing. */
+export function queryPrefersTraced(query: string): boolean {
+  return /\b(traced|tracing|ctf)\b/i.test(query)
 }
 
 export function SampleGallery({
@@ -184,7 +158,6 @@ export function SampleGallery({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [manifest, setManifest] = useState<DocsManifest | null>(null)
-  const [dtsSample, setDtsSample] = useState<GuestSample | null>(null)
   const board = getBoard(boardId)
 
   useEffect(() => registerCommand('open-samples', () => setOpen(true)), [])
@@ -212,16 +185,15 @@ export function SampleGallery({
     return () => cancelAnimationFrame(id)
   }, [open])
 
-  const catalog = buildCatalog(board.samples, manifest).filter((entry) => matchesQuery(entry, query))
+  const preferTraced = queryPrefersTraced(query)
+  const catalog = buildSampleGroups(board.samples, manifest).filter((group) =>
+    matchesGroupQuery(group, query),
+  )
 
-  const dtsDocs = dtsSample ? sampleDocs(dtsSample, manifest) : null
-
-  const loadDts = useCallback(() => {
-    if (!dtsSample) return Promise.resolve(null)
-    return peekSampleDts(
-      `${import.meta.env.BASE_URL}qemu/${sampleDtsAsset(board, dtsSample.id)}`,
-    )
-  }, [board, dtsSample])
+  const select = (id: string) => {
+    setOpen(false)
+    if (customImage !== null || id !== sampleId) onSampleChange(id)
+  }
 
   return (
     <div className="flex min-w-0 shrink items-center gap-2">
@@ -245,8 +217,6 @@ export function SampleGallery({
         <DialogContent className="h-[min(85vh,40rem)] max-w-xl">
           <DialogHeader>
             <DialogTitle>Zephyr app to boot</DialogTitle>
-            {/* Where the titles come from and what order the list is in are
-                facts about the build, not choices the reader is making. */}
             <DialogDescription>Prebuilt samples for {board.label}.</DialogDescription>
           </DialogHeader>
 
@@ -278,17 +248,14 @@ export function SampleGallery({
                 No samples match “{query.trim()}”.
               </p>
             ) : (
-              catalog.map(({ sample, docs }) => (
-                <SampleRow
-                  key={sample.id}
-                  sample={sample}
-                  docs={docs}
-                  active={customImage === null && sample.id === sampleId}
-                  onSelect={() => {
-                    setOpen(false)
-                    if (customImage !== null || sample.id !== sampleId) onSampleChange(sample.id)
-                  }}
-                  onShowDts={() => setDtsSample(sample)}
+              catalog.map((group) => (
+                <SampleGroupRow
+                  key={group.base.id}
+                  group={group}
+                  sampleId={sampleId}
+                  customImage={customImage}
+                  preferTraced={preferTraced}
+                  onSelect={select}
                 />
               ))
             )}
@@ -334,105 +301,115 @@ export function SampleGallery({
           }
         }}
       />
-
-      <DtsViewer
-        open={dtsSample !== null}
-        onOpenChange={(o) => {
-          if (!o) setDtsSample(null)
-        }}
-        title={`${dtsDocs?.title ?? dtsSample?.label ?? ''} · devicetree (${board.zephyrTarget})`}
-        load={loadDts}
-      />
     </div>
   )
 }
 
-function SampleRow({
-  sample,
-  docs,
-  active,
+function SampleGroupRow({
+  group,
+  sampleId,
+  customImage,
+  preferTraced,
   onSelect,
-  onShowDts,
 }: {
-  sample: GuestSample
-  docs: SampleDocs
-  active: boolean
-  onSelect: () => void
-  onShowDts: () => void
+  group: SampleGroup
+  sampleId: string
+  customImage: string | null
+  preferTraced: boolean
+  onSelect: (id: string) => void
 }) {
-  const Icon = sample.primaryPanels?.[0] ? PANEL_ICONS[sample.primaryPanels[0]] : Terminal
+  const { base, traced, docs } = group
+  const tags = sampleTags(group)
+  const guided = isGuided(base)
+  const builtinTraced =
+    !traced && (base.primaryPanels?.includes('trace') ?? false)
+  const activeBase = customImage === null && sampleId === base.id
+  const activeTraced = customImage === null && traced !== null && sampleId === traced.id
+  const active = activeBase || activeTraced
+
+  const defaultId =
+    traced && (activeTraced || (preferTraced && !activeBase)) ? traced.id : base.id
+
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
   return (
-    // A row is a select-me control with real links inside it, so it is a div
-    // with role=button rather than a <button> (nested buttons are invalid).
+    // A row is a select-me control with real links / toggles inside it, so it
+    // is a div with role=button rather than a <button> (nested buttons are invalid).
     <div
       role="button"
       aria-pressed={active}
       tabIndex={0}
-      onClick={onSelect}
+      title={docs.description}
+      onClick={() => onSelect(defaultId)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onSelect()
+          onSelect(defaultId)
         }
       }}
       className={cn(
-        'group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2.5 text-left',
+        'group flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left',
         'transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring',
         active && 'bg-primary/10 ring-1 ring-primary',
       )}
     >
-      <div className="mt-0.5 rounded border border-border bg-secondary/60 p-1.5 text-primary">
-        <Icon className="size-3.5" aria-hidden />
-      </div>
-
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-medium leading-5">{docs.title}</span>
-          {(sample.tracedFrom || (sample.primaryPanels?.includes('trace') ?? false)) && (
+          {guided && (
             <span
-              className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
-              title={
-                sample.tracedFrom
-                  ? 'Built with tracing enabled. Opens Trace and Debug'
-                  : 'This sample embeds tracing in its own configuration'
-              }
-            >
-              <Activity className="size-2.5" aria-hidden />
-              traced
-            </span>
-          )}
-          {isGuided(sample) && (
-            <span
-              className="flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+              className="flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
               title="Carries a guided tour: it stops and explains itself as it runs"
             >
               <GraduationCap className="size-2.5" aria-hidden />
               guided
             </span>
           )}
-          {active && (
-            <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              current
+          {builtinTraced && (
+            <span
+              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+              title="This sample embeds tracing in its own configuration"
+            >
+              traced
             </span>
           )}
         </div>
-        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
-          {docs.description}
-        </p>
-        {(sample.primaryPanels?.length ?? 0) > 0 && (
-          <p className="mt-1 truncate text-[10px] leading-none text-muted-foreground/80">
-            {sample.primaryPanels!.map((kind) => PANEL_BADGES[kind]).join(' · ')}
-          </p>
+        {tags.length > 0 && (
+          <div className="mt-1 flex min-w-0 flex-wrap gap-1">
+            {tags.map((kind) => (
+              <span
+                key={kind}
+                className="rounded bg-secondary px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
+              >
+                {PANEL_TAGS[kind]}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 
-      <span className="flex shrink-0 items-center gap-0.5 pt-0.5">
-        {docs.localHref && (
-          <RowLink href={docs.localHref} title="Documentation (mirrored here)" onClick={stop}>
-            <BookOpen className="size-3.5" aria-hidden />
-          </RowLink>
+      <span className="flex shrink-0 items-center gap-1 self-center">
+        {traced && (
+          <span
+            role="group"
+            aria-label="Tracing build"
+            className="flex items-center rounded-md border border-border p-0.5"
+            onClick={stop}
+            onKeyDown={stop}
+          >
+            <TraceChoice
+              label="Sample"
+              title="Boot without tracing"
+              pressed={activeBase || (!active && !preferTraced)}
+              onPick={() => onSelect(base.id)}
+            />
+            <TraceChoice
+              label="Traced"
+              title="Boot with tracing. Opens Trace and Debug"
+              pressed={activeTraced || (!active && preferTraced)}
+              onPick={() => onSelect(traced.id)}
+            />
+          </span>
         )}
         {docs.canonicalHref && (
           <RowLink
@@ -441,27 +418,49 @@ function SampleRow({
             onClick={stop}
           >
             <ExternalLink className="size-3.5" aria-hidden />
+            <span className="sr-only">Docs</span>
           </RowLink>
         )}
         {docs.sourceHref && (
           <RowLink href={docs.sourceHref} title="Source on GitHub" onClick={stop}>
             <GitBranch className="size-3.5" aria-hidden />
+            <span className="sr-only">Source</span>
           </RowLink>
         )}
-        <button
-          type="button"
-          title="View the build's devicetree"
-          aria-label={`View the ${docs.title} devicetree`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onShowDts()
-          }}
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-        >
-          <FileCode2 className="size-3.5" aria-hidden />
-        </button>
       </span>
     </div>
+  )
+}
+
+function TraceChoice({
+  label,
+  title,
+  pressed,
+  onPick,
+}: {
+  label: string
+  title: string
+  pressed: boolean
+  onPick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-pressed={pressed}
+      onClick={(e) => {
+        e.stopPropagation()
+        onPick()
+      }}
+      className={cn(
+        'rounded px-1.5 py-0.5 text-[10px] font-medium leading-none transition-colors',
+        pressed
+          ? 'bg-primary/15 text-primary'
+          : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {label}
+    </button>
   )
 }
 
