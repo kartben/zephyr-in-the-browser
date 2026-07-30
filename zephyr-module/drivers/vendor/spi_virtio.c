@@ -1,7 +1,16 @@
 /*
- * Copyright (c) 2026 Benjamin Cabé <benjamin@zephyrproject.org>
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
  *
  * SPDX-License-Identifier: Apache-2.0
+ */
+
+/*
+ * Driver for the VIRTIO SPI controller device (virtio spec 1.4, section 5.21).
+ *
+ * The device carries one SPI transfer per request, so a transceive call is split
+ * into one request per contiguous chunk of the buffer sets, and every request is
+ * a round trip to the device. Chip select is driven by the device, kept asserted
+ * across the chunks of a transaction through the cs_change field.
  */
 
 #define DT_DRV_COMPAT virtio_spi
@@ -14,40 +23,24 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
-#include <string.h>
 
 LOG_MODULE_REGISTER(spi_virtio, CONFIG_SPI_LOG_LEVEL);
 
-/*
- * Included after LOG_MODULE_REGISTER: their static-inline helpers log against
- * this module, so the log symbols have to be declared before they are pulled in.
- */
 #include "spi_context.h"
+#ifdef CONFIG_SPI_RTIO
 #include "spi_rtio.h"
+#endif
 
-/*
- * Driver for the virtio SPI controller device, as defined in the "SPI Controller
- * Device" section of the Virtual I/O Device (VIRTIO) specification.
- */
+#define VIRTIO_SPI_REQUESTQ 0
 
-/** The device exposes a single request virtqueue */
-#define VIRTIO_SPI_REQUESTQ_IDX 0
-/** Requests are made of the head, up to two payload buffers and the result */
-#define VIRTIO_SPI_REQ_MAX_BUFS 4
-/** Size of the request virtqueue, one request is in flight at a time */
-#define VIRTIO_SPI_REQUESTQ_SIZE VIRTIO_SPI_REQ_MAX_BUFS
-
-/** Size of the scratch buffer used for transfers that only generate clocks */
-#define VIRTIO_SPI_DUMMY_TX_SIZE 64
-
-/* virtio_spi_transfer_head::mode bits */
+/* struct virtio_spi_transfer_head::mode */
 #define VIRTIO_SPI_CPHA           BIT(0)
 #define VIRTIO_SPI_CPOL           BIT(1)
 #define VIRTIO_SPI_CS_HIGH        BIT(2)
 #define VIRTIO_SPI_MODE_LSB_FIRST BIT(3)
 #define VIRTIO_SPI_MODE_LOOP      BIT(4)
 
-/* virtio_spi_config::mode_func_supported bits */
+/* struct virtio_spi_config::mode_func_supported */
 #define VIRTIO_SPI_MF_SUPPORT_CPHA_0    BIT(0)
 #define VIRTIO_SPI_MF_SUPPORT_CPHA_1    BIT(1)
 #define VIRTIO_SPI_MF_SUPPORT_CPOL_0    BIT(2)
@@ -56,17 +49,25 @@ LOG_MODULE_REGISTER(spi_virtio, CONFIG_SPI_LOG_LEVEL);
 #define VIRTIO_SPI_MF_SUPPORT_LSB_FIRST BIT(5)
 #define VIRTIO_SPI_MF_SUPPORT_LOOPBACK  BIT(6)
 
-/* virtio_spi_config::{tx,rx}_nbits_supported bits, SINGLE is always supported */
+/* struct virtio_spi_config::tx_nbits_supported and ::rx_nbits_supported */
 #define VIRTIO_SPI_RX_TX_SUPPORT_DUAL  BIT(0)
 #define VIRTIO_SPI_RX_TX_SUPPORT_QUAD  BIT(1)
 #define VIRTIO_SPI_RX_TX_SUPPORT_OCTAL BIT(2)
 
-/* virtio_spi_transfer_result::result values */
 #define VIRTIO_SPI_TRANS_OK  0
 #define VIRTIO_SPI_PARAM_ERR 1
 #define VIRTIO_SPI_TRANS_ERR 2
 
-/** Device specific configuration space, read-only for the driver */
+/* head, tx buffer, rx buffer and result */
+#define VIRTIO_SPI_MAX_BUFS 4
+
+/* length clocked out per request when both directions are placeholders */
+#define VIRTIO_SPI_DUMMY_LEN 32
+
+/*
+ * Left unpacked on purpose: the configuration space has to be read with accesses
+ * as wide as the field they target, and the fields are naturally aligned anyway.
+ */
 struct virtio_spi_config {
 	uint8_t cs_max_number;
 	uint8_t cs_change_supported;
@@ -79,9 +80,10 @@ struct virtio_spi_config {
 	uint32_t max_cs_setup_ns;
 	uint32_t max_cs_hold_ns;
 	uint32_t max_cs_inactive_ns;
-} __packed;
+};
 
-/** Device readable part of a request, describing a single SPI transfer */
+BUILD_ASSERT(sizeof(struct virtio_spi_config) == 32);
+
 struct virtio_spi_transfer_head {
 	uint8_t chip_select_id;
 	uint8_t bits_per_word;
@@ -97,254 +99,263 @@ struct virtio_spi_transfer_head {
 	uint32_t cs_change_delay_inactive_ns;
 } __packed;
 
-/** Device writeable part of a request */
 struct virtio_spi_transfer_result {
 	uint8_t result;
 } __packed;
 
-struct spi_virtio_dev_config {
+struct spi_virtio_config {
 	const struct device *vdev;
 };
 
 struct spi_virtio_data {
 	struct spi_context ctx;
-	struct virtq *vq;
-	struct k_sem xfer_done;
-	/** Number of bytes per data frame for the current configuration */
-	uint8_t dfs;
-
-	/* Cached content of the device specific configuration space */
-	uint8_t cs_max_number;
-	bool cs_change_supported;
-	uint8_t tx_nbits_supported;
-	uint8_t rx_nbits_supported;
+	struct virtq *requestq;
+	struct k_sem done;
+	uint32_t used_len;
+	struct virtio_spi_transfer_head head;
+	struct virtio_spi_transfer_result result;
+	/* device capabilities, read once from the configuration space */
 	uint32_t bits_per_word_mask;
 	uint32_t mode_func_supported;
 	uint32_t max_freq_hz;
-
-	/* Request buffers shared with the device */
-	struct virtio_spi_transfer_head head;
-	struct virtio_spi_transfer_result result;
+	uint8_t cs_max_number;
+	uint8_t cs_change_supported;
+	uint8_t tx_nbits_supported;
+	uint8_t rx_nbits_supported;
+	/* bytes per data frame, derived from the configured word size */
+	uint8_t dfs;
 };
 
-/*
- * Zero filled scratch buffer used to clock out data when neither a TX nor an RX
- * buffer was provided for a part of the transfer. It is only ever read by the
- * device, so a single instance shared by all the controllers is enough.
- */
-static uint8_t spi_virtio_dummy_tx[VIRTIO_SPI_DUMMY_TX_SIZE];
+static const uint8_t spi_virtio_dummy_tx[VIRTIO_SPI_DUMMY_LEN];
 
-static int spi_virtio_read_device_config(const struct device *dev)
+static bool spi_virtio_nbits_supported(uint8_t supported, uint8_t nbits)
 {
-	const struct spi_virtio_dev_config *cfg = dev->config;
-	struct spi_virtio_data *data = dev->data;
-	volatile const struct virtio_spi_config *devcfg =
-		virtio_get_device_specific_config(cfg->vdev);
-
-	if (devcfg == NULL) {
-		LOG_ERR("device specific config is not available");
-		return -ENODEV;
+	switch (nbits) {
+	case 2:
+		return (supported & VIRTIO_SPI_RX_TX_SUPPORT_DUAL) != 0;
+	case 4:
+		return (supported & VIRTIO_SPI_RX_TX_SUPPORT_QUAD) != 0;
+	case 8:
+		return (supported & VIRTIO_SPI_RX_TX_SUPPORT_OCTAL) != 0;
+	default:
+		return true;
 	}
-
-	data->cs_max_number = devcfg->cs_max_number;
-	data->cs_change_supported = devcfg->cs_change_supported != 0;
-	data->tx_nbits_supported = devcfg->tx_nbits_supported;
-	data->rx_nbits_supported = devcfg->rx_nbits_supported;
-	data->bits_per_word_mask = sys_le32_to_cpu(devcfg->bits_per_word_mask);
-	data->mode_func_supported = sys_le32_to_cpu(devcfg->mode_func_supported);
-	data->max_freq_hz = sys_le32_to_cpu(devcfg->max_freq_hz);
-
-	if (data->cs_max_number == 0) {
-		LOG_ERR("device reports no chip select");
-		return -EINVAL;
-	}
-
-	LOG_DBG("cs_max_number %u, cs_change %s, mode_func 0x%08x, max_freq %u Hz",
-		data->cs_max_number, data->cs_change_supported ? "supported" : "unsupported",
-		data->mode_func_supported, data->max_freq_hz);
-
-	return 0;
 }
 
+/**
+ * @brief Validate a SPI configuration and cache what it implies for the requests
+ *
+ * @param dev virtio SPI device
+ * @param spi_cfg configuration to apply
+ * @return 0 on success or negative error code on failure
+ */
 static int spi_virtio_configure(const struct device *dev, const struct spi_config *spi_cfg)
 {
 	struct spi_virtio_data *data = dev->data;
-	struct virtio_spi_transfer_head *head = &data->head;
-	const spi_operation_t operation = spi_cfg->operation;
-	uint32_t mode_required;
+	spi_operation_t op = spi_cfg->operation;
+	uint8_t bits = SPI_WORD_SIZE_GET(op);
 	uint32_t mode = 0;
-	uint8_t nbits_required = 0;
 	uint8_t nbits;
-	uint8_t word_size;
 
-	if (spi_context_configured(&data->ctx, spi_cfg)) {
-		return 0;
+	if (SPI_OP_MODE_GET(op) == SPI_OP_MODE_SLAVE) {
+		LOG_ERR("peripheral mode is not supported");
+		return -ENOTSUP;
 	}
 
-	if (SPI_OP_MODE_GET(operation) != SPI_OP_MODE_MASTER) {
-		LOG_ERR("slave mode is not supported");
+	/* the device owns the chip select lines, it selects them by index */
+	if (spi_cs_is_gpio(spi_cfg)) {
+		LOG_ERR("GPIO chip select is not supported");
 		return -ENOTSUP;
 	}
 
 	if (spi_cfg->slave >= data->cs_max_number) {
-		LOG_ERR("chip select %u is out of range, device supports %u", spi_cfg->slave,
+		LOG_ERR("chip select %u out of range (%u available)", spi_cfg->slave,
 			data->cs_max_number);
 		return -EINVAL;
 	}
 
-	word_size = SPI_WORD_SIZE_GET(operation);
-	if (word_size == 0 || word_size > 32) {
-		LOG_ERR("unsupported word size %u", word_size);
-		return -ENOTSUP;
-	}
-	/* A mask of 0 means that the device doesn't restrict the word size */
-	if (data->bits_per_word_mask != 0 &&
-	    (data->bits_per_word_mask & BIT(word_size - 1)) == 0) {
-		LOG_ERR("device doesn't support %u bits per word", word_size);
+	if (bits == 0 || bits > 32) {
+		LOG_ERR("unsupported word size %u", bits);
 		return -ENOTSUP;
 	}
 
-	if (operation & SPI_MODE_CPHA) {
+	if (data->bits_per_word_mask != 0 && (data->bits_per_word_mask & BIT(bits - 1)) == 0) {
+		LOG_ERR("device does not support a word size of %u", bits);
+		return -ENOTSUP;
+	}
+
+	if (data->max_freq_hz != 0 && spi_cfg->frequency > data->max_freq_hz) {
+		LOG_ERR("frequency %u above the device maximum of %u", spi_cfg->frequency,
+			data->max_freq_hz);
+		return -EINVAL;
+	}
+
+	if ((op & SPI_MODE_CPHA) != 0) {
 		mode |= VIRTIO_SPI_CPHA;
-		mode_required = VIRTIO_SPI_MF_SUPPORT_CPHA_1;
-	} else {
-		mode_required = VIRTIO_SPI_MF_SUPPORT_CPHA_0;
 	}
 
-	if (operation & SPI_MODE_CPOL) {
+	if ((op & SPI_MODE_CPOL) != 0) {
 		mode |= VIRTIO_SPI_CPOL;
-		mode_required |= VIRTIO_SPI_MF_SUPPORT_CPOL_1;
-	} else {
-		mode_required |= VIRTIO_SPI_MF_SUPPORT_CPOL_0;
 	}
 
-	if (operation & SPI_CS_ACTIVE_HIGH) {
+	if ((op & SPI_CS_ACTIVE_HIGH) != 0) {
 		mode |= VIRTIO_SPI_CS_HIGH;
-		mode_required |= VIRTIO_SPI_MF_SUPPORT_CS_HIGH;
 	}
 
-	if (operation & SPI_TRANSFER_LSB) {
+	if ((op & SPI_TRANSFER_LSB) != 0) {
 		mode |= VIRTIO_SPI_MODE_LSB_FIRST;
-		mode_required |= VIRTIO_SPI_MF_SUPPORT_LSB_FIRST;
 	}
 
-	if (operation & SPI_MODE_LOOP) {
+	if ((op & SPI_MODE_LOOP) != 0) {
 		mode |= VIRTIO_SPI_MODE_LOOP;
-		mode_required |= VIRTIO_SPI_MF_SUPPORT_LOOPBACK;
 	}
 
-	if ((data->mode_func_supported & mode_required) != mode_required) {
-		LOG_ERR("device doesn't support mode 0x%08x", mode);
+	if ((mode & VIRTIO_SPI_CPHA) != 0) {
+		if ((data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_CPHA_1) == 0) {
+			LOG_ERR("device does not support CPHA=1");
+			return -ENOTSUP;
+		}
+	} else if ((data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_CPHA_0) == 0) {
+		LOG_ERR("device does not support CPHA=0");
 		return -ENOTSUP;
 	}
 
-	switch (operation & SPI_LINES_MASK) {
+	if ((mode & VIRTIO_SPI_CPOL) != 0) {
+		if ((data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_CPOL_1) == 0) {
+			LOG_ERR("device does not support CPOL=1");
+			return -ENOTSUP;
+		}
+	} else if ((data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_CPOL_0) == 0) {
+		LOG_ERR("device does not support CPOL=0");
+		return -ENOTSUP;
+	}
+
+	if ((mode & VIRTIO_SPI_CS_HIGH) != 0 &&
+	    (data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_CS_HIGH) == 0) {
+		LOG_ERR("device does not support an active high chip select");
+		return -ENOTSUP;
+	}
+
+	if ((mode & VIRTIO_SPI_MODE_LSB_FIRST) != 0 &&
+	    (data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_LSB_FIRST) == 0) {
+		LOG_ERR("device does not support LSB first transfers");
+		return -ENOTSUP;
+	}
+
+	if ((mode & VIRTIO_SPI_MODE_LOOP) != 0 &&
+	    (data->mode_func_supported & VIRTIO_SPI_MF_SUPPORT_LOOPBACK) == 0) {
+		LOG_ERR("device does not support loopback mode");
+		return -ENOTSUP;
+	}
+
+	switch (op & SPI_LINES_MASK) {
 	case SPI_LINES_SINGLE:
 		nbits = 1;
 		break;
 	case SPI_LINES_DUAL:
 		nbits = 2;
-		nbits_required = VIRTIO_SPI_RX_TX_SUPPORT_DUAL;
 		break;
 	case SPI_LINES_QUAD:
 		nbits = 4;
-		nbits_required = VIRTIO_SPI_RX_TX_SUPPORT_QUAD;
-		break;
-	case SPI_LINES_OCTAL:
-		nbits = 8;
-		nbits_required = VIRTIO_SPI_RX_TX_SUPPORT_OCTAL;
 		break;
 	default:
-		return -EINVAL;
-	}
-
-	if ((data->tx_nbits_supported & nbits_required) != nbits_required ||
-	    (data->rx_nbits_supported & nbits_required) != nbits_required) {
-		LOG_ERR("device doesn't support %u-bit transfers", nbits);
-		return -ENOTSUP;
-	}
-
-	/* A maximum frequency of 0 means that the device doesn't restrict the speed */
-	if (data->max_freq_hz != 0 && spi_cfg->frequency > data->max_freq_hz) {
-		LOG_ERR("frequency %u Hz is above the maximum of %u Hz", spi_cfg->frequency,
-			data->max_freq_hz);
-		return -ENOTSUP;
+		nbits = 8;
+		break;
 	}
 
 	/*
-	 * The Zephyr SPI API has no notion of the delays the device can be asked
-	 * to introduce, so the corresponding fields are left cleared.
+	 * The line count applies to the whole configuration, so both directions
+	 * have to support it even if only one of them ends up being used.
 	 */
-	memset(head, 0, sizeof(*head));
-	head->chip_select_id = spi_cfg->slave;
-	head->bits_per_word = word_size;
-	head->tx_nbits = nbits;
-	head->rx_nbits = nbits;
-	head->mode = sys_cpu_to_le32(mode);
-	head->freq = sys_cpu_to_le32(spi_cfg->frequency);
-
-	data->dfs = DIV_ROUND_UP(word_size, 8);
-	/* There is no uint24_t, buffers holding such words are uint32_t based */
-	if (data->dfs == 3) {
-		data->dfs = 4;
+	if (!spi_virtio_nbits_supported(data->tx_nbits_supported, nbits) ||
+	    !spi_virtio_nbits_supported(data->rx_nbits_supported, nbits)) {
+		LOG_ERR("device does not support %u-bit transfers", nbits);
+		return -ENOTSUP;
 	}
+
+	/* there is no 24 bit type, words wider than 16 bits are stored in 32 bit frames */
+	data->dfs = (bits <= 8) ? 1 : ((bits <= 16) ? 2 : 4);
+	data->head.chip_select_id = spi_cfg->slave;
+	data->head.bits_per_word = bits;
+	data->head.tx_nbits = nbits;
+	data->head.rx_nbits = nbits;
+	data->head.mode = sys_cpu_to_le32(mode);
+	data->head.freq = sys_cpu_to_le32(spi_cfg->frequency);
 
 	data->ctx.config = spi_cfg;
 
 	return 0;
 }
 
-static void spi_virtio_done_cb(void *opaque, uint32_t used_len)
+static void spi_virtio_request_cb(void *opaque, uint32_t used_len)
 {
 	struct spi_virtio_data *data = opaque;
 
-	ARG_UNUSED(used_len);
-
-	k_sem_give(&data->xfer_done);
+	data->used_len = used_len;
+	k_sem_give(&data->done);
 }
 
-/*
- * Performs a single SPI transfer. Depending on which buffers are provided this
- * is a half duplex read, a half duplex write or a full duplex transfer, and the
- * request is built accordingly. The buffers of a full duplex transfer must be of
- * the same length.
+/**
+ * @brief Run a single SPI transfer request on the request virtqueue
+ *
+ * @param dev virtio SPI device
+ * @param len length of the chunk in bytes
+ * @param last true if no further request follows in this transaction
+ * @return 0 on success or negative error code on failure
  */
-static int spi_virtio_transfer(const struct device *dev, const uint8_t *tx_buf, uint8_t *rx_buf,
-			       size_t len, bool cs_change)
+static int spi_virtio_transfer(const struct device *dev, size_t len, bool last)
 {
-	const struct spi_virtio_dev_config *cfg = dev->config;
+	const struct spi_virtio_config *cfg = dev->config;
 	struct spi_virtio_data *data = dev->data;
-	struct virtq_buf bufs[VIRTIO_SPI_REQ_MAX_BUFS];
-	uint16_t device_readable_count;
-	uint16_t buf_count = 0;
+	struct spi_context *ctx = &data->ctx;
+	struct virtq_buf bufs[VIRTIO_SPI_MAX_BUFS];
+	uint16_t n = 0;
+	uint16_t readable;
+	bool release_cs;
 	int ret;
 
-	data->head.cs_change = cs_change ? 1 : 0;
+	/* a device without cs_change support keeps the chip select asserted on its own */
+	release_cs = last && (ctx->config->operation & SPI_HOLD_ON_CS) == 0;
+	data->head.cs_change = (release_cs && data->cs_change_supported) ? 1 : 0;
+
+	bufs[n++] = (struct virtq_buf){.addr = &data->head, .len = sizeof(data->head)};
+
+	if (spi_context_tx_buf_on(ctx)) {
+		bufs[n++] = (struct virtq_buf){.addr = (void *)ctx->tx_buf, .len = len};
+	} else if (!spi_context_rx_buf_on(ctx)) {
+		bufs[n++] = (struct virtq_buf){.addr = (void *)spi_virtio_dummy_tx, .len = len};
+	}
+
+	readable = n;
+
+	if (spi_context_rx_buf_on(ctx)) {
+		bufs[n++] = (struct virtq_buf){.addr = ctx->rx_buf, .len = len};
+	}
+
+	bufs[n++] = (struct virtq_buf){.addr = &data->result, .len = sizeof(data->result)};
+
+	data->used_len = 0;
 	data->result.result = VIRTIO_SPI_TRANS_ERR;
 
-	bufs[buf_count++] = (struct virtq_buf){.addr = &data->head, .len = sizeof(data->head)};
-	if (tx_buf != NULL) {
-		/* Only read by the device, hence discarding the const qualifier */
-		bufs[buf_count++] = (struct virtq_buf){.addr = (uint8_t *)tx_buf, .len = len};
-	}
-	device_readable_count = buf_count;
-
-	if (rx_buf != NULL) {
-		bufs[buf_count++] = (struct virtq_buf){.addr = rx_buf, .len = len};
-	}
-	bufs[buf_count++] =
-		(struct virtq_buf){.addr = &data->result, .len = sizeof(data->result)};
-
-	ret = virtq_add_buffer_chain(data->vq, bufs, buf_count, device_readable_count,
-				     spi_virtio_done_cb, data, K_FOREVER);
+	/*
+	 * A single request is in flight at a time and the transport returns the
+	 * descriptors before completing it, so the queue never runs out.
+	 */
+	ret = virtq_add_buffer_chain(data->requestq, bufs, n, readable, spi_virtio_request_cb, data,
+				     K_NO_WAIT);
 	if (ret != 0) {
-		LOG_ERR("failed to add buffer chain: %d", ret);
+		LOG_ERR("failed to queue a %zu byte transfer: %d", len, ret);
 		return ret;
 	}
 
-	virtio_notify_virtqueue(cfg->vdev, VIRTIO_SPI_REQUESTQ_IDX);
+	virtio_notify_virtqueue(cfg->vdev, VIRTIO_SPI_REQUESTQ);
 
-	k_sem_take(&data->xfer_done, K_FOREVER);
+	k_sem_take(&data->done, K_FOREVER);
+
+	if (data->used_len < sizeof(data->result)) {
+		LOG_ERR("device returned %u bytes, too short to hold a result", data->used_len);
+		return -EIO;
+	}
 
 	switch (data->result.result) {
 	case VIRTIO_SPI_TRANS_OK:
@@ -353,38 +364,9 @@ static int spi_virtio_transfer(const struct device *dev, const uint8_t *tx_buf, 
 		LOG_ERR("device rejected the transfer parameters");
 		return -EINVAL;
 	default:
-		LOG_ERR("transfer failed, result %u", data->result.result);
+		LOG_ERR("transfer failed with result %u", data->result.result);
 		return -EIO;
 	}
-}
-
-static int spi_virtio_transfer_chunk(const struct device *dev, const uint8_t *tx_buf,
-				     uint8_t *rx_buf, size_t len, bool cs_change)
-{
-	int ret;
-
-	if (tx_buf != NULL || rx_buf != NULL) {
-		return spi_virtio_transfer(dev, tx_buf, rx_buf, len, cs_change);
-	}
-
-	/*
-	 * Neither buffer is backed by memory, the transfer only has to clock out
-	 * data that is then discarded. Zeros are sent out of the scratch buffer,
-	 * in as many transfers as needed to cover the requested length.
-	 */
-	while (len > 0) {
-		size_t chunk = MIN(len, sizeof(spi_virtio_dummy_tx));
-
-		len -= chunk;
-
-		ret = spi_virtio_transfer(dev, spi_virtio_dummy_tx, NULL, chunk,
-					  cs_change && len == 0);
-		if (ret != 0) {
-			return ret;
-		}
-	}
-
-	return 0;
 }
 
 static int spi_virtio_transceive(const struct device *dev, const struct spi_config *spi_cfg,
@@ -395,6 +377,10 @@ static int spi_virtio_transceive(const struct device *dev, const struct spi_conf
 	struct spi_context *ctx = &data->ctx;
 	int ret;
 
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
 	spi_context_lock(ctx, false, NULL, NULL, spi_cfg);
 
 	ret = spi_virtio_configure(dev, spi_cfg);
@@ -403,34 +389,29 @@ static int spi_virtio_transceive(const struct device *dev, const struct spi_conf
 	}
 
 	spi_context_buffers_setup(ctx, tx_bufs, rx_bufs, data->dfs);
-	spi_context_cs_control(ctx, true);
 
 	while (spi_context_tx_on(ctx) || spi_context_rx_on(ctx)) {
-		size_t frames = spi_context_max_continuous_chunk(ctx);
-		size_t len = frames * data->dfs;
-		size_t left = MAX(spi_context_tx_len_left(ctx, data->dfs),
-				  spi_context_rx_len_left(ctx, data->dfs));
-		bool cs_change;
+		size_t chunk = spi_context_max_continuous_chunk(ctx);
+		size_t len;
+		bool last;
 
-		/*
-		 * Ask the device to deassert the chip select once the last
-		 * transfer of the message is done, unless the caller wants to
-		 * keep it asserted. Devices that don't support toggling the chip
-		 * select take care of it on their own.
-		 */
-		cs_change = (len >= left) && !(spi_cfg->operation & SPI_HOLD_ON_CS) &&
-			    data->cs_change_supported;
+		/* nothing to send and nothing to keep, clock out of the dummy buffer */
+		if (!spi_context_tx_buf_on(ctx) && !spi_context_rx_buf_on(ctx)) {
+			chunk = MIN(chunk, VIRTIO_SPI_DUMMY_LEN / data->dfs);
+		}
 
-		ret = spi_virtio_transfer_chunk(dev, ctx->tx_buf, ctx->rx_buf, len, cs_change);
+		len = chunk * data->dfs;
+		last = spi_context_tx_len_left(ctx, data->dfs) <= len &&
+		       spi_context_rx_len_left(ctx, data->dfs) <= len;
+
+		ret = spi_virtio_transfer(dev, len, last);
 		if (ret != 0) {
 			break;
 		}
 
-		spi_context_update_tx(ctx, data->dfs, frames);
-		spi_context_update_rx(ctx, data->dfs, frames);
+		spi_context_update_tx(ctx, data->dfs, chunk);
+		spi_context_update_rx(ctx, data->dfs, chunk);
 	}
-
-	spi_context_cs_control(ctx, false);
 
 out:
 	spi_context_release(ctx, ret);
@@ -452,8 +433,6 @@ static int spi_virtio_release(const struct device *dev, const struct spi_config 
 {
 	struct spi_virtio_data *data = dev->data;
 
-	ARG_UNUSED(spi_cfg);
-
 	spi_context_unlock_unconditionally(&data->ctx);
 
 	return 0;
@@ -463,84 +442,100 @@ static DEVICE_API(spi, spi_virtio_api) = {
 	.transceive = spi_virtio_transceive,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = spi_virtio_transceive_async,
-#endif /* CONFIG_SPI_ASYNC */
+#endif
 #ifdef CONFIG_SPI_RTIO
 	.iodev_submit = spi_rtio_iodev_default_submit,
-#endif /* CONFIG_SPI_RTIO */
+#endif
 	.release = spi_virtio_release,
 };
 
 static uint16_t spi_virtio_enum_queues_cb(uint16_t q_index, uint16_t q_size_max, void *opaque)
 {
-	ARG_UNUSED(opaque);
-
-	if (q_index == VIRTIO_SPI_REQUESTQ_IDX) {
-		return MIN(VIRTIO_SPI_REQUESTQ_SIZE, q_size_max);
+	if (q_index != VIRTIO_SPI_REQUESTQ) {
+		return 0;
 	}
 
-	return 0;
+	/* a single request is in flight at a time, and takes at most four descriptors */
+	return MIN(VIRTIO_SPI_MAX_BUFS, q_size_max);
 }
 
 static int spi_virtio_init(const struct device *dev)
 {
-	const struct spi_virtio_dev_config *cfg = dev->config;
+	const struct spi_virtio_config *cfg = dev->config;
 	struct spi_virtio_data *data = dev->data;
+	volatile struct virtio_spi_config *devcfg;
 	int ret;
 
-	k_sem_init(&data->xfer_done, 0, 1);
+	if (!device_is_ready(cfg->vdev)) {
+		LOG_ERR("virtio device not ready");
+		return -ENODEV;
+	}
 
-	/* The device doesn't offer any device specific feature bit */
+	k_sem_init(&data->done, 0, 1);
+
+	/* the device offers no feature bits, but the handshake still has to happen */
 	ret = virtio_commit_feature_bits(cfg->vdev);
 	if (ret != 0) {
+		LOG_ERR("virtio_commit_feature_bits failed: %d", ret);
 		return ret;
 	}
 
-	ret = spi_virtio_read_device_config(dev);
-	if (ret != 0) {
-		return ret;
+	devcfg = virtio_get_device_specific_config(cfg->vdev);
+	if (devcfg == NULL) {
+		LOG_ERR("could not get device-specific config");
+		return -ENODEV;
 	}
 
-	ret = virtio_init_virtqueues(cfg->vdev, 1, spi_virtio_enum_queues_cb, NULL);
+	data->cs_max_number = devcfg->cs_max_number;
+	data->cs_change_supported = devcfg->cs_change_supported;
+	data->tx_nbits_supported = devcfg->tx_nbits_supported;
+	data->rx_nbits_supported = devcfg->rx_nbits_supported;
+	data->bits_per_word_mask = sys_le32_to_cpu(devcfg->bits_per_word_mask);
+	data->mode_func_supported = sys_le32_to_cpu(devcfg->mode_func_supported);
+	data->max_freq_hz = sys_le32_to_cpu(devcfg->max_freq_hz);
+
+	if (data->cs_max_number == 0) {
+		LOG_ERR("device exposes no chip select");
+		return -ENODEV;
+	}
+
+	ret = virtio_init_virtqueues(cfg->vdev, 1, spi_virtio_enum_queues_cb, data);
 	if (ret != 0) {
 		LOG_ERR("virtio_init_virtqueues failed: %d", ret);
 		return ret;
 	}
 
-	data->vq = virtio_get_virtqueue(cfg->vdev, VIRTIO_SPI_REQUESTQ_IDX);
-	if (data->vq == NULL) {
-		LOG_ERR("failed to get virtqueue %d", VIRTIO_SPI_REQUESTQ_IDX);
+	data->requestq = virtio_get_virtqueue(cfg->vdev, VIRTIO_SPI_REQUESTQ);
+	if (data->requestq == NULL) {
+		LOG_ERR("failed to get the request virtqueue");
 		return -ENODEV;
 	}
 
-	if (data->vq->num < VIRTIO_SPI_REQ_MAX_BUFS) {
-		LOG_ERR("request virtqueue is too small (%u descriptors)", data->vq->num);
+	if (data->requestq->num < VIRTIO_SPI_MAX_BUFS) {
+		LOG_ERR("request virtqueue holds %u descriptors, %u are needed",
+			data->requestq->num, VIRTIO_SPI_MAX_BUFS);
 		return -ENOTSUP;
 	}
 
 	virtio_finalize_init(cfg->vdev);
 
-	ret = spi_context_cs_configure_all(&data->ctx);
-	if (ret < 0) {
-		LOG_ERR("failed to configure CS pins: %d", ret);
-		return ret;
-	}
-
 	spi_context_unlock_unconditionally(&data->ctx);
+
+	LOG_DBG("%u chip selects, max frequency %u Hz", data->cs_max_number, data->max_freq_hz);
 
 	return 0;
 }
 
-#define SPI_VIRTIO_INIT(inst)                                                                      \
+#define SPI_VIRTIO_DEFINE(inst)                                                                    \
 	static struct spi_virtio_data spi_virtio_data_##inst = {                                   \
 		SPI_CONTEXT_INIT_LOCK(spi_virtio_data_##inst, ctx),                                \
 		SPI_CONTEXT_INIT_SYNC(spi_virtio_data_##inst, ctx),                                \
-		SPI_CONTEXT_CS_GPIOS_INITIALIZE(DT_DRV_INST(inst), ctx)                            \
 	};                                                                                         \
-	static const struct spi_virtio_dev_config spi_virtio_dev_config_##inst = {                 \
-		.vdev = DEVICE_DT_GET(DT_INST_PARENT(inst)),                                       \
+	static const struct spi_virtio_config spi_virtio_config_##inst = {                         \
+		.vdev = DEVICE_DT_GET(DT_PARENT(DT_DRV_INST(inst))),                               \
 	};                                                                                         \
 	SPI_DEVICE_DT_INST_DEFINE(inst, spi_virtio_init, NULL, &spi_virtio_data_##inst,            \
-				  &spi_virtio_dev_config_##inst, POST_KERNEL,                      \
+				  &spi_virtio_config_##inst, POST_KERNEL,                          \
 				  CONFIG_SPI_INIT_PRIORITY, &spi_virtio_api);
 
-DT_INST_FOREACH_STATUS_OKAY(SPI_VIRTIO_INIT)
+DT_INST_FOREACH_STATUS_OKAY(SPI_VIRTIO_DEFINE)
