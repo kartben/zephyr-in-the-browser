@@ -9,8 +9,9 @@
  * spawns one passt per connection, and pipes bytes.
  *
  * One passt per WebSocket is load-bearing, not a convenience: every
- * zephyr-in-the-browser guest ships the same hardcoded MAC
- * (02:00:00:00:00:01), so clients must never share an L2 segment. passt's
+ * zephyr-in-the-browser guest of a given board ships the same fixed MAC
+ * (02:00:00:00:00:01 on the virtio boards, the stellaris default on the
+ * Cortex-M3), so clients must never share an L2 segment. passt's
  * --one-off flag makes the child exit with its connection, which is the
  * whole process-supervision story.
  *

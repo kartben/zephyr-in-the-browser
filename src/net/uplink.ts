@@ -31,6 +31,28 @@ const DEFAULT_BACKOFF_MS = [500, 1000, 2000, 4000, 8000] as const
 
 export class FramingError extends Error {}
 
+const ETH_HEADER = 14
+const ETHERTYPE_IPV4 = 0x0800
+const IPV4_MIN_TOTAL = 20
+
+/**
+ * Drop Ethernet minimum-size padding from an outbound IPv4 frame. Guests pad
+ * short frames to 60 bytes like the hardware their drivers model (the
+ * Cortex-M3's stellaris MAC does it in silicon), but passt releases before
+ * 2026_07_16 drop any IPv4 packet whose L2 payload is longer than its IP
+ * datagram (fixed upstream in commit f072bc0). Every short TCP segment —
+ * SYN, pure ACK, FIN — is exactly such a frame, so against an unfixed
+ * gateway TCP dies silently while DNS and DHCP (always long enough) keep
+ * working. Padding carries no information, so trim it for every gateway.
+ */
+export function trimEthernetPadding(frame: Uint8Array): Uint8Array {
+  if (frame.length < ETH_HEADER + IPV4_MIN_TOTAL) return frame
+  if (((frame[12] << 8) | frame[13]) !== ETHERTYPE_IPV4) return frame
+  const total = (frame[16] << 8) | frame[17]
+  if (total < IPV4_MIN_TOTAL || ETH_HEADER + total >= frame.length) return frame
+  return frame.subarray(0, ETH_HEADER + total)
+}
+
 /**
  * Reassembles the length-prefixed stream out of WS binary chunks. State
  * persists across push() calls; a bad length prefix throws FramingError and
@@ -186,6 +208,7 @@ export class UplinkSink {
 
   onGuestFrame(frame: Uint8Array): void {
     if (this.disposed) return
+    frame = trimEthernetPadding(frame)
     if (this.sniffer.onTx(frame)) this.hooks.onChange()
     const ws = this.ws
     if (this.phase !== 'connected' || !ws || ws.readyState !== 1 /* OPEN */) {
