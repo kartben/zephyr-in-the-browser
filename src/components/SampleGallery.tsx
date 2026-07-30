@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
   ExternalLink,
@@ -27,9 +27,10 @@ import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
 
 /**
- * Compact app picker: one row per sample. When a CTF twin exists, a Tracing
- * toggle picks that build instead of listing it twice. Tags come from the
- * sample's primary panels; docs and source are the only outbound links.
+ * Compact app picker: one row per sample. A global Tracing switch filters to
+ * builds with CTF tracing (and selects that twin on click) instead of listing
+ * base/_trace pairs twice. Tags come from primary panels; docs and source are
+ * the only outbound links.
  */
 
 const PANEL_TAGS: Record<PanelKind, string> = {
@@ -112,6 +113,19 @@ export function sampleTags(group: SampleGroup): PanelKind[] {
   return panels.filter((kind) => !TRACE_TWIN_PANELS.has(kind))
 }
 
+/** True when the sample has a CTF twin or embeds tracing itself. */
+export function groupHasTracing(group: SampleGroup): boolean {
+  return (
+    group.traced !== null || (group.base.primaryPanels?.includes('trace') ?? false)
+  )
+}
+
+/** Which artifact a row click should boot under the current Tracing filter. */
+export function selectSampleId(group: SampleGroup, tracing: boolean): string {
+  if (tracing && group.traced) return group.traced.id
+  return group.base.id
+}
+
 function groupHaystack(group: SampleGroup): string {
   return [
     group.docs.title,
@@ -140,11 +154,6 @@ export function matchesGroupQuery(group: SampleGroup, query: string): boolean {
     .every((token) => haystack.includes(token))
 }
 
-/** Prefer the traced twin when the query is clearly about tracing. */
-export function queryPrefersTraced(query: string): boolean {
-  return /\b(traced|tracing|ctf)\b/i.test(query)
-}
-
 export function SampleGallery({
   boardId,
   sampleId,
@@ -157,8 +166,18 @@ export function SampleGallery({
   const searchRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [tracing, setTracing] = useState(false)
   const [manifest, setManifest] = useState<DocsManifest | null>(null)
   const board = getBoard(boardId)
+
+  const groups = useMemo(
+    () => buildSampleGroups(board.samples, manifest),
+    [board.samples, manifest],
+  )
+  const boardHasTracing = useMemo(
+    () => groups.some((group) => group.traced !== null),
+    [groups],
+  )
 
   useEffect(() => registerCommand('open-samples', () => setOpen(true)), [])
 
@@ -175,20 +194,23 @@ export function SampleGallery({
     }
   }, [open])
 
-  // Focus the search field when the dialog opens; clear it when it closes.
+  // Focus search on open; clear the query on close. If the running app is a
+  // traced twin, seed the Tracing filter so the list matches what is booted.
   useEffect(() => {
     if (!open) {
       setQuery('')
       return
     }
+    const current = getSample(board, sampleId)
+    if (current.tracedFrom) setTracing(true)
     const id = requestAnimationFrame(() => searchRef.current?.focus())
     return () => cancelAnimationFrame(id)
-  }, [open])
+  }, [open, board, sampleId])
 
-  const preferTraced = queryPrefersTraced(query)
-  const catalog = buildSampleGroups(board.samples, manifest).filter((group) =>
-    matchesGroupQuery(group, query),
-  )
+  const catalog = groups.filter((group) => {
+    if (tracing && !groupHasTracing(group)) return false
+    return matchesGroupQuery(group, query)
+  })
 
   const select = (id: string) => {
     setOpen(false)
@@ -220,8 +242,8 @@ export function SampleGallery({
             <DialogDescription>Prebuilt samples for {board.label}.</DialogDescription>
           </DialogHeader>
 
-          <div className="shrink-0 px-5 pb-3">
-            <label className="relative block">
+          <div className="flex shrink-0 items-center gap-3 px-5 pb-3">
+            <label className="relative min-w-0 flex-1">
               <span className="sr-only">Search samples</span>
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -240,12 +262,19 @@ export function SampleGallery({
                 )}
               />
             </label>
+            {boardHasTracing && (
+              <TracingFilter on={tracing} onChange={setTracing} />
+            )}
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-1">
             {catalog.length === 0 ? (
               <p className="flex h-full items-center justify-center px-3 text-center text-xs text-muted-foreground">
-                No samples match “{query.trim()}”.
+                {tracing && !query.trim()
+                  ? 'No samples with tracing on this board.'
+                  : tracing
+                    ? `No traced samples match “${query.trim()}”.`
+                    : `No samples match “${query.trim()}”.`}
               </p>
             ) : (
               catalog.map((group) => (
@@ -254,7 +283,7 @@ export function SampleGallery({
                   group={group}
                   sampleId={sampleId}
                   customImage={customImage}
-                  preferTraced={preferTraced}
+                  tracing={tracing}
                   onSelect={select}
                 />
               ))
@@ -309,13 +338,13 @@ function SampleGroupRow({
   group,
   sampleId,
   customImage,
-  preferTraced,
+  tracing,
   onSelect,
 }: {
   group: SampleGroup
   sampleId: string
   customImage: string | null
-  preferTraced: boolean
+  tracing: boolean
   onSelect: (id: string) => void
 }) {
   const { base, traced, docs } = group
@@ -326,25 +355,23 @@ function SampleGroupRow({
   const activeBase = customImage === null && sampleId === base.id
   const activeTraced = customImage === null && traced !== null && sampleId === traced.id
   const active = activeBase || activeTraced
-
-  const defaultId =
-    traced && (activeTraced || (preferTraced && !activeBase)) ? traced.id : base.id
+  const bootId = selectSampleId(group, tracing)
 
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
   return (
-    // A row is a select-me control with real links / toggles inside it, so it
-    // is a div with role=button rather than a <button> (nested buttons are invalid).
+    // A row is a select-me control with real links inside it, so it is a div
+    // with role=button rather than a <button> (nested buttons are invalid).
     <div
       role="button"
       aria-pressed={active}
       tabIndex={0}
       title={docs.description}
-      onClick={() => onSelect(defaultId)}
+      onClick={() => onSelect(bootId)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onSelect(defaultId)
+          onSelect(bootId)
         }
       }}
       className={cn(
@@ -388,13 +415,7 @@ function SampleGroupRow({
         )}
       </div>
 
-      <span className="flex shrink-0 items-center gap-1 self-center">
-        {traced && (
-          <TracingToggle
-            on={activeTraced || (!active && preferTraced)}
-            onPick={(withTracing) => onSelect(withTracing ? traced.id : base.id)}
-          />
-        )}
+      <span className="flex shrink-0 items-center gap-0.5 self-center">
         {docs.canonicalHref && (
           <RowLink
             href={docs.canonicalHref}
@@ -416,24 +437,17 @@ function SampleGroupRow({
   )
 }
 
-/**
- * Same sample, optional tracing build. A real on/off switch (not a chip):
- * on boots the CTF twin and opens Trace and Debug.
- */
-function TracingToggle({
+/** Gallery-wide filter: only samples with a tracing build, and boot that build. */
+function TracingFilter({
   on,
-  onPick,
+  onChange,
 }: {
   on: boolean
-  onPick: (withTracing: boolean) => void
+  onChange: (on: boolean) => void
 }) {
   return (
-    <span
-      className="flex items-center gap-1.5"
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-    >
-      <span className="text-[10px] text-muted-foreground" aria-hidden>
+    <span className="flex shrink-0 items-center gap-1.5">
+      <span className="text-xs text-muted-foreground" aria-hidden>
         Tracing
       </span>
       <button
@@ -443,13 +457,10 @@ function TracingToggle({
         aria-label="Tracing"
         title={
           on
-            ? 'Tracing on. Opens Trace and Debug. Turn off for the build without tracing.'
-            : 'Turn on to boot with tracing. Opens Trace and Debug.'
+            ? 'Showing samples with tracing. Turn off to see every sample.'
+            : 'Show only samples with a tracing build. Choosing one opens Trace and Debug.'
         }
-        onClick={(e) => {
-          e.stopPropagation()
-          onPick(!on)
-        }}
+        onClick={() => onChange(!on)}
         className={cn(
           'relative h-4 w-7 shrink-0 rounded-full transition-colors',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
