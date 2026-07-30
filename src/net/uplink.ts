@@ -316,9 +316,18 @@ export class UplinkSink {
       this.setPhase('closed', '')
       return
     }
+    if (ev.code === 4001) {
+      // A rejected token cannot heal by redialing: the gateway mints a new
+      // token every restart, so this URL is stale until the user pastes the
+      // freshly printed one (which lands here via connect(), resetting
+      // `stopped`). Auto-retry would hammer the gateway log with rejects
+      // every few seconds for as long as the tab lives.
+      this.stopped = true
+      this.setPhase('error', 'gateway rejected the token (4001)')
+      return
+    }
     let detail: string
-    if (ev.code === 4001) detail = 'gateway rejected the token (4001)'
-    else if (ev.code === 4002) detail = 'gateway is full (4002)'
+    if (ev.code === 4002) detail = 'gateway is full (4002)'
     else if (ev.code === 4003) detail = 'gateway backend failed (4003)'
     else if (ev.code === 1006 || ev.code === 1015) {
       detail = ['gateway unreachable', mixedContentHint(this.url)].filter(Boolean).join('; ')

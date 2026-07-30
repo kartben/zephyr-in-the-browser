@@ -337,6 +337,17 @@ describe('UplinkSink', () => {
     expect(sink.detail).toContain('4001')
   })
 
+  it('stops redialing after a token rejection until connect()', () => {
+    const { sink } = makeSink()
+    sink.connect()
+    lastWs().emitClose(4001)
+    expect(sink.phase).toBe('error')
+    vi.advanceTimersByTime(60_000)
+    expect(FakeWebSocket.instances).toHaveLength(1) // no auto-retry: the token stays stale
+    sink.connect()
+    expect(FakeWebSocket.instances).toHaveLength(2) // a fresh URL paste dials again
+  })
+
   it('disconnect() stays down: no reconnect timer fires', () => {
     const { sink } = makeSink()
     sink.connect()

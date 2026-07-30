@@ -52,7 +52,7 @@ qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-gpio.conf,conf/
 qemu_cortex_m3:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_m3:dhcp:samples/net/dhcpv4_client:conf/net.conf
 qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf
-qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf
+qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf,conf/dns.conf
 qemu_cortex_m3:hello_world:samples/hello_world
 qemu_cortex_m3:blinky:samples/basic/blinky
 qemu_cortex_m3:basic_button:samples/basic/button
@@ -102,7 +102,7 @@ qemu_cortex_a53:hsm:samples/subsys/smf/hsm_psicc2
 qemu_cortex_a53:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf
 qemu_cortex_a53:http_server:samples/net/sockets/http_server:conf/net.conf,conf/net-uplink.conf:virtio-gpio
 qemu_cortex_a53:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf
-qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf,conf/http-get-stack.conf
+qemu_cortex_a53:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf,conf/http-get-stack.conf,conf/dns.conf
 qemu_cortex_a53:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf
 qemu_cortex_a53:hello_world:samples/hello_world
 
@@ -149,6 +149,6 @@ qemu_riscv32:hsm:samples/subsys/smf/hsm_psicc2
 qemu_riscv32:dhcp:samples/net/dhcpv4_client:conf/net.conf,conf/net-uplink.conf
 qemu_riscv32:http_server:samples/net/sockets/dumb_http_server:conf/net.conf,conf/net-uplink.conf
 qemu_riscv32:echo_server:samples/net/sockets/echo_server:conf/net.conf,conf/net-uplink.conf
-qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf
+qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink.conf,conf/dns.conf
 qemu_riscv32:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf
 qemu_riscv32:hello_world:samples/hello_world
