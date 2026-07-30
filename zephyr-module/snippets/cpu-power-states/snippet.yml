@@ -1,5 +1,9 @@
 name: cpu-power-states
-description: Give the A53 CPU a ladder of suspend states, so CONFIG_PM has something to walk.
+description: >
+  Give the A53 CPU a ladder of suspend states, so CONFIG_PM has something to
+  walk. The board declares none and its SoC does not select HAS_PM — the sample
+  supplies the two SoC hooks itself. Pairs with pm-demo-devices when the
+  system-managed device walk should have something to suspend too.
 
 # Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
 # name matches nothing at all — and does so silently, leaving the build with no

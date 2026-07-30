@@ -46,6 +46,9 @@
 #   auxdisplays .. every auxdisplay the shell can drive (I2C LCD, SPI VFD, 7-seg)
 #   accel-display  shrink ramfb to 480x320 for the accelerometer chart
 #   bt-hci-uart .. H:4 controller on a spare UART
+#   cpu-power-states  a ladder of CPU suspend states for CONFIG_PM to walk
+#   pm-demo-devices   three devices that implement PM, so the system-managed
+#                  device walk has something to suspend
 #   browser-tracing, browser-tracing-net — added automatically, see below
 #
 # Cortex-A53 focus (docs/focus.md): build-zephyr-image.sh expands every A53
@@ -113,7 +116,7 @@ qemu_cortex_a53:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:virtio-i2c,pca
 qemu_cortex_a53:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:virtio-i2c,mcp4725-only
 qemu_cortex_a53:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:virtio-i2c,max17048-only
 qemu_cortex_a53:philosophers:samples/philosophers
-qemu_cortex_a53:pm_latency:samples/subsys/pm/latency:conf/pm-latency.conf:cpu-power-states
+qemu_cortex_a53:pm_latency:samples/subsys/pm/latency:conf/pm-latency.conf:cpu-power-states,pm-demo-devices
 qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:tracing_pipeline:samples/subsys/tracing/pipeline
 qemu_cortex_a53:msg_queue:samples/kernel/msg_queue

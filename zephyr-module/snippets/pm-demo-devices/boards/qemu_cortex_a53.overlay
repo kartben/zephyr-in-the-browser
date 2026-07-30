@@ -1,0 +1,42 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Devices that exist only to be suspended.
+ *
+ * Under CONFIG_PM_DEVICE_SYSTEM_MANAGED the PM core walks every device before
+ * entering a power state, but no driver in a browser_bridge build implements a
+ * PM action callback: the walk gets -ENOSYS from all of them and reports
+ * suspending nothing. These three do implement it (zephyr-module/drivers/
+ * pm_demo_device.c) and burn the microseconds below, which is what gives the
+ * walk measurable width in a trace — the engineering point being that entering
+ * a deep state is not free.
+ *
+ * Resume costs more than suspend, as on real hardware. Suspend order is
+ * devicetree order reversed (flash, radio, sensor), resume the reverse of that,
+ * so the trace shows a fixed, readable sequence.
+ *
+ * Not browser-fed: there is no page-side model and no dock card. They are guest
+ * props, kept in their own snippet so a sample can take the CPU state ladder
+ * (cpu-power-states) without them.
+ */
+
+/ {
+	pm_demo_sensor: pm-demo-sensor {
+		compatible = "zephyr,pm-demo-device";
+		suspend-time-us = <120>;
+		resume-time-us = <240>;
+	};
+
+	pm_demo_radio: pm-demo-radio {
+		compatible = "zephyr,pm-demo-device";
+		suspend-time-us = <300>;
+		resume-time-us = <900>;
+	};
+
+	pm_demo_flash: pm-demo-flash {
+		compatible = "zephyr,pm-demo-device";
+		suspend-time-us = <200>;
+		resume-time-us = <450>;
+	};
+};

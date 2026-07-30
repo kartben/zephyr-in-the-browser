@@ -1,0 +1,19 @@
+name: pm-demo-devices
+description: >
+  Solder on three devices whose only feature is having power management, so the
+  system-managed device walk has something to suspend. Nothing else in a
+  browser_bridge build implements a PM action callback — the walk returns
+  -ENOSYS for every real device and honestly reports suspending none of them —
+  so without these the feature is undemonstrable. Pairs with
+  conf/pm-latency.conf, which turns on CONFIG_PM_DEVICE_SYSTEM_MANAGED.
+
+# Keys are matched against "${BOARD}/${BOARD_QUALIFIERS}", so the bare board
+# name matches nothing at all — and does so silently, leaving the walk empty.
+# Both qualified spellings are listed for that reason.
+boards:
+  qemu_cortex_a53/qemu_cortex_a53:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  qemu_cortex_a53/qemu_cortex_a53/smp:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
