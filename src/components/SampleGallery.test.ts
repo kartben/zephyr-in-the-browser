@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { GuestSample } from '@/boards'
 import {
   buildSampleGroups,
+  groupHasTracing,
   matchesGroupQuery,
-  queryPrefersTraced,
   sampleTags,
+  selectSampleId,
 } from '@/components/SampleGallery'
 
 function sample(partial: Partial<GuestSample> & Pick<GuestSample, 'id' | 'label'>): GuestSample {
@@ -81,6 +82,47 @@ describe('sampleTags', () => {
   })
 })
 
+describe('tracing filter helpers', () => {
+  const paired = buildSampleGroups(
+    [
+      sample({
+        id: 'blinky',
+        label: 'Blinky',
+        primaryPanels: ['led'],
+      }),
+      sample({
+        id: 'blinky_trace',
+        label: 'Blinky · traced',
+        tracedFrom: 'blinky',
+        primaryPanels: ['led', 'trace', 'debug'],
+      }),
+    ],
+    null,
+  )[0]!
+
+  const plain = buildSampleGroups(
+    [sample({ id: 'hello', label: 'Hello', primaryPanels: undefined })],
+    null,
+  )[0]!
+
+  const builtin = buildSampleGroups(
+    [sample({ id: 'tracing', label: 'Tracing', primaryPanels: ['trace'] })],
+    null,
+  )[0]!
+
+  it('groupHasTracing detects twins and builtin tracing', () => {
+    expect(groupHasTracing(paired)).toBe(true)
+    expect(groupHasTracing(builtin)).toBe(true)
+    expect(groupHasTracing(plain)).toBe(false)
+  })
+
+  it('selectSampleId picks the twin only when the filter is on', () => {
+    expect(selectSampleId(paired, false)).toBe('blinky')
+    expect(selectSampleId(paired, true)).toBe('blinky_trace')
+    expect(selectSampleId(builtin, true)).toBe('tracing')
+  })
+})
+
 describe('matchesGroupQuery', () => {
   const group = buildSampleGroups(
     [
@@ -109,14 +151,5 @@ describe('matchesGroupQuery', () => {
   it('matches tracing keywords against the twin', () => {
     expect(matchesGroupQuery(group, 'traced')).toBe(true)
     expect(matchesGroupQuery(group, 'ctf')).toBe(true)
-  })
-})
-
-describe('queryPrefersTraced', () => {
-  it('detects tracing-oriented search tokens', () => {
-    expect(queryPrefersTraced('')).toBe(false)
-    expect(queryPrefersTraced('blinky')).toBe(false)
-    expect(queryPrefersTraced('traced')).toBe(true)
-    expect(queryPrefersTraced('led tracing')).toBe(true)
   })
 })
