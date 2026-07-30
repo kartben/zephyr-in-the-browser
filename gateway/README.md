@@ -30,7 +30,7 @@ hardcoded MAC, so they must never share an L2 segment) and pipes bytes.
 | `PORT` / `HOST` | `8737` / `0.0.0.0` | where to listen |
 | `TOKEN` | random per start | `?token=` value; `none` disables auth |
 | `MAX_CLIENTS` | `8` | concurrent guests |
-| `PASST_DEFAULT_ARGS` | `-4 --mtu 1500` | replaces baseline passt flags (`--mtu 1500` is required — the browser ring drops frames over 1522 B) |
+| `PASST_DEFAULT_ARGS` | `-4 --mtu 1500 --dns-forward 192.0.2.3 --dns 192.0.2.3` | replaces baseline passt flags (`--mtu 1500` is required — the browser ring drops frames over 1522 B; `--dns-host` is auto-appended from resolv.conf unless set) |
 | `PASST_ARGS` | — | extra passt flags, e.g. `-t 4242` to forward a port into the guest |
 | `TUNNEL` | — | `quick` = bundled cloudflared quick tunnel |
 | `PAGES_URL` | the hosted app | base for the printed deep link |

@@ -136,3 +136,13 @@ test('shutdown closes live clients with 1001', async () => {
   const [code] = await closed
   assert.equal(code, 1001)
 })
+
+test('firstNameserver parses resolv.conf and tolerates absence', async (t) => {
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const { firstNameserver } = await import('./server.mjs')
+  const path = `/tmp/probe-resolv-${process.pid}.conf`
+  writeFileSync(path, '# comment\nsearch example.test\nnameserver 10.9.8.7\nnameserver 1.1.1.1\n')
+  t.after(() => rmSync(path, { force: true }))
+  assert.equal(firstNameserver(path), '10.9.8.7')
+  assert.equal(firstNameserver('/nonexistent/resolv.conf'), null)
+})
