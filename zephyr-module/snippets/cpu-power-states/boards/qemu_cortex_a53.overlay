@@ -71,34 +71,4 @@
 			cpu-power-states = <&runtime_idle &suspend_to_idle &standby>;
 		};
 	};
-
-	/*
-	 * Something for the PM core to actually suspend. Under
-	 * CONFIG_PM_DEVICE_SYSTEM_MANAGED it walks every device before entering a
-	 * state, but no driver in a browser_bridge build implements a PM action
-	 * callback — the walk returns -ENOSYS for all of them and reports
-	 * suspending nothing. These three do implement it, and burn the
-	 * microseconds below, so the walk has visible width in the trace.
-	 *
-	 * Resume costs more than suspend, as on real hardware. Suspend order is
-	 * devicetree order reversed (flash, radio, sensor), resume the reverse of
-	 * that — so the trace shows a fixed, readable sequence.
-	 */
-	pm_demo_sensor: pm-demo-sensor {
-		compatible = "zephyr,pm-demo-device";
-		suspend-time-us = <120>;
-		resume-time-us = <240>;
-	};
-
-	pm_demo_radio: pm-demo-radio {
-		compatible = "zephyr,pm-demo-device";
-		suspend-time-us = <300>;
-		resume-time-us = <900>;
-	};
-
-	pm_demo_flash: pm-demo-flash {
-		compatible = "zephyr,pm-demo-device";
-		suspend-time-us = <200>;
-		resume-time-us = <450>;
-	};
 };
