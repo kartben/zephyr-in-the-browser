@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createFakeBridge, type FakeDevice } from './testing/fakeBridge'
 import { createSpiModel, type SpiModel } from './devices/spi'
@@ -152,5 +152,93 @@ describe('virtio-spi model', () => {
 
   it('exposes cs_max_number from config space', () => {
     expect(spi.csMaxNumber()).toBe(4)
+  })
+
+  /**
+   * The dot on a chip's card. A transfer is microseconds wide, so the model
+   * stretches the assert to something a reader can see, and holds it for as long
+   * as the guest keeps CS low.
+   */
+  describe('chip select state', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('lights the selected line and lets it fall on its own', () => {
+      spi.attachChip(createSpiLoopback(0))
+      const seen: boolean[] = []
+      spi.subscribe(() => seen.push(spi.csAsserted(0)))
+
+      expect(spi.csAsserted(0)).toBe(false)
+      xfer(0, Uint8Array.of(0xaa), 1)
+      expect(spi.csAsserted(0)).toBe(true)
+
+      vi.advanceTimersByTime(100)
+      expect(spi.csAsserted(0)).toBe(true)
+      vi.advanceTimersByTime(120)
+      expect(spi.csAsserted(0)).toBe(false)
+      // One notify for the rise, one for the fall — plus the throttled log.
+      expect(seen).toContain(true)
+      expect(seen.at(-1)).toBe(false)
+    })
+
+    it('stays lit while transfers keep coming', () => {
+      spi.attachChip(createSpiLoopback(0))
+      for (let i = 0; i < 6; i++) {
+        xfer(0, Uint8Array.of(i), 1)
+        vi.advanceTimersByTime(60)
+        expect(spi.csAsserted(0)).toBe(true)
+      }
+      vi.advanceTimersByTime(200)
+      expect(spi.csAsserted(0)).toBe(false)
+    })
+
+    it('holds the line while cs_change is clear, and releases on the last transfer', () => {
+      spi.attachChip(createSpiLoopback(0))
+      xfer(0, Uint8Array.of(0x9f), 1, false)
+      vi.advanceTimersByTime(5_000)
+      expect(spi.csAsserted(0)).toBe(true)
+
+      xfer(0, Uint8Array.of(0x00), 1)
+      vi.advanceTimersByTime(200)
+      expect(spi.csAsserted(0)).toBe(false)
+    })
+
+    it('lights only the line being clocked', () => {
+      spi.attachChip(createSpiLoopback(0, 'A'))
+      spi.attachChip(createSpiLoopback(1, 'B'))
+      xfer(1, Uint8Array.of(0xaa), 1)
+      expect(spi.csAsserted(0)).toBe(false)
+      expect(spi.csAsserted(1)).toBe(true)
+    })
+
+    it('lights an empty chip select — the guest still drove it', () => {
+      expect(xfer(3, Uint8Array.of(0xaa), 1).status).toBe(TRANS_ERR)
+      expect(spi.csAsserted(3)).toBe(true)
+    })
+
+    it('drops a held line when the guest resets the device', () => {
+      spi.attachChip(createSpiLoopback(0))
+      xfer(0, Uint8Array.of(0xaa), 1, false)
+      expect(spi.csAsserted(0)).toBe(true)
+
+      spi.reset!()
+      expect(spi.csAsserted(0)).toBe(false)
+    })
+
+    it('forgets a held line when the chip is detached or replaced', () => {
+      spi.attachChip(createSpiLoopback(0))
+      xfer(0, Uint8Array.of(0xaa), 1, false)
+      expect(spi.csAsserted(0)).toBe(true)
+
+      spi.detachChip(0)
+      expect(spi.csAsserted(0)).toBe(false)
+
+      spi.attachChip(createSpiLoopback(0))
+      expect(spi.csAsserted(0)).toBe(false)
+    })
   })
 })

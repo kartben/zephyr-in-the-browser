@@ -42,7 +42,7 @@ import { GnssBody } from '@/components/GnssPanel'
 import { BluetoothBody } from '@/components/BluetoothPanel'
 import { GpioBody, GpioKeysBody, GpioLedsBody } from '@/components/GpioPanel'
 import { I2cBody } from '@/components/I2cPanel'
-import { SpiBody } from '@/components/SpiPanel'
+import { SpiBody, SpiCsDot } from '@/components/SpiPanel'
 import { UartBody } from '@/components/UartPanel'
 import { CanBody } from '@/components/CanPanel'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
@@ -100,11 +100,22 @@ export function DeviceBody({
 }) {
   const body = renderDeviceBody(node, variant)
   if (!body) return null
-  if (!node.partId || !CHIP_BODIES.has(node.body ?? '')) return body
+  const partId =
+    node.partId && CHIP_BODIES.has(node.body ?? '') ? node.partId : undefined
+  // A SPI part gets its chip select on the same line as its identity, even when
+  // the part is not catalogued — CS is the one thing every SPI card shares.
+  if (!partId && node.spiCs === undefined) return body
   return (
     <div>
-      <div className="border-b border-border/40 px-2 py-1.5">
-        <PartIdentityStrip partId={node.partId} compact />
+      <div className="flex items-center gap-2 border-b border-border/40 px-2 py-1.5">
+        {partId && <PartIdentityStrip partId={partId} className="min-w-0 flex-1" compact />}
+        {node.spiCs !== undefined && (
+          <SpiCsDot
+            cs={node.spiCs}
+            showLabel
+            className={cn('text-[10px] text-muted-foreground', !partId && 'ml-auto')}
+          />
+        )}
       </div>
       {body}
     </div>
@@ -326,9 +337,22 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
 
 /**
  * The at-a-glance value a row shows on its right edge: a temperature, a link
- * dot with the IP, a chip count. Collapsed must not mean blind.
+ * dot with the IP, a chip count, plus a chip-select dot for parts on a SPI bus.
+ * Collapsed must not mean blind.
  */
 export function DeviceBadge({ node }: { node: DeviceNode }) {
+  const badge = deviceBadgeValue(node)
+  // A SPI part keeps its CS dot while collapsed — the row is the card's cover.
+  if (node.spiCs === undefined) return badge
+  return (
+    <span className="flex items-center gap-1.5">
+      {badge}
+      <SpiCsDot cs={node.spiCs} />
+    </span>
+  )
+}
+
+function deviceBadgeValue(node: DeviceNode) {
   switch (node.body) {
     case 'sensor':
       return <SensorBadge chip={node.chip as SensorChip} />

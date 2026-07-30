@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
+import { LevelDot } from '@/components/LevelDot'
 import { formatGpioFlags } from '@/lib/gpioFlags'
 import { revealDockRow } from '@/lib/dockReveal'
 import {
@@ -194,18 +195,6 @@ function ClaimedPinRow({ pin }: { pin: ClaimedPin }) {
         )}
       </td>
     </tr>
-  )
-}
-
-function LevelDot({ high }: { high: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        'inline-block size-[7px] rounded-full align-middle',
-        high ? 'bg-primary shadow-[0_0_5px_var(--color-primary)]' : 'bg-border',
-      )}
-    />
   )
 }
 
