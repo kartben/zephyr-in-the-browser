@@ -24,6 +24,7 @@ other end of the wire.
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 | [trace-networking-plan.md](trace-networking-plan.md) | Trace panel **Networking** tab from Zephyr socket / `net_*` CTF — the socket swimlanes shipped; the connection ribbon and cross-panel linking did not |
+| [cpu-power-states.md](cpu-power-states.md) | CPU suspend states in the Trace panel from PM CTF, ranked by the devicetree — the CPU lane group, the Power tab, the sample and the guest overlay; visual language set by [the mockup](cpu-power-mockup.html) |
 
 ## Shipped plans
 

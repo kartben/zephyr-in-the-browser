@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CPU power states — Trace Timeline density study (from real styles)</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/jetbrains-mono@latest/index.css" />
+<style>
+/* Tokens copied from src/index.css :root (dark default). */
+:root {
+  --background: oklch(0.15 0.004 285.8);
+  --foreground: oklch(0.92 0.004 286.3);
+  --muted: oklch(0.21 0.006 285.9);
+  --muted-foreground: oklch(0.65 0.011 286.1);
+  --card: oklch(0.18 0.005 285.8);
+  --border: oklch(0.27 0.007 286);
+  --primary: oklch(0.62 0.19 292);
+  --warning: oklch(0.77 0.15 78);
+  --success: oklch(0.7 0.16 152);
+  --terminal: oklch(0.13 0.004 285.8);
+  --radius: 0.5rem;
+
+  /* Thread lane colours, verbatim from src/ctf/types.ts STATE_COLOR. */
+  --run: #22c55e;
+  --rdy: #eab308;
+  --blk: #ef4444;
+  --slp: #22d3ee;
+  --sus: #94a3b8;
+  --isr: rgba(168, 85, 247, 0.9);
+  --qdepth: rgba(56, 189, 248, 0.28);
+
+  /*
+   * The proposed CPU depth ramp: ONE hue, deliberately in the neighbourhood of
+   * --slp cyan, because CPU suspend and thread sleep are the same idea at
+   * different scopes. Depth raises lightness and chroma — on a dark theme more
+   * ink means brighter. rank 0 (ACTIVE) draws nothing at all.
+   */
+  --pm1: oklch(0.60 0.075 216 / 0.80);
+  --pm2: oklch(0.67 0.11 213 / 0.88);
+  --pm3: oklch(0.73 0.14 210 / 0.93);
+  --pm4: oklch(0.78 0.16 208 / 0.96);
+  --pm5: oklch(0.82 0.18 206 / 0.98);
+  --pm6: oklch(0.86 0.19 204 / 1);
+  --notch: oklch(0.77 0.15 78 / 0.5);
+  /* The trough a gap reveals — identical to the thread lane block. */
+  --trough: rgba(15, 23, 42, 0.45);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2rem 1.5rem 4rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+h1 { font-size: 1.25rem; margin: 0 0 0.25rem; font-weight: 600; }
+h2 {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted-foreground); margin: 2.5rem 0 0.6rem; font-weight: 600;
+}
+.sub { color: var(--muted-foreground); margin: 0 0 0.5rem; max-width: 72ch; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+.panel {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0.5rem; overflow-x: auto;
+}
+.note {
+  color: var(--muted-foreground); font-size: 0.8rem; margin: 0.5rem 0 0;
+  max-width: 84ch;
+}
+.note b { color: var(--foreground); font-weight: 600; }
+.verdict {
+  display: inline-block; font-size: 0.65rem; text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 0.1rem 0.4rem; border-radius: 0.25rem;
+  border: 1px solid var(--border); margin-left: 0.5rem; vertical-align: 2px;
+}
+.rec { color: var(--success); border-color: color-mix(in oklch, var(--success) 40%, transparent); }
+.rej { color: var(--muted-foreground); }
+svg { display: block; }
+svg text { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+.legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem;
+  font-size: 10px; color: var(--muted-foreground); padding: 0.35rem 0.25rem 0;
+}
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.legend .item { display: inline-flex; align-items: center; gap: 4px; }
+.legend .sep { color: var(--border); }
+.legend .lead { color: color-mix(in oklch, var(--foreground) 80%, transparent); }
+.metrics {
+  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  font-size: 10px; color: var(--muted-foreground); padding: 0.35rem 0.25rem 0;
+}
+.metrics b { color: var(--foreground); font-weight: 500; }
+.tips { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+.tip {
+  background: var(--terminal); border: 1px solid var(--border);
+  border-radius: 0.375rem; padding: 0.4rem 0.55rem;
+  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  font-size: 11px; line-height: 1.5; white-space: pre;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.tip .dim { color: var(--muted-foreground); }
+.tip .warn { color: var(--warning); }
+details { margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+summary { cursor: pointer; font-size: 0.8rem; color: var(--muted-foreground); }
+pre.tok {
+  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 11px;
+  background: var(--terminal); border: 1px solid var(--border);
+  border-radius: 0.375rem; padding: 0.75rem; overflow-x: auto; color: var(--foreground);
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>CPU power states — Trace Timeline density study</h1>
+<p class="sub">
+  From real styles: every token below is copied verbatim from <span class="mono">src/index.css</span>,
+  and the thread-lane colours from <span class="mono">src/ctf/types.ts</span> <span class="mono">STATE_COLOR</span>.
+  Geometry is 1:1 CSS pixels against the real constants — <span class="mono">LABEL_W&nbsp;128</span>,
+  <span class="mono">AXIS_H&nbsp;28</span>, <span class="mono">SECTION_HEADER_H&nbsp;15</span>,
+  <span class="mono">SECTION_GAP&nbsp;4</span>, lane heights <span class="mono">16/22/40</span>.
+  The one question this page exists to answer: does a 16&nbsp;px CPU row read instantly
+  <em>without</em> dominating a panel that already carries six thread colours?
+</p>
+
+<h2>The ramp against everything already on this canvas</h2>
+<div class="panel">
+  <svg width="1020" height="86" viewBox="0 0 1020 86" role="img"
+       aria-label="Colour comparison of the CPU depth ramp against thread states, ISR and queue depth">
+    <text x="8" y="14" fill="var(--muted-foreground)" font-size="10">cpu depth ramp (one hue, ordinal)</text>
+    <!-- ACTIVE: an empty trough, drawn to prove it is a gap and not a colour. -->
+    <rect x="8" y="22" width="52" height="16" rx="2" fill="var(--trough)" />
+    <text x="34" y="34" fill="var(--muted-foreground)" font-size="9" text-anchor="middle">none</text>
+    <rect x="66" y="28" width="52" height="10" rx="2" fill="var(--pm1)" />
+    <rect x="124" y="28" width="52" height="10" rx="2" fill="var(--pm2)" />
+    <rect x="182" y="22" width="52" height="16" rx="2" fill="var(--pm3)" />
+    <rect x="240" y="22" width="52" height="16" rx="2" fill="var(--pm4)" />
+    <rect x="298" y="22" width="52" height="16" rx="2" fill="var(--pm5)" />
+    <rect x="356" y="22" width="52" height="16" rx="2" fill="var(--pm6)" />
+    <g fill="var(--muted-foreground)" font-size="9" text-anchor="middle">
+      <text x="34" y="52">active</text>
+      <text x="92" y="52">rt-idle</text>
+      <text x="150" y="52">s2idle</text>
+      <text x="208" y="52">standby</text>
+      <text x="266" y="52">s2ram</text>
+      <text x="324" y="52">s2disk</text>
+      <text x="382" y="52">off</text>
+    </g>
+    <text x="34" y="66" fill="var(--muted-foreground)" font-size="9" text-anchor="middle">— gap —</text>
+    <text x="121" y="66" fill="var(--muted-foreground)" font-size="9" text-anchor="middle">60% height</text>
+    <text x="295" y="66" fill="var(--muted-foreground)" font-size="9" text-anchor="middle">full height · context lost</text>
+
+    <line x1="432" y1="18" x2="432" y2="72" stroke="var(--border)" />
+
+    <text x="448" y="14" fill="var(--muted-foreground)" font-size="10">already in use</text>
+    <rect x="448" y="22" width="46" height="16" rx="2" fill="var(--run)" />
+    <rect x="500" y="22" width="46" height="16" rx="2" fill="var(--rdy)" />
+    <rect x="552" y="22" width="46" height="16" rx="2" fill="var(--blk)" />
+    <rect x="604" y="22" width="46" height="16" rx="2" fill="var(--slp)" />
+    <rect x="656" y="22" width="46" height="16" rx="2" fill="var(--sus)" />
+    <rect x="708" y="22" width="46" height="16" rx="2" fill="var(--isr)" />
+    <rect x="760" y="22" width="46" height="16" rx="2" fill="var(--qdepth)" />
+    <rect x="812" y="22" width="46" height="16" rx="2" fill="var(--primary)" />
+    <rect x="864" y="22" width="46" height="16" rx="2" fill="var(--notch)" />
+    <g fill="var(--muted-foreground)" font-size="9" text-anchor="middle">
+      <text x="471" y="52">run</text>
+      <text x="523" y="52">ready</text>
+      <text x="575" y="52">blocked</text>
+      <text x="627" y="52">sleep</text>
+      <text x="679" y="52">susp</text>
+      <text x="731" y="52">isr</text>
+      <text x="783" y="52">qdepth</text>
+      <text x="835" y="52">primary</text>
+      <text x="887" y="52">notch</text>
+    </g>
+    <text x="627" y="66" fill="var(--muted-foreground)" font-size="9" text-anchor="middle">↑ the hue the ramp borrows</text>
+  </svg>
+</div>
+<p class="note">
+  <b>Why one hue and not seven colours.</b> <span class="mono">pm_state</span> is ordinal
+  (0&nbsp;active → 6&nbsp;soft-off), so a sequential ramp is the correct encoding and a
+  categorical palette would be actively wrong — seven unrelated hues cannot be ordered by eye,
+  and there are only about three unclaimed hues left on this canvas anyway. Borrowing the
+  <span class="mono">slp</span> cyan neighbourhood means a reader who already knows
+  “cyan&nbsp;=&nbsp;sleeping” gets the CPU row for free: it is <em>less</em> to learn, not more.
+  The one genuine near-miss is queue-depth sky at hue&nbsp;235, mitigated by 25° of hue and by
+  the two sections never being adjacent.
+</p>
+
+<h2>A · Recommended — CPU above THREADS, Compact (16 px lanes)<span class="verdict rec">recommended</span></h2>
+<div class="panel">
+  <svg width="1020" height="243" viewBox="0 0 1020 243" role="img"
+       aria-label="Trace timeline with a CPU power section above the thread lanes">
+    <defs>
+      <!-- One ladder of the real pm_latency sample: runtime-idle, suspend-to-idle,
+           standby, repeating, with short awake slivers between. -->
+      <g id="ladderA">
+        <rect x="0"   y="6" width="118" height="9"  rx="1" fill="var(--pm1)" />
+        <rect x="126" y="6" width="128" height="9"  rx="1" fill="var(--pm2)" />
+        <rect x="262" y="0" width="138" height="15" rx="1" fill="var(--pm3)" />
+      </g>
+    </defs>
+
+    <!-- axis -->
+    <text x="8" y="12" fill="var(--muted-foreground)" font-size="10">t →</text>
+    <g fill="var(--muted-foreground)" font-size="10" text-anchor="middle">
+      <text x="136" y="12">4.000s</text><text x="356" y="12">8.000s</text>
+      <text x="576" y="12">12.000s</text><text x="796" y="12">16.000s</text>
+    </g>
+    <text x="1012" y="12" fill="var(--warning)" font-size="10" text-anchor="end">LIVE</text>
+    <line x1="136" y1="20" x2="136" y2="26" stroke="var(--border)" />
+    <line x1="356" y1="20" x2="356" y2="26" stroke="var(--border)" />
+    <line x1="576" y1="20" x2="576" y2="26" stroke="var(--border)" />
+    <line x1="796" y1="20" x2="796" y2="26" stroke="var(--border)" />
+    <line x1="128" y1="27" x2="1020" y2="27" stroke="var(--border)" />
+
+    <!-- CPU section: header 15px at y=28, one 16px lane at y=43 -->
+    <text x="8" y="39" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">CPU</text>
+    <rect x="128" y="43" width="884" height="16" fill="var(--trough)" />
+    <text x="8" y="55" fill="rgba(148,163,184,0.95)" font-size="11">cpu0</text>
+    <text x="120" y="55" fill="var(--pm3)" font-size="10" text-anchor="end">standby</text>
+    <g transform="translate(132,43)"><use href="#ladderA" /></g>
+    <g transform="translate(544,43)"><use href="#ladderA" /></g>
+    <!-- latency-constrained stretch: standby unreachable, so the deep band is absent -->
+    <rect x="418" y="49" width="112" height="9" rx="1" fill="var(--pm1)" />
+    <rect x="946" y="49" width="60"  height="9" rx="1" fill="var(--pm1)" />
+    <!-- decline notches, 2px, pixel-thinned -->
+    <g fill="var(--notch)">
+      <rect x="250" y="55" width="3" height="2" /><rect x="256" y="55" width="3" height="2" />
+      <rect x="404" y="55" width="3" height="2" /><rect x="412" y="55" width="3" height="2" />
+      <rect x="532" y="55" width="3" height="2" /><rect x="538" y="55" width="3" height="2" />
+      <rect x="662" y="55" width="3" height="2" /><rect x="668" y="55" width="3" height="2" />
+      <rect x="820" y="55" width="3" height="2" /><rect x="938" y="55" width="3" height="2" />
+    </g>
+
+    <!-- THREADS section: gap 4 -> header at 63, lanes at 78 -->
+    <text x="8" y="74" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">THREADS</text>
+    <g>
+      <rect x="128" y="78" width="884" height="80" fill="var(--trough)" />
+      <!-- main: runs briefly, then sleeps across each suspend -->
+      <text x="8" y="90" fill="rgba(148,163,184,0.95)" font-size="11">main</text>
+      <text x="120" y="90" fill="var(--muted-foreground)" font-size="10" text-anchor="end">0</text>
+      <g fill="var(--slp)">
+        <rect x="132" y="81" width="118" height="10" /><rect x="258" y="81" width="128" height="10" />
+        <rect x="394" y="81" width="138" height="10" /><rect x="544" y="81" width="118" height="10" />
+        <rect x="670" y="81" width="128" height="10" /><rect x="806" y="81" width="138" height="10" />
+        <rect x="952" y="81" width="58" height="10" />
+      </g>
+      <g fill="var(--run)">
+        <rect x="128" y="81" width="4" height="10" /><rect x="250" y="81" width="8" height="10" />
+        <rect x="386" y="81" width="8" height="10" /><rect x="532" y="81" width="12" height="10" />
+        <rect x="662" y="81" width="8" height="10" /><rect x="798" y="81" width="8" height="10" />
+        <rect x="944" y="81" width="8" height="10" />
+      </g>
+      <!-- idle: runs exactly where the CPU is not suspended -->
+      <text x="8" y="106" fill="rgba(148,163,184,0.95)" font-size="11">idle</text>
+      <text x="120" y="106" fill="var(--muted-foreground)" font-size="10" text-anchor="end">15</text>
+      <g fill="var(--run)">
+        <rect x="132" y="97" width="118" height="10" /><rect x="258" y="97" width="128" height="10" />
+        <rect x="394" y="97" width="138" height="10" /><rect x="544" y="97" width="118" height="10" />
+        <rect x="670" y="97" width="128" height="10" /><rect x="806" y="97" width="138" height="10" />
+        <rect x="952" y="97" width="58" height="10" />
+      </g>
+      <!-- sysworkq + logging: mostly idle -->
+      <text x="8" y="122" fill="rgba(148,163,184,0.95)" font-size="11">sysworkq</text>
+      <text x="120" y="122" fill="var(--muted-foreground)" font-size="10" text-anchor="end">-1</text>
+      <g fill="var(--sus)"><rect x="132" y="113" width="878" height="10" /></g>
+      <text x="8" y="138" fill="rgba(148,163,184,0.95)" font-size="11">dev_test</text>
+      <text x="120" y="138" fill="var(--muted-foreground)" font-size="10" text-anchor="end">5</text>
+      <g fill="var(--sus)"><rect x="132" y="129" width="878" height="10" /></g>
+      <g fill="var(--rdy)"><rect x="530" y="129" width="6" height="10" /><rect x="820" y="129" width="6" height="10" /></g>
+      <!-- ISR row -->
+      <text x="8" y="154" fill="var(--muted-foreground)" font-size="11">[ISR]</text>
+      <g fill="var(--isr)">
+        <rect x="250" y="145" width="2" height="10" /><rect x="386" y="145" width="2" height="10" />
+        <rect x="532" y="145" width="2" height="10" /><rect x="662" y="145" width="2" height="10" />
+        <rect x="798" y="145" width="2" height="10" /><rect x="944" y="145" width="2" height="10" />
+        <rect x="418" y="145" width="2" height="10" /><rect x="530" y="145" width="2" height="10" />
+      </g>
+    </g>
+
+    <!-- QUEUES section: gap 4 -> header 162, lanes 177, 24px each -->
+    <text x="8" y="173" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">QUEUES</text>
+    <rect x="128" y="177" width="884" height="48" fill="var(--trough)" />
+    <text x="8" y="192" fill="rgba(148,163,184,0.95)" font-size="11">log_msgq</text>
+    <text x="120" y="192" fill="var(--muted-foreground)" font-size="10" text-anchor="end">0/8</text>
+    <g fill="var(--qdepth)">
+      <rect x="250" y="186" width="6" height="14" /><rect x="386" y="188" width="6" height="12" />
+      <rect x="532" y="184" width="6" height="16" /><rect x="662" y="188" width="6" height="12" />
+      <rect x="798" y="186" width="6" height="14" /><rect x="944" y="190" width="6" height="10" />
+    </g>
+    <line x1="128" y1="200" x2="1012" y2="200" stroke="var(--border)" stroke-dasharray="2 3" />
+    <text x="8" y="216" fill="rgba(148,163,184,0.95)" font-size="11">0x4000c1d0</text>
+    <text x="120" y="216" fill="var(--muted-foreground)" font-size="10" text-anchor="end">0/4</text>
+    <line x1="128" y1="224" x2="1012" y2="224" stroke="var(--border)" stroke-dasharray="2 3" />
+
+    <!-- playhead -->
+    <line x1="700" y1="28" x2="700" y2="225" stroke="var(--primary)" stroke-width="1" opacity="0.85" />
+  </svg>
+  <div class="legend">
+    <span class="lead">states:</span>
+    <span class="item"><span class="sw" style="background:var(--run)"></span>run</span>
+    <span class="item"><span class="sw" style="background:var(--rdy)"></span>ready</span>
+    <span class="item"><span class="sw" style="background:var(--blk)"></span>blocked</span>
+    <span class="item"><span class="sw" style="background:var(--slp)"></span>sleep</span>
+    <span class="item"><span class="sw" style="background:var(--sus)"></span>susp</span>
+    <span class="sep">|</span>
+    <span class="item">
+      <span class="sw" style="width:26px;background:linear-gradient(to right,var(--pm1),var(--pm3),var(--pm6))"></span>
+      cpu sleep (deeper →)
+    </span>
+  </div>
+  <div class="metrics">CPU <b>1.5%</b> · slept <b>98.5%</b> · ctxsw <b>61</b> (3/s) · window <b>18.149s</b></div>
+</div>
+<p class="note">
+  <b>This is the dense extreme, not the typical case.</b> The data is the real
+  <span class="mono">pm_latency</span> trace measured in this branch — 16 segments over
+  18.1&nbsp;s, <b>98.5&nbsp;% slept</b>, deepest standby — so the row is nearly solid on purpose:
+  a power-management demo sleeps almost all the time. An ordinary application inverts this and the
+  row is mostly trough, because every gap is <span class="mono">PM_STATE_ACTIVE</span> and ACTIVE
+  draws nothing, ever. Variant&nbsp;D shows the floor.
+</p>
+<p class="note">
+  <b>What the mockup changed about the design.</b> A first pass put the shallow end of the ramp at
+  <span class="mono">oklch(0.55 0.04 215 / 0.55)</span> and it was a mistake: against the
+  <span class="mono">rgba(15,23,42,0.45)</span> trough a lane reveals, runtime-idle was nearly
+  indistinguishable from <em>awake</em> — the one distinction the row exists to make. The ramp now
+  starts brighter and more chromatic, so even the shallowest state clearly reads as “something”,
+  and the ordering still carries depth. Worth recording because the temptation is to keep the
+  shallow end quiet: quiet is right for the <em>legend</em>, wrong for the floor of the ramp.
+</p>
+<p class="note">
+  <b>The latency story reads without any text.</b> Compare the middle stretch, where a 10&nbsp;ms
+  constraint makes standby unreachable: the deep band simply <em>stops appearing</em>. That absence
+  is the finding.
+</p>
+<p class="note">
+  <b>Why above THREADS rather than below QUEUES.</b> Top-to-bottom becomes substrate → actors →
+  objects, which is a real gradient. But the decisive reason is positional stability:
+  <span class="mono">visibleLanes()</span> grows as threads are created during boot, so a row
+  <em>below</em> the threads slides downward while you are watching it in a live 500&nbsp;ms-repaint
+  view. Above them it is pinned at a constant y. Note also that the <span class="mono">idle</span>
+  thread lane and the CPU band say almost the same thing here — which is exactly why the band is
+  <em>not</em> derived from thread names: a heuristic band is indistinguishable from a measured one
+  once painted.
+</p>
+
+<h2>B · Rejected — CPU below QUEUES<span class="verdict rej">rejected</span></h2>
+<div class="panel">
+  <svg width="1020" height="132" viewBox="0 0 1020 132" role="img"
+       aria-label="The same section placed below the queue lanes, showing it shifting downward">
+    <text x="8" y="12" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">THREADS</text>
+    <rect x="128" y="16" width="884" height="48" fill="var(--trough)" />
+    <g fill="var(--sus)" opacity="0.5">
+      <rect x="132" y="19" width="878" height="10" /><rect x="132" y="35" width="878" height="10" />
+      <rect x="132" y="51" width="878" height="10" />
+    </g>
+    <text x="8" y="28" fill="rgba(148,163,184,0.95)" font-size="11">main</text>
+    <text x="8" y="44" fill="rgba(148,163,184,0.95)" font-size="11">idle</text>
+    <text x="8" y="60" fill="var(--muted-foreground)" font-size="11" opacity="0.6">…+2 new</text>
+    <text x="8" y="80" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">QUEUES</text>
+    <rect x="128" y="84" width="884" height="24" fill="var(--trough)" />
+    <text x="8" y="99" fill="rgba(148,163,184,0.95)" font-size="11">log_msgq</text>
+    <text x="8" y="124" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">CPU</text>
+    <rect x="128" y="112" width="884" height="16" fill="var(--trough)" />
+    <g transform="translate(132,112)">
+      <rect x="0" y="6" width="118" height="9" rx="1" fill="var(--pm1)" />
+      <rect x="126" y="6" width="128" height="9" rx="1" fill="var(--pm2)" />
+      <rect x="262" y="0" width="138" height="15" rx="1" fill="var(--pm3)" />
+    </g>
+    <g stroke="var(--warning)" stroke-dasharray="3 2" opacity="0.8">
+      <line x1="60" y1="112" x2="60" y2="128" /><line x1="52" y1="120" x2="68" y2="120" />
+    </g>
+    <text x="76" y="124" fill="var(--warning)" font-size="9">↓ slides down each time a thread appears</text>
+  </svg>
+</div>
+<p class="note">
+  Same information, worse behaviour. Every new thread pushes the row you are reading further down,
+  and on a machine that creates threads during boot that happens repeatedly in the first seconds —
+  precisely when someone is watching. Flipping this is one array position in
+  <span class="mono">timelineGeom()</span> if the ordering argument loses.
+</p>
+
+<h2>C · Worst case — two CPUs, Default 22 px, dense declines</h2>
+<div class="panel">
+  <svg width="1020" height="86" viewBox="0 0 1020 86" role="img"
+       aria-label="Two CPU rows at default lane height with a near-continuous notch strip">
+    <text x="8" y="12" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">CPU</text>
+    <rect x="128" y="16" width="884" height="44" fill="var(--trough)" />
+    <text x="8" y="31" fill="rgba(148,163,184,0.95)" font-size="11">cpu0</text>
+    <text x="120" y="31" fill="var(--pm2)" font-size="10" text-anchor="end">s2idle</text>
+    <text x="8" y="53" fill="rgba(148,163,184,0.95)" font-size="11">cpu1</text>
+    <text x="120" y="53" fill="var(--muted-foreground)" font-size="10" text-anchor="end">—</text>
+    <g id="dense">
+      <rect x="132" y="20" width="60"  height="13" rx="1" fill="var(--pm1)" />
+      <rect x="200" y="20" width="140" height="13" rx="1" fill="var(--pm2)" />
+      <rect x="348" y="18" width="46"  height="17" rx="1" fill="var(--pm4)" />
+      <rect x="402" y="20" width="88"  height="13" rx="1" fill="var(--pm1)" />
+      <rect x="500" y="20" width="180" height="13" rx="1" fill="var(--pm2)" />
+      <rect x="690" y="18" width="120" height="17" rx="1" fill="var(--pm3)" />
+      <rect x="820" y="20" width="70"  height="13" rx="1" fill="var(--pm1)" />
+      <rect x="900" y="20" width="106" height="13" rx="1" fill="var(--pm2)" />
+    </g>
+    <!-- near-continuous notch strip: the density that would fail if anything does -->
+    <g fill="var(--notch)">
+      <rect x="132" y="35" width="3" height="2" /><rect x="140" y="35" width="3" height="2" />
+      <rect x="148" y="35" width="3" height="2" /><rect x="156" y="35" width="3" height="2" />
+      <rect x="164" y="35" width="3" height="2" /><rect x="172" y="35" width="3" height="2" />
+      <rect x="180" y="35" width="3" height="2" /><rect x="188" y="35" width="3" height="2" />
+      <rect x="196" y="35" width="3" height="2" /><rect x="204" y="35" width="3" height="2" />
+      <rect x="212" y="35" width="3" height="2" /><rect x="220" y="35" width="3" height="2" />
+      <rect x="340" y="35" width="3" height="2" /><rect x="348" y="35" width="3" height="2" />
+      <rect x="356" y="35" width="3" height="2" /><rect x="364" y="35" width="3" height="2" />
+      <rect x="372" y="35" width="3" height="2" /><rect x="380" y="35" width="3" height="2" />
+      <rect x="490" y="35" width="3" height="2" /><rect x="498" y="35" width="3" height="2" />
+      <rect x="506" y="35" width="3" height="2" /><rect x="680" y="35" width="3" height="2" />
+      <rect x="688" y="35" width="3" height="2" /><rect x="696" y="35" width="3" height="2" />
+      <rect x="810" y="35" width="3" height="2" /><rect x="818" y="35" width="3" height="2" />
+      <rect x="826" y="35" width="3" height="2" /><rect x="890" y="35" width="3" height="2" />
+      <rect x="898" y="35" width="3" height="2" /><rect x="906" y="35" width="3" height="2" />
+    </g>
+    <!-- cpu1 mostly awake: the honest, quiet case -->
+    <rect x="600" y="42" width="90" height="13" rx="1" fill="var(--pm1)" />
+    <rect x="700" y="42" width="40" height="13" rx="1" fill="var(--pm1)" />
+    <text x="140" y="76" fill="var(--muted-foreground)" font-size="9">
+      cpu1 is mostly awake, so its row is mostly nothing — the common multicore case
+    </text>
+  </svg>
+</div>
+<p class="note">
+  <b>The stress case.</b> A guest whose policy declines constantly makes the notch strip
+  near-continuous. It stays a 2&nbsp;px baseline detail rather than competing with the fill, and it
+  is pixel-thinned exactly like <span class="mono">MSGQ_MARK_MIN_GAP_PX</span>. If any variant on
+  this page is going to be judged too busy, it is this one — and the escape hatch is already
+  designed: the whole section is behind a toolbar toggle, like the queue overlay.
+</p>
+
+<h2>D · No PM events — every sample shipping today<span class="verdict rec">zero cost</span></h2>
+<div class="panel">
+  <svg width="1020" height="112" viewBox="0 0 1020 112" role="img"
+       aria-label="The timeline unchanged for a guest with no power management events">
+    <text x="8" y="12" fill="var(--muted-foreground)" font-size="10">t →</text>
+    <line x1="128" y1="27" x2="1020" y2="27" stroke="var(--border)" />
+    <text x="8" y="39" fill="var(--muted-foreground)" font-size="9" letter-spacing="0.08em">THREADS</text>
+    <rect x="128" y="43" width="884" height="64" fill="var(--trough)" />
+    <text x="8" y="55" fill="rgba(148,163,184,0.95)" font-size="11">main</text>
+    <text x="8" y="71" fill="rgba(148,163,184,0.95)" font-size="11">shell_uart</text>
+    <text x="8" y="87" fill="rgba(148,163,184,0.95)" font-size="11">idle</text>
+    <text x="8" y="103" fill="var(--muted-foreground)" font-size="11">[ISR]</text>
+    <g fill="var(--run)"><rect x="132" y="46" width="180" height="10" /><rect x="500" y="46" width="220" height="10" /></g>
+    <g fill="var(--slp)"><rect x="316" y="46" width="180" height="10" /><rect x="724" y="46" width="286" height="10" /></g>
+    <g fill="var(--sus)"><rect x="132" y="62" width="878" height="10" /></g>
+    <g fill="var(--run)"><rect x="316" y="78" width="180" height="10" /><rect x="724" y="78" width="286" height="10" /></g>
+    <g fill="var(--isr)"><rect x="316" y="94" width="2" height="10" /><rect x="500" y="94" width="2" height="10" /></g>
+  </svg>
+  <div class="legend">
+    <span class="lead">states:</span>
+    <span class="item"><span class="sw" style="background:var(--run)"></span>run</span>
+    <span class="item"><span class="sw" style="background:var(--rdy)"></span>ready</span>
+    <span class="item"><span class="sw" style="background:var(--blk)"></span>blocked</span>
+    <span class="item"><span class="sw" style="background:var(--slp)"></span>sleep</span>
+    <span class="item"><span class="sw" style="background:var(--sus)"></span>susp</span>
+  </div>
+  <div class="metrics">CPU <b>48%</b> · ctxsw <b>812</b> (4060/s) · window <b>200.000ms</b></div>
+</div>
+<p class="note">
+  <b>The clutter claim, drawn so it can be falsified.</b> No section header, no lane, no legend
+  entry, no <span class="mono">slept</span> token, no empty state, no toolbar toggle — nothing
+  moves and nothing shifts down. The section is conditional in
+  <span class="mono">timelineGeom()</span> exactly as <span class="mono">showQueues</span> and
+  <span class="mono">hasIsr</span> already are, so <span class="mono">contentBottom</span> is
+  unchanged and the panel is byte-identical to today. This is the case for ~100&nbsp;% of samples
+  in the gallery.
+</p>
+
+<h2>Tooltip — real DOM, real tokens</h2>
+<div class="tips">
+  <div class="tip"><span class="dim">2.331s · cpu0</span>
+standby
+1.276s <span class="dim">(min 1.20s, exit 30ms)</span>
+<span class="dim">budget 130 ticks → chose standby</span></div>
+  <div class="tip"><span class="dim">9.591s · cpu0</span>
+suspend-to-idle
+1.191s <span class="dim">(min 1.10s, exit 20ms)</span>
+<span class="dim">budget 130 ticks · standby blocked by 20ms latency</span></div>
+  <div class="tip"><span class="dim">1.110s · cpu0</span>
+policy declined
+<span class="dim">budget 1 tick → active (min 1.01s unaffordable)</span></div>
+  <div class="tip"><span class="dim">3.640s · cpu0</span>
+runtime-idle
+<span class="warn">0.42s early wake</span> <span class="dim">(min 1.00s)</span></div>
+</div>
+<p class="note">
+  Names, residencies and thresholds all come from the devicetree
+  (<span class="mono">src/dts/powerStates.ts</span>) — the CTF events carry only
+  <span class="mono">{cpu, state, substate_id}</span>. <b>Numbers, not grades:</b>
+  <span class="mono">min-residency-us</span> is a policy <em>input</em> compared against predicted
+  idle time, so scoring achieved residency against it and printing a ✓/✗ would be a confident
+  value judgement on an emulated clock. “early wake” is a factual phrase; the reader draws the
+  conclusion. The <span class="mono">budget</span> line is the genuinely new capability: it pairs
+  what the policy was offered with what it picked, which is how “standby was affordable and still
+  not chosen” becomes visible at all.
+</p>
+
+<details>
+<summary>Exact ramp values, so the implementation copies rather than re-derives</summary>
+<pre class="tok">/* CPU depth ramp — one hue, monotone in lightness AND chroma.
+   rank is the index in `cpu-power-states` (shallow → deep) when the devicetree
+   has it, else the raw pm_state value. rank 0 / ACTIVE draws nothing.        */
+--pm1: oklch(0.60 0.075 216 / 0.80);  /* 60% height, bottom-aligned */
+--pm2: oklch(0.67 0.11  213 / 0.88);  /* 60% height              */
+--pm3: oklch(0.73 0.14  210 / 0.93);  /* full height — context starts being lost */
+--pm4: oklch(0.78 0.16  208 / 0.96);  /* full height             */
+--pm5: oklch(0.82 0.18  206 / 0.98);  /* full height             */
+--pm6: oklch(0.86 0.19  204 / 1);     /* full height + 1px top hairline */
+--notch: oklch(0.77 0.15 78 / 0.5);   /* = --warning, policy declines   */
+
+/* Alpha is baked into each stop so one ramp step is one constant, rather than a
+   globalAlpha dance. oklch() strings in Canvas 2D are already precedented in
+   src/components/CanArbitrationLanes.ts.                                     */
+
+/* Geometry, within a row of height H at top y:
+     fill  [y+2,   y+H-5]   height 60% (rank<=2, bottom-aligned) or 100%
+     notch [y+H-4, y+H-2]
+   cpuLaneH = clamp(laneH, 14, 24) -> s:16  m:22  l:24
+   NOT laneH*1.5 like queue lanes, and deliberately not 40 at Tall: a two-level
+   bar gains nothing above ~24px, unlike a depth histogram.                   */</pre>
+</details>
+
+</div>
+</body>
+</html>
