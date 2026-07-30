@@ -37,6 +37,11 @@ export interface DhcpMessage {
   msgType: number | null
   requestedIp: number | null
   serverId: number | null
+  /** Server-side options, present on Offer/ACK — what the uplink sniffer reads. */
+  subnetMask: number | null
+  router: number | null
+  dns: number | null
+  leaseSecs: number | null
 }
 
 export function parseDhcp(payload: Uint8Array): DhcpMessage | null {
@@ -56,6 +61,10 @@ export function parseDhcp(payload: Uint8Array): DhcpMessage | null {
     msgType: null,
     requestedIp: null,
     serverId: null,
+    subnetMask: null,
+    router: null,
+    dns: null,
+    leaseSecs: null,
   }
 
   let i = 240
@@ -72,6 +81,11 @@ export function parseDhcp(payload: Uint8Array): DhcpMessage | null {
     if (opt === OPT_MSG_TYPE && len === 1) msg.msgType = payload[i + 2]
     if (opt === OPT_REQUESTED_IP && len === 4) msg.requestedIp = view.getUint32(i + 2)
     if (opt === OPT_SERVER_ID && len === 4) msg.serverId = view.getUint32(i + 2)
+    if (opt === OPT_SUBNET_MASK && len === 4) msg.subnetMask = view.getUint32(i + 2)
+    // Routers/DNS may list several addresses; the first is the one to show.
+    if (opt === OPT_ROUTER && len >= 4) msg.router = view.getUint32(i + 2)
+    if (opt === OPT_DNS && len >= 4) msg.dns = view.getUint32(i + 2)
+    if (opt === OPT_LEASE_TIME && len === 4) msg.leaseSecs = view.getUint32(i + 2)
     i += 2 + len
   }
   return msg

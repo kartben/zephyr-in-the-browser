@@ -23,7 +23,20 @@ import {
   setImpairments,
   setLink,
   subscribe,
+  uplinkConnect,
+  uplinkDisconnect,
+  type NetSnapshot,
 } from '@/hostNet'
+import {
+  getSettings as getNetSettings,
+  isValidGatewayUrl,
+  resolveNetConfig,
+  setMode as setNetMode,
+  setUrl as setNetUrl,
+  subscribe as subscribeNet,
+  NET_QUERY_PARAM,
+} from '@/lib/netStore'
+import { mixedContentHint } from '@/net/uplink'
 import { getBoard, getSample } from '@/boards'
 
 const DEFAULT_GUEST_HTTP_URL = 'http://192.0.2.1/'
@@ -68,7 +81,9 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
             </span>
             <span className="text-[11px] text-muted-foreground">
               {snapshot.dhcpState === 'bound'
-                ? 'via DHCP'
+                ? snapshot.mode === 'uplink'
+                  ? 'via gateway DHCP'
+                  : 'via DHCP'
                 : snapshot.dhcpState === 'static'
                   ? 'static'
                   : snapshot.dhcpState === 'offered'
@@ -86,14 +101,14 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
               <Info className="size-3.5" />
             </Button>
           </div>
-          {showAbout && <AboutThisNetwork />}
+          {showAbout && <AboutThisNetwork mode={snapshot.mode} />}
           <div className="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[11px] text-muted-foreground">
             <span>mac</span>
             <span className="text-foreground">{snapshot.guestMac ?? '—'}</span>
             <span>gw</span>
-            <span className="text-foreground">{snapshot.gatewayIp}</span>
+            <span className="text-foreground">{snapshot.gatewayIp ?? '—'}</span>
             <span>dns</span>
-            <span className="text-foreground">{snapshot.dnsIp}</span>
+            <span className="text-foreground">{snapshot.dnsIp ?? '—'}</span>
           </div>
         </Disclosure>
 
@@ -114,8 +129,8 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
           {...fold('link', false)}
         >
           <div className="space-y-1">
-            <Button size="sm" variant={snapshot.linkUp ? 'outline' : 'default'} className="mb-1 h-7 text-xs" onClick={() => setLink(!snapshot.linkUp)}>
-              {snapshot.linkUp ? 'Drop link' : 'Raise link'}
+            <Button size="sm" variant={snapshot.userLinkUp ? 'outline' : 'default'} className="mb-1 h-7 text-xs" onClick={() => setLink(!snapshot.userLinkUp)}>
+              {snapshot.userLinkUp ? 'Drop link' : 'Raise link'}
             </Button>
             <SliderControl
               label="Added latency"
@@ -140,6 +155,14 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
           </div>
         </Disclosure>
 
+        <Disclosure
+          title="Uplink"
+          meta={snapshot.mode === 'uplink' ? snapshot.uplink.phase : undefined}
+          {...fold('uplink', false)}
+        >
+          <UplinkSection snapshot={snapshot} />
+        </Disclosure>
+
         <Disclosure title="Capture" meta={snapshot.captureCount} {...fold('capture', false)}>
           <CaptureSection
             count={snapshot.captureCount}
@@ -149,7 +172,15 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
         </Disclosure>
 
         <Disclosure title="Talk to the guest" {...fold('tools', false)}>
-          <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
+          {snapshot.mode === 'uplink' ? (
+            <p className="text-[11px] text-muted-foreground">
+              Not available in gateway mode — GET, Browser and echo dial in through the simulated
+              LAN. Reach guest servers through your gateway&apos;s port forwards instead
+              (<code className="font-mono">PASST_ARGS=&quot;-t 4242&quot;</code>).
+            </p>
+          ) : (
+            <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
+          )}
         </Disclosure>
       </div>
   )
@@ -157,9 +188,33 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
 
 /**
  * The honest disclosure: what is real, what is theater. Same story as the
- * README's networking section — keep the two in step.
+ * README's networking section and docs/networking.md — keep them in step.
  */
-function AboutThisNetwork() {
+function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
+  if (mode === 'uplink') {
+    return (
+      <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
+        <p>
+          <span className="font-medium">This network is your gateway.</span> Every frame the guest
+          sends leaves the tab over a WebSocket to the gateway you run, which answers with real
+          DHCP, DNS, TCP/UDP and ICMP from its own network.
+        </p>
+        <p>
+          <span className="font-medium text-success">Real:</span> everything the gateway&apos;s host
+          can reach — DHCP leases, DNS, HTTPS, raw TCP/UDP, even ping.
+        </p>
+        <p>
+          <span className="font-medium text-warning">Simulated:</span> nothing in the page — but
+          capture, throughput and impairments still ride the same wire below the tunnel.
+        </p>
+        <p>
+          <span className="font-medium text-destructive">Impossible:</span> the panel&apos;s GET,
+          Browser and echo tools — they dial in through the simulated LAN. Use the gateway&apos;s
+          port forwards to reach servers the guest runs.
+        </p>
+      </div>
+    )
+  }
   return (
     <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
       <p>
@@ -181,10 +236,199 @@ function AboutThisNetwork() {
       <p>
         <span className="font-medium text-destructive">Impossible:</span> HTTPS or raw TCP/UDP to
         real hosts (browser pages have no sockets). Servers the guest runs are reachable only
-        through the GET and Browser tools below.
+        through the GET and Browser tools below, or for real over the Uplink section&apos;s
+        gateway mode.
       </p>
-      {/* The passt-uplink plan used to be a fifth paragraph here. A roadmap is
-          not something the panel can act on — it belongs in the README. */}
+    </div>
+  )
+}
+
+/**
+ * Mode + gateway URL + live connection state. The mode/URL edits land in
+ * netStore immediately but only apply at the next emulator start (a running
+ * guest holds its lease; swapping LANs under it would lie) — the section
+ * says so whenever the stored choice differs from what this session runs.
+ */
+const GATEWAY_ONE_LINER =
+  'docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/zephyr-in-the-browser/gateway'
+
+function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
+  const settings = useSyncExternalStore(subscribeNet, getNetSettings, getNetSettings)
+  const [url, setUrlLocal] = useState(settings.url)
+  const [showHelp, setShowHelp] = useState(false)
+  useEffect(() => {
+    setUrlLocal(settings.url)
+  }, [settings.url])
+
+  const resolved = resolveNetConfig()
+  const queryForced = resolved.source === 'query'
+  const urlInvalid = url.trim() !== '' && !isValidGatewayUrl(url.trim())
+  const running = snapshot.available
+  const runningUplink = running && snapshot.mode === 'uplink'
+  const pendingRestart =
+    running &&
+    (resolved.mode !== snapshot.mode ||
+      (resolved.mode === 'uplink' && snapshot.mode === 'uplink' && resolved.url !== snapshot.uplink.url))
+  const wsHint = settings.mode === 'uplink' ? mixedContentHint(url.trim()) : ''
+
+  const commitUrl = () => {
+    const next = url.trim()
+    if (next === '' || isValidGatewayUrl(next)) setNetUrl(next)
+  }
+
+  const { phase, detail, attempts, droppedTx, oversizeRx } = snapshot.uplink
+  const dot =
+    phase === 'connected'
+      ? 'bg-success'
+      : phase === 'connecting'
+        ? 'bg-warning animate-pulse'
+        : phase === 'error'
+          ? 'bg-destructive'
+          : 'bg-muted-foreground'
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5">
+        <Button
+          size="sm"
+          variant={settings.mode === 'sim' ? 'default' : 'outline'}
+          className="h-7 text-xs"
+          disabled={queryForced}
+          onClick={() => setNetMode('sim')}
+        >
+          Simulated LAN
+        </Button>
+        <Button
+          size="sm"
+          variant={settings.mode === 'uplink' ? 'default' : 'outline'}
+          className="h-7 text-xs"
+          disabled={queryForced}
+          onClick={() => setNetMode('uplink')}
+        >
+          Gateway
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('ml-auto size-6', showHelp && 'text-primary')}
+          aria-label="How to run the gateway"
+          aria-pressed={showHelp}
+          onClick={() => setShowHelp((s) => !s)}
+        >
+          <Info className="size-3.5" />
+        </Button>
+      </div>
+
+      {showHelp && (
+        <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
+          <p>
+            <span className="font-medium">Run the gateway</span> on any machine with Docker — it
+            bridges the guest onto that machine&apos;s network via{' '}
+            <a
+              className="underline decoration-dotted underline-offset-2 hover:text-primary"
+              href="https://passt.top/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              passt
+            </a>
+            :
+          </p>
+          <code className="block whitespace-pre-wrap break-all rounded bg-background/60 p-1.5 font-mono text-[10px] leading-4">
+            {GATEWAY_ONE_LINER}
+          </code>
+          <p>
+            Then paste the <code className="font-mono">ws://…?token=…</code> URL it prints into the
+            field below and restart the emulator — or just open the deep link it prints. Safari and
+            remote gateways need the <code className="font-mono">wss://</code> tunnel URL instead:
+            add <code className="font-mono">-e TUNNEL=quick</code>.
+          </p>
+          <p>
+            Port forwards, security notes and alternatives:{' '}
+            <a
+              className="underline decoration-dotted underline-offset-2 hover:text-primary"
+              href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/net-gateway.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              docs/net-gateway.md
+            </a>
+            .
+          </p>
+        </div>
+      )}
+
+      {settings.mode === 'uplink' && (
+        <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
+          <input
+            type="text"
+            aria-label="Gateway WebSocket URL"
+            placeholder="ws://localhost:8737/?token=…"
+            value={url}
+            disabled={queryForced}
+            onChange={(e) => setUrlLocal(e.target.value)}
+            onBlur={commitUrl}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitUrl()
+            }}
+            className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60"
+          />
+        </span>
+      )}
+      {urlInvalid && (
+        <p className="font-mono text-[11px] text-destructive">not a ws:// or wss:// URL</p>
+      )}
+      {!urlInvalid && wsHint && <p className="text-[11px] text-muted-foreground">{wsHint}</p>}
+
+      {queryForced && (
+        <p className="text-[11px] text-muted-foreground">
+          Set by the <code className="font-mono">?{NET_QUERY_PARAM}=</code> URL parameter — remove
+          it to use this panel&apos;s setting.
+        </p>
+      )}
+
+      {runningUplink && (
+        <div className="flex items-center gap-1.5">
+          <span className={cn('size-2 shrink-0 rounded-full', dot)} role="status" aria-label={`Uplink ${phase}`} />
+          <span className="shrink-0 font-mono text-[11px]">{phase}</span>
+          {detail && (
+            <span
+              className={cn(
+                'truncate font-mono text-[11px]',
+                phase === 'error' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+              title={detail}
+            >
+              {detail}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            className="ml-auto h-7 shrink-0 text-xs"
+            onClick={() =>
+              phase === 'connected' || phase === 'connecting' ? uplinkDisconnect() : uplinkConnect()
+            }
+          >
+            {phase === 'connected' || phase === 'connecting'
+              ? 'Disconnect'
+              : phase === 'error'
+                ? 'Retry'
+                : 'Connect'}
+          </Button>
+        </div>
+      )}
+      {runningUplink && (droppedTx > 0 || oversizeRx > 0 || attempts > 1) && (
+        <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          dropped {droppedTx} · oversize {oversizeRx} · attempts {attempts}
+        </p>
+      )}
+
+      {pendingRestart && (
+        <p className="text-[11px] text-muted-foreground">
+          Applies when the emulator restarts (⟳ in the toolbar).
+        </p>
+      )}
     </div>
   )
 }

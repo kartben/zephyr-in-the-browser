@@ -4,11 +4,14 @@
  * twin): a QEMU `browser` netdev exposes two SPSC frame rings in the shared
  * wasm heap, and this module is the other side of the wire.
  *
- * Every frame the guest transmits is drained here and fed to the TypeScript
- * network stack (src/net/), which implements the entire LAN — DHCP, DNS,
- * SNTP, ICMP, TCP peers, an HTTP proxy riding fetch(). Replies are written
- * back into the RX ring. Because all traffic passes through this file, the
- * counters, throughput history, packet capture and .pcap export come free.
+ * Every frame the guest transmits is drained here and fed to one of two
+ * sinks: by default the TypeScript network stack (src/net/), which implements
+ * the entire LAN — DHCP, DNS, SNTP, ICMP, TCP peers, an HTTP proxy riding
+ * fetch() — or, in uplink mode (src/lib/netStore.ts), a WebSocket to a
+ * self-hosted gateway that puts the guest on a real network
+ * (docs/net-gateway.md). Replies are written back into the RX ring. Because
+ * all traffic passes through this file either way, the counters, throughput
+ * history, packet capture, .pcap export and impairments work in both modes.
  *
  * Polling is adaptive: 100 ms at idle (one shared-memory index read), 10 ms
  * while frames flowed within the last 3 s, plus one opportunistic drain just
@@ -36,6 +39,8 @@ import {
   loadGuestBrowserPage as loadGuestBrowserPageService,
   type GuestBrowserPage,
 } from '@/net/services/guestBrowser'
+import { UplinkSink, type UplinkPhase } from '@/net/uplink'
+import { resolveNetConfig, type NetMode } from '@/lib/netStore'
 
 interface NetExports {
   _qemu_browser_net_ready?: () => number
@@ -65,14 +70,29 @@ export interface CaptureEntry {
   summary: string
 }
 
+export interface UplinkSnapshot {
+  phase: UplinkPhase
+  detail: string
+  url: string
+  attempts: number
+  droppedTx: number
+  oversizeRx: number
+}
+
 export interface NetSnapshot {
   available: boolean
+  mode: NetMode
+  /** Wire carrier as QEMU gates it — follows the user's link toggle only. */
   linkUp: boolean
+  /** What the Drop/Raise link toggle controls; today always === linkUp. */
+  userLinkUp: boolean
   guestMac: string | null
   guestIp: string | null
   dhcpState: DhcpState
-  gatewayIp: string
-  dnsIp: string
+  /** Sim: the stack's fixed addresses. Uplink: sniffed from DHCP, else null. */
+  gatewayIp: string | null
+  dnsIp: string | null
+  uplink: UplinkSnapshot
   /** Guest-perspective rates, EMA-smoothed bits/s. */
   rxBps: number
   txBps: number
@@ -96,14 +116,26 @@ const POLL_HOT_MS = 10
 const HOT_WINDOW_MS = 3000
 const CAPTURE_CAP = 500
 
+const EMPTY_UPLINK: UplinkSnapshot = {
+  phase: 'idle',
+  detail: '',
+  url: '',
+  attempts: 0,
+  droppedTx: 0,
+  oversizeRx: 0,
+}
+
 const EMPTY: NetSnapshot = {
   available: false,
+  mode: 'sim',
   linkUp: true,
+  userLinkUp: true,
   guestMac: null,
   guestIp: null,
   dhcpState: 'waiting',
   gatewayIp: '192.0.2.2',
   dnsIp: '192.0.2.3',
+  uplink: EMPTY_UPLINK,
   rxBps: 0,
   txBps: 0,
   rxHistory: [],
@@ -118,8 +150,18 @@ const EMPTY: NetSnapshot = {
   impairments: { delayMs: 0, lossPct: 0 },
 }
 
+/** What a frame sink looks like; NetStack satisfies it structurally. */
+interface FrameSink {
+  onGuestFrame(frame: Uint8Array): void
+  tick(): void
+  dispose(): void
+}
+
 let exports: NetExports | null = null
+let mode: NetMode = 'sim'
 let stack: NetStack | null = null
+let uplink: UplinkSink | null = null
+let sink: FrameSink | null = null
 let snapshot: NetSnapshot = EMPTY
 let generation = 0
 
@@ -182,18 +224,38 @@ export function attach(mod: unknown) {
   rxBase = exports._qemu_browser_net_rx_ring!()
   txRd = exports._qemu_browser_net_tx_read_index!()
   linkUp = true
-  exports._qemu_browser_net_set_link?.(1)
 
-  stack = new NetStack({
-    sendFrame: (frame) => deliverToGuest(frame),
-    now: () => Date.now(),
-    random: Math.random,
-    fetchImpl: typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null,
-    onEvent: () => rebuild(),
-  })
-  installHttpProxy(stack)
-  installEchoHost(stack)
-  installZperf(stack)
+  const cfg = resolveNetConfig()
+  mode = cfg.mode
+  if (mode === 'uplink') {
+    // The wire's carrier stays up exactly as in sim mode. Zephyr's
+    // eth_virtio_net driver has no link-status handling at all — it can
+    // neither see a late carrier-up nor act on one, and flipping virtio-net
+    // link state under a live guest proved able to wedge it. Disconnection
+    // semantics live in the sink instead: guest frames are dropped and
+    // counted while the socket is closed (DHCP/TCP retransmit).
+    exports._qemu_browser_net_set_link?.(1)
+    uplink = new UplinkSink(cfg.url, {
+      deliverFrame: (frame) => deliverToGuest(frame),
+      onPhaseChange: () => rebuild(),
+      onChange: () => notifySoon(),
+    })
+    sink = uplink
+    uplink.connect()
+  } else {
+    exports._qemu_browser_net_set_link?.(1)
+    stack = new NetStack({
+      sendFrame: (frame) => deliverToGuest(frame),
+      now: () => Date.now(),
+      random: Math.random,
+      fetchImpl: typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null,
+      onEvent: () => rebuild(),
+    })
+    installHttpProxy(stack)
+    installEchoHost(stack)
+    installZperf(stack)
+    sink = stack
+  }
 
   lastStatsAt = performance.now()
   statsTimer = setInterval(sampleStats, STATS_MS)
@@ -207,8 +269,11 @@ export function detach() {
   if (statsTimer !== undefined) clearInterval(statsTimer)
   if (notifyTimer !== undefined) clearTimeout(notifyTimer)
   poll = statsTimer = notifyTimer = undefined
-  stack?.dispose()
+  sink?.dispose()
+  sink = null
   stack = null
+  uplink = null
+  mode = 'sim'
   exports = null
   captures = []
   pendingRx = []
@@ -248,7 +313,8 @@ export function getSnapshot(): NetSnapshot {
  */
 export function getLinkToken(): string {
   if (!snapshot.available) return ''
-  return `${snapshot.linkUp ? 1 : 0}|${snapshot.guestIp ?? ''}`
+  const phase = snapshot.mode === 'uplink' ? snapshot.uplink.phase : ''
+  return `${snapshot.linkUp ? 1 : 0}|${snapshot.guestIp ?? ''}|${snapshot.mode}|${phase}`
 }
 
 export function getCaptures(): readonly CaptureEntry[] {
@@ -262,6 +328,15 @@ export function setLink(up: boolean) {
   linkUp = up
   exports._qemu_browser_net_set_link?.(up ? 1 : 0)
   rebuild()
+}
+
+/** Uplink controls (no-ops in sim mode). */
+export function uplinkConnect() {
+  uplink?.connect()
+}
+
+export function uplinkDisconnect() {
+  uplink?.disconnect()
 }
 
 export function setImpairments(next: { delayMs?: number; lossPct?: number }) {
@@ -291,9 +366,16 @@ export function buildPcapBlob(): Blob {
   })
 }
 
+/** The dial-in tools ride the simulated stack's own TCP — sim mode only. */
+function noStackError(): Error {
+  return new Error(
+    mode === 'uplink' ? 'Not available in gateway mode' : 'Network bridge not attached',
+  )
+}
+
 /** Panel tool: HTTP GET against a server running in the guest. */
 export function httpGetFromHost(url: string): Promise<HttpGetResult> {
-  if (!stack) return Promise.reject(new Error('Network bridge not attached'))
+  if (!stack) return Promise.reject(noStackError())
   return httpGetService(stack, url)
 }
 
@@ -302,19 +384,19 @@ export function httpRequestFromHost(
   url: string,
   options: HttpRequestOptions,
 ): Promise<HttpGetResult> {
-  if (!stack) return Promise.reject(new Error('Network bridge not attached'))
+  if (!stack) return Promise.reject(noStackError())
   return httpRequestService(stack, url, options, 8000, HTTP_BROWSER_BODY_CAP)
 }
 
 /** Mini-browser: GET + rewrite guest assets into a srcdoc page. */
 export function loadGuestBrowserPage(url: string): Promise<GuestBrowserPage> {
-  if (!stack) return Promise.reject(new Error('Network bridge not attached'))
+  if (!stack) return Promise.reject(noStackError())
   return loadGuestBrowserPageService(stack, url)
 }
 
 /** Panel tool: TCP/UDP echo against the guest's echo server. */
 export function echoToGuest(payload: string, proto: 'tcp' | 'udp'): Promise<string> {
-  if (!stack) return Promise.reject(new Error('Network bridge not attached'))
+  if (!stack) return Promise.reject(noStackError())
   return echoService(stack, payload, proto)
 }
 
@@ -334,7 +416,7 @@ function drainTx() {
     txBytes += frame.length
     capture('tx', frame)
     markActive()
-    if (!impair()) stack?.onGuestFrame(frame)
+    if (!impair()) sink?.onGuestFrame(frame)
   })
   mod._qemu_browser_net_tx_set_read_index!(txRd)
 }
@@ -436,7 +518,7 @@ function startPoll(fast: boolean) {
 function pollTick() {
   drainTx()
   flushPendingRx()
-  stack?.tick()
+  sink?.tick()
   if (pollFast && performance.now() - lastActivity > HOT_WINDOW_MS) startPoll(false)
 }
 
@@ -459,15 +541,41 @@ function sampleStats() {
 /* ------------------------------------------------------------- snapshot */
 
 function rebuild() {
-  if (!exports || !stack) return
+  if (!exports || !sink) return
+  const identity = stack
+    ? {
+        guestMac: stack.guestMac ? macToString(stack.guestMac) : null,
+        guestIp: stack.guestIp !== null ? ipToString(stack.guestIp) : null,
+        dhcpState: stack.dhcpState,
+        gatewayIp: ipToString(stack.gwIp) as string | null,
+        dnsIp: ipToString(stack.dnsIp) as string | null,
+      }
+    : {
+        guestMac: uplink!.sniff.guestMac ? macToString(uplink!.sniff.guestMac) : null,
+        guestIp: uplink!.sniff.guestIp !== null ? ipToString(uplink!.sniff.guestIp) : null,
+        dhcpState: uplink!.sniff.dhcpState,
+        gatewayIp: uplink!.sniff.gatewayIp !== null ? ipToString(uplink!.sniff.gatewayIp) : null,
+        dnsIp: uplink!.sniff.dnsIp !== null ? ipToString(uplink!.sniff.dnsIp) : null,
+      }
   snapshot = {
     available: true,
+    mode,
+    // Identical by design: carrier follows only the user's toggle (the guest
+    // driver cannot see socket-driven flips). Kept as two fields so a future
+    // carrier-aware guest driver can split them again without a UI change.
     linkUp,
-    guestMac: stack.guestMac ? macToString(stack.guestMac) : null,
-    guestIp: stack.guestIp !== null ? ipToString(stack.guestIp) : null,
-    dhcpState: stack.dhcpState,
-    gatewayIp: ipToString(stack.gwIp),
-    dnsIp: ipToString(stack.dnsIp),
+    userLinkUp: linkUp,
+    ...identity,
+    uplink: uplink
+      ? {
+          phase: uplink.phase,
+          detail: uplink.detail,
+          url: uplink.url,
+          attempts: uplink.counters.attempts,
+          droppedTx: uplink.counters.droppedTx,
+          oversizeRx: uplink.counters.oversizeRx,
+        }
+      : EMPTY_UPLINK,
     rxBps: rxEma,
     txBps: txEma,
     rxHistory,

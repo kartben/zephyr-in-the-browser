@@ -704,17 +704,28 @@ function BluetoothBadge() {
 }
 
 function NetBadge() {
-  // Only link/IP — not the 2 Hz throughput / ≤10 Hz capture snapshot.
+  // Only link/IP/mode — not the 2 Hz throughput / ≤10 Hz capture snapshot.
   const token = useSyncExternalStore(hostNet.subscribe, hostNet.getLinkToken, () => '')
-  const linkUp = token.startsWith('1|')
-  const guestIp = token.length > 2 ? token.slice(2) : ''
+  const [link, guestIp = '', tokenMode = 'sim', phase = ''] = token.split('|')
+  const linkUp = link === '1'
+  const uplink = tokenMode === 'uplink'
+  const dot = uplink
+    ? phase === 'connected' && linkUp
+      ? 'bg-success'
+      : phase === 'connecting'
+        ? 'bg-warning animate-pulse'
+        : 'bg-destructive'
+    : linkUp
+      ? 'bg-success'
+      : 'bg-destructive'
+  const label = uplink
+    ? `Gateway uplink — ${phase || 'idle'}`
+    : linkUp
+      ? 'Link up'
+      : 'Link down'
   return (
     <span className="flex items-center gap-1.5">
-      <span
-        className={cn('size-2 rounded-full', linkUp ? 'bg-success' : 'bg-destructive')}
-        role="status"
-        aria-label={linkUp ? 'Link up' : 'Link down'}
-      />
+      <span className={cn('size-2 rounded-full', dot)} role="status" aria-label={label} title={label} />
       {guestIp && <Mono>{guestIp}</Mono>}
     </span>
   )

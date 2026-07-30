@@ -25,7 +25,7 @@ out into a floating window; collapsed rows keep a live readout.
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API |
 | **I²C** | The bus itself: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels |
 | **SPI** | A SPI bus with JEDEC NOR flash: hex dump, LittleFS browser, and persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same bus can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
-| **Network** | Ethernet with throughput charts and a packet capture. DHCP, HTTP, and echo samples talk through Network |
+| **Network** | Ethernet with throughput charts and a packet capture. DHCP, HTTP, and echo samples talk through Network — or flip the panel's **Uplink** to bridge frames over a WebSocket to a [self-hosted gateway](docs/net-gateway.md) (one `docker run`, passt-based) for real DHCP, DNS, TCP/UDP, even real ping |
 | **Guided tours** | A **stock** sample that explains itself. Each step pauses the **guest** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
 
 ## Quick start
@@ -51,6 +51,19 @@ and builds samples in parallel so you can rebuild many apps at once. Set
 `ZEPHYR_DOCKER=1` to force the container path, or `ZEPHYR_NATIVE=1` to force
 native. The app switches to QEMU automatically once it finds a build. See
 [public/qemu/README.md](public/qemu/README.md) for details.
+
+### Real network access (optional)
+
+By default the guest's LAN is simulated in the page and nothing reaches the
+internet. To bridge it onto a real network, run the gateway and paste the URL
+it prints into the Network panel's **Uplink** section:
+
+```console
+docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/zephyr-in-the-browser/gateway
+```
+
+See [docs/net-gateway.md](docs/net-gateway.md) for tunnels (public `wss://`
+links), security notes and alternatives.
 
 ## Choosing what runs
 
