@@ -2953,37 +2953,10 @@ event {
 	};
 };
 
-/* System Managed Device Power Management */
-event {
-	name = pm_suspend_devices_enter;
-	id = 0x155;
-};
-
-event {
-	name = pm_suspend_devices_exit;
-	id = 0x156;
-	fields := struct {
-		uint32_t count;
-		uint8_t ok;
-	};
-};
-
-event {
-	name = pm_resume_devices_enter;
-	id = 0x157;
-	fields := struct {
-		uint32_t count;
-	};
-};
-
-event {
-	name = pm_resume_devices_exit;
-	id = 0x158;
-};
-
+/* Device Power Management Actions */
 event {
 	name = pm_device_action_run_enter;
-	id = 0x159;
+	id = 0x155;
 	fields := struct {
 		uint32_t dev;
 		uint8_t action;
@@ -2992,7 +2965,7 @@ event {
 
 event {
 	name = pm_device_action_run_exit;
-	id = 0x15A;
+	id = 0x156;
 	fields := struct {
 		uint32_t dev;
 		uint8_t action;

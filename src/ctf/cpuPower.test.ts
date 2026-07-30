@@ -18,15 +18,29 @@ import {
 import {
   PM_DEVICE_ACTION_RUN_ENTER,
   PM_DEVICE_ACTION_RUN_EXIT,
-  PM_RESUME_DEVICES_ENTER,
-  PM_RESUME_DEVICES_EXIT,
   PM_STATE_SET_ENTER,
   PM_STATE_SET_EXIT,
-  PM_SUSPEND_DEVICES_ENTER,
-  PM_SUSPEND_DEVICES_EXIT,
   PM_SYSTEM_SUSPEND_ENTER,
   PM_SYSTEM_SUSPEND_EXIT,
 } from './types'
+
+const ACT_SUSPEND = 0
+const ACT_RESUME = 1
+/** -ENOSYS: the device has no PM support at all. */
+const ENOSYS = -88
+
+/** One device action, enter and exit. */
+function action(
+  t: CpuPowerTracker,
+  at: number,
+  until: number,
+  dev: number,
+  code: number,
+  ret = 0,
+) {
+  t.event(at, PM_DEVICE_ACTION_RUN_ENTER, { dev, action: code })
+  t.event(until, PM_DEVICE_ACTION_RUN_EXIT, { dev, action: code, ret })
+}
 
 const RUNTIME_IDLE = 1
 const SUSPEND_TO_IDLE = 2
@@ -281,43 +295,84 @@ describe('CpuPowerTracker', () => {
     })
   })
 
-  describe('the system-managed device walk', () => {
-    it('nests per-device actions inside the walk that ran them', () => {
+  /*
+   * There are no bracket events for the walk: pm_suspend_devices/pm_resume_devices
+   * carry nothing that cannot be derived from the per-device actions plus the
+   * enclosing system-PM events, so the walk is reconstructed positionally. These
+   * cases pin every part of that derivation.
+   */
+  describe('the system-managed device walk, derived', () => {
+    it('groups the actions inside a suspend into one walk', () => {
       const t = tracker()
-      t.event(1_000, PM_SUSPEND_DEVICES_ENTER, {})
-      t.event(1_010, PM_DEVICE_ACTION_RUN_ENTER, { dev: 0x4001_0100, action: 0 })
-      t.event(1_130, PM_DEVICE_ACTION_RUN_EXIT, { dev: 0x4001_0100, action: 0, ret: 0 })
-      t.event(1_140, PM_DEVICE_ACTION_RUN_ENTER, { dev: 0x4001_0200, action: 0 })
-      t.event(1_150, PM_DEVICE_ACTION_RUN_EXIT, { dev: 0x4001_0200, action: 0, ret: -88 })
-      t.event(1_200, PM_SUSPEND_DEVICES_EXIT, { count: 1, ok: 1 })
+      t.event(1_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+      action(t, 1_010, 1_130, 0x4001_0100, ACT_SUSPEND)
+      action(t, 1_140, 1_150, 0x4001_0200, ACT_SUSPEND, ENOSYS)
+      t.event(1_200, PM_STATE_SET_ENTER, { cpu: 0, state: STANDBY, substate_id: 0 })
 
       const walk = t.out.walks[0]
-      expect(walk).toMatchObject({ start: 1_000, end: 1_200, kind: 'suspend', count: 1, ok: true })
+      // Span is first action to last, since there is no bracket to widen it.
+      expect(walk).toMatchObject({ start: 1_010, end: 1_150, kind: 'suspend', ok: true })
       expect(walk?.actions).toHaveLength(2)
-      expect(walk?.actions[0]).toMatchObject({ start: 1_010, end: 1_130, ret: 0 })
-      // -ENOSYS: a device with no PM support at all, which the walk ignores —
-      // hence count 1 rather than 2.
-      expect(walk?.actions[1]?.ret).toBe(-88)
+      // count is the actions that returned 0 — num_susp is incremented only
+      // after the -ENOSYS/-ENOTSUP/-EALREADY ignore, so 1 of 2 here.
+      expect(walk?.count).toBe(1)
     })
 
-    it('records a failed suspend walk, which aborts the state entry', () => {
+    it('separates the resume walk from the suspend walk', () => {
       const t = tracker()
-      t.event(1_000, PM_SUSPEND_DEVICES_ENTER, {})
-      t.event(1_100, PM_SUSPEND_DEVICES_EXIT, { count: 2, ok: 0 })
-      expect(t.out.walks[0]).toMatchObject({ ok: false, count: 2 })
+      t.event(1_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+      action(t, 1_010, 1_130, 0x4001_0100, ACT_SUSPEND)
+      t.event(1_200, PM_STATE_SET_ENTER, { cpu: 0, state: STANDBY, substate_id: 0 })
+      t.event(9_000, PM_STATE_SET_EXIT, { cpu: 0, state: STANDBY, substate_id: 0 })
+      action(t, 9_010, 9_400, 0x4001_0100, ACT_RESUME)
+      t.event(9_500, PM_SYSTEM_SUSPEND_EXIT, { ticks: 130, state: 0 })
+
+      expect(t.out.walks.map((w) => w.kind)).toEqual(['suspend', 'resume'])
+      expect(t.out.walks[1]).toMatchObject({ start: 9_010, end: 9_400, count: 1, ok: true })
     })
 
-    it('carries the resume count on the enter, where the guest reports it', () => {
+    it('marks a suspend walk that never reached a state as failed', () => {
+      /*
+       * The abort path: pm_suspend_devices() returns false, pm.c rolls the
+       * devices back and returns without entering a state. So one window holds a
+       * suspend walk *and* a rollback resume walk with no state_set between —
+       * which is why the walks split on the action code, not on the phase.
+       */
       const t = tracker()
-      t.event(2_000, PM_RESUME_DEVICES_ENTER, { count: 3 })
-      t.event(2_600, PM_RESUME_DEVICES_EXIT, {})
-      expect(t.out.walks[0]).toMatchObject({ kind: 'resume', count: 3, ok: true })
+      t.event(1_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+      action(t, 1_010, 1_130, 0x4001_0100, ACT_SUSPEND)
+      action(t, 1_140, 1_150, 0x4001_0200, ACT_SUSPEND, -16) // -EBUSY: aborts
+      action(t, 1_200, 1_300, 0x4001_0100, ACT_RESUME) // rollback
+      t.event(1_400, PM_SYSTEM_SUSPEND_EXIT, { ticks: 130, state: 0 })
+
+      expect(t.out.walks.map((w) => w.kind)).toEqual(['suspend', 'resume'])
+      expect(t.out.walks[0]?.ok).toBe(false)
+      // The rollback resume is not itself a failure.
+      expect(t.out.walks[1]?.ok).toBe(true)
+      expect(t.out.decisions[0]?.declined).toBe(true)
     })
 
-    it('ignores device actions outside a walk — runtime PM and power domains', () => {
+    it('closes an open walk when the next suspend window opens', () => {
       const t = tracker()
-      t.event(100, PM_DEVICE_ACTION_RUN_ENTER, { dev: 0x4001_0100, action: 1 })
-      t.event(200, PM_DEVICE_ACTION_RUN_EXIT, { dev: 0x4001_0100, action: 1, ret: 0 })
+      t.event(1_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+      action(t, 1_010, 1_130, 0x4001_0100, ACT_SUSPEND)
+      // No exit for this window at all — the next enter must still flush it.
+      t.event(5_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+      expect(t.out.walks).toHaveLength(1)
+      expect(t.out.walks[0]).toMatchObject({ kind: 'suspend', count: 1 })
+    })
+
+    it('ignores turn-on and turn-off, which are power-domain actions', () => {
+      const t = tracker()
+      t.event(1_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+      action(t, 1_010, 1_130, 0x4001_0100, 2) // PM_DEVICE_ACTION_TURN_ON
+      t.event(1_200, PM_SYSTEM_SUSPEND_EXIT, { ticks: 130, state: 0 })
+      expect(t.out.walks).toHaveLength(0)
+    })
+
+    it('ignores device actions outside a system-PM window — runtime PM', () => {
+      const t = tracker()
+      action(t, 100, 200, 0x4001_0100, ACT_RESUME)
       expect(t.out.walks).toHaveLength(0)
     })
   })
@@ -368,12 +423,14 @@ describe('queries', () => {
   it('filters decisions and walks to the window', () => {
     const t = tracker()
     sleep(t, 0, 1_000, RUNTIME_IDLE)
-    sleep(t, 5_000, 9_000, STANDBY)
-    t.event(4_000, PM_SUSPEND_DEVICES_ENTER, {})
-    t.event(4_500, PM_SUSPEND_DEVICES_EXIT, { count: 3, ok: 1 })
+    t.event(4_000, PM_SYSTEM_SUSPEND_ENTER, { ticks: 130 })
+    action(t, 4_200, 4_300, 0x4001_0100, ACT_SUSPEND)
+    t.event(4_400, PM_STATE_SET_ENTER, { cpu: 0, state: STANDBY, substate_id: 0 })
+    t.event(9_000, PM_STATE_SET_EXIT, { cpu: 0, state: STANDBY, substate_id: 0 })
+    t.event(9_000, PM_SYSTEM_SUSPEND_EXIT, { ticks: 130, state: STANDBY })
     expect(decisionsInView(t.out, 0, 2_000).map((d) => d.ts)).toEqual([1_000])
     expect(walksInView(t.out, 0, 2_000)).toHaveLength(0)
-    expect(walksInView(t.out, 4_200, 4_300)).toHaveLength(1)
+    expect(walksInView(t.out, 4_250, 4_280)).toHaveLength(1)
   })
 
   it('separates residencies that differ by only ~10%', () => {
