@@ -11,7 +11,6 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/kernel/internal/mm.h>
 
 #define DT_DRV_COMPAT        virtio_blk
 #define VIRTIO_BLK_QUEUE_IDX 0

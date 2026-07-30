@@ -135,9 +135,9 @@ VIRTIO block device driver, behind Zephyr's Disk Access API.
 | | |
 | --- | --- |
 | Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/112581> |
-| Commit | `549733517cfe705fee23a5843054f759e7103f87` — *drivers: disk: add virtio-blk driver* |
+| Commit | `d1f7fdff2cd87999b5f1996e30582653905b8e11` — *drivers: disk: add virtio-blk driver* |
 | Path | `drivers/disk/virtio_blk.c` |
-| SHA-256 | `f9fdcfb2fb4cc70c5e528c83b2a5198785c116267edc03e1ffe344db04ea3597` |
+| SHA-256 | `e7e48a92ccd50ef69c25a74e2e2bc6114a28ac8cf5fd67a2ebe2aacc14cc832f` |
 
 Shipped alongside it, also unmodified from the same commit:
 
