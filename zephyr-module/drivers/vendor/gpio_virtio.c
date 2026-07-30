@@ -9,8 +9,8 @@
  *
  * Every operation is a round trip to the virtio device, so none of the GPIO API
  * calls can be issued from an ISR, including from the interrupt callbacks this
- * driver fires. Callbacks needing to touch the port must defer the work to a
- * thread.
+ * driver fires; they return -EWOULDBLOCK there. Callbacks needing to touch the
+ * port must defer the work to a thread.
  */
 
 #define DT_DRV_COMPAT virtio_gpio
@@ -53,11 +53,6 @@ LOG_MODULE_REGISTER(gpio_virtio, CONFIG_GPIO_LOG_LEVEL);
 
 #define VIRTIO_GPIO_IRQ_STATUS_VALID 0x1
 
-/** A Zephyr GPIO port is at most 32 lines wide, lines beyond that are ignored */
-#define GPIO_VIRTIO_MAX_PINS 32
-
-#define GPIO_VIRTIO_NPINS(inst) MIN(DT_INST_PROP(inst, ngpios), GPIO_VIRTIO_MAX_PINS)
-
 struct virtio_gpio_config {
 	uint16_t ngpio;
 	uint8_t padding[2];
@@ -94,7 +89,6 @@ struct gpio_virtio_irq_line {
 };
 
 struct gpio_virtio_config {
-	/* port_pin_mask is filled in at init from the device configuration */
 	struct gpio_driver_config common;
 	const struct device *vdev;
 	struct gpio_virtio_irq_line *irq_lines;
@@ -214,6 +208,10 @@ static int gpio_virtio_pin_configure(const struct device *dev, gpio_pin_t pin, g
 	uint8_t dir;
 	int ret;
 
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
 	if (pin >= data->ngpio) {
 		return -EINVAL;
 	}
@@ -262,6 +260,10 @@ static int gpio_virtio_port_get_raw(const struct device *dev, gpio_port_value_t 
 	gpio_port_value_t val = 0;
 	int ret = 0;
 
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
 	k_mutex_lock(&data->lock, K_FOREVER);
 
 	/*
@@ -295,11 +297,14 @@ out:
 static int gpio_virtio_port_set_masked_raw(const struct device *dev, gpio_port_pins_t mask,
 					   gpio_port_value_t value)
 {
-	const struct gpio_virtio_config *cfg = dev->config;
 	struct gpio_virtio_data *data = dev->data;
 	int ret = 0;
 
-	mask &= cfg->common.port_pin_mask;
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
+	mask &= GPIO_PORT_PIN_MASK_FROM_NGPIOS(data->ngpio);
 
 	k_mutex_lock(&data->lock, K_FOREVER);
 
@@ -334,6 +339,10 @@ static int gpio_virtio_port_toggle_bits(const struct device *dev, gpio_port_pins
 	struct gpio_virtio_data *data = dev->data;
 	int ret;
 
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
 	/* the outer lock keeps the shadow state consistent across the update */
 	k_mutex_lock(&data->lock, K_FOREVER);
 	ret = gpio_virtio_port_set_masked_raw(dev, pins, ~data->out_state);
@@ -346,13 +355,16 @@ static int gpio_virtio_port_toggle_bits(const struct device *dev, gpio_port_pins
 static int gpio_virtio_port_get_direction(const struct device *dev, gpio_port_pins_t map,
 					  gpio_port_pins_t *inputs, gpio_port_pins_t *outputs)
 {
-	const struct gpio_virtio_config *cfg = dev->config;
 	struct gpio_virtio_data *data = dev->data;
 	gpio_port_pins_t in = 0;
 	gpio_port_pins_t out = 0;
 	int ret = 0;
 
-	map &= cfg->common.port_pin_mask;
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
+	map &= GPIO_PORT_PIN_MASK_FROM_NGPIOS(data->ngpio);
 
 	k_mutex_lock(&data->lock, K_FOREVER);
 
@@ -460,6 +472,10 @@ static int gpio_virtio_pin_interrupt_configure(const struct device *dev, gpio_pi
 	k_spinlock_key_t key;
 	uint8_t type;
 	int ret;
+
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
 
 	if (pin >= data->ngpio) {
 		return -EINVAL;
@@ -570,7 +586,7 @@ static uint16_t gpio_virtio_enum_queues_cb(uint16_t q_index, uint16_t q_size_max
 
 static int gpio_virtio_init(const struct device *dev)
 {
-	struct gpio_virtio_config *cfg = (struct gpio_virtio_config *)dev->config;
+	const struct gpio_virtio_config *cfg = dev->config;
 	struct gpio_virtio_data *data = dev->data;
 	volatile struct virtio_gpio_config *devcfg;
 	uint16_t ngpio;
@@ -616,7 +632,6 @@ static int gpio_virtio_init(const struct device *dev)
 	}
 
 	data->ngpio = ngpio;
-	cfg->common.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_NGPIOS(ngpio);
 
 	ret = virtio_init_virtqueues(cfg->vdev, data->irq_supported ? 2 : 1,
 				     gpio_virtio_enum_queues_cb, data);
@@ -653,13 +668,14 @@ static int gpio_virtio_init(const struct device *dev)
 }
 
 #define GPIO_VIRTIO_DEFINE(inst)                                                                   \
-	BUILD_ASSERT(GPIO_VIRTIO_NPINS(inst) > 0, "ngpios must be at least 1");                    \
-	static struct gpio_virtio_irq_line gpio_virtio_irq_lines_##inst[GPIO_VIRTIO_NPINS(inst)];  \
+	static struct gpio_virtio_irq_line                                                         \
+		gpio_virtio_irq_lines_##inst[DT_INST_PROP(inst, ngpios)];                          \
 	static struct gpio_virtio_data gpio_virtio_data_##inst;                                    \
-	static struct gpio_virtio_config gpio_virtio_config_##inst = {                             \
+	static const struct gpio_virtio_config gpio_virtio_config_##inst = {                       \
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(inst),                                   \
 		.vdev = DEVICE_DT_GET(DT_PARENT(DT_DRV_INST(inst))),                               \
 		.irq_lines = gpio_virtio_irq_lines_##inst,                                         \
-		.max_pins = GPIO_VIRTIO_NPINS(inst),                                               \
+		.max_pins = DT_INST_PROP(inst, ngpios),                                            \
 	};                                                                                         \
 	DEVICE_DT_INST_DEFINE(inst, gpio_virtio_init, NULL, &gpio_virtio_data_##inst,              \
 			      &gpio_virtio_config_##inst, POST_KERNEL, CONFIG_GPIO_INIT_PRIORITY,  \

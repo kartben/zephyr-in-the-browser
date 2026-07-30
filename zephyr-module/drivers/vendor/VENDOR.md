@@ -59,13 +59,13 @@ VIRTIO GPIO driver (virtio spec 1.3, section 5.16).
 | Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/114423> (draft) |
 | Commit | `92dacf42802bc5f8d090166ddc6d87627bbb7482` — *drivers: gpio: add VIRTIO GPIO driver* |
 | Path | `drivers/gpio/gpio_virtio.c` |
-| SHA-256 | `365bf14cf8d54fe0445df828778e49703c0fa50ed022486a4bd4cc729a3918b8` |
+| SHA-256 | `70fc6c6889acc064a0863b85e77b8b3c3c30f623c2bebe6d83758041d1ab84c2` |
 
 Shipped alongside it, also unmodified from the same commit:
 
 - `zephyr-module/dts/bindings/gpio/virtio,gpio.yaml` — the `virtio,gpio`
   binding (`dts/bindings/gpio/virtio,gpio.yaml` upstream), SHA-256
-  `a984889121d878e7968e425eec6caf5a584f40261399faf42ea2ddaa2d98ed2e`.
+  `38134b13e4d3e071104b6e337fdfcf942a8a9a1e950c122a07f8cb0b58143880`.
 
 The upstream branch also carries a `tests/drivers/build_all/gpio` entry, which
 is not vendored — it tests the driver in the Zephyr tree, not here.

@@ -52,10 +52,6 @@ config GPIO_VIRTIO
 	help
 	  Enable driver for VIRTIO GPIO devices.
 
-	  Every operation is a round trip to the virtio device, so the GPIO API
-	  can only be used from a thread, including from the interrupt callbacks
-	  fired by this driver.
-
 config I2C_VIRTIO
 	bool "VIRTIO I2C adapter driver"
 	default y
