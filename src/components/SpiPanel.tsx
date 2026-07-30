@@ -77,7 +77,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
               </button>
               <button
                 aria-label={`Detach ${chip.name}`}
-                title="Detach — the guest driver will start to fail transfers"
+                title="Detach this chip. The guest driver will start to fail transfers."
                 onClick={() => detachUserSpi(chip.cs)}
                 className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
               >
