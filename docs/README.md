@@ -20,6 +20,7 @@ other end of the wire.
 | [../public/qemu/README.md](../public/qemu/README.md) | The emulator itself: how it is built, what is patched into it, and its known limits |
 | [deploying.md](deploying.md) | Cutting a release and deploying to GitHub Pages |
 | [tours.md](tours.md) | Guided tours — a Markdown DSL that breaks anywhere in a stock sample and shows what it finds |
+| [tours-review.md](tours-review.md) | Guided tours reviewed by seven Zephyr-community personas — defects, a proposed voice, a 24-tour catalog, and a phased plan |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 | [trace-networking-plan.md](trace-networking-plan.md) | Trace panel **Networking** tab from Zephyr socket / `net_*` CTF — the socket swimlanes shipped; the connection ribbon and cross-panel linking did not |
