@@ -167,15 +167,12 @@ export function mixedContentHint(url: string): string {
   return ''
 }
 
-/** Native install — works on macOS / Windows / Linux (Go toolchain). */
-export const BRIDGE_NATIVE_ONE_LINER = 'cd bridge && go run ./cmd/zephyr-bridge'
+/** Installs zephyr-bridge into GOPATH/bin on macOS / Windows / Linux. */
+export const BRIDGE_INSTALL_COMMAND =
+  'go install github.com/kartben/zephyr-in-the-browser/bridge/cmd/zephyr-bridge@latest'
 
-/**
- * Docker image (optional). USB serial needs Linux + --device;
- * Docker Desktop on Mac/Windows generally cannot see serial adapters.
- */
-export const BRIDGE_DOCKER_ONE_LINER =
-  'docker run --rm -p 8740:8740 ghcr.io/kartben/zephyr-in-the-browser/bridge'
+/** Prints the WebSocket URL to paste into Settings. */
+export const BRIDGE_RUN_COMMAND = 'zephyr-bridge'
 
-export const BRIDGE_DOCKER_SERIAL_ONE_LINER =
-  'docker run --rm -p 8740:8740 --device=/dev/ttyACM0 -e SERIAL=/dev/ttyACM0 ghcr.io/kartben/zephyr-in-the-browser/bridge'
+/** Minimum Go release, tracking the `go` directive in bridge/go.mod. */
+export const BRIDGE_GO_VERSION = '1.25'
