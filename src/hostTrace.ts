@@ -38,6 +38,8 @@ interface TraceModule {
   FS?: EmscriptenFS
 }
 
+export type TraceSource = 'guest' | 'probe' | 'bridge' | null
+
 export interface TraceSnapshot {
   available: boolean
   /** True once /tracing.bin has been seen, even before the first full record. */
@@ -51,6 +53,8 @@ export interface TraceSnapshot {
   spanNs: number
   trace: Trace | null
   path: string | null
+  /** Where CTF bytes currently come from (guest semihost file vs probe bridge). */
+  source: TraceSource
 }
 
 const EMPTY: TraceSnapshot = {
@@ -63,6 +67,7 @@ const EMPTY: TraceSnapshot = {
   spanNs: 0,
   trace: null,
   path: null,
+  source: null,
 }
 
 let mod: TraceModule | null = null
@@ -76,6 +81,8 @@ let revision = 0
 let lastPublishAt = 0
 let publishTimer: ReturnType<typeof setTimeout> | undefined
 let detailUpdateLeases = 0
+/** When set, CTF comes from the probe bridge instead of the guest FS. */
+let externalLabel: string | null = null
 const listeners = new Set<() => void>()
 
 function pollMs(): number {
@@ -90,10 +97,23 @@ function notify() {
   for (const fn of listeners) fn()
 }
 
+function currentSource(): TraceSource {
+  if (externalLabel === 'bridge') return 'bridge'
+  if (externalLabel) return 'probe'
+  if (path) return 'guest'
+  return null
+}
+
 function publish() {
   if (!reader) {
-    snapshot = path
-      ? { ...EMPTY, following: true, path, available: true, trace: null }
+    snapshot = path || externalLabel
+      ? {
+          ...EMPTY,
+          following: true,
+          path: path ?? externalLabel,
+          available: true,
+          source: currentSource(),
+        }
       : EMPTY
     notify()
     return
@@ -108,8 +128,8 @@ function publish() {
     tr.events.splice(0, tr.events.length - MAX_EVENTS)
   }
   snapshot = {
-    available: tr.events.length > 0 || path !== null,
-    following: path !== null,
+    available: tr.events.length > 0 || path !== null || externalLabel !== null,
+    following: path !== null || externalLabel !== null,
     revision,
     // The log may briefly exceed the cap between batch trims; present the
     // stable retention limit rather than a noisy 50k→55k counter.
@@ -118,7 +138,8 @@ function publish() {
     desync: reader.desync,
     spanNs: tr.events.length ? tr.t1 - tr.t0 : 0,
     trace: tr,
-    path,
+    path: path ?? externalLabel,
+    source: currentSource(),
   }
   notify()
 }
@@ -198,6 +219,9 @@ async function ensureDefs() {
 }
 
 function sample() {
+  // Probe bridge owns the decoder while connected.
+  if (externalLabel) return
+
   const fs = mod?.FS
   if (!fs) return
 
@@ -241,16 +265,81 @@ export function attach(instance: unknown) {
 export function detach() {
   unregisterPoll(POLL_ID)
   mod = null
-  reader = null
-  offset = 0
+  // Keep an external (probe) session across guest detach/reattach.
+  if (!externalLabel) {
+    reader = null
+    offset = 0
+    path = null
+    revision = 0
+    lastPublishAt = 0
+    if (publishTimer !== undefined) clearTimeout(publishTimer)
+    publishTimer = undefined
+    if (snapshot !== EMPTY) {
+      snapshot = EMPTY
+      notify()
+    }
+  } else {
+    path = null
+    offset = 0
+  }
+}
+
+/**
+ * Switch the Trace decoder to an external CTF byte source (probe bridge).
+ * Resets retained events so a new board session starts clean.
+ */
+export function beginExternal(label = 'probe') {
+  externalLabel = label
   path = null
+  offset = 0
+  reader = new TraceReader(defs)
+  revision++
+  lastPublishAt = performance.now()
+  publish()
+  void ensureDefs().then(() => {
+    // Swap in loaded metadata without dropping already-fed events unless the
+    // reader is still empty (defs arrived before any CTF).
+    if (externalLabel !== label) return
+    if (!reader || reader.tr.events.length === 0) {
+      reader = new TraceReader(defs)
+      publish()
+    }
+  })
+}
+
+/** Append CTF bytes from the probe bridge. */
+export function feedExternal(bytes: Uint8Array) {
+  if (!externalLabel) beginExternal('probe')
+  if (!reader) {
+    reader = new TraceReader(defs)
+  }
+  if (bytes.length && reader.feed(bytes) > 0) {
+    requestPublish()
+  } else if (!snapshot.available) {
+    publish()
+  }
+}
+
+/** Leave probe mode; guest FS polling can resume on the next sample(). */
+export function endExternal() {
+  if (!externalLabel) return
+  externalLabel = null
+  reader = null
   revision = 0
   lastPublishAt = 0
-  if (publishTimer !== undefined) clearTimeout(publishTimer)
-  publishTimer = undefined
-  if (snapshot !== EMPTY) {
+  if (publishTimer !== undefined) {
+    clearTimeout(publishTimer)
+    publishTimer = undefined
+  }
+  // If a guest file is still attached, the next poll rebuilds; otherwise clear.
+  if (!mod) {
+    path = null
     snapshot = EMPTY
     notify()
+  } else {
+    path = null
+    offset = 0
+    publish()
   }
 }
 

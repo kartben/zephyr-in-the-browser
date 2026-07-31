@@ -204,9 +204,9 @@ describe('hostNet in uplink mode', () => {
 
   it('rejects the sim-only dial-in tools with a mode-specific error', async () => {
     hostNet.attach(fake.module)
-    await expect(hostNet.echoToGuest('hi', 'tcp')).rejects.toThrow('Not available in gateway mode')
+    await expect(hostNet.echoToGuest('hi', 'tcp')).rejects.toThrow('Not available with Bridge network')
     await expect(hostNet.httpGetFromHost('http://172.17.0.5/')).rejects.toThrow(
-      'Not available in gateway mode',
+      'Not available with Bridge network',
     )
   })
 

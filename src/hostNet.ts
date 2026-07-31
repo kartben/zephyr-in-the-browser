@@ -40,7 +40,9 @@ import {
   type GuestBrowserPage,
 } from '@/net/services/guestBrowser'
 import { UplinkSink, type UplinkPhase } from '@/net/uplink'
+import { BridgeNetSink } from '@/net/bridgeSink'
 import { resolveNetConfig, type NetMode } from '@/lib/netStore'
+import { isValidBridgeUrl, resolveBridgeConfig } from '@/lib/bridgeStore'
 
 interface NetExports {
   _qemu_browser_net_ready?: () => number
@@ -160,7 +162,7 @@ interface FrameSink {
 let exports: NetExports | null = null
 let mode: NetMode = 'sim'
 let stack: NetStack | null = null
-let uplink: UplinkSink | null = null
+let uplink: UplinkSink | BridgeNetSink | null = null
 let sink: FrameSink | null = null
 let snapshot: NetSnapshot = EMPTY
 let generation = 0
@@ -235,11 +237,18 @@ export function attach(mod: unknown) {
     // semantics live in the sink instead: guest frames are dropped and
     // counted while the socket is closed (DHCP/TCP retransmit).
     exports._qemu_browser_net_set_link?.(1)
-    uplink = new UplinkSink(cfg.url, {
-      deliverFrame: (frame) => deliverToGuest(frame),
+    const hooks = {
+      deliverFrame: (frame: Uint8Array) => deliverToGuest(frame),
       onPhaseChange: () => rebuild(),
       onChange: () => notifySoon(),
-    })
+    }
+    const bridge = resolveBridgeConfig()
+    // Prefer the uber bridge when Settings has it enabled (same URL for CTF).
+    if (bridge.enabled && isValidBridgeUrl(bridge.url)) {
+      uplink = new BridgeNetSink(bridge.url, hooks)
+    } else {
+      uplink = new UplinkSink(cfg.url, hooks)
+    }
     sink = uplink
     uplink.connect()
   } else {
@@ -369,7 +378,7 @@ export function buildPcapBlob(): Blob {
 /** The dial-in tools ride the simulated stack's own TCP — sim mode only. */
 function noStackError(): Error {
   return new Error(
-    mode === 'uplink' ? 'Not available in gateway mode' : 'Network bridge not attached',
+    mode === 'uplink' ? 'Not available with Bridge network' : 'Network bridge not attached',
   )
 }
 
