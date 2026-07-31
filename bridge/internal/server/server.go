@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -59,6 +60,17 @@ type Bridge struct {
 	gdbHandle gdb.Handle
 	ctfBytes  atomic.Uint64
 	gdbBytes  atomic.Uint64
+
+	// gdbGen identifies the current GDB connection attempt. The opener starts
+	// its read goroutine before AttachGdb can publish "connected", so a server
+	// that hangs up immediately delivers onClose against a not-yet-published
+	// connection. Stamping each attempt lets late callbacks tell "my
+	// connection" from "a newer one" instead of guessing from Phase.
+	gdbGen int
+	// gdbClosedGen is the generation whose socket already died. AttachGdb
+	// checks it before announcing success, so a rejected connection is never
+	// reported as connected.
+	gdbClosedGen int
 
 	httpServer *http.Server
 	listener   net.Listener
@@ -468,7 +480,18 @@ func (b *Bridge) readPump(c *client) {
 			phase := b.gdbSt.Phase
 			b.mu.Unlock()
 			if h != nil && phase == "connected" {
-				_, _ = h.Write(payload)
+				// Write is deadline-bounded (see internal/gdb), so a stalled
+				// target times out instead of freezing this client's whole
+				// read loop. Surface that as a real error rather than
+				// silently sitting on "connected" with a dead socket.
+				if _, err := h.Write(payload); err != nil {
+					b.mu.Lock()
+					b.gdbSt.Phase = "error"
+					b.gdbSt.Detail = err.Error()
+					b.mu.Unlock()
+					b.broadcastGdb()
+					_ = h.Close()
+				}
 			}
 		case protocol.CH_NET:
 			c.mu.Lock()
@@ -710,20 +733,53 @@ func (b *Bridge) StopSerial() {
 	b.broadcastSerial()
 }
 
+// errGdbRejected reports a GDB server that accepted the TCP connection and
+// then hung up without speaking the protocol. OpenOCD does exactly this when
+// target examination has failed ("attempted 'gdb' connection rejected" in its
+// log), which usually means the debug link to the target is down rather than
+// anything being wrong with the bridge.
+var errGdbRejected = errors.New("gdb server accepted then immediately closed the connection — it is refusing debug sessions (in OpenOCD this means target examination failed; check the SWD/JTAG link, target power and reset)")
+
 func (b *Bridge) AttachGdb(host string, port int) error {
 	b.DetachGdb()
+
+	b.mu.Lock()
+	b.gdbGen++
+	gen := b.gdbGen
+	b.mu.Unlock()
+
+	// current reports whether gen is still the live attempt. Callbacks from a
+	// superseded connection must not touch shared state.
+	current := func() bool {
+		return b.gdbGen == gen
+	}
+
 	h, err := b.hooks.OpenGdb(host, port, func(data []byte) {
 		b.gdbBytes.Add(uint64(len(data)))
 		b.broadcast(protocol.EncodeFrame(protocol.CH_GDB, data))
 		b.notifyStatus()
 	}, func(err error) {
 		b.mu.Lock()
+		if !current() {
+			b.mu.Unlock()
+			return
+		}
 		b.gdbSt.Phase = "error"
 		b.gdbSt.Detail = err.Error()
 		b.mu.Unlock()
 		b.broadcastGdb()
 	}, func() {
 		b.mu.Lock()
+		if !current() {
+			b.mu.Unlock()
+			return
+		}
+		// Record the death unconditionally. This callback races AttachGdb's
+		// own "connected" publish below, and when it wins that race the old
+		// Phase=="connected" guard silently dropped the close — leaving the UI
+		// showing a live GDB session on a socket the server had already hung
+		// up on.
+		b.gdbClosedGen = gen
 		if b.gdbSt.Phase == "connected" {
 			b.gdbSt.Phase = "idle"
 			b.gdbSt.Detail = "gdb server closed"
@@ -739,7 +795,23 @@ func (b *Bridge) AttachGdb(host string, port int) error {
 		b.broadcastGdb()
 		return err
 	}
+
 	b.mu.Lock()
+	if !current() || b.gdbClosedGen == gen {
+		// Superseded, or the server hung up before we got here. Either way,
+		// publishing "connected" now would overwrite the truth with a lie.
+		rejected := b.gdbClosedGen == gen && current()
+		if rejected {
+			b.gdbSt = protocol.GdbStatus{Host: host, Port: port, Phase: "error", Detail: "connection rejected by gdb server"}
+		}
+		b.mu.Unlock()
+		_ = h.Close()
+		if rejected {
+			b.broadcastGdb()
+			return errGdbRejected
+		}
+		return nil
+	}
 	b.gdbHandle = h
 	b.cfg.GdbHost = host
 	b.cfg.GdbPort = port
@@ -753,6 +825,8 @@ func (b *Bridge) DetachGdb() {
 	b.mu.Lock()
 	h := b.gdbHandle
 	b.gdbHandle = nil
+	// Bump the generation so an in-flight attempt's callbacks go quiet.
+	b.gdbGen++
 	b.gdbSt.Phase = "idle"
 	b.gdbSt.Detail = ""
 	b.mu.Unlock()

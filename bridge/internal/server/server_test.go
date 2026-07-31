@@ -233,6 +233,77 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// startGdbTestBridge is startTestBridge with a caller-supplied GDB opener.
+func startGdbTestBridge(t *testing.T, opener gdb.Opener) *server.Bridge {
+	t.Helper()
+	tok := "test-token"
+	b, err := server.Start(config.Config{
+		Host: "127.0.0.1", Port: 0, Token: &tok, MaxClients: 2, BaudRate: 115200,
+		PagesURL: "https://example.test/", NoTUI: true, EnableNet: false, AutoSerial: false,
+		GdbHost: "127.0.0.1", GdbPort: 3333, Forwards: map[string]string{},
+	}, server.Hooks{
+		Log:       func(string) {},
+		ListPorts: func() ([]protocol.PortInfo, error) { return nil, nil },
+		OpenSerial: func(path string, baud int, onData func([]byte), onError func(error), onClose func()) (serial.Handle, error) {
+			return &fakeSerial{path: path, baud: baud, onData: onData, onClose: onClose}, nil
+		},
+		OpenGdb: opener,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	return b
+}
+
+// OpenOCD accepts the TCP connection and then hangs up when target
+// examination has failed ("attempted 'gdb' connection rejected"). The dial
+// succeeds, so the bridge used to publish Phase="connected" over the top of
+// the close callback and show a live debug session on a dead socket.
+func TestAttachGdbReportsImmediateRejection(t *testing.T) {
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		// Synchronous close: the worst-case ordering, where the server is gone
+		// before AttachGdb can announce success.
+		onClose()
+		return &nopHandle{}, nil
+	})
+
+	err := b.AttachGdb("127.0.0.1", 3333)
+	if err == nil {
+		t.Fatal("attach reported success against a server that hung up")
+	}
+	if got := b.Snapshot().GDB.Phase; got != "error" {
+		t.Fatalf("phase=%q want %q — the UI would claim GDB is live", got, "error")
+	}
+}
+
+// A callback arriving late from a superseded attempt must not overwrite the
+// state of the connection that replaced it.
+func TestStaleGdbCallbackDoesNotClobberNewAttach(t *testing.T) {
+	var stale func()
+	first := true
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		if first {
+			first = false
+			stale = onClose // hold it; fire after the next attach succeeds
+		}
+		return &nopHandle{}, nil
+	})
+
+	if err := b.AttachGdb("127.0.0.1", 3333); err != nil {
+		t.Fatalf("first attach: %v", err)
+	}
+	if err := b.AttachGdb("127.0.0.1", 4444); err != nil {
+		t.Fatalf("second attach: %v", err)
+	}
+	stale()
+
+	snap := b.Snapshot().GDB
+	if snap.Phase != "connected" || snap.Port != 4444 {
+		t.Fatalf("stale close tore down the live session: phase=%q port=%d", snap.Phase, snap.Port)
+	}
+}
+
 func TestAutoSerial(t *testing.T) {
 	tok := "test-token"
 	var holder *fakeSerial
