@@ -96,7 +96,7 @@ func FromEnv() (Config, error) {
 		cfg.EnableNet = false
 	}
 
-	// FORWARDS=4242:4242,8080:80 → host listen :4242 → guest 192.168.127.2:4242
+	// FORWARDS=4242:4242,8080:80 → host listen :4242 → guest 192.0.2.1:4242
 	if raw := os.Getenv("FORWARDS"); raw != "" {
 		for _, part := range strings.Split(raw, ",") {
 			part = strings.TrimSpace(part)
@@ -108,7 +108,7 @@ func FromEnv() (Config, error) {
 				return cfg, fmt.Errorf("invalid FORWARDS entry %q (want hostPort:guestPort)", part)
 			}
 			local := "127.0.0.1:" + hostPort
-			remote := "192.168.127.2:" + guestPort
+			remote := "192.0.2.1:" + guestPort
 			cfg.Forwards[local] = remote
 		}
 	}

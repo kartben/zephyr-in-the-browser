@@ -20,31 +20,37 @@ const (
 	maxFrame = 2048
 )
 
-// DefaultConfig returns a Podman-style virtual network (DHCP + DNS + host NAT).
+// DefaultConfig matches the in-page simulated LAN and net-uplink.conf:
+// guest 192.0.2.1, gateway 192.0.2.2 (CONFIG_NET_CONFIG_MY_IPV4_GW), so
+// static and DHCP Zephyr samples work the same as in Simulated LAN mode.
 func DefaultConfig(forwards map[string]string) *types.Configuration {
 	cfg := &types.Configuration{
 		Debug:             false,
 		MTU:               1500,
-		Subnet:            "192.168.127.0/24",
-		GatewayIP:         "192.168.127.1",
+		Subnet:            "192.0.2.0/24",
+		GatewayIP:         "192.0.2.2",
 		GatewayMacAddress: "5a:94:ef:e4:0c:dd",
-		GatewayVirtualIPs: []string{"192.168.127.254"},
+		GatewayVirtualIPs: []string{"192.0.2.254"},
+		DHCPStaticLeases: map[string]string{
+			// qemu_cortex_a53 / qemu_riscv32 virtio-net MAC
+			"192.0.2.1": "02:00:00:00:00:01",
+		},
 		NAT: map[string]string{
-			"192.168.127.254": "127.0.0.1",
+			"192.0.2.254": "127.0.0.1",
 		},
 		DNS: []types.Zone{
 			{
 				Name: "containers.internal.",
 				Records: []types.Record{
-					{Name: "gateway", IP: net.ParseIP("192.168.127.1")},
-					{Name: "host", IP: net.ParseIP("192.168.127.254")},
+					{Name: "gateway", IP: net.ParseIP("192.0.2.2")},
+					{Name: "host", IP: net.ParseIP("192.0.2.254")},
 				},
 			},
 			{
 				Name: "docker.internal.",
 				Records: []types.Record{
-					{Name: "gateway", IP: net.ParseIP("192.168.127.1")},
-					{Name: "host", IP: net.ParseIP("192.168.127.254")},
+					{Name: "gateway", IP: net.ParseIP("192.0.2.2")},
+					{Name: "host", IP: net.ParseIP("192.0.2.254")},
 				},
 			},
 		},
