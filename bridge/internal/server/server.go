@@ -584,12 +584,27 @@ func (b *Bridge) handleCtrl(c *client, payload []byte) {
 			c.enqueue(raw)
 			return
 		}
-		if err := b.AttachGdb(host, port); err == nil {
+		// AttachGdb blocks up to the dial timeout against a dead GDB host,
+		// and this runs on the client's readPump goroutine — synchronous, it
+		// stalled every channel the client speaks (serial picks, net frames)
+		// for those seconds. The gdbGen guard makes racing attempts safe; the
+		// outcome reaches the client as a gdb-status broadcast either way.
+		go func() {
+			if err := b.AttachGdb(host, port); err != nil {
+				return
+			}
 			b.mu.Lock()
-			b.gdbOwner = c.id
-			b.gdbOwnerCtrl = true
+			if _, alive := b.clients[c.id]; alive {
+				b.gdbOwner = c.id
+				b.gdbOwnerCtrl = true
+				b.mu.Unlock()
+				return
+			}
 			b.mu.Unlock()
-		}
+			// The requester died while we dialed. A page-requested proxy with
+			// no page must not sit on the GDB server's single gdb slot.
+			b.DetachGdb()
+		}()
 	case "gdb-detach":
 		b.mu.Lock()
 		allowed := b.gdbOwner == -1 || b.gdbOwner == c.id

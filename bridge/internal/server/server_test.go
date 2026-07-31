@@ -521,6 +521,32 @@ func TestAdoptingOwnerDisconnectLeavesTuiGdbUp(t *testing.T) {
 	}
 }
 
+// The dial can take the whole 10 s timeout against a dead GDB host; run it
+// off the readPump so the client's other channels keep flowing meanwhile.
+func TestCtrlGdbAttachDoesNotBlockReadPump(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		<-release // a dead host: the dial hangs until "the timeout"
+		return &nopHandle{}, nil
+	})
+
+	c := dial(t, b.ListenPort(), "test-token")
+	readHello(t, c)
+	sendCtrl(t, c, map[string]any{"type": "gdb-attach"})
+	sendCtrl(t, c, map[string]any{"type": "ping", "t": 42})
+	if !readUntil(t, c, 2*time.Second, func(ch byte, payload []byte) bool {
+		if ch != protocol.CH_CTRL {
+			return false
+		}
+		var msg map[string]any
+		_ = json.Unmarshal(payload, &msg)
+		return msg["type"] == "pong"
+	}) {
+		t.Fatal("read pump stalled behind the gdb dial")
+	}
+}
+
 func TestAutoSerial(t *testing.T) {
 	tok := "test-token"
 	var holder *fakeSerial
