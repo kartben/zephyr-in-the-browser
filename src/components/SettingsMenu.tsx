@@ -8,9 +8,10 @@ import { Check, Copy, Info, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  BRIDGE_DOCKER_ONE_LINER,
-  BRIDGE_NATIVE_ONE_LINER,
+  BRIDGE_GO_VERSION,
+  BRIDGE_INSTALL_COMMAND,
   BRIDGE_QUERY_PARAM,
+  BRIDGE_RUN_COMMAND,
   getSettings,
   isValidBridgeUrl,
   mixedContentHint,
@@ -115,7 +116,7 @@ export function SettingsMenu() {
                 variant="ghost"
                 size="icon"
                 className={cn('ml-auto size-6', showHelp && 'text-primary')}
-                aria-label="How to run the bridge"
+                aria-label="How to install and run the bridge"
                 aria-pressed={showHelp}
                 onClick={() => setShowHelp((s) => !s)}
               >
@@ -123,23 +124,18 @@ export function SettingsMenu() {
               </Button>
             </div>
 
-            <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
-              One connection for Live board tracing, Bridge network, and Debug. Set it here; Trace
-              and Network reuse it.
-            </p>
-
             {showHelp && (
               <div className="mb-2 space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
                 <p>
-                  Start the bridge on your machine, then paste the URL it prints. Needs a Go
-                  toolchain (1.22+):
+                  The desktop bridge is a small program you run on your own machine. It carries Live
+                  board tracing, Bridge network, and Debug over one connection.
                 </p>
-                <CopyableCommand command={BRIDGE_NATIVE_ONE_LINER} />
-                <p>Or run the optional Docker image:</p>
-                <CopyableCommand command={BRIDGE_DOCKER_ONE_LINER} />
+                <p>Install it with Go {BRIDGE_GO_VERSION} or newer:</p>
+                <CopyableCommand command={BRIDGE_INSTALL_COMMAND} />
+                <p>Then start it and paste the URL it prints:</p>
+                <CopyableCommand command={BRIDGE_RUN_COMMAND} />
                 <p>
-                  USB serial through Docker needs Linux and a device passthrough. On macOS and
-                  Windows, prefer the native command above. Full notes in{' '}
+                  Full notes in{' '}
                   <a
                     className="underline decoration-dotted underline-offset-2 hover:text-primary"
                     href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/bridge.md"
