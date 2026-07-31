@@ -1,0 +1,22 @@
+{
+  "name": "zephyr-in-the-browser-probe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WebSocket probe bridge: serial CTF (+ optional GDB) for Zephyr in the Browser",
+  "type": "module",
+  "main": "server.mjs",
+  "bin": {
+    "zephyr-probe": "./cli.mjs"
+  },
+  "scripts": {
+    "start": "node cli.mjs",
+    "test": "node --test server.test.mjs protocol.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.18.0"
+  }
+}
