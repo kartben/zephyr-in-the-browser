@@ -34,6 +34,7 @@ import {
 import { emphasisPanels } from '@/dts'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
+import { startBridgeClient } from '@/probe/client'
 import {
   BOARDS,
   DEFAULT_BOARD_ID,
@@ -65,6 +66,9 @@ function readSelection() {
 
 export default function App() {
   useGlobalShortcuts()
+  useEffect(() => {
+    startBridgeClient()
+  }, [])
   const [backendId] = useState<BackendId>(() => readSelection().backendId)
   const [boardId, setBoardId] = useState(() => readSelection().boardId)
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
