@@ -1,0 +1,8 @@
+name: hardware-tracing
+description: >
+  CTF tracing over UART for a real board and the probe bridge
+  (docs/probe-bridge.md). Pair with a board overlay that sets
+  zephyr,tracing-uart. Not for qemu — use browser-tracing there.
+
+append:
+  EXTRA_CONF_FILE: hardware-tracing.conf
