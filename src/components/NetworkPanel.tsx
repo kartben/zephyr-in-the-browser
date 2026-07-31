@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Check, Copy, Download, Globe, Info, Pause, Play, Trash2 } from 'lucide-react'
+import { Download, Globe, Info, Pause, Play, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SliderControl } from '@/components/controls/ControlRow'
 import { Disclosure } from '@/components/dock/Disclosure'
@@ -36,6 +36,11 @@ import {
   subscribe as subscribeNet,
   NET_QUERY_PARAM,
 } from '@/lib/netStore'
+import {
+  getSettings as getBridgeSettings,
+  isValidBridgeUrl,
+  subscribe as subscribeBridge,
+} from '@/lib/bridgeStore'
 import { mixedContentHint } from '@/net/uplink'
 import { getBoard, getSample } from '@/boards'
 
@@ -82,7 +87,7 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
             <span className="text-[11px] text-muted-foreground">
               {snapshot.dhcpState === 'bound'
                 ? snapshot.mode === 'uplink'
-                  ? 'via gateway DHCP'
+                  ? 'via Bridge network DHCP'
                   : 'via DHCP'
                 : snapshot.dhcpState === 'static'
                   ? 'static'
@@ -174,9 +179,9 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
         <Disclosure title="Talk to the guest" {...fold('tools', false)}>
           {snapshot.mode === 'uplink' ? (
             <p className="text-[11px] text-muted-foreground">
-              Not available in gateway mode: GET, Browser and echo dial in through the simulated
-              LAN. Reach servers the guest runs through your gateway&apos;s port forwards instead.
-              The Uplink section&apos;s ⓘ shows how.
+              Not available with Bridge network. GET, Browser, and echo use the simulated LAN.
+              Reach servers the guest runs with port forwards on the bridge host. Open ⓘ under
+              Uplink for how.
             </p>
           ) : (
             <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
@@ -195,22 +200,22 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
     return (
       <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
         <p>
-          <span className="font-medium">This network is your gateway.</span> Every frame the guest
-          sends leaves the tab for the gateway you run, which answers with real DHCP, DNS, TCP/UDP
-          and ICMP from its own network.
+          <span className="font-medium">This network leaves the page.</span> Every frame the guest
+          sends goes to the desktop bridge (or a net-only gateway URL), which answers with real
+          DHCP, DNS, TCP/UDP, and ICMP from its own network.
         </p>
         <p>
           <span className="font-medium text-success">Real:</span> DHCP leases, DNS, HTTPS, raw
-          TCP/UDP, even ping. Everything the gateway&apos;s machine can reach.
+          TCP/UDP, even ping. Everything the bridge host can reach.
         </p>
         <p>
           <span className="font-medium text-warning">Simulated:</span> nothing in the page.
-          Capture, throughput and impairments still watch the same wire.
+          Capture, throughput, and impairments still watch the same wire.
         </p>
         <p>
           <span className="font-medium text-destructive">Impossible:</span> the panel&apos;s GET,
-          Browser and echo tools, which dial in through the simulated LAN. Use the gateway&apos;s
-          port forwards to reach servers the guest runs.
+          Browser, and echo tools, which dial in through the simulated LAN. Use port forwards on
+          the bridge host to reach servers the guest runs.
         </p>
       </div>
     )
@@ -236,8 +241,7 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
       <p>
         <span className="font-medium text-destructive">Impossible:</span> HTTPS or raw TCP/UDP to
         real hosts (browser pages have no sockets). Servers the guest runs are reachable only
-        through the GET and Browser tools below, or for real over the Uplink section&apos;s
-        gateway mode.
+        through the GET and Browser tools below, or for real with Bridge network under Uplink.
       </p>
     </div>
   )
@@ -249,51 +253,14 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
  * guest holds its lease; swapping LANs under it would lie) — the section
  * says so whenever the stored choice differs from what this session runs.
  */
-const GATEWAY_ONE_LINER =
-  'docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/zephyr-in-the-browser/gateway'
-
-/**
- * The HTTP Server sample configures 192.0.2.1 itself, so the gateway pins the
- * same static addressing (-a/-n/-g) and forwards host 8080 → guest 80.
- */
-const GATEWAY_FORWARD_80 =
-  'docker run --rm --security-opt seccomp=unconfined -p 8737:8737 -p 8080:80 ' +
-  '-e PASST_ARGS="-a 192.0.2.1 -n 24 -g 192.0.2.2 -t 80" ' +
-  'ghcr.io/kartben/zephyr-in-the-browser/gateway'
-
-/** A command snippet with a copy button — the whole point of a one-liner. */
-function CopyableCommand({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <div className="relative">
-      <code className="block whitespace-pre-wrap break-all rounded bg-background/60 p-1.5 pr-8 font-mono text-[10px] leading-4">
-        {command}
-      </code>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute right-0.5 top-0.5 size-5"
-        aria-label={copied ? 'Copied' : 'Copy command'}
-        onClick={() => {
-          navigator.clipboard
-            .writeText(command)
-            .then(() => {
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1500)
-            })
-            .catch(() => {
-              /* clipboard blocked — the text is still selectable */
-            })
-        }}
-      >
-        {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
-      </Button>
-    </div>
-  )
-}
 
 function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
   const settings = useSyncExternalStore(subscribeNet, getNetSettings, getNetSettings)
+  const bridgeSettings = useSyncExternalStore(
+    subscribeBridge,
+    getBridgeSettings,
+    getBridgeSettings,
+  )
   const [url, setUrlLocal] = useState(settings.url)
   const [showHelp, setShowHelp] = useState(false)
   useEffect(() => {
@@ -302,14 +269,19 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
 
   const resolved = resolveNetConfig()
   const queryForced = resolved.source === 'query'
-  const urlInvalid = url.trim() !== '' && !isValidGatewayUrl(url.trim())
+  const usingBridge = bridgeSettings.enabled && isValidBridgeUrl(bridgeSettings.url)
+  const urlInvalid =
+    !usingBridge && url.trim() !== '' && !isValidGatewayUrl(url.trim())
   const running = snapshot.available
   const runningUplink = running && snapshot.mode === 'uplink'
   const pendingRestart =
     running &&
     (resolved.mode !== snapshot.mode ||
-      (resolved.mode === 'uplink' && snapshot.mode === 'uplink' && resolved.url !== snapshot.uplink.url))
-  const wsHint = settings.mode === 'uplink' ? mixedContentHint(url.trim()) : ''
+      (resolved.mode === 'uplink' &&
+        snapshot.mode === 'uplink' &&
+        resolved.url !== snapshot.uplink.url))
+  const wsHint =
+    settings.mode === 'uplink' && !usingBridge ? mixedContentHint(url.trim()) : ''
 
   const commitUrl = () => {
     const next = url.trim()
@@ -345,13 +317,13 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
           disabled={queryForced}
           onClick={() => setNetMode('uplink')}
         >
-          Gateway
+          Bridge network
         </Button>
         <Button
           variant="ghost"
           size="icon"
           className={cn('ml-auto size-6', showHelp && 'text-primary')}
-          aria-label="How to run the gateway"
+          aria-label="How Bridge network works"
           aria-pressed={showHelp}
           onClick={() => setShowHelp((s) => !s)}
         >
@@ -362,42 +334,36 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
       {showHelp && (
         <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
           <p>
-            <span className="font-medium">Run the gateway</span> on any machine with Docker. It puts
-            the guest on that machine&apos;s network:
-          </p>
-          <CopyableCommand command={GATEWAY_ONE_LINER} />
-          <p>
-            Paste the <code className="font-mono">ws://…?token=…</code> URL it prints below and
-            restart the guest (⟳). Or just open the deep link it prints. Safari and remote gateways
-            need a <code className="font-mono">wss://</code> URL: add{' '}
-            <code className="font-mono">-e TUNNEL=quick</code> for a free tunnel.
+            <span className="font-medium">Bridge network</span> sends the guest&apos;s Ethernet
+            frames through the desktop bridge from Settings. Trace Live board can share the same
+            connection.
           </p>
           <p>
-            Security notes, more recipes, alternatives:{' '}
+            Open Settings (gear in the top bar), turn on the desktop bridge, paste the URL it
+            prints, Connect, then restart the guest (⟳).
+          </p>
+          <p>
+            If Settings is off, you can still paste a net-only gateway URL below. See{' '}
             <a
               className="underline decoration-dotted underline-offset-2 hover:text-primary"
-              href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/net-gateway.md"
+              href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/bridge.md"
               target="_blank"
               rel="noreferrer"
             >
-              docs/net-gateway.md
-            </a>
-            .
-          </p>
-          <p>
-            The guest&apos;s address lives inside the gateway, so servers the guest runs are
-            reached through port forwards. To reach the HTTP Server sample on port 80:
-          </p>
-          <CopyableCommand command={GATEWAY_FORWARD_80} />
-          <p>
-            Then open <code className="font-mono">http://localhost:8080/</code> on the gateway
-            machine. From your LAN, use that machine&apos;s address instead of{' '}
-            <code className="font-mono">localhost</code>.
+              docs/bridge.md
+            </a>{' '}
+            for how to run the bridge.
           </p>
         </div>
       )}
 
-      {settings.mode === 'uplink' && (
+      {settings.mode === 'uplink' && usingBridge && (
+        <p className="text-[11px] text-muted-foreground">
+          Using Settings → Desktop bridge. Restart the guest (⟳) after you change Settings.
+        </p>
+      )}
+
+      {settings.mode === 'uplink' && !usingBridge && (
         <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
           <input
             type="text"
@@ -428,7 +394,7 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
 
       {runningUplink && (
         <div className="flex items-center gap-1.5">
-          <span className={cn('size-2 shrink-0 rounded-full', dot)} role="status" aria-label={`Uplink ${phase}`} />
+          <span className={cn('size-2 shrink-0 rounded-full', dot)} role="status" aria-label={`Bridge network ${phase}`} />
           <span className="shrink-0 font-mono text-[11px]">{phase}</span>
           {detail && (
             <span
