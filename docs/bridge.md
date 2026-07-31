@@ -81,6 +81,13 @@ DHCP (and static samples) use `192.0.2.1/24` with gateway `192.0.2.2`.
    **Bridge network**, restart the guest for real uplink. The connection is
    shared; the Trace panel is not seized while the Simulator runs.
 
+**"timed out opening /dev/… — unplug and replug the board":** the USB serial
+node is wedged, not busy. A CDC device pulled mid-transfer (ST-Link VCPs are
+prone to it) leaves `open()` blocking in the kernel past `kill -9`, so nothing
+on the host can reopen it — `screen` and `west espressif monitor` hang on it
+too. Replug the cable. The daemon reports this instead of waiting, and the GDB
+and network channels keep working while the port is out.
+
 ## Debug a real board
 
 In **Live board** mode the Debug panel drives the physical board through the

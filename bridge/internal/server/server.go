@@ -36,6 +36,12 @@ const (
 	gdbInitialAck = "+"
 )
 
+// How long to wait on open(2) before calling a serial port unreachable.
+// Generous next to a healthy CDC open (milliseconds), short enough that a
+// wedged one reports instead of hanging the daemon. See SelectSerial.
+// A var so tests need not spend it.
+var serialOpenTimeout = 5 * time.Second
+
 type Hooks struct {
 	Log        func(string)
 	ListPorts  serial.Lister
@@ -782,27 +788,60 @@ func portsEqual(a, b []protocol.PortInfo) bool {
 
 func (b *Bridge) SelectSerial(path string, baud int) error {
 	b.StopSerial()
-	h, err := b.hooks.OpenSerial(path, baud, func(data []byte) {
-		b.ctfBytes.Add(uint64(len(data)))
-		b.broadcast(protocol.EncodeFrame(protocol.CH_CTF, data))
-		b.notifyStatus()
-	}, func(err error) {
-		b.mu.Lock()
-		b.serial.Phase = "error"
-		b.serial.Detail = err.Error()
-		b.mu.Unlock()
-		b.broadcastSerial()
-	}, func() {
-		b.mu.Lock()
-		if b.serial.Phase == "streaming" {
-			b.serial.Phase = "idle"
-			b.serial.Detail = "port closed"
-			b.serial.Path = nil
-		}
-		b.serHandle = nil
-		b.mu.Unlock()
-		b.broadcastSerial()
-	})
+
+	type opened struct {
+		h   serial.Handle
+		err error
+	}
+	// A wedged USB serial node — a CDC device unplugged mid-transfer, an
+	// ST-Link VCP the driver has lost track of — leaves open(2) blocking in
+	// the kernel indefinitely, past SIGKILL. Waiting on it inline took the
+	// whole daemon with it: Start() never reached its "listening" log, and
+	// every later client that picked a port parked its read pump behind the
+	// same call, so serial, and that client's GDB and net traffic, went quiet
+	// with no error anywhere. Bound the wait rather than the syscall.
+	done := make(chan opened, 1)
+	go func() {
+		h, err := b.hooks.OpenSerial(path, baud, func(data []byte) {
+			b.ctfBytes.Add(uint64(len(data)))
+			b.broadcast(protocol.EncodeFrame(protocol.CH_CTF, data))
+			b.notifyStatus()
+		}, func(err error) {
+			b.mu.Lock()
+			b.serial.Phase = "error"
+			b.serial.Detail = err.Error()
+			b.mu.Unlock()
+			b.broadcastSerial()
+		}, func() {
+			b.mu.Lock()
+			if b.serial.Phase == "streaming" {
+				b.serial.Phase = "idle"
+				b.serial.Detail = "port closed"
+				b.serial.Path = nil
+			}
+			b.serHandle = nil
+			b.mu.Unlock()
+			b.broadcastSerial()
+		})
+		done <- opened{h, err}
+	}()
+
+	var h serial.Handle
+	var err error
+	select {
+	case res := <-done:
+		h, err = res.h, res.err
+	case <-time.After(serialOpenTimeout):
+		// The goroutine is stuck in the kernel and cannot be cancelled; let it
+		// finish on its own and hand back whatever it eventually opens.
+		go func() {
+			if res := <-done; res.h != nil {
+				_ = res.h.Close()
+			}
+		}()
+		err = fmt.Errorf("timed out opening %s — unplug and replug the board", path)
+	}
+
 	if err != nil {
 		b.mu.Lock()
 		b.serial.Phase = "error"
