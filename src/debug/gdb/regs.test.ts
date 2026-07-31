@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { bytesToHex } from '@/debug/gdb/rspCodec'
-import { codeAddr, decodeGPacket } from '@/debug/gdb/regs'
+import { archFromElf, codeAddr, decodeGPacket } from '@/debug/gdb/regs'
 
 /**
  * The `g` packet is a flat blob whose meaning is pure offset arithmetic, and
@@ -76,5 +76,31 @@ describe('decodeGPacket frame registers', () => {
       fp: null,
       lr: null,
     })
+  })
+})
+
+describe('archFromElf', () => {
+  /** A minimal ELF header: magic, class, LE data, e_machine at 0x12. */
+  function header(machine: number, elfClass: 1 | 2 = 1): Uint8Array {
+    const bytes = new Uint8Array(0x20)
+    bytes.set([0x7f, 0x45, 0x4c, 0x46, elfClass, 1], 0)
+    bytes[0x12] = machine & 0xff
+    bytes[0x13] = machine >> 8
+    return bytes
+  }
+
+  it('maps the three wired machines', () => {
+    expect(archFromElf(header(40))).toBe('arm')
+    expect(archFromElf(header(183, 2))).toBe('aarch64')
+    expect(archFromElf(header(243, 1))).toBe('riscv32')
+  })
+
+  it('declines 64-bit RISC-V and unknown machines', () => {
+    expect(archFromElf(header(243, 2))).toBeNull() // rv64: no decoder
+    expect(archFromElf(header(94))).toBeNull() // Xtensa/ESP32
+  })
+
+  it('declines non-ELF bytes', () => {
+    expect(archFromElf(new Uint8Array([1, 2, 3]))).toBeNull()
   })
 })

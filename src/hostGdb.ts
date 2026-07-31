@@ -11,8 +11,8 @@ import {
   chardevAvailable,
   type ChardevExports,
 } from '@/debug/browserChardev'
-import { RspClient } from '@/debug/gdb/rspClient'
-import { chardevRspTransport } from '@/debug/gdb/rspTransport'
+import { RspClient, type RspClientOptions } from '@/debug/gdb/rspClient'
+import { chardevRspTransport, type RspTransport } from '@/debug/gdb/rspTransport'
 import {
   archFromBoard,
   breakpointKind,
@@ -69,6 +69,8 @@ export interface Breakpoint {
 
 export interface GdbState {
   available: boolean
+  /** What the session talks to: the in-page QEMU stub, or a real board over the bridge. */
+  source: 'qemu' | 'bridge' | null
   /** RSP session is live (attach succeeded). */
   attached: boolean
   paused: boolean
@@ -109,6 +111,7 @@ export interface GdbState {
 
 const EMPTY: GdbState = {
   available: false,
+  source: null,
   attached: false,
   paused: false,
   pc: null,
@@ -522,12 +525,61 @@ export function bind(module: unknown, boardArch: string) {
   publish({
     ...EMPTY,
     available,
+    source: available ? 'qemu' : null,
     threadInfo: threadInfo !== null,
     objectCores: objectCoreMeta !== null,
     hasSymbols: symbolIndex !== null,
     symbols: symbolIndex?.byName ?? [],
     regArch: arch,
   })
+}
+
+/**
+ * The Live board analogue of {@link bind}: make the debugger available for a
+ * session over the desktop bridge, with no wasm module behind it. Same
+ * kept-index dance, so a rebind never costs the parsed ELF.
+ *
+ * @param liveArch From the dropped symbol ELF's e_machine when known; null
+ *   keeps the default (the panel offers a picker in that degraded state).
+ */
+export function bindLive(liveArch: GdbArch | null) {
+  const keptElf = kernelElf
+  const keptInfo = threadInfo
+  const keptObjectCoreMeta = objectCoreMeta
+  const keptSyms = symbolIndex
+  const keptFormals = formalIndex
+  const keptStacks = stackRegions
+  const keptWaits = waitObjects
+  detach()
+  kernelElf = keptElf
+  threadInfo = keptInfo
+  objectCoreMeta = keptObjectCoreMeta
+  symbolIndex = keptSyms
+  formalIndex = keptFormals
+  stackRegions = keptStacks
+  waitObjects = keptWaits
+  arch = liveArch ?? 'arm'
+  publish({
+    ...EMPTY,
+    available: true,
+    source: 'bridge',
+    threadInfo: threadInfo !== null,
+    objectCores: objectCoreMeta !== null,
+    hasSymbols: symbolIndex !== null,
+    symbols: symbolIndex?.byName ?? [],
+    regArch: arch,
+  })
+}
+
+/**
+ * Register layout for a live session — from a later-dropped ELF, or the
+ * panel's picker when no ELF says. Safe mid-session: the wire protocol never
+ * carries the arch, only the `g`-blob decoding does.
+ */
+export function setLiveArch(next: GdbArch) {
+  if (state.source !== 'bridge') return
+  arch = next
+  publish({ regArch: arch })
 }
 
 /** Open the gdbstub and start an RSP session. Safe to call when unavailable. */
@@ -553,7 +605,33 @@ export async function attachSession(): Promise<boolean> {
   // OPENED is applied on QEMU's drain timer (~20 ms); give it a beat.
   await sleep(50)
 
-  const next = new RspClient(chardevRspTransport(ch))
+  const det = mod._qemu_browser_gdb_detach as (() => void) | undefined
+  return openSession(chardevRspTransport(ch), {
+    runAttachHook: true,
+    onFail: () => det?.(),
+  })
+}
+
+/**
+ * The transport-agnostic core of attaching: handshake, stop wiring, the
+ * initial-object snapshot, and the resume that keeps the machine from
+ * sitting frozen at the attach stop. Callers own everything before the
+ * transport exists (QEMU's chardev-open dance, the bridge's ctrl attach).
+ */
+async function openSession(
+  transport: RspTransport,
+  opts: {
+    clientOpts?: RspClientOptions
+    /**
+     * Tours plant breakpoints at the attach stop. Simulator only — firing
+     * sample-tour hooks at a physical board would plant them in whatever
+     * firmware happens to be flashed.
+     */
+    runAttachHook: boolean
+    onFail?: () => void
+  },
+): Promise<boolean> {
+  const next = new RspClient(transport, opts.clientOpts)
   let starting = true
   next.setStopHandler((info) => {
     if (info.kind !== 'signal') return
@@ -593,6 +671,9 @@ export async function attachSession(): Promise<boolean> {
     })()
   })
   client = next
+  // Push transports (the bridge) wake the poll at message latency; the 20 ms
+  // timer stays as the floor for pull transports and as a safety net.
+  transport.setOnData?.(() => next.poll())
   startPoll()
 
   try {
@@ -608,15 +689,16 @@ export async function attachSession(): Promise<boolean> {
     if (stop && objectCoreMeta) {
       await refreshObjects()
     }
-    if (attachHook) {
+    if (opts.runAttachHook && attachHook) {
       try {
         await attachHook()
       } catch (err) {
         console.warn('[gdb] attach hook failed', err)
       }
     }
-    // Connecting the stub often stops the VM; kick it again so boot is not
-    // left frozen until the user notices Pause.
+    // Attaching often stops the machine (QEMU's chardev open, OpenOCD's
+    // gdb-attach halt); kick it again so nothing is left frozen until the
+    // user notices Pause.
     if (stop) {
       await next.continue()
     }
@@ -624,14 +706,59 @@ export async function attachSession(): Promise<boolean> {
     console.info('[gdb] RSP session attached')
     return true
   } catch (err) {
-    console.warn('[gdb] RSP handshake failed; staying on QMP', err)
+    console.warn('[gdb] RSP handshake failed', err)
     stopPoll()
+    transport.setOnData?.(null)
     client = null
-    const det = mod._qemu_browser_gdb_detach as (() => void) | undefined
-    det?.()
+    opts.onFail?.()
     publish({ attached: false, paused: false })
     return false
   }
+}
+
+/**
+ * Open an RSP session over the desktop bridge. bindLive() must have run.
+ * Tour hooks never fire here (see openSession's runAttachHook note).
+ */
+export async function attachLiveSession(transport: RspTransport): Promise<boolean> {
+  if (state.source !== 'bridge' || !state.available) return false
+  return openSession(transport, {
+    clientOpts: {
+      eagerAcks: true,
+      probeVCont: true,
+      hwBreakpointFallback: true,
+      resolveUnknownStop: true,
+    },
+    runAttachHook: false,
+    onFail: () => transport.close?.(),
+  })
+}
+
+/**
+ * Tear down the live session locally — the caller owns the wire (ctrl-level
+ * gdb-detach, or a WebSocket that is already gone). Keeps the ELF indexes by
+ * default so a bridge blip does not cost the user their symbols; the state
+ * returns to bound-but-unattached, ready for a re-attach.
+ */
+export function detachLive(opts?: { keepImage?: boolean }) {
+  if (state.source !== 'bridge') return
+  stopPoll()
+  client = null
+  frameRegs = NO_FRAME_REGS
+  tempBp = null
+  internalStep = false
+  if (opts?.keepImage === false) setKernelImage(null)
+  state = {
+    ...EMPTY,
+    available: true,
+    source: 'bridge',
+    threadInfo: threadInfo !== null,
+    objectCores: objectCoreMeta !== null,
+    hasSymbols: symbolIndex !== null,
+    symbols: symbolIndex?.byName ?? [],
+    regArch: arch,
+  }
+  notify()
 }
 
 function sleep(ms: number): Promise<void> {

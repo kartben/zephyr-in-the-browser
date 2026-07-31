@@ -187,6 +187,33 @@ export function archFromBoard(arch: string): GdbArch {
   return 'arm'
 }
 
+/**
+ * e_machine → gdb register layout, for a symbol ELF the page did not boot
+ * (Live board sessions have no board picker to ask). Null when the machine
+ * is one this page has no decoder for (e.g. Xtensa/ESP32) — the caller
+ * falls back to a manual picker.
+ */
+export function archFromElf(bytes: Uint8Array): GdbArch | null {
+  if (
+    bytes.length < 0x14 ||
+    bytes[0] !== 0x7f ||
+    bytes[1] !== 0x45 ||
+    bytes[2] !== 0x4c ||
+    bytes[3] !== 0x46
+  ) {
+    return null
+  }
+  const little = bytes[5] === 1
+  const machine = little
+    ? bytes[0x12]! | (bytes[0x13]! << 8)
+    : (bytes[0x12]! << 8) | bytes[0x13]!
+  if (machine === 40) return 'arm' // EM_ARM
+  if (machine === 183) return 'aarch64' // EM_AARCH64
+  // EM_RISCV: only the 32-bit layout is wired into decodeGPacket.
+  if (machine === 243) return bytes[4] === 1 ? 'riscv32' : null
+  return null
+}
+
 /** Software breakpoint kind (bytes) for Z0. */
 export function breakpointKind(arch: GdbArch): number {
   if (arch === 'aarch64') return 4
