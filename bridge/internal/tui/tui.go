@@ -140,7 +140,9 @@ func Run(bridge *server.Bridge, baud int) error {
 		}
 		lines = append(lines, fmt.Sprintf("%s[?] help  [g] GDB  [q] quit · daemon stays up if you only unplug the board%s", dim, reset))
 
-		_, _ = out.WriteString(clear + hide + strings.Join(lines, "\n") + "\n")
+		// MakeRaw disables ONLCR, so LF alone moves the cursor down without
+		// returning it to column zero. Emit CRLF explicitly for each row.
+		_, _ = out.WriteString(clear + hide + strings.Join(lines, "\r\n") + "\r\n")
 	}
 
 	unsub := bridge.SubscribeStatus(func(s server.Snapshot) {
