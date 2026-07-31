@@ -157,7 +157,7 @@ function ensureProxy(): Promise<void> {
         clearTimeout(timer)
         unsubscribe()
         resolve()
-      } else if (gdb?.phase === 'error') {
+      } else if (gdb?.phase === 'error' || gdb?.phase === 'busy') {
         clearTimeout(timer)
         unsubscribe()
         reject(new Error(gdb.detail || 'the GDB server refused the connection'))

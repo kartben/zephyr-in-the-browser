@@ -77,6 +77,16 @@ type Bridge struct {
 	// reported as connected.
 	gdbClosedGen int
 
+	// gdbOwner is the client id whose page drives the RSP session; -1 means
+	// nobody does (TUI-only attach) and server bytes broadcast as before.
+	// Two pages interleaving packets on the one stub corrupt each other's
+	// ack state, so the first ctrl gdb-attach (or the first CH_GDB write,
+	// adopting a TUI session) claims it. gdbOwnerCtrl records that the owner
+	// dialed via ctrl: its disconnect then detaches the proxy, while an
+	// adopting owner's death leaves the TUI's session up.
+	gdbOwner     int
+	gdbOwnerCtrl bool
+
 	httpServer *http.Server
 	listener   net.Listener
 	upgrader   websocket.Upgrader
@@ -142,6 +152,7 @@ func Start(cfg config.Config, hooks Hooks) (*Bridge, error) {
 		clients:         map[int]*client{},
 		statusListeners: map[int]func(Snapshot){},
 		closed:          make(chan struct{}),
+		gdbOwner:        -1,
 		serial: protocol.SerialStatus{
 			BaudRate: cfg.BaudRate,
 			Phase:    "idle",
@@ -481,9 +492,22 @@ func (b *Bridge) readPump(c *client) {
 			b.handleCtrl(c, payload)
 		case protocol.CH_GDB:
 			b.mu.Lock()
+			if b.gdbOwner == -1 && b.gdbSt.Phase == "connected" {
+				// First writer adopts a TUI-attached proxy. It never sent a
+				// ctrl gdb-attach, so its death must leave the session up.
+				b.gdbOwner = c.id
+				b.gdbOwnerCtrl = false
+			}
+			owned := b.gdbOwner == c.id
 			h := b.gdbHandle
 			phase := b.gdbSt.Phase
 			b.mu.Unlock()
+			if !owned {
+				// A second tab interleaving packets on the one stub would
+				// corrupt the owner's session; its ctrl attach was already
+				// answered with "busy".
+				continue
+			}
 			if h != nil && phase == "connected" {
 				// Write is deadline-bounded (see internal/gdb), so a stalled
 				// target times out instead of freezing this client's whole
@@ -549,9 +573,30 @@ func (b *Bridge) handleCtrl(c *client, payload []byte) {
 		if v, ok := msg["port"].(float64); ok && v > 0 {
 			port = int(v)
 		}
-		_ = b.AttachGdb(host, port)
+		b.mu.Lock()
+		busy := b.gdbOwner != -1 && b.gdbOwner != c.id && b.gdbSt.Phase == "connected"
+		b.mu.Unlock()
+		if busy {
+			raw, _ := protocol.EncodeCtrl(map[string]any{
+				"type": "gdb-status", "host": host, "port": port,
+				"phase": "busy", "detail": "another client is debugging",
+			})
+			c.enqueue(raw)
+			return
+		}
+		if err := b.AttachGdb(host, port); err == nil {
+			b.mu.Lock()
+			b.gdbOwner = c.id
+			b.gdbOwnerCtrl = true
+			b.mu.Unlock()
+		}
 	case "gdb-detach":
-		b.DetachGdb()
+		b.mu.Lock()
+		allowed := b.gdbOwner == -1 || b.gdbOwner == c.id
+		b.mu.Unlock()
+		if allowed {
+			b.DetachGdb()
+		}
 	}
 }
 
@@ -567,9 +612,48 @@ func (b *Bridge) removeClient(c *client) {
 		_ = c.conn.Close()
 		b.mu.Lock()
 		delete(b.clients, c.id)
+		wasCtrlOwner := b.gdbOwner == c.id && b.gdbOwnerCtrl
+		if b.gdbOwner == c.id {
+			b.gdbOwner = -1
+			b.gdbOwnerCtrl = false
+		}
 		b.mu.Unlock()
 		b.notifyStatus()
+		if wasCtrlOwner {
+			// The dead tab dialed this proxy; a GDB server has one gdb slot,
+			// and leaving it held would block every future attach.
+			b.DetachGdb()
+		}
 	})
+}
+
+// sendGdb delivers server→client GDB bytes: to the owning client when a page
+// holds the session, otherwise broadcast — the pre-owner behavior a TUI-only
+// attach still relies on.
+func (b *Bridge) sendGdb(raw []byte) {
+	b.mu.Lock()
+	owner := b.gdbOwner
+	var target *client
+	if owner != -1 {
+		target = b.clients[owner]
+	}
+	var all []*client
+	if owner == -1 {
+		all = make([]*client, 0, len(b.clients))
+		for _, c := range b.clients {
+			all = append(all, c)
+		}
+	}
+	b.mu.Unlock()
+	if owner != -1 {
+		if target != nil {
+			target.enqueue(raw)
+		}
+		return
+	}
+	for _, c := range all {
+		c.enqueue(raw)
+	}
 }
 
 func (b *Bridge) broadcast(raw []byte) {
@@ -763,7 +847,7 @@ func (b *Bridge) AttachGdb(host string, port int) error {
 
 	h, err := b.hooks.OpenGdb(host, port, func(data []byte) {
 		b.gdbBytes.Add(uint64(len(data)))
-		b.broadcast(protocol.EncodeFrame(protocol.CH_GDB, data))
+		b.sendGdb(protocol.EncodeFrame(protocol.CH_GDB, data))
 		b.notifyStatus()
 	}, func(err error) {
 		b.mu.Lock()
@@ -857,6 +941,8 @@ func (b *Bridge) DetachGdb() {
 	b.gdbGen++
 	b.gdbSt.Phase = "idle"
 	b.gdbSt.Detail = ""
+	b.gdbOwner = -1
+	b.gdbOwnerCtrl = false
 	b.mu.Unlock()
 	if h != nil {
 		_ = h.Close()

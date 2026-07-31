@@ -340,6 +340,187 @@ func TestStaleGdbCallbackDoesNotClobberNewAttach(t *testing.T) {
 	}
 }
 
+// readUntil pumps frames off c until match returns true or the window ends.
+// A timeout poisons a gorilla conn for further reads, so callers must place
+// any expected-false (silence) check last on a given connection.
+func readUntil(t *testing.T, c *websocket.Conn, d time.Duration, match func(ch byte, payload []byte) bool) bool {
+	t.Helper()
+	_ = c.SetReadDeadline(time.Now().Add(d))
+	for {
+		_, data, err := c.ReadMessage()
+		if err != nil {
+			return false
+		}
+		ch, payload, ok := protocol.DecodeFrame(data)
+		if !ok {
+			continue
+		}
+		if match(ch, payload) {
+			return true
+		}
+	}
+}
+
+func sendCtrl(t *testing.T, c *websocket.Conn, msg map[string]any) {
+	t.Helper()
+	raw, _ := protocol.EncodeCtrl(msg)
+	if err := c.WriteMessage(websocket.BinaryMessage, raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two pages on one stub interleave packets and corrupt each other's ack
+// state; the ctrl attach claims the session and server bytes go to the owner
+// alone, while the second tab is told the session is busy.
+func TestGdbFramesRouteToOwnerOnly(t *testing.T) {
+	emitCh := make(chan func([]byte), 1)
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		emitCh <- onData
+		return &nopHandle{}, nil
+	})
+
+	owner := dial(t, b.ListenPort(), "test-token")
+	readHello(t, owner)
+	other := dial(t, b.ListenPort(), "test-token")
+	readHello(t, other)
+
+	sendCtrl(t, owner, map[string]any{"type": "gdb-attach"})
+	var emit func([]byte)
+	select {
+	case emit = <-emitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("gdb opener never ran")
+	}
+	if !readUntil(t, owner, 2*time.Second, func(ch byte, payload []byte) bool {
+		if ch != protocol.CH_CTRL {
+			return false
+		}
+		var msg map[string]any
+		_ = json.Unmarshal(payload, &msg)
+		return msg["type"] == "gdb-status" && msg["phase"] == "connected"
+	}) {
+		t.Fatal("owner never saw gdb-status connected")
+	}
+
+	emit([]byte("$T05#b9"))
+	if !readUntil(t, owner, 2*time.Second, func(ch byte, payload []byte) bool {
+		return ch == protocol.CH_GDB && string(payload) == "$T05#b9"
+	}) {
+		t.Fatal("owner did not receive the GDB frame")
+	}
+
+	// The second tab's own attach attempt is answered with busy.
+	sendCtrl(t, other, map[string]any{"type": "gdb-attach"})
+	if !readUntil(t, other, 2*time.Second, func(ch byte, payload []byte) bool {
+		if ch != protocol.CH_CTRL {
+			return false
+		}
+		var msg map[string]any
+		_ = json.Unmarshal(payload, &msg)
+		return msg["type"] == "gdb-status" && msg["phase"] == "busy"
+	}) {
+		t.Fatal("non-owner was not told the session is busy")
+	}
+
+	// Silence check last: a read timeout poisons the conn (see readUntil).
+	emit([]byte("$S05#b8"))
+	if readUntil(t, other, 500*time.Millisecond, func(ch byte, payload []byte) bool {
+		return ch == protocol.CH_GDB
+	}) {
+		t.Fatal("non-owner received a GDB frame")
+	}
+}
+
+func TestNonOwnerGdbWriteDropped(t *testing.T) {
+	rec := &recordingHandle{}
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		return rec, nil
+	})
+
+	owner := dial(t, b.ListenPort(), "test-token")
+	readHello(t, owner)
+	other := dial(t, b.ListenPort(), "test-token")
+	readHello(t, other)
+
+	sendCtrl(t, owner, map[string]any{"type": "gdb-attach"})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && b.Snapshot().GDB.Phase != "connected" {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := other.WriteMessage(websocket.BinaryMessage, protocol.EncodeFrame(protocol.CH_GDB, []byte("$?#3f"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.WriteMessage(websocket.BinaryMessage, protocol.EncodeFrame(protocol.CH_GDB, []byte("$g#67"))); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if rec.String() == "+$g#67" {
+			break // eager ack + the owner's packet; keep watching for intruders
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// A late intruder write must not trickle in after the owner's.
+	time.Sleep(150 * time.Millisecond)
+	if got := rec.String(); got != "+$g#67" {
+		t.Fatalf("gdb server saw %q, want only the eager ack and the owner's packet", got)
+	}
+}
+
+// A tab that dialed the proxy and died must not leave the GDB server's single
+// gdb slot held; a tab that merely adopted a TUI attach must leave it alone.
+func TestOwnerDisconnectDetachesCtrlInitiatedGdb(t *testing.T) {
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		return &nopHandle{}, nil
+	})
+
+	owner := dial(t, b.ListenPort(), "test-token")
+	readHello(t, owner)
+	sendCtrl(t, owner, map[string]any{"type": "gdb-attach"})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && b.Snapshot().GDB.Phase != "connected" {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	_ = owner.Close()
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if b.Snapshot().GDB.Phase == "idle" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("ctrl-initiated proxy still %q after owner disconnect", b.Snapshot().GDB.Phase)
+}
+
+func TestAdoptingOwnerDisconnectLeavesTuiGdbUp(t *testing.T) {
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		return &nopHandle{}, nil
+	})
+
+	// The TUI attaches; a page then adopts the session by writing to it.
+	if err := b.AttachGdb("127.0.0.1", 3333); err != nil {
+		t.Fatal(err)
+	}
+	page := dial(t, b.ListenPort(), "test-token")
+	readHello(t, page)
+	if err := page.WriteMessage(websocket.BinaryMessage, protocol.EncodeFrame(protocol.CH_GDB, []byte("+"))); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	_ = page.Close()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if b.Snapshot().GDB.Phase != "connected" {
+			t.Fatalf("adopting owner's death tore down the TUI's proxy: %q", b.Snapshot().GDB.Phase)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestAutoSerial(t *testing.T) {
 	tok := "test-token"
 	var holder *fakeSerial
