@@ -8,6 +8,7 @@ import { PartsCatalog } from '@/components/PartsCatalog'
 import { ClearPeripheralsControl } from '@/components/ClearPeripheralsControl'
 import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
 import { DtsViewer } from '@/components/DtsViewer'
+import { SettingsMenu } from '@/components/SettingsMenu'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import type { BackendStatus } from '@/backends'
@@ -85,6 +86,8 @@ export function TopBar({
         </span>
 
         <PauseDebugControl />
+
+        <SettingsMenu />
 
         {/* The drawer itself is how you manage panels on a phone — every row
             collapses in place, so the checklist is desktop-only chrome. */}

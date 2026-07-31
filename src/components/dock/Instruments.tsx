@@ -23,6 +23,7 @@ import * as debug from '@/debug/control'
 import * as guestStats from '@/guestStats'
 import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
+import * as bridgeClient from '@/probe/client'
 import {
   STAGE_DEBUG_KEY,
   STAGE_PERF_KEY,
@@ -48,18 +49,32 @@ import { TraceBody } from '@/components/TracePanel'
 /** Stream health at a glance, for the collapsed Trace row. */
 function TraceBadge() {
   const snap = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
+  const bridge = useSyncExternalStore(
+    bridgeClient.subscribe,
+    bridgeClient.getSnapshot,
+    bridgeClient.getSnapshot,
+  )
   const live = snap.eventCount > 0
+  const fromBoard = snap.source === 'probe' || snap.source === 'bridge' || snap.path === 'bridge'
   return (
     <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          live ? 'bg-amber-500/80' : 'bg-muted-foreground/50',
+          live
+            ? 'bg-amber-500/80'
+            : bridge.phase === 'connected'
+              ? 'bg-sky-500/80'
+              : 'bg-muted-foreground/50',
         )}
         aria-hidden
       />
       <span className="min-w-0 truncate">
-        {live ? `${snap.eventCount} evt · ${snap.threadCount} thr` : 'no events'}
+        {live
+          ? `${snap.eventCount} evt · ${snap.threadCount} thr${fromBoard ? ' · board' : ''}`
+          : bridge.phase === 'connected'
+            ? 'live board'
+            : 'no events'}
       </span>
     </span>
   )
@@ -123,9 +138,19 @@ export const INSTRUMENTS: Instrument[] = [
     label: 'Trace',
     icon: Activity,
     panelKind: 'trace',
-    useAvailable: () =>
-      useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
-        .available,
+    useAvailable: () => {
+      const trace = useSyncExternalStore(
+        hostTrace.subscribe,
+        hostTrace.getSnapshot,
+        hostTrace.getSnapshot,
+      )
+      const bridge = useSyncExternalStore(
+        bridgeClient.subscribe,
+        bridgeClient.getSnapshot,
+        bridgeClient.getSnapshot,
+      )
+      return trace.available || bridge.enabled
+    },
     Badge: TraceBadge,
     Body: TraceBody,
     window: { width: 38, height: 30 },

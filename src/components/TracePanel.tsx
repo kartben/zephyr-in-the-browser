@@ -115,6 +115,7 @@ import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
+import { ProbeSection } from '@/components/ProbeSection'
 import {
   STAGE_TRACE_KEY,
   getState,
@@ -1247,14 +1248,20 @@ export function TraceBody() {
     hostGdb.getSnapshot,
   )
 
-  if (snap.eventCount === 0) {
-    return (
-      <p className="px-3 py-4 text-[11px] text-muted-foreground">
-        No Trace events yet. Pick a traced app, or one that embeds tracing.
-      </p>
-    )
-  }
-  return <TracePanelBody snap={snap} objectCores={gdbSnap.objects} />
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ProbeSection />
+      {snap.eventCount === 0 ? (
+        <p className="px-3 py-4 text-[11px] text-muted-foreground">
+          {snap.source === 'bridge' || snap.source === 'probe'
+            ? 'Connected to the desktop bridge. Waiting for traces from the board.'
+            : 'No Trace events yet. Pick a traced app, or turn on the desktop bridge in Settings.'}
+        </p>
+      ) : (
+        <TracePanelBody snap={snap} objectCores={gdbSnap.objects} />
+      )}
+    </div>
+  )
 }
 
 function TracePanelBody({
