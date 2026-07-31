@@ -317,22 +317,17 @@ export class TraceReader {
     const n = data.length
 
     while (off + hsz <= n) {
-      let ts: number
-      let eid: number
-      if (this.hasTs) {
-        const raw = Number(view.getBigUint64(off, true))
-        eid = view.getUint16(off + 8, true)
-        if (this.prevRaw !== null && raw < this.prevRaw) this.tsOff += this.prevRaw
-        this.prevRaw = raw
-        ts = raw + this.tsOff
-      } else {
-        eid = view.getUint16(off, true)
-        ts = this.fakeTs++
-      }
+      // Peek the id only — a live source (desktop bridge) can attach mid-stream,
+      // landing anywhere inside a record. An unknown id means this byte is not a
+      // record boundary, not that the stream is unrecoverable: slide forward one
+      // byte at a time until a known id lines up again instead of wedging on the
+      // first misaligned header forever.
+      const eid = this.hasTs ? view.getUint16(off + 8, true) : view.getUint16(off, true)
       let edef = this.defs.get(eid)
       if (!edef) {
         this.desync = true
-        break
+        off += 1
+        continue
       }
 
       // Zephyr TSDL says address[46], but !NET_IPV6 guests emit 20-byte strings.
@@ -346,7 +341,8 @@ export class TraceReader {
         if (probed.kind === 'wait') break
         if (probed.kind === 'desync') {
           this.desync = true
-          break
+          off += 1
+          continue
         }
         this.netAddressWidth = probed.width
         applyNetAddressWidth(this.defs, probed.width)
@@ -355,9 +351,21 @@ export class TraceReader {
 
       const rec = hsz + edef.size
       if (off + rec > n) break
+
+      let ts: number
+      if (this.hasTs) {
+        const raw = Number(view.getBigUint64(off, true))
+        if (this.prevRaw !== null && raw < this.prevRaw) this.tsOff += this.prevRaw
+        this.prevRaw = raw
+        ts = raw + this.tsOff
+      } else {
+        ts = this.fakeTs++
+      }
+
       const { fields } = decodeFields(edef, data, off + hsz, view)
       off += rec
       this.consume(ts, eid, edef.name, fields)
+      this.desync = false
       neu++
     }
     this.buf = data.subarray(off)

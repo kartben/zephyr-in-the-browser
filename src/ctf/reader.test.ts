@@ -180,6 +180,26 @@ describe('TraceReader', () => {
     expect(reader.desync).toBe(true)
   })
 
+  it('resyncs on a live source that attaches mid-record instead of wedging forever', () => {
+    // A desktop-bridge client joins an already-running CTF stream at an
+    // arbitrary byte, not a record boundary — the first header it sees is
+    // garbage. It must still recover once real records line up again, and
+    // must not stay permanently stuck the way a one-shot file source would.
+    const reader = new TraceReader(fallbackDefs())
+    const thread = 0x1000
+    const good = [
+      ...record(1000, 0x13, [...encU32(thread), ...encName('worker')]),
+      ...record(2000, 0x11, [...encU32(thread), ...encName('worker')]),
+    ]
+    const misaligned = Uint8Array.from([1, 2, 3, ...good])
+    expect(reader.feed(misaligned)).toBe(2)
+    expect(reader.desync).toBe(false)
+    expect(reader.tr.events.map((e) => e.name)).toEqual([
+      'thread_create',
+      'thread_switched_in',
+    ])
+  })
+
   it('makeEventDef sizes a str20 + uint32 body at 24 bytes', () => {
     const def = makeEventDef(0x11, 'thread_switched_in', [
       ['thread_id', 'uint32_t'],

@@ -116,11 +116,11 @@ describe('address[46] decode does not desync following events', () => {
 
   /*
    * An id the defs do not know is not a skipped event — CTF records here are
-   * length-driven from the TSDL, so the reader cannot tell how far to advance,
-   * sets `desync` and breaks out of the decode loop for good. A PM-enabled
-   * guest against pre-PM defs therefore freezes the whole Trace panel: threads,
-   * queues and sockets all stop, not just the power band. These two cases pin
-   * both halves of that contract.
+   * length-driven from the TSDL, so the reader cannot tell how far to advance
+   * from the header alone. It slides forward a byte at a time instead, so a
+   * PM-enabled guest against pre-PM defs loses only the unrecognized record,
+   * not the rest of the session. These two cases pin both halves of that
+   * contract.
    */
   it('decodes a PM record and keeps its place in the stream', () => {
     const bytes = Uint8Array.from([
@@ -143,7 +143,7 @@ describe('address[46] decode does not desync following events', () => {
     expect(reader.tr.events[2]?.fields.name).toBe('main')
   })
 
-  it('an unknown id desyncs the stream, which is why PM defs must ship', () => {
+  it('an unknown id resyncs on the next record instead of freezing the stream', () => {
     const bytes = Uint8Array.from([
       ...record(1000, 0x149, [0, 3, 1]),
       ...record(2000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
@@ -152,10 +152,13 @@ describe('address[46] decode does not desync following events', () => {
     const stale = fallbackDefs()
     stale.delete(0x149)
     const reader = new TraceReader(stale)
-    expect(reader.feed(bytes)).toBe(0)
-    expect(reader.desync).toBe(true)
-    // The thread switch is collateral damage: it never decodes.
-    expect(reader.tr.events).toHaveLength(0)
+    // The PM record itself is unrecoverable (no size to skip it by), but the
+    // reader slides forward byte by byte and lands back on the real header of
+    // the thread switch that follows it — that event still decodes.
+    expect(reader.feed(bytes)).toBe(1)
+    expect(reader.desync).toBe(false)
+    expect(reader.tr.events).toHaveLength(1)
+    expect(reader.tr.events[0]?.name).toBe('thread_switched_in')
   })
 
   it('wrong 20-byte assumption would scramble the next record', () => {

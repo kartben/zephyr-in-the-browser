@@ -79,7 +79,7 @@ describe('net address width helpers', () => {
 })
 
 describe('TraceReader net address width', () => {
-  it('used to desync: trusting [46] against a 20-byte guest kills later events', () => {
+  it('used to desync forever: trusting [46] against a 20-byte guest now only costs the overrun record', () => {
     // Reproduce the pre-fix failure mode without probing (locked wide layout).
     const defs = defsTrustingTsdl()
     applyNetAddressWidth(defs, 46)
@@ -91,10 +91,17 @@ describe('TraceReader net address width', () => {
       ...record(3000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
       ...record(4000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
-    reader.feed(bytes)
-    // Mis-sized bind eats into the next records; a subsequent header looks unknown.
-    expect(reader.desync).toBe(true)
-    expect(reader.tr.events.filter((e) => e.name === 'thread_switched_in').length).toBe(1)
+    // The mis-sized bind eats into the 3000 switch (that record is genuinely
+    // gone — its bytes were consumed as part of the oversized body), but the
+    // reader slides forward and re-locks onto the 4000 switch right after it
+    // instead of staying desynced for the rest of the session.
+    expect(reader.feed(bytes)).toBe(3)
+    expect(reader.desync).toBe(false)
+    expect(reader.tr.events.map((e) => [e.name, e.ts])).toEqual([
+      ['thread_switched_in', 1000],
+      ['socket_bind_enter', 2000],
+      ['thread_switched_in', 4000],
+    ])
   })
 
   it('probes 20-byte addresses and keeps decoding Schedule after zperf-like binds', () => {
