@@ -22,12 +22,14 @@ import (
 )
 
 const (
-	maxPayload     = 1 << 20
-	pingInterval   = 30 * time.Second
-	pongWait       = 60 * time.Second
-	writeWait      = 10 * time.Second
-	portPollEvery  = 2 * time.Second
-	shutdownGrace  = 3 * time.Second
+	maxPayload    = 1 << 20
+	pingInterval  = 30 * time.Second
+	pongWait      = 60 * time.Second
+	writeWait     = 10 * time.Second
+	portPollEvery = 2 * time.Second
+	shutdownGrace = 3 * time.Second
+	// byteNotifyEvery rate-limits the status pings driven by raw traffic.
+	byteNotifyEvery = 100 * time.Millisecond
 )
 
 type Hooks struct {
@@ -49,16 +51,26 @@ type Bridge struct {
 	cfg   config.Config
 	hooks Hooks
 
-	mu       sync.Mutex
-	clients  map[int]*client
-	nextID   int
-	ports    []protocol.PortInfo
-	serial   protocol.SerialStatus
-	gdbSt    protocol.GdbStatus
+	mu        sync.Mutex
+	clients   map[int]*client
+	nextID    int
+	ports     []protocol.PortInfo
+	serial    protocol.SerialStatus
+	gdbSt     protocol.GdbStatus
 	serHandle serial.Handle
 	gdbHandle gdb.Handle
-	ctfBytes  atomic.Uint64
-	gdbBytes  atomic.Uint64
+	// serGen/gdbGen tag the current serial and GDB sessions. Every open takes a
+	// fresh tag and its callbacks carry it; a callback whose tag no longer
+	// matches belongs to a link we have already moved on from and must not
+	// touch shared state. Without this, switching from port A to port B lets
+	// A's reader goroutine fire its onClose after B is live — nilling out B's
+	// handle (so B's port and reader goroutine leak, and every later switch
+	// leaks another) and reporting "idle" while B is really streaming.
+	serGen         int
+	gdbGen         int
+	ctfBytes       atomic.Uint64
+	gdbBytes       atomic.Uint64
+	lastByteNotify atomic.Int64
 
 	httpServer *http.Server
 	listener   net.Listener
@@ -67,7 +79,7 @@ type Bridge struct {
 	statusListeners map[int]func(Snapshot)
 	nextListener    int
 
-	closed chan struct{}
+	closed    chan struct{}
 	closeOnce sync.Once
 }
 
@@ -75,6 +87,11 @@ type client struct {
 	id   int
 	conn *websocket.Conn
 	send chan []byte
+	// done is closed once, on teardown. Shutdown is signalled here rather than
+	// by closing send, because broadcast() fans out to clients without holding
+	// b.mu: a send can always race a concurrent teardown, and sending on a
+	// closed channel panics.
+	done chan struct{}
 	net  NetSession
 
 	mu        sync.Mutex
@@ -84,20 +101,20 @@ type client struct {
 }
 
 type Snapshot struct {
-	Version    string            `json:"version"`
-	Protocol   string            `json:"protocol"`
-	Features   protocol.Features `json:"features"`
-	NetReady   bool              `json:"netReady"`
-	Ports      []protocol.PortInfo `json:"ports"`
+	Version    string                `json:"version"`
+	Protocol   string                `json:"protocol"`
+	Features   protocol.Features     `json:"features"`
+	NetReady   bool                  `json:"netReady"`
+	Ports      []protocol.PortInfo   `json:"ports"`
 	Serial     protocol.SerialStatus `json:"serial"`
 	GDB        protocol.GdbStatus    `json:"gdb"`
-	Clients    int               `json:"clients"`
-	MaxClients int               `json:"maxClients"`
-	CtfBytes   uint64            `json:"ctfBytes"`
-	GdbBytes   uint64            `json:"gdbBytes"`
-	ListenPort int               `json:"listenPort"`
-	WSURL      string            `json:"wsUrl"`
-	DeepLink   string            `json:"deepLink"`
+	Clients    int                   `json:"clients"`
+	MaxClients int                   `json:"maxClients"`
+	CtfBytes   uint64                `json:"ctfBytes"`
+	GdbBytes   uint64                `json:"gdbBytes"`
+	ListenPort int                   `json:"listenPort"`
+	WSURL      string                `json:"wsUrl"`
+	DeepLink   string                `json:"deepLink"`
 }
 
 func Start(cfg config.Config, hooks Hooks) (*Bridge, error) {
@@ -245,6 +262,36 @@ func (b *Bridge) notifyStatus() {
 	}
 }
 
+// notifyStatusThrottled coalesces the status pings driven by raw traffic.
+// onData fires once per read, which for a dribbling port is once per byte, and
+// every notify snapshots the whole bridge; unthrottled it starves the paths
+// that carry real state changes.
+func (b *Bridge) notifyStatusThrottled() {
+	now := time.Now().UnixMilli()
+	last := b.lastByteNotify.Load()
+	if now-last < byteNotifyEvery.Milliseconds() {
+		return
+	}
+	if !b.lastByteNotify.CompareAndSwap(last, now) {
+		return // another chunk just claimed this window
+	}
+	b.notifyStatus()
+}
+
+// serialCurrent reports whether gen still tags the live serial session.
+func (b *Bridge) serialCurrent(gen int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.serGen == gen
+}
+
+// gdbCurrent reports whether gen still tags the live GDB session.
+func (b *Bridge) gdbCurrent(gen int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.gdbGen == gen
+}
+
 func (b *Bridge) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -321,6 +368,7 @@ func (b *Bridge) handleWS(w http.ResponseWriter, r *http.Request) {
 		id:       id,
 		conn:     conn,
 		send:     make(chan []byte, 64),
+		done:     make(chan struct{}),
 		netPhase: "idle",
 	}
 	b.clients[id] = c
@@ -409,7 +457,11 @@ func (b *Bridge) sendNetStatus(c *client) {
 }
 
 func (c *client) enqueue(msg []byte) {
-	defer func() { _ = recover() }()
+	select {
+	case <-c.done:
+		return // client is gone
+	default:
+	}
 	select {
 	case c.send <- msg:
 	default:
@@ -425,12 +477,12 @@ func (c *client) writePump() {
 	}()
 	for {
 		select {
-		case msg, ok := <-c.send:
+		case <-c.done:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
+			_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+		case msg := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 				return
 			}
@@ -535,7 +587,7 @@ func (b *Bridge) removeClient(c *client) {
 			c.net = nil
 		}
 		c.mu.Unlock()
-		close(c.send)
+		close(c.done)
 		_ = c.conn.Close()
 		b.mu.Lock()
 		delete(b.clients, c.id)
@@ -655,18 +707,38 @@ func portsEqual(a, b []protocol.PortInfo) bool {
 
 func (b *Bridge) SelectSerial(path string, baud int) error {
 	b.StopSerial()
+
+	// Tag the session before opening: the opener starts its reader goroutine
+	// before it returns, so callbacks can fire while OpenSerial is still in
+	// flight.
+	b.mu.Lock()
+	b.serGen++
+	gen := b.serGen
+	b.mu.Unlock()
+
 	h, err := b.hooks.OpenSerial(path, baud, func(data []byte) {
+		if !b.serialCurrent(gen) {
+			return
+		}
 		b.ctfBytes.Add(uint64(len(data)))
 		b.broadcast(protocol.EncodeFrame(protocol.CH_CTF, data))
-		b.notifyStatus()
+		b.notifyStatusThrottled()
 	}, func(err error) {
 		b.mu.Lock()
+		if b.serGen != gen {
+			b.mu.Unlock()
+			return
+		}
 		b.serial.Phase = "error"
 		b.serial.Detail = err.Error()
 		b.mu.Unlock()
 		b.broadcastSerial()
 	}, func() {
 		b.mu.Lock()
+		if b.serGen != gen {
+			b.mu.Unlock()
+			return
+		}
 		if b.serial.Phase == "streaming" {
 			b.serial.Phase = "idle"
 			b.serial.Detail = "port closed"
@@ -678,6 +750,10 @@ func (b *Bridge) SelectSerial(path string, baud int) error {
 	})
 	if err != nil {
 		b.mu.Lock()
+		if b.serGen != gen {
+			b.mu.Unlock()
+			return err
+		}
 		b.serial.Phase = "error"
 		b.serial.Detail = err.Error()
 		p := path
@@ -688,6 +764,12 @@ func (b *Bridge) SelectSerial(path string, baud int) error {
 		return err
 	}
 	b.mu.Lock()
+	if b.serGen != gen {
+		// Superseded while the port was opening; close the orphan.
+		b.mu.Unlock()
+		_ = h.Close()
+		return nil
+	}
 	b.serHandle = h
 	p := path
 	b.serial = protocol.SerialStatus{Path: &p, BaudRate: baud, Phase: "streaming", Detail: ""}
@@ -698,6 +780,7 @@ func (b *Bridge) SelectSerial(path string, baud int) error {
 
 func (b *Bridge) StopSerial() {
 	b.mu.Lock()
+	b.serGen++
 	h := b.serHandle
 	b.serHandle = nil
 	b.serial.Phase = "idle"
@@ -712,18 +795,35 @@ func (b *Bridge) StopSerial() {
 
 func (b *Bridge) AttachGdb(host string, port int) error {
 	b.DetachGdb()
+
+	b.mu.Lock()
+	b.gdbGen++
+	gen := b.gdbGen
+	b.mu.Unlock()
+
 	h, err := b.hooks.OpenGdb(host, port, func(data []byte) {
+		if !b.gdbCurrent(gen) {
+			return
+		}
 		b.gdbBytes.Add(uint64(len(data)))
 		b.broadcast(protocol.EncodeFrame(protocol.CH_GDB, data))
-		b.notifyStatus()
+		b.notifyStatusThrottled()
 	}, func(err error) {
 		b.mu.Lock()
+		if b.gdbGen != gen {
+			b.mu.Unlock()
+			return
+		}
 		b.gdbSt.Phase = "error"
 		b.gdbSt.Detail = err.Error()
 		b.mu.Unlock()
 		b.broadcastGdb()
 	}, func() {
 		b.mu.Lock()
+		if b.gdbGen != gen {
+			b.mu.Unlock()
+			return
+		}
 		if b.gdbSt.Phase == "connected" {
 			b.gdbSt.Phase = "idle"
 			b.gdbSt.Detail = "gdb server closed"
@@ -734,12 +834,22 @@ func (b *Bridge) AttachGdb(host string, port int) error {
 	})
 	if err != nil {
 		b.mu.Lock()
+		if b.gdbGen != gen {
+			b.mu.Unlock()
+			return err
+		}
 		b.gdbSt = protocol.GdbStatus{Host: host, Port: port, Phase: "error", Detail: err.Error()}
 		b.mu.Unlock()
 		b.broadcastGdb()
 		return err
 	}
 	b.mu.Lock()
+	if b.gdbGen != gen {
+		// Superseded while the connection was being dialled.
+		b.mu.Unlock()
+		_ = h.Close()
+		return nil
+	}
 	b.gdbHandle = h
 	b.cfg.GdbHost = host
 	b.cfg.GdbPort = port
@@ -751,6 +861,7 @@ func (b *Bridge) AttachGdb(host string, port int) error {
 
 func (b *Bridge) DetachGdb() {
 	b.mu.Lock()
+	b.gdbGen++
 	h := b.gdbHandle
 	b.gdbHandle = nil
 	b.gdbSt.Phase = "idle"
