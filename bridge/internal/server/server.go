@@ -738,7 +738,9 @@ func (b *Bridge) StopSerial() {
 // target examination has failed ("attempted 'gdb' connection rejected" in its
 // log), which usually means the debug link to the target is down rather than
 // anything being wrong with the bridge.
-var errGdbRejected = errors.New("gdb server accepted then immediately closed the connection — it is refusing debug sessions (in OpenOCD this means target examination failed; check the SWD/JTAG link, target power and reset)")
+// Kept short deliberately: the TUI truncates status lines to the terminal
+// width, so a long message loses its tail exactly when it is needed.
+var errGdbRejected = errors.New("gdb server rejected the session — target not examined (check SWD link/power)")
 
 func (b *Bridge) AttachGdb(host string, port int) error {
 	b.DetachGdb()
