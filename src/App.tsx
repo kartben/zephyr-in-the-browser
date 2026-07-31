@@ -35,6 +35,9 @@ import { emphasisPanels } from '@/dts'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { startBridgeClient } from '@/probe/client'
+import { getMode } from '@/lib/modeStore'
+import { LiveBoardHome } from '@/components/LiveBoardHome'
+import { set as setLiveImage, type LiveImage } from '@/liveImage'
 import {
   BOARDS,
   DEFAULT_BOARD_ID,
@@ -69,6 +72,8 @@ export default function App() {
   useEffect(() => {
     startBridgeClient()
   }, [])
+  // Fixed for the document's life: mode changes navigate (see modeStore).
+  const mode = getMode()
   const [backendId] = useState<BackendId>(() => readSelection().backendId)
   const [boardId, setBoardId] = useState(() => readSelection().boardId)
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
@@ -99,6 +104,12 @@ export default function App() {
   })()
   const expandAllPanels = customImage !== null && !deviceTree?.insights
   useEffect(() => {
+    // A Live board session has no guest: Trace is the point (Debug joins once
+    // the live debugger can light its row), and there is no device inventory.
+    if (mode === 'live') {
+      seedForSelection('live', { primary: ['trace'], expandAll: false })
+      return
+    }
     seedForSelection(
       customImage !== null
         ? `custom:${customImage.name}:${deviceTree?.name ?? ''}`
@@ -298,11 +309,17 @@ export default function App() {
   const handleLoadElf = useCallback(
     async (file: File) => {
       try {
+        if (mode === 'live') {
+          setLiveImage(await readGuestImage(file))
+          return
+        }
         setPendingElf(await readGuestImage(file))
       } catch (err) {
         reportError(err)
       }
     },
+    // mode is fixed for the document's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [reportError],
   )
 
@@ -313,6 +330,27 @@ export default function App() {
    */
   const handleFilesDropped = useCallback(
     async (files: File[]) => {
+      // A Live board session takes the ELF as debug symbols — nothing boots.
+      if (mode === 'live') {
+        try {
+          let elf: LiveImage | null = null
+          for (const file of files) {
+            const bytes = new Uint8Array(await file.arrayBuffer())
+            if (looksLikeElf(bytes)) {
+              elf ??= { name: file.name, bytes }
+            } else if (file.name.endsWith('.dts')) {
+              throw new Error(
+                `Devicetree files apply to the Simulator. Switch to Simulator to use ${file.name}.`,
+              )
+            }
+          }
+          if (!elf) throw new Error(`${files[0].name} is not an ELF file (bad magic).`)
+          setLiveImage(elf)
+        } catch (err) {
+          reportError(err)
+        }
+        return
+      }
       try {
         let elf: GuestImage | null = null
         let dts: { name: string; text: string } | null = null
@@ -350,6 +388,8 @@ export default function App() {
         reportError(err)
       }
     },
+    // mode is fixed for the document's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [commitElf, reportError],
   )
 
@@ -411,17 +451,24 @@ export default function App() {
           ResizeObserver absorbs.
         */}
         <div className="relative min-w-0 flex-1 p-4">
-          {/* Changing board or backend remounts the session, same as Restart. */}
-          <XTerminal
-            key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
-            onSession={handleSession}
-            onTeardown={handleTeardown}
-          />
-          {/* A tour step may have stopped the machine, so its card sits above
-              the panels but below the z-50 modals. */}
-          <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
-            <TourCard board={getBoard(boardId)} sampleId={sampleId} />
-          </div>
+          {mode === 'live' ? (
+            /* No guest, no terminal: the stage is the bridge walkthrough. */
+            <LiveBoardHome errorDetail={status === 'error' ? (detail ?? null) : null} />
+          ) : (
+            <>
+              {/* Changing board or backend remounts the session, same as Restart. */}
+              <XTerminal
+                key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
+                onSession={handleSession}
+                onTeardown={handleTeardown}
+              />
+              {/* A tour step may have stopped the machine, so its card sits above
+                  the panels but below the z-50 modals. */}
+              <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
+                <TourCard board={getBoard(boardId)} sampleId={sampleId} />
+              </div>
+            </>
+          )}
         </div>
 
         {/*
