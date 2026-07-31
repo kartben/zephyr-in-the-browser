@@ -25,7 +25,7 @@ out into a floating window; collapsed rows keep a live readout.
 | **Audio** | Speakers fed by Zephyr's I2S API and a microphone feeding its DMIC API |
 | **I²C** | The bus itself: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels |
 | **SPI** | A SPI bus with JEDEC NOR flash: hex dump, LittleFS browser, and persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same bus can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
-| **Network** | Ethernet with throughput charts and a packet capture. DHCP, HTTP, and echo samples talk through Network. The panel's **Uplink** can connect the guest to a [self-hosted gateway](docs/net-gateway.md) (one `docker run`) for real DHCP, DNS, TCP/UDP, even real ping |
+| **Network** | Ethernet with throughput charts and a packet capture. DHCP, HTTP, and echo samples talk through Network. **Uplink → Bridge network** uses the desktop bridge from **Settings** (or a net-only [gateway](docs/net-gateway.md)) for real DHCP, DNS, TCP/UDP, even real ping |
 | **Guided tours** | A **stock** sample that explains itself. Each step pauses the **guest** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
 
 ## Quick start
@@ -55,8 +55,20 @@ native. The app switches to QEMU automatically once it finds a build. See
 ### Real network access (optional)
 
 By default the guest's LAN is simulated in the page and nothing reaches the
-internet. To bridge it onto a real network, run the gateway and paste the URL
-it prints into the Network panel's **Uplink** section:
+internet. For a real network (and optional Live board tracing), run the
+**desktop bridge**, then open **Settings** in the top bar:
+
+```console
+cd bridge && npm install && npm start
+```
+
+Paste the printed URL into Settings, turn on the desktop bridge, and choose
+**Bridge network** under Network → **Uplink**. Restart the guest (⟳). Trace
+**Live board** reuses the same connection. See
+[docs/bridge.md](docs/bridge.md).
+
+The older net-only gateway still works if you paste its URL into Uplink with
+Settings off:
 
 ```console
 docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/zephyr-in-the-browser/gateway
@@ -64,6 +76,12 @@ docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/z
 
 See [docs/net-gateway.md](docs/net-gateway.md) for tunnels (public `wss://`
 links), security notes and alternatives.
+
+### Trace from a real board (optional)
+
+Same desktop bridge as above. Firmware must emit Zephyr CTF over UART (or
+USB-CDC). Open Trace → **Live board** after Settings is connected. Details in
+[docs/bridge.md](docs/bridge.md).
 
 ## Choosing what runs
 
