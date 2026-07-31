@@ -27,6 +27,39 @@ const DEFAULT_TIMEOUT_MS = 3000
 
 export type StopInfo = { kind: 'signal' | 'watch' | 'exit'; signal?: number; raw: string }
 
+/**
+ * Per-transport behavior. The QEMU chardev path passes nothing and stays
+ * byte-identical; the desktop-bridge path opts into OpenOCD manners.
+ */
+export interface RspClientOptions {
+  /**
+   * Send `+` for valid packets (and retransmit on `-`) while ack mode is
+   * active. Required by OpenOCD before QStartNoAckMode lands. Must stay off
+   * on the QEMU chardev: any byte written to a running stub halts the VM.
+   */
+  eagerAcks?: boolean
+  /** Probe `vCont?` during start() and fall back to bare `c`/`s` without it. */
+  probeVCont?: boolean
+  /**
+   * Retry a failed `Z0` as `Z1` (hardware comparator) and remember which
+   * kind to remove. Flash-resident firmware rejects software breakpoints.
+   */
+  hwBreakpointFallback?: boolean
+  /**
+   * Treat a signal-0 reply to `?` as "no stop to report" (OpenOCD while the
+   * target runs — e.g. an adopted TUI-attached proxy) and interrupt once to
+   * reach a known-stopped state instead of believing a phantom stop.
+   */
+  resolveUnknownStop?: boolean
+}
+
+/** `O`-prefixed hex: target console output, a notification and never a reply. */
+function isConsoleOutput(payload: string): boolean {
+  if (payload.length < 3 || payload[0] !== 'O') return false
+  const hex = payload.slice(1)
+  return hex.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(hex)
+}
+
 type Waiting = {
   /** Resolve when the next non-ack packet arrives (or a stop reply if wantStop). */
   resolve: (payload: string) => void
@@ -54,8 +87,17 @@ export class RspClient {
   private lastStop: StopInfo | null = null
   /** In-flight halt, shared by every caller that asks while it is pending. */
   private pendingInterrupt: Promise<StopInfo> | null = null
+  /** False once a vCont? probe came back unsupported (bare c/s from then on). */
+  private useVCont = true
+  /** Last framed packet, for retransmission when the server nacks. */
+  private lastSentRaw: string | null = null
+  /** Addresses planted as Z1 by the hardware fallback (removed as z1). */
+  private readonly hwPlanted = new Set<number>()
 
-  constructor(private readonly transport: RspTransport) {}
+  constructor(
+    private readonly transport: RspTransport,
+    private readonly opts: RspClientOptions = {},
+  ) {}
 
   /** Whether the stub last told us the machine is executing. */
   isRunning(): boolean {
@@ -74,9 +116,23 @@ export class RspClient {
     const { messages, rest } = decodeStream(this.buffer)
     this.buffer = rest
     for (const msg of messages) {
-      if (msg.kind === 'ack' || msg.kind === 'nack') continue
+      if (msg.kind === 'ack') continue
+      if (msg.kind === 'nack') {
+        // In ack mode a `-` asks for a retransmit. (Interrupt bytes are never
+        // retransmitted; only framed packets are remembered.)
+        if (this.opts.eagerAcks && !this.noAck && this.lastSentRaw) {
+          this.sendRaw(this.lastSentRaw)
+        }
+        continue
+      }
       if (msg.kind !== 'packet') continue
       const payload = msg.payload
+      if (this.opts.eagerAcks && !this.noAck) this.sendRaw('+')
+      // Console output can land between a request and its reply (OpenOCD
+      // emits target messages this way); letting it resolve a waiter handed
+      // an `m`/`g` caller a string of prose. Interpretation only — nothing
+      // is written, so the QEMU path is unaffected.
+      if (isConsoleOutput(payload)) continue
       const stop =
         payload.startsWith('T') || payload.startsWith('S') ? parseStop(payload) : null
       // A stop reply is the one authoritative statement about the run state.
@@ -108,7 +164,9 @@ export class RspClient {
   }
 
   private sendPacket(payload: string) {
-    this.sendRaw(encodePacket(payload))
+    const raw = encodePacket(payload)
+    this.lastSentRaw = raw
+    this.sendRaw(raw)
   }
 
   /**
@@ -163,9 +221,23 @@ export class RspClient {
       const ack = await this.request('QStartNoAckMode')
       if (ack === 'OK') this.noAck = true
     }
-    void this.noAck
+    if (this.opts.probeVCont) {
+      // Some OpenOCD targets lack vCont, and an unsupported `vCont;c` gets
+      // an empty reply while the target stays parked. Probe once; QEMU
+      // answers positively so its wire traffic is unchanged by design.
+      const vc = await this.request('vCont?')
+      this.useVCont = vc.startsWith('vCont')
+    }
     const why = await this.request('?')
     if (why.startsWith('T') || why.startsWith('S')) {
+      const signal = Number.parseInt(why.slice(1, 3), 16)
+      if (this.opts.resolveUnknownStop && signal === 0) {
+        // OpenOCD's "no stop to report": the target is running (an adopted
+        // TUI-attached proxy). Halt once so the session starts somewhere
+        // known instead of trusting a phantom stop.
+        this.running = true
+        return await this.interrupt()
+      }
       this.lastStop = parseStop(why)
       return this.lastStop
     }
@@ -235,7 +307,7 @@ export class RspClient {
     }
     this.running = true
     this.lastStop = null
-    this.sendPacket('vCont;c')
+    this.sendPacket(this.useVCont ? 'vCont;c' : 'c')
   }
 
   async step(): Promise<StopInfo> {
@@ -244,7 +316,7 @@ export class RspClient {
     // gate shut until the stop lands — and reopen it even if the reply is lost,
     // since a single step always ends halted.
     this.running = true
-    this.sendPacket('vCont;s')
+    this.sendPacket(this.useVCont ? 'vCont;s' : 's')
     try {
       return await this.waitStop()
     } finally {
@@ -273,10 +345,22 @@ export class RspClient {
 
   async insertSwBreakpoint(addr: number, kind: number): Promise<boolean> {
     const r = await this.request(`Z0,${addr.toString(16)},${kind.toString(16)}`)
-    return r === 'OK'
+    if (r === 'OK') return true
+    if (!this.opts.hwBreakpointFallback) return false
+    // Flash-resident code rejects Z0 on servers that do not auto-promote;
+    // a hardware comparator does the same job, it just has to be removed as
+    // one, so remember the kind per address.
+    const hw = await this.request(`Z1,${addr.toString(16)},${kind.toString(16)}`)
+    if (hw === 'OK') this.hwPlanted.add(addr)
+    return hw === 'OK'
   }
 
   async removeSwBreakpoint(addr: number, kind: number): Promise<boolean> {
+    if (this.hwPlanted.has(addr)) {
+      const r = await this.request(`z1,${addr.toString(16)},${kind.toString(16)}`)
+      if (r === 'OK') this.hwPlanted.delete(addr)
+      return r === 'OK'
+    }
     const r = await this.request(`z0,${addr.toString(16)},${kind.toString(16)}`)
     return r === 'OK'
   }
