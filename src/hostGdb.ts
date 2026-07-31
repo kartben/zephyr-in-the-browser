@@ -209,6 +209,11 @@ export function getSymbolIndex(): SymbolIndex | null {
   return symbolIndex
 }
 
+/** Named thread stacks from the image, for naming addresses that land in one. */
+export function getStackRegions(): readonly StackRegion[] {
+  return stackRegions
+}
+
 /**
  * Run `fn` at the stop that opening the stub produces, before the machine is
  * let go again.

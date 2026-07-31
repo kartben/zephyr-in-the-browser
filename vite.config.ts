@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -8,6 +8,38 @@ import { defineConfig, type Plugin } from 'vite'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const QEMU_ASSET_DIR = path.join(root, 'public', 'qemu')
+
+/**
+ * The main checkout's `public/qemu`, when this root is a linked worktree.
+ *
+ * The qemu-wasm binaries are large gitignored drop-ins, so a fresh worktree has
+ * nothing but the README and the app quietly falls back to the mock backend —
+ * which looks like a broken branch rather than a missing download. They do not
+ * vary by branch, so dev reads the main checkout's copy instead of asking every
+ * worktree to keep its own 33 MB.
+ *
+ * Found through git's own worktree linkage (`.git` file → `commondir`) rather
+ * than a guessed path, and null for an ordinary checkout.
+ */
+function mainCheckoutQemuDir(): string | null {
+  const dotGit = path.join(root, '.git')
+  // A linked worktree's .git is a file; a normal checkout's is a directory.
+  if (!existsSync(dotGit) || statSync(dotGit).isDirectory()) return null
+  const link = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))
+  if (!link) return null
+  const gitDir = path.resolve(root, link[1]!.trim())
+  const commonDir = path.join(gitDir, 'commondir')
+  if (!existsSync(commonDir)) return null
+  // commondir points at the main .git; its parent is the main working tree.
+  const main = path.dirname(path.resolve(gitDir, readFileSync(commonDir, 'utf8').trim()))
+  const dir = path.join(main, 'public', 'qemu')
+  return dir !== QEMU_ASSET_DIR && existsSync(dir) ? dir : null
+}
+
+const SHARED_QEMU_DIR = mainCheckoutQemuDir()
+
+const hasEmulator = (dir: string | null) =>
+  Boolean(dir) && existsSync(dir!) && readdirSync(dir!).some((f) => f.endsWith('.wasm'))
 
 /**
  * xterm-pty runs the emulator on a Web Worker and performs *blocking* stdin
@@ -48,15 +80,87 @@ function crossOriginIsolation(): Plugin {
  * Detects whether real qemu-wasm artifacts have been dropped into public/qemu/.
  * The result is inlined as `__QEMU_ASSETS_PRESENT__` so the app can default to
  * the mock backend when the directory holds nothing but its README.
+ *
+ * In dev the worktree fallback counts too — those files are reachable. A build
+ * only ships what is in this root, so it must not.
  */
 function qemuAssetProbe(): Plugin {
-  const present = () => {
-    if (!existsSync(QEMU_ASSET_DIR)) return false
-    return readdirSync(QEMU_ASSET_DIR).some((f) => f.endsWith('.wasm'))
-  }
   return {
     name: 'zephyr-qemu-asset-probe',
-    config: () => ({ define: { __QEMU_ASSETS_PRESENT__: JSON.stringify(present()) } }),
+    config: (_config, { command }) => ({
+      define: {
+        __QEMU_ASSETS_PRESENT__: JSON.stringify(
+          hasEmulator(QEMU_ASSET_DIR) || (command === 'serve' && hasEmulator(SHARED_QEMU_DIR)),
+        ),
+      },
+    }),
+  }
+}
+
+const QEMU_MIME: Record<string, string> = {
+  '.js': 'text/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.json': 'application/json; charset=utf-8',
+  '.c': 'text/plain; charset=utf-8',
+  '.h': 'text/plain; charset=utf-8',
+  '.conf': 'text/plain; charset=utf-8',
+  '.overlay': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+}
+
+/**
+ * Serves `/qemu/*` out of {@link mainCheckoutQemuDir} for anything this worktree
+ * does not have itself.
+ *
+ * Dev only, and this root always wins: an image just written here by
+ * `build-zephyr-image.sh` is the one under test and must never be masked by the
+ * main checkout's. Registered ahead of {@link tours} so a shipped source file
+ * beats the Zephyr-workspace shim, the same precedence tours applies locally.
+ */
+function qemuWorktreeAssets(): Plugin {
+  return {
+    name: 'zephyr-qemu-worktree-assets',
+    apply: 'serve',
+    configureServer(server) {
+      const shared = SHARED_QEMU_DIR
+      if (!shared) return
+      server.config.logger.info(`  qemu assets: ${shared} (worktree fallback)`)
+
+      server.middlewares.use((req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next()
+        const url = decodeURIComponent((req.url ?? '').split('?')[0]!)
+        const rel = url.split('/qemu/')[1]
+        if (!rel || existsSync(path.join(QEMU_ASSET_DIR, rel))) return next()
+
+        const file = path.join(shared, rel)
+        if (!file.startsWith(shared + path.sep)) return next()
+        if (!existsSync(file) || !statSync(file).isFile()) return next()
+
+        const size = statSync(file).size
+        res.setHeader('Content-Type', QEMU_MIME[path.extname(file)] ?? 'application/octet-stream')
+        res.setHeader('Accept-Ranges', 'bytes')
+        // The binaries change under a running server whenever the emulator is
+        // rebuilt; a stale cached .wasm is a very confusing way to find out.
+        res.setHeader('Cache-Control', 'no-cache')
+
+        // Emscripten range-requests the larger blobs rather than buffering them.
+        const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''))
+        const start = range?.[1] ? Number(range[1]) : 0
+        const end = range?.[2] ? Math.min(Number(range[2]), size - 1) : size - 1
+        if (range && (start >= size || end < start)) {
+          res.statusCode = 416
+          res.setHeader('Content-Range', `bytes */${size}`)
+          return res.end()
+        }
+        if (range) {
+          res.statusCode = 206
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
+        }
+        res.setHeader('Content-Length', String(end - start + 1))
+        if (req.method === 'HEAD') return res.end()
+        createReadStream(file, { start, end }).pipe(res)
+      })
+    },
   }
 }
 
@@ -127,6 +231,7 @@ export default defineConfig({
     tailwindcss(),
     crossOriginIsolation(),
     qemuAssetProbe(),
+    qemuWorktreeAssets(),
     tours(),
   ],
   resolve: {
