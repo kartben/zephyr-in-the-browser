@@ -15,6 +15,7 @@ import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import {
   CH_CTF,
   CH_CTRL,
+  CH_GDB,
   CH_NET,
   decodeCtrl,
   decodeFrame,
@@ -86,6 +87,9 @@ type NetHandler = {
 }
 let netHandler: NetHandler | null = null
 let droppedTx = 0
+
+/** The live debugger registers to receive raw RSP bytes (CH_GDB frames). */
+let gdbHandler: ((payload: Uint8Array) => void) | null = null
 
 function notify() {
   for (const fn of listeners) fn()
@@ -216,6 +220,10 @@ function openSocket() {
       // feedExternal would otherwise seize it from a running Simulator app.
       if (externalActive) hostTrace.feedExternal(frame.payload)
       publish({ ctfBytes: snapshot.ctfBytes + frame.payload.length })
+      return
+    }
+    if (frame.channel === CH_GDB) {
+      gdbHandler?.(frame.payload)
       return
     }
     if (frame.channel === CH_NET) {
@@ -375,6 +383,34 @@ export function sendNetFrame(frame: Uint8Array): boolean {
   return sendRaw(encodeFrame(CH_NET, frame))
 }
 
+/** Register (or clear) the live debugger's RSP byte sink. */
+export function setGdbHandler(handler: ((payload: Uint8Array) => void) | null): void {
+  gdbHandler = handler
+}
+
+/** Page → GDB server RSP bytes. Returns false when the socket is down (dropped). */
+export function sendGdbBytes(bytes: Uint8Array): boolean {
+  if (snapshot.phase !== 'connected' || !ws || ws.readyState !== WebSocket.OPEN) return false
+  return sendRaw(encodeFrame(CH_GDB, bytes))
+}
+
+/**
+ * Ask the daemon to dial its GDB server (OpenOCD / J-Link / pyOCD). Omitted
+ * host/port fall back to the daemon's configured defaults; the outcome
+ * arrives as a gdb-status ctrl message.
+ */
+export function attachGdb(host?: string, port?: number): void {
+  sendCtrl({
+    type: 'gdb-attach',
+    ...(host ? { host } : {}),
+    ...(port ? { port } : {}),
+  })
+}
+
+export function detachGdb(): void {
+  sendCtrl({ type: 'gdb-detach' })
+}
+
 export function isNetLive(): boolean {
   return (
     snapshot.phase === 'connected' &&
@@ -418,6 +454,7 @@ export function _resetForTests(): void {
   started = false
   droppedTx = 0
   netHandler = null
+  gdbHandler = null
   notify()
 }
 

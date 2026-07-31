@@ -10,7 +10,7 @@ import * as hostTrace from '@/hostTrace'
 import * as bridgeStore from '@/lib/bridgeStore'
 import * as modeStore from '@/lib/modeStore'
 import * as bridge from '@/probe/client'
-import { CH_CTF, encodeFrame } from '@/probe/protocol'
+import { CH_CTF, CH_CTRL, CH_GDB, encodeFrame } from '@/probe/protocol'
 
 class MemoryStorage {
   private map = new Map<string, string>()
@@ -128,5 +128,48 @@ describe('bridge trace ownership', () => {
 
     bridge.disconnect()
     expect(hostTrace.getSnapshot().source).toBeNull()
+  })
+})
+
+describe('bridge gdb plumbing', () => {
+  it('routes CH_GDB frames to the registered handler', () => {
+    bridge.startBridgeClient()
+    const ws = lastWs()
+    ws.emitOpen()
+    const seen: Uint8Array[] = []
+    bridge.setGdbHandler((payload) => seen.push(payload.slice()))
+    ws.emitMessage(encodeFrame(CH_GDB, new Uint8Array([0x2b, 0x24])))
+    expect(seen).toHaveLength(1)
+    expect([...seen[0]!]).toEqual([0x2b, 0x24])
+  })
+
+  it('frames outgoing RSP bytes on CH_GDB, dropping when down', () => {
+    bridge.startBridgeClient()
+    const ws = lastWs()
+    ws.emitOpen()
+    expect(bridge.sendGdbBytes(new Uint8Array([0x03]))).toBe(true)
+    const sent = ws.sent[ws.sent.length - 1]!
+    expect(sent[0]).toBe(CH_GDB)
+    expect([...sent.subarray(1)]).toEqual([0x03])
+
+    bridge.disconnect()
+    expect(bridge.sendGdbBytes(new Uint8Array([0x03]))).toBe(false)
+  })
+
+  it('speaks the gdb-attach / gdb-detach ctrl shapes the daemon expects', () => {
+    bridge.startBridgeClient()
+    const ws = lastWs()
+    ws.emitOpen()
+    bridge.attachGdb()
+    bridge.attachGdb('10.0.0.5', 2331)
+    bridge.detachGdb()
+    const ctrl = ws.sent
+      .filter((frame) => frame[0] === CH_CTRL)
+      .map((frame) => JSON.parse(new TextDecoder().decode(frame.subarray(1))) as unknown)
+    expect(ctrl).toEqual([
+      { type: 'gdb-attach' },
+      { type: 'gdb-attach', host: '10.0.0.5', port: 2331 },
+      { type: 'gdb-detach' },
+    ])
   })
 })
