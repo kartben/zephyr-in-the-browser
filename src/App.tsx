@@ -111,10 +111,10 @@ export default function App() {
   })()
   const expandAllPanels = customImage !== null && !deviceTree?.insights
   useEffect(() => {
-    // A Live board session has no guest: Trace is the point (Debug joins once
-    // the live debugger can light its row), and there is no device inventory.
+    // A Live board session has no guest: Trace and Debug are the point, and
+    // there is no device inventory.
     if (mode === 'live') {
-      seedForSelection('live', { primary: ['trace'], expandAll: false })
+      seedForSelection('live', { primary: ['trace', 'debug'], expandAll: false })
       return
     }
     seedForSelection(

@@ -156,7 +156,8 @@ export function LiveBoardHome({ errorDetail }: { errorDetail?: string | null }) 
             </div>
           ) : (
             <p className="text-[11px] text-muted-foreground">
-              Drop the ELF you flashed anywhere on the page to load debug symbols.
+              Drop the ELF you flashed anywhere on the page. It gives the Debug panel symbols,
+              threads and call stacks.
             </p>
           )}
         </section>

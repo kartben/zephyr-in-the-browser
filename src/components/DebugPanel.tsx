@@ -17,10 +17,13 @@ import { MemoryPane } from '@/components/debug/MemoryPane'
 import { StackPane } from '@/components/debug/StackPane'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
 import { KernelObjectsPane } from '@/components/debug/KernelObjectsPane'
+import { LiveDebugCard, LiveSessionStrip } from '@/components/debug/LiveDebugCard'
 import { compactHex } from '@/debug/hexFormat'
 import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
 import * as debugUi from '@/lib/debugUi'
+import * as hostGdb from '@/hostGdb'
+import { getMode } from '@/lib/modeStore'
 import {
   STAGE_DEBUG_KEY,
   getState,
@@ -42,8 +45,12 @@ const INSPECT_TABS = [
 /** Run control, breakpoints and inspectors — the body of the Debug dock row. */
 export function DebugBody() {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
+  const gdbSnap = useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot)
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
   const focus = useSyncExternalStore(debugUi.subscribe, debugUi.getSnapshot, debugUi.getSnapshot)
+  // The mode is document-fixed; it covers the pre-bind flash where source is
+  // still null but the session will only ever be a bridge one.
+  const liveSource = gdbSnap.source === 'bridge' || getMode() === 'live'
 
   const tab = tabIn(dock, STAGE_DEBUG_KEY, INSPECT_TABS, 'cpu') as InspectTab
   const setTab = (id: InspectTab) => setStoredTab(STAGE_DEBUG_KEY, id)
@@ -85,9 +92,14 @@ export function DebugBody() {
   return (
     <>
       {!live ? (
-        <p className="px-3 py-4 text-[11px] text-muted-foreground">Attaching the debugger…</p>
+        liveSource ? (
+          <LiveDebugCard />
+        ) : (
+          <p className="px-3 py-4 text-[11px] text-muted-foreground">Attaching the debugger…</p>
+        )
       ) : (
         <div className="space-y-3 p-2.5">
+          {liveSource && <LiveSessionStrip />}
           {/* Run control leads the body: the thing you reach for first. */}
           <div className="flex items-center gap-0.5">
             <Button

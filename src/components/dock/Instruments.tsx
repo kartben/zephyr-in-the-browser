@@ -23,6 +23,7 @@ import * as debug from '@/debug/control'
 import * as guestStats from '@/guestStats'
 import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
+import * as liveDebug from '@/debug/liveDebug'
 import * as bridgeClient from '@/probe/client'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import {
@@ -90,9 +91,22 @@ function TraceBadge() {
 /** Run state and where it stopped, for the collapsed Debug row. */
 function DebugBadge() {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
+  const gdbSnap = useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot)
+  const liveSnap = useSyncExternalStore(
+    liveDebug.subscribe,
+    liveDebug.getSnapshot,
+    liveDebug.getSnapshot,
+  )
   const live = snap.gdb
+  const bridgeSource = gdbSnap.source === 'bridge'
   const detail = !live
-    ? 'attaching'
+    ? bridgeSource
+      ? liveSnap.phase === 'attaching'
+        ? 'attaching'
+        : liveSnap.phase === 'error'
+          ? 'error'
+          : 'live board'
+      : 'attaching'
     : snap.paused
       ? (snap.pcLabel ?? (snap.pc ? compactHex(snap.pc) : 'paused'))
       : snap.breakpoints.length > 0
@@ -104,7 +118,13 @@ function DebugBadge() {
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          !live ? 'bg-muted-foreground/50' : snap.paused ? 'bg-emerald-500/90' : 'bg-amber-500/80',
+          !live
+            ? bridgeSource && liveSnap.phase === 'error'
+              ? 'bg-destructive/80'
+              : 'bg-muted-foreground/50'
+            : snap.paused
+              ? 'bg-emerald-500/90'
+              : 'bg-amber-500/80',
         )}
         aria-hidden
       />

@@ -105,8 +105,8 @@ export function SettingsMenu() {
               <div className="mb-2 space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
                 <p>
                   The desktop bridge is a small program you run on your own machine. In Live board
-                  mode it streams traces from a real board. In Simulator mode it can carry the
-                  guest's network (Bridge network).
+                  mode it streams traces from a real board and connects Debug to your GDB server.
+                  In Simulator mode it can carry the guest's network (Bridge network).
                 </p>
                 <p>Install it with Go {BRIDGE_GO_VERSION} or newer:</p>
                 <CopyableCommand command={BRIDGE_INSTALL_COMMAND} />
