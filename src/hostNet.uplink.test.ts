@@ -1,13 +1,15 @@
 /**
- * Uplink mode end to end against the fake netdev module: the production ring
- * codec, polling, capture and snapshot paths run for real; only QEMU and the
- * WebSocket are stand-ins.
+ * Bridge network mode end to end against the fake netdev module: the production
+ * ring codec, polling, capture and snapshot paths run for real; the desktop
+ * bridge WebSocket is a stand-in (CH_NET frames).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as hostNet from '@/hostNet'
 import * as netStore from '@/lib/netStore'
-import { setDefaultWsFactoryForTests, WIRE_HDR } from '@/net/uplink'
+import * as bridgeStore from '@/lib/bridgeStore'
+import * as bridge from '@/probe/client'
+import { CH_NET, encodeCtrl, encodeFrame } from '@/probe/protocol'
 import { createFakeNetModule, type FakeNetModule } from '@/net/testing/fakeModule'
 import { ipFromString, macFromString, MAC_BROADCAST } from '@/net/bytes'
 import { buildDhcpReply, DHCP_ACK } from '@/net/dhcp'
@@ -67,6 +69,17 @@ class FakeWebSocket {
   emitMessage(bytes: Uint8Array) {
     this.onmessage?.({ data: bytes.slice().buffer })
   }
+  /** CTRL hello advertising passt net. */
+  emitHelloNet() {
+    this.emitMessage(
+      encodeCtrl({
+        type: 'hello',
+        protocol: 'zitb-bridge',
+        features: { ctf: true, gdb: true, net: true },
+        ports: [],
+      }),
+    )
+  }
 }
 
 const GUEST_MAC = macFromString('02:00:00:00:00:01')!
@@ -79,16 +92,6 @@ function guestFrame(fill: number): Uint8Array {
   frame.set(MAC_BROADCAST, 0)
   frame.set(GUEST_MAC, 6)
   return frame
-}
-
-function prefixed(frame: Uint8Array): Uint8Array {
-  const out = new Uint8Array(WIRE_HDR + frame.length)
-  out[0] = (frame.length >>> 24) & 0xff
-  out[1] = (frame.length >>> 16) & 0xff
-  out[2] = (frame.length >>> 8) & 0xff
-  out[3] = frame.length & 0xff
-  out.set(frame, WIRE_HDR)
-  return out
 }
 
 function dhcpAckFrame(): Uint8Array {
@@ -113,63 +116,74 @@ let fake: FakeNetModule
 beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('localStorage', new MemoryStorage())
-  localStorage.setItem('zephyr.net', JSON.stringify({ v: 1, mode: 'uplink', url: 'ws://gw.local:8737/' }))
+  localStorage.setItem('zephyr.net', JSON.stringify({ v: 1, mode: 'uplink', url: '' }))
+  localStorage.setItem(
+    'zephyr.bridge',
+    JSON.stringify({ v: 1, enabled: true, url: 'ws://bridge.local:8740/?token=t' }),
+  )
   netStore.reloadFromStorage()
+  bridgeStore.reloadFromStorage()
   FakeWebSocket.instances = []
-  setDefaultWsFactoryForTests((u) => new FakeWebSocket(u) as unknown as WebSocket)
+  bridge._resetForTests()
+  bridge.setWsFactoryForTests((u) => new FakeWebSocket(u) as unknown as WebSocket)
+  bridge.startBridgeClient()
   fake = createFakeNetModule()
 })
 
 afterEach(() => {
   hostNet.detach()
-  setDefaultWsFactoryForTests(null)
+  bridge._resetForTests()
+  bridge.setWsFactoryForTests(null)
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
 const lastWs = () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
 
-describe('hostNet in uplink mode', () => {
-  it('dials the stored gateway and keeps the carrier up throughout', () => {
+function openBridgeWithNet() {
+  const ws = lastWs()
+  ws.emitOpen()
+  ws.emitHelloNet()
+  return ws
+}
+
+describe('hostNet in Bridge network mode', () => {
+  it('dials the desktop bridge and keeps the carrier up throughout', () => {
     hostNet.attach(fake.module)
     expect(FakeWebSocket.instances).toHaveLength(1)
-    expect(lastWs().url).toBe('ws://gw.local:8737/')
-    // Carrier up from attach, socket open or not: Zephyr's virtio-net driver
-    // has no link-status handling, so socket-driven carrier flips could only
-    // confuse (or wedge) it. Disconnection = frames dropped in the sink.
+    expect(lastWs().url).toBe('ws://bridge.local:8740/?token=t')
     expect(fake.guestSide.linkUp()).toBe(true)
     expect(hostNet.getSnapshot().mode).toBe('uplink')
     expect(hostNet.getSnapshot().uplink.phase).toBe('connecting')
 
     fake.guestSide.writeTx(guestFrame(0x99))
-    vi.advanceTimersByTime(300) // 100 ms poll drain + 100 ms coalesced rebuild
-    expect(lastWs().sent).toHaveLength(0) // not open yet — dropped, not queued
+    vi.advanceTimersByTime(300)
+    expect(lastWs().sent).toHaveLength(0)
     expect(hostNet.getSnapshot().uplink.droppedTx).toBe(1)
 
-    lastWs().emitOpen()
+    openBridgeWithNet()
     expect(fake.guestSide.linkUp()).toBe(true)
     expect(hostNet.getSnapshot().uplink.phase).toBe('connected')
     expect(hostNet.getSnapshot().linkUp).toBe(true)
   })
 
-  it('ships guest TX frames out length-prefixed and injects gateway RX frames', () => {
+  it('ships guest TX frames as CH_NET and injects bridge RX frames', () => {
     hostNet.attach(fake.module)
-    const ws = lastWs()
-    ws.emitOpen()
+    const ws = openBridgeWithNet()
 
     const tx = guestFrame(0x42)
     fake.guestSide.writeTx(tx)
-    vi.advanceTimersByTime(150) // one idle poll period
+    vi.advanceTimersByTime(150)
     expect(ws.sent).toHaveLength(1)
-    expect(ws.sent[0]).toEqual(prefixed(tx))
+    expect(ws.sent[0]).toEqual(encodeFrame(CH_NET, tx))
 
     const ack = dhcpAckFrame()
-    ws.emitMessage(prefixed(ack))
+    ws.emitMessage(encodeFrame(CH_NET, ack))
     const injected = fake.guestSide.drainRx()
     expect(injected).toHaveLength(1)
     expect(injected[0]).toEqual(ack)
 
-    vi.advanceTimersByTime(150) // coalesced snapshot refresh
+    vi.advanceTimersByTime(150)
     const snap = hostNet.getSnapshot()
     expect(snap.dhcpState).toBe('bound')
     expect(snap.guestIp).toBe('172.17.0.5')
@@ -181,20 +195,17 @@ describe('hostNet in uplink mode', () => {
 
   it('keeps impairments biting on the shared path', () => {
     hostNet.attach(fake.module)
-    const ws = lastWs()
-    ws.emitOpen()
+    const ws = openBridgeWithNet()
     hostNet.setImpairments({ lossPct: 100 })
     fake.guestSide.writeTx(guestFrame(0x01))
-    // The drain lands on the 100 ms idle poll; the coalesced snapshot rebuild
-    // fires 100 ms after that.
     vi.advanceTimersByTime(300)
     expect(ws.sent).toHaveLength(0)
-    expect(hostNet.getSnapshot().txPackets).toBe(1) // counted, then eaten by the wire
+    expect(hostNet.getSnapshot().txPackets).toBe(1)
   })
 
   it('gates the carrier on user link too', () => {
     hostNet.attach(fake.module)
-    lastWs().emitOpen()
+    openBridgeWithNet()
     hostNet.setLink(false)
     expect(fake.guestSide.linkUp()).toBe(false)
     expect(hostNet.getSnapshot().userLinkUp).toBe(false)
@@ -210,21 +221,17 @@ describe('hostNet in uplink mode', () => {
     )
   })
 
-  it('detach closes the socket and resets the snapshot', () => {
+  it('detach clears the net sink; the Settings bridge socket can stay up', () => {
     hostNet.attach(fake.module)
-    const ws = lastWs()
-    ws.emitOpen()
+    const ws = openBridgeWithNet()
     hostNet.detach()
-    expect(ws.closed.length).toBeGreaterThan(0)
     expect(hostNet.getSnapshot().available).toBe(false)
-    vi.advanceTimersByTime(60_000) // no zombie reconnects
-    expect(FakeWebSocket.instances).toHaveLength(1)
+    // Bridge client is owned by Settings, not hostNet.
+    expect(ws.closed).toHaveLength(0)
   })
 
-  it('a ?net=sim query wins over the stored uplink at attach time', () => {
+  it('a ?net=sim query wins over the stored uplink at resolve time', () => {
     const cfg = netStore.resolveNetConfig('?net=sim')
     expect(cfg.mode).toBe('sim')
-    // hostNet reads location.search, absent under node: the stored uplink is
-    // used — resolveNetConfig's own precedence is covered in netStore.test.ts.
   })
 })

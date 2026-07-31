@@ -29,10 +29,8 @@ import {
 } from '@/hostNet'
 import {
   getSettings as getNetSettings,
-  isValidGatewayUrl,
   resolveNetConfig,
   setMode as setNetMode,
-  setUrl as setNetUrl,
   subscribe as subscribeNet,
   NET_QUERY_PARAM,
 } from '@/lib/netStore'
@@ -41,7 +39,6 @@ import {
   isValidBridgeUrl,
   subscribe as subscribeBridge,
 } from '@/lib/bridgeStore'
-import { mixedContentHint } from '@/net/uplink'
 import { getBoard, getSample } from '@/boards'
 
 const DEFAULT_GUEST_HTTP_URL = 'http://192.0.2.1/'
@@ -180,8 +177,7 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
           {snapshot.mode === 'uplink' ? (
             <p className="text-[11px] text-muted-foreground">
               Not available with Bridge network. GET, Browser, and echo use the simulated LAN.
-              Reach servers the guest runs with port forwards on the bridge host. Open ⓘ under
-              Uplink for how.
+              Reach servers the guest runs with port forwards on the bridge host.
             </p>
           ) : (
             <ToolsSection guestIp={snapshot.guestIp} defaultUrl={guestHttpUrlFromDock()} />
@@ -201,8 +197,8 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
       <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
         <p>
           <span className="font-medium">This network leaves the page.</span> Every frame the guest
-          sends goes to the desktop bridge (or a net-only gateway URL), which answers with real
-          DHCP, DNS, TCP/UDP, and ICMP from its own network.
+          sends goes to the desktop bridge from Settings, which answers with real DHCP, DNS,
+          TCP/UDP, and ICMP from its own network.
         </p>
         <p>
           <span className="font-medium text-success">Real:</span> DHCP leases, DNS, HTTPS, raw
@@ -248,10 +244,8 @@ function AboutThisNetwork({ mode }: { mode: 'sim' | 'uplink' }) {
 }
 
 /**
- * Mode + gateway URL + live connection state. The mode/URL edits land in
- * netStore immediately but only apply at the next emulator start (a running
- * guest holds its lease; swapping LANs under it would lie) — the section
- * says so whenever the stored choice differs from what this session runs.
+ * Simulated LAN vs Bridge network. Mode edits land in netStore immediately but
+ * only apply at the next guest start. The bridge URL lives only in Settings.
  */
 
 function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
@@ -261,17 +255,11 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
     getBridgeSettings,
     getBridgeSettings,
   )
-  const [url, setUrlLocal] = useState(settings.url)
   const [showHelp, setShowHelp] = useState(false)
-  useEffect(() => {
-    setUrlLocal(settings.url)
-  }, [settings.url])
 
   const resolved = resolveNetConfig()
   const queryForced = resolved.source === 'query'
-  const usingBridge = bridgeSettings.enabled && isValidBridgeUrl(bridgeSettings.url)
-  const urlInvalid =
-    !usingBridge && url.trim() !== '' && !isValidGatewayUrl(url.trim())
+  const bridgeReady = bridgeSettings.enabled && isValidBridgeUrl(bridgeSettings.url)
   const running = snapshot.available
   const runningUplink = running && snapshot.mode === 'uplink'
   const pendingRestart =
@@ -280,13 +268,6 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
       (resolved.mode === 'uplink' &&
         snapshot.mode === 'uplink' &&
         resolved.url !== snapshot.uplink.url))
-  const wsHint =
-    settings.mode === 'uplink' && !usingBridge ? mixedContentHint(url.trim()) : ''
-
-  const commitUrl = () => {
-    const next = url.trim()
-    if (next === '' || isValidGatewayUrl(next)) setNetUrl(next)
-  }
 
   const { phase, detail, attempts, droppedTx, oversizeRx } = snapshot.uplink
   const dot =
@@ -335,55 +316,27 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
         <div className="space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
           <p>
             <span className="font-medium">Bridge network</span> sends the guest&apos;s Ethernet
-            frames through the desktop bridge from Settings. Trace Live board can share the same
-            connection.
+            frames through the desktop bridge. Configure that once in Settings (gear in the top
+            bar). Trace Live board shares the same connection.
           </p>
           <p>
-            Open Settings (gear in the top bar), turn on the desktop bridge, paste the URL it
-            prints, Connect, then restart the guest (⟳).
-          </p>
-          <p>
-            If Settings is off, you can still paste a net-only gateway URL below. See{' '}
-            <a
-              className="underline decoration-dotted underline-offset-2 hover:text-primary"
-              href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/bridge.md"
-              target="_blank"
-              rel="noreferrer"
-            >
-              docs/bridge.md
-            </a>{' '}
-            for how to run the bridge.
+            Turn on the desktop bridge, paste the URL it prints, Connect, choose Bridge network
+            here, then restart the guest (⟳).
           </p>
         </div>
       )}
 
-      {settings.mode === 'uplink' && usingBridge && (
+      {settings.mode === 'uplink' && !bridgeReady && (
+        <p className="text-[11px] text-muted-foreground">
+          Turn on the desktop bridge in Settings, then restart the guest (⟳).
+        </p>
+      )}
+
+      {settings.mode === 'uplink' && bridgeReady && (
         <p className="text-[11px] text-muted-foreground">
           Using Settings → Desktop bridge. Restart the guest (⟳) after you change Settings.
         </p>
       )}
-
-      {settings.mode === 'uplink' && !usingBridge && (
-        <span className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2">
-          <input
-            type="text"
-            aria-label="Gateway WebSocket URL"
-            placeholder="ws://localhost:8737/?token=…"
-            value={url}
-            disabled={queryForced}
-            onChange={(e) => setUrlLocal(e.target.value)}
-            onBlur={commitUrl}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitUrl()
-            }}
-            className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60"
-          />
-        </span>
-      )}
-      {urlInvalid && (
-        <p className="font-mono text-[11px] text-destructive">not a ws:// or wss:// URL</p>
-      )}
-      {!urlInvalid && wsHint && <p className="text-[11px] text-muted-foreground">{wsHint}</p>}
 
       {queryForced && (
         <p className="text-[11px] text-muted-foreground">
@@ -394,7 +347,11 @@ function UplinkSection({ snapshot }: { snapshot: NetSnapshot }) {
 
       {runningUplink && (
         <div className="flex items-center gap-1.5">
-          <span className={cn('size-2 shrink-0 rounded-full', dot)} role="status" aria-label={`Bridge network ${phase}`} />
+          <span
+            className={cn('size-2 shrink-0 rounded-full', dot)}
+            role="status"
+            aria-label={`Bridge network ${phase}`}
+          />
           <span className="shrink-0 font-mono text-[11px]">{phase}</span>
           {detail && (
             <span

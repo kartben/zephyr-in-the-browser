@@ -7,11 +7,11 @@
  * Every frame the guest transmits is drained here and fed to one of two
  * sinks: by default the TypeScript network stack (src/net/), which implements
  * the entire LAN — DHCP, DNS, SNTP, ICMP, TCP peers, an HTTP proxy riding
- * fetch() — or, in uplink mode (src/lib/netStore.ts), a WebSocket to a
- * self-hosted gateway that puts the guest on a real network
- * (docs/net-gateway.md). Replies are written back into the RX ring. Because
- * all traffic passes through this file either way, the counters, throughput
- * history, packet capture, .pcap export and impairments work in both modes.
+ * fetch() — or, in Bridge network mode (src/lib/netStore.ts), Ethernet frames
+ * over the desktop bridge from Settings (docs/bridge.md). Replies are written
+ * back into the RX ring. Because all traffic passes through this file either
+ * way, the counters, throughput history, packet capture, .pcap export and
+ * impairments work in both modes.
  *
  * Polling is adaptive: 100 ms at idle (one shared-memory index read), 10 ms
  * while frames flowed within the last 3 s, plus one opportunistic drain just
@@ -39,10 +39,9 @@ import {
   loadGuestBrowserPage as loadGuestBrowserPageService,
   type GuestBrowserPage,
 } from '@/net/services/guestBrowser'
-import { UplinkSink, type UplinkPhase } from '@/net/uplink'
 import { BridgeNetSink } from '@/net/bridgeSink'
 import { resolveNetConfig, type NetMode } from '@/lib/netStore'
-import { isValidBridgeUrl, resolveBridgeConfig } from '@/lib/bridgeStore'
+import type { UplinkPhase } from '@/net/uplink'
 
 interface NetExports {
   _qemu_browser_net_ready?: () => number
@@ -162,7 +161,7 @@ interface FrameSink {
 let exports: NetExports | null = null
 let mode: NetMode = 'sim'
 let stack: NetStack | null = null
-let uplink: UplinkSink | BridgeNetSink | null = null
+let uplink: BridgeNetSink | null = null
 let sink: FrameSink | null = null
 let snapshot: NetSnapshot = EMPTY
 let generation = 0
@@ -242,13 +241,8 @@ export function attach(mod: unknown) {
       onPhaseChange: () => rebuild(),
       onChange: () => notifySoon(),
     }
-    const bridge = resolveBridgeConfig()
-    // Prefer the uber bridge when Settings has it enabled (same URL for CTF).
-    if (bridge.enabled && isValidBridgeUrl(bridge.url)) {
-      uplink = new BridgeNetSink(bridge.url, hooks)
-    } else {
-      uplink = new UplinkSink(cfg.url, hooks)
-    }
+    // Bridge network always rides the desktop bridge from Settings (CH_NET).
+    uplink = new BridgeNetSink(cfg.url, hooks)
     sink = uplink
     uplink.connect()
   } else {

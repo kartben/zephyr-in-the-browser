@@ -50,9 +50,11 @@ export class BridgeNetSink {
       },
     })
     this.unsub = subscribe(() => {
+      const before = this.phase
       this.syncPhase()
       this.counters.droppedTx = getDroppedTx()
       this.counters.attempts = getSnapshot().attempts
+      if (before !== this.phase) this.hooks.onPhaseChange()
       this.hooks.onChange()
     })
     this.syncPhase()

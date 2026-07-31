@@ -71,6 +71,13 @@ let connectedAt = 0
 let externalActive = false
 const listeners = new Set<() => void>()
 
+/** Test hook: inject a WebSocket stand-in (same idea as net/uplink). */
+let wsFactoryForTests: ((url: string) => WebSocket) | null = null
+
+export function setWsFactoryForTests(factory: ((url: string) => WebSocket) | null): void {
+  wsFactoryForTests = factory
+}
+
 /** hostNet registers to receive Ethernet frames from the bridge. */
 type NetHandler = {
   deliverFrame: (frame: Uint8Array) => void
@@ -153,7 +160,7 @@ function openSocket() {
 
   let sock: WebSocket
   try {
-    sock = new WebSocket(cfg.url)
+    sock = wsFactoryForTests ? wsFactoryForTests(cfg.url) : new WebSocket(cfg.url)
   } catch (err) {
     publish({
       phase: 'error',
