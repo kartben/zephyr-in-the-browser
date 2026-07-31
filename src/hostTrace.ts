@@ -292,7 +292,7 @@ export function beginExternal(label = 'probe') {
   externalLabel = label
   path = null
   offset = 0
-  reader = new TraceReader(defs)
+  reader = new TraceReader(defs, true, true)
   revision++
   lastPublishAt = performance.now()
   publish()
@@ -301,7 +301,7 @@ export function beginExternal(label = 'probe') {
     // reader is still empty (defs arrived before any CTF).
     if (externalLabel !== label) return
     if (!reader || reader.tr.events.length === 0) {
-      reader = new TraceReader(defs)
+      reader = new TraceReader(defs, true, true)
       publish()
     }
   })
@@ -311,7 +311,7 @@ export function beginExternal(label = 'probe') {
 export function feedExternal(bytes: Uint8Array) {
   if (!externalLabel) beginExternal('probe')
   if (!reader) {
-    reader = new TraceReader(defs)
+    reader = new TraceReader(defs, true, true)
   }
   if (bytes.length && reader.feed(bytes) > 0) {
     requestPublish()

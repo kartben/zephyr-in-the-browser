@@ -90,6 +90,29 @@ function blockReason(nm: string, f: Record<string, string | number>): string {
   return 'blocked'
 }
 
+/**
+ * Zephyr's CTF header timestamp is `timing_ns_get()` — nanoseconds since boot.
+ * Three years of uptime is already absurd for a board on a desk; anything past
+ * it is payload bytes being read as a header, not a clock. ASCII thread names
+ * land around 7e18, so this separates the two by two orders of magnitude.
+ */
+const MAX_TS_NS = 1e17
+/**
+ * Consecutive CTF records further apart than this are not consecutive records.
+ * Only gates sync acquisition — a tracing Zephyr emits scheduler events far
+ * more often, even idle, so the bound stays loose enough for a quiet board.
+ */
+const MAX_GAP_NS = 300e9
+/** Headers that must line up before an arbitrary byte is trusted as a boundary. */
+const SYNC_RECORDS = 3
+/**
+ * A backward step smaller than this is jitter to ride out, not a counter
+ * restart. Bigger ones have to be re-proven by the chain validator.
+ */
+const WRAP_MIN_DROP_NS = 1e9
+
+type SyncVerdict = 'yes' | 'no' | 'wait'
+
 function emptyTrace(): Trace {
   return {
     events: [],
@@ -117,6 +140,8 @@ export class TraceReader {
   private fakeTs = 0
   private prevRaw: number | null = null
   private tsOff = 0
+  /** False while hunting for a record boundary; see validateChain(). */
+  private synced: boolean
   private curTid: number | null = null
   private segStart: number | null = null
   private isrDepth = 0
@@ -126,9 +151,52 @@ export class TraceReader {
   private provisional: number[] = []
   private pm = new CpuPowerTracker(this.tr.cpuPower)
 
-  constructor(defs: Map<number, EventDef>, hasTs = true) {
+  /**
+   * @param live - the byte source can start mid-record (desktop bridge, probe).
+   *   A file written from byte 0 is aligned by construction and starts synced.
+   */
+  constructor(defs: Map<number, EventDef>, hasTs = true, live = false) {
     this.defs = defs
     this.hasTs = hasTs
+    this.synced = !live || !hasTs
+  }
+
+  /**
+   * Does `off` look like a real record boundary?
+   *
+   * A known event id alone is a weak test: Zephyr's TSDL packs 300+ ids into
+   * 0x10..0x1xx, so zero padding and ASCII thread names hit one regularly. Once
+   * such a byte is accepted the *payload* is read as the 64-bit timestamp,
+   * which is where ~7e18 ns ("245 years") timelines come from — and because a
+   * backward step then looks like a counter restart, the bogus epoch is added
+   * to every timestamp that follows. So walk several headers forward and
+   * require each to be a known id at a plausible, non-decreasing time.
+   */
+  private validateChain(view: DataView, n: number, hsz: number, off: number): SyncVerdict {
+    if (off + hsz > n) return 'wait'
+    // Carrying on forward from a timestamp we already trust is self-verifying:
+    // one record settles it, so a stream that loses a few bytes mid-flight is
+    // back to decoding on the very next record. A cold attach has no anchor,
+    // and a step *backwards* might be a counter restart rather than a boundary
+    // — both have to line up several headers instead.
+    const anchored = this.prevRaw !== null && Number(view.getBigUint64(off, true)) >= this.prevRaw
+    const need = anchored ? 1 : SYNC_RECORDS
+    let prev: number | null = anchored ? this.prevRaw : null
+    let cur = off
+    for (let i = 0; i < need; i++) {
+      if (cur + hsz > n) return 'wait'
+      const def = this.defs.get(view.getUint16(cur + 8, true))
+      if (!def) return 'no'
+      const raw = Number(view.getBigUint64(cur, true))
+      if (!Number.isFinite(raw) || raw < 0 || raw > MAX_TS_NS) return 'no'
+      if (prev !== null && (raw < prev || raw - prev > MAX_GAP_NS)) return 'no'
+      prev = raw
+      // An unprobed net-address event has no settled size yet, so the next
+      // header is not where we could compute it. Stop rather than guess.
+      if (this.netAddressWidth == null && hasNetAddressField(def)) return i >= 1 ? 'yes' : 'wait'
+      cur += hsz + def.size
+    }
+    return 'yes'
   }
 
   private thread(tid: number): ThreadInfo {
@@ -326,8 +394,24 @@ export class TraceReader {
       let edef = this.defs.get(eid)
       if (!edef) {
         this.desync = true
+        this.synced = false
         off += 1
         continue
+      }
+
+      // Landing byte-aligned on a known id is not proof of a boundary — make
+      // the following headers agree before trusting this one.
+      let justValidated = false
+      if (this.hasTs && !this.synced) {
+        const verdict = this.validateChain(view, n, hsz, off)
+        if (verdict === 'wait') break
+        if (verdict === 'no') {
+          this.desync = true
+          off += 1
+          continue
+        }
+        this.synced = true
+        justValidated = true
       }
 
       // Zephyr TSDL says address[46], but !NET_IPV6 guests emit 20-byte strings.
@@ -341,6 +425,7 @@ export class TraceReader {
         if (probed.kind === 'wait') break
         if (probed.kind === 'desync') {
           this.desync = true
+          this.synced = false
           off += 1
           continue
         }
@@ -355,7 +440,27 @@ export class TraceReader {
       let ts: number
       if (this.hasTs) {
         const raw = Number(view.getBigUint64(off, true))
-        if (this.prevRaw !== null && raw < this.prevRaw) this.tsOff += this.prevRaw
+        if (!Number.isFinite(raw) || raw < 0 || raw > MAX_TS_NS) {
+          // Not a clock — so `off` was never a boundary. Hunt for the next one
+          // instead of letting the value reach t0/t1.
+          this.desync = true
+          this.synced = false
+          off += 1
+          continue
+        }
+        if (this.prevRaw !== null && raw < this.prevRaw) {
+          const drop = this.prevRaw - raw
+          if (drop >= WRAP_MIN_DROP_NS && !justValidated) {
+            // Zephyr's timestamp restarts when the target's cycle counter is
+            // 32-bit, but a false boundary looks identical from here — and
+            // guessing "restart" adds a permanent epoch to the timeline. Make
+            // the chain validator rule on this same offset first.
+            this.synced = false
+            continue
+          }
+          if (drop >= WRAP_MIN_DROP_NS) this.tsOff += this.prevRaw
+          // Smaller steps are jitter: keep the current epoch.
+        }
         this.prevRaw = raw
         ts = raw + this.tsOff
       } else {
