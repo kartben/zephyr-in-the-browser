@@ -1,5 +1,6 @@
 /**
- * Minimal GDB RSP client over a byte pipe (browser gdb chardev).
+ * Minimal GDB RSP client over a byte pipe ({@link RspTransport}: the browser
+ * gdb chardev, or the desktop bridge's CH_GDB channel).
  *
  * Supports: qSupported / no-ack, halt (`\x03` / `?`), continue, step, `g`,
  * software breakpoints (`Z0`/`z0`), memory read (`m`), and memory write (`M`).
@@ -19,7 +20,7 @@
  * the precondition for touching the pipe at all.
  */
 
-import { drainBytes, feedBytes, type ChardevExports } from '@/debug/browserChardev'
+import type { RspTransport } from '@/debug/gdb/rspTransport'
 import { bytesToHex, decodeStream, encodePacket, hexToBytes } from '@/debug/gdb/rspCodec'
 
 const DEFAULT_TIMEOUT_MS = 3000
@@ -54,7 +55,7 @@ export class RspClient {
   /** In-flight halt, shared by every caller that asks while it is pending. */
   private pendingInterrupt: Promise<StopInfo> | null = null
 
-  constructor(private readonly ch: ChardevExports) {}
+  constructor(private readonly transport: RspTransport) {}
 
   /** Whether the stub last told us the machine is executing. */
   isRunning(): boolean {
@@ -65,9 +66,9 @@ export class RspClient {
     this.onStop = fn
   }
 
-  /** Pull bytes from the ring and dispatch. */
+  /** Pull bytes from the transport and dispatch. */
   poll() {
-    const chunk = drainBytes(this.ch)
+    const chunk = this.transport.drain()
     if (chunk.length === 0) return
     for (let i = 0; i < chunk.length; i++) this.buffer += String.fromCharCode(chunk[i]!)
     const { messages, rest } = decodeStream(this.buffer)
@@ -103,7 +104,7 @@ export class RspClient {
   }
 
   private sendRaw(text: string) {
-    feedBytes(this.ch, text)
+    this.transport.send(text)
   }
 
   private sendPacket(payload: string) {

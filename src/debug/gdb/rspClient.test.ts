@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { RspClient } from '@/debug/gdb/rspClient'
+import { chardevRspTransport } from '@/debug/gdb/rspTransport'
 import { encodePacket } from '@/debug/gdb/rspCodec'
 import type { ChardevExports } from '@/debug/browserChardev'
 
@@ -112,7 +113,7 @@ async function settle(client: RspClient, ticks = 40) {
 
 async function attached(): Promise<{ stub: FakeStub; client: RspClient }> {
   const stub = new FakeStub()
-  const client = new RspClient(stub.exports())
+  const client = new RspClient(chardevRspTransport(stub.exports()))
   const started = client.start()
   await settle(client)
   await started

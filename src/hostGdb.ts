@@ -12,6 +12,7 @@ import {
   type ChardevExports,
 } from '@/debug/browserChardev'
 import { RspClient } from '@/debug/gdb/rspClient'
+import { chardevRspTransport } from '@/debug/gdb/rspTransport'
 import {
   archFromBoard,
   breakpointKind,
@@ -552,7 +553,7 @@ export async function attachSession(): Promise<boolean> {
   // OPENED is applied on QEMU's drain timer (~20 ms); give it a beat.
   await sleep(50)
 
-  const next = new RspClient(ch)
+  const next = new RspClient(chardevRspTransport(ch))
   let starting = true
   next.setStopHandler((info) => {
     if (info.kind !== 'signal') return
