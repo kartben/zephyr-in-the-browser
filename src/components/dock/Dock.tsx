@@ -23,6 +23,7 @@ import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
 import { buildRowList, type DockView } from '@/deviceTopology'
 import { get as getDeviceTree } from '@/devicetree'
+import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import {
@@ -45,6 +46,7 @@ export function Dock({ boardId }: { boardId: string }) {
   const state = useSyncExternalStore(subscribe, getState, getState)
   const inventory = useDeviceTree(boardId)
   const desktop = useIsDesktop()
+  const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
 
   // Width while dragging the left edge is transient; the store (and storage)
   // only hear about it on release, so a drag is not a localStorage firehose.
@@ -174,7 +176,8 @@ export function Dock({ boardId }: { boardId: string }) {
         )}
 
         <header className="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-1.5">
-          <ViewSwitch view={state.view} />
+          {/* The view switch rearranges device rows; a Live board session has none. */}
+          {mode === 'sim' && <ViewSwitch view={state.view} />}
           <span className="ml-auto flex items-center gap-0.5">
             <RunningTreeButton />
             <Button
@@ -193,13 +196,19 @@ export function Dock({ boardId }: { boardId: string }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
           <SectionHeading>Instruments</SectionHeading>
           <DockInstruments />
-          <SectionHeading>Devices</SectionHeading>
-          {inventory.nodes.length === 0 ? (
-            <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              No peripherals yet. Waiting for the guest to boot.
-            </p>
-          ) : (
-            rendered
+          {/* Devices come from the guest's devicetree; a Live board session
+              has no guest, and "waiting for the guest to boot" would be a lie. */}
+          {mode === 'sim' && (
+            <>
+              <SectionHeading>Devices</SectionHeading>
+              {inventory.nodes.length === 0 ? (
+                <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                  No peripherals yet. Waiting for the guest to boot.
+                </p>
+              ) : (
+                rendered
+              )}
+            </>
           )}
         </div>
       </aside>

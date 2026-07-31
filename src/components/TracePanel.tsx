@@ -112,6 +112,7 @@ import {
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { readPowerStates } from '@/dts'
 import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
+import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
@@ -1247,15 +1248,20 @@ export function TraceBody() {
     hostGdb.getSnapshot,
     hostGdb.getSnapshot,
   )
+  const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ProbeSection />
+      {/* The serial-port strip belongs to Live board sessions; in the
+          Simulator the traces come from the guest, not a cable. */}
+      {mode === 'live' && <ProbeSection />}
       {snap.eventCount === 0 ? (
         <p className="px-3 py-4 text-[11px] text-muted-foreground">
           {snap.source === 'bridge' || snap.source === 'probe'
             ? 'Connected to the desktop bridge. Waiting for traces from the board.'
-            : 'No Trace events yet. Pick a traced app, or turn on the desktop bridge in Settings.'}
+            : mode === 'live'
+              ? 'No Trace events yet. Connect the desktop bridge and pick a serial port.'
+              : 'No Trace events yet. Pick a traced app, or switch to Live board in the top bar to stream from a real board.'}
         </p>
       ) : (
         <TracePanelBody snap={snap} objectCores={gdbSnap.objects} />

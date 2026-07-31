@@ -1,5 +1,8 @@
 /**
- * Trace → Live board: uses the desktop bridge from Settings (no second URL).
+ * The Trace panel's serial-port strip for Live board sessions: connection
+ * state and port picking at the point of use. Rendered only in live mode
+ * (TraceBody gates it); onboarding an unconfigured bridge is the Live board
+ * home surface's job, so this stays quiet until Settings has a bridge.
  */
 
 import { useSyncExternalStore } from 'react'
@@ -17,17 +20,7 @@ export function ProbeSection() {
   const snap = useSyncExternalStore(bridge.subscribe, bridge.getSnapshot, bridge.getSnapshot)
   const enabled = resolveBridgeConfig().enabled
 
-  if (!enabled) {
-    return (
-      <div className="space-y-1 border-b border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
-        <span className="font-medium text-foreground">Live board</span>
-        <p>
-          Turn on the desktop bridge in Settings to stream traces from a real board. No guest
-          image required.
-        </p>
-      </div>
-    )
-  }
+  if (!enabled) return null
 
   const { phase, detail, serial, ports } = snap
   const dot =

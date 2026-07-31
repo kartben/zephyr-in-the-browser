@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import * as guestStats from '@/guestStats'
 import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
-import * as bridgeClient from '@/probe/client'
+import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import {
@@ -76,19 +76,19 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
   const stats = useSyncExternalStore(guestStats.subscribe, guestStats.getSnapshot, guestStats.getSnapshot)
   const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
   const gdb = useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot)
+  const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
 
-  const bridge = useSyncExternalStore(
-    bridgeClient.subscribe,
-    bridgeClient.getSnapshot,
-    bridgeClient.getSnapshot,
-  )
-  const devices = inventory.nodes.filter((node) => node.presence === 'interactive')
+  // Live board: no guest, so no device inventory — instruments only. The
+  // Trace gate mirrors Instruments.tsx: mode or guest trace, never the bridge
+  // connection alone (Simulator may keep it purely for Bridge network).
+  const devices =
+    mode === 'live' ? [] : inventory.nodes.filter((node) => node.presence === 'interactive')
   const instruments = [
     { key: STAGE_PERF_KEY, label: 'Simulation', shown: stats.available },
     {
       key: STAGE_TRACE_KEY,
       label: 'Trace',
-      shown: trace.available || bridge.enabled || state.seed.primary.includes('trace'),
+      shown: mode === 'live' || trace.available || state.seed.primary.includes('trace'),
     },
     {
       key: STAGE_DEBUG_KEY,

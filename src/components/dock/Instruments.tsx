@@ -24,6 +24,7 @@ import * as guestStats from '@/guestStats'
 import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
 import * as bridgeClient from '@/probe/client'
+import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import {
   STAGE_DEBUG_KEY,
   STAGE_PERF_KEY,
@@ -46,6 +47,10 @@ import {
 import { DebugBody } from '@/components/DebugPanel'
 import { TraceBody } from '@/components/TracePanel'
 
+function useMode() {
+  return useSyncExternalStore(subscribeMode, getMode, getMode)
+}
+
 /** Stream health at a glance, for the collapsed Trace row. */
 function TraceBadge() {
   const snap = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
@@ -54,27 +59,29 @@ function TraceBadge() {
     bridgeClient.getSnapshot,
     bridgeClient.getSnapshot,
   )
+  const mode = useMode()
   const live = snap.eventCount > 0
   const fromBoard = snap.source === 'probe' || snap.source === 'bridge' || snap.path === 'bridge'
+  // A connected bridge is only a Trace story in Live board mode — a Simulator
+  // session may hold the connection purely for Bridge network.
+  const waitingOnBoard = mode === 'live' && bridge.phase === 'connected'
   return (
     <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          live
-            ? 'bg-amber-500/80'
-            : bridge.phase === 'connected'
-              ? 'bg-sky-500/80'
-              : 'bg-muted-foreground/50',
+          live ? 'bg-amber-500/80' : waitingOnBoard ? 'bg-sky-500/80' : 'bg-muted-foreground/50',
         )}
         aria-hidden
       />
       <span className="min-w-0 truncate">
         {live
           ? `${snap.eventCount} evt · ${snap.threadCount} thr${fromBoard ? ' · board' : ''}`
-          : bridge.phase === 'connected'
-            ? 'live board'
-            : 'no events'}
+          : waitingOnBoard
+            ? 'waiting for board'
+            : mode === 'live'
+              ? 'bridge off'
+              : 'no events'}
       </span>
     </span>
   )
@@ -144,12 +151,11 @@ export const INSTRUMENTS: Instrument[] = [
         hostTrace.getSnapshot,
         hostTrace.getSnapshot,
       )
-      const bridge = useSyncExternalStore(
-        bridgeClient.subscribe,
-        bridgeClient.getSnapshot,
-        bridgeClient.getSnapshot,
-      )
-      return trace.available || bridge.enabled
+      const mode = useMode()
+      // Live board: the row is the point of the mode, and it must not blink
+      // out on a reconnect. Simulator: guest trace only — a bridge kept for
+      // network uplink must not summon the panel.
+      return mode === 'live' || trace.available
     },
     Badge: TraceBadge,
     Body: TraceBody,
