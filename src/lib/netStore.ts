@@ -1,17 +1,13 @@
 /**
  * Which network the guest's NIC is plugged into: the in-page simulated LAN
- * (default, needs nothing) or Bridge network via the desktop bridge / a
- * self-hosted passt gateway (docs/bridge.md, docs/net-gateway.md). One record
- * for the one NIC every board has today; the versioned-JSON shape leaves room
- * to key by interface later.
+ * (default, needs nothing) or Bridge network via the desktop bridge in
+ * Settings (docs/bridge.md). One record for the one NIC every board has
+ * today; the versioned-JSON shape leaves room to key by interface later.
  *
- * Deliberately its own localStorage key (`zephyr.net`): connection config is
- * neither dock layout (survives "Reset layout") nor a per-sample seed
- * (survives board/sample switches). A `?net=` query param overrides the
- * stored choice for the session — `?net=sim` forces the sandbox, any
- * ws(s):// value forces the uplink — which is what the gateway's printed
- * deep link uses. When mode is uplink and Settings has a desktop bridge URL,
- * that URL wins so Network and Trace share one connection.
+ * Deliberately its own localStorage key (`zephyr.net`): mode is neither dock
+ * layout (survives "Reset layout") nor a per-sample seed (survives board/sample
+ * switches). The bridge URL lives only in Settings (`zephyr.bridge`). A
+ * `?net=sim` / `?net=uplink` query overrides the stored mode for the session.
  */
 
 import { resolveBridgeConfig, isValidBridgeUrl } from '@/lib/bridgeStore'
@@ -25,21 +21,12 @@ export type NetMode = 'sim' | 'uplink'
 
 export interface NetSettings {
   mode: NetMode
+  /** @deprecated Kept for storage back-compat; URL comes from Settings. */
   url: string
 }
 
 export interface ResolvedNetConfig extends NetSettings {
   source: 'default' | 'store' | 'query'
-}
-
-export function isValidGatewayUrl(url: string): boolean {
-  if (!/^wss?:\/\//i.test(url)) return false
-  try {
-    new URL(url)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function defaults(): NetSettings {
@@ -59,7 +46,7 @@ function load(): NetSettings {
     hadStored = true
     return {
       mode: parsed.mode === 'uplink' ? 'uplink' : 'sim',
-      url: typeof parsed.url === 'string' && isValidGatewayUrl(parsed.url) ? parsed.url : '',
+      url: '',
     }
   } catch {
     return defaults()
@@ -68,7 +55,7 @@ function load(): NetSettings {
 
 function save(next: NetSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, ...next }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, mode: next.mode, url: '' }))
     hadStored = true
   } catch {
     /* storage full or blocked — the choice just won't survive the reload */
@@ -82,7 +69,7 @@ function notify() {
   for (const fn of listeners) fn()
 }
 
-function set(next: NetSettings) {
+function set(next: NetSettings): void {
   state = next
   save(next)
   notify()
@@ -102,34 +89,42 @@ export function setMode(mode: NetMode): void {
   if (state.mode !== mode) set({ ...state, mode })
 }
 
-export function setUrl(url: string): void {
-  if (state.url !== url) set({ ...state, url })
-}
-
 /**
  * What the next emulator session should plug into. Precedence:
- * `?net=` query > desktop bridge (when Settings is on) > stored settings >
- * default (sim). An unparseable query value is warned about and ignored.
+ * `?net=` query > stored mode > default (sim). Uplink URL always comes from
+ * the desktop bridge in Settings (`?bridge=` / zephyr.bridge).
  */
 export function resolveNetConfig(search?: string): ResolvedNetConfig {
   const raw = search ?? (typeof location === 'undefined' ? '' : location.search)
   const q = new URLSearchParams(raw).get(NET_QUERY_PARAM)
+
+  let mode: NetMode = state.mode
+  let source: ResolvedNetConfig['source'] = hadStored ? 'store' : 'default'
+
   if (q !== null) {
-    if (q === 'sim') return { mode: 'sim', url: state.url, source: 'query' }
-    if (isValidGatewayUrl(q)) return { mode: 'uplink', url: q, source: 'query' }
-    console.warn(`ignoring ?${NET_QUERY_PARAM}=${q}: expected "sim" or a ws(s):// URL`)
-  }
-  if (state.mode === 'uplink') {
-    try {
-      const bridge = resolveBridgeConfig(raw)
-      if (bridge.enabled && isValidBridgeUrl(bridge.url)) {
-        return { mode: 'uplink', url: bridge.url, source: hadStored ? 'store' : 'default' }
-      }
-    } catch {
-      /* bridge store unavailable */
+    if (q === 'sim') {
+      mode = 'sim'
+      source = 'query'
+    } else if (q === 'uplink') {
+      mode = 'uplink'
+      source = 'query'
+    } else if (/^wss?:\/\//i.test(q)) {
+      // Legacy deep links from the old net-only gateway. Mode only; URL is Settings.
+      console.warn(
+        `ignoring gateway URL in ?${NET_QUERY_PARAM}=…: use Settings (or ?bridge=) for the desktop bridge`,
+      )
+      mode = 'uplink'
+      source = 'query'
+    } else {
+      console.warn(`ignoring ?${NET_QUERY_PARAM}=${q}: expected "sim" or "uplink"`)
     }
   }
-  return { ...state, source: hadStored ? 'store' : 'default' }
+
+  const bridge = resolveBridgeConfig(raw)
+  const url =
+    mode === 'uplink' && bridge.enabled && isValidBridgeUrl(bridge.url) ? bridge.url : ''
+
+  return { mode, url, source }
 }
 
 /** Re-read localStorage. For tests, and after external storage edits. */

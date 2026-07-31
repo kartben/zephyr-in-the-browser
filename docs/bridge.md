@@ -76,7 +76,9 @@ Binary WebSocket messages: `u8 channel | payload…`
 
 Hello advertises `protocol: "zitb-bridge"` and `features: { ctf, gdb, net }`.
 
-## Legacy
+## Legacy packages
 
-- [`gateway/`](../gateway/) remains the net-only image (`?net=` / Network URL).
-- [`probe/`](../probe/) remains the CTF-only package; prefer `bridge/` going forward.
+- [`gateway/`](../gateway/) — older net-only passt image. The page no longer
+  exposes a separate gateway URL; use `bridge/` + Settings instead. Kept for
+  maintainers who still run that container.
+- [`probe/`](../probe/) — CTF-only package; prefer `bridge/` going forward.
