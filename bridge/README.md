@@ -35,8 +35,9 @@ for serial on macOS / Windows.
 | `BAUD` / `SERIAL` | `115200` / — | serial; auto-open path |
 | `AUTO_SERIAL` | on | open the only port automatically |
 | `DISABLE_NET` | — | `1` skips the virtual network |
-| `FORWARDS` | — | `hostPort:guestPort,…` → `127.0.0.1:host → 192.168.127.2:guest` |
+| `FORWARDS` | — | `hostPort:guestPort,…` → `127.0.0.1:host → 192.0.2.1:guest` |
 | `GDB_HOST` / `GDB_PORT` | `127.0.0.1` / `3333` | GDB proxy |
 | `NO_TUI` | — | `1` for logs only (Docker default) |
 
-Guest DHCP is typically `192.168.127.2/24` via `192.168.127.1`; `host.containers.internal` / `192.168.127.254` reaches the bridge host loopback.
+Guest DHCP / static addressing matches the in-page LAN: `192.0.2.1/24` via
+gateway `192.0.2.2`. `192.0.2.254` NATs to the bridge host loopback.
