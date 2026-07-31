@@ -1,0 +1,62 @@
+name: Publish probe image
+
+# The probe bridge (probe/) ships as a container for Linux USB-serial hosts.
+# Native `npm start` remains the path on macOS/Windows (Docker Desktop does
+# not pass USB serial reliably).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'probe/**'
+      - '.github/workflows/probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: probe-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Test the probe bridge
+        working-directory: probe
+        run: |
+          npm ci
+          npm test
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/probe
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: probe
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
