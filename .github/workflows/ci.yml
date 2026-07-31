@@ -62,3 +62,40 @@ jobs:
         run: |
           npm ci
           npm test
+
+  # Probe bridge (serial CTF WebSocket). Needs serialport native build.
+  probe:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Test the probe bridge
+        working-directory: probe
+        run: |
+          npm ci
+          npm test
+
+  bridge:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Test the uber bridge
+        working-directory: bridge
+        run: |
+          npm ci
+          npm test

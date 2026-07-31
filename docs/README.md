@@ -13,6 +13,8 @@ other end of the wire.
 | [can-bus.md](can-bus.md) | The CAN bus class, where the page models *the rest of the network* — spec, plus what iteration 1 changed about it |
 | [networking.md](networking.md) | Why the page *is* the LAN, and exactly what does and does not leave the tab |
 | [net-gateway.md](net-gateway.md) | The opt-in uplink: guest frames over a WebSocket to a self-hosted passt gateway — quick start, tunnels, security, the wire protocol |
+| [probe-bridge.md](probe-bridge.md) | Live board CTF over a WebSocket (superseded by [bridge.md](bridge.md) for the uber bridge) |
+| [bridge.md](bridge.md) | Desktop uber bridge: one URL for CTF + passt net + GDB; Settings UI; Docker vs native USB |
 | [bluetooth.md](bluetooth.md) | Zephyr host + in-page Bumble controller over `hci0` / H:4 |
 | [bluetooth-peer-ui-spec.md](bluetooth-peer-ui-spec.md) | Draft: select-one peer inspector for HRM / advertiser / scanner |
 | [virtio-bridge.md](virtio-bridge.md) | The generic virtio bridge, which lets a device model be TypeScript instead of QEMU C |
