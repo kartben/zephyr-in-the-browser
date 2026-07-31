@@ -1,8 +1,10 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
 import { Cpu, FileCode2, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
+import { ModeSwitch } from '@/components/ModeSwitch'
 import { SampleGallery } from '@/components/SampleGallery'
 import { PartsCatalog } from '@/components/PartsCatalog'
 import { ClearPeripheralsControl } from '@/components/ClearPeripheralsControl'
@@ -11,9 +13,13 @@ import { DtsViewer } from '@/components/DtsViewer'
 import { SettingsMenu } from '@/components/SettingsMenu'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import type { SessionMode } from '@/lib/modeStore'
+import * as bridge from '@/probe/client'
 import type { BackendStatus } from '@/backends'
 
 interface Props {
+  mode: SessionMode
+  onModeChange: (mode: SessionMode) => void
   boardId: string
   onBoardChange: (id: string) => void
   sampleId: string
@@ -37,6 +43,8 @@ interface Props {
  * one was a legitimate alternative to the real one.
  */
 export function TopBar({
+  mode,
+  onModeChange,
   boardId,
   onBoardChange,
   sampleId,
@@ -55,6 +63,10 @@ export function TopBar({
    * selectors and the status pill is allowed to shrink away on a narrow screen;
    * Reset and the status pill never do — they used to be pushed off the right
    * edge on a phone, which left no way to restart a wedged guest.
+   *
+   * A Live board session keeps only the tools that are about the page itself
+   * (Settings, panels, dock): the board is physical, so picking one, booting
+   * apps, wiring parts, and restarting a guest have nothing to act on.
    */
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 sm:gap-3 sm:px-5">
@@ -66,24 +78,30 @@ export function TopBar({
         </h1>
       </div>
 
+      <ModeSwitch mode={mode} onModeChange={onModeChange} />
+
       <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
-        <BoardSelect boardId={boardId} onBoardChange={onBoardChange} />
+        {mode === 'sim' && (
+          <>
+            <BoardSelect boardId={boardId} onBoardChange={onBoardChange} />
 
-        <SampleGallery
-          boardId={boardId}
-          sampleId={sampleId}
-          onSampleChange={onSampleChange}
-          customImage={customImage}
-          onLoadElf={onLoadElf}
-          onClearImage={onClearImage}
-        />
+            <SampleGallery
+              boardId={boardId}
+              sampleId={sampleId}
+              onSampleChange={onSampleChange}
+              customImage={customImage}
+              onLoadElf={onLoadElf}
+              onClearImage={onClearImage}
+            />
 
-        {/* Reference and layout tools — the first things to fold away. */}
-        <span className="hidden items-center sm:flex">
-          <RunningDtsButton />
-          <PartsCatalog />
-          <ClearPeripheralsControl />
-        </span>
+            {/* Reference and layout tools — the first things to fold away. */}
+            <span className="hidden items-center sm:flex">
+              <RunningDtsButton />
+              <PartsCatalog />
+              <ClearPeripheralsControl />
+            </span>
+          </>
+        )}
 
         <PauseDebugControl />
 
@@ -96,23 +114,70 @@ export function TopBar({
         </span>
         <DockToggle />
 
-        <StatusPill status={status} detail={detail} />
+        {mode === 'sim' ? <StatusPill status={status} detail={detail} /> : <LiveStatusPill />}
 
-        <Button
-          className="shrink-0"
-          onClick={onRestart}
-          disabled={status === 'loading'}
-          title={
-            hardRestart
-              ? 'Reset the MCU. The guest reboots; wiring and flash stay'
-              : 'Restart the guest'
-          }
-        >
-          {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
-          <span className="hidden sm:inline">{hardRestart ? 'Reset' : 'Restart'}</span>
-        </Button>
+        {mode === 'sim' && (
+          <Button
+            className="shrink-0"
+            onClick={onRestart}
+            disabled={status === 'loading'}
+            title={
+              hardRestart
+                ? 'Reset the MCU. The guest reboots; wiring and flash stay'
+                : 'Restart the guest'
+            }
+          >
+            {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
+            <span className="hidden sm:inline">{hardRestart ? 'Reset' : 'Restart'}</span>
+          </Button>
+        )}
       </div>
     </header>
+  )
+}
+
+/**
+ * The Live board counterpart of StatusPill: the session's health is the
+ * bridge connection, not a backend. Self-subscribed for the same reason
+ * RunningDtsButton is — connection state is the bridge client's business.
+ */
+function LiveStatusPill() {
+  const snap = useSyncExternalStore(bridge.subscribe, bridge.getSnapshot, bridge.getSnapshot)
+  const streaming = snap.phase === 'connected' && snap.serial?.phase === 'streaming'
+  const label =
+    snap.phase === 'connected'
+      ? 'Connected'
+      : snap.phase === 'connecting'
+        ? 'Connecting'
+        : snap.phase === 'error'
+          ? 'Error'
+          : 'Bridge off'
+  const dot =
+    snap.phase === 'connected'
+      ? 'bg-success'
+      : snap.phase === 'connecting'
+        ? 'bg-warning animate-pulse'
+        : snap.phase === 'error'
+          ? 'bg-destructive'
+          : 'bg-muted-foreground'
+  const detail = streaming ? (snap.serial?.path ?? undefined) : snap.detail || undefined
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-2 py-1 text-xs sm:px-2.5"
+      title={detail}
+    >
+      <span className={cn('size-1.5 rounded-full', dot)} />
+      <span className="sr-only sm:not-sr-only sm:font-medium">{label}</span>
+      {detail && (
+        <span
+          className="hidden max-w-[22ch] truncate font-mono text-muted-foreground lg:inline"
+          aria-label="status detail"
+        >
+          {detail}
+        </span>
+      )}
+    </span>
   )
 }
 

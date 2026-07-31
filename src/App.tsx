@@ -35,7 +35,7 @@ import { emphasisPanels } from '@/dts'
 import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { startBridgeClient } from '@/probe/client'
-import { getMode } from '@/lib/modeStore'
+import { getMode, setMode, MODE_QUERY_PARAM, type SessionMode } from '@/lib/modeStore'
 import { LiveBoardHome } from '@/components/LiveBoardHome'
 import { set as setLiveImage, type LiveImage } from '@/liveImage'
 import {
@@ -211,6 +211,21 @@ export default function App() {
     abortRef.current?.abort(new DOMException('terminal unmounted', 'AbortError'))
     abortRef.current = null
     resetTour()
+  }, [])
+
+  /**
+   * Switching mode always navigates: a committed QEMU document cannot be
+   * recycled, and one code path removes every mid-boot teardown hazard.
+   * Persist first — with storage blocked, the URL still carries the intent —
+   * and write ?mode= explicitly so a refresh cannot surprise-flip (the param
+   * outranks ?bridge= in resolveModeConfig).
+   */
+  const handleModeChange = useCallback((next: SessionMode) => {
+    if (next === getMode()) return
+    setMode(next)
+    const params = new URLSearchParams(location.search)
+    params.set(MODE_QUERY_PARAM, next)
+    location.search = params.toString() // navigates; nothing after this runs
   }, [])
 
   /**
@@ -427,6 +442,8 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TopBar
+        mode={mode}
+        onModeChange={handleModeChange}
         boardId={boardId}
         onBoardChange={handleBoardChange}
         sampleId={sampleId}
