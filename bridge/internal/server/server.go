@@ -29,6 +29,11 @@ const (
 	writeWait      = 10 * time.Second
 	portPollEvery  = 2 * time.Second
 	shutdownGrace  = 3 * time.Second
+
+	// gdbInitialAck is the byte a GDB client writes the moment it connects,
+	// acknowledging anything the stub may already have sent (see GDB's
+	// remote.c). Servers wait for it before treating the session as open.
+	gdbInitialAck = "+"
 )
 
 type Hooks struct {
@@ -796,6 +801,27 @@ func (b *Bridge) AttachGdb(host string, port int) error {
 		b.mu.Unlock()
 		b.broadcastGdb()
 		return err
+	}
+
+	// Complete the RSP handshake on the client's behalf.
+	//
+	// OpenOCD's gdb_new_connection() ends by blocking on the client's first
+	// byte, and a connection that never sends one is torn down and logged as
+	// "attempted 'gdb' connection rejected" — the socket is accepted but the
+	// session never opens, so nothing downstream can ever use it. Attaching
+	// eagerly is exactly what this call promises, so the bridge speaks the
+	// opening ack itself and holds a real session until a client starts
+	// issuing packets. A stray "+" is skipped by any RSP packet reader, so
+	// the client's own opening ack later is harmless.
+	if _, werr := h.Write([]byte(gdbInitialAck)); werr != nil {
+		_ = h.Close()
+		b.mu.Lock()
+		if current() {
+			b.gdbSt = protocol.GdbStatus{Host: host, Port: port, Phase: "error", Detail: werr.Error()}
+		}
+		b.mu.Unlock()
+		b.broadcastGdb()
+		return werr
 	}
 
 	b.mu.Lock()

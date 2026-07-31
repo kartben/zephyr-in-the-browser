@@ -277,6 +277,42 @@ func TestAttachGdbReportsImmediateRejection(t *testing.T) {
 	}
 }
 
+type recordingHandle struct {
+	mu      sync.Mutex
+	written []byte
+}
+
+func (r *recordingHandle) Close() error { return nil }
+func (r *recordingHandle) Write(b []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.written = append(r.written, b...)
+	return len(b), nil
+}
+func (r *recordingHandle) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return string(r.written)
+}
+
+// A GDB server does not consider the session open until the client sends its
+// opening ack; OpenOCD blocks on it in gdb_new_connection() and logs
+// "attempted 'gdb' connection rejected" if it never arrives. The bridge
+// attaches on the client's behalf, so it has to speak that byte itself.
+func TestAttachGdbSendsInitialAck(t *testing.T) {
+	rec := &recordingHandle{}
+	b := startGdbTestBridge(t, func(host string, port int, onData func([]byte), onError func(error), onClose func()) (gdb.Handle, error) {
+		return rec, nil
+	})
+
+	if err := b.AttachGdb("127.0.0.1", 3333); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	if got := rec.String(); got != "+" {
+		t.Fatalf("bridge sent %q on attach, want %q — the server will never open the session", got, "+")
+	}
+}
+
 // A callback arriving late from a superseded attempt must not overwrite the
 // state of the connection that replaced it.
 func TestStaleGdbCallbackDoesNotClobberNewAttach(t *testing.T) {
