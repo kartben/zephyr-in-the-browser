@@ -1,11 +1,15 @@
 # Probe bridge: Trace from a real board
 
-**Status:** shipped. The daemon lives in [`probe/`](../probe/); the page side is
-**Trace → Live board** (`src/components/ProbeSection.tsx`, `src/probe/client.ts`).
+**Status:** superseded. The Node daemon in [`probe/`](../probe/) is legacy —
+the Go desktop bridge ([`bridge/`](../bridge/), [bridge.md](bridge.md)) carries
+CTF, network, and GDB over one WebSocket, and the page side is the **Live
+board** session mode (`src/components/LiveBoardHome.tsx`,
+`src/probe/client.ts`). The in-page Debug follow-up this doc promised has
+shipped: the Debug panel attaches to a real board through the bridge (see
+[bridge.md](bridge.md), "Debug a real board"). The firmware notes below still
+apply.
 
 Stream Zephyr **CTF** from hardware into the same Trace panel the guest uses.
-Optionally proxy a local GDB server over the same WebSocket (daemon-ready;
-in-page Debug over the probe is a follow-up).
 
 ```
 Zephyr (CTF UART/USB) ─ serial ─ probe daemon ─ WebSocket ⇉ TraceReader ─ Trace panel

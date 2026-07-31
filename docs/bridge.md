@@ -76,9 +76,31 @@ DHCP (and static samples) use `192.0.2.1/24` with gateway `192.0.2.2`.
    this on its own). The stage walks through install / Connect; the URL lives
    under Settings.
 2. Pick a serial port when the bridge lists one. Trace streams from the board.
-3. Bridge network is a **Simulator** feature: switch back, choose Network →
+3. Debug → **Attach** drives the board through your GDB server (next section).
+4. Bridge network is a **Simulator** feature: switch back, choose Network →
    **Bridge network**, restart the guest for real uplink. The connection is
    shared; the Trace panel is not seized while the Simulator runs.
+
+## Debug a real board
+
+In **Live board** mode the Debug panel drives the physical board through the
+bridge's GDB channel:
+
+1. Run a GDB server against the board — OpenOCD, J-Link, pyOCD
+   (`west debugserver` works). Default `127.0.0.1:3333`; override with
+   `GDB_HOST` / `GDB_PORT`.
+2. Debug panel → **Attach**. The daemon dials the server and relays RSP;
+   attaching briefly halts the board, then the session resumes it.
+3. Drop the ELF you flashed anywhere on the page for symbols, threads and
+   call stacks. Without it you still get registers, memory and address
+   breakpoints, with a register-layout picker.
+
+Details the panel handles for you: OpenOCD's ack mode (until no-ack lands),
+targets without `vCont` (bare `c`/`s` fallback), flash-resident code (`Z0`
+failures retry as hardware `Z1` comparators), and adopting a session the TUI's
+`g` key already opened (detach then leaves the TUI's proxy up). One page owns
+the session at a time — a second tab is told it is busy. If the WebSocket
+drops, the daemon keeps its TCP proxy; re-attach re-plants your breakpoints.
 
 ## Firmware
 
