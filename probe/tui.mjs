@@ -51,13 +51,7 @@ export async function runTui(opts) {
   /** @type {ReturnType<typeof bridge.snapshot>} */
   let snap = bridge.snapshot()
 
-  const unsub = bridge.subscribeStatus((s) => {
-    snap = s
-    // Keep selection in range as ports hot-plug.
-    if (selected >= snap.ports.length) selected = Math.max(0, snap.ports.length - 1)
-    draw()
-  })
-
+  // Declared before subscribeStatus: that API invokes the listener immediately.
   const draw = () => {
     const lines = []
     lines.push(`${BOLD}Zephyr probe bridge${RESET}  ${DIM}v${snap.version}${RESET}`)
@@ -120,6 +114,13 @@ export async function runTui(opts) {
 
     output.write(CLEAR + HIDE + lines.join('\n') + '\n')
   }
+
+  const unsub = bridge.subscribeStatus((s) => {
+    snap = s
+    // Keep selection in range as ports hot-plug.
+    if (selected >= snap.ports.length) selected = Math.max(0, snap.ports.length - 1)
+    draw()
+  })
 
   const onKey = (buf) => {
     const s = buf.toString('utf8')
