@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import * as guestStats from '@/guestStats'
 import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
+import * as bridgeClient from '@/probe/client'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import {
@@ -76,13 +77,18 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
   const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
   const gdb = useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot)
 
+  const bridge = useSyncExternalStore(
+    bridgeClient.subscribe,
+    bridgeClient.getSnapshot,
+    bridgeClient.getSnapshot,
+  )
   const devices = inventory.nodes.filter((node) => node.presence === 'interactive')
   const instruments = [
     { key: STAGE_PERF_KEY, label: 'Simulation', shown: stats.available },
     {
       key: STAGE_TRACE_KEY,
       label: 'Trace',
-      shown: trace.available || state.seed.primary.includes('trace'),
+      shown: trace.available || bridge.enabled || state.seed.primary.includes('trace'),
     },
     {
       key: STAGE_DEBUG_KEY,
