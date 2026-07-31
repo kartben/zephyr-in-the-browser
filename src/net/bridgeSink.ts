@@ -95,7 +95,7 @@ export class BridgeNetSink {
     this.phase = mapPhase(snap.phase, snap.features?.net === true)
     this.detail =
       snap.phase === 'connected' && !snap.features?.net
-        ? 'bridge has no network (passt unavailable)'
+        ? 'bridge has no network'
         : snap.detail
     this.counters.attempts = snap.attempts
     this.counters.droppedTx = getDroppedTx()

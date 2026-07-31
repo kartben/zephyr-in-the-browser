@@ -131,11 +131,11 @@ export function SettingsMenu() {
             {showHelp && (
               <div className="mb-2 space-y-1.5 rounded-md border border-primary/40 bg-primary/5 p-2 text-[11px] leading-relaxed">
                 <p>
-                  Start the bridge on your machine, then paste the URL it prints. Native runs see
-                  USB serial best:
+                  Start the bridge on your machine, then paste the URL it prints. Needs a Go
+                  toolchain (1.22+):
                 </p>
                 <CopyableCommand command={BRIDGE_NATIVE_ONE_LINER} />
-                <p>Docker is fine for Bridge network:</p>
+                <p>Or run the optional Docker image:</p>
                 <CopyableCommand command={BRIDGE_DOCKER_ONE_LINER} />
                 <p>
                   USB serial through Docker needs Linux and a device passthrough. On macOS and

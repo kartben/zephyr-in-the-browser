@@ -1,5 +1,4 @@
-node_modules
-npm-debug.log
+zephyr-bridge
+*.test
 .git
-*.md
-!README.md
+.dockerignore

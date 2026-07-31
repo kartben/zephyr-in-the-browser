@@ -59,7 +59,7 @@ internet. For a real network (and optional Live board tracing), run the
 **desktop bridge**, then open **Settings** in the top bar:
 
 ```console
-cd bridge && npm install && npm start
+cd bridge && go run ./cmd/zephyr-bridge
 ```
 
 Paste the printed URL into Settings, turn on the desktop bridge, and choose
