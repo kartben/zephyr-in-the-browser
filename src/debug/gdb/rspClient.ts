@@ -276,9 +276,14 @@ export class RspClient {
           this.waiting.reject(new Error('superseded by interrupt'))
           this.waiting = null
         }
+        // Park the waiter before the byte goes out: a push transport (the
+        // bridge) can deliver the stop reply synchronously inside send, and
+        // a reply with nobody waiting is handled as an async stop while the
+        // late waiter burns its whole timeout.
+        const stop = this.waitStop()
         this.sendRaw('\x03')
         try {
-          return await this.waitStop()
+          return await stop
         } catch {
           this.running = false
           return this.lastStop ?? UNKNOWN_STOP
@@ -316,9 +321,11 @@ export class RspClient {
     // gate shut until the stop lands — and reopen it even if the reply is lost,
     // since a single step always ends halted.
     this.running = true
+    // Waiter before the packet, same reasoning as interrupt().
+    const stop = this.waitStop()
     this.sendPacket(this.useVCont ? 'vCont;s' : 's')
     try {
-      return await this.waitStop()
+      return await stop
     } finally {
       this.running = false
     }

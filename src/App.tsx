@@ -36,6 +36,7 @@ import { createBackend, defaultBackendId } from '@/backends'
 import type { BackendId, PtyBackend, StatusEvent } from '@/backends'
 import { startBridgeClient } from '@/probe/client'
 import { getMode, setMode, MODE_QUERY_PARAM, type SessionMode } from '@/lib/modeStore'
+import { setLiveMode } from '@/debug/liveDebug'
 import { LiveBoardHome } from '@/components/LiveBoardHome'
 import { set as setLiveImage, type LiveImage } from '@/liveImage'
 import {
@@ -74,6 +75,12 @@ export default function App() {
   }, [])
   // Fixed for the document's life: mode changes navigate (see modeStore).
   const mode = getMode()
+  useEffect(() => {
+    // Live sessions get their debugger bound (bridge source, ELF symbols).
+    setLiveMode(mode === 'live')
+    // mode is fixed for the document's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [backendId] = useState<BackendId>(() => readSelection().backendId)
   const [boardId, setBoardId] = useState(() => readSelection().boardId)
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
