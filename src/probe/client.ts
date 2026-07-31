@@ -11,6 +11,7 @@ import {
   resolveBridgeConfig,
   subscribe as subscribeSettings,
 } from '@/lib/bridgeStore'
+import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import {
   CH_CTF,
   CH_CTRL,
@@ -121,6 +122,22 @@ function endExternal() {
   hostTrace.endExternal()
 }
 
+/**
+ * The bridge owns the Trace decoder only in Live board mode. A Simulator
+ * session may keep the bridge connected for Bridge network, and guest CTF
+ * polling must keep running there. Mode changes navigate in practice; the
+ * ownership still follows the store so this module is correct on its own.
+ */
+function syncTraceOwnership() {
+  const shouldOwn = getMode() === 'live' && snapshot.phase === 'connected'
+  if (shouldOwn && !externalActive) {
+    hostTrace.beginExternal('bridge')
+    externalActive = true
+  } else if (!shouldOwn) {
+    endExternal()
+  }
+}
+
 function scheduleReconnect() {
   if (!wantConnected) return
   if (reconnectTimer !== undefined) return
@@ -177,11 +194,8 @@ function openSocket() {
     if (ws !== sock) return
     connectedAt = performance.now()
     attempt = 0
-    if (!externalActive) {
-      hostTrace.beginExternal('bridge')
-      externalActive = true
-    }
     publish({ phase: 'connected', detail: '', attempts: 0 })
+    syncTraceOwnership()
     netHandler?.onPhaseChange()
   }
 
@@ -198,7 +212,9 @@ function openSocket() {
     const frame = decodeFrame(ev.data as ArrayBuffer)
     if (!frame) return
     if (frame.channel === CH_CTF) {
-      hostTrace.feedExternal(frame.payload)
+      // Feed only while the bridge owns the decoder (Live board mode) —
+      // feedExternal would otherwise seize it from a running Simulator app.
+      if (externalActive) hostTrace.feedExternal(frame.payload)
       publish({ ctfBytes: snapshot.ctfBytes + frame.payload.length })
       return
     }
@@ -391,6 +407,7 @@ export function startBridgeClient(): void {
   if (started) return
   started = true
   subscribeSettings(() => syncFromSettings())
+  subscribeMode(() => syncTraceOwnership())
   syncFromSettings()
 }
 
