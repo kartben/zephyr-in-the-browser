@@ -39,5 +39,7 @@ for serial on macOS / Windows.
 | `GDB_HOST` / `GDB_PORT` | `127.0.0.1` / `3333` | GDB proxy |
 | `NO_TUI` | — | `1` for logs only (Docker default) |
 
+The interactive TUI is a [Bubble Tea](https://github.com/charmbracelet/bubbletea) app (serial picker, CTF / GDB / Net status, deep link).
+
 Guest DHCP / static addressing matches the in-page LAN: `192.0.2.1/24` via
 gateway `192.0.2.2`. `192.0.2.254` NATs to the bridge host loopback.
