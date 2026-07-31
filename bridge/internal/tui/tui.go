@@ -4,161 +4,155 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
-	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kartben/zephyr-in-the-browser/bridge/internal/server"
 	"golang.org/x/term"
 )
 
-const (
-	esc    = "\x1b"
-	hide   = esc + "[?25l"
-	show   = esc + "[?25h"
-	altOn  = esc + "[?1049h"
-	altOff = esc + "[?1049l"
-	clear  = esc + "[2J" + esc + "[H"
-	dim    = esc + "[2m"
-	reset  = esc + "[0m"
-	bold   = esc + "[1m"
-	green  = esc + "[32m"
-	yellow = esc + "[33m"
-	red    = esc + "[31m"
-	cyan   = esc + "[36m"
+// Host is the subset of *server.Bridge the TUI drives.
+type Host interface {
+	Snapshot() server.Snapshot
+	SubscribeStatus(func(server.Snapshot)) (unsubscribe func())
+	RefreshPorts() error
+	StopSerial()
+	SelectSerial(path string, baud int) error
+	AttachGdb(host string, port int) error
+	DetachGdb()
+	Close() error
+}
+
+type statusMsg server.Snapshot
+
+type model struct {
+	host     Host
+	baud     int
+	snap     server.Snapshot
+	selected int
+	help     bool
+	errMsg   string
+	width    int
+}
+
+var (
+	boldStyle   = lipgloss.NewStyle().Bold(true)
+	dimStyle    = lipgloss.NewStyle().Faint(true)
+	cyanStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	greenStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	yellowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	redStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 // Run blocks until quit. Falls back to headless if stdin is not a TTY.
-func Run(bridge *server.Bridge, baud int) error {
+func Run(bridge Host, baud int) error {
 	in := os.Stdin
 	out := os.Stdout
 	if !term.IsTerminal(int(in.Fd())) || !term.IsTerminal(int(out.Fd())) {
 		return runHeadless(bridge)
 	}
 
-	oldState, err := term.MakeRaw(int(in.Fd()))
-	if err != nil {
-		return runHeadless(bridge)
+	m := model{
+		host:  bridge,
+		baud:  baud,
+		snap:  bridge.Snapshot(),
+		width: 80,
 	}
-	defer func() { _ = term.Restore(int(in.Fd()), oldState) }()
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(in), tea.WithOutput(out))
 
-	_, _ = out.WriteString(altOn + hide)
-	defer func() { _, _ = out.WriteString(show + altOff) }()
+	// Subscribe off the main goroutine: the initial status callback uses
+	// Program.Send, which blocks until Run() is reading the message channel.
+	subDone := make(chan struct{})
+	go func() {
+		unsub := bridge.SubscribeStatus(func(s server.Snapshot) {
+			p.Send(statusMsg(s))
+		})
+		<-subDone
+		unsub()
+	}()
 
-	var mu sync.Mutex
-	selected := 0
-	help := false
-	lastErr := ""
-	snap := bridge.Snapshot()
-
-	draw := func() {
-		mu.Lock()
-		s := snap
-		sel := selected
-		h := help
-		errMsg := lastErr
-		mu.Unlock()
-
-		cols, _, _ := term.GetSize(int(out.Fd()))
-		if cols <= 0 {
-			cols = 80
-		}
-		_, _ = out.WriteString(clear + hide + renderFrame(s, sel, h, errMsg, cols))
-	}
-
-	unsub := bridge.SubscribeStatus(func(s server.Snapshot) {
-		mu.Lock()
-		snap = s
-		if selected >= len(s.Ports) {
-			selected = max(0, len(s.Ports)-1)
-		}
-		mu.Unlock()
-		draw()
-	})
-	defer unsub()
-
-	buf := make([]byte, 32)
-	for {
-		n, err := in.Read(buf)
-		if err != nil || n == 0 {
-			return err
-		}
-		key := string(buf[:n])
-		switch {
-		case key == "\x03" || key == "q" || key == "Q":
-			return bridge.Close()
-		case key == "?" || key == "h":
-			mu.Lock()
-			help = !help
-			mu.Unlock()
-			draw()
-		case key == "r" || key == "R":
-			_ = bridge.RefreshPorts()
-		case key == "s" || key == "S":
-			bridge.StopSerial()
-			mu.Lock()
-			lastErr = ""
-			mu.Unlock()
-		case key == "g":
-			st := bridge.Snapshot().GDB
-			if err := bridge.AttachGdb(st.Host, st.Port); err != nil {
-				mu.Lock()
-				lastErr = err.Error()
-				mu.Unlock()
-				draw()
-			} else {
-				mu.Lock()
-				lastErr = ""
-				mu.Unlock()
-			}
-		case key == "G":
-			bridge.DetachGdb()
-		case key == "\x1b[A" || key == "k":
-			mu.Lock()
-			if selected > 0 {
-				selected--
-			}
-			mu.Unlock()
-			draw()
-		case key == "\x1b[B" || key == "j":
-			mu.Lock()
-			if selected < len(snap.Ports)-1 {
-				selected++
-			}
-			mu.Unlock()
-			draw()
-		case key == "\r" || key == "\n":
-			mu.Lock()
-			ports := snap.Ports
-			sel := selected
-			mu.Unlock()
-			if sel < 0 || sel >= len(ports) {
-				mu.Lock()
-				lastErr = "No port selected"
-				mu.Unlock()
-				draw()
-				continue
-			}
-			mu.Lock()
-			lastErr = ""
-			mu.Unlock()
-			_ = bridge.SelectSerial(ports[sel].Path, baud)
-		}
-	}
+	_, err := p.Run()
+	close(subDone)
+	_ = bridge.Close()
+	return err
 }
 
-// renderFrame builds one full-screen frame. MakeRaw clears OPOST/ONLCR, so
-// every line must end with \r\n or the cursor stair-steps across the screen.
-func renderFrame(s server.Snapshot, selected int, help bool, errMsg string, cols int) string {
+func (m model) Init() tea.Cmd { return nil }
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		if msg.Width > 0 {
+			m.width = msg.Width
+		}
+	case statusMsg:
+		m.snap = server.Snapshot(msg)
+		if m.selected >= len(m.snap.Ports) {
+			m.selected = max(0, len(m.snap.Ports)-1)
+		}
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "?", "h":
+			m.help = !m.help
+		case "r":
+			_ = m.host.RefreshPorts()
+		case "s":
+			m.host.StopSerial()
+			m.errMsg = ""
+		case "g":
+			st := m.host.Snapshot().GDB
+			if err := m.host.AttachGdb(st.Host, st.Port); err != nil {
+				m.errMsg = err.Error()
+			} else {
+				m.errMsg = ""
+			}
+		case "G":
+			m.host.DetachGdb()
+		case "up", "k":
+			if m.selected > 0 {
+				m.selected--
+			}
+		case "down", "j":
+			if m.selected < len(m.snap.Ports)-1 {
+				m.selected++
+			}
+		case "enter":
+			if m.selected < 0 || m.selected >= len(m.snap.Ports) {
+				m.errMsg = "No port selected"
+				break
+			}
+			m.errMsg = ""
+			_ = m.host.SelectSerial(m.snap.Ports[m.selected].Path, m.baud)
+		}
+	}
+	return m, nil
+}
+
+func (m model) View() string {
+	return render(m.snap, m.selected, m.help, m.errMsg, m.width)
+}
+
+func render(s server.Snapshot, selected int, help bool, errMsg string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%sZephyr bridge%s  %sv%s%s", bold, reset, dim, s.Version, reset))
-	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("%sWebSocket%s  %s", cyan, reset, s.WSURL))
-	lines = append(lines, fmt.Sprintf("%sOpen%s       %s", cyan, reset, s.DeepLink))
-	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("%sSerial ports%s  %s(↑↓ select · enter stream · s stop · r refresh)%s", bold, reset, dim, reset))
+	add := func(line string) {
+		lines = append(lines, ansi.Truncate(line, width, "…"))
+	}
+
+	add(boldStyle.Render("Zephyr bridge") + "  " + dimStyle.Render("v"+s.Version))
+	add("")
+	add(cyanStyle.Render("WebSocket") + "  " + s.WSURL)
+	add(cyanStyle.Render("Open") + "       " + s.DeepLink)
+	add("")
+	add(boldStyle.Render("Serial ports") + "  " + dimStyle.Render("(↑↓ select · enter stream · s stop · r refresh)"))
 
 	if len(s.Ports) == 0 {
-		lines = append(lines, fmt.Sprintf("  %sNo serial ports yet. Plug in a board or probe.%s", dim, reset))
+		add("  " + dimStyle.Render("No serial ports yet. Plug in a board or probe."))
 	} else {
 		for i, p := range s.Ports {
 			active := s.Serial.Path != nil && *s.Serial.Path == p.Path && s.Serial.Phase == "streaming"
@@ -166,114 +160,87 @@ func renderFrame(s server.Snapshot, selected int, help bool, errMsg string, cols
 			if i == selected {
 				cursor = "›"
 			}
-			mark := fmt.Sprintf("%s○%s", dim, reset)
+			mark := dimStyle.Render("○")
 			if active {
-				mark = fmt.Sprintf("%s●%s", green, reset)
+				mark = greenStyle.Render("●")
 			}
-			lines = append(lines, fmt.Sprintf("  %s %s %s  %s%s%s", cursor, mark, p.Path, dim, p.FriendlyName, reset))
+			add(fmt.Sprintf("  %s %s %s  %s", cursor, mark, p.Path, dimStyle.Render(p.FriendlyName)))
 		}
 	}
 
-	lines = append(lines, "")
-	phaseColor := dim
-	switch s.Serial.Phase {
-	case "streaming":
-		phaseColor = green
-	case "error":
-		phaseColor = red
-	}
-	path := ""
-	if s.Serial.Path != nil {
-		path = fmt.Sprintf("  %s @ %d", *s.Serial.Path, s.Serial.BaudRate)
-	}
-	detail := ""
-	if s.Serial.Detail != "" {
-		detail = fmt.Sprintf("  %s%s%s", dim, s.Serial.Detail, reset)
-	}
-	lines = append(lines, fmt.Sprintf("%sCTF%s   %s%s%s%s%s  %s%d B%s",
-		bold, reset, phaseColor, s.Serial.Phase, reset, path, detail, dim, s.CtfBytes, reset))
+	add("")
+	add(fmt.Sprintf("%s   %s%s  %s",
+		boldStyle.Render("CTF"),
+		phaseStyle(s.Serial.Phase).Render(s.Serial.Phase),
+		serialSuffix(s),
+		dimStyle.Render(fmt.Sprintf("%d B", s.CtfBytes)),
+	))
+	add(fmt.Sprintf("%s   %s  %s:%d%s  %s",
+		boldStyle.Render("GDB"),
+		phaseStyle(s.GDB.Phase).Render(s.GDB.Phase),
+		s.GDB.Host, s.GDB.Port,
+		gdbDetail(s),
+		dimStyle.Render(fmt.Sprintf("%d B", s.GdbBytes)),
+	))
 
-	gdbColor := dim
-	switch s.GDB.Phase {
-	case "connected":
-		gdbColor = green
-	case "error":
-		gdbColor = red
-	}
-	gdbDetail := ""
-	if s.GDB.Detail != "" {
-		gdbDetail = fmt.Sprintf("  %s%s%s", dim, s.GDB.Detail, reset)
-	}
-	lines = append(lines, fmt.Sprintf("%sGDB%s   %s%s%s  %s:%d%s  %s%d B%s",
-		bold, reset, gdbColor, s.GDB.Phase, reset, s.GDB.Host, s.GDB.Port, gdbDetail, dim, s.GdbBytes, reset))
-
-	netColor := dim
 	netLabel := "unavailable"
+	netStyle := dimStyle
 	if s.NetReady {
-		netColor = green
 		netLabel = "ready (gvisor)"
+		netStyle = greenStyle
 	}
-	lines = append(lines, fmt.Sprintf("%sNet%s   %s%s%s", bold, reset, netColor, netLabel, reset))
-	lines = append(lines, fmt.Sprintf("%sClients%s  %d/%d", bold, reset, s.Clients, s.MaxClients))
+	add(boldStyle.Render("Net") + "   " + netStyle.Render(netLabel))
+	add(fmt.Sprintf("%s  %d/%d", boldStyle.Render("Clients"), s.Clients, s.MaxClients))
 	if errMsg != "" {
-		lines = append(lines, fmt.Sprintf("%s%s%s", red, errMsg, reset))
+		add(redStyle.Render(errMsg))
 	}
-	lines = append(lines, "")
+	add("")
 	if help {
-		lines = append(lines, yellow+"Keys"+reset)
-		lines = append(lines, "  enter  stream CTF from the selected port")
-		lines = append(lines, "  s      stop serial stream")
-		lines = append(lines, "  g      attach GDB proxy (OpenOCD / J-Link on host:port)")
-		lines = append(lines, "  G      detach GDB")
-		lines = append(lines, "  r      refresh port list")
-		lines = append(lines, "  ?      toggle this help")
-		lines = append(lines, "  q      quit (Ctrl-C also works)")
-		lines = append(lines, "")
+		add(yellowStyle.Render("Keys"))
+		add("  enter  stream CTF from the selected port")
+		add("  s      stop serial stream")
+		add("  g      attach GDB proxy (OpenOCD / J-Link on host:port)")
+		add("  G      detach GDB")
+		add("  r      refresh port list")
+		add("  ?      toggle this help")
+		add("  q      quit (Ctrl-C also works)")
+		add("")
 	}
-	lines = append(lines, fmt.Sprintf("%s[?] help  [g] GDB  [q] quit · daemon stays up if you only unplug the board%s", dim, reset))
+	add(dimStyle.Render("[?] help  [g] GDB  [q] quit · daemon stays up if you only unplug the board"))
 
-	for i, line := range lines {
-		lines[i] = clip(line, cols)
-	}
-	// MakeRaw disables ONLCR, so LF alone moves the cursor down without
-	// returning it to column zero. Emit CRLF explicitly for each row.
-	return strings.Join(lines, "\r\n") + "\r\n"
+	return strings.Join(lines, "\n")
 }
 
-// clip truncates a possibly ANSI-colored string to fit cols display columns.
-func clip(s string, cols int) string {
-	if cols <= 3 {
-		return s
+func phaseStyle(phase string) lipgloss.Style {
+	switch phase {
+	case "streaming", "connected":
+		return greenStyle
+	case "error":
+		return redStyle
+	default:
+		return dimStyle
 	}
-	visible := 0
-	for i := 0; i < len(s); {
-		if s[i] == '\x1b' {
-			// Skip CSI / SGR sequences so colors don't count toward width.
-			j := i + 1
-			if j < len(s) && s[j] == '[' {
-				j++
-				for j < len(s) {
-					c := s[j]
-					j++
-					if c >= '@' && c <= '~' {
-						break
-					}
-				}
-				i = j
-				continue
-			}
-		}
-		_, size := utf8.DecodeRuneInString(s[i:])
-		if visible+1 >= cols {
-			return s[:i] + "…" + reset
-		}
-		visible++
-		i += size
-	}
-	return s
 }
 
-func runHeadless(bridge *server.Bridge) error {
+func serialSuffix(s server.Snapshot) string {
+	out := ""
+	if s.Serial.Path != nil {
+		out += fmt.Sprintf("  %s @ %d", *s.Serial.Path, s.Serial.BaudRate)
+	}
+	if s.Serial.Detail != "" {
+		out += "  " + dimStyle.Render(s.Serial.Detail)
+	}
+	return out
+}
+
+func gdbDetail(s server.Snapshot) string {
+	if s.GDB.Detail == "" {
+		return ""
+	}
+	return "  " + dimStyle.Render(s.GDB.Detail)
+}
+
+func runHeadless(bridge Host) error {
 	unsub := bridge.SubscribeStatus(func(s server.Snapshot) {
 		fmt.Fprintf(os.Stderr, "[bridge] status clients=%d/%d serial=%s net=%v ctf=%d B\n",
 			s.Clients, s.MaxClients, s.Serial.Phase, s.NetReady, s.CtfBytes)
