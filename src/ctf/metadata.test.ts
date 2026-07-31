@@ -147,6 +147,8 @@ describe('address[46] decode does not desync following events', () => {
     const bytes = Uint8Array.from([
       ...record(1000, 0x149, [0, 3, 1]),
       ...record(2000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
+      ...record(3000, 0x10, [...encU32(0x1000), ...encStr('main', 20)]),
+      ...record(4000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
     // fallbackDefs() minus the PM entries — what shipped before this landed.
     const stale = fallbackDefs()
@@ -154,11 +156,14 @@ describe('address[46] decode does not desync following events', () => {
     const reader = new TraceReader(stale)
     // The PM record itself is unrecoverable (no size to skip it by), but the
     // reader slides forward byte by byte and lands back on the real header of
-    // the thread switch that follows it — that event still decodes.
-    expect(reader.feed(bytes)).toBe(1)
+    // the thread switch that follows it — those events still decode. Nothing
+    // has been decoded yet at that point, so there is no earlier timestamp to
+    // anchor the boundary; it takes a few agreeing headers to prove instead.
+    expect(reader.feed(bytes)).toBe(3)
     expect(reader.desync).toBe(false)
-    expect(reader.tr.events).toHaveLength(1)
+    expect(reader.tr.events).toHaveLength(3)
     expect(reader.tr.events[0]?.name).toBe('thread_switched_in')
+    expect(reader.tr.t0).toBe(2000)
   })
 
   it('wrong 20-byte assumption would scramble the next record', () => {
