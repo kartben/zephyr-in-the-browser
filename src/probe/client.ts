@@ -276,7 +276,7 @@ function handleCtrl(msg: Record<string, unknown>) {
       })
       return
     case 'net-status':
-      // Reserved for per-client passt health; phase stays on the WS.
+      // Reserved for per-client net health; phase stays on the WS.
       return
     default:
       return

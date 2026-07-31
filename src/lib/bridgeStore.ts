@@ -167,11 +167,11 @@ export function mixedContentHint(url: string): string {
   return ''
 }
 
-/** Native install — best for USB serial (especially macOS / Windows). */
-export const BRIDGE_NATIVE_ONE_LINER = 'cd bridge && npm install && npm start'
+/** Native install — works on macOS / Windows / Linux (Go toolchain). */
+export const BRIDGE_NATIVE_ONE_LINER = 'cd bridge && go run ./cmd/zephyr-bridge'
 
 /**
- * Docker: great for real network (passt). USB serial needs Linux + --device;
+ * Docker image (optional). USB serial needs Linux + --device;
  * Docker Desktop on Mac/Windows generally cannot see serial adapters.
  */
 export const BRIDGE_DOCKER_ONE_LINER =
