@@ -1,7 +1,8 @@
 # Desktop bridge
 
-**Status:** shipped. Package: [`bridge/`](../bridge/) (Go). Page: **Settings**
-(top bar) + Trace **Live board** + Network **Bridge network**.
+**Status:** shipped. Package: [`bridge/`](../bridge/) (Go). Page: top-bar
+**mode switch** (Simulator · Live board) + **Settings** + Network
+**Bridge network**.
 
 One long-lived native process and **one WebSocket URL** for:
 
@@ -12,7 +13,9 @@ One long-lived native process and **one WebSocket URL** for:
 | GDB | Optional proxy to OpenOCD / J-Link / Espressif OpenOCD |
 
 Configure the URL once under **Settings → Desktop bridge**. Trace and Network
-reuse it. Deep link: `?bridge=ws://…`.
+reuse it. Deep link: `?bridge=ws://…` (opens the page in **Live board** mode;
+bookmark `?mode=sim&bridge=…` for a Simulator session that only wants Bridge
+network).
 
 The process is meant to **stay up**: unplug the board, refresh the tab —
 reconnect; do not restart the daemon for routine events.
@@ -67,12 +70,15 @@ Guest addressing matches the in-page simulated LAN and `net-uplink.conf`:
 DHCP (and static samples) use `192.0.2.1/24` with gateway `192.0.2.2`.
 `192.0.2.254` NATs to the bridge host loopback.
 
-## Page UI (no ELF required)
+## Page UI (no guest image required)
 
-1. Settings → enable **Desktop bridge**, paste the URL, Connect.
-2. Open **Trace** (shown when the bridge is enabled even with no guest image).
-3. Live board shows ports / streaming status.
-4. Optional: Network → **Bridge network**, restart guest for real uplink.
+1. Flip the top-bar switch to **Live board** (the `?bridge=` deep link does
+   this on its own). The stage walks through install / Connect; the URL lives
+   under Settings.
+2. Pick a serial port when the bridge lists one. Trace streams from the board.
+3. Bridge network is a **Simulator** feature: switch back, choose Network →
+   **Bridge network**, restart the guest for real uplink. The connection is
+   shared; the Trace panel is not seized while the Simulator runs.
 
 ## Firmware
 

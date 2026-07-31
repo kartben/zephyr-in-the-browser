@@ -21,7 +21,9 @@ Use these spellings and senses everywhere learner-facing copy appears. Prefer th
 | Debug | The debugger instrument | "GDB panel" in learner UI labels |
 | Settings | Top-bar gear for the desktop bridge URL | burying a second URL field in Trace or Network |
 | desktop bridge | The small desktop daemon (Settings) that can carry Live board tracing, Bridge network, and Debug | "probe bridge", "uber bridge", "probe gateway" |
-| Live board | Trace section that streams traces from a real board via the desktop bridge | "hardware mode", "real target" as the section name |
+| Simulator | The session mode that runs apps in the in-page emulator (top-bar switch) | "emulator mode", "virtual mode" |
+| Live board | The session mode that targets a real board through the desktop bridge; also the Trace strip and stage that serve it | "hardware mode", "real target" |
+| mode switch | The top-bar Simulator · Live board control | "session toggle", "target picker" |
 | Bridge network | Network mode that sends guest frames through the desktop bridge from Settings | "gateway mode"; a second net-only URL field |
 | Uplink | Network disclosure that chooses Simulated LAN vs Bridge network | calling the mode itself "Uplink" |
 

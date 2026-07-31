@@ -69,8 +69,9 @@ Paste the printed URL into Settings, turn on the desktop bridge, and choose
 
 ### Trace from a real board (optional)
 
-Same desktop bridge as above. Firmware must emit Zephyr CTF over UART (or
-USB-CDC). Open Trace → **Live board** after Settings is connected. Details in
+Same desktop bridge as above. Flip the top-bar switch to **Live board** (the
+bridge's printed link does this on its own), connect, and pick the serial
+port. Firmware must emit Zephyr CTF over UART (or USB-CDC). Details in
 [docs/bridge.md](docs/bridge.md).
 
 ## Choosing what runs

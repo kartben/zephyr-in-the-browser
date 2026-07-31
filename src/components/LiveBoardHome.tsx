@@ -63,8 +63,8 @@ export function LiveBoardHome({ errorDetail }: { errorDetail?: string | null }) 
           {!configured && (
             <div className="space-y-1.5 text-[11px] leading-relaxed text-muted-foreground">
               <p>
-                Connect a real board through the desktop bridge — a small program you run on your
-                own machine.
+                Connect a real board through the desktop bridge. It is a small program you run on
+                your own machine.
               </p>
               <p className="text-foreground">Install it with Go {BRIDGE_GO_VERSION} or newer:</p>
               <CopyableCommand command={BRIDGE_INSTALL_COMMAND} />
