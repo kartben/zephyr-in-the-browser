@@ -12,15 +12,15 @@ import (
 )
 
 type fakeHost struct {
-	snap           server.Snapshot
-	refreshed      int
-	stopped        int
-	selectedPath   string
-	selectedBaud   int
-	attachErr      error
-	attached       int
-	detached       int
-	closed         int
+	snap         server.Snapshot
+	refreshed    int
+	stopped      int
+	selectedPath string
+	selectedBaud int
+	attachErr    error
+	attached     int
+	detached     int
+	closed       int
 }
 
 func (f *fakeHost) Snapshot() server.Snapshot { return f.snap }
@@ -102,6 +102,23 @@ func TestViewClipsLongDeepLink(t *testing.T) {
 	}
 }
 
+// press feeds a key to the model and, like the Bubble Tea runtime, runs any
+// command the update returned and feeds its message back in.
+func press(t *testing.T, m model, key tea.KeyMsg) model {
+	t.Helper()
+	next, cmd := m.Update(key)
+	m = next.(model)
+	if cmd == nil {
+		return m
+	}
+	msg := cmd()
+	if msg == nil {
+		return m
+	}
+	next, _ = m.Update(msg)
+	return next.(model)
+}
+
 func TestUpdateKeys(t *testing.T) {
 	host := &fakeHost{snap: sampleSnap()}
 	m := model{host: host, baud: 115200, snap: host.snap, width: 80}
@@ -115,14 +132,12 @@ func TestUpdateKeys(t *testing.T) {
 		t.Fatalf("selected=%d", m.selected)
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = next.(model)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if host.selectedPath != "/dev/tty.debug-console" || host.selectedBaud != 115200 {
 		t.Fatalf("select got path=%q baud=%d", host.selectedPath, host.selectedBaud)
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
-	m = next.(model)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	if !m.help {
 		t.Fatal("help not toggled")
 	}
@@ -130,18 +145,29 @@ func TestUpdateKeys(t *testing.T) {
 		t.Fatal("help view missing Keys")
 	}
 
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	_ = next
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if host.stopped != 1 {
+		t.Fatalf("stopped=%d want 1", host.stopped)
+	}
+
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if host.refreshed != 1 {
+		t.Fatalf("refreshed=%d want 1", host.refreshed)
+	}
+
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd == nil {
 		t.Fatal("expected quit cmd")
 	}
 
 	host.attachErr = errors.New("refused")
 	m2 := model{host: host, snap: host.snap, width: 80}
-	next, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	m2 = next.(model)
+	m2 = press(t, m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	if m2.errMsg != "refused" {
 		t.Fatalf("errMsg=%q", m2.errMsg)
+	}
+	if !strings.Contains(ansi.Strip(m2.View()), "refused") {
+		t.Fatal("view missing the attach error")
 	}
 }
 

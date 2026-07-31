@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -11,6 +13,11 @@ import (
 	"github.com/kartben/zephyr-in-the-browser/bridge/internal/server"
 	"golang.org/x/term"
 )
+
+// refreshEvery keeps the byte counters honest: the bridge throttles the status
+// pings it derives from raw traffic, so the last chunk before a port falls
+// quiet may never get one of its own.
+const refreshEvery = time.Second
 
 // Host is the subset of *server.Bridge the TUI drives.
 type Host interface {
@@ -25,6 +32,63 @@ type Host interface {
 }
 
 type statusMsg server.Snapshot
+
+// actionMsg carries the result of a host call that ran off the event loop.
+type actionMsg struct{ err error }
+
+type tickMsg struct{}
+
+// hostCmd runs a host call in its own goroutine. Host calls block — opening a
+// port, dialling a GDB server — and anything run inline from Update stalls the
+// event loop for its whole duration.
+func hostCmd(fn func() error) tea.Cmd {
+	return func() tea.Msg { return actionMsg{err: fn()} }
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// statusPump decouples the bridge's status callbacks from the Bubble Tea event
+// loop. The bridge invokes listeners inline on whichever goroutine mutated
+// state — including the event loop itself, via Update → SelectSerial →
+// notifyStatus. Program.Send blocks until the event loop drains p.msgs (an
+// unbuffered channel), so sending from there deadlocks the loop against
+// itself: the TUI wedges hard, Ctrl-C included, and the process has to be
+// killed. push() must therefore never block.
+//
+// Only the newest snapshot matters, so a full queue coalesces rather than
+// growing: a busy port would otherwise back up a run of stale frames.
+type statusPump struct {
+	mu     sync.Mutex
+	latest *server.Snapshot
+	wake   chan struct{}
+}
+
+func newStatusPump() *statusPump {
+	return &statusPump{wake: make(chan struct{}, 1)}
+}
+
+func (p *statusPump) push(s server.Snapshot) {
+	p.mu.Lock()
+	p.latest = &s
+	p.mu.Unlock()
+	select {
+	case p.wake <- struct{}{}:
+	default: // a wake is already pending; it will pick up this snapshot
+	}
+}
+
+func (p *statusPump) take() (server.Snapshot, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.latest == nil {
+		return server.Snapshot{}, false
+	}
+	s := *p.latest
+	p.latest = nil
+	return s, true
+}
 
 type model struct {
 	host     Host
@@ -53,32 +117,46 @@ func Run(bridge Host, baud int) error {
 		return runHeadless(bridge)
 	}
 
+	err := runProgram(bridge, baud, tea.WithAltScreen(), tea.WithInput(in), tea.WithOutput(out))
+	_ = bridge.Close()
+	return err
+}
+
+func runProgram(bridge Host, baud int, opts ...tea.ProgramOption) error {
 	m := model{
 		host:  bridge,
 		baud:  baud,
 		snap:  bridge.Snapshot(),
 		width: 80,
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(in), tea.WithOutput(out))
+	p := tea.NewProgram(m, opts...)
 
-	// Subscribe off the main goroutine: the initial status callback uses
-	// Program.Send, which blocks until Run() is reading the message channel.
-	subDone := make(chan struct{})
+	pump := newStatusPump()
+	unsub := bridge.SubscribeStatus(pump.push)
+	defer unsub()
+
+	// Forward coalesced snapshots from a goroutine of our own, so the blocking
+	// Send never runs on a goroutine the bridge called us from.
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
-		unsub := bridge.SubscribeStatus(func(s server.Snapshot) {
-			p.Send(statusMsg(s))
-		})
-		<-subDone
-		unsub()
+		for {
+			select {
+			case <-done:
+				return
+			case <-pump.wake:
+				if s, ok := pump.take(); ok {
+					p.Send(statusMsg(s))
+				}
+			}
+		}
 	}()
 
 	_, err := p.Run()
-	close(subDone)
-	_ = bridge.Close()
 	return err
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return tickCmd() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -91,26 +169,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selected >= len(m.snap.Ports) {
 			m.selected = max(0, len(m.snap.Ports)-1)
 		}
+	case tickMsg:
+		m.snap = m.host.Snapshot()
+		if m.selected >= len(m.snap.Ports) {
+			m.selected = max(0, len(m.snap.Ports)-1)
+		}
+		return m, tickCmd()
+	case actionMsg:
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+		}
 	case tea.KeyMsg:
+		host := m.host
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "?", "h":
 			m.help = !m.help
 		case "r":
-			_ = m.host.RefreshPorts()
+			return m, hostCmd(host.RefreshPorts)
 		case "s":
-			m.host.StopSerial()
 			m.errMsg = ""
+			return m, hostCmd(func() error { host.StopSerial(); return nil })
 		case "g":
-			st := m.host.Snapshot().GDB
-			if err := m.host.AttachGdb(st.Host, st.Port); err != nil {
-				m.errMsg = err.Error()
-			} else {
-				m.errMsg = ""
-			}
+			m.errMsg = ""
+			return m, hostCmd(func() error {
+				st := host.Snapshot().GDB
+				return host.AttachGdb(st.Host, st.Port)
+			})
 		case "G":
-			m.host.DetachGdb()
+			return m, hostCmd(func() error { host.DetachGdb(); return nil })
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
@@ -125,7 +213,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			m.errMsg = ""
-			_ = m.host.SelectSerial(m.snap.Ports[m.selected].Path, m.baud)
+			path, baud := m.snap.Ports[m.selected].Path, m.baud
+			return m, hostCmd(func() error { return host.SelectSerial(path, baud) })
 		}
 	}
 	return m, nil
