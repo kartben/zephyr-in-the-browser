@@ -8,6 +8,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call:
 
 # A new push supersedes an in-flight run on the same ref; nothing here deploys,
 # so there is no reason to finish the old one.

@@ -1,7 +1,7 @@
 {
   "name": "zephyr-in-the-browser",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.6.0-dev",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "gen:changelog": "node scripts/gen-changelog.mjs",
     "docs:fetch": "node tools/fetch-docs.mjs",
     "vendor:bumble": "tools/vendor-bumble.sh",
     "build:libsbc": "bash tools/build-libsbc-wasm.sh"

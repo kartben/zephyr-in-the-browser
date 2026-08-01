@@ -19,6 +19,29 @@ on:
           which itself falls back to the emulator tag.
         required: false
         default: ''
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          Git ref to build and deploy (tag, branch, or SHA). Defaults to the
+          caller ref.
+        type: string
+        required: false
+        default: ''
+      emulator_release:
+        description: >-
+          Release tag holding qemu-wasm-emulator.tar.gz. Overrides the
+          EMULATOR_RELEASE repository variable for this run.
+        type: string
+        required: false
+        default: ''
+      images_release:
+        description: >-
+          Release tag holding zephyr-images.tar.gz. Overrides the IMAGES_RELEASE
+          repository variable for this run.
+        type: string
+        required: false
+        default: ''
 
 # Which release each half of the payload comes from. A push has no inputs, so it
 # falls back to the repository variables — set EMULATOR_RELEASE once (Settings →
@@ -49,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: actions/setup-node@v5
         with:
