@@ -95,7 +95,7 @@ describe('shortcutsForHelp', () => {
       'Network',
     ])
     const general = groups.find((g) => g.category === 'General')!
-    expect(general.items.filter((i) => i.title === 'Shortcuts')).toHaveLength(1)
+    expect(general.items.filter((i) => i.title === 'Help')).toHaveLength(1)
   })
 })
 

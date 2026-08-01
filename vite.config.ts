@@ -60,6 +60,16 @@ function qemuAssetProbe(): Plugin {
   }
 }
 
+/** Inlines package.json's version as `__APP_VERSION__` for the help dialog. */
+function appVersion(): Plugin {
+  const version = () =>
+    JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version as string
+  return {
+    name: 'zephyr-app-version',
+    config: () => ({ define: { __APP_VERSION__: JSON.stringify(version()) } }),
+  }
+}
+
 /**
  * Serves a toured sample's sources in dev.
  *
@@ -127,6 +137,7 @@ export default defineConfig({
     tailwindcss(),
     crossOriginIsolation(),
     qemuAssetProbe(),
+    appVersion(),
     tours(),
   ],
   resolve: {

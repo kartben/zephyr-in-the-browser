@@ -24,6 +24,15 @@ board in the picker with no emulator behind it.
 Prerequisites for anything below are Docker and an authenticated
 [GitHub CLI](https://cli.github.com/) (`gh auth login`).
 
+## App version releases
+
+The page also has a **semver app version** in `package.json` (`X.Y.Z-dev`), with
+notes in [`CHANGELOG.md`](../CHANGELOG.md). Cut one from **Actions → Release**
+([`.github/workflows/release.yml`](../.github/workflows/release.yml)): it runs
+CI, dates the changelog, tags `vX.Y.Z`, publishes a GitHub Release, and deploys
+that tag to Pages. That is separate from the `vN` emulator/image tags above;
+`tools/release.sh` ignores semver tags when picking the next `vN`.
+
 ## tools/release.sh does the whole thing
 
 One command builds, packages, releases, and repoints the deploy:

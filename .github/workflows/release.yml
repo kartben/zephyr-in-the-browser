@@ -1,0 +1,139 @@
+name: Release
+
+# One-shot, manually triggered app release. From the Actions tab pick a bump
+# level (or type an exact version), and this workflow will: run the full CI
+# gate, cut the release commit (version + dated changelog), tag it, reopen the
+# next dev cycle, push both commits and the tag to main, publish a GitHub
+# Release, and deploy the tagged release to GitHub Pages.
+#
+# This is the *app* semver (v0.6.0). Emulator/image asset tags (vN) still come
+# from tools/release.sh and are unrelated.
+#
+# Events raised by GITHUB_TOKEN do not trigger other workflows, so deploy is
+# invoked directly here rather than relying on a push to main.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump'
+        type: choice
+        default: auto
+        options:
+          - auto # ship the current X.Y.Z-dev as X.Y.Z
+          - patch
+          - minor
+          - major
+          - explicit # use the exact value from "version" below
+      version:
+        description: 'Exact version when bump = explicit (e.g. 1.2.0, no leading v)'
+        type: string
+        required: false
+      reopen_dev:
+        description: 'Reopen the next -dev cycle after tagging'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Cut release
+    needs: ci
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Full history so tags and pushes work as expected.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        run: |
+          spec='${{ inputs.bump }}'
+          if [ "$spec" = "explicit" ]; then
+            spec='${{ inputs.version }}'
+            if [ -z "$spec" ]; then
+              echo "::error::bump=explicit requires the 'version' input"
+              exit 1
+            fi
+          fi
+          node scripts/release.mjs resolve "$spec" --github-output
+
+      - name: Fail if tag already exists
+        run: |
+          tag='${{ steps.version.outputs.tag }}'
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::tag $tag already exists"
+            exit 1
+          fi
+
+      - name: Configure git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Prepare release commit
+        run: |
+          node scripts/release.mjs prepare '${{ steps.version.outputs.release }}'
+          git add package.json package-lock.json CHANGELOG.md src/changelog.ts
+          git commit -m 'Release ${{ steps.version.outputs.tag }}'
+          git tag -a '${{ steps.version.outputs.tag }}' \
+            -m 'Release ${{ steps.version.outputs.tag }}'
+
+      - name: Reopen development
+        if: ${{ inputs.reopen_dev }}
+        run: |
+          node scripts/release.mjs bump-dev --next '${{ steps.version.outputs.dev }}'
+          git add package.json package-lock.json CHANGELOG.md src/changelog.ts
+          git commit -m 'Begin ${{ steps.version.outputs.dev }} development'
+
+      - name: Push commits and tag
+        run: |
+          git push origin HEAD:main
+          git push origin '${{ steps.version.outputs.tag }}'
+
+      - name: Extract release notes
+        run: |
+          node scripts/release.mjs notes '${{ steps.version.outputs.release }}' > release-notes.md
+          cat release-notes.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.version.outputs.tag }}' \
+            --title '${{ steps.version.outputs.tag }}' \
+            --notes-file release-notes.md \
+            --target "$(git rev-parse '${{ steps.version.outputs.tag }}^{commit}')"
+
+  deploy:
+    name: Deploy release to Pages
+    needs: release
+    uses: ./.github/workflows/pages.yml
+    with:
+      ref: ${{ needs.release.outputs.tag }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

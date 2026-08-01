@@ -5,6 +5,17 @@ browser. Most of the interesting logic (network stack, virtio device models,
 dock UI) is TypeScript with a large vitest suite. See `README.md` for the
 product overview and `docs/` for emulator internals.
 
+## Changelog
+
+Notable user-facing changes go in `CHANGELOG.md` under `## Unreleased`. Keep
+entries short (about 10 words). Only note important new capabilities, or fixes
+for bugs that shipped in a **previous** release. After editing, run
+`npm run gen:changelog` so `src/changelog.ts` stays in sync with the help
+dialog. Full guidelines: `CLAUDE.md`.
+
+App semver is `package.json`'s `X.Y.Z-dev`; cut a release with the **Release**
+workflow. That is separate from `tools/release.sh`'s `vN` emulator/image tags.
+
 ## Cursor Cloud specific instructions
 
 - This repo is frontend-only for day-to-day development. The dev server boots a
