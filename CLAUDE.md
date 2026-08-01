@@ -9,13 +9,15 @@
 
 - Keep entries short: one concise line, generally 10 words or less, like the
   existing bullets.
+- Write for people using the page, not maintainers. Skip CI, release workflows,
+  build scripts, and other repo plumbing.
 - Only add an entry for something genuinely notable: an important new
   capability, or a fix for a bug that shipped in a **previous** release. Do
   **not** add an entry for a bug introduced and fixed within the current
   unreleased cycle.
 - Before adding a bullet, check whether it folds into an existing one for the
   same release rather than adding another line.
-- After editing CHANGELOG.md, run `node scripts/gen-changelog.mjs` to regenerate
+- After editing CHANGELOG.md, run `npm run gen:changelog` to regenerate
   `src/changelog.ts` so the in-app help dialog stays in sync.
 
 ## App releases vs asset releases
