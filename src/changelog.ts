@@ -25,15 +25,11 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "One-shot semver release workflow for cutting app tags."
+        "text": "Live board attach card in the Debug panel."
       },
       {
         "tag": "Added",
-        "text": "Live board GDB attach card in the Debug panel."
-      },
-      {
-        "tag": "Added",
-        "text": "Session mode switch between Sim and Live board."
+        "text": "Mode switch between Simulator and Live board."
       },
       {
         "tag": "Added",
@@ -41,7 +37,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Desktop bridge routes GDB frames to the owning client."
+        "text": "Live board Debug over the desktop bridge."
       }
     ]
   },
@@ -55,19 +51,15 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Settings menu for bridge URL and network uplink."
+        "text": "Settings menu for bridge URL and Bridge network."
       },
       {
         "tag": "Added",
-        "text": "Live board home surface when tracing a physical board."
-      },
-      {
-        "tag": "Added",
-        "text": "Probe daemon for serial CTF into Trace."
+        "text": "Live board home when tracing a physical board."
       },
       {
         "tag": "Changed",
-        "text": "Bridge network is Settings-only (no separate gateway UI)."
+        "text": "Bridge network lives in Settings only."
       },
       {
         "tag": "Improved",
@@ -81,19 +73,19 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
-        "text": "In-browser Bluetooth with Bumble HCI and controllable peers."
+        "text": "In-browser Bluetooth with Bumble peers you can drive."
       },
       {
         "tag": "Added",
-        "text": "Classic A2DP speaker peer with SBC decode."
+        "text": "Classic A2DP speaker peer with sound on the page."
       },
       {
         "tag": "Added",
-        "text": "Virtio-blk FAT disk with a dock browser."
+        "text": "FAT disk sample with a browser in the dock."
       },
       {
         "tag": "Added",
-        "text": "Guided tours driven by the debugger, shipped with the page."
+        "text": "Guided tours that pause the guest and explain it."
       },
       {
         "tag": "Added",
@@ -101,7 +93,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "MCP2515 CAN on virtio-SPI."
+        "text": "MCP2515 CAN bus in the device dock."
       },
       {
         "tag": "Improved",
@@ -119,23 +111,23 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "GDB stub path with Step, breakpoints, and memory UI."
+        "text": "Debug with Step, breakpoints, and memory view."
       },
       {
         "tag": "Added",
-        "text": "Browser-backed QEMU monitor to pause the guest."
+        "text": "Pause the guest from the page."
       },
       {
         "tag": "Added",
-        "text": "Part identity catalog with datasheet links."
+        "text": "Part catalog with datasheet links."
       },
       {
         "tag": "Added",
-        "text": "GPIO 7-segment and PT6314 VFD aux displays."
+        "text": "GPIO 7-segment and PT6314 VFD displays."
       },
       {
         "tag": "Added",
-        "text": "LP5012 RGB LED and SCT2024 SPI LED bar."
+        "text": "LP5012 RGB LED and SCT2024 LED bar."
       },
       {
         "tag": "Improved",
@@ -149,7 +141,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
-        "text": "Device dock with sensors, GPIO, LEDs, and displays."
+        "text": "Sensors, GPIO, LEDs, and displays in the device dock."
       },
       {
         "tag": "Added",
@@ -179,7 +171,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
-        "text": "Initial release. Zephyr in a browser tab via qemu-wasm."
+        "text": "Initial release. Zephyr running in a browser tab."
       },
       {
         "tag": "Added",
@@ -187,7 +179,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Terminal chrome, board picker, and GitHub Pages deploy."
+        "text": "Terminal and board picker to choose what boots."
       }
     ]
   }
