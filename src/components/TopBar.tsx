@@ -14,6 +14,7 @@ import { SettingsMenu } from '@/components/SettingsMenu'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { formatChord, isMacPlatform, toggleHelp } from '@/lib/shortcuts'
+import { useIsDesktop } from '@/hooks/useMediaQuery'
 import type { SessionMode } from '@/lib/modeStore'
 import * as bridge from '@/probe/client'
 import type { BackendStatus } from '@/backends'
@@ -66,8 +67,9 @@ export function TopBar({
    * edge on a phone, which left no way to restart a wedged guest.
    *
    * A Live board session keeps only the tools that are about the page itself
-   * (Settings, Help, panels, dock): the board is physical, so picking one, booting
-   * apps, wiring parts, and restarting a guest have nothing to act on.
+   * (Settings, Help, panels; dock via the edge tab or the mobile drawer
+   * toggle): the board is physical, so picking one, booting apps, wiring
+   * parts, and restarting a guest have nothing to act on.
    */
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 sm:gap-3 sm:px-5">
@@ -111,12 +113,14 @@ export function TopBar({
         {/* Page chrome, same weight as Settings: shortcuts + changelog. */}
         <HelpButton />
 
-        {/* The drawer itself is how you manage panels on a phone — every row
-            collapses in place, so the checklist is desktop-only chrome. */}
+        {/* Per-row show/hide. Desktop only: on a phone the drawer is the
+            inventory, and DockToggle below is how you open it. */}
         <span className="hidden sm:inline-flex">
           <PanelsMenu boardId={boardId} />
         </span>
-        <DockToggle />
+        {/* Desktop collapse leaves an edge tab on the dock itself; this
+            control is the reopen path for the mobile overlay drawer. */}
+        <MobileDockToggle />
 
         {mode === 'sim' ? <StatusPill status={status} detail={detail} /> : <LiveStatusPill />}
 
@@ -203,6 +207,13 @@ function HelpButton() {
       <CircleHelp className="size-4" />
     </Button>
   )
+}
+
+/** Top-bar dock control only on narrow viewports (overlay drawer). */
+function MobileDockToggle() {
+  const desktop = useIsDesktop()
+  if (desktop) return null
+  return <DockToggle />
 }
 
 /**

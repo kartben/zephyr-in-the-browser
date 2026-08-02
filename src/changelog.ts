@@ -24,6 +24,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Help button in the top bar for shortcuts and changelog."
       },
       {
+        "tag": "Improved",
+        "text": "Collapsed device dock leaves an edge tab to reopen it."
+      },
+      {
         "tag": "Added",
         "text": "In-app changelog tab in the keyboard help dialog."
       },

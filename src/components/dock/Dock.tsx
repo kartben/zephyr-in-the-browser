@@ -14,7 +14,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react'
-import { Boxes, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
+import { Boxes, ChevronsLeft, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DtsViewer } from '@/components/DtsViewer'
 import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/DockRow'
@@ -116,7 +116,13 @@ export function Dock({ boardId }: { boardId: string }) {
   // drawer that covers the stage on a phone and so starts closed every visit.
   const visible = desktop ? state.open : state.drawerOpen
   const hide = () => (desktop ? setOpen(false) : setDrawerOpen(false))
-  if (!visible) return null
+
+  // Desktop: leave a slim edge tab so collapse is not a one-way door. Narrow:
+  // the top-bar DockToggle opens the overlay drawer (no room for a strip).
+  if (!visible) {
+    if (!desktop) return null
+    return <DockCollapsedTab onOpen={() => setOpen(true)} />
+  }
 
   return (
     <>
@@ -185,7 +191,7 @@ export function Dock({ boardId }: { boardId: string }) {
               size="icon"
               className="size-6"
               aria-label="Collapse the device dock"
-              title="Collapse the dock (reopen from the top bar)"
+              title="Collapse the device dock"
               onClick={hide}
             >
               <ChevronsRight className="size-3.5" />
@@ -213,6 +219,25 @@ export function Dock({ boardId }: { boardId: string }) {
         </div>
       </aside>
     </>
+  )
+}
+
+/** Slim right-edge control: collapse is reversible without the top bar. */
+function DockCollapsedTab({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Show the device dock"
+      title="Show the device dock"
+      onClick={onOpen}
+      className={cn(
+        'flex h-full w-7 shrink-0 flex-col items-center justify-center',
+        'border-l border-border bg-card text-muted-foreground',
+        'transition-colors hover:bg-secondary hover:text-foreground',
+      )}
+    >
+      <ChevronsLeft className="size-3.5" aria-hidden />
+    </button>
   )
 }
 
