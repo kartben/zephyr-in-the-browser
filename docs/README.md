@@ -20,6 +20,7 @@ other end of the wire.
 | [virtio-bridge.md](virtio-bridge.md) | The generic virtio bridge, which lets a device model be TypeScript instead of QEMU C |
 | [next-drivers.md](next-drivers.md) | The bridge shapes already proven here, and what to add next |
 | [performance.md](performance.md) | Where the time goes — emulator build flags, bridge round-trip latency, and the experiment that settles each |
+| [a53-lvgl-perf-plan.md](a53-lvgl-perf-plan.md) | Decision tree for slow A53 LVGL demos: guest throughput vs display path, with the measurements that settle it |
 | [../public/qemu/README.md](../public/qemu/README.md) | The emulator itself: how it is built, what is patched into it, and its known limits |
 | [deploying.md](deploying.md) | Cutting a release and deploying to GitHub Pages |
 | [tours.md](tours.md) | Guided tours — a Markdown DSL that breaks anywhere in a stock sample and shows what it finds |
