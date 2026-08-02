@@ -31,7 +31,9 @@ notes in [`CHANGELOG.md`](../CHANGELOG.md). Cut one from **Actions → Release**
 ([`.github/workflows/release.yml`](../.github/workflows/release.yml)): it runs
 CI, dates the changelog, tags `vX.Y.Z`, publishes a GitHub Release, and deploys
 that tag to Pages. That is separate from the `vN` emulator/image tags above;
-`tools/release.sh` ignores semver tags when picking the next `vN`.
+`tools/release.sh` ignores semver tags when picking the next `vN`. Asset
+releases are created with `--latest=false` so the app release keeps the repo's
+"Latest" badge.
 
 ## tools/release.sh does the whole thing
 
