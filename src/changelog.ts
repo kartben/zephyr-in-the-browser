@@ -47,7 +47,7 @@ export const CHANGELOG: ChangelogRelease[] = [
   },
   {
     "version": "0.5.0",
-    "date": "2026-07-30",
+    "date": "2026-07-31",
     "items": [
       {
         "tag": "Added",
@@ -73,7 +73,7 @@ export const CHANGELOG: ChangelogRelease[] = [
   },
   {
     "version": "0.4.0",
-    "date": "2026-07-28",
+    "date": "2026-07-29",
     "items": [
       {
         "tag": "Added",
