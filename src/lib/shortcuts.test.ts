@@ -94,8 +94,15 @@ describe('shortcutsForHelp', () => {
       'Session',
       'Network',
     ])
-    const general = groups.find((g) => g.category === 'General')!
-    expect(general.items.filter((i) => i.title === 'Help')).toHaveLength(1)
+    const session = groups.find((g) => g.category === 'Session')!
+    expect(session.items.map((i) => i.title)).toEqual(['Open Samples', 'Open Settings'])
+    const layout = groups.find((g) => g.category === 'Layout')!
+    expect(layout.items.map((i) => i.title)).toEqual([
+      'Device Dock',
+      'Debug',
+      'Trace',
+      'Reset Layout',
+    ])
   })
 })
 
@@ -107,6 +114,11 @@ describe('matchShortcut', () => {
   it('matches Ctrl+/ as the help alternate', () => {
     expect(matchShortcut(keyEvent('/', { ctrlKey: true }))?.id).toBe('help-alt')
     expect(matchShortcut(keyEvent('/', { metaKey: true }))?.id).toBe('help-alt')
+  })
+
+  it('matches Ctrl+, as open-settings', () => {
+    expect(matchShortcut(keyEvent(',', { ctrlKey: true }))?.id).toBe('open-settings')
+    expect(matchShortcut(keyEvent(',', { metaKey: true }))?.id).toBe('open-settings')
   })
 
   it('matches run-control F-keys', () => {

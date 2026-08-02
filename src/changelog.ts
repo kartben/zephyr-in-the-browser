@@ -25,6 +25,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Open Settings shortcut (Ctrl+, / ⌘,)."
+      },
+      {
+        "tag": "Added",
         "text": "Live board attach card in the Debug panel."
       },
       {
