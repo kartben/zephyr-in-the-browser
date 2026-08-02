@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "Help button in the top bar for shortcuts and changelog."
+      },
+      {
+        "tag": "Added",
         "text": "In-app changelog tab in the keyboard help dialog."
       },
       {
