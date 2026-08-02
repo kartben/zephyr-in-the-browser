@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Help button in the top bar for shortcuts and changelog.
 - **Added:** In-app changelog tab in the keyboard help dialog.
 - **Added:** Open Settings shortcut (Ctrl+, / ⌘,).
 - **Added:** Live board attach card in the Debug panel.

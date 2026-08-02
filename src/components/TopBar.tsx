@@ -1,5 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
-import { Cpu, FileCode2, RefreshCw, RotateCcw } from 'lucide-react'
+import { CircleHelp, Cpu, FileCode2, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { StatusPill } from '@/components/StatusPill'
@@ -13,6 +13,7 @@ import { DtsViewer } from '@/components/DtsViewer'
 import { SettingsMenu } from '@/components/SettingsMenu'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
+import { formatChord, isMacPlatform, toggleHelp } from '@/lib/shortcuts'
 import type { SessionMode } from '@/lib/modeStore'
 import * as bridge from '@/probe/client'
 import type { BackendStatus } from '@/backends'
@@ -65,7 +66,7 @@ export function TopBar({
    * edge on a phone, which left no way to restart a wedged guest.
    *
    * A Live board session keeps only the tools that are about the page itself
-   * (Settings, panels, dock): the board is physical, so picking one, booting
+   * (Settings, Help, panels, dock): the board is physical, so picking one, booting
    * apps, wiring parts, and restarting a guest have nothing to act on.
    */
   return (
@@ -106,6 +107,9 @@ export function TopBar({
         <PauseDebugControl />
 
         <SettingsMenu />
+
+        {/* Page chrome, same weight as Settings: shortcuts + changelog. */}
+        <HelpButton />
 
         {/* The drawer itself is how you manage panels on a phone — every row
             collapses in place, so the checklist is desktop-only chrome. */}
@@ -178,6 +182,26 @@ function LiveStatusPill() {
         </span>
       )}
     </span>
+  )
+}
+
+/**
+ * Opens the help dialog (shortcuts + changelog). Sits with Settings as
+ * always-available page chrome, including on Live board.
+ */
+function HelpButton() {
+  const chord = formatChord({ key: '?' }, isMacPlatform())
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-8 shrink-0"
+      aria-label="Help"
+      title={`Help (${chord})`}
+      onClick={() => toggleHelp()}
+    >
+      <CircleHelp className="size-4" />
+    </Button>
   )
 }
 
