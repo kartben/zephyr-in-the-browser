@@ -12,7 +12,7 @@ via the help dialog (?).
 - **Added:** CPU power states in Trace Timeline and Power tab.
 - **Improved:** Live board Debug over the desktop bridge.
 
-## [0.5.0] - 2026-07-30
+## [0.5.0] - 2026-07-31
 
 - **Added:** Desktop bridge for real network and Live board tracing.
 - **Added:** Settings menu for bridge URL and Bridge network.
@@ -20,7 +20,7 @@ via the help dialog (?).
 - **Changed:** Bridge network lives in Settings only.
 - **Improved:** Network uplink copy and port-forward recipe.
 
-## [0.4.0] - 2026-07-28
+## [0.4.0] - 2026-07-29
 
 - **Added:** In-browser Bluetooth with Bumble peers you can drive.
 - **Added:** Classic A2DP speaker peer with sound on the page.
