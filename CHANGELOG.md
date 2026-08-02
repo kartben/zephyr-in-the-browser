@@ -6,6 +6,7 @@ via the help dialog (?).
 ## Unreleased
 
 - **Added:** In-app changelog tab in the keyboard help dialog.
+- **Added:** Open Settings shortcut (Ctrl+, / ⌘,).
 - **Added:** Live board attach card in the Debug panel.
 - **Added:** Mode switch between Simulator and Live board.
 - **Added:** CPU power states in Trace Timeline and Power tab.

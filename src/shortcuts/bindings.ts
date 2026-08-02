@@ -115,6 +115,9 @@ export function installShortcutBindings(): () => void {
     onShortcut('open-samples', () => {
       runCommand('open-samples')
     }),
+    onShortcut('open-settings', () => {
+      runCommand('open-settings')
+    }),
 
     onShortcut('net-capture-toggle', () => {
       const snap = hostNet.getSnapshot()
