@@ -192,7 +192,8 @@ function PanelToggle({
   )
 }
 
-/** TopBar toggle for the dock itself — the way back from a collapsed dock. */
+/** TopBar toggle for the mobile dock drawer. Desktop collapse leaves an edge
+ *  tab on the dock itself, so this control is not mounted there. */
 export function DockToggle() {
   const state = useSyncExternalStore(subscribe, getState, getState)
   const desktop = useIsDesktop()
