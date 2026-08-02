@@ -112,7 +112,7 @@ if [ -z "$TAG" ]; then
 
 Upload them to a release, then deploy with that tag:
 
-  gh release create <tag> ${ASSETS[*]} --title "<tag>" --notes "qemu-wasm + Zephyr guest"
+  gh release create <tag> ${ASSETS[*]} --title "<tag>" --notes "…" --latest=false
 EOF
   echo "  gh workflow run pages.yml $(deploy_flags '<tag>')"
   cat <<EOF
@@ -126,8 +126,11 @@ log "Publishing release $TAG"
 if gh release view "$TAG" >/dev/null 2>&1; then
   gh release upload "$TAG" "${ASSETS[@]}" --clobber
 else
+  # Asset releases (plain vN) must not steal the repo's "Latest" badge from
+  # app semver releases (v0.6.0, …).
   gh release create "$TAG" "${ASSETS[@]}" \
     --title "$TAG" \
+    --latest=false \
     --notes "qemu-wasm emulator and Zephyr guest images.
 
 Built with tools/build-qemu-wasm.sh and tools/build-zephyr-image.sh. The two
