@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { parseDirectives, parseHighlight, parseTour, parseWatch } from '@/tours/parse'
+import { parseDirectives, parseHighlight, parseTour, parseWatch, resolveHighlightSpecs } from '@/tours/parse'
+import m3Blinky from '@/dts/fixtures/qemu_cortex_m3_blinky.dts?raw'
+import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 
 describe('parseDirectives', () => {
   it('reads scalars, lists and one level of mapping', () => {
@@ -237,5 +239,44 @@ describe('highlight', () => {
     const doc = parseTour('## Step\n\n```tour\nat: main\nhighlight: the top bit\n```\n\nProse.\n')
     expect(doc.steps[0]!.highlight).toEqual([])
     expect(doc.problems[0]).toContain('highlight')
+  })
+})
+
+describe('dts', () => {
+  it('reads the same highlight spelling against the guest devicetree', () => {
+    const doc = parseTour(
+      '## Step\n\n```tour\nat: main\ndts: /led0: led_0/ + 3\n```\n\nProse.\n',
+    )
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.dts).toEqual([
+      { kind: 'pattern', pattern: 'led0: led_0', extra: 3 },
+    ])
+    expect(doc.steps[0]!.highlight).toEqual([])
+  })
+
+  it('resolves a pattern to the led0 node', () => {
+    const lines = [
+      '\tleds {',
+      '\t\tcompatible = "gpio-leds";',
+      '',
+      '\t\tled0: led_0 {',
+      '\t\t\tgpios = < &host_gpio 0x4 0x0 >;',
+      '\t\t\tlabel = "Host LED0";',
+      '\t\t};',
+      '\t};',
+    ]
+    expect(
+      resolveHighlightSpecs([{ kind: 'pattern', pattern: 'led0: led_0', extra: 3 }], lines),
+    ).toEqual([{ start: 4, end: 7 }])
+  })
+
+  it('finds led0 in the packaged blinky trees', () => {
+    const spec = [{ kind: 'pattern' as const, pattern: 'led0: led_0', extra: 3 }]
+    for (const src of [m3Blinky, a53Blinky]) {
+      const ranges = resolveHighlightSpecs(spec, src.split('\n'))
+      expect(ranges).toHaveLength(1)
+      const excerpt = src.split('\n').slice(ranges[0]!.start - 1, ranges[0]!.end)
+      expect(excerpt.join('\n')).toContain('gpios')
+    }
   })
 })

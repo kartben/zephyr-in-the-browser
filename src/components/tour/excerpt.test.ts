@@ -45,4 +45,12 @@ describe('excerptWindow', () => {
     expect(e.end).toBe(7)
     expect(lines(e)).toEqual([])
   })
+
+  it('windows around highlights when there is no stop in this file', () => {
+    const e = excerptWindow(100, null, [{ start: 40, end: 43 }])
+    expect(e.start).toBe(40 - CONTEXT)
+    expect(e.end).toBe(43 + CONTEXT)
+    expect(lines(e)).toEqual([40, 41, 42, 43])
+    expect(e.marked(39)).toBe(false)
+  })
 })

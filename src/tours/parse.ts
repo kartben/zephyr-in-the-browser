@@ -121,6 +121,12 @@ export interface TourStep {
    * not the same question.
    */
   highlight: HighlightSpec[]
+  /**
+   * Same as `highlight:`, but against the running guest's **devicetree**
+   * (`blinky.dts`), not the file `at:` stopped in. A 101 step can pause on
+   * `gpio_pin_configure_dt()` and point at the `led0` node that named the pin.
+   */
+  dts: HighlightSpec[]
   watch: WatchSpec[]
   memory: MemorySpec | null
   objects: ObjectsSpec | null
@@ -357,6 +363,36 @@ function parseObjects(value: Directive | undefined, problems: string[]): Objects
 const HIGHLIGHT_RANGE = /^(\d+)\s*(?:-\s*(\d+))?$/
 const HIGHLIGHT_PATTERN = /^\/(.+)\/(?:\s*\+\s*(\d+))?$/
 
+/**
+ * Turn `highlight:` / `dts:` specs into line ranges against a source file.
+ *
+ * Patterns that match nothing are dropped rather than guessed at: a highlight
+ * over the wrong lines is worse than none.
+ */
+export function resolveHighlightSpecs(
+  specs: HighlightSpec[],
+  lines: string[] | undefined,
+): Array<{ start: number; end: number }> {
+  const out: Array<{ start: number; end: number }> = []
+  for (const spec of specs) {
+    if (spec.kind === 'lines') {
+      out.push({ start: spec.start, end: spec.end })
+      continue
+    }
+    if (!lines) continue
+    let re: RegExp
+    try {
+      re = new RegExp(spec.pattern)
+    } catch {
+      continue
+    }
+    const hit = lines.findIndex((line) => re.test(line))
+    if (hit < 0) continue
+    out.push({ start: hit + 1, end: hit + 1 + spec.extra })
+  }
+  return out
+}
+
 /** Parse one `highlight:` entry. Returns null for anything unrecognised. */
 export function parseHighlight(raw: string): HighlightSpec | null {
   const text = raw.trim()
@@ -372,6 +408,21 @@ export function parseHighlight(raw: string): HighlightSpec | null {
     return { kind: 'pattern', pattern: pattern[1]!, extra: Number(pattern[2] ?? 0) }
   }
   return null
+}
+
+function parseHighlightList(
+  value: Directive | undefined,
+  where: string,
+  key: string,
+  problems: string[],
+): HighlightSpec[] {
+  const out: HighlightSpec[] = []
+  for (const row of parseList(value)) {
+    const spec = parseHighlight(row)
+    if (spec) out.push(spec)
+    else problems.push(`${where}: \`${key}: ${row}\` is not a line, a range or a /pattern/`)
+  }
+  return out
 }
 
 function parseList(value: Directive | undefined): string[] {
@@ -423,12 +474,8 @@ function buildStep(
   const objects = parseObjects(parsed.values.get('objects'), objectProblems)
   for (const problem of objectProblems) problems.push(`${where}: ${problem}`)
 
-  const highlight: HighlightSpec[] = []
-  for (const row of parseList(parsed.values.get('highlight'))) {
-    const spec = parseHighlight(row)
-    if (spec) highlight.push(spec)
-    else problems.push(`${where}: \`highlight: ${row}\` is not a line, a range or a /pattern/`)
-  }
+  const highlight = parseHighlightList(parsed.values.get('highlight'), where, 'highlight', problems)
+  const dts = parseHighlightList(parsed.values.get('dts'), where, 'dts', problems)
 
   const stop = asBool(parsed.values.get('stop'), true)
   const threads = asBool(parsed.values.get('threads'), false)
@@ -457,6 +504,7 @@ function buildStep(
     repeat: asBool(parsed.values.get('repeat'), false),
     panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
     highlight,
+    dts,
     watch,
     memory,
     // Dropped rather than rendered as a spinner nothing will ever resolve.
