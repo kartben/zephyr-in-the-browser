@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Added",
+        "text": "Button tour for gpio-keys and input events."
+      },
+      {
         "tag": "Improved",
         "text": "Blinky tour shows the LED pin from devicetree."
       },

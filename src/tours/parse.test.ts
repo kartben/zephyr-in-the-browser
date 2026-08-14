@@ -279,4 +279,14 @@ describe('dts', () => {
       expect(excerpt.join('\n')).toContain('gpios')
     }
   })
+
+  it('finds button0 in the packaged blinky trees', () => {
+    const spec = [{ kind: 'pattern' as const, pattern: 'button0: button_0', extra: 4 }]
+    for (const src of [m3Blinky, a53Blinky]) {
+      const ranges = resolveHighlightSpecs(spec, src.split('\n'))
+      expect(ranges).toHaveLength(1)
+      const excerpt = src.split('\n').slice(ranges[0]!.start - 1, ranges[0]!.end)
+      expect(excerpt.join('\n')).toContain('gpios')
+    }
+  })
 })
