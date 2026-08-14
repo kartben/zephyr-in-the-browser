@@ -42,14 +42,14 @@ Continue, then press **SW0** in **GPIO Keys**.
 ## A press is an input event
 
 ```tour
-at: main.c:/led_set_brightness_dt/ | main.c:32
+at: button_input_cb | main.c:/static void button_input_cb/ | main.c:20
 when: first
-stop: no
-highlight: /button_input_cb/
+highlight: /static void button_input_cb/ + 14
 panel: led
 ```
 
 You are in `button_input_cb`. `evt->value` tells you pressed or released.
 
-`led_set_brightness_dt()` sets the LED. Watch it in the **device dock**, and
-the `Button` lines in the **terminal**.
+`led_set_brightness_dt()` sets the LED. Continue so the callback can finish,
+then watch the LED in the **device dock** and the `Button` lines in the
+**terminal**.
