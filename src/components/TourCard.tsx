@@ -11,7 +11,7 @@
  * Sits over the stage, above the device panels and below the modals.
  */
 
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { Bug, GraduationCap, Pause, Redo2, X } from 'lucide-react'
 import { InlineMarkdown, Markdown } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
@@ -22,8 +22,10 @@ import { TourOutline } from '@/components/tour/TourOutline'
 import { Button } from '@/components/ui/button'
 import { sampleSourceAsset, type Board } from '@/boards'
 import * as debug from '@/debug/control'
+import * as dtsStore from '@/devicetree'
 import * as debugUi from '@/lib/debugUi'
 import { getSnapshot, next, skip, subscribe, type TourValue } from '@/tours/store'
+import { resolveHighlightSpecs } from '@/tours/parse'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -71,7 +73,12 @@ function Values({ values, live }: { values: TourValue[]; live: boolean }) {
 export function TourCard({ board, sampleId }: Props) {
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
+  const dts = useSyncExternalStore(dtsStore.subscribe, dtsStore.get, dtsStore.get)
   const card = state.current
+  const dtsRanges = useMemo(
+    () => resolveHighlightSpecs(card?.step.dts ?? [], dts?.text.split('\n')),
+    [card?.step.dts, dts?.text],
+  )
 
   if (!card || !state.enabled) return null
 
@@ -169,6 +176,15 @@ export function TourCard({ board, sampleId }: Props) {
             <div className="rounded border border-border bg-muted/30 p-1">
               <ThreadsPane snap={snap} onPeek={() => debugUi.focusDebug('memory')} />
             </div>
+          )}
+
+          {dts && dtsRanges.length > 0 && (
+            <SourceSnippet
+              text={dts.text}
+              filename={dts.name}
+              language="dts"
+              ranges={dtsRanges}
+            />
           )}
 
           {src && anchor?.line && (

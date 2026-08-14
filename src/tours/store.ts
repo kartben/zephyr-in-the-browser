@@ -26,7 +26,7 @@ import { revealPanelKind } from '@/lib/dockReveal'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
-import { parseTour, type TourDoc, type TourStep } from '@/tours/parse'
+import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
 import { whenFires } from '@/tours/when'
 
 const ENABLED_KEY = 'zephyr-tours-enabled'
@@ -593,25 +593,8 @@ async function evalMark(
  * is worse than none.
  */
 function resolveHighlights(step: TourStep, file: string | null): TourHighlight[] {
-  const out: TourHighlight[] = []
   const text = file ? sources.get(file.slice(file.lastIndexOf('/') + 1).toLowerCase()) : undefined
-  for (const spec of step.highlight) {
-    if (spec.kind === 'lines') {
-      out.push({ start: spec.start, end: spec.end })
-      continue
-    }
-    if (!text) continue
-    let re: RegExp
-    try {
-      re = new RegExp(spec.pattern)
-    } catch {
-      continue
-    }
-    const hit = text.findIndex((line) => re.test(line))
-    if (hit < 0) continue
-    out.push({ start: hit + 1, end: hit + 1 + spec.extra })
-  }
-  return out
+  return resolveHighlightSpecs(step.highlight, text)
 }
 
 async function buildCard(runtime: StepRuntime): Promise<TourCard> {

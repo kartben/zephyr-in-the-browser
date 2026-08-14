@@ -33,16 +33,22 @@ export interface Excerpt {
  * The stop line is always included even when the highlight is somewhere else
  * entirely — a step can stop at the top of `main()` and be talking about a
  * declaration twenty lines earlier, and the reader needs to see both to believe
- * the connection.
+ * the connection. Pass `line` as null when there is no stop in this file
+ * (a `dts:` excerpt has highlights only).
  */
 export function excerptWindow(
   lineCount: number,
-  line: number,
+  line: number | null,
   ranges: LineRange[] = [],
 ): Excerpt {
   const marks = ranges.filter((r) => r.end >= r.start && r.start >= 1)
-  const lowest = Math.min(line, ...marks.map((r) => r.start))
-  const highest = Math.max(line, ...marks.map((r) => r.end))
+  const anchors = line != null && line >= 1 ? [line] : []
+  const lowest = Math.min(...anchors, ...marks.map((r) => r.start))
+  const highest = Math.max(...anchors, ...marks.map((r) => r.end))
+
+  if (!Number.isFinite(lowest)) {
+    return { start: 1, end: Math.min(lineCount, MAX_LINES), marked: () => false }
+  }
 
   const start = Math.max(1, lowest - CONTEXT)
   const end = Math.min(lineCount, Math.min(highest + CONTEXT, start + MAX_LINES - 1))

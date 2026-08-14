@@ -13,11 +13,13 @@ Watch the LED in the **device dock** while you step.
 ```tour
 at: main.c:/gpio_pin_configure_dt/ | main.c:32
 highlight: /GPIO_DT_SPEC_GET/
+dts: /led0: led_0/ + 3
 panel: gpio
 ```
 
-This file never hard-codes a pin number. `GPIO_DT_SPEC_GET` looks up the
-`led0` alias in the board's **devicetree** at **build** time.
+An application typically does not reference pin numbers directly. The board's
+**devicetree** names the LED `led0`, and `GPIO_DT_SPEC_GET` looks that alias up
+at **build** time.
 
 `gpio_pin_configure_dt()` then sets that pin as an output. Check the GPIO row
 in the **device dock**: the pin is an output.

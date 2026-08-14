@@ -21,7 +21,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Improved",
-        "text": "Blinky tour covers pin, toggle, and sleep."
+        "text": "Blinky tour shows the LED pin from devicetree."
       },
       {
         "tag": "Added",

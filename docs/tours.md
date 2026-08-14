@@ -266,6 +266,22 @@ pattern that matches nothing is dropped rather than guessed at — a highlight
 over the wrong lines is worse than none. The excerpt grows to cover whatever is
 marked, up to a cap.
 
+### `dts:`
+
+Same spelling as `highlight:`, but against the running guest's **devicetree**
+rather than the file `at:` stopped in. A step can pause on
+`gpio_pin_configure_dt()` and point at the `led0` node that named the pin:
+
+```yaml
+at: main.c:/gpio_pin_configure_dt/ | main.c:32
+highlight: /GPIO_DT_SPEC_GET/
+dts: /led0: led_0/ + 3
+```
+
+The card shows a second excerpt, labelled with the `.dts` file name. Absence
+(an older image tarball, a user ELF with no tree) is silent: the prose still
+stands.
+
 ### `objects:`
 
 The kernel objects that exist at this stop, and what state they are in.
