@@ -42,6 +42,7 @@ Watch the LED in the **device dock**, and the `LED state:` lines in the
 ```tour
 at: main.c:/k_msleep/ | main.c:45
 when: first
+stop: no
 panel: led
 ```
 
