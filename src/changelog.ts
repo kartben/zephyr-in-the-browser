@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Improved",
+        "text": "Blinky tour covers pin, toggle, and sleep."
+      },
+      {
         "tag": "Added",
         "text": "Help button in the top bar for shortcuts and changelog."
       },
