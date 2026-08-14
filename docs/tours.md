@@ -10,9 +10,10 @@ The sample being taught is **stock upstream Zephyr**. Nothing is added to it,
 no Kconfig is turned on, and the image is byte-for-byte the one that ships
 without a tour. A tour is a file the browser reads; the guest never knows.
 
-`tours/blinky.tour.md` and `tours/philosophers.tour.md` are the worked
-examples — and, being ordinary Markdown, they read as articles about those
-samples whether or not you ever run them.
+`tours/blinky.tour.md`, `tours/basic_button.tour.md`, and
+`tours/philosophers.tour.md` are the worked examples, and being ordinary
+Markdown they read as articles about those samples whether or not you ever run
+them.
 
 ## Writing one
 

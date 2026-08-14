@@ -26,7 +26,7 @@ out into a floating window; collapsed rows keep a live readout.
 | **I²C** | The bus itself: attach and detach chips while the guest runs, watch every byte that crosses, and read the AT24 EEPROM as a live hex dump or the SSD1306 OLED's pixels |
 | **SPI** | A SPI bus with JEDEC NOR flash: hex dump, LittleFS browser, and persist so `samples/subsys/fs/littlefs` boot-counts survive reload. The same bus can host an SCT2024 LED bar, a WS2812 strip, or a TMC50xx stepper when those samples are selected |
 | **Network** | Ethernet with throughput charts and a packet capture. DHCP, HTTP, and echo samples talk through Network. **Uplink → Bridge network** uses the desktop bridge from **Settings** for real DHCP, DNS, TCP/UDP, even real ping |
-| **Guided tours** | A **stock** sample that explains itself. Each step pauses the **guest** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky** or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
+| **Guided tours** | A **stock** sample that explains itself. Each step pauses the **guest** and shows what it finds: live values, a hexdump, registers, the thread list. Nothing is added to the firmware. Try **Blinky**, **Button**, or **Dining Philosophers**; see [docs/tours.md](docs/tours.md) |
 
 ## Quick start
 
