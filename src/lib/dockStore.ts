@@ -59,6 +59,13 @@ export interface DockSeed {
   primary: PanelKind[]
   /** A user ELF with no devicetree: expand everything discoverable. */
   expandAll: boolean
+  /**
+   * A Learn step's dock preset: rows whose kind is not listed default to
+   * hidden, so an early tutorial is not buried under twenty peripherals.
+   * User overrides win, the Panels menu stays the way back. Absent = the
+   * ordinary dock.
+   */
+  only?: PanelKind[]
 }
 
 export interface DockState {
@@ -142,7 +149,11 @@ function load(): DockState {
       seededFor: typeof parsed.seededFor === 'string' ? parsed.seededFor : '',
       seed:
         parsed.seed && Array.isArray(parsed.seed.primary)
-          ? { primary: parsed.seed.primary, expandAll: parsed.seed.expandAll === true }
+          ? {
+              primary: parsed.seed.primary,
+              expandAll: parsed.seed.expandAll === true,
+              ...(Array.isArray(parsed.seed.only) ? { only: parsed.seed.only } : {}),
+            }
           : base.seed,
       devices,
       groups,
@@ -204,6 +215,32 @@ export function effectiveExpanded(key: string, panelKind?: PanelKind): boolean {
   return effectiveExpandedIn(state, key, panelKind)
 }
 
+/**
+ * Visibility with the seed's `only` preset applied: an explicit user choice
+ * always wins; under a preset, a row stays on screen when any of the kinds it
+ * answers to is listed (a row may match through its own panelKind or its
+ * device class — see presetPanelKinds), and hides otherwise, kindless rows
+ * included; with no preset, rows default to shown.
+ */
+export function effectiveHiddenIn(
+  current: DockState,
+  key: string,
+  kinds?: PanelKind | readonly PanelKind[],
+): boolean {
+  const override = current.devices[key]?.hidden
+  if (override !== undefined) return override
+  const only = current.seed.only
+  if (only !== undefined) {
+    const list = kinds === undefined ? [] : Array.isArray(kinds) ? kinds : [kinds]
+    return !list.some((kind: PanelKind) => only.includes(kind))
+  }
+  return false
+}
+
+export function effectiveHidden(key: string, kinds?: PanelKind | readonly PanelKind[]): boolean {
+  return effectiveHiddenIn(state, key, kinds)
+}
+
 export function setView(view: DockView): void {
   if (state.view !== view) set({ ...state, view })
 }
@@ -232,9 +269,11 @@ export function setWidth(width: number): void {
 
 function patchDevice(key: string, patch: DockDeviceState): void {
   const merged: DockDeviceState = { ...state.devices[key], ...patch }
-  // Drop keys that carry no information, so the record stays small.
+  // Drop keys that carry no information, so the record stays small. Expanded
+  // and hidden are tri-state (an explicit false overrides the seed), windowed
+  // has no seed to override so false is just absence.
   for (const field of ['expanded', 'hidden', 'windowed'] as const) {
-    if (merged[field] === undefined || (field !== 'expanded' && merged[field] === false)) {
+    if (merged[field] === undefined || (field === 'windowed' && merged[field] === false)) {
       delete merged[field]
     }
   }
@@ -255,7 +294,14 @@ export function setExpanded(key: string, expanded: boolean): void {
 }
 
 export function setHidden(key: string, hidden: boolean): void {
-  patchDevice(key, { hidden: hidden || undefined })
+  // With no `only` preset in play, shown is the default — "not hidden" is
+  // absence, and the record stays small. Under a preset, re-showing a row the
+  // preset hides needs an explicit false to override it.
+  if (!hidden && state.seed.only === undefined) {
+    patchDevice(key, { hidden: undefined })
+    return
+  }
+  patchDevice(key, { hidden })
 }
 
 export function setWindowed(key: string, windowed: boolean): void {
@@ -332,17 +378,28 @@ export function groupCollapsed(deviceClass: DeviceClass): boolean {
  * screen, not the guest.
  */
 export function seedForSelection(selection: string, seed: DockSeed): void {
+  const sameOnly =
+    (state.seed.only === undefined) === (seed.only === undefined) &&
+    (state.seed.only?.length ?? 0) === (seed.only?.length ?? 0) &&
+    (state.seed.only ?? []).every((kind, i) => seed.only?.[i] === kind)
   if (state.seededFor === selection) {
     const same =
+      sameOnly &&
       state.seed.expandAll === seed.expandAll &&
       state.seed.primary.length === seed.primary.length &&
       state.seed.primary.every((kind, i) => seed.primary[i] === kind)
     if (!same) set({ ...state, seed })
     return
   }
+  // Visibility choices normally outlive the selection (they are about the
+  // user's screen), but ones made against a Learn preset are about that
+  // preset: entering or leaving `only` drops them along with expansion.
+  const dropHidden = state.seed.only !== undefined || seed.only !== undefined
   const devices: Record<string, DockDeviceState> = {}
   for (const [key, value] of Object.entries(state.devices)) {
-    const { expanded: _cleared, ...kept } = value
+    const { expanded: _cleared, hidden, ...rest } = value
+    const kept: DockDeviceState = dropHidden ? rest : { ...rest, hidden }
+    if (kept.hidden === undefined) delete kept.hidden
     if (Object.keys(kept).length > 0) devices[key] = kept
   }
   set({ ...state, seededFor: selection, seed, devices })

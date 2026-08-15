@@ -6,6 +6,8 @@ import { StatusPill } from '@/components/StatusPill'
 import { BoardSelect } from '@/components/BoardSelect'
 import { ModeSwitch } from '@/components/ModeSwitch'
 import { SampleGallery } from '@/components/SampleGallery'
+import { LearnDialog } from '@/components/LearnDialog'
+import type { LearnStep } from '@/learn/tracks'
 import { PartsCatalog } from '@/components/PartsCatalog'
 import { ClearPeripheralsControl } from '@/components/ClearPeripheralsControl'
 import { DockToggle, PanelsMenu } from '@/components/dock/PanelsMenu'
@@ -31,6 +33,7 @@ interface Props {
   /** True once the backend can only be restarted by reloading the document. */
   hardRestart: boolean
   onRestart: () => void
+  onLaunchLearnStep: (step: LearnStep) => void
   onLoadElf: (file: File) => void
   /** Filename of the user-supplied guest image in use, if any. */
   customImage: string | null
@@ -55,6 +58,7 @@ export function TopBar({
   detail,
   hardRestart,
   onRestart,
+  onLaunchLearnStep,
   onLoadElf,
   customImage,
   onClearImage,
@@ -95,6 +99,12 @@ export function TopBar({
               customImage={customImage}
               onLoadElf={onLoadElf}
               onClearImage={onClearImage}
+            />
+
+            <LearnDialog
+              boardId={boardId}
+              sampleId={sampleId}
+              onLaunchStep={onLaunchLearnStep}
             />
 
             {/* Reference and layout tools — the first things to fold away. */}

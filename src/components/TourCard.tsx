@@ -11,7 +11,7 @@
  * Sits over the stage, above the device panels and below the modals.
  */
 
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Bug, GraduationCap, Pause, Redo2, X } from 'lucide-react'
 import { InlineMarkdown, Markdown } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
@@ -27,6 +27,12 @@ import * as debugUi from '@/lib/debugUi'
 import { getSnapshot, next, skip, subscribe, type TourValue } from '@/tours/store'
 import { resolveHighlightSpecs } from '@/tours/parse'
 import { cn } from '@/lib/utils'
+import { findStep, stepAfter, stepMatchesSelection } from '@/learn/tracks'
+import {
+  getSnapshot as getLearnProgress,
+  subscribe as subscribeLearnProgress,
+} from '@/learn/progressStore'
+import { DoneToggle } from '@/components/LearnDialog'
 
 interface Props {
   board: Board
@@ -70,6 +76,59 @@ function Values({ values, live }: { values: TourValue[]; live: boolean }) {
   )
 }
 
+/**
+ * Shown when a tour ends while its sample is the running Learn step: the
+ * curriculum's "Mark as done" right where the last step left the reader,
+ * plus what comes next in the track. Renders nothing outside Learn.
+ */
+function LearnHandoffCard({ board, sampleId }: Props) {
+  const progress = useSyncExternalStore(
+    subscribeLearnProgress,
+    getLearnProgress,
+    getLearnProgress,
+  )
+  const [dismissed, setDismissed] = useState(false)
+  // A new step (or leaving Learn) resets the dismissal.
+  useEffect(() => setDismissed(false), [progress.activeStepId, sampleId])
+
+  if (dismissed || progress.activeStepId === null) return null
+  const found = findStep(progress.activeStepId)
+  if (!found || !stepMatchesSelection(found.step, board.id, sampleId)) return null
+
+  const { step } = found
+  const after = stepAfter(step.id)
+
+  return (
+    <div className="pointer-events-auto w-full max-w-[34rem]">
+      <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
+          <span className="min-w-0 truncate text-sm">
+            That was {step.num} · {step.title}.
+            {after && (
+              <span className="text-muted-foreground">
+                {' '}
+                Next: {after.num} · {after.title}.
+              </span>
+            )}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            <DoneToggle stepId={step.id} done={progress.done.has(step.id)} />
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setDismissed(true)}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function TourCard({ board, sampleId }: Props) {
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
@@ -80,7 +139,12 @@ export function TourCard({ board, sampleId }: Props) {
     [card?.step.dts, dts?.text],
   )
 
-  if (!card || !state.enabled) return null
+  if (!state.enabled) return null
+  // A finished tour on the current Learn step hands off to the curriculum:
+  // completion stays manual, but the control comes to the moment.
+  if (!card) {
+    return state.finished ? <LearnHandoffCard board={board} sampleId={sampleId} /> : null
+  }
 
   const { step, anchor, paused, values, memory, objects, registers, threads } = card
   const total = state.doc?.steps.length ?? 0

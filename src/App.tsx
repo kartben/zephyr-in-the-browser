@@ -12,6 +12,12 @@ import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import { seedForSelection } from '@/lib/dockStore'
+import { LEARN_BOARD, findStep, stepMatchesSelection, type LearnStep } from '@/learn/tracks'
+import {
+  getSnapshot as getLearnProgress,
+  setActiveStep,
+  subscribe as subscribeLearnProgress,
+} from '@/learn/progressStore'
 import {
   clear as clearGuestImage,
   get as getGuestImage,
@@ -89,6 +95,11 @@ export default function App() {
   const [nonce, setNonce] = useState(0)
   const customImage = useSyncExternalStore(subscribeGuestImage, getGuestImage, () => null)
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
+  const learnProgress = useSyncExternalStore(
+    subscribeLearnProgress,
+    getLearnProgress,
+    getLearnProgress,
+  )
 
   /*
    * What opens expanded: the sample's primaryPanels, a DTS-grounded custom
@@ -110,6 +121,20 @@ export default function App() {
     return samplePrimaryPanels(getBoard(boardId), sampleId)
   })()
   const expandAllPanels = customImage !== null && !deviceTree?.insights
+  /*
+   * The Learn step being run, while the selection still matches it. Its dock
+   * preset rides the seed (`only`); the moment the selection moves off the
+   * step — another sample, another board, a user ELF — the Learn framing is
+   * over and the active step clears itself. A reload or Restart of the same
+   * selection keeps it, which is what lets the preset survive the navigation
+   * a committed QEMU session forces.
+   */
+  const activeLearnStep = (() => {
+    if (customImage !== null || learnProgress.activeStepId === null) return null
+    const found = findStep(learnProgress.activeStepId)
+    if (!found || !stepMatchesSelection(found.step, boardId, sampleId)) return null
+    return found.step
+  })()
   useEffect(() => {
     // A Live board session has no guest: Trace and Debug are the point, and
     // there is no device inventory.
@@ -121,11 +146,18 @@ export default function App() {
       customImage !== null
         ? `custom:${customImage.name}:${deviceTree?.name ?? ''}`
         : `${boardId}:${sampleId}`,
-      { primary: [...primaryPanels], expandAll: expandAllPanels },
+      {
+        primary: [...primaryPanels],
+        expandAll: expandAllPanels,
+        only: activeLearnStep?.dockPanels,
+      },
     )
-    // primaryPanels is derived from exactly these inputs.
+    if (learnProgress.activeStepId !== null && activeLearnStep === null) {
+      setActiveStep(null)
+    }
+    // primaryPanels / activeLearnStep are derived from exactly these inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId, sampleId, customImage, deviceTree])
+  }, [boardId, sampleId, customImage, deviceTree, learnProgress.activeStepId])
 
   // Current selection, readable from the mount-once terminal callbacks without
   // making them change identity (which would remount the terminal).
@@ -281,6 +313,30 @@ export default function App() {
         await clearGuestImage()
         await clearDeviceTree()
         applySelection({ sampleId: id })
+      })()
+    },
+    [applySelection],
+  )
+
+  /**
+   * Start a Learn step: same hygiene as picking a sample from the gallery,
+   * plus recording the step as active *first* — synchronously to storage —
+   * so the dock preset and the "running now" marker survive the full
+   * navigation a committed QEMU session turns applySelection into.
+   */
+  const handleLaunchLearnStep = useCallback(
+    (step: LearnStep) => {
+      const sampleId = step.sampleId
+      if (sampleId === undefined) return
+      void (async () => {
+        await clearGuestImage()
+        await clearDeviceTree()
+        // In one synchronous block, after the awaits: the seeding effect must
+        // see the active step and the new selection together, or the
+        // in-between run reads a mismatch and clears the step right back.
+        // Storage is written before applySelection can navigate.
+        setActiveStep(step.id)
+        applySelection({ boardId: LEARN_BOARD, sampleId })
       })()
     },
     [applySelection],
@@ -459,6 +515,7 @@ export default function App() {
         detail={detail}
         hardRestart={hardRestart}
         onRestart={handleRestart}
+        onLaunchLearnStep={handleLaunchLearnStep}
         onLoadElf={handleLoadElf}
         customImage={customImage?.name ?? null}
         onClearImage={handleClearImage}

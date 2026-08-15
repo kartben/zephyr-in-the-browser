@@ -211,6 +211,47 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   other: 'Other devices',
 }
 
+/**
+ * The PanelKind a class answers to in a Learn preset (`DockSeed.only`).
+ * `panelKind` on the node itself only exists once the row's bridge is live,
+ * so preset visibility cannot key off it alone — a preset must keep a row on
+ * screen *before* its sample brings it up. Classes with no kind (UARTs, the
+ * catch-all) are simply not addressable by a preset and hide under one.
+ */
+const CLASS_PRESET_KIND: Record<DeviceClass, PanelKind | undefined> = {
+  sensor: 'sensor',
+  display: 'display',
+  auxdisplay: 'auxdisplay',
+  led: 'led',
+  pwm: 'pwm',
+  dac: 'dac',
+  'fuel-gauge': 'fuel-gauge',
+  memory: 'disk',
+  rtc: 'i2c',
+  'i2c-bus': 'i2c',
+  'spi-bus': 'spi',
+  'uart-bus': undefined,
+  'can-bus': 'can',
+  gpio: 'gpio',
+  keys: 'keys',
+  buzzer: 'buzzer',
+  stepper: 'stepper',
+  gnss: 'gnss',
+  bluetooth: 'bluetooth',
+  audio: 'audio',
+  net: 'net',
+  other: undefined,
+}
+
+/** Every kind under which a row counts for a preset (its own, plus its class's). */
+export function presetPanelKinds(node: DeviceNode): PanelKind[] {
+  const kinds: PanelKind[] = []
+  if (node.panelKind) kinds.push(node.panelKind)
+  const fromClass = CLASS_PRESET_KIND[node.deviceClass]
+  if (fromClass && fromClass !== node.panelKind) kinds.push(fromClass)
+  return kinds
+}
+
 const CLASS_ORDER: DeviceClass[] = [
   'sensor',
   'display',

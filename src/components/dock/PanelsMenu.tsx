@@ -14,11 +14,13 @@ import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
+import { presetPanelKinds } from '@/deviceTopology'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import {
   STAGE_DEBUG_KEY,
   STAGE_PERF_KEY,
   STAGE_TRACE_KEY,
+  effectiveHiddenIn,
   getState,
   resetLayout,
   setDrawerOpen,
@@ -84,15 +86,17 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
   const devices =
     mode === 'live' ? [] : inventory.nodes.filter((node) => node.presence === 'interactive')
   const instruments = [
-    { key: STAGE_PERF_KEY, label: 'Simulation', shown: stats.available },
+    { key: STAGE_PERF_KEY, label: 'Simulation', kind: 'perf' as const, shown: stats.available },
     {
       key: STAGE_TRACE_KEY,
       label: 'Trace',
+      kind: 'trace' as const,
       shown: mode === 'live' || trace.available || state.seed.primary.includes('trace'),
     },
     {
       key: STAGE_DEBUG_KEY,
       label: 'Debug',
+      kind: 'debug' as const,
       shown: gdb.available || state.seed.primary.includes('debug'),
     },
   ].filter((row) => row.shown)
@@ -110,7 +114,7 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
             <PanelToggle
               key={row.key}
               label={row.label}
-              checked={state.devices[row.key]?.hidden !== true}
+              checked={!effectiveHiddenIn(state, row.key, row.kind)}
               onChange={(shown) => setHidden(row.key, !shown)}
             />
           ))}
@@ -126,7 +130,7 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
                 key={node.key}
                 label={node.label}
                 detail={node.crumb ?? node.compatible}
-                checked={state.devices[node.key]?.hidden !== true}
+                checked={!effectiveHiddenIn(state, node.key, presetPanelKinds(node))}
                 onChange={(shown) => setHidden(node.key, !shown)}
               />
             ))}

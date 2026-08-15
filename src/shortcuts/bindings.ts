@@ -6,13 +6,14 @@
  * so the key is left for the focused control.
  */
 
+import type { PanelKind } from '@/boards'
 import { runCommand } from '@/lib/commands'
 import {
   STAGE_DEBUG_KEY,
   STAGE_TRACE_KEY,
   effectiveExpanded,
   getState as getDockState,
-  isHidden,
+  effectiveHidden,
   resetLayout,
   setExpanded,
   setHidden,
@@ -26,8 +27,10 @@ import * as debug from '@/debug/control'
 import * as hostNet from '@/hostNet'
 import * as tours from '@/tours/store'
 
-function togglePanelRow(key: string): void {
-  const hidden = isHidden(key)
+function togglePanelRow(key: string, kind: PanelKind): void {
+  // Effective, not just the explicit flag: a Learn preset may be hiding the
+  // row, and the shortcut means "put it on screen" either way.
+  const hidden = effectiveHidden(key, kind)
   const expanded = effectiveExpanded(key)
   if (hidden || !expanded) {
     setHidden(key, false)
@@ -105,8 +108,8 @@ export function installShortcutBindings(): () => void {
       if (narrow) setDrawerOpen(!state.drawerOpen)
       else setDockOpen(!state.open)
     }),
-    onShortcut('toggle-debug', () => togglePanelRow(STAGE_DEBUG_KEY)),
-    onShortcut('toggle-trace', () => togglePanelRow(STAGE_TRACE_KEY)),
+    onShortcut('toggle-debug', () => togglePanelRow(STAGE_DEBUG_KEY, 'debug')),
+    onShortcut('toggle-trace', () => togglePanelRow(STAGE_TRACE_KEY, 'trace')),
     onShortcut('reset-layout', () => {
       resetLayout()
       showDock()

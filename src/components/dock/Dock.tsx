@@ -21,7 +21,7 @@ import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/Do
 import { DockInstruments } from '@/components/dock/Instruments'
 import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
-import { buildRowList, type DockView } from '@/deviceTopology'
+import { buildRowList, presetPanelKinds, type DockView } from '@/deviceTopology'
 import { get as getDeviceTree } from '@/devicetree'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
@@ -30,6 +30,7 @@ import {
   DOCK_MAX_WIDTH,
   DOCK_MIN_WIDTH,
   effectiveExpandedIn,
+  effectiveHiddenIn,
   getState,
   setDrawerOpen,
   setOpen,
@@ -61,15 +62,23 @@ export function Dock({ boardId }: { boardId: string }) {
     if (!state.open && !state.drawerOpen) return null as ReactNode[] | null
     const rows = buildRowList(inventory, state.view)
     const hidden = new Set(
-      Object.entries(state.devices)
-        .filter(([, v]) => v.hidden)
-        .map(([key]) => key),
+      inventory.nodes
+        .filter((n) => effectiveHiddenIn(state, n.key, presetPanelKinds(n)))
+        .map((n) => n.key),
+    )
+    // A class whose every row is hidden (a Learn preset, or the user) gets no
+    // header either — an empty heading is furniture with nothing under it.
+    const visibleClasses = new Set(
+      inventory.nodes
+        .filter((n) => !hidden.has(n.key) && !(n.parentKey && hidden.has(n.parentKey)))
+        .map((n) => n.deviceClass),
     )
 
     const next: ReactNode[] = []
     let collapsedClass: string | null = null
     for (const row of rows) {
       if (row.kind === 'group') {
+        if (!visibleClasses.has(row.deviceClass)) continue
         const collapsed = state.groups[row.deviceClass]?.collapsed ?? false
         collapsedClass = collapsed ? row.deviceClass : null
         next.push(

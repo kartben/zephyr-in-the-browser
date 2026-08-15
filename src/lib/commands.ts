@@ -5,7 +5,7 @@
  * without inventing another localStorage blob.
  */
 
-export type AppCommand = 'restart' | 'open-samples' | 'open-settings'
+export type AppCommand = 'restart' | 'open-samples' | 'open-settings' | 'open-learn'
 
 const handlers = new Map<AppCommand, Set<() => void>>()
 

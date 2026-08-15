@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "Learn tracks: the envnode curriculum, with saved progress."
+      },
+      {
+        "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
       },
       {

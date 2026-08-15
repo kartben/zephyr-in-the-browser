@@ -31,6 +31,7 @@ import {
   STAGE_PERF_KEY,
   STAGE_TRACE_KEY,
   effectiveExpandedIn,
+  effectiveHiddenIn,
   getState,
   setExpanded,
   setWindowed,
@@ -204,7 +205,7 @@ function useInstrumentState(instrument: Instrument) {
   const available = instrument.useAvailable()
   const state = useSyncExternalStore(subscribe, getState, getState)
   const shown =
-    state.devices[instrument.key]?.hidden !== true &&
+    !effectiveHiddenIn(state, instrument.key, instrument.panelKind) &&
     (available || state.seed.primary.includes(instrument.panelKind))
   return {
     shown,

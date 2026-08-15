@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Learn tracks: the envnode curriculum, with saved progress.
 - **Added:** Button tour for gpio-keys and input events.
 - **Improved:** Blinky tour shows the LED pin from devicetree.
 - **Added:** Help button in the top bar for shortcuts and changelog.

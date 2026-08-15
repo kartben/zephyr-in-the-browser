@@ -4,8 +4,9 @@
  */
 
 import type { PanelKind } from '@/boards'
-import type { DeviceClass, DeviceInventory } from '@/deviceTopology'
+import { presetPanelKinds, type DeviceClass, type DeviceInventory } from '@/deviceTopology'
 import {
+  effectiveHidden,
   getState,
   setExpanded,
   setGroupCollapsed,
@@ -56,7 +57,10 @@ export function pulseElement(el: HTMLElement): void {
 export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
   const state = getState()
   if (state.devices[key]?.windowed !== true) showDock()
-  if (state.devices[key]?.hidden) setHidden(key, false)
+  // Effectively hidden covers both an explicit hide and a Learn preset's
+  // default — a tour's `panel:` directive outranks either.
+  const node = inventory?.nodes.find((n) => n.key === key)
+  if (effectiveHidden(key, node ? presetPanelKinds(node) : undefined)) setHidden(key, false)
   if (
     deviceClass &&
     getState().view === 'classes' &&

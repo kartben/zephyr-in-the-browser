@@ -212,6 +212,92 @@ describe('seeding and expansion precedence', () => {
   })
 })
 
+describe('the seed’s `only` preset (Learn dock presets)', () => {
+  it('hides everything not listed, including rows with no panel kind', () => {
+    dock.seedForSelection('qemu_cortex_a53:07-gpio', {
+      primary: ['gpio'],
+      expandAll: false,
+      only: ['gpio', 'led'],
+    })
+    expect(dock.effectiveHidden('gpio0', 'gpio')).toBe(false)
+    expect(dock.effectiveHidden('leds', 'led')).toBe(false)
+    expect(dock.effectiveHidden('net', 'net')).toBe(true)
+    expect(dock.effectiveHidden('uart0', undefined)).toBe(true)
+  })
+
+  it('an empty preset hides every row; no preset hides none', () => {
+    dock.seedForSelection('a53:01-hello', { primary: [], expandAll: false, only: [] })
+    expect(dock.effectiveHidden('net', 'net')).toBe(true)
+
+    dock.seedForSelection('a53:shell', { primary: [], expandAll: false })
+    expect(dock.effectiveHidden('net', 'net')).toBe(false)
+  })
+
+  it('user overrides win in both directions and survive a reload', () => {
+    dock.seedForSelection('a53:07-gpio', {
+      primary: ['gpio'],
+      expandAll: false,
+      only: ['gpio'],
+    })
+    // Re-show a preset-hidden row: needs an explicit false on the record.
+    dock.setHidden('net', false)
+    expect(dock.effectiveHidden('net', 'net')).toBe(false)
+    // Hide a preset-shown row.
+    dock.setHidden('gpio0', true)
+    expect(dock.effectiveHidden('gpio0', 'gpio')).toBe(true)
+
+    dock.reloadFromStorage()
+    expect(dock.effectiveHidden('net', 'net')).toBe(false)
+    expect(dock.effectiveHidden('gpio0', 'gpio')).toBe(true)
+  })
+
+  it('treats a changed `only` on the same selection as a seed change', () => {
+    dock.seedForSelection('a53:07-gpio', { primary: [], expandAll: false, only: ['gpio'] })
+    dock.seedForSelection('a53:07-gpio', {
+      primary: [],
+      expandAll: false,
+      only: ['gpio', 'led'],
+    })
+    expect(dock.getState().seed.only).toEqual(['gpio', 'led'])
+    dock.seedForSelection('a53:07-gpio', { primary: [], expandAll: false })
+    expect(dock.getState().seed.only).toBeUndefined()
+  })
+
+  it('clears visibility overrides when a preset enters or leaves', () => {
+    // Overrides made against a preset are about that preset.
+    dock.seedForSelection('a53:07-gpio', { primary: [], expandAll: false, only: ['gpio'] })
+    dock.setHidden('net', false)
+    dock.seedForSelection('a53:shell', { primary: [], expandAll: false })
+    expect(dock.getState().devices['net']).toBeUndefined()
+
+    // An ordinary hide entering a preset is dropped too: the preset speaks.
+    dock.setHidden('gnss', true)
+    dock.seedForSelection('a53:08-sensor', {
+      primary: ['sensor'],
+      expandAll: false,
+      only: ['sensor'],
+    })
+    expect(dock.getState().devices['gnss']).toBeUndefined()
+
+    // But with no preset on either side, visibility survives as it always has.
+    dock.seedForSelection('a53:shell', { primary: [], expandAll: false })
+    dock.setHidden('gnss', true)
+    dock.seedForSelection('a53:display', { primary: ['display'], expandAll: false })
+    expect(dock.isHidden('gnss')).toBe(true)
+  })
+
+  it('round-trips `only` through storage', () => {
+    dock.seedForSelection('a53:07-gpio', {
+      primary: ['gpio'],
+      expandAll: false,
+      only: ['gpio', 'led'],
+    })
+    dock.reloadFromStorage()
+    expect(dock.getState().seed.only).toEqual(['gpio', 'led'])
+    expect(dock.effectiveHidden('net', 'net')).toBe(true)
+  })
+})
+
 describe('legacy panel-layout key migration', () => {
   it('moves geometry to the new per-bus keys and drops perf', () => {
     savePanelLayout('sensor:48', { floating: true, rect: { x: 1, y: 2, w: 300, h: 200 } })
