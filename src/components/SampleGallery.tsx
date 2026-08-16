@@ -334,6 +334,7 @@ export function SampleGallery({
             )}
           </div>
 
+          {tab === 'apps' && (
           <DialogFooter className="justify-between">
             <span className="text-[11px] text-muted-foreground">
               Or bring your own build. Any Zephyr ELF for this board boots as-is.
@@ -343,6 +344,7 @@ export function SampleGallery({
               Load your own ELF…
             </Button>
           </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -392,12 +394,13 @@ function GalleryTab({
       type="button"
       role="tab"
       aria-selected={selected}
+      autoFocus={selected}
       onClick={onClick}
       className={cn(
         'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         selected
-          ? 'bg-secondary text-foreground'
+          ? 'bg-primary/15 text-foreground'
           : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
       )}
     >

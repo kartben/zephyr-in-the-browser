@@ -60,16 +60,16 @@ function NamedOutline({ steps, seen, currentIndex }: Omit<Props, 'named'>) {
   return (
     <nav
       aria-label="Curriculum steps"
-      className="flex max-h-[min(28rem,56vh)] min-w-[11.5rem] flex-col gap-3 overflow-y-auto pr-1"
+      className="flex min-w-[11.5rem] flex-col gap-1.5 pr-1"
     >
       {groups.map((group, gi) => (
         <div key={group.title ?? `group-${gi}`}>
           {group.title && (
-            <p className="mb-1 px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="mb-0.5 px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               {group.title}
             </p>
           )}
-          <ol className="space-y-0.5">
+          <ol>
             {group.steps.map((step) => {
               const isCurrent = step.index === currentIndex
               const isSeen = seen.has(step.index)
@@ -82,7 +82,7 @@ function NamedOutline({ steps, seen, currentIndex }: Omit<Props, 'named'>) {
                     title={step.title}
                     onClick={() => revisit(step.index)}
                     className={cn(
-                      'flex w-full items-baseline gap-1.5 rounded px-1.5 py-1 text-left text-[11px] leading-snug',
+                      'flex w-full items-baseline gap-1.5 rounded px-1.5 py-0.5 text-left text-[11px] leading-snug',
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       isCurrent && 'bg-primary/15 text-foreground',
                       !isCurrent && isSeen && 'text-foreground/80 hover:bg-secondary',

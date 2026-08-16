@@ -147,7 +147,7 @@ export function TourCard({ board, sampleId }: Props) {
 
         <div
           className={cn(
-            'max-h-[min(32rem,68vh)] px-3 py-2.5',
+            'max-h-[min(36rem,72vh)] px-3 py-2.5',
             state.doc?.curriculum && 'flex gap-3',
           )}
         >
