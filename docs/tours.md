@@ -411,3 +411,6 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |
 | Packaging | `tools/build-zephyr-image.sh`, the `tours()` plugin in `vite.config.ts` |
+
+A **curriculum** is a longer path around one use case, not a stock sample
+explaining itself. That shape is proposed in [curriculum-plan.md](curriculum-plan.md).
