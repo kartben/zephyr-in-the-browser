@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Learn tab drafts an environmental-node path.
 - **Added:** Button tour for gpio-keys and input events.
 - **Improved:** Blinky tour shows the LED pin from devicetree.
 - **Added:** Help button in the top bar for shortcuts and changelog.

@@ -35,6 +35,7 @@ interface Props {
   /** Filename of the user-supplied guest image in use, if any. */
   customImage: string | null
   onClearImage: () => void
+  onStartCurriculum?: (id: string) => void
 }
 
 /*
@@ -58,6 +59,7 @@ export function TopBar({
   onLoadElf,
   customImage,
   onClearImage,
+  onStartCurriculum,
 }: Props) {
   /*
    * Three groups, in falling order of how often they are touched: what to run,
@@ -95,6 +97,7 @@ export function TopBar({
               customImage={customImage}
               onLoadElf={onLoadElf}
               onClearImage={onClearImage}
+              onStartCurriculum={onStartCurriculum}
             />
 
             {/* Reference and layout tools — the first things to fold away. */}

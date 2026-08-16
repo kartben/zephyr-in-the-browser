@@ -25,6 +25,8 @@ import type { GuestSample, PanelKind } from '@/boards'
 import { isGuided } from '@/tours/guided'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
+import { CURRICULA } from '@/curricula/catalog'
+import { parseTour } from '@/tours/parse'
 
 /**
  * Compact app picker: one row per sample. A global Tracing switch filters to
@@ -70,6 +72,8 @@ interface Props {
   customImage: string | null
   onLoadElf: (file: File) => void
   onClearImage: () => void
+  /** Start a curriculum walkthrough. Closes the gallery. */
+  onStartCurriculum?: (id: string) => void
 }
 
 /** One gallery row: base sample plus optional CTF-traced twin. */
@@ -161,10 +165,12 @@ export function SampleGallery({
   customImage,
   onLoadElf,
   onClearImage,
+  onStartCurriculum,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<'apps' | 'learn'>('apps')
   const [query, setQuery] = useState('')
   const [tracing, setTracing] = useState(false)
   const [manifest, setManifest] = useState<DocsManifest | null>(null)
@@ -180,6 +186,14 @@ export function SampleGallery({
   )
 
   useEffect(() => registerCommand('open-samples', () => setOpen(true)), [])
+  useEffect(
+    () =>
+      registerCommand('open-learn', () => {
+        setTab('learn')
+        setOpen(true)
+      }),
+    [],
+  )
 
   // The manifest is gallery furniture, not boot data: fetch it lazily on the
   // first open, and tolerate its absence (dev checkouts have no /docs).
@@ -236,12 +250,25 @@ export function SampleGallery({
           </button>
         </DialogTrigger>
 
-        <DialogContent className="h-[min(85vh,40rem)] max-w-xl">
+        <DialogContent data-shot-target="gallery" className="h-[min(85vh,40rem)] max-w-xl">
           <DialogHeader>
-            <DialogTitle>Zephyr app to boot</DialogTitle>
-            <DialogDescription>Prebuilt samples for {board.label}.</DialogDescription>
+            <DialogTitle>{tab === 'learn' ? 'Learn Zephyr' : 'Zephyr app to boot'}</DialogTitle>
+            <DialogDescription>
+              {tab === 'learn'
+                ? 'A path through one use case, not a list of samples.'
+                : `Prebuilt samples for ${board.label}.`}
+            </DialogDescription>
+            <div className="flex gap-1 pt-2" role="tablist" aria-label="Gallery">
+              <GalleryTab selected={tab === 'apps'} onClick={() => setTab('apps')}>
+                Apps
+              </GalleryTab>
+              <GalleryTab selected={tab === 'learn'} onClick={() => setTab('learn')}>
+                Learn
+              </GalleryTab>
+            </div>
           </DialogHeader>
 
+          {tab === 'apps' && (
           <div className="flex shrink-0 items-center gap-3 px-5 pb-3">
             <label className="relative min-w-0 flex-1">
               <span className="sr-only">Search samples</span>
@@ -266,9 +293,26 @@ export function SampleGallery({
               <TracingFilter on={tracing} onChange={setTracing} />
             )}
           </div>
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-1">
-            {catalog.length === 0 ? (
+            {tab === 'learn' ? (
+              <div className="space-y-1 p-1">
+                {CURRICULA.map((item) => (
+                  <CurriculumCard
+                    key={item.id}
+                    id={item.id}
+                    title={item.title}
+                    stakes={item.stakes}
+                    source={item.source}
+                    onStart={() => {
+                      setOpen(false)
+                      onStartCurriculum?.(item.id)
+                    }}
+                  />
+                ))}
+              </div>
+            ) : catalog.length === 0 ? (
               <p className="flex h-full items-center justify-center px-3 text-center text-xs text-muted-foreground">
                 {tracing && !query.trim()
                   ? 'No samples with tracing on this board.'
@@ -330,6 +374,73 @@ export function SampleGallery({
           }
         }}
       />
+    </div>
+  )
+}
+
+function GalleryTab({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean
+  onClick: () => void
+  children: string
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onClick}
+      className={cn(
+        'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected
+          ? 'bg-secondary text-foreground'
+          : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function CurriculumCard({
+  id,
+  title,
+  stakes,
+  source,
+  onStart,
+}: {
+  id: string
+  title: string
+  stakes: string
+  source: string
+  onStart: () => void
+}) {
+  const steps = parseTour(source).steps.length
+  return (
+    <div
+      data-curriculum={id}
+      className="flex items-start gap-3 rounded-md px-2.5 py-2.5"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-5">{title}</span>
+          <span
+            className="flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+            title={`${steps} lessons in this path`}
+          >
+            <GraduationCap className="size-2.5" aria-hidden />
+            {steps} steps
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">{stakes}</p>
+      </div>
+      <Button size="sm" className="h-7 shrink-0 px-3 text-xs" onClick={onStart}>
+        Start
+      </Button>
     </div>
   )
 }

@@ -100,6 +100,7 @@ describe('parseTour', () => {
     expect(doc.title).toBe('Blinky, explained')
     expect(doc.sample).toBe('samples/basic/blinky')
     expect(doc.intro).toBe('An introduction.')
+    expect(doc.curriculum).toBeNull()
     expect(doc.problems).toEqual([])
   })
 
@@ -142,6 +143,43 @@ describe('parseTour', () => {
     const doc = parseTour('## Nowhere\n\n```tour\npanel: gpio\n```\n\nProse.\n')
     expect(doc.steps).toEqual([])
     expect(doc.problems[0]).toContain('no `at:`')
+  })
+
+  it('keeps a desk step that names a file instead of a break', () => {
+    const doc = parseTour(
+      '---\ncurriculum: Environmental node\n---\n\n### What you are running\n\n## CMake\n\n```tour\nfile: CMakeLists.txt\nhighlight: /sensors.c/\n```\n\nProse.\n',
+    )
+    expect(doc.curriculum).toBe('Environmental node')
+    expect(doc.steps).toHaveLength(1)
+    expect(doc.steps[0]!.at).toBeNull()
+    expect(doc.steps[0]!.file).toBe('CMakeLists.txt')
+    expect(doc.steps[0]!.chapter).toBe('What you are running')
+    expect(doc.steps[0]!.stop).toBe(false)
+    expect(doc.problems).toEqual([])
+  })
+
+  it('starts a new chapter after a step, not inside it', () => {
+    const doc = parseTour(
+      [
+        '### One',
+        '',
+        '## First',
+        '',
+        '```tour',
+        'file: a',
+        '```',
+        '',
+        '### Two',
+        '',
+        '## Second',
+        '',
+        '```tour',
+        'file: b',
+        '```',
+        '',
+      ].join('\n'),
+    )
+    expect(doc.steps.map((s) => s.chapter)).toEqual(['One', 'Two'])
   })
 
   it('rejects a format it cannot read', () => {

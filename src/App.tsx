@@ -10,7 +10,8 @@ import { ShortcutsHelpDialog } from '@/components/ShortcutsHelpDialog'
 import { TourCard } from '@/components/TourCard'
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
-import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
+import { loadFor as loadTour, reset as resetTour, startCurriculum } from '@/tours/store'
+import { runCommand } from '@/lib/commands'
 import { seedForSelection } from '@/lib/dockStore'
 import {
   clear as clearGuestImage,
@@ -72,6 +73,18 @@ export default function App() {
   useGlobalShortcuts()
   useEffect(() => {
     startBridgeClient()
+  }, [])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('learn') === '1') {
+      const id = window.setTimeout(() => runCommand('open-learn'), 0)
+      return () => window.clearTimeout(id)
+    }
+    const curriculum = params.get('curriculum')
+    if (curriculum) {
+      const step = Number(params.get('step') ?? '0')
+      startCurriculum(curriculum, Number.isFinite(step) ? step : 0)
+    }
   }, [])
   // Fixed for the document's life: mode changes navigate (see modeStore).
   const mode = getMode()
@@ -462,6 +475,7 @@ export default function App() {
         onLoadElf={handleLoadElf}
         customImage={customImage?.name ?? null}
         onClearImage={handleClearImage}
+        onStartCurriculum={startCurriculum}
       />
 
       <main className="flex min-h-0 flex-1 bg-terminal">

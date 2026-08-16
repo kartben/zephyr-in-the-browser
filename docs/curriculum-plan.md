@@ -110,9 +110,10 @@ A new `env-node` snippet (same shape as `i2c-shell`, fewer chips) enables
 those four I²C parts. Manifest line pairs it with `virtio-i2c`, `virtio-gpio`,
 and `net`. One A53 ELF plus the usual `_trace` twin. No staged images.
 
-Keep the firmware ordinary Zephyr: `sensor_*`, `rtc_get_time`,
-`auxdisplay_write`, `k_work_delayable` or a small sampling thread, stock HTTP.
-Nothing in the guest knows it is being toured.
+Keep the firmware ordinary Zephyr. Sensing uses the **RTIO** path
+(`sensor_read_async_mempool`, completion queue, `sensor_get_decoder`), not
+`sensor_sample_fetch` / `sensor_channel_get`. Display, RTC, GPIO, and HTTP
+stay on their stock APIs. Nothing in the guest knows it is being toured.
 
 ## Teaching model
 
@@ -184,22 +185,43 @@ human read-through ([copywriting skill](../.cursor/skills/copywriting/SKILL.md))
    Devicetree describes the bus and the parts; Kconfig selects the software
    that talks to them.
 
-### Chapter 2: Sensing
+### Chapter 2: Sensing with RTIO
 
-4. **The sensor API** (live, `sensors.c`, LPS22HH).
-   `sensor_sample_fetch` then `sensor_channel_get`. Watch the pressure
-   channel. Reveal the sensor row. Same API as the stock LPS22HH sample;
-   here it is one function in a larger app.
-5. **A second chip, same bus** (live, ISL29035). Another node on
-   `virtio_i2c0`, another `DEVICE_DT_GET`. The API does not change. The
-   I²C row can show both addresses.
-6. **Time belongs on the reading** (live, PCF8523). `rtc_get_time`.
-   Reveal the RTC row. A sample without a clock is a poll; a sample with a
-   clock is a record.
-7. **Sampling is scheduled** (live, work queue or sampling thread).
-   `k_work_delayable` / `k_sleep` in a dedicated thread, not a busy loop.
-   `threads: yes`. This is the kernel lesson: the node is not `main`
-   spinning.
+A node that reads two chips is why this curriculum exists. The stock
+LPS22HH and ISL29035 samples each call `sensor_sample_fetch` then
+`sensor_channel_get` on one device. That is **fetch and get**. Zephyr's
+newer path is **read and decode** on top of [RTIO](https://docs.zephyrproject.org/latest/services/rtio/index.html):
+submit a read for every sensor from one thread, wait on completion
+events, decode the buffers.
+
+That is the sensing chapter. Fetch and get stays in the short LPS22HH
+tour if we write one. The node teaches the API you would use when the
+station has more than one chip.
+
+4. **An iodev per sensor** (live or desk, `sensors.c`).
+   `SENSOR_DT_READ_IODEV` names the LPS22HH and the ISL29035. 
+   `RTIO_DEFINE_WITH_MEMPOOL` is the submission and completion queues
+   plus the buffers. Two devices, one context.
+5. **Submit both reads** (live). `sensor_read_async_mempool` for each
+   iodev. The thread does not block on the first chip before starting
+   the second. Reveal the sensor rows. The I²C row can show both
+   addresses.
+6. **Completions and decode** (live). `rtio_cqe_consume_block`, then
+   `sensor_get_decoder` / `sensor_decode` into q31 values. A completion
+   is not a callback. The same thread that submitted the reads picks
+   them up.
+7. **Time belongs on the reading** (live, PCF8523). `rtc_get_time` on
+   the decoded sample. Reveal the RTC row. A sample without a clock is
+   a poll; a sample with a clock is a record.
+
+**Driver risk.** Read and decode needs a `sensor_submit` implementation
+on the chip and, for the full benefit, an RTIO-capable bus. LPS22HH and
+ISL29035 are still fetch-and-get drivers today. Phase 3 of the app
+should try `CONFIG_SENSOR_ASYNC_API` against these parts. If submit is
+missing, the firmware falls back to fetch and get for that chip, and
+lessons 4 to 6 still show the RTIO loop as the shape of the source we
+want. Do not pick different silicon just to get a cleaner submit path.
+Do not add RTIO to virtio-i2c only to make this curriculum compile.
 
 ### Chapter 3: Show it, serve it
 
@@ -238,9 +260,10 @@ budget."
 Keep the app picker. Add a **Learn** entry that is a path, not another
 alphabetical row.
 
-**Where.** A Learn tab (or a short pinned block above the list) on the
-existing gallery dialog. Do not add a second top-bar picker. The gallery
-is already "what runs." Learn is "what to run first, and in what order."
+**Where.** A **Learn** tab on the existing gallery dialog, next to Apps.
+Do not add a second top-bar picker. The gallery is already "what runs."
+Learn is "what to run first, and in what order." The mockup in this
+branch is that tab plus a named outline on the tour card.
 
 **What a curriculum card shows.** Title, one line of stakes ("Read the
 air, stamp it, show it, serve it"), step count. Opening it boots
@@ -327,12 +350,17 @@ These are the only product calls that should block phase 2.
    fetch JSON from Network). It is also the heaviest subsystem. If the
    first draft of `net.c` fights the lesson count, drop lesson 11 and the
    net snippet, and point at the HTTP Server sample from lesson 14.
-2. **Work queue vs sampling thread.** Either teaches scheduling. Prefer
-   `k_work_delayable` if the code stays short; prefer a thread if we want
-   a thread-list card that is not `main`.
-3. **Learn tab vs pinned block.** Tab scales to a second curriculum. A
-   pinned block is less chrome for one path. Start with a pinned block if
-   we only ship one curriculum; promote to a tab when a second lands.
+2. **Where the RTIO consume loop runs.** A dedicated sampling thread
+   gives a thread-list card that is not `main`. `k_work_delayable` stays
+   shorter. Prefer the thread if lessons 5 to 6 need `threads: yes`.
+3. **Learn tab vs pinned block.** The mockup ships a Learn tab on the
+   gallery dialog. Keep it if a second curriculum appears; collapse to a
+   pinned block only if the tab feels empty with one card.
+4. **RTIO on these two drivers.** If phase 3 cannot call
+   `sensor_read_async_mempool` on LPS22HH / ISL29035, do we still write
+   the source as RTIO (and `#else` fetch and get), or do we teach fetch
+   and get in the live steps and keep RTIO as a desk excerpt? Prefer the
+   first so the file the learner sees matches the lesson titles.
 
 Not open: live rebuilds, staged ELFs, humidity-as-blocker, replacing the
 gallery.
