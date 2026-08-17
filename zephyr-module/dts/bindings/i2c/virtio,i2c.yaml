@@ -4,13 +4,16 @@
 description: |
   VIRTIO I2C adapter device (ID:34)
 
-  The node is a child of the virtio bus node the device sits on, and is itself
-  an I2C bus, so the chips on it hang off it as usual:
+compatible: "virtio,i2c"
 
-    virtio_mmio4: virtio_mmio@a000800 {
+include: [i2c-controller.yaml, base.yaml]
+
+examples:
+  - |
+    virtio_mmio0: virtio_mmio@a000000 {
             compatible = "virtio,mmio";
-            reg = <0xa000800 0x200>;
-            interrupts = <0 20 4>;
+            reg = <0xa000000 0x200>;
+            interrupts = <0 16 4>;
             status = "okay";
 
             virtio_i2c0: virtio-i2c {
@@ -29,10 +32,3 @@ description: |
                     };
             };
     };
-
-  The adapter has no device configuration fields and offers no feature bits, so
-  the node carries no properties of its own beyond the I2C bus ones.
-
-compatible: "virtio,i2c"
-
-include: [i2c-controller.yaml, base.yaml]

@@ -5,7 +5,7 @@
  */
 
 /*
- * Driver for the VIRTIO GPIO device (virtio spec 1.3, section 5.16).
+ * Driver for the VIRTIO GPIO device (virtio spec 1.3, section 5.18).
  *
  * Every operation is a round trip to the virtio device, so none of the GPIO API
  * calls can be issued from an ISR, including from the interrupt callbacks this
@@ -23,6 +23,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/minmax.h>
 #include <zephyr/sys/util.h>
 
 LOG_MODULE_REGISTER(gpio_virtio, CONFIG_GPIO_LOG_LEVEL);
@@ -100,7 +101,7 @@ struct gpio_virtio_data {
 	struct virtq *requestq;
 	struct virtq *eventq;
 	/* serializes the single in-flight request and the state tracked below */
-	struct k_mutex lock;
+	struct k_sem lock;
 	struct k_sem done;
 	uint32_t res_len;
 	struct virtio_gpio_request req;
@@ -125,6 +126,8 @@ static void gpio_virtio_request_cb(void *opaque, uint32_t used_len)
 /**
  * @brief Run a single request/response transaction on the request virtqueue
  *
+ * Caller must hold data->lock.
+ *
  * @param dev virtio GPIO device
  * @param type one of the VIRTIO_GPIO_MSG_* request types
  * @param pin line the request applies to
@@ -143,22 +146,20 @@ static int gpio_virtio_request(const struct device *dev, uint16_t type, gpio_pin
 	};
 	int ret;
 
-	k_mutex_lock(&data->lock, K_FOREVER);
-
 	data->req.type = sys_cpu_to_le16(type);
 	data->req.gpio = sys_cpu_to_le16(pin);
 	data->req.value = sys_cpu_to_le32(value);
 	data->res_len = 0;
 
 	/*
-	 * The mutex keeps a single request in flight, and the transport returns
+	 * The lock keeps a single request in flight, and the transport returns
 	 * the descriptors before completing it, so the queue never runs out.
 	 */
 	ret = virtq_add_buffer_chain(data->requestq, bufs, ARRAY_SIZE(bufs), 1,
 				     gpio_virtio_request_cb, data, K_NO_WAIT);
 	if (ret != 0) {
 		LOG_ERR("failed to queue request %u for pin %u: %d", type, pin, ret);
-		goto out;
+		return ret;
 	}
 
 	virtio_notify_virtqueue(cfg->vdev, VIRTIO_GPIO_REQUESTQ);
@@ -168,24 +169,19 @@ static int gpio_virtio_request(const struct device *dev, uint16_t type, gpio_pin
 	if (data->res_len != sizeof(data->res)) {
 		LOG_ERR("response of incorrect length (%u : %u)", data->res_len,
 			(uint32_t)sizeof(data->res));
-		ret = -EIO;
-		goto out;
+		return -EIO;
 	}
 
 	if (data->res.status != VIRTIO_GPIO_STATUS_OK) {
 		LOG_DBG("request %u rejected for pin %u", type, pin);
-		ret = -EIO;
-		goto out;
+		return -EIO;
 	}
 
 	if (res_value != NULL) {
 		*res_value = data->res.value;
 	}
 
-out:
-	k_mutex_unlock(&data->lock);
-
-	return ret;
+	return 0;
 }
 
 /* Caller must hold data->lock */
@@ -225,7 +221,7 @@ static int gpio_virtio_pin_configure(const struct device *dev, gpio_pin_t pin, g
 		return -ENOTSUP;
 	}
 
-	k_mutex_lock(&data->lock, K_FOREVER);
+	k_sem_take(&data->lock, K_FOREVER);
 
 	if ((flags & GPIO_OUTPUT) != 0) {
 		if ((flags & (GPIO_OUTPUT_INIT_HIGH | GPIO_OUTPUT_INIT_LOW)) != 0) {
@@ -248,7 +244,7 @@ static int gpio_virtio_pin_configure(const struct device *dev, gpio_pin_t pin, g
 	}
 
 out:
-	k_mutex_unlock(&data->lock);
+	k_sem_give(&data->lock);
 
 	return ret;
 }
@@ -264,7 +260,7 @@ static int gpio_virtio_port_get_raw(const struct device *dev, gpio_port_value_t 
 		return -EWOULDBLOCK;
 	}
 
-	k_mutex_lock(&data->lock, K_FOREVER);
+	k_sem_take(&data->lock, K_FOREVER);
 
 	/*
 	 * The protocol has no bulk read, and a line left at the default
@@ -289,24 +285,19 @@ static int gpio_virtio_port_get_raw(const struct device *dev, gpio_port_value_t 
 	*value = val;
 
 out:
-	k_mutex_unlock(&data->lock);
+	k_sem_give(&data->lock);
 
 	return ret;
 }
 
-static int gpio_virtio_port_set_masked_raw(const struct device *dev, gpio_port_pins_t mask,
-					   gpio_port_value_t value)
+/* Caller must hold data->lock */
+static int gpio_virtio_set_masked(const struct device *dev, gpio_port_pins_t mask,
+				  gpio_port_value_t value)
 {
 	struct gpio_virtio_data *data = dev->data;
 	int ret = 0;
 
-	if (k_is_in_isr()) {
-		return -EWOULDBLOCK;
-	}
-
 	mask &= GPIO_PORT_PIN_MASK_FROM_NGPIOS(data->ngpio);
-
-	k_mutex_lock(&data->lock, K_FOREVER);
 
 	while (mask != 0) {
 		gpio_pin_t pin = find_lsb_set(mask) - 1;
@@ -319,7 +310,22 @@ static int gpio_virtio_port_set_masked_raw(const struct device *dev, gpio_port_p
 		mask &= ~BIT(pin);
 	}
 
-	k_mutex_unlock(&data->lock);
+	return ret;
+}
+
+static int gpio_virtio_port_set_masked_raw(const struct device *dev, gpio_port_pins_t mask,
+					   gpio_port_value_t value)
+{
+	struct gpio_virtio_data *data = dev->data;
+	int ret;
+
+	if (k_is_in_isr()) {
+		return -EWOULDBLOCK;
+	}
+
+	k_sem_take(&data->lock, K_FOREVER);
+	ret = gpio_virtio_set_masked(dev, mask, value);
+	k_sem_give(&data->lock);
 
 	return ret;
 }
@@ -343,10 +349,10 @@ static int gpio_virtio_port_toggle_bits(const struct device *dev, gpio_port_pins
 		return -EWOULDBLOCK;
 	}
 
-	/* the outer lock keeps the shadow state consistent across the update */
-	k_mutex_lock(&data->lock, K_FOREVER);
-	ret = gpio_virtio_port_set_masked_raw(dev, pins, ~data->out_state);
-	k_mutex_unlock(&data->lock);
+	/* the lock keeps the shadow state consistent across the update */
+	k_sem_take(&data->lock, K_FOREVER);
+	ret = gpio_virtio_set_masked(dev, pins, ~data->out_state);
+	k_sem_give(&data->lock);
 
 	return ret;
 }
@@ -366,7 +372,7 @@ static int gpio_virtio_port_get_direction(const struct device *dev, gpio_port_pi
 
 	map &= GPIO_PORT_PIN_MASK_FROM_NGPIOS(data->ngpio);
 
-	k_mutex_lock(&data->lock, K_FOREVER);
+	k_sem_take(&data->lock, K_FOREVER);
 
 	while (map != 0) {
 		gpio_pin_t pin = find_lsb_set(map) - 1;
@@ -395,7 +401,7 @@ static int gpio_virtio_port_get_direction(const struct device *dev, gpio_port_pi
 	}
 
 out:
-	k_mutex_unlock(&data->lock);
+	k_sem_give(&data->lock);
 
 	return ret;
 }
@@ -528,12 +534,13 @@ static int gpio_virtio_pin_interrupt_configure(const struct device *dev, gpio_pi
 		key = k_spin_lock(&data->irq_lock);
 		line->enabled = false;
 		k_spin_unlock(&data->irq_lock, key);
-
-		return gpio_virtio_request(dev, VIRTIO_GPIO_MSG_IRQ_TYPE, pin, type, NULL);
 	}
 
+	k_sem_take(&data->lock, K_FOREVER);
 	ret = gpio_virtio_request(dev, VIRTIO_GPIO_MSG_IRQ_TYPE, pin, type, NULL);
-	if (ret != 0) {
+	k_sem_give(&data->lock);
+
+	if (ret != 0 || type == VIRTIO_GPIO_IRQ_TYPE_NONE) {
 		return ret;
 	}
 
@@ -575,10 +582,10 @@ static uint16_t gpio_virtio_enum_queues_cb(uint16_t q_index, uint16_t q_size_max
 	switch (q_index) {
 	case VIRTIO_GPIO_REQUESTQ:
 		/* a single request is in flight at a time, and takes two descriptors */
-		return MIN(2, q_size_max);
+		return min(2, q_size_max);
 	case VIRTIO_GPIO_EVENTQ:
 		/* every line may have a buffer chain of its own queued up */
-		return MIN(NHPOT(2 * data->ngpio), q_size_max);
+		return min(NHPOT(2 * data->ngpio), q_size_max);
 	default:
 		return 0;
 	}
@@ -593,11 +600,11 @@ static int gpio_virtio_init(const struct device *dev)
 	int ret;
 
 	if (!device_is_ready(cfg->vdev)) {
-		LOG_ERR("virtio device not ready");
+		LOG_ERR_DEVICE_NOT_READY(cfg->vdev);
 		return -ENODEV;
 	}
 
-	k_mutex_init(&data->lock);
+	k_sem_init(&data->lock, 1, 1);
 	k_sem_init(&data->done, 0, 1);
 
 	data->irq_supported = virtio_read_device_feature_bit(cfg->vdev, VIRTIO_GPIO_F_IRQ);
@@ -673,7 +680,7 @@ static int gpio_virtio_init(const struct device *dev)
 	static struct gpio_virtio_data gpio_virtio_data_##inst;                                    \
 	static const struct gpio_virtio_config gpio_virtio_config_##inst = {                       \
 		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(inst),                                   \
-		.vdev = DEVICE_DT_GET(DT_PARENT(DT_DRV_INST(inst))),                               \
+		.vdev = DEVICE_DT_GET(DT_INST_PARENT(inst)),                                       \
 		.irq_lines = gpio_virtio_irq_lines_##inst,                                         \
 		.max_pins = DT_INST_PROP(inst, ngpios),                                            \
 	};                                                                                         \

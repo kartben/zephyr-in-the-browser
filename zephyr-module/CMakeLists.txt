@@ -2,8 +2,8 @@
 # and qemu,host-mic (DMIC) drivers, plus the browser_bridge shield
 # (boards/shields/browser_bridge/), which wires the browser-fed peripherals into
 # the QEMU boards. It also carries vendored copies of the not-yet-upstream
-# virtio,gpu / virtio,gpio / virtio,spi / virtio,blk drivers, the auxdisplay
-# shell, and a workqueue-based gpio-7-segment fix (drivers/vendor/).
+# virtio,gpu / virtio,gpio / virtio,i2c / virtio,spi / virtio,blk drivers, the
+# auxdisplay shell, and a workqueue-based gpio-7-segment fix (drivers/vendor/).
 
 # Vendored drivers, built only while Zephyr itself lacks them: an in-tree copy
 # would define the same symbols and break the link. See drivers/vendor/VENDOR.md.
@@ -22,6 +22,11 @@ if(EXISTS ${ZEPHYR_BASE}/drivers/spi/spi_virtio.c)
   set(VENDORED_VIRTIO_SPI "")
 endif()
 
+set(VENDORED_VIRTIO_I2C drivers/vendor/i2c_virtio.c)
+if(EXISTS ${ZEPHYR_BASE}/drivers/i2c/i2c_virtio.c)
+  set(VENDORED_VIRTIO_I2C "")
+endif()
+
 set(VENDORED_VIRTIO_BLK drivers/vendor/virtio_blk.c)
 if(EXISTS ${ZEPHYR_BASE}/drivers/disk/virtio_blk.c)
   set(VENDORED_VIRTIO_BLK "")
@@ -30,14 +35,6 @@ endif()
 set(VENDORED_AUXDISPLAY_SHELL drivers/vendor/auxdisplay_shell.c)
 if(EXISTS ${ZEPHYR_BASE}/drivers/auxdisplay/auxdisplay_shell.c)
   set(VENDORED_AUXDISPLAY_SHELL "")
-endif()
-
-# Not vendored — this one is written here, since Zephyr has no virtio I2C
-# driver at all — but it takes the same guard, because it uses the Kconfig and
-# file name upstream would and is meant to go there.
-set(OWN_VIRTIO_I2C drivers/i2c_virtio.c)
-if(EXISTS ${ZEPHYR_BASE}/drivers/i2c/i2c_virtio.c)
-  set(OWN_VIRTIO_I2C "")
 endif()
 
 # The module's public headers: qemu_host_audio.h for the audio API.
@@ -53,16 +50,16 @@ if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR CONFIG_QEMU_HOST_MIC OR (CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
    OR (CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
    OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
+   OR (CONFIG_I2C_VIRTIO AND VENDORED_VIRTIO_I2C)
    OR (CONFIG_DISK_DRIVER_VIRTIO_BLK AND VENDORED_VIRTIO_BLK)
-   OR (CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
    OR (CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
    OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ
    OR CONFIG_PM_DEMO_DEVICE)
   zephyr_library()
 endif()
 
-if(CONFIG_I2C_VIRTIO AND OWN_VIRTIO_I2C)
-  zephyr_library_sources(${OWN_VIRTIO_I2C})
+if(CONFIG_I2C_VIRTIO AND VENDORED_VIRTIO_I2C)
+  zephyr_library_sources(${VENDORED_VIRTIO_I2C})
 endif()
 
 if(CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
