@@ -61,11 +61,14 @@ describe('tours/', () => {
   it.each(tourFiles())('%s has usable stage directions on every step', (file) => {
     const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
     for (const step of doc.steps) {
-      expect(step.at, `step ${step.index + 1} has no anchor`).toBeTruthy()
+      expect(
+        step.at || step.file || step.dts.length > 0,
+        `step ${step.index + 1} has no at/file/dts`,
+      ).toBeTruthy()
       // A pattern anchor needs the sample's sources, which arrive with the
       // guest images and can be older than the tour. Every one carries a
       // fallback so the step still resolves on a build without them.
-      if (patternFile(step.at) !== null) {
+      if (step.at && patternFile(step.at) !== null) {
         expect(
           step.at.includes('|'),
           `step ${step.index + 1}: a pattern anchor wants a \`|\` fallback`,

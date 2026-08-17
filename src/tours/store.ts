@@ -26,6 +26,7 @@ import { revealPanelKind } from '@/lib/dockReveal'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
+import { loadCurriculumTour } from '@/curricula/catalog'
 import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
 import { whenFires } from '@/tours/when'
 
@@ -148,6 +149,8 @@ let steps: StepRuntime[] = []
 let lineIndex: LineIndex | null = null
 let lineIndexFor: Uint8Array | null = null
 let demoTimer: ReturnType<typeof setTimeout> | undefined
+/** Continue advances cards without gdb. Used by curricula and the mock replay. */
+let walking = false
 let armWatchdog: ReturnType<typeof setTimeout> | undefined
 /**
  * The step the stop filter decided on, waiting for the full stop to land.
@@ -351,6 +354,10 @@ export async function arm(): Promise<void> {
 
   for (const runtime of steps) {
     if (runtime.anchor) continue
+    if (!runtime.step.at) {
+      // Desk step: nothing to plant. The walkthrough shows it without gdb.
+      continue
+    }
     const result = resolveAnchor(runtime.step.at, context)
     if (!result.ok) {
       problems.push(`step ${runtime.step.index + 1}: ${result.error}`)
@@ -413,7 +420,7 @@ async function loadPatternSources(): Promise<void> {
   if (!sourceUrl) return
   const wanted = new Set<string>()
   for (const runtime of steps) {
-    const file = patternFile(runtime.step.at)
+    const file = runtime.step.at ? patternFile(runtime.step.at) : null
     if (file && !sources.has(file)) wanted.add(file)
   }
   await Promise.all(
@@ -686,6 +693,15 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
  * loses the step — reliably, not occasionally.
  */
 export function next(): void {
+  if (walking && !state.live) {
+    const index = (state.current?.step.index ?? -1) + 1
+    if (index < steps.length) showWalkStep(index)
+    else {
+      walking = false
+      publish({ current: null, finished: true })
+    }
+    return
+  }
   const card = state.current
   publish({ current: null })
   void (async () => {
@@ -712,6 +728,7 @@ export function revisit(index: number): void {
 /** Leave the tour: drop the breakpoints, resume, say nothing more. */
 export function skip(): void {
   const wasStopped = state.current?.paused ?? false
+  walking = false
   void disarm()
   publish({ current: null, finished: true })
   if (wasStopped && state.live) debug.resume()
@@ -719,6 +736,7 @@ export function skip(): void {
 
 /** Drop everything — a new guest is starting. */
 export function reset(): void {
+  walking = false
   if (demoTimer !== undefined) clearTimeout(demoTimer)
   demoTimer = undefined
   if (armWatchdog !== undefined) clearTimeout(armWatchdog)
@@ -792,6 +810,52 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
   }
 }
 
+function installWalk(doc: TourDoc): void {
+  if (demoTimer !== undefined) clearTimeout(demoTimer)
+  demoTimer = undefined
+  walking = true
+  steps = doc.steps.map((step) => ({
+    step,
+    anchor: null,
+    unresolved: false,
+    planted: false,
+    hits: 0,
+    card: null,
+  }))
+  publish({
+    doc,
+    live: false,
+    armed: false,
+    finished: false,
+    problems: [...doc.problems],
+    seen: new Set(),
+    current: null,
+  })
+}
+
+function showWalkStep(index: number): void {
+  const runtime = steps[index]
+  if (!runtime) return
+  runtime.hits = 1
+  runtime.card = demoCard(runtime)
+  if (runtime.step.panel) revealPanelKind(runtime.step.panel)
+  const seen = new Set(state.seen)
+  for (let i = 0; i <= index; i++) seen.add(i)
+  publish({ current: runtime.card, seen })
+}
+
+/**
+ * Start a curriculum as a reader-paced walkthrough. No gdb, no timer: Continue
+ * shows the next card. Used by the Learn tab and by screenshot hooks.
+ */
+export function startCurriculum(id: string, atIndex = 0): boolean {
+  const doc = loadCurriculumTour(id)
+  if (!doc) return false
+  installWalk(doc)
+  showWalkStep(Math.min(Math.max(atIndex, 0), doc.steps.length - 1))
+  return true
+}
+
 function demoCard(runtime: StepRuntime): TourCard {
   const { step } = runtime
   return {
@@ -822,4 +886,10 @@ function demoCard(runtime: StepRuntime): TourCard {
     threads: step.threads,
     highlight: resolveHighlights(step, null),
   }
+}
+
+if (import.meta.env.DEV) {
+  ;(
+    globalThis as unknown as { __zephyrCurriculumShow?: typeof startCurriculum }
+  ).__zephyrCurriculumShow = startCurriculum
 }

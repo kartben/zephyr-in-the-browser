@@ -102,8 +102,18 @@ export interface TourStep {
   title: string
   /** Markdown body; see src/components/Markdown.tsx for the subset rendered. */
   body: string
-  /** Raw anchor — `file.c:/pattern/`, `file.c:12`, `symbol`, `symbol+0x10` or `0x40001234`. */
-  at: string
+  /**
+   * Raw anchor — `file.c:/pattern/`, `file.c:12`, `symbol`, `symbol+0x10` or
+   * `0x40001234`. Null on a desk step that shows a file instead of breaking.
+   */
+  at: string | null
+  /**
+   * Build file to show without stopping the guest (`CMakeLists.txt`,
+   * `prj.conf`, an overlay). Desk steps set this and leave `at:` empty.
+   */
+  file: string | null
+  /** Outline chapter, from a `###` heading or a `chapter:` directive. */
+  chapter: string | null
   /** Hit condition, DAP's `hitCondition` spelt out: `hits == 1`, `hits % 4 == 0`. */
   when: string | null
   /** Stop the machine on this step. `stop: no` shows the card and runs on. */
@@ -141,6 +151,11 @@ export interface TourDoc {
   title: string
   /** Zephyr sample path this tour is written against, for cross-checking. */
   sample: string
+  /**
+   * When set, this tour is a curriculum: a named path, not a sample
+   * explaining itself. The outline uses chapter titles.
+   */
+  curriculum: string | null
   /** Prose between the front matter and the first step. */
   intro: string
   steps: TourStep[]
@@ -443,14 +458,23 @@ function buildStep(
   directives: string,
   body: string,
   problems: string[],
+  chapter: string | null,
 ): TourStep | null {
   const where = `step ${index + 1} (“${title}”)`
   const parsed = parseDirectives(directives)
   for (const problem of parsed.problems) problems.push(`${where}: ${problem}`)
 
   const at = asScalar(parsed.values.get('at'))
-  if (!at) {
-    problems.push(`${where}: no \`at:\` — a step has to say where it breaks`)
+  const file = asScalar(parsed.values.get('file'))
+  const highlightEarly = parseHighlightList(
+    parsed.values.get('highlight'),
+    where,
+    'highlight',
+    problems,
+  )
+  const dtsEarly = parseHighlightList(parsed.values.get('dts'), where, 'dts', problems)
+  if (!at && !file && dtsEarly.length === 0) {
+    problems.push(`${where}: no \`at:\`, \`file:\`, or \`dts:\`: a step needs one of those`)
     return null
   }
 
@@ -474,8 +498,8 @@ function buildStep(
   const objects = parseObjects(parsed.values.get('objects'), objectProblems)
   for (const problem of objectProblems) problems.push(`${where}: ${problem}`)
 
-  const highlight = parseHighlightList(parsed.values.get('highlight'), where, 'highlight', problems)
-  const dts = parseHighlightList(parsed.values.get('dts'), where, 'dts', problems)
+  const highlight = highlightEarly
+  const dts = dtsEarly
 
   const stop = asBool(parsed.values.get('stop'), true)
   const threads = asBool(parsed.values.get('threads'), false)
@@ -499,8 +523,10 @@ function buildStep(
     title,
     body: body.trim(),
     at,
+    file,
+    chapter: asScalar(parsed.values.get('chapter')) ?? chapter,
     when: asScalar(parsed.values.get('when')),
-    stop,
+    stop: at ? stop : false,
     repeat: asBool(parsed.values.get('repeat'), false),
     panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
     highlight,
@@ -551,10 +577,18 @@ export function parseTour(text: string): TourDoc {
   let body: string[] = []
   let fence: string | null = null
   let inTourBlock = false
+  let chapter: string | null = null
 
   const flush = () => {
     if (title === null) return
-    const step = buildStep(steps.length, title, (directives ?? []).join('\n'), body.join('\n'), problems)
+    const step = buildStep(
+      steps.length,
+      title,
+      (directives ?? []).join('\n'),
+      body.join('\n'),
+      problems,
+      chapter,
+    )
     if (step) steps.push(step)
     title = null
     directives = null
@@ -590,6 +624,13 @@ export function parseTour(text: string): TourDoc {
       continue
     }
 
+    const chapterHeading = /^###\s+(.*\S)\s*$/.exec(line)
+    if (chapterHeading) {
+      if (title !== null) flush()
+      chapter = chapterHeading[1]!
+      continue
+    }
+
     const heading = /^##\s+(.*\S)\s*$/.exec(line)
     if (heading) {
       flush()
@@ -606,6 +647,7 @@ export function parseTour(text: string): TourDoc {
   return {
     title: asScalar(front.get('tour')) ?? asScalar(front.get('title')) ?? 'Guided tour',
     sample: asScalar(front.get('sample')) ?? '',
+    curriculum: asScalar(front.get('curriculum')),
     intro: intro.join('\n').trim(),
     steps,
     problems,

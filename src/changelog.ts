@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "Learn tab drafts an environmental-node path."
+      },
+      {
+        "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
       },
       {

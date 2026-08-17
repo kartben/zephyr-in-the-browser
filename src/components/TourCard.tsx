@@ -95,18 +95,29 @@ export function TourCard({ board, sampleId }: Props) {
     : null
 
   return (
-    <div className="pointer-events-auto w-full max-w-[34rem]">
+    <div
+      data-shot-target="tour"
+      className={cn(
+        'pointer-events-auto w-full',
+        state.doc?.curriculum ? 'max-w-[48rem]' : 'max-w-[34rem]',
+      )}
+    >
       <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
+          <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+            {state.doc?.curriculum ?? state.doc?.title ?? 'Tour'}
+          </span>
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
             {total > 0 ? `${step.index + 1}/${total}` : step.index + 1}
           </span>
-          <TourOutline
-            steps={state.doc?.steps ?? []}
-            seen={state.seen}
-            currentIndex={step.index}
-          />
+          {!state.doc?.curriculum && (
+            <TourOutline
+              steps={state.doc?.steps ?? []}
+              seen={state.seen}
+              currentIndex={step.index}
+            />
+          )}
           {paused && (
             <span
               className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
@@ -116,17 +127,39 @@ export function TourCard({ board, sampleId }: Props) {
               paused
             </span>
           )}
+          {!paused && step.file && (
+            <span
+              className="ml-auto truncate font-mono text-[10.5px] text-muted-foreground"
+              title="This step shows a build file. The guest is not stopped."
+            >
+              {step.file}
+            </span>
+          )}
           <button
             type="button"
             aria-label="Dismiss"
             onClick={next}
-            className={`${paused ? '' : 'ml-auto '}rounded p-0.5 text-muted-foreground hover:text-foreground`}
+            className={`${paused || step.file ? '' : 'ml-auto '}rounded p-0.5 text-muted-foreground hover:text-foreground`}
           >
             <X className="size-3.5" aria-hidden />
           </button>
         </div>
 
-        <div className="max-h-[min(30rem,64vh)] space-y-2.5 overflow-y-auto px-3 py-2.5">
+        <div
+          className={cn(
+            'max-h-[min(36rem,72vh)] px-3 py-2.5',
+            state.doc?.curriculum && 'flex gap-3',
+          )}
+        >
+          {state.doc?.curriculum && (
+            <TourOutline
+              named
+              steps={state.doc.steps}
+              seen={state.seen}
+              currentIndex={step.index}
+            />
+          )}
+          <div className="min-w-0 flex-1 space-y-2.5 overflow-y-auto">
           <h2 className="text-sm font-semibold text-foreground">
             <InlineMarkdown text={step.title} />
           </h2>
@@ -198,6 +231,7 @@ export function TourCard({ board, sampleId }: Props) {
               ))}
             </ul>
           )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
