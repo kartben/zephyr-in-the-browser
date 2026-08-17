@@ -5,22 +5,12 @@
  */
 
 /*
- * Driver for the VIRTIO I2C adapter device (virtio spec 1.3, section 5.15).
- *
- * Zephyr has no virtio I2C driver, so unlike the virtio GPU and GPIO drivers
- * next door in drivers/vendor/ this is not a pristine copy of anything -- it is
- * written here, and intended to go upstream. It nevertheless uses the upstream
- * Kconfig name (CONFIG_I2C_VIRTIO) and the same CMake existence guard the
- * vendored drivers use, so that the day Zephyr grows its own
- * drivers/i2c/i2c_virtio.c, retiring this one is a pure deletion rather than a
- * rename.
+ * Driver for the VIRTIO I2C adapter device (virtio spec 1.3, section 5.16).
  *
  * The wire protocol puts one struct i2c_msg in one descriptor chain, so a
  * transfer of N messages is N chains. They are all queued before the device is
- * notified, which matters more here than it looks: the device is a browser tab,
- * and each round trip costs a handful of milliseconds, so submitting them one
- * at a time would multiply the cost of every multi-message transfer -- and
- * every register read is two messages.
+ * notified, which costs a multi-message transfer one round trip instead of one
+ * per message, and every register read is two messages.
  *
  * Every operation is a round trip to the device, so none of the I2C API calls
  * may be issued from an ISR.
@@ -62,15 +52,12 @@ struct virtio_i2c_in_hdr {
 struct i2c_virtio_slot {
 	struct virtio_i2c_out_hdr out_hdr;
 	struct virtio_i2c_in_hdr in_hdr;
-	uint32_t used_len;
 	/* The completion callback is handed a slot and nothing else. */
-	struct k_sem *done;
+	const struct device *dev;
 };
 
 struct i2c_virtio_config {
 	const struct device *vdev;
-	struct i2c_virtio_slot *slots;
-	uint16_t max_msgs;
 };
 
 struct i2c_virtio_data {
@@ -79,19 +66,30 @@ struct i2c_virtio_data {
 	/* given once per completed chain, taken once per queued chain */
 	struct k_sem done;
 	struct virtq *requestq;
+	/* outcome of the batch in flight, written by the completion callback */
+	int status;
+	struct i2c_virtio_slot slots[CONFIG_I2C_VIRTIO_MAX_MSGS];
 };
 
 /*
  * Runs on the virtio ISR. Chains may come back out of order -- legal, and
- * harmless here, because each message's status lands in its own slot and
- * nothing is inspected until every chain of the batch is back.
+ * harmless here, because a message is judged as it returns and only a failure
+ * writes to the shared status.
  */
 static void i2c_virtio_chain_cb(void *opaque, uint32_t used_len)
 {
 	struct i2c_virtio_slot *slot = opaque;
+	struct i2c_virtio_data *data = slot->dev->data;
 
-	slot->used_len = used_len;
-	k_sem_give(slot->done);
+	if (used_len < sizeof(slot->in_hdr)) {
+		LOG_ERR("short response (%u bytes)", used_len);
+		data->status = -EIO;
+	} else if (slot->in_hdr.status != VIRTIO_I2C_MSG_OK) {
+		LOG_DBG("message rejected by the device (status %u)", slot->in_hdr.status);
+		data->status = -EIO;
+	}
+
+	k_sem_give(&data->done);
 }
 
 /* Queue one message as a chain, without notifying the device. */
@@ -123,7 +121,6 @@ static int i2c_virtio_queue_msg(struct i2c_virtio_data *data, struct i2c_virtio_
 	slot->out_hdr.padding = 0;
 	slot->out_hdr.flags = sys_cpu_to_le32(flags);
 	slot->in_hdr.status = 0;
-	slot->used_len = 0;
 
 	bufs[nbufs++] = (struct virtq_buf){.addr = &slot->out_hdr, .len = sizeof(slot->out_hdr)};
 
@@ -167,11 +164,17 @@ static int i2c_virtio_transfer(const struct device *dev, struct i2c_msg *msgs, u
 
 	k_mutex_lock(&data->lock, K_FOREVER);
 
-	for (uint8_t base = 0; base < num_msgs; base += cfg->max_msgs) {
-		uint8_t batch = MIN(cfg->max_msgs, num_msgs - base);
-		uint8_t queued = 0;
+	for (uint16_t base = 0; base < num_msgs; base += CONFIG_I2C_VIRTIO_MAX_MSGS) {
+		uint16_t batch = MIN(CONFIG_I2C_VIRTIO_MAX_MSGS, num_msgs - base);
+		uint16_t queued = 0;
 
-		for (uint8_t i = 0; i < batch; i++) {
+		/*
+		 * Cleared before the first chain is queued: the device may
+		 * complete one as soon as it is made available.
+		 */
+		data->status = 0;
+
+		for (uint16_t i = 0; i < batch; i++) {
 			/*
 			 * "last" is per transfer, not per batch: a batch that is
 			 * not the final one must keep FAIL_NEXT set throughout,
@@ -179,7 +182,7 @@ static int i2c_virtio_transfer(const struct device *dev, struct i2c_msg *msgs, u
 			 */
 			bool last = (base + i) == (num_msgs - 1);
 
-			ret = i2c_virtio_queue_msg(data, &cfg->slots[i], &msgs[base + i], addr,
+			ret = i2c_virtio_queue_msg(data, &data->slots[i], &msgs[base + i], addr,
 						   last, i2c_virtio_chain_cb);
 			if (ret != 0) {
 				LOG_ERR("failed to queue message %u: %d", base + i, ret);
@@ -198,7 +201,7 @@ static int i2c_virtio_transfer(const struct device *dev, struct i2c_msg *msgs, u
 		 * returns them, and abandoning them would corrupt the slots the
 		 * next transfer reuses.
 		 */
-		for (uint8_t i = 0; i < queued; i++) {
+		for (uint16_t i = 0; i < queued; i++) {
 			k_sem_take(&data->done, K_FOREVER);
 		}
 
@@ -206,18 +209,9 @@ static int i2c_virtio_transfer(const struct device *dev, struct i2c_msg *msgs, u
 			goto out;
 		}
 
-		for (uint8_t i = 0; i < batch; i++) {
-			if (cfg->slots[i].used_len < sizeof(struct virtio_i2c_in_hdr)) {
-				LOG_ERR("message %u: short response (%u bytes)", base + i,
-					cfg->slots[i].used_len);
-				ret = -EIO;
-				goto out;
-			}
-			if (cfg->slots[i].in_hdr.status != VIRTIO_I2C_MSG_OK) {
-				LOG_DBG("message %u to 0x%02x NAKed", base + i, addr);
-				ret = -EIO;
-				goto out;
-			}
+		ret = data->status;
+		if (ret != 0) {
+			goto out;
 		}
 	}
 
@@ -248,9 +242,6 @@ static int i2c_virtio_get_config(const struct device *dev, uint32_t *config)
 {
 	ARG_UNUSED(dev);
 
-	if (config == NULL) {
-		return -EINVAL;
-	}
 	*config = I2C_MODE_CONTROLLER | I2C_SPEED_SET(I2C_SPEED_STANDARD);
 	return 0;
 }
@@ -261,15 +252,15 @@ static DEVICE_API(i2c, i2c_virtio_api) = {
 	.transfer = i2c_virtio_transfer,
 };
 
-static uint16_t i2c_virtio_enum_queues_cb(uint16_t q_index, uint16_t q_size_max, void *opaque)
+static uint16_t i2c_virtio_enum_queues_cb(uint16_t q_index, uint16_t q_size_max, void *unused)
 {
-	const struct i2c_virtio_config *cfg = opaque;
+	ARG_UNUSED(unused);
 
 	if (q_index != VIRTIO_I2C_REQUESTQ) {
 		return 0;
 	}
 	/* Up to three descriptors per message, for a whole batch at once. */
-	return MIN(NHPOT(3 * cfg->max_msgs), q_size_max);
+	return MIN(NHPOT(3 * CONFIG_I2C_VIRTIO_MAX_MSGS), q_size_max);
 }
 
 static int i2c_virtio_init(const struct device *dev)
@@ -279,14 +270,14 @@ static int i2c_virtio_init(const struct device *dev)
 	int ret;
 
 	if (!device_is_ready(cfg->vdev)) {
-		LOG_ERR("virtio device not ready");
+		LOG_ERR_DEVICE_NOT_READY(cfg->vdev);
 		return -ENODEV;
 	}
 
 	k_mutex_init(&data->lock);
-	k_sem_init(&data->done, 0, cfg->max_msgs);
-	for (uint16_t i = 0; i < cfg->max_msgs; i++) {
-		cfg->slots[i].done = &data->done;
+	k_sem_init(&data->done, 0, CONFIG_I2C_VIRTIO_MAX_MSGS);
+	for (uint16_t i = 0; i < CONFIG_I2C_VIRTIO_MAX_MSGS; i++) {
+		data->slots[i].dev = dev;
 	}
 
 	/* The adapter defines no feature bits, but the handshake is mandatory. */
@@ -296,8 +287,7 @@ static int i2c_virtio_init(const struct device *dev)
 		return ret;
 	}
 
-	ret = virtio_init_virtqueues(cfg->vdev, 1, i2c_virtio_enum_queues_cb,
-				     (void *)cfg);
+	ret = virtio_init_virtqueues(cfg->vdev, 1, i2c_virtio_enum_queues_cb, NULL);
 	if (ret != 0) {
 		LOG_ERR("virtio_init_virtqueues failed: %d", ret);
 		return ret;
@@ -311,18 +301,15 @@ static int i2c_virtio_init(const struct device *dev)
 
 	virtio_finalize_init(cfg->vdev);
 
-	LOG_DBG("ready, up to %u messages per batch", cfg->max_msgs);
+	LOG_DBG("ready, up to %u messages per batch", CONFIG_I2C_VIRTIO_MAX_MSGS);
 
 	return 0;
 }
 
 #define I2C_VIRTIO_DEFINE(inst)                                                                    \
-	static struct i2c_virtio_slot i2c_virtio_slots_##inst[CONFIG_I2C_VIRTIO_MAX_MSGS];         \
 	static struct i2c_virtio_data i2c_virtio_data_##inst;                                      \
 	static const struct i2c_virtio_config i2c_virtio_config_##inst = {                         \
-		.vdev = DEVICE_DT_GET(DT_PARENT(DT_DRV_INST(inst))),                                \
-		.slots = i2c_virtio_slots_##inst,                                                   \
-		.max_msgs = CONFIG_I2C_VIRTIO_MAX_MSGS,                                            \
+		.vdev = DEVICE_DT_GET(DT_INST_PARENT(inst)),                                       \
 	};                                                                                         \
 	I2C_DEVICE_DT_INST_DEFINE(inst, i2c_virtio_init, NULL, &i2c_virtio_data_##inst,            \
 				  &i2c_virtio_config_##inst, POST_KERNEL,                          \

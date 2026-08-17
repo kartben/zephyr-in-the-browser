@@ -52,14 +52,14 @@ driver would be compiled twice and fail to link — which is why
 
 ## `gpio_virtio.c`
 
-VIRTIO GPIO driver (virtio spec 1.3, section 5.16).
+VIRTIO GPIO driver (virtio spec 1.3, section 5.18).
 
 | | |
 | --- | --- |
-| Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/114423> (draft) |
-| Commit | `92dacf42802bc5f8d090166ddc6d87627bbb7482` — *drivers: gpio: add VIRTIO GPIO driver* |
+| Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/114983> |
+| Commit | `ca318983a157a366fd67debbcfaaa83ef02d4405` — *drivers: gpio: add VIRTIO GPIO driver* |
 | Path | `drivers/gpio/gpio_virtio.c` |
-| SHA-256 | `70fc6c6889acc064a0863b85e77b8b3c3c30f623c2bebe6d83758041d1ab84c2` |
+| SHA-256 | `052e1510cf2c4fbb840e3fba4e716a9528587c56749fb839c45c5fc1f1e7e5cf` |
 
 Shipped alongside it, also unmodified from the same commit:
 
@@ -81,7 +81,7 @@ whose GPIO device model is TypeScript — `src/virtio/devices/gpio.ts`. See
 ### Checking for drift
 
 ```console
-diff <(gh api "repos/kartben/zephyr/contents/drivers/gpio/gpio_virtio.c?ref=claude/virtio-gpio-driver-9a5e5a" --jq .content | base64 -d) \
+diff <(gh api "repos/kartben/zephyr/contents/drivers/gpio/gpio_virtio.c?ref=virtio_gpio" --jq .content | base64 -d) \
      zephyr-module/drivers/vendor/gpio_virtio.c
 ```
 
@@ -91,6 +91,52 @@ diff <(gh api "repos/kartben/zephyr/contents/drivers/gpio/gpio_virtio.c?ref=clau
 name upstream uses, for the same reason as `CONFIG_VIRTIO_GPU_DISPLAY` above,
 and with the same CMake guard — here on
 `${ZEPHYR_BASE}/drivers/gpio/gpio_virtio.c`.
+
+## `i2c_virtio.c`
+
+VIRTIO I2C adapter driver (virtio spec 1.3, section 5.16).
+
+| | |
+| --- | --- |
+| Upstream | <https://github.com/zephyrproject-rtos/zephyr/pull/115003> |
+| Commit | `43874a971b86fa517855c43313da677eb4e3449d` — *drivers: i2c: add VIRTIO I2C adapter driver* |
+| Path | `drivers/i2c/i2c_virtio.c` |
+| SHA-256 | `b0530e3ebb0bbdbd53aa19400eb661ed81e9ddbdee33c293a5b2dc9d00cc57e6` |
+
+Shipped alongside it, also unmodified from the same commit:
+
+- `zephyr-module/dts/bindings/i2c/virtio,i2c.yaml` — the `virtio,i2c`
+  binding (`dts/bindings/i2c/virtio,i2c.yaml` upstream),
+  SHA-256 `16fdb4f13b81f9513a4c49c95f81bb94fa73e51f26dc5103dc58200395e8b52b`.
+
+This driver was written in this repo first, since Zephyr had no virtio I2C
+driver at all, and lived at `zephyr-module/drivers/i2c_virtio.c` until it went
+upstream. It is now a pristine copy like the rest, so keep it byte-identical and
+send fixes to the PR.
+
+The upstream branch also carries a `tests/drivers/build_all/i2c` entry, which is
+not vendored — it tests the driver in the Zephyr tree, not here.
+
+As with GPIO, the device this driver talks to is **not** stock QEMU but the
+generic browser virtio bridge, whose I2C device model is TypeScript —
+`src/virtio/devices/i2c.ts`. See `docs/virtio-bridge.md`. The request layout that
+model decodes (out header, payload, then a 1-byte status) is fixed by the spec,
+so re-pinning the driver does not move it.
+
+### Checking for drift
+
+```console
+diff <(gh api "repos/kartben/zephyr/contents/drivers/i2c/i2c_virtio.c?ref=claude/virtio-i2c-upstream-pr-ac1160" --jq .content | base64 -d) \
+     zephyr-module/drivers/vendor/i2c_virtio.c
+```
+
+### Kconfig symbol collision
+
+`CONFIG_I2C_VIRTIO` and `CONFIG_I2C_VIRTIO_MAX_MSGS` are declared in
+`zephyr-module/Kconfig` under the *same* names upstream uses, with the same CMake
+guard on `${ZEPHYR_BASE}/drivers/i2c/i2c_virtio.c`. `MAX_MSGS` sizes a
+per-instance slot array in the driver's data, so a Kconfig that drifts from the
+driver's expectations shows up as a build error, not a silent behaviour change.
 
 ## `spi_virtio.c`
 
