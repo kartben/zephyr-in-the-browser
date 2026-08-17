@@ -233,8 +233,8 @@
  * alone. A disk is not free the way the other bridges are, which is why it is
  * per-sample rather than in the board argv.
  *
- * The guest driver is vendored from zephyrproject-rtos/zephyr#112581
- * (zephyr-module/drivers/vendor/virtio_blk.c) until it lands upstream.
+ * The guest driver is in-tree (drivers/disk/virtio_blk.c), so unlike the other
+ * virtio nodes here this one leans on nothing vendored.
  *
  * Declared disabled: `-S virtio-blk` turns it on and adds the FAT mount.
  */

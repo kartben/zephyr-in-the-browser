@@ -1,9 +1,7 @@
 /*
  * Copyright (c) 2026 Benjamin Cabé <benjamin@zephyrproject.org>
  *
- * Exercises the vendored virtio,blk disk driver
- * (zephyr-module/drivers/vendor/virtio_blk.c, from
- * https://github.com/zephyrproject-rtos/zephyr/pull/112581).
+ * Exercises Zephyr's virtio,blk disk driver (drivers/disk/virtio_blk.c).
  *
  * The device is a stock QEMU virtio-blk over a raw image the page allocates
  * blank in the Emscripten filesystem, so the first boot of a session finds an

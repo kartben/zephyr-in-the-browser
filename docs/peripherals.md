@@ -299,8 +299,10 @@ behind a snippet:
   [virtio-bridge.md](virtio-bridge.md). The Cortex-M3 keeps its MMIO
   device: the LM3S6965 machine has no virtio-mmio bus.
 - **virtio-blk** (`-S virtio-blk`) gives the guest a block device on
-  virtio-mmio slot 6, and the `virtio_blk` sample puts a FAT volume on it.
-  Vendored from [zephyr#112581](https://github.com/zephyrproject-rtos/zephyr/pull/112581).
+  virtio-mmio slot 6, and the `virtio_blk` sample puts a FAT volume on it. The
+  driver is in-tree as of
+  [zephyr#112581](https://github.com/zephyrproject-rtos/zephyr/pull/112581), so
+  this repo carries nothing for it.
 
   This is the **odd one out**, and worth understanding as the counter-example to
   everything above: virtio-blk is a device QEMU already ships, so there is no

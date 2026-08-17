@@ -6,7 +6,7 @@ import type { FsTreeFile } from './fsTree'
 /**
  * The fixture is a real image: FatFS f_mkfs() output from
  * zephyr-module/apps/virtio_blk_fs running on qemu_cortex_a53 over the
- * vendored virtio,blk driver, dumped out of the emulator's MEMFS. Testing
+ * virtio,blk driver, dumped out of the emulator's MEMFS. Testing
  * against what Zephyr actually writes is the point — a hand-rolled image would
  * only prove the reader agrees with whatever the test author assumed.
  */
