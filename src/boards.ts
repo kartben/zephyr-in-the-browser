@@ -190,6 +190,12 @@ export interface Board {
      */
     virtio?: boolean
     /**
+     * The page's I2C chips on the SoC's own I2C controller, through
+     * `hw/i2c/host_i2c.c`. Unlike `virtio`, the guest binds a stock vendor
+     * driver and has no idea. See src/hostI2c.ts. ESP32-C3 only.
+     */
+    hostI2c?: boolean
+    /**
      * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
      * Needs `-semihosting` on the argv; the Trace dock row follows it.
      */
@@ -752,6 +758,38 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
 /** A53 gallery + artifacts, including `<id>_trace` twins (docs/focus.md). */
 const CORTEX_A53_SAMPLES: GuestSample[] = withA53TraceVariants(CORTEX_A53_SAMPLES_BASE)
 
+/**
+ * The I2C samples the ESP32-C3 shares with the virtio boards. Same guest
+ * sources, same page-side chip models, same labels — only the bus underneath
+ * differs, and the sample cannot tell: it binds a stock driver to a node the
+ * esp32-i2c snippet declares on the SoC's own controller. Listed by id so the
+ * descriptions live in one place; the manifest has the matching rows.
+ *
+ * Not here: accel_chart, which needs a framebuffer this machine does not have.
+ */
+const ESP32C3_I2C_SAMPLE_IDS = [
+  'eeprom',
+  'lsm6dso',
+  'lps22hh',
+  'ina219',
+  'isl29035',
+  'rtc',
+  'auxdisplay',
+  'ht16k33',
+  'lp5562',
+  'lp50xx',
+  'pwm_led',
+  'dac',
+  'fuel_gauge',
+  'oled',
+] as const
+
+const ESP32C3_I2C_SAMPLES: GuestSample[] = ESP32C3_I2C_SAMPLE_IDS.map((id) => {
+  const sample = CORTEX_A53_SAMPLES_BASE.find((s) => s.id === id)
+  if (!sample) throw new Error(`esp32c3: no shared sample "${id}"`)
+  return sample
+})
+
 export const BOARDS: Board[] = [
   {
     id: 'qemu_cortex_m3',
@@ -1014,7 +1052,7 @@ export const BOARDS: Board[] = [
     // esp32 driver. It reaches the page through the same exported functions as
     // the Cortex-M3's qemu,host-gpio, so the same panel serves it. The other
     // bridges are still absent: this machine has neither a virtio bus nor PCI.
-    peripherals: { hostGpio: true },
+    peripherals: { hostGpio: true, hostI2c: true },
     samples: [
       {
         id: 'hello_world',
@@ -1041,6 +1079,17 @@ export const BOARDS: Board[] = [
         zephyrSample: 'samples/basic/button',
         primaryPanels: ['gpio'],
       },
+      {
+        // Its own entry rather than the A53's: this board has no SPI bus, no
+        // filesystem and no audio, so the shell's story here is I2C.
+        id: 'shell',
+        label: 'Shell',
+        description:
+          'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc` and `eeprom` over the SoC’s own I²C bus',
+        zephyrSample: 'samples/subsys/shell/shell_module',
+        primaryPanels: ['i2c'],
+      },
+      ...ESP32C3_I2C_SAMPLES,
     ],
     defaultSampleId: 'hello_world',
     extraFiles: [

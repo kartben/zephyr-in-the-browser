@@ -20,6 +20,7 @@ import * as hostDisk from '@/hostDisk'
 import * as hostGnss from '@/hostGnss'
 import * as hostBt from '@/hostBt'
 import * as hostGpio from '@/hostGpio'
+import * as hostI2c from '@/hostI2c'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
@@ -95,9 +96,18 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     spiModel.chips,
     useCallback(() => NO_SPI, []),
   )
+  // Two transports reach the same bus: the virtio adapter, and the ESP32-C3's
+  // own I2C controller through src/hostI2c.ts. Either one makes the chips live.
   const i2c = useSyncExternalStore(
-    subscribeBinds,
-    useCallback(() => isBound('i2c'), []),
+    useCallback((onChange: () => void) => {
+      const unbind = subscribeBinds(onChange)
+      const unhost = hostI2c.subscribe(onChange)
+      return () => {
+        unbind()
+        unhost()
+      }
+    }, []),
+    useCallback(() => isBound('i2c') || hostI2c.available(), []),
     () => false,
   )
   const spi = useSyncExternalStore(

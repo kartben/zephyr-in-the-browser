@@ -87,6 +87,8 @@ export function createMcp4725({
   let status = RDY_BIT
   let generation = 0
   let pointer = ADDR_DAC_CODE
+  /** How far into the current read message the next byte comes from. */
+  let readOffset = 0
 
   const notify = () => {
     generation++
@@ -180,6 +182,9 @@ export function createMcp4725({
     version: () => generation,
     write(bytes) {
       if (bytes.length === 0) return true
+      // A write ends whatever read came before it, so the status frame starts
+      // over — same rule as startRead below.
+      readOffset = 0
       if (bytes.length >= 2 && (bytes[0]! & 0xc0) === 0) {
         applyFastWrite(bytes[0]!, bytes[1]!)
         return true
@@ -187,6 +192,10 @@ export function createMcp4725({
       applyEepromWrite(bytes)
       return true
     },
+    startRead() {
+      readOffset = 0
+    },
+
     read(length) {
       // Datasheet §6.2: byte0 status (RDY bit7), then DAC / EEPROM payload.
       // Driver only checks RDY on init — keep bit7 set.
@@ -201,8 +210,12 @@ export function createMcp4725({
         ((pd & 0x03) << 1) | ((eeprom >> 8) & 0x0f),
         eeprom & 0xff,
       ])
+      // The frame restarts on every read message, so a bus that splits one
+      // into runs carries on where the last run stopped — see
+      // I2cChip.startRead.
       const out = new Uint8Array(length)
-      for (let i = 0; i < length; i++) out[i] = frame[i] ?? 0
+      for (let i = 0; i < length; i++) out[i] = frame[readOffset + i] ?? 0
+      readOffset += length
       return out
     },
     subscribe(fn) {

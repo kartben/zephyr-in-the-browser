@@ -3,10 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * ESP32-C3 DevKitC. Unlike the other machines here, nothing on this board is a
- * browser-backed device: the GPIO controller is the SoC's own, modelled in
- * QEMU, and the guest drives it with the stock Zephyr esp32 driver. The page
- * watches the pins through the same two exported functions the Cortex-M3's
- * qemu,host-gpio device provides, so src/hostGpio.ts binds to either.
+ * browser-backed *device*: the peripherals are the SoC's own, modelled in
+ * QEMU, and the guest drives them with the stock Zephyr esp32 drivers. What
+ * the browser supplies is what would be wired to them.
+ *
+ * GPIO: the page watches the pins through the same two exported functions the
+ * Cortex-M3's qemu,host-gpio device provides, so src/hostGpio.ts binds to
+ * either. I2C: hw/i2c/host_i2c.c sits on the controller's bus and answers for
+ * whichever chips the page has attached, so src/hostI2c.ts puts the same
+ * models on it that the Cortex-A53 reaches over VIRTIO.
  *
  * The board devicetree already brings a button: `sw0` is a gpio-keys node on
  * GPIO9, active low with a pull-up, so the button sample needs no overlay at
@@ -38,4 +43,16 @@
 	aliases {
 		led0 = &led0;
 	};
+};
+
+/*
+ * The board devicetree turns i2c0 on unconditionally, because a real DevKitC
+ * really does have that controller with those pins. Here it is off unless a
+ * sample asks for it with `-S esp32-i2c`, which is also where the parts bin
+ * lives: the device dock is grounded in the running build's flattened
+ * devicetree, so a bus left on for hello_world is a card the user has to look
+ * past. Same rule as the LED node above.
+ */
+&i2c0 {
+	status = "disabled";
 };

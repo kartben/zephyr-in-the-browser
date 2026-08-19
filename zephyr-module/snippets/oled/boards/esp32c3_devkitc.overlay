@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Solder the browser's SSD1306 onto the ESP32-C3's I2C bus and make it the
+ * guest's display. Requires -S esp32-i2c, which declares ssd1306_0 and turns
+ * the bus on:
+ *
+ *   west build -b esp32c3_devkitc -S esp32-i2c -S oled samples/drivers/display
+ *
+ * Same file as the Cortex-A53's but for one thing it cannot have: there is no
+ * `&ramfb0 { status = "disabled" }` here, because this machine has no
+ * framebuffer to turn off. The OLED is the only display on the board, and the
+ * pixels the driver pushes over I2C land in page JavaScript
+ * (src/virtio/devices/chips/ssd1306.ts), which the OLED panel paints.
+ */
+
+&ssd1306_0 {
+	status = "okay";
+};
+
+/ {
+	chosen {
+		zephyr,display = &ssd1306_0;
+	};
+};

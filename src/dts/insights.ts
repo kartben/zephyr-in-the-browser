@@ -243,7 +243,12 @@ const SENSOR_CHIP_IDS = new Set([
 ])
 
 /** The I2C adapter the page's chips answer on (QEMU's `name=i2c` device). */
-const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c'])
+// espressif,esp32-i2c is the odd one out, for the same reason
+// espressif,esp32-gpio is below: not a browser-invented device but the SoC's
+// own controller, modelled in QEMU and driven by the stock Zephyr driver. The
+// page answers for the chips on it through hw/i2c/host_i2c.c, so the bus
+// carries page-side models exactly as the virtio one does.
+const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c', 'espressif,esp32-i2c'])
 /** The SPI controller the page's chips answer on (QEMU's `name=spi` device). */
 const BRIDGED_SPI_COMPATS = new Set(['virtio,spi'])
 /** The GPIO controllers the browser panel drives, one per board. */

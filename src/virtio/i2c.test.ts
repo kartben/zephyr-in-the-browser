@@ -260,6 +260,62 @@ describe('virtio-i2c model', () => {
     })
   })
 
+  /**
+   * The bus underneath the transport, which src/hostI2c.ts drives directly for
+   * a machine with no virtio at all. What matters here is the case virtio can
+   * never produce: a read message arriving in more than one piece, which is
+   * what the ESP32 controller does (it splits N bytes into N-1 and 1 so it can
+   * NAK the last one).
+   */
+  describe('bus, split across runs', () => {
+    it('carries a two-byte register across two one-byte reads', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+      tmp.setCelsius(-10) // 0xf6 0x00, so the two bytes cannot be confused
+
+      i2c.writeMessage(0x48, Uint8Array.of(0x00))
+      const first = i2c.readMessage(0x48, 1, true)
+      const second = i2c.readMessage(0x48, 1, false)
+
+      expect([...first!, ...second!]).toEqual([0xf6, 0x00])
+      // And the whole-message read agrees, which is what virtio does.
+      expect(Array.from(i2c.readMessage(0x48, 2, true)!)).toEqual([0xf6, 0x00])
+    })
+
+    it('rewinds to the start of the register on the next message', () => {
+      const tmp = createTmp112({ address: 0x48 })
+      i2c.attachChip(tmp)
+      tmp.setCelsius(-10)
+
+      i2c.writeMessage(0x48, Uint8Array.of(0x00))
+      i2c.readMessage(0x48, 1, true)
+      // A fresh address phase: the part starts at the high byte again.
+      expect(Array.from(i2c.readMessage(0x48, 1, true)!)).toEqual([0xf6])
+    })
+
+    it('lets a streaming part carry on across runs, without rewinding', () => {
+      const eeprom = createAt24({ address: 0x50 })
+      i2c.attachChip(eeprom)
+      i2c.writeMessage(0x50, Uint8Array.of(0x00, 1, 2, 3, 4))
+
+      i2c.writeMessage(0x50, Uint8Array.of(0x00))
+      const a = i2c.readMessage(0x50, 2, true)
+      const b = i2c.readMessage(0x50, 2, false)
+      expect([...a!, ...b!]).toEqual([1, 2, 3, 4])
+    })
+
+    it('reports what is on the bus, and NAKs what is not', () => {
+      i2c.attachChip(createTmp112({ address: 0x48 }))
+
+      expect(i2c.hasChip(0x48)).toBe(true)
+      expect(i2c.hasChip(0x49)).toBe(false)
+      expect(i2c.readMessage(0x49, 1, true)).toBeNull()
+      expect(i2c.writeMessage(0x49, Uint8Array.of(0))).toBe(false)
+      // A NAK at an empty address is not logged: `i2c scan` probes 116 of them.
+      expect(i2c.transactions().filter((x) => x.address === 0x49)).toEqual([])
+    })
+  })
+
   describe('SSD1306', () => {
     const CONTROL_CMD = 0x00
     const CONTROL_DATA = 0x40

@@ -14,3 +14,8 @@ boards:
   qemu_riscv32/qemu_virt_riscv32:
     append:
       EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  # Its own file: the C3 has no ramfb0 to disable, so the shared overlay's last
+  # stanza would be a dangling label reference.
+  esp32c3_devkitc/esp32c3:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/esp32c3_devkitc.overlay
