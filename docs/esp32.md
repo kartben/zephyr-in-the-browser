@@ -103,22 +103,79 @@ The ELF is still shipped and still preloaded, so the debugger can resolve
 `CONFIG_DEBUG_THREAD_INFO` symbols out of it as on every other board. It is just
 not what boots.
 
-## Known limits
+## The bridges work inside out
 
-- **GPIO is the only peripheral bridged, and it works differently from the
-  others.** Everything else in the device dock is either a device invented for
-  the browser or a virtio-mmio bridge, and this machine has neither a virtio bus
-  nor PCI. GPIO instead is the SoC's own controller, modelled in QEMU and driven
-  by the stock Zephyr esp32 driver: nothing is vendored, and the guest is not
-  aware it is emulated. The page reaches it through the same two exported
-  functions as the Cortex-M3's `qemu,host-gpio`, so `src/hostGpio.ts` and the
-  panel serve both without knowing the difference. `blinky` drives `led0`, and
-  the button is interrupt-driven rather than polled as on the M3.
-- **I2C and SPI are not reachable.** Zephyr's `i2c0` sits at `0x60013000` with
-  nothing mapped behind it, and the only I2C model in the fork is the Xtensa
-  ESP32's. `spi2` at `0x60024000` is likewise unmodelled; the only SPI
-  controller is `spi1`, which carries the flash. Both are new QEMU device
-  models rather than bridge work.
+Everything else in the device dock is either a device invented for the browser
+or a virtio-mmio bridge, and this machine has neither a virtio bus nor PCI.
+Here the peripheral is the SoC's own, modelled in QEMU and driven by the stock
+Zephyr driver; what the browser supplies is what would be *wired to it*. The
+guest is not aware of any of it, which is the point: nothing is vendored, and
+what runs is what would run on the part.
+
+### GPIO
+
+The page reaches the pins through the same two exported functions as the
+Cortex-M3's `qemu,host-gpio`, so `src/hostGpio.ts` and the panel serve both
+without knowing the difference. `blinky` drives `led0`, and the button is
+interrupt-driven rather than polled as on the M3.
+
+### I2C
+
+`hw/i2c/host_i2c.c` is one I2C slave on the controller's bus that answers for
+every address the page has a chip at, and `src/hostI2c.ts` is the other end.
+The chips are the same TypeScript models the Cortex-A53 reaches over VIRTIO:
+`src/virtio/devices/i2c.ts` is a *bus* plus a transport onto it, and this is
+the second transport, so an EEPROM, an IMU or an OLED works here without a
+line of chip code being repeated. `-S esp32-i2c` is the parts bin (the same
+node labels as `-S virtio-i2c`, so the `<part>-only` snippets are shared), and
+the browser_bridge shield turns `i2c0` off by default so a sample that does not
+ask for the bus does not carry a dock card for it.
+
+Two things cross the boundary through one struct in the wasm heap, whose
+address `qemu_host_i2c_area()` exports:
+
+| Offset | Field | Written by | Meaning |
+| --- | --- | --- | --- |
+| 0x00 | `magic` | QEMU | `0x42433249` (`"I2CB"`) |
+| 0x04 | `version` | QEMU | protocol version, currently 1 |
+| 0x08 | `present[4]` | page | bit N = a chip answers at 7-bit address N |
+| 0x18 | `attached` | page | non-zero while the page is listening |
+| 0x1c | `req_seq` | QEMU | bumped after a request is filled in; futex-woken |
+| 0x20 | `rsp_seq` | page | set to `req_seq` once answered; futex-woken |
+| 0x24 | `op` | QEMU | 1 = write, 2 = read |
+| 0x28 | `addr` | QEMU | 7-bit address |
+| 0x2c | `len` | QEMU | bytes to write, or to read |
+| 0x30 | `flags` | QEMU | bit 0 = this read opens a message |
+| 0x34 | `status` | page | 0 = ACK, 1 = NAK |
+| 0x3c | `data[4096]` | both | payload, either direction |
+
+Presence is a mask rather than a request because it is asked on every transfer
+and 116 times by one `i2c scan`; making that a round trip would have made a
+scan the slowest thing on the board. Transfers themselves park the guest's
+thread on a futex until the page answers or 250 ms passes, which is a real
+blocking wait: a slow browser stalls the guest the way a slow I2C device
+would. Nothing re-enters the block layer or a coroutine, which is what makes
+that safe from guest context under Asyncify.
+
+The awkward part was read length. Zephyr's driver splits a read of N bytes into
+N-1 and 1 so it can NAK the last one, so a *message* is not what the slave
+sees; QEMU tells it the length of each run through `i2c_announce_recv()`, and
+flags the run that opens a message so a chip whose read position is scoped to a
+message (a thermometer restarting at the high byte of its temperature
+register) rewinds at the right moment and not between the two halves of its own
+register. That is `I2cChip.startRead`, and it is why the page's models needed
+no other change.
+
+## Known limits
+- **SPI2 is not reachable.** Zephyr's `spi2` sits at `0x60024000` with nothing
+  mapped behind it: the machine wires only `spi1`, the flash controller. That
+  is not a second instance of the same model, tempting as `hw/ssi/esp32c3_spi.c`
+  looks: its registers are the `SPI_MEM_*` set of the *memory* controller
+  (CMD 0x00, USER 0x18, W0 0x58), and GP-SPI2 is a different peripheral with a
+  different map (USER 0x10, MS_DLEN 0x1c, W0 0x98). The fork's only general SPI
+  master is `hw/ssi/esp32_spi.c`, for the original Xtensa ESP32, whose map
+  differs again. So this is a new device model, and after it the same
+  browser-bridge question as I2C.
 - **Pull-ups are the page's job.** The model has no notion of a pad pull-up: an
   input reads whatever was last driven onto it. `src/hostGpio.ts` seeds each
   input to its resting level from the devicetree flags, which is where the

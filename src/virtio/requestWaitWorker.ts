@@ -1,12 +1,13 @@
 /**
- * Blocking guest→page wake for the generic virtio bridge.
+ * Blocking guest→page wake, for any bridge that has a futex word in the wasm
+ * heap: the generic virtio bridge, and the ESP32-C3's I2C bridge
+ * (src/hostI2c.ts). Nothing here knows which.
  *
- * QEMU publishes a request into a SharedArrayBuffer ring, increments one
- * process-wide futex word, and notifies it. A dedicated worker may block in
- * Atomics.wait() on that word; the browser's main thread may not. Each wake is
- * forwarded as a regular worker message so the existing device models can
- * stay on the main thread, where their UI subscriptions and browser-backed
- * persistence already live.
+ * QEMU publishes a request into shared memory, increments one futex word, and
+ * notifies it. A dedicated worker may block in Atomics.wait() on that word;
+ * the browser's main thread may not. Each wake is forwarded as a regular
+ * worker message so the existing device models can stay on the main thread,
+ * where their UI subscriptions and browser-backed persistence already live.
  *
  * There is deliberately no stop message. A worker blocked in Atomics.wait()
  * cannot receive one; transport.detach() terminates the worker instead.

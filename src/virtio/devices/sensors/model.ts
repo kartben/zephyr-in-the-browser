@@ -131,9 +131,10 @@ export interface SensorDecl {
  * `i2cModel.attachChip(chip)` takes it directly.
  */
 export interface SensorChip extends I2cChip {
-  /** Always present on a built sensor (the machine provides both). */
+  /** Always present on a built sensor (the machine provides all three). */
   write(bytes: Uint8Array): boolean
   read(length: number): Uint8Array
+  startRead(): void
   readonly decl: SensorDecl
   /** Same list as `decl.registers` — {@link RegisterMapSource} surface. */
   readonly registers: readonly RegisterDecl[]
@@ -251,6 +252,13 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
   )
 
   let pointer = decl.registers[0]?.addr ?? 0
+  /**
+   * How far into the current read message the next byte comes from. A part
+   * like this restarts at the pointed register on every read message, so a
+   * fresh address phase rewinds it (see I2cChip.startRead); within one message
+   * it carries on, which is what a bus that hands a read over in pieces needs.
+   */
+  let readOffset = 0
 
   const listeners = new Set<() => void>()
   // Coalesce notifies that land in the same turn (e.g. three orientation axes
@@ -283,6 +291,38 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
     return regs.get(addr) ?? 0
   }
 
+  /** The first `count` bytes a read message would produce from `pointer`. */
+  function messageBytes(count: number): Uint8Array {
+    const out = new Uint8Array(count)
+
+    if (decl.autoIncrement) {
+      // Stream forward across the register file: emit the pointed register,
+      // then the next by address, and so on. A gap between declared registers
+      // reads as open bus (0xff), like the real part.
+      let addr = pointer
+      let i = 0
+      while (i < count) {
+        const reg = regByAddr.get(addr)
+        if (!reg) {
+          out[i++] = 0xff
+          addr += 1
+          continue
+        }
+        const pattern = wordToBytes(currentWord(addr), reg.bytes, reg.endian ?? 'be')
+        for (const b of pattern) if (i < count) out[i++] = b
+        addr += reg.bytes
+      }
+      return out
+    }
+
+    const reg = regByAddr.get(pointer)
+    const pattern = wordToBytes(currentWord(pointer), reg?.bytes ?? 2, reg?.endian ?? 'be')
+    // A read longer than the register repeats it, the way a point-then-read
+    // part does rather than running off into whatever follows.
+    for (let i = 0; i < count; i++) out[i] = pattern[i % pattern.length]
+    return out
+  }
+
   const chip: SensorChip = {
     address,
     name,
@@ -292,6 +332,11 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
     write(bytes) {
       if (bytes.length === 0) return true
       pointer = bytes[0] & pointerMask
+      // Pointing at a register is the other thing that decides where a read
+      // starts, so it rewinds too — a driver does [write pointer][restart]
+      // [read], and a caller holding the chip directly does the same in two
+      // calls with no bus in between.
+      readOffset = 0
       // A pointer-only write is the first half of a register read.
       if (bytes.length < 2) return true
 
@@ -304,35 +349,18 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
       return true
     },
 
+    startRead() {
+      readOffset = 0
+    },
+
     read(length) {
-      const out = new Uint8Array(length)
-
-      if (decl.autoIncrement) {
-        // Stream forward across the register file: emit the pointed register,
-        // then the next by address, and so on. A gap between declared registers
-        // reads as open bus (0xff), like the real part.
-        let addr = pointer
-        let i = 0
-        while (i < length) {
-          const reg = regByAddr.get(addr)
-          if (!reg) {
-            out[i++] = 0xff
-            addr += 1
-            continue
-          }
-          const pattern = wordToBytes(currentWord(addr), reg.bytes, reg.endian ?? 'be')
-          for (const b of pattern) if (i < length) out[i++] = b
-          addr += reg.bytes
-        }
-        return out
-      }
-
-      const reg = regByAddr.get(pointer)
-      const pattern = wordToBytes(currentWord(pointer), reg?.bytes ?? 2, reg?.endian ?? 'be')
-      // A read longer than the register repeats it, the way a point-then-read
-      // part does rather than running off into whatever follows.
-      for (let i = 0; i < length; i++) out[i] = pattern[i % pattern.length]
-      return out
+      // Generate the message from its start and hand back the slice this read
+      // asks for. Recomputing the prefix is what makes a split read safe: the
+      // bytes are pure functions of the registers, so nothing is consumed
+      // twice and a chunked read comes out the same as a whole one.
+      const from = readOffset
+      readOffset += length
+      return messageBytes(from + length).subarray(from)
     },
 
     setChannel(key, value) {

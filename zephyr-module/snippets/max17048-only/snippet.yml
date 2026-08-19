@@ -15,3 +15,9 @@ boards:
   qemu_riscv32/qemu_virt_riscv32:
     append:
       EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  # The overlay only ever names node labels, so the ESP32-C3 reuses it as is:
+  # esp32-i2c declares the same parts under the same labels on the SoC's own
+  # I2C controller.
+  esp32c3_devkitc/esp32c3:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay

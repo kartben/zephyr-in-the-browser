@@ -1,6 +1,7 @@
 import { attach as attachHostDisplay, detach as detachHostDisplay } from '@/hostDisplay'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { attach as attachHostGpio, detach as detachHostGpio } from '@/hostGpio'
+import { attach as attachHostI2c, detach as detachHostI2c } from '@/hostI2c'
 import { attach as attachHostAudio, detach as detachHostAudio } from '@/hostAudio'
 import { attach as attachHostMic, detach as detachHostMic } from '@/hostMic'
 import { attach as attachGuestStats, detach as detachGuestStats } from '@/guestStats'
@@ -428,6 +429,10 @@ export function createQemuBackend(): PtyBackend {
       else detachHostGnss()
       if (board.peripherals?.hostGpio) attachHostGpio(instance)
       else detachHostGpio()
+      // Also after attachVirtio: the chips it serves are registered on the
+      // virtio I2C model, whether or not this machine has a virtio bus.
+      if (board.peripherals?.hostI2c) attachHostI2c(instance)
+      else detachHostI2c()
       if (board.peripherals?.hostAudio) attachHostAudio(instance)
       else detachHostAudio()
       if (board.peripherals?.hostMic) attachHostMic(instance)
@@ -468,6 +473,7 @@ export function createQemuBackend(): PtyBackend {
       detachHostDisplay()
       detachHostGnss()
       detachHostGpio()
+      detachHostI2c()
       detachHostAudio()
       detachHostMic()
       detachGuestStats()

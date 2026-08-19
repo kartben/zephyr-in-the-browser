@@ -1,0 +1,298 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn the ESP32-C3's I2C controller back on and describe the chips the
+ * browser has on it. This is the C3's half of what virtio-i2c does for the
+ * Cortex-A53, and deliberately the same parts at the same addresses under the
+ * same node labels, so every `<part>-only` snippet works on either board
+ * without knowing which bus it is enabling.
+ *
+ * What is underneath could not be more different, though, and that is the
+ * point. There is no virtio device here and no vendored driver: i2c0 is the
+ * SoC's own controller at 0x60013000, Zephyr binds its stock `espressif,
+ * esp32-i2c` driver to it, and QEMU models it. The browser is on the other
+ * side of that model - hw/i2c/host_i2c.c answers for whichever addresses
+ * src/hostI2c.ts says the page has attached. A guest here is talking to the
+ * peripheral its datasheet describes.
+ *
+ * The browser_bridge shield is what turned i2c0 off, so this file is what a
+ * sample asks for when it wants the bus: `-S esp32-i2c`, before the
+ * `<part>-only` snippet that solders a chip on. Same rule as virtio-i2c -
+ * every node below is declared `status = "disabled"` and the parts bin is
+ * opt-in, because the device dock is grounded in the running build's
+ * flattened devicetree.
+ */
+
+#include <zephyr/dt-bindings/led/led.h>
+
+&i2c0 {
+	status = "okay";
+
+	/*
+	 * Matches createAt24({ address: 0x50 }) in src/virtio/index.ts. The
+	 * page models one-byte word addressing, which is the AT24C02 part.
+	 * `-S eeprom-only`, which also adds the eeprom-0 alias.
+	 */
+	eeprom0: eeprom@50 {
+		compatible = "atmel,at24";
+		reg = <0x50>;
+		size = <256>;
+		pagesize = <8>;
+		address-width = <8>;
+		timeout = <5>;
+		status = "disabled";
+	};
+
+	/*
+	 * Matches createTmp112({ address: 0x48 }) in src/virtio/index.ts, whose
+	 * temperature its sensor card drives directly. Zephyr's stock ti,tmp112
+	 * binds to it and talks over the real bus: `sensor get tmp112@48` reads a
+	 * value the page made up, through an unmodified in-tree driver. No sample
+	 * of its own; `-S i2c-shell` is what puts it on the bus.
+	 */
+	tmp112_0: tmp112@48 {
+		compatible = "ti,tmp112";
+		reg = <0x48>;
+		status = "disabled";
+	};
+
+	/*
+	 * Matches createLm75({ address: 0x49 }) in src/virtio/index.ts: a
+	 * second, simpler temperature part one strap along, so both share the
+	 * bus. `sensor get lm75@49` reads it through Zephyr's stock driver.
+	 * Like the TMP112, it rides `-S i2c-shell`: two thermometers on one bus
+	 * is a shell story (`i2c scan` finds both), not a demo of its own.
+	 */
+	lm75_0: lm75@49 {
+		compatible = "lm75";
+		reg = <0x49>;
+		status = "disabled";
+	};
+
+	/*
+	 * Matches createAdxl345({ address: 0x53 }) in src/virtio/index.ts: a
+	 * 3-axis accelerometer whose card can follow the device's own tilt.
+	 * `-S adxl345-only` turns it on and aliases it accel0, which is how the
+	 * LVGL accelerometer_chart sample reads it unmodified; `-S i2c-shell`
+	 * also carries it, for `sensor get adxl345@53`.
+	 */
+	adxl345_0: adxl345@53 {
+		compatible = "adi,adxl345";
+		reg = <0x53>;
+		status = "disabled";
+	};
+
+	/*
+	 * Enable any of the parts below with:
+	 *   -S i2c-shell   (the whole set the shell's commands can drive)
+	 *   -S adxl345-only / eeprom-only / lsm6dso-only / lps22hh-only /
+	 *      ina219-only / isl29035-only / pcf8523-only / jhd1313-only /
+	 *      ht16k33-only / lp5562-only / lp5012-only / pca9685-only /
+	 *      mcp4725-only / max17048-only
+	 *      (dedicated sample: that part alone, nothing else on the bus)
+	 *
+	 * The page attaches matching TypeScript models only while these nodes
+	 * are okay (see syncManagedChips in src/virtio/index.ts).
+	 */
+	lsm6dso_0: lsm6dso@6a {
+		compatible = "st,lsm6dso";
+		reg = <0x6a>;
+		status = "disabled";
+	};
+
+	lps22hh_0: lps22hh@5c {
+		compatible = "st,lps22hh";
+		reg = <0x5c>;
+		status = "disabled";
+	};
+
+	ina219_0: ina219@40 {
+		compatible = "ti,ina219";
+		reg = <0x40>;
+		brng = <0>;
+		pg = <0>;
+		sadc = <13>;
+		badc = <13>;
+		shunt-milliohm = <100>;
+		lsb-microamp = <10>;
+		status = "disabled";
+	};
+
+	isl29035_0: isl29035@44 {
+		compatible = "isil,isl29035";
+		reg = <0x44>;
+		status = "disabled";
+	};
+
+	/*
+	 * NXP PCF8523 RTC (Adafruit shield address 0x68). The shell reaches it
+	 * via -S i2c-shell; the dedicated samples/drivers/rtc build uses
+	 * -S pcf8523-only, which also adds the `rtc` alias it binds.
+	 */
+	pcf8523_0: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+		battery-switch-over = "standard";
+		alarms-count = <1>;
+		status = "disabled";
+	};
+
+	/*
+	 * Matches createSsd1306({ address: 0x3c }) in src/virtio/index.ts, whose
+	 * GDDRAM the OLED panel paints onto a canvas. `-S oled` is what turns it
+	 * on and points zephyr,display at it. On this board that is the only
+	 * display there is (the C3 machine has no framebuffer of any kind), so
+	 * the OLED is what a display sample draws on. Nothing but a display driver
+	 * can drive one, so there is no build where the panel is worth carrying
+	 * dark.
+	 *
+	 * The timing and charge-pump properties are the datasheet's defaults; the
+	 * page ignores them, but they are required by the binding and a real part
+	 * would need them.
+	 */
+	ssd1306_0: ssd1306@3c {
+		compatible = "solomon,ssd1306";
+		reg = <0x3c>;
+		width = <128>;
+		height = <64>;
+		segment-offset = <0>;
+		page-offset = <0>;
+		display-offset = <0>;
+		multiplex-ratio = <63>;
+		prechargep = <0x22>;
+		segment-remap;
+		com-invdir;
+		status = "disabled";
+	};
+
+	/*
+	 * Grove RGB character LCD. Matches createJhd1313Pair() in
+	 * src/virtio/index.ts (LCD @0x3e, backlight-addr 0x62). Disabled by
+	 * default so everyday builds stay on the OLED; samples/drivers/
+	 * auxdisplay uses -S jhd1313-only.
+	 *
+	 * Nodename auxdisplay_0 is required: the stock sample binds
+	 * DT_NODELABEL(auxdisplay_0).
+	 */
+	auxdisplay_0: jhd1313@3e {
+		compatible = "jhd,jhd1313";
+		reg = <0x3e>;
+		columns = <16>;
+		rows = <2>;
+		backlight-addr = <0x62>;
+		status = "disabled";
+	};
+
+	/*
+	 * Holtek HT16K33 16×8 LED matrix. Matches createHt16k33({ address: 0x70 })
+	 * in src/virtio/index.ts. Disabled by default; samples/drivers/ht16k33
+	 * uses -S ht16k33-only. Keyscan / irq-gpios are omitted (v1 is LED only).
+	 */
+	ht16k33_0: ht16k33@70 {
+		compatible = "holtek,ht16k33";
+		reg = <0x70>;
+		status = "disabled";
+	};
+
+	/*
+	 * NXP PCA9685 16-channel PWM. Matches createPca9685({ address: 0x60 }) in
+	 * src/virtio/index.ts. Adafruit's shield defaults to 0x40, but that address
+	 * is already ina219@40 here, so use 0x60 and both can stay declared.
+	 * samples/drivers/led/pwm uses -S pca9685-only.
+	 */
+	pca9685_0: pca9685@60 {
+		compatible = "nxp,pca9685-pwm";
+		reg = <0x60>;
+		#pwm-cells = <3>;
+		status = "disabled";
+	};
+
+	/*
+	 * Microchip MCP4725 12-bit DAC. Matches createMcp4725({ address: 0x61 }) in
+	 * src/virtio/index.ts. Adafruit breakouts default to 0x60, but that address
+	 * is already pca9685@60 here, so use 0x61 (A0 high) and both stay declared.
+	 * samples/drivers/dac uses -S mcp4725-only.
+	 */
+	mcp4725_0: mcp4725@61 {
+		compatible = "microchip,mcp4725";
+		reg = <0x61>;
+		#io-channel-cells = <1>;
+		status = "disabled";
+	};
+
+	/*
+	 * Maxim MAX17048 Li-ion fuel gauge. Matches createMax17048({ address: 0x36 })
+	 * in src/virtio/index.ts (Adafruit / Zephyr shield default). Disabled by
+	 * default; samples/drivers/fuel_gauge uses -S max17048-only.
+	 */
+	max17048_0: max17048@36 {
+		compatible = "maxim,max17048";
+		reg = <0x36>;
+		status = "disabled";
+	};
+
+	/*
+	 * TI LP5562 RGBW LED driver. Matches createLp5562({ address: 0x30 }) in
+	 * src/virtio/index.ts (Zephyr sample default). Disabled by default;
+	 * samples/drivers/led/lp5562 uses -S lp5562-only. enable-gpios omitted:
+	 * the page model treats the chip as already enabled.
+	 */
+	lp5562_0: lp5562@30 {
+		compatible = "ti,lp5562";
+		reg = <0x30>;
+		status = "disabled";
+	};
+
+	/*
+	 * TI LP5012 4-module RGB LED. Matches createLp5012({ address: 0x14 }) in
+	 * src/virtio/index.ts. Address 0x14 is the LP5009/12 binding example and
+	 * avoids lp5562@30. Disabled by default; samples/drivers/led/lp50xx uses
+	 * -S lp5012-only. enable-gpios omitted.
+	 */
+	lp5012_0: lp5012@14 {
+		compatible = "ti,lp5012";
+		reg = <0x14>;
+		status = "disabled";
+
+		led_0 {
+			label = "LED LP5012 0";
+			index = <0>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+
+		led_1 {
+			label = "LED LP5012 1";
+			index = <1>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+
+		led_2 {
+			label = "LED LP5012 2";
+			index = <2>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+
+		led_3 {
+			label = "LED LP5012 3";
+			index = <3>;
+			color-mapping = <LED_COLOR_ID_RED>,
+					 <LED_COLOR_ID_GREEN>,
+					 <LED_COLOR_ID_BLUE>;
+		};
+	};
+};
+
+/*
+ * No aliases here, same as virtio-i2c: each alias travels with the `-only`
+ * snippet that solders its chip on (accel0 in adxl345-only, eeprom-0 in
+ * eeprom-only, rtc in pcf8523-only, fuel-gauge0 in max17048-only), so a build
+ * resolves DT_ALIAS(...) to a real, driver-bound node or carries no such name
+ * at all.
+ */

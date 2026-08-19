@@ -1,10 +1,18 @@
 /**
- * VIRTIO I2C adapter device model (virtio spec 1.3, section 5.15), in the page.
+ * The page's I2C bus, and the VIRTIO adapter that is one way onto it.
  *
  * This is the first device that exists *only* here — there is no C device model
  * for it in QEMU and there never will be, because the generic bridge carries
  * it. Adding an I2C chip is a TypeScript file and a `attachChip` call; no
  * emulator rebuild is involved.
+ *
+ * Two things live here, and the split is what lets a second machine reuse
+ * every chip unchanged. The **bus** is the chip registry, the transaction log
+ * and {@link I2cModel.writeMessage} / {@link I2cModel.readMessage}. The
+ * **transport** is `handle` below, which turns virtqueue descriptor chains
+ * into calls on the bus. src/hostI2c.ts is the other transport: the ESP32-C3
+ * has no virtio bus at all, so its guest drives the SoC's own I2C controller
+ * and QEMU hands the transfers to the same three bus calls.
  *
  * The wire shape is one descriptor chain per `struct i2c_msg`, so a Zephyr
  * `i2c_transfer` of N messages arrives here as N requests. Each carries:
@@ -70,6 +78,19 @@ export interface I2cChip {
    * than asked pads with 0xff, which is what an open bus reads as.
    */
   read?(length: number): Uint8Array | null | undefined
+  /**
+   * A read message is starting — the master has just addressed this chip for
+   * reading. Only chips whose read position is scoped to one message need
+   * this: a thermometer restarts at the high byte of its temperature register
+   * on every read, where an EEPROM carries on from wherever the last one
+   * stopped.
+   *
+   * It exists because not every bus hands a message over whole. Virtio does,
+   * so there it is called once and immediately followed by one `read`; the
+   * ESP32 controller splits a read of N bytes into N-1 and 1 so it can NAK
+   * the last one, and without this the chip would be asked for byte 0 twice.
+   */
+  startRead?(): void
 }
 
 export interface I2cTransaction {
@@ -90,6 +111,22 @@ export interface I2cTransaction {
 }
 
 export interface I2cModel extends VirtioDeviceModel {
+  /**
+   * One write message: hand `bytes` to whatever is at `address` and log it.
+   * False when nothing is there, or when the chip NAKed. An address nothing
+   * answers at is deliberately not logged — `i2c scan` probes 116 of them.
+   */
+  writeMessage(address: number, bytes: Uint8Array): boolean
+  /**
+   * One read, of `length` bytes. `first` says this opens a new read message,
+   * which is what a message-scoped chip rewinds on (see
+   * {@link I2cChip.startRead}); a transport that can only see part of a
+   * message at a time passes false for the rest of it. Null when nothing is
+   * at `address` or the chip NAKed; a short answer is the caller's to pad.
+   */
+  readMessage(address: number, length: number, first: boolean): Uint8Array | null
+  /** Whether a chip answers at this 7-bit address. */
+  hasChip(address: number): boolean
   /** Put a chip on the bus. Returns a function that removes it again. */
   attachChip(chip: I2cChip): () => void
   /** Take whatever chip is at `address` off the bus. A no-op if none is. */
@@ -188,6 +225,44 @@ export function createI2cModel(name = 'i2c'): I2cModel {
     scheduleLogNotify()
   }
 
+  function writeMessage(address: number, bytes: Uint8Array): boolean {
+    const chip = bus.get(address)
+    if (!chip) return false
+
+    const ok = chip.write?.(bytes) !== false
+    const logged = copyLogBytes(bytes)
+    record({
+      address,
+      dir: 'write',
+      bytes: logged.bytes,
+      byteLength: logged.byteLength,
+      ok,
+      chip: chip.name,
+    })
+    return ok
+  }
+
+  function readMessage(address: number, length: number, first: boolean): Uint8Array | null {
+    const chip = bus.get(address)
+    if (!chip) return null
+
+    if (first) chip.startRead?.()
+    const data = chip.read?.(length)
+    const ok = data != null
+    const logged = ok
+      ? copyLogBytes(data.subarray(0, length))
+      : { bytes: new Uint8Array(), byteLength: 0 }
+    record({
+      address,
+      dir: 'read',
+      bytes: logged.bytes,
+      byteLength: logged.byteLength,
+      ok,
+      chip: chip.name,
+    })
+    return ok ? data : null
+  }
+
   function handle(req: VirtioRequest) {
     if (req.queue !== VQ_REQUEST) {
       console.warn(`[virtio-i2c] request on unexpected queue ${req.queue}`)
@@ -226,48 +301,30 @@ export function createI2cModel(name = 'i2c'): I2cModel {
       return
     }
 
-    const chip = bus.get(address)
-    if (!chip) {
+    if (!bus.has(address)) {
       // Nothing at this address. Deliberately not logged: `i2c scan` probes
       // 116 addresses and would bury every real transaction under NAKs.
       answer(false)
       return
     }
 
+    // A descriptor chain is always a whole message, so every read here opens
+    // one — nothing on this transport ever passes false for `first`.
     if (isRead) {
-      const length = req.inCap - 1
-      const data = chip.read?.(length)
-      const ok = data != null
-      answer(ok, data ?? undefined)
-      const logged = ok ? copyLogBytes((data as Uint8Array).subarray(0, length)) : { bytes: new Uint8Array(), byteLength: 0 }
-      record({
-        address,
-        dir: 'read',
-        bytes: logged.bytes,
-        byteLength: logged.byteLength,
-        ok,
-        chip: chip.name,
-      })
+      const data = readMessage(address, req.inCap - 1, true)
+      answer(data != null, data ?? undefined)
       return
     }
 
-    const payload = req.out.subarray(OUT_HDR_BYTES)
-    const ok = chip.write?.(payload) !== false
-    answer(ok)
-    const logged = copyLogBytes(payload)
-    record({
-      address,
-      dir: 'write',
-      bytes: logged.bytes,
-      byteLength: logged.byteLength,
-      ok,
-      chip: chip.name,
-    })
+    answer(writeMessage(address, req.out.subarray(OUT_HDR_BYTES)))
   }
 
   return {
     name,
     handle,
+    writeMessage,
+    readMessage,
+    hasChip: (address) => bus.has(address),
 
     reset() {
       failing = false

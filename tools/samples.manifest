@@ -30,6 +30,10 @@
 #   ramfb ........ the 600x400 framebuffer         (virt machines)
 #   virtio-input . the tablet behind the display   (virt machines; pairs with conf/touch.conf)
 #   virtio-gpio .. VIRTIO GPIO + its LED/button    (virt machines)
+#   esp32-i2c .... the ESP32-C3's own I2C controller, with the same parts bin
+#                  under the same node labels, so every `<part>-only` below
+#                  works on that board too (the chips are the same page-side
+#                  models; only the bus underneath differs)
 #   virtio-i2c ... VIRTIO I2C adapter; declares every chip the page models, all
 #                  disabled, and a `<part>-only` snippet solders one on:
 #                  adxl345-only, eeprom-only, lsm6dso-only, lps22hh-only,
@@ -186,3 +190,18 @@ qemu_riscv32:hello_world:samples/hello_world
 esp32c3_devkitc:hello_world:samples/hello_world
 esp32c3_devkitc:blinky:samples/basic/blinky::esp32-leds
 esp32c3_devkitc:basic_button:samples/basic/button
+esp32c3_devkitc:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf,conf/i2c.conf:esp32-i2c,i2c-shell
+esp32c3_devkitc:eeprom:samples/drivers/eeprom:conf/eeprom.conf:esp32-i2c,eeprom-only
+esp32c3_devkitc:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:esp32-i2c,lsm6dso-only
+esp32c3_devkitc:lps22hh:samples/sensor/lps22hh:conf/lps22hh.conf:esp32-i2c,lps22hh-only
+esp32c3_devkitc:ina219:samples/sensor/ina219:conf/ina219.conf:esp32-i2c,ina219-only
+esp32c3_devkitc:isl29035:samples/sensor/isl29035:conf/isl29035.conf:esp32-i2c,isl29035-only
+esp32c3_devkitc:rtc:samples/drivers/rtc:conf/pcf8523.conf:esp32-i2c,pcf8523-only
+esp32c3_devkitc:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:esp32-i2c,jhd1313-only
+esp32c3_devkitc:ht16k33:samples/drivers/ht16k33:conf/ht16k33.conf:esp32-i2c,ht16k33-only
+esp32c3_devkitc:lp5562:samples/drivers/led/lp5562:conf/lp5562.conf:esp32-i2c,lp5562-only
+esp32c3_devkitc:lp50xx:samples/drivers/led/lp50xx:conf/lp50xx.conf:esp32-i2c,lp5012-only
+esp32c3_devkitc:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:esp32-i2c,pca9685-only
+esp32c3_devkitc:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:esp32-i2c,mcp4725-only
+esp32c3_devkitc:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:esp32-i2c,max17048-only
+esp32c3_devkitc:oled:samples/drivers/display::esp32-i2c,oled
