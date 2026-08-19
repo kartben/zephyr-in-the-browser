@@ -14,6 +14,8 @@ const ALL: Availability = {
   net: true,
   i2c: true,
   spi: false,
+  can: false,
+  power: false,
   display: true,
   input: true,
   disk: false,

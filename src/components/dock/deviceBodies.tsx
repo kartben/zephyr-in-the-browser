@@ -45,6 +45,7 @@ import { I2cBody } from '@/components/I2cPanel'
 import { SpiBody, SpiCsDot } from '@/components/SpiPanel'
 import { UartBody } from '@/components/UartPanel'
 import { CanBody } from '@/components/CanPanel'
+import { PowerBody } from '@/components/PowerCard'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { FlashBadge } from '@/components/FlashStats'
 import { DiskBadge, DiskBody } from '@/components/DiskPanel'
@@ -189,6 +190,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <UartBody busKey={node.key} />
     case 'can':
       return <CanBody />
+    case 'power':
+      return <PowerBody />
     case 'spi-flash':
       return (
         <SpiFlashBody
@@ -266,6 +269,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Cable
     case 'can':
       return Network
+    case 'power':
+      return BatteryCharging
     case 'spi-flash':
       return MemoryStick
     case 'disk':

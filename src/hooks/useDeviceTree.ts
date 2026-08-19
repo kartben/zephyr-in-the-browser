@@ -22,6 +22,8 @@ import * as hostBt from '@/hostBt'
 import * as hostGpio from '@/hostGpio'
 import * as hostI2c from '@/hostI2c'
 import * as hostSpi from '@/hostSpi'
+import * as hostTwai from '@/hostTwai'
+import * as hostPowerState from '@/hostPowerState'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
@@ -69,6 +71,8 @@ function deriveShared(
     avail.net,
     avail.i2c,
     avail.spi,
+    avail.can,
+    avail.power,
     avail.display,
     avail.input,
   ]
@@ -123,6 +127,12 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     useCallback(() => isBound('spi') || hostSpi.available(), []),
     () => false,
   )
+  const can = useSyncExternalStore(hostTwai.subscribe, hostTwai.available, () => false)
+  const power = useSyncExternalStore(
+    hostPowerState.subscribe,
+    hostPowerState.available,
+    () => false,
+  )
   const gnss = useSyncExternalStore(hostGnss.subscribe, hostGnss.available, () => false)
   const bluetooth = useSyncExternalStore(hostBt.subscribe, hostBt.available, () => false)
   const gpio = useSyncExternalStore(hostGpio.subscribe, hostGpio.available, () => false)
@@ -162,7 +172,9 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   }, [chips])
 
   const inventory = useMemo(() => {
-    const avail: Availability = { gnss, bluetooth, gpio, audio, mic, net, i2c, spi, display, input, disk }
+    const avail: Availability = {
+      gnss, bluetooth, gpio, audio, mic, net, i2c, spi, can, power, display, input, disk,
+    }
     return deriveShared(tree, chips, spiChips, avail, boardId, phase)
   }, [
     tree,
@@ -176,6 +188,8 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     net,
     i2c,
     spi,
+    can,
+    power,
     display,
     input,
     disk,
