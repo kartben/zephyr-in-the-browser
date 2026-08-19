@@ -25,6 +25,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Blinky and Button samples on the ESP32-C3, with a live GPIO panel."
+      },
+      {
+        "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
       },
       {

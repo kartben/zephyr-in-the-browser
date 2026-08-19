@@ -160,6 +160,12 @@ export interface Board {
   args: string[]
   /** Where the kernel lands in the Emscripten filesystem; matches `-kernel`. */
   kernelFsPath: string
+  /**
+   * Boards that boot out of emulated flash rather than from `-kernel`: where
+   * the merged image lands, matching the `-drive` in `args`. Resolved per
+   * sample the way `kernelFsPath` is, since each sample has its own image.
+   */
+  flashFsPath?: string
   /** Optional browser bridges physically present on this machine. */
   peripherals?: {
     gnss?: boolean
@@ -1002,10 +1008,13 @@ export const BOARDS: Board[] = [
     // Not in the argv: the ELF is preloaded only so the debugger can resolve
     // CONFIG_DEBUG_THREAD_INFO symbols out of it, the way it does elsewhere.
     kernelFsPath: '/pack/zephyr.elf',
-    // No browser bridges. Every one of them is either a patched device on
-    // `virt`/`lm3s6965` or a virtio-mmio bridge, and this machine has neither a
-    // virtio bus nor PCI, so the device dock has nothing to show yet.
-    peripherals: {},
+    flashFsPath: '/pack/flash.bin',
+    // The GPIO controller is the SoC's own, modelled in QEMU rather than
+    // invented for the browser, and the guest drives it with the stock Zephyr
+    // esp32 driver. It reaches the page through the same exported functions as
+    // the Cortex-M3's qemu,host-gpio, so the same panel serves it. The other
+    // bridges are still absent: this machine has neither a virtio bus nor PCI.
+    peripherals: { hostGpio: true },
     samples: [
       {
         id: 'hello_world',
@@ -1013,13 +1022,29 @@ export const BOARDS: Board[] = [
         description: 'Prints one line and stops',
         zephyrSample: 'samples/hello_world',
       },
+      {
+        // led0 is GPIO8, where the DevKitM-1 puts its RGB LED. The node comes
+        // from the shield: the board devicetree has no LED of its own.
+        id: 'blinky',
+        label: 'Blinky',
+        description: 'Blinks LED0. Watch it in the device dock',
+        zephyrSample: 'samples/basic/blinky',
+        primaryPanels: ['gpio'],
+      },
+      {
+        // sw0 on GPIO9 is in the stock board devicetree, so this one needs no
+        // overlay at all. Interrupt-driven, unlike the Cortex-M3's polled
+        // gpio-keys: the modelled controller has a real IRQ line.
+        id: 'basic_button',
+        label: 'Button',
+        description: 'Press SW0 in the device dock',
+        zephyrSample: 'samples/basic/button',
+        primaryPanels: ['gpio'],
+      },
     ],
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/esp32c3-rom.bin', asset: 'esp32c3-rom.bin' },
-      // Board-level, which only works while this board has a single sample. A
-      // second one needs the flash image resolved per sample, like sampleAsset().
-      { fsPath: '/pack/flash.bin', asset: 'zephyr/esp32c3_devkitc/hello_world.flash.bin' },
     ],
     usesDataBundle: false,
   },
@@ -1052,6 +1077,14 @@ export function sampleAsset(board: Board, sampleId: string): string {
  * The flattened devicetree shipped next to the image, when the build put one
  * there (tools/build-zephyr-image.sh does; older tarballs may not have it).
  */
+/**
+ * The merged flash image for a sample, on boards that boot from flash. Built
+ * beside the ELF by tools/build-zephyr-image.sh.
+ */
+export function sampleFlashAsset(board: Board, sampleId: string): string {
+  return `zephyr/${board.zephyrTarget}/${sampleId}.flash.bin`
+}
+
 export function sampleDtsAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.dts`
 }

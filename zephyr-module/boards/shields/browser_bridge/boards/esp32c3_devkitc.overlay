@@ -1,0 +1,41 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * ESP32-C3 DevKitC. Unlike the other machines here, nothing on this board is a
+ * browser-backed device: the GPIO controller is the SoC's own, modelled in
+ * QEMU, and the guest drives it with the stock Zephyr esp32 driver. The page
+ * watches the pins through the same two exported functions the Cortex-M3's
+ * qemu,host-gpio device provides, so src/hostGpio.ts binds to either.
+ *
+ * The board devicetree already brings a button: `sw0` is a gpio-keys node on
+ * GPIO9, active low with a pull-up, so the button sample needs no overlay at
+ * all. It has no LED, though, so blinky needs the node below.
+ *
+ * GPIO8 is where the DevKitM-1 puts its addressable RGB LED. A plain gpio-leds
+ * node is the browser stand-in for it: the panel shows a pin going high, which
+ * is what blinky is demonstrating.
+ *
+ * As on the other boards, the node is declared `status = "disabled"` and a
+ * snippet turns it on: `-S esp32-leds`. The shield says where the device is;
+ * the manifest says which images carry it, because the dock is grounded in the
+ * running build's devicetree.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	esp32_leds: leds {
+		compatible = "gpio-leds";
+		status = "disabled";
+
+		led0: led_0 {
+			gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+			label = "LED0";
+		};
+	};
+
+	aliases {
+		led0 = &led0;
+	};
+};

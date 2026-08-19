@@ -10,8 +10,9 @@ import {
   getLeds,
   getNgpios,
   isInputHigh,
+  isPressed,
   isOutputHigh,
-  setInput,
+  setPressed,
   subscribe,
   type ClaimedPin,
   type Pin,
@@ -125,13 +126,17 @@ function ClaimedPinRow({ pin }: { pin: ClaimedPin }) {
   const pressable = pin.direction === 'in' && pin.consumer?.kind === 'keys'
   const high =
     pin.direction === 'in'
-      ? isInputHigh(pin.id)
+      ? // A key reads as lit when it is pressed, which on an active-low pin is
+        // the opposite of its electrical level.
+        pressable
+        ? isPressed(pin.id)
+        : isInputHigh(pin.id)
       : pin.direction === 'out'
         ? isOutputHigh(pin.id)
         : false
 
   const press = (down: boolean) => {
-    if (pressable) setInput(pin.id, down)
+    if (pressable) setPressed(pin.id, down)
   }
 
   return (
@@ -221,7 +226,7 @@ function UsedByButton({
 function ButtonPin({ pin }: { pin: Pin }) {
   const high = useSyncExternalStore(
     subscribe,
-    useCallback(() => isInputHigh(pin.id), [pin.id]),
+    useCallback(() => isPressed(pin.id), [pin.id]),
     () => false,
   )
 
@@ -231,26 +236,26 @@ function ButtonPin({ pin }: { pin: Pin }) {
       aria-pressed={high}
       aria-label={`${pin.label} (pin ${pin.id})`}
       onPointerDown={(e) => {
-        setInput(pin.id, true)
+        setPressed(pin.id, true)
         try {
           e.currentTarget.setPointerCapture(e.pointerId)
         } catch {
           /* ignore */
         }
       }}
-      onPointerUp={() => setInput(pin.id, false)}
-      onPointerCancel={() => setInput(pin.id, false)}
-      onLostPointerCapture={() => setInput(pin.id, false)}
+      onPointerUp={() => setPressed(pin.id, false)}
+      onPointerCancel={() => setPressed(pin.id, false)}
+      onLostPointerCapture={() => setPressed(pin.id, false)}
       onKeyDown={(e) => {
         if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
           e.preventDefault()
-          setInput(pin.id, true)
+          setPressed(pin.id, true)
         }
       }}
       onKeyUp={(e) => {
         if (e.key === ' ' || e.key === 'Enter') {
           e.preventDefault()
-          setInput(pin.id, false)
+          setPressed(pin.id, false)
         }
       }}
       className={cn(

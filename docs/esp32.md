@@ -55,6 +55,17 @@ Worth sending upstream to Espressif; all four are fixed in the rebased branch.
   `declare_dependency()` unconditionally as a Windows static-linking workaround.
   `declare_dependency()` always returns a found object, so `slirp.found()` is
   true under `-Dslirp=disabled` and `net/slirp.c` compiles without `libslirp.h`.
+- **The GPIO controller was a strapping stub.** `esp32_gpio`'s write handler was
+  empty and the only readable register was the boot strapping value, so a guest
+  could configure an output, drive it, and read back nothing. It exists to
+  answer one read from the boot ROM. The low bank is now modelled properly
+  (OUT/ENABLE/IN/STATUS and the per-pin interrupt configuration), which the
+  ESP32 and the RISC-V parts share; only the per-pin block and the CPU
+  interrupt register move, so those became class fields.
+- **The C3 machine never connected the GPIO interrupt.** It realized the device
+  and mapped its registers but never called `sysbus_connect_irq`, leaving
+  `ETS_GPIO_INTR_SOURCE` unused. Nothing noticed while the controller had no
+  state to interrupt from.
 - **`MAX_CALL_IARGS` was not raised for `DEF_HELPER_8`.** The fork adds
   `DEF_HELPER_8` and `tcg_gen_call8` but leaves `MAX_CALL_IARGS` at 7, which
   `tci.c` uses to size `call_slots[]`. Only `target/xtensa/helper.h` uses it, so
@@ -94,16 +105,25 @@ not what boots.
 
 ## Known limits
 
-- **No browser bridges.** Every peripheral in the device dock is either a
-  patched device on `virt` / `lm3s6965` or a virtio-mmio bridge, and this
-  machine has neither a virtio bus nor PCI. The board's `peripherals` is empty
-  and the samples list is `hello_world` only. The natural next step is the
-  opposite of the virtio approach: the fork models the *real* `esp32c3_gpio`
-  block, so LEDs and buttons could be driven from it directly, the way
-  `tools/qemu-patches/0005-hw-misc-add-qemu-host-gpio.patch` does for the M3.
-- **The flash image is board-level, not per-sample.** `extraFiles` resolves one
-  fixed asset, so a second sample needs the flash image resolved per sample the
-  way `sampleAsset()` does for ELFs.
+- **GPIO is the only peripheral bridged, and it works differently from the
+  others.** Everything else in the device dock is either a device invented for
+  the browser or a virtio-mmio bridge, and this machine has neither a virtio bus
+  nor PCI. GPIO instead is the SoC's own controller, modelled in QEMU and driven
+  by the stock Zephyr esp32 driver: nothing is vendored, and the guest is not
+  aware it is emulated. The page reaches it through the same two exported
+  functions as the Cortex-M3's `qemu,host-gpio`, so `src/hostGpio.ts` and the
+  panel serve both without knowing the difference. `blinky` drives `led0`, and
+  the button is interrupt-driven rather than polled as on the M3.
+- **I2C and SPI are not reachable.** Zephyr's `i2c0` sits at `0x60013000` with
+  nothing mapped behind it, and the only I2C model in the fork is the Xtensa
+  ESP32's. `spi2` at `0x60024000` is likewise unmodelled; the only SPI
+  controller is `spi1`, which carries the flash. Both are new QEMU device
+  models rather than bridge work.
+- **Pull-ups are the page's job.** The model has no notion of a pad pull-up: an
+  input reads whatever was last driven onto it. `src/hostGpio.ts` seeds each
+  input to its resting level from the devicetree flags, which is where the
+  ESP32-C3 button's pull-up effectively comes from. A native build has nobody
+  to do that, so an active-low button there reads as held.
 - **`-icount 3` is required.** The C3 has no free-running mode. It caps
   throughput and rules out the guest-MIPS readout other boards use.
 - **Cost to the shared artifact: +0.24 MB (+2.8%)**, 8.77 MB to 9.01 MB, for both

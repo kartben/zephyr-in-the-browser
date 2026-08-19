@@ -181,5 +181,8 @@ qemu_riscv32:http_get:samples/net/sockets/http_get:conf/net.conf,conf/net-uplink
 qemu_riscv32:zperf:samples/net/zperf:conf/net.conf,conf/net-uplink.conf:net
 qemu_riscv32:hello_world:samples/hello_world
 
-# ESP32-C3 DevKitC: boots from merged SPI flash, no browser bridges yet.
+# ESP32-C3 DevKitC: boots from merged SPI flash. GPIO is the SoC controller
+# modelled in QEMU, so blinky and the button run the stock Zephyr esp32 driver.
 esp32c3_devkitc:hello_world:samples/hello_world
+esp32c3_devkitc:blinky:samples/basic/blinky::esp32-leds
+esp32c3_devkitc:basic_button:samples/basic/button
