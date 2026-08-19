@@ -29,6 +29,7 @@ manifest:
         name-allowlist:
           - cmsis        # ARM builds
           - cmsis_6
+          - hal_espressif # ESP32 boards (esp32_devkitc, esp32c3_devkitc, ...)
           - hal_st       # LSM6DSO (STMems) and other ST sensor HALs
           - littlefs     # samples/subsys/fs/littlefs on the browser SPI NOR
           - lvgl         # display demos, accelerometer chart
