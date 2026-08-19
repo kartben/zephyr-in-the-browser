@@ -16,3 +16,8 @@ boards:
   qemu_riscv32/qemu_virt_riscv32:
     append:
       EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_a53.overlay
+  # Its own file: this snippet declares the part, its bus and its GPIO lines,
+  # and on the C3 all three are the SoC's own rather than virtio devices.
+  esp32c3_devkitc/esp32c3:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/esp32c3_devkitc.overlay

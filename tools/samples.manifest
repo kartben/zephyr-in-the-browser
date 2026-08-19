@@ -208,3 +208,7 @@ esp32c3_devkitc:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:esp32-i
 esp32c3_devkitc:oled:samples/drivers/display::esp32-i2c,oled
 esp32c3_devkitc:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:esp32-spi
 esp32c3_devkitc:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:esp32-spi
+esp32c3_devkitc:led_strip:samples/drivers/led/led_strip:conf/ws2812.conf:ws2812-only
+esp32c3_devkitc:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt6314-only
+esp32c3_devkitc:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
+esp32c3_devkitc:can_counter:zephyr-module/apps/can_counter:conf/mcp2515.conf:mcp2515-only

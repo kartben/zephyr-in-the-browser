@@ -772,10 +772,11 @@ const CORTEX_A53_SAMPLES: GuestSample[] = withA53TraceVariants(CORTEX_A53_SAMPLE
  * own controller. Listed by id so the descriptions live in one place; the
  * manifest has the matching rows.
  *
- * The last two are on the SoC's GP-SPI2 instead, through the same arrangement
+ * The tail is on the SoC's GP-SPI2 instead, through the same arrangement
  * (hw/ssi/host_spi.c and src/hostSpi.ts). Not here: accel_chart, which needs a
- * framebuffer this machine does not have, and the SPI parts whose `-only`
- * snippets declare their own virtio nodes rather than just enabling a label.
+ * framebuffer this machine does not have, and sct2024, whose latch and
+ * output-enable lines are bound to the virtio GPIO model rather than to
+ * whichever controller the board has.
  */
 const ESP32C3_BRIDGED_SAMPLE_IDS = [
   'eeprom',
@@ -794,6 +795,10 @@ const ESP32C3_BRIDGED_SAMPLE_IDS = [
   'oled',
   'spi_flash',
   'littlefs',
+  'led_strip',
+  'auxdisplay_pt6314',
+  'tmc50xx',
+  'can_counter',
 ] as const
 
 const ESP32C3_BRIDGED_SAMPLES: GuestSample[] = ESP32C3_BRIDGED_SAMPLE_IDS.map((id) => {
