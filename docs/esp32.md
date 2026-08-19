@@ -166,16 +166,55 @@ register) rewinds at the right moment and not between the two halves of its own
 register. That is `I2cChip.startRead`, and it is why the page's models needed
 no other change.
 
+### SPI
+
+Same arrangement one bus over: `hw/ssi/host_spi.c` is an SSI peripheral on the
+GP-SPI2 controller's CS0, `src/hostSpi.ts` is the page's end, and the chips are
+the same models the virtio boards use. `-S esp32-spi` turns the controller on
+and puts the browser's JEDEC NOR on it, which is what samples/drivers/spi_flash
+and samples/subsys/fs/littlefs bind.
+
+The shared area is the I2C one with SPI's fields, at these offsets:
+
+| Offset | Field | Written by | Meaning |
+| --- | --- | --- | --- |
+| 0x00 | `magic` | QEMU | `0x42535053` (`"SPSB"`) |
+| 0x04 | `version` | QEMU | protocol version, currently 1 |
+| 0x08 | `present` | page | bit N = the page has a chip on chip select N |
+| 0x0c | `attached` | page | non-zero while the page is listening |
+| 0x10 | `req_seq` | QEMU | bumped after a request is filled in |
+| 0x14 | `rsp_seq` | page | set to `req_seq` once answered |
+| 0x18 | `op` | QEMU | 1 = transfer |
+| 0x1c | `cs` | QEMU | chip select |
+| 0x20 | `len` | QEMU | bytes, the same both ways |
+| 0x24 | `flags` | QEMU | bit 0 = the select drops after this run |
+| 0x28 | `status` | page | 0 = ok, 1 = error |
+| 0x30 | `data[4096]` | both | the run, out and back |
+
+What differs from I2C is the unit. SPI is full duplex, so a byte's answer is
+due before the next one goes out and a per-byte round trip would cost an LED
+strip frame hundreds of them. The controller knows its run length, so
+`ssi_transfer_buffer()` hands the run over whole; a peripheral that does not
+implement it is clocked a byte at a time exactly as before. A run is what the
+page's chip models already take, `csChange` included, so a flash reading its
+status and then its data sees the same sequence it sees over virtio.
+
+One thing is worth knowing before debugging anything here: a chip select the
+page has no chip on answers **zero**, not 0xff. That leaves it
+indistinguishable from an empty bus, which is what it is. 0xff is not neutral:
+a flash driver reads it as a status register with write-in-progress set and
+waits for it forever, which hangs the guest before the boot banner.
+
 ## Known limits
-- **SPI2 is not reachable.** Zephyr's `spi2` sits at `0x60024000` with nothing
-  mapped behind it: the machine wires only `spi1`, the flash controller. That
-  is not a second instance of the same model, tempting as `hw/ssi/esp32c3_spi.c`
-  looks: its registers are the `SPI_MEM_*` set of the *memory* controller
-  (CMD 0x00, USER 0x18, W0 0x58), and GP-SPI2 is a different peripheral with a
-  different map (USER 0x10, MS_DLEN 0x1c, W0 0x98). The fork's only general SPI
-  master is `hw/ssi/esp32_spi.c`, for the original Xtensa ESP32, whose map
-  differs again. So this is a new device model, and after it the same
-  browser-bridge question as I2C.
+- **Only the NOR is on SPI so far.** The bus and the bridge carry anything, but
+  the other SPI parts the page models (WS2812, SCT2024, PT6314, TMC50xx,
+  MCP2515) each have a `<part>-only` snippet that declares its own
+  `&virtio_spi0` node rather than enabling a label, so each needs a C3 overlay
+  of its own. Unlike I2C, where the parts bin is one file and the snippets only
+  flip `status`.
+- **GP-SPI2 is controller mode only.** Target mode, segmented transfers and the
+  GDMA path are not modelled. Zephyr uses the FIFO path when a node has no
+  `dma-enabled`, which is what the snippet declares.
 - **Pull-ups are the page's job.** The model has no notion of a pad pull-up: an
   input reads whatever was last driven onto it. `src/hostGpio.ts` seeds each
   input to its resting level from the devicetree flags, which is where the

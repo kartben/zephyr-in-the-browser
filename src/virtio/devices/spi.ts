@@ -1,9 +1,15 @@
 /**
- * VIRTIO SPI controller device model (virtio SPI controller, device id 45).
+ * The page's SPI bus, and the VIRTIO controller that is one way onto it.
  *
  * Same shape as the I²C adapter: one request queue on the generic browser
  * bridge, chips modelled in TypeScript and selected by chip-select id (`reg`
  * in the guest DT), no QEMU device of their own.
+ *
+ * And the same split, for the same reason. The **bus** is the chip registry,
+ * the chip-select state, the traffic log and {@link SpiModel.transferMessage};
+ * the **transport** is `handle` below. src/hostSpi.ts is the other transport:
+ * the ESP32-C3 has no virtio bus, so its guest drives the SoC's own GP-SPI2
+ * controller and QEMU hands each run to the same call.
  *
  * Wire format per transfer (guest driver → device):
  *
@@ -81,6 +87,17 @@ export interface SpiTransaction {
 }
 
 export interface SpiModel extends VirtioDeviceModel {
+  /**
+   * One full-duplex run: shift `tx` out to whatever is on `cs`, take `rx`
+   * back, light the chip select and log it. False when nothing is there or
+   * the chip failed the transfer — SPI has no NAK, so the guest sees an error
+   * rather than a quiet bus.
+   *
+   * `rx` is filled in place and must be the same length as `tx`.
+   */
+  transferMessage(cs: number, tx: Uint8Array, rx: Uint8Array, opts: SpiTransferOpts): boolean
+  /** Whether a chip is on this chip select. */
+  hasChip(cs: number): boolean
   attachChip(chip: SpiChip): () => void
   detachChip(cs: number): void
   chips(): SpiChip[]
@@ -260,37 +277,46 @@ export function createSpiModel(name = 'spi'): SpiModel {
     if (txPayload.length > 0) tx.set(txPayload)
     const rx = new Uint8Array(len)
 
-    const chip = bus.get(cs)
-    let ok = false
-    if (chip) {
-      ok = chip.transfer(tx, rx, { csChange, bitsPerWord, mode, freq }) !== false
-    }
+    const ok = transferMessage(cs, tx, rx, { csChange, bitsPerWord, mode, freq })
 
     const out = new Uint8Array(req.inCap)
     if (ok && rxLen > 0) out.set(rx.subarray(0, rxLen), 0)
     out[req.inCap - 1] = ok ? TRANS_OK : TRANS_ERR
     req.reply(out)
+  }
 
-    // The controller drove CS for this transfer whether or not anything
-    // answered on it — an empty chip select still shows the guest trying.
-    assertCs(cs, !csChange)
+  function transferMessage(
+    cs: number,
+    tx: Uint8Array,
+    rx: Uint8Array,
+    opts: SpiTransferOpts,
+  ): boolean {
+    const chip = bus.get(cs)
+    const ok = chip ? chip.transfer(tx, rx, opts) !== false : false
 
-    const loggedTx = copyLogBytes(txPayload.length > 0 ? txPayload : tx.subarray(0, len))
-    const loggedRx = copyLogBytes(rxLen > 0 ? rx.subarray(0, rxLen) : rx.subarray(0, len))
+    // The controller drove CS for this run whether or not anything answered on
+    // it — an empty chip select still shows the guest trying.
+    assertCs(cs, !opts.csChange)
+
+    const loggedTx = copyLogBytes(tx)
+    const loggedRx = copyLogBytes(rx)
     record({
       cs,
       tx: loggedTx.bytes,
       rx: loggedRx.bytes,
-      byteLength: len,
+      byteLength: tx.length,
       ok,
       chip: chip?.name ?? null,
-      csChange,
+      csChange: opts.csChange,
     })
+    return ok
   }
 
   return {
     name,
     handle,
+    transferMessage,
+    hasChip: (cs) => bus.has(cs),
 
     /** The guest reset: nothing holds a chip select any more, so all go dark. */
     reset() {

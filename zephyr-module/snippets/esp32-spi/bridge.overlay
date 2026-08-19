@@ -1,0 +1,84 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Put the browser's JEDEC SPI NOR on the ESP32-C3's GP-SPI2, CS0. This is the
+ * C3's half of what virtio-spi does for the Cortex-A53: the same page-side
+ * model (src/virtio/devices/chips/w25q.ts) under the same node label, so
+ * samples/drivers/spi_flash and samples/subsys/fs/littlefs build here
+ * unchanged.
+ *
+ * Underneath is the SoC's own controller at 0x60024000, which QEMU models
+ * (hw/ssi/esp32c3_gpspi.c) and Zephyr drives with its stock spi_esp32_spim
+ * driver. The browser is on the far side of it: hw/ssi/host_spi.c is the SSI
+ * peripheral on CS0 and src/hostSpi.ts answers for whatever the page has
+ * attached there.
+ *
+ * The controller is disabled in the SoC devicetree, so this file is what turns
+ * it on. Pinctrl is the board's own spim2_default (SCLK GPIO6, MISO GPIO2,
+ * MOSI GPIO7, CS GPIO10). The model does not care about pins, but the driver
+ * refuses to configure without it, and those are the pins a real DevKitC uses.
+ */
+
+&spi2 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spim2_default>;
+	pinctrl-names = "default";
+
+	w25q80jv: w25q80jv@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+		size = <0x800000>; /* 1 MiB */
+		jedec-id = [ef 40 14];
+		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			storage_partition: partition@0 {
+				label = "storage";
+				reg = <0x00000000 0x00100000>;
+			};
+		};
+	};
+};
+
+/*
+ * `storage_partition` is the label littlefs binds, and unlike the virtio
+ * boards this one already has one: the stock 4 MB Espressif layout puts a
+ * 192 KiB storage partition at 0x3b0000 of the SoC's own flash. Two nodes
+ * cannot share a label, and the interesting one is the browser's part, so the
+ * SoC's goes. Nothing here uses it: the app image is at offset 0 and Simple
+ * Boot never reads the partition table.
+ */
+&flash0 {
+	partitions {
+		/delete-node/ partition@3b0000;
+	};
+};
+
+/ {
+	aliases {
+		spi-flash0 = &w25q80jv;
+	};
+
+	fstab {
+		compatible = "zephyr,fstab";
+		lfs1: lfs1 {
+			compatible = "zephyr,fstab,littlefs";
+			mount-point = "/lfs";
+			partition = <&storage_partition>;
+			/* Sample mounts explicitly; shell can `fs mount` too. */
+			read-size = <16>;
+			prog-size = <16>;
+			cache-size = <64>;
+			lookahead-size = <32>;
+			block-cycles = <512>;
+		};
+	};
+};
