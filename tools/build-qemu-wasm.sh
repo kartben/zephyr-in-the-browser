@@ -10,6 +10,8 @@
 #   QEMU_REPO             upstream git remote      (default: qemu/qemu)
 #   QEMU_REF              upstream tag/branch/sha  (default: v10.1.0)
 #   QEMU_JIT_REPO         JIT git remote           (default: ktock/qemu-wasm)
+#   QEMU_ESP_REPO         ESP32 git remote         (default: kartben/qemu)
+#   QEMU_ESP_REF          ESP32 branch/sha         (pinned below)
 #   QEMU_JIT_REF          JIT commit               (pinned below)
 #   QEMU_WORKDIR          scratch dir               (default: <repo>/.qemu-wasm-build)
 #   JOBS                  parallel build jobs       (default: container nproc)
@@ -34,12 +36,15 @@ REPO_URL="${QEMU_REPO:-https://github.com/qemu/qemu.git}"
 REF="${QEMU_REF:-v10.1.0}"
 JIT_REPO_URL="${QEMU_JIT_REPO:-https://github.com/ktock/qemu-wasm.git}"
 JIT_REF="${QEMU_JIT_REF:-36a7f4334e9e08691d7496809a5d06b23de22e26}"
+ESP_REPO_URL="${QEMU_ESP_REPO:-https://github.com/kartben/qemu.git}"
+ESP_REF="${QEMU_ESP_REF:-esp32-on-v10.1.0}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${QEMU_WORKDIR:-$ROOT/.qemu-wasm-build}"
 TCI_SRC="$WORK/qemu"
 JIT_SRC="$WORK/qemu-jit"
+ESP_SRC="$WORK/qemu-esp"
 DEST="$ROOT/public/qemu"
 
 CONTAINER=build-qemu-wasm-$$
@@ -231,6 +236,13 @@ build_qemu() {
     cp "$src/pc-bios/vgabios-ramfb.bin" "$DEST/vgabios-ramfb.bin"
     cp "$src/pc-bios/efi-virtio.rom" "$DEST/efi-virtio.rom"
   fi
+  # The ESP32-C3 first-stage bootloader. Unlike the option ROMs above, the
+  # machine looks this up by name with qemu_find_file(QEMU_FILE_TYPE_BIOS), so
+  # it has to sit in the datadir the page mounts at /pack/pc-bios. `-bios` is
+  # not an alternative: on this machine that selects a -kernel path instead.
+  if [ "$target" = "riscv32-softmmu" ] && [ -f "$src/pc-bios/esp32c3-rom.bin" ]; then
+    cp "$src/pc-bios/esp32c3-rom.bin" "$DEST/esp32c3-rom.bin"
+  fi
   # Only some Emscripten versions emit a separate pthread worker shim.
   if docker cp "$CONTAINER:/build/$binary.worker.js" "$DEST/$binary.worker.js" 2>/dev/null; then
     echo "  - $binary.worker.js"
@@ -285,9 +297,16 @@ build_target() {
     accel=jit
   elif [ "$target" = "riscv32-softmmu" ]; then
     # Dedicated series: ARM Stellaris / arm-virt patches must not land here.
-    src="$TCI_SRC"
-    repo_url="$REPO_URL"
-    ref="$REF"
+    #
+    # Its own tree, and not upstream's: this artifact carries the `esp32c3` and
+    # `esp32c6` machines alongside `virt`, and those models exist only in
+    # espressif/qemu, which is still on 9.2.2. ESP_REF is that delta replayed
+    # onto the same v10.1.0 the other targets build, since 9.2.2 predates
+    # upstream's Emscripten support. A separate directory also keeps this off
+    # the tree arm-softmmu uses.
+    src="$ESP_SRC"
+    repo_url="$ESP_REPO_URL"
+    ref="$ESP_REF"
     patches="$ROOT/tools/qemu-riscv-patches"
     accel=tci
   else
