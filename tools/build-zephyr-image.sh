@@ -243,6 +243,35 @@ build_one() {
   cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
   printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
 
+  # Espressif boards boot from SPI flash, not from -kernel, so they also need a
+  # flash image: the app placed at its partition offset in an erased (0xFF)
+  # image of the board's flash size. Both numbers come from the *stock* build:
+  # soc/espressif/common/CMakeLists.txt publishes them through
+  # board_runner_args(), so no Zephyr patch or board variant is involved.
+  #
+  # This is what `esptool merge-bin --pad-to-size` produces for a Simple Boot
+  # image, byte for byte, done here in Python so the step needs no esptool in
+  # either the native or the container path.
+  local runners="$work/build/zephyr/runners.yaml"
+  if [ -f "$runners" ] && grep -q -- '--esp-app-address=' "$runners"; then
+    local app_off flash_size
+    app_off=$(sed -n 's/.*--esp-app-address=\(0x[0-9a-fA-F]*\).*/\1/p' "$runners" | head -1)
+    flash_size=$(sed -n 's/.*--esp-flash-size=\([0-9]*\)MB.*/\1/p' "$runners" | head -1)
+    if [ -n "$app_off" ] && [ -n "$flash_size" ]; then
+      python3 -c 'import sys; from pathlib import Path
+app = Path(sys.argv[1]).read_bytes()
+off, size = int(sys.argv[3], 16), int(sys.argv[4]) * 1024 * 1024
+img = bytearray(b"\xff" * size)
+img[off:off + len(app)] = app
+Path(sys.argv[2]).write_bytes(img)' \
+        "$work/build/zephyr/zephyr.bin" "$dest/$id.flash.bin" "$app_off" "$flash_size"
+      printf '    %-16s %8s bytes (app at %s)\n' "$id.flash.bin" \
+        "$(command wc -c < "$dest/$id.flash.bin" | xargs)" "$app_off"
+    else
+      echo "    warning: $id: espressif board with no usable offsets in runners.yaml" >&2
+    fi
+  fi
+
   # A sample with a guided tour ships the tour file beside its image, plus a
   # verbatim copy of the sources it points at. Neither is in the ELF and neither
   # changes it: a tour is Markdown the browser reads, and the addresses it
