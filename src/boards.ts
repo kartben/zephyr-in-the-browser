@@ -1009,16 +1009,37 @@ export const BOARDS: Board[] = [
     // CONFIG_DEBUG_THREAD_INFO symbols out of it, the way it does elsewhere.
     kernelFsPath: '/pack/zephyr.elf',
     flashFsPath: '/pack/flash.bin',
-    // No browser bridges. Every one of them is either a patched device on
-    // `virt`/`lm3s6965` or a virtio-mmio bridge, and this machine has neither a
-    // virtio bus nor PCI, so the device dock has nothing to show yet.
-    peripherals: {},
+    // The GPIO controller is the SoC's own, modelled in QEMU rather than
+    // invented for the browser, and the guest drives it with the stock Zephyr
+    // esp32 driver. It reaches the page through the same exported functions as
+    // the Cortex-M3's qemu,host-gpio, so the same panel serves it. The other
+    // bridges are still absent: this machine has neither a virtio bus nor PCI.
+    peripherals: { hostGpio: true },
     samples: [
       {
         id: 'hello_world',
         label: 'Hello World',
         description: 'Prints one line and stops',
         zephyrSample: 'samples/hello_world',
+      },
+      {
+        // led0 is GPIO8, where the DevKitM-1 puts its RGB LED. The node comes
+        // from the shield: the board devicetree has no LED of its own.
+        id: 'blinky',
+        label: 'Blinky',
+        description: 'Blinks LED0. Watch it in the device dock',
+        zephyrSample: 'samples/basic/blinky',
+        primaryPanels: ['gpio'],
+      },
+      {
+        // sw0 on GPIO9 is in the stock board devicetree, so this one needs no
+        // overlay at all. Interrupt-driven, unlike the Cortex-M3's polled
+        // gpio-keys: the modelled controller has a real IRQ line.
+        id: 'basic_button',
+        label: 'Button',
+        description: 'Press SW0 in the device dock',
+        zephyrSample: 'samples/basic/button',
+        primaryPanels: ['gpio'],
       },
     ],
     defaultSampleId: 'hello_world',

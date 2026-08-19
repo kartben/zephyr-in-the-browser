@@ -247,7 +247,11 @@ const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c'])
 /** The SPI controller the page's chips answer on (QEMU's `name=spi` device). */
 const BRIDGED_SPI_COMPATS = new Set(['virtio,spi'])
 /** The GPIO controllers the browser panel drives, one per board. */
-const BRIDGED_GPIO_COMPATS = new Set(['qemu,host-gpio', 'virtio,gpio'])
+// espressif,esp32-gpio is the odd one out: not a browser-invented device but
+// the SoC's own controller, modelled in QEMU and driven by the stock Zephyr
+// driver. The page still reaches its pins through the same two exported
+// functions as qemu,host-gpio, so it bridges the same way.
+const BRIDGED_GPIO_COMPATS = new Set(['qemu,host-gpio', 'virtio,gpio', 'espressif,esp32-gpio'])
 
 const effectivelyOkay = isEffectivelyOkay
 
