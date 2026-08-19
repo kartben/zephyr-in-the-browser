@@ -206,6 +206,11 @@ a flash driver reads it as a status register with write-in-progress set and
 waits for it forever, which hangs the guest before the boot banner.
 
 ## Known limits
+- **The only display Zephyr can drive is the OLED.** The machine does map a
+  framebuffer at `0x20000000` (`esp_rgb`, plus 8 MB of VRAM), but that is a
+  device Espressif invented for their own QEMU rather than anything an
+  ESP32-C3 has, and nothing in Zephyr binds it. So `-S oled` is the display
+  path here, and accel_chart — which wants 480x320 — has nowhere to draw.
 - **Only the NOR is on SPI so far.** The bus and the bridge carry anything, but
   the other SPI parts the page models (WS2812, SCT2024, PT6314, TMC50xx,
   MCP2515) each have a `<part>-only` snippet that declares its own
