@@ -41,6 +41,7 @@
 #                  ht16k33-only, lp5562-only, lp5012-only, pca9685-only,
 #                  mcp4725-only, max17048-only — or i2c-shell for the whole set
 #                  the shell's commands can drive
+#   esp32-spi .... the ESP32-C3's own GP-SPI2 with the same JEDEC NOR on CS0
 #   virtio-spi ... VIRTIO SPI + a JEDEC NOR on CS0; self-contained alternatives
 #                  on the same bus are pt6314-only, sct2024-only, ws2812-only,
 #                  tmc50xx-only, mcp2515-only, bt-settings-spi
@@ -205,3 +206,5 @@ esp32c3_devkitc:pwm_led:samples/drivers/led/pwm:conf/pca9685.conf:esp32-i2c,pca9
 esp32c3_devkitc:dac:zephyr-module/apps/dac_sawtooth:conf/mcp4725.conf:esp32-i2c,mcp4725-only
 esp32c3_devkitc:fuel_gauge:samples/drivers/fuel_gauge:conf/max17048.conf:esp32-i2c,max17048-only
 esp32c3_devkitc:oled:samples/drivers/display::esp32-i2c,oled
+esp32c3_devkitc:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:esp32-spi
+esp32c3_devkitc:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:esp32-spi

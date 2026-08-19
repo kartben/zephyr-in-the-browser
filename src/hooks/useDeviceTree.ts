@@ -21,6 +21,7 @@ import * as hostGnss from '@/hostGnss'
 import * as hostBt from '@/hostBt'
 import * as hostGpio from '@/hostGpio'
 import * as hostI2c from '@/hostI2c'
+import * as hostSpi from '@/hostSpi'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
@@ -111,8 +112,15 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     () => false,
   )
   const spi = useSyncExternalStore(
-    subscribeBinds,
-    useCallback(() => isBound('spi'), []),
+    useCallback((onChange: () => void) => {
+      const unbind = subscribeBinds(onChange)
+      const unhost = hostSpi.subscribe(onChange)
+      return () => {
+        unbind()
+        unhost()
+      }
+    }, []),
+    useCallback(() => isBound('spi') || hostSpi.available(), []),
     () => false,
   )
   const gnss = useSyncExternalStore(hostGnss.subscribe, hostGnss.available, () => false)

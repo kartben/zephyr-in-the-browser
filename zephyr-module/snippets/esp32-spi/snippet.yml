@@ -1,0 +1,13 @@
+name: esp32-spi
+description: >
+  Turn the ESP32-C3's own GP-SPI2 controller on and put a JEDEC SPI NOR on CS0,
+  simulated in the browser. The C3 counterpart of virtio-spi: same page-side
+  part, same node label, same samples. The bus underneath is the SoC's, driven
+  by Zephyr's stock spi_esp32_spim driver.
+
+# ESP32-C3 only. See host-audio/snippet.yml for why the qualified spelling is
+# written out rather than the bare board name, which matches nothing.
+boards:
+  esp32c3_devkitc/esp32c3:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay

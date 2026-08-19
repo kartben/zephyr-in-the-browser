@@ -196,6 +196,12 @@ export interface Board {
      */
     hostI2c?: boolean
     /**
+     * The page's SPI chips on the SoC's own GP-SPI2 controller, through
+     * `hw/ssi/host_spi.c`. Same arrangement as `hostI2c`, on CS0. ESP32-C3
+     * only. See src/hostSpi.ts.
+     */
+    hostSpi?: boolean
+    /**
      * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
      * Needs `-semihosting` on the argv; the Trace dock row follows it.
      */
@@ -759,15 +765,19 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
 const CORTEX_A53_SAMPLES: GuestSample[] = withA53TraceVariants(CORTEX_A53_SAMPLES_BASE)
 
 /**
- * The I2C samples the ESP32-C3 shares with the virtio boards. Same guest
- * sources, same page-side chip models, same labels — only the bus underneath
- * differs, and the sample cannot tell: it binds a stock driver to a node the
- * esp32-i2c snippet declares on the SoC's own controller. Listed by id so the
- * descriptions live in one place; the manifest has the matching rows.
+ * The bridged-bus samples the ESP32-C3 shares with the virtio boards. Same
+ * guest sources, same page-side chip models, same labels: only the bus
+ * underneath differs, and the sample cannot tell, because it binds a stock
+ * driver to a node the esp32-i2c or esp32-spi snippet declares on the SoC's
+ * own controller. Listed by id so the descriptions live in one place; the
+ * manifest has the matching rows.
  *
- * Not here: accel_chart, which needs a framebuffer this machine does not have.
+ * The last two are on the SoC's GP-SPI2 instead, through the same arrangement
+ * (hw/ssi/host_spi.c and src/hostSpi.ts). Not here: accel_chart, which needs a
+ * framebuffer this machine does not have, and the SPI parts whose `-only`
+ * snippets declare their own virtio nodes rather than just enabling a label.
  */
-const ESP32C3_I2C_SAMPLE_IDS = [
+const ESP32C3_BRIDGED_SAMPLE_IDS = [
   'eeprom',
   'lsm6dso',
   'lps22hh',
@@ -782,9 +792,11 @@ const ESP32C3_I2C_SAMPLE_IDS = [
   'dac',
   'fuel_gauge',
   'oled',
+  'spi_flash',
+  'littlefs',
 ] as const
 
-const ESP32C3_I2C_SAMPLES: GuestSample[] = ESP32C3_I2C_SAMPLE_IDS.map((id) => {
+const ESP32C3_BRIDGED_SAMPLES: GuestSample[] = ESP32C3_BRIDGED_SAMPLE_IDS.map((id) => {
   const sample = CORTEX_A53_SAMPLES_BASE.find((s) => s.id === id)
   if (!sample) throw new Error(`esp32c3: no shared sample "${id}"`)
   return sample
@@ -1052,7 +1064,7 @@ export const BOARDS: Board[] = [
     // esp32 driver. It reaches the page through the same exported functions as
     // the Cortex-M3's qemu,host-gpio, so the same panel serves it. The other
     // bridges are still absent: this machine has neither a virtio bus nor PCI.
-    peripherals: { hostGpio: true, hostI2c: true },
+    peripherals: { hostGpio: true, hostI2c: true, hostSpi: true },
     samples: [
       {
         id: 'hello_world',
@@ -1089,7 +1101,7 @@ export const BOARDS: Board[] = [
         zephyrSample: 'samples/subsys/shell/shell_module',
         primaryPanels: ['i2c'],
       },
-      ...ESP32C3_I2C_SAMPLES,
+      ...ESP32C3_BRIDGED_SAMPLES,
     ],
     defaultSampleId: 'hello_world',
     extraFiles: [
