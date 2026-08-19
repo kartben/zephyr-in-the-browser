@@ -35,6 +35,7 @@ import {
   getSample,
   sampleAsset,
   sampleDtsAsset,
+  sampleFlashAsset,
 } from '@/boards'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
@@ -271,6 +272,18 @@ export function createQemuBackend(): PtyBackend {
             bytes: await fetchAsset(f.asset),
           })),
         )),
+        // Boards that boot from emulated flash need the merged image too, and
+        // it is per sample rather than per board. A custom ELF cannot replace
+        // it: the drop flow supplies a kernel, and there is nothing to merge it
+        // into, so such a board keeps booting its packaged image.
+        ...(board.flashFsPath
+          ? [
+              {
+                fsPath: board.flashFsPath,
+                bytes: await fetchAsset(sampleFlashAsset(board, sampleId)),
+              },
+            ]
+          : []),
         // Blank backing stores (a virtio-blk disk, say) are allocated rather
         // than fetched. They must stay *after* the kernel, which is indexed
         // positionally just below.

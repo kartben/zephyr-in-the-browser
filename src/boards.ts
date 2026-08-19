@@ -160,6 +160,12 @@ export interface Board {
   args: string[]
   /** Where the kernel lands in the Emscripten filesystem; matches `-kernel`. */
   kernelFsPath: string
+  /**
+   * Boards that boot out of emulated flash rather than from `-kernel`: where
+   * the merged image lands, matching the `-drive` in `args`. Resolved per
+   * sample the way `kernelFsPath` is, since each sample has its own image.
+   */
+  flashFsPath?: string
   /** Optional browser bridges physically present on this machine. */
   peripherals?: {
     gnss?: boolean
@@ -1002,6 +1008,7 @@ export const BOARDS: Board[] = [
     // Not in the argv: the ELF is preloaded only so the debugger can resolve
     // CONFIG_DEBUG_THREAD_INFO symbols out of it, the way it does elsewhere.
     kernelFsPath: '/pack/zephyr.elf',
+    flashFsPath: '/pack/flash.bin',
     // No browser bridges. Every one of them is either a patched device on
     // `virt`/`lm3s6965` or a virtio-mmio bridge, and this machine has neither a
     // virtio bus nor PCI, so the device dock has nothing to show yet.
@@ -1017,9 +1024,6 @@ export const BOARDS: Board[] = [
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/esp32c3-rom.bin', asset: 'esp32c3-rom.bin' },
-      // Board-level, which only works while this board has a single sample. A
-      // second one needs the flash image resolved per sample, like sampleAsset().
-      { fsPath: '/pack/flash.bin', asset: 'zephyr/esp32c3_devkitc/hello_world.flash.bin' },
     ],
     usesDataBundle: false,
   },
@@ -1052,6 +1056,14 @@ export function sampleAsset(board: Board, sampleId: string): string {
  * The flattened devicetree shipped next to the image, when the build put one
  * there (tools/build-zephyr-image.sh does; older tarballs may not have it).
  */
+/**
+ * The merged flash image for a sample, on boards that boot from flash. Built
+ * beside the ELF by tools/build-zephyr-image.sh.
+ */
+export function sampleFlashAsset(board: Board, sampleId: string): string {
+  return `zephyr/${board.zephyrTarget}/${sampleId}.flash.bin`
+}
+
 export function sampleDtsAsset(board: Board, sampleId: string): string {
   return `zephyr/${board.zephyrTarget}/${sampleId}.dts`
 }
