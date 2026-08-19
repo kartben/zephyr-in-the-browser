@@ -1,0 +1,46 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The ESP32-C3's own CAN controller, on the browser's simulated bus.
+ *
+ * This is the one browser-fed peripheral on this board that needs no bridge
+ * chip at all. TWAI is real ESP32-C3 hardware; QEMU models it on top of its
+ * SJA1000 core, and net/can/can_browser.c puts the page's bus model
+ * (src/can/bus.ts) on the other end of it. So where the virtio boards reach
+ * CAN through an MCP2515 the page pretends to be, here the guest drives the
+ * silicon's own controller with Zephyr's stock espressif,esp32-twai driver.
+ *
+ * The SoC devicetree already chooses this node as zephyr,canbus, so enabling
+ * it is the whole job. Pinctrl is the board's own twai_default; the model does
+ * not care about pins, but the driver refuses to configure without it.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&twai {
+	status = "okay";
+	pinctrl-0 = <&twai_default>;
+	pinctrl-names = "default";
+	bus-speed = <500000>;
+	sample-point = <875>;
+};
+
+/ {
+	aliases {
+		led0 = &can_led0;
+	};
+
+	can_leds {
+		compatible = "gpio-leds";
+
+		/*
+		 * samples' LED-frame handler blinks this. GPIO4 rather than the
+		 * shield's GPIO8 LED, so the two can coexist in one build.
+		 */
+		can_led0: led_0 {
+			gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+			label = "Browser LED0";
+		};
+	};
+};

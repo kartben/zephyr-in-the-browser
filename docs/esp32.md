@@ -205,18 +205,59 @@ indistinguishable from an empty bus, which is what it is. 0xff is not neutral:
 a flash driver reads it as a status register with write-in-progress set and
 waits for it forever, which hangs the guest before the boot banner.
 
+### CAN
+
+The one bridge with no chip in the middle. TWAI is the SoC's own CAN
+peripheral, modelled in QEMU on top of its SJA1000 core, so what the browser
+supplies is not a part but the *wire*: `net/can/can_browser.c` puts the page's
+bus model (`src/can/bus.ts`) on the other end, and `src/hostTwai.ts` is the
+page's half. Where the virtio boards reach CAN through an MCP2515 the page
+pretends to be, here the guest drives the silicon with Zephyr's stock
+`espressif,esp32-twai` driver. `-S esp32-can` is the whole devicetree job,
+because the SoC already chooses that node as `zephyr,canbus`.
+
+Shape differs from I2C and SPI, and has to: a frame arrives because another
+node decided to send one, possibly while the guest is idle, so neither side can
+be the one that waits. It is a ring pair like the Ethernet netdev, with a
+`QEMU_CLOCK_VIRTUAL` timer draining the receive side under the BQL. Records are
+a fixed 16 bytes rather than length-prefixed, because a classic CAN frame is an
+id, a length and at most eight bytes.
+
+One thing to know before reading a trace: a controller alone on the bus goes
+bus-off, and the page models that faithfully. Nothing acknowledges its frames,
+its transmit error counter climbs to 256, and the card says `bus-off`. Add a
+node from the CAN panel and it recovers. That is the bus behaving correctly,
+not the bridge failing.
+
+### Sleep, and the power card
+
+`hw/misc/esp32c3_rtc_cntl.c` models enough of the RTC controller for the part
+to sleep: the slow-clock counter, the wake target, and a timer that ends the
+sleep. Light sleep gets the wakeup interrupt `rtc_sleep_start()` spins on; deep
+sleep gets a reset with reason `DEEPSLEEP_RESET` and no interrupt, because on
+hardware the digital core is off and never sees one. That is also why the reset
+reason and the RTC scratch registers survive a reset here: it is how a guest
+tells a wake from a cold boot.
+
+`src/hostPowerState.ts` and the dock's power card read a small status block the
+model keeps. That card is not decoration. Light sleep is otherwise invisible:
+the guest stops printing, and nothing distinguishes that from a crash, a busy
+loop or a wedged emulator.
+
 ## Known limits
 - **The only display Zephyr can drive is the OLED.** The machine does map a
   framebuffer at `0x20000000` (`esp_rgb`, plus 8 MB of VRAM), but that is a
   device Espressif invented for their own QEMU rather than anything an
   ESP32-C3 has, and nothing in Zephyr binds it. So `-S oled` is the display
   path here, and accel_chart — which wants 480x320 — has nowhere to draw.
-- **Only the NOR is on SPI so far.** The bus and the bridge carry anything, but
-  the other SPI parts the page models (WS2812, SCT2024, PT6314, TMC50xx,
-  MCP2515) each have a `<part>-only` snippet that declares its own
-  `&virtio_spi0` node rather than enabling a label, so each needs a C3 overlay
-  of its own. Unlike I2C, where the parts bin is one file and the snippets only
-  flip `status`.
+- **The SCT2024 is the one SPI part still missing.** Its latch and
+  output-enable lines are bound to the virtio GPIO model rather than to
+  whichever controller the board has, so it needs page-side work rather than
+  another overlay.
+- **Deep sleep does not run to completion.** It hangs in ESP-IDF's power-down
+  preparation, before it ever arms the wake timer, so the RTC model is not the
+  last piece it needs. Light sleep works, and `samples/boards/espressif/
+  light_sleep` is packaged.
 - **GP-SPI2 is controller mode only.** Target mode, segmented transfers and the
   GDMA path are not modelled. Zephyr uses the FIFO path when a node has no
   `dma-enabled`, which is what the snippet declares.

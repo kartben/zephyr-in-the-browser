@@ -37,6 +37,14 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "CAN on the ESP32-C3's own TWAI controller."
+      },
+      {
+        "tag": "Added",
+        "text": "Power card showing ESP32-C3 sleep state and wake reason."
+      },
+      {
+        "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
       },
       {

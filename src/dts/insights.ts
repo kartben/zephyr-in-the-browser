@@ -179,6 +179,16 @@ export interface GpioController {
   sevenSegs: SevenSegDisplay[]
 }
 
+/** A CAN controller the guest drives directly, rather than a chip on a bus. */
+export interface CanController {
+  nodeName: string
+  controllerLabel: string
+  path: string
+  compatible: string
+  /** Whether the page is the other end of this controller's bus. */
+  bridged: boolean
+}
+
 export interface DtsInsights {
   /** Root `model` string — display-only. */
   model?: string
@@ -191,6 +201,8 @@ export interface DtsInsights {
   spiBuses: SpiBus[]
   uartBuses: UartBus[]
   gpioControllers: GpioController[]
+  /** Standalone CAN controllers (not a chip on a bus). */
+  canControllers: CanController[]
   /** Children of okay `pwm-leds` groups that resolve a PWM controller. */
   pwmLeds: PwmLed[]
   /** Panels this build can meaningfully use. */
@@ -255,6 +267,16 @@ const BRIDGED_I2C_COMPATS = new Set(['virtio,i2c', 'espressif,esp32-i2c'])
  * GP-SPI2, whose CS0 peripheral is the browser bridge (hw/ssi/host_spi.c).
  */
 const BRIDGED_SPI_COMPATS = new Set(['virtio,spi', 'espressif,esp32-spi'])
+
+/**
+ * CAN controllers the page's bus model answers for. Only one so far, and it is
+ * the odd one out even here: I2C and SPI reach page-side models of *parts*
+ * wired next to the SoC, while this is the SoC's own peripheral and what the
+ * browser supplies is the wire (net/can/can_browser.c, src/hostTwai.ts). The
+ * virtio boards get to CAN through an MCP2515 on SPI instead, which is a chip
+ * on a bus and so needs nothing here.
+ */
+const BRIDGED_CAN_COMPATS = new Set(['espressif,esp32-twai'])
 /** The GPIO controllers the browser panel drives, one per board. */
 // espressif,esp32-gpio is the odd one out: not a browser-invented device but
 // the SoC's own controller, modelled in QEMU and driven by the stock Zephyr
@@ -426,6 +448,24 @@ function collectUartBuses(doc: DtsDocument): UartBus[] {
     })
   })
   return buses
+}
+
+function collectCanControllers(doc: DtsDocument): CanController[] {
+  const controllers: CanController[] = []
+  walk(doc.root, (node) => {
+    if (node.name === '/' || !effectivelyOkay(node)) return
+    const compats = compatibles(node)
+    const bridged = compats.some((c) => BRIDGED_CAN_COMPATS.has(c))
+    if (!bridged) return
+    controllers.push({
+      nodeName: node.name,
+      controllerLabel: labelOf(node),
+      path: pathOf(node),
+      compatible: compats[0] ?? '',
+      bridged,
+    })
+  })
+  return controllers
 }
 
 function collectGpioControllers(doc: DtsDocument): GpioController[] {
@@ -605,6 +645,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   const spiBuses = collectSpiBuses(doc)
   const uartBuses = collectUartBuses(doc)
   const gpioControllers = collectGpioControllers(doc)
+  const canControllers = collectCanControllers(doc)
   const pwmLeds = collectPwmLeds(doc)
   const chosenTable = chosen(doc)
 
@@ -626,6 +667,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   if (bridgedSlots.some((slot) => slot.chipId !== undefined && SENSOR_CHIP_IDS.has(slot.chipId))) {
     panels.add('sensor')
   }
+  if (canControllers.some((controller) => controller.bridged)) panels.add('can')
   if (gpioControllers.some((controller) => controller.bridged)) panels.add('gpio')
   if (gpioControllers.some((c) => c.bridged && c.buttons.length > 0)) panels.add('keys')
   if (gpioControllers.some((c) => c.bridged && c.buzzers.length > 0)) panels.add('buzzer')
@@ -678,6 +720,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     spiBuses,
     uartBuses,
     gpioControllers,
+    canControllers,
     pwmLeds,
     panels,
   }

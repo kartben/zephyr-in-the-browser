@@ -9,6 +9,8 @@ via the help dialog (?).
 - **Added:** Blinky and Button samples on the ESP32-C3, with a live GPIO panel.
 - **Added:** I²C sensors, displays and EEPROM on the ESP32-C3.
 - **Added:** SPI flash and LittleFS on the ESP32-C3.
+- **Added:** CAN on the ESP32-C3's own TWAI controller.
+- **Added:** Power card showing ESP32-C3 sleep state and wake reason.
 - **Added:** Button tour for gpio-keys and input events.
 - **Improved:** Blinky tour shows the LED pin from devicetree.
 - **Added:** Help button in the top bar for shortcuts and changelog.
