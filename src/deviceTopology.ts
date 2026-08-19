@@ -59,6 +59,7 @@ export type DeviceClass =
   | 'spi-bus'
   | 'uart-bus'
   | 'can-bus'
+  | 'power'
   | 'gpio'
   | 'keys'
   | 'buzzer'
@@ -90,6 +91,7 @@ export type BodyKind =
   | 'spi'
   | 'uart'
   | 'can'
+  | 'power'
   | 'bluetooth'
   | 'spi-flash'
   | 'disk'
@@ -113,6 +115,10 @@ export interface Availability {
   net: boolean
   i2c: boolean
   spi: boolean
+  /** The guest's own CAN controller is on the page's bus (src/hostTwai.ts). */
+  can: boolean
+  /** The SoC's RTC controller is reporting sleep state (src/hostPowerState.ts). */
+  power: boolean
   display: boolean
   input: boolean
   disk: boolean
@@ -200,6 +206,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   'spi-bus': 'SPI buses',
   'uart-bus': 'UART buses',
   'can-bus': 'CAN',
+  power: 'Power',
   gpio: 'GPIO',
   keys: 'Keys',
   buzzer: 'Buzzer',
@@ -225,6 +232,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'spi-bus',
   'uart-bus',
   'can-bus',
+  'power',
   'gpio',
   'keys',
   'buzzer',
@@ -973,6 +981,47 @@ function deriveFromTree(
   // UART buses: every enumerated controller gets a row; children (GNSS, …)
   // nest under it the same way chips nest under I²C/SPI. The GNSS UART is
   // interactive with an "On the bus" roster — same paradigm, usually one seat.
+  /*
+   * The SoC's RTC controller, which is where sleep happens. Not a bus and not
+   * a part: a window on state the guest has no other way to show, since a
+   * board in light sleep looks from the terminal exactly like one that hung.
+   */
+  if (avail.power) {
+    push({
+      key: uniqueKey(ids, 'rtc_cntl'),
+      nodeName: 'rtc_cntl',
+      label: 'Power / RTC controller',
+      deviceClass: 'power',
+      path: '/soc/rtc_cntl',
+      presence: 'interactive',
+      body: 'power',
+      panelKind: 'perf',
+    })
+  }
+
+  /*
+   * The SoC's own CAN controller. Everything else with a `can` body is an
+   * MCP2515 discovered as a chip on the SPI bus; this one is not a chip at
+   * all, so it gets its own row. The panel behind it is the same: the page
+   * owns the bus, its nodes and the trace either way, and only the register
+   * map (which belongs to the MCP2515) is missing here.
+   */
+  for (const controller of insights.canControllers) {
+    if (!controller.bridged) continue
+    push({
+      key: uniqueKey(ids, controller.controllerLabel),
+      nodeName: controller.nodeName,
+      label: controller.controllerLabel,
+      compatible: controller.compatible || undefined,
+      deviceClass: 'can-bus',
+      path: controller.path,
+      presence: avail.can ? 'interactive' : 'inert',
+      body: avail.can ? 'can' : undefined,
+      panelKind: 'can',
+      busLabel: controller.controllerLabel,
+    })
+  }
+
   for (const bus of insights.uartBuses) {
     const busNode = byPath(doc, bus.path)
     const busKey = uniqueKey(ids, bus.controllerLabel)

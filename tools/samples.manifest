@@ -41,6 +41,8 @@
 #                  ht16k33-only, lp5562-only, lp5012-only, pca9685-only,
 #                  mcp4725-only, max17048-only — or i2c-shell for the whole set
 #                  the shell's commands can drive
+#   esp32-can .... the ESP32-C3's own TWAI controller on the browser's CAN bus
+#                  (no bridge chip: TWAI is the SoC's real CAN peripheral)
 #   esp32-spi .... the ESP32-C3's own GP-SPI2 with the same JEDEC NOR on CS0
 #   virtio-spi ... VIRTIO SPI + a JEDEC NOR on CS0; self-contained alternatives
 #                  on the same bus are pt6314-only, sct2024-only, ws2812-only,
@@ -211,4 +213,5 @@ esp32c3_devkitc:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:esp32-spi
 esp32c3_devkitc:led_strip:samples/drivers/led/led_strip:conf/ws2812.conf:ws2812-only
 esp32c3_devkitc:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt6314-only
 esp32c3_devkitc:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
-esp32c3_devkitc:can_counter:zephyr-module/apps/can_counter:conf/mcp2515.conf:mcp2515-only
+esp32c3_devkitc:can_counter:zephyr-module/apps/can_counter:conf/esp32-can.conf:esp32-can
+esp32c3_devkitc:light_sleep:samples/boards/espressif/light_sleep

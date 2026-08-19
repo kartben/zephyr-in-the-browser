@@ -202,6 +202,18 @@ export interface Board {
      */
     hostSpi?: boolean
     /**
+     * The SoC's own CAN controller on the page's bus, through
+     * `net/can/can_browser.c`. No bridge chip: TWAI is real ESP32-C3
+     * hardware, so this is the wire rather than the part. ESP32-C3 only.
+     * See src/hostTwai.ts.
+     */
+    hostTwai?: boolean
+    /**
+     * The SoC's RTC controller reports its sleep state to the dock's power
+     * card. Read-only, no bridge: see src/hostPowerState.ts. ESP32-C3 only.
+     */
+    powerState?: boolean
+    /**
      * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
      * Needs `-semihosting` on the argv; the Trace dock row follows it.
      */
@@ -1070,7 +1082,13 @@ export const BOARDS: Board[] = [
     // esp32 driver. It reaches the page through the same exported functions as
     // the Cortex-M3's qemu,host-gpio, so the same panel serves it. The other
     // bridges are still absent: this machine has neither a virtio bus nor PCI.
-    peripherals: { hostGpio: true, hostI2c: true, hostSpi: true },
+    peripherals: {
+      hostGpio: true,
+      hostI2c: true,
+      hostSpi: true,
+      hostTwai: true,
+      powerState: true,
+    },
     samples: [
       {
         id: 'hello_world',
@@ -1106,6 +1124,17 @@ export const BOARDS: Board[] = [
           'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc` and `eeprom` over the SoC’s own I²C bus',
         zephyrSample: 'samples/subsys/shell/shell_module',
         primaryPanels: ['i2c'],
+      },
+      {
+        // The SoC's own RTC controller does the sleeping, so this needs no
+        // snippet: the power states are in the C3's own devicetree. The dock's
+        // power card is the only way to see it happen — from the terminal a
+        // sleeping board and a hung one look identical.
+        id: 'light_sleep',
+        label: 'Light sleep',
+        description: 'Sleeps and wakes on the RTC timer; watch the power card',
+        zephyrSample: 'samples/boards/espressif/light_sleep',
+        primaryPanels: ['perf'],
       },
       ...ESP32C3_BRIDGED_SAMPLES,
     ],

@@ -3,6 +3,8 @@ import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { attach as attachHostGpio, detach as detachHostGpio } from '@/hostGpio'
 import { attach as attachHostI2c, detach as detachHostI2c } from '@/hostI2c'
 import { attach as attachHostSpi, detach as detachHostSpi } from '@/hostSpi'
+import { attach as attachHostTwai, detach as detachHostTwai } from '@/hostTwai'
+import { attach as attachHostPower, detach as detachHostPower } from '@/hostPowerState'
 import { attach as attachHostAudio, detach as detachHostAudio } from '@/hostAudio'
 import { attach as attachHostMic, detach as detachHostMic } from '@/hostMic'
 import { attach as attachGuestStats, detach as detachGuestStats } from '@/guestStats'
@@ -436,6 +438,10 @@ export function createQemuBackend(): PtyBackend {
       else detachHostI2c()
       if (board.peripherals?.hostSpi) attachHostSpi(instance)
       else detachHostSpi()
+      if (board.peripherals?.hostTwai) attachHostTwai(instance)
+      else detachHostTwai()
+      if (board.peripherals?.powerState) attachHostPower(instance)
+      else detachHostPower()
       if (board.peripherals?.hostAudio) attachHostAudio(instance)
       else detachHostAudio()
       if (board.peripherals?.hostMic) attachHostMic(instance)
@@ -478,6 +484,8 @@ export function createQemuBackend(): PtyBackend {
       detachHostGpio()
       detachHostI2c()
       detachHostSpi()
+      detachHostTwai()
+      detachHostPower()
       detachHostAudio()
       detachHostMic()
       detachGuestStats()
