@@ -1,0 +1,30 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/auxdisplay: PT6314 VFD on the ESP32-C3's GP-SPI2, CS0,
+ * answered by the browser through hw/ssi/host_spi.c. Nodename auxdisplay_0 is
+ * required: the stock sample binds DT_NODELABEL(auxdisplay_0). Geometry
+ * matches Zephyr's stock esp32c3_devkitm overlay (Futaba M202MD15FA 20x2).
+ *
+ * Self-contained, like its Cortex-A53 twin: it turns the bus on itself rather
+ * than composing with esp32-spi, which would put a JEDEC NOR on the same chip
+ * select.
+ */
+
+&spi2 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spim2_default>;
+	pinctrl-names = "default";
+
+	auxdisplay_0: pt6314@0 {
+		compatible = "ptc,pt6314";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		columns = <20>;
+		rows = <2>;
+		status = "okay";
+	};
+};

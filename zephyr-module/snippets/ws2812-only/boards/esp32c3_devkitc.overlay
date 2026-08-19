@@ -1,0 +1,48 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * samples/drivers/led/led_strip: WS2812 on the ESP32-C3's GP-SPI2, CS0. The
+ * guest encodes each WS2812 bit as an 8-bit SPI symbol; the page decodes the
+ * bitstream and paints the strip (src/virtio/devices/chips/ws2812.ts), through
+ * hw/ssi/host_spi.c on the far side of the SoC's own controller.
+ *
+ * Self-contained, like its Cortex-A53 twin: it turns the bus on itself rather
+ * than composing with esp32-spi, which would put a JEDEC NOR on the same chip
+ * select.
+ *
+ * spi-max-frequency is required by the binding but paces nothing here: one
+ * led_strip_update_rgb is one run across the bridge, and pulse timing is
+ * ignored.
+ */
+
+#include <zephyr/dt-bindings/led/led.h>
+
+&spi2 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spim2_default>;
+	pinctrl-names = "default";
+
+	led_strip: ws2812@0 {
+		compatible = "worldsemi,ws2812-spi";
+		reg = <0>;
+		/* Binding-required; ignored for wall-clock pacing in the browser. */
+		spi-max-frequency = <4000000>;
+		chain-length = <16>;
+		/* Common 8-bit symbol pair used by many Zephyr board overlays. */
+		spi-one-frame = <0x70>;
+		spi-zero-frame = <0x40>;
+		color-mapping = <LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_RED
+				 LED_COLOR_ID_BLUE>;
+		status = "okay";
+	};
+};
+
+/ {
+	aliases {
+		led-strip = &led_strip;
+	};
+};

@@ -1,0 +1,59 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * MCP2515 CAN controller on the ESP32-C3's GP-SPI2, CS0, answered by the
+ * browser through hw/ssi/host_spi.c. The page models the chip
+ * (src/virtio/devices/chips/mcp2515.ts) and the bus behind it
+ * (src/can/bus.ts), so `can send` reaches simulated peer nodes.
+ *
+ * Self-contained, like its Cortex-A53 twin: it turns the bus on itself rather
+ * than composing with esp32-spi, which would put a JEDEC NOR on the same chip
+ * select.
+ *
+ * INT is GPIO8 because src/hostCan.ts drives that line, and the controller's
+ * interrupt is what wakes the driver's receive thread. That is the pin the
+ * browser_bridge shield declares its (disabled) LED on, so the LED the sample
+ * blinks on an LED frame goes on GPIO4 instead, under its own label: the
+ * shield's led0 stays where it is and the alias points here.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&spi2 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spim2_default>;
+	pinctrl-names = "default";
+
+	can0: can@0 {
+		compatible = "microchip,mcp2515";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		int-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+		osc-freq = <16000000>;
+		bitrate = <500000>;
+		sample-point = <875>;
+		status = "okay";
+	};
+};
+
+/ {
+	aliases {
+		led0 = &can_led0;
+	};
+
+	chosen {
+		zephyr,canbus = &can0;
+	};
+
+	can_leds {
+		compatible = "gpio-leds";
+
+		can_led0: led_0 {
+			gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+			label = "Browser LED0";
+		};
+	};
+};
