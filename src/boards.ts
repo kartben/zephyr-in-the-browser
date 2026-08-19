@@ -972,6 +972,57 @@ export const BOARDS: Board[] = [
     ],
     usesDataBundle: false,
   },
+  {
+    id: 'esp32c3_devkitc',
+    label: 'ESP32-C3 DevKitC',
+    shortLabel: 'C3',
+    zephyrTarget: 'esp32c3_devkitc',
+    arch: 'RV32IMC',
+    // Same artifact as qemu_riscv32: the espressif machine models are compiled
+    // into the one riscv32 build alongside `virt`.
+    qemuBinary: 'qemu-system-riscv32',
+    args: [
+      '-nographic',
+      '-machine',
+      'esp32c3',
+      // The C3 has no free-running mode; 1<<3 = 8 ns/insn, about 125 MHz.
+      '-icount',
+      '3',
+      // The machine loads its boot ROM with qemu_find_file(QEMU_FILE_TYPE_BIOS),
+      // so esp32c3-rom.bin has to sit in the datadir. `-bios` is not the way in:
+      // on this machine that selects a -kernel path instead and then asserts.
+      '-L',
+      '/pack/pc-bios',
+      // Unlike every other board here, the guest is not loaded with -kernel. It
+      // boots out of emulated SPI flash, from the app image the build script
+      // merges next to the ELF.
+      '-drive',
+      'file=/pack/flash.bin,if=mtd,format=raw',
+    ],
+    // Not in the argv: the ELF is preloaded only so the debugger can resolve
+    // CONFIG_DEBUG_THREAD_INFO symbols out of it, the way it does elsewhere.
+    kernelFsPath: '/pack/zephyr.elf',
+    // No browser bridges. Every one of them is either a patched device on
+    // `virt`/`lm3s6965` or a virtio-mmio bridge, and this machine has neither a
+    // virtio bus nor PCI, so the device dock has nothing to show yet.
+    peripherals: {},
+    samples: [
+      {
+        id: 'hello_world',
+        label: 'Hello World',
+        description: 'Prints one line and stops',
+        zephyrSample: 'samples/hello_world',
+      },
+    ],
+    defaultSampleId: 'hello_world',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/esp32c3-rom.bin', asset: 'esp32c3-rom.bin' },
+      // Board-level, which only works while this board has a single sample. A
+      // second one needs the flash image resolved per sample, like sampleAsset().
+      { fsPath: '/pack/flash.bin', asset: 'zephyr/esp32c3_devkitc/hello_world.flash.bin' },
+    ],
+    usesDataBundle: false,
+  },
 ]
 
 /** Landing board: A53 (wasm JIT) with the shell sample — see defaultSampleId.
