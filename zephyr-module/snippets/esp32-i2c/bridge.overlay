@@ -142,10 +142,11 @@
 	 * Matches createSsd1306({ address: 0x3c }) in src/virtio/index.ts, whose
 	 * GDDRAM the OLED panel paints onto a canvas. `-S oled` is what turns it
 	 * on and points zephyr,display at it. On this board that is the only
-	 * display there is (the C3 machine has no framebuffer of any kind), so
-	 * the OLED is what a display sample draws on. Nothing but a display driver
-	 * can drive one, so there is no build where the panel is worth carrying
-	 * dark.
+	 * display Zephyr can drive: the machine does map a framebuffer, but it is
+	 * `esp_rgb`, a device Espressif invented for their own QEMU rather than
+	 * anything an ESP32-C3 has, and no in-tree driver binds it. So the OLED is
+	 * what a display sample draws on. Nothing but a display driver can drive
+	 * one, so there is no build where the panel is worth carrying dark.
 	 *
 	 * The timing and charge-pump properties are the datasheet's defaults; the
 	 * page ignores them, but they are required by the binding and a real part

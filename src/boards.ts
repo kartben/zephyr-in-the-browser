@@ -773,10 +773,11 @@ const CORTEX_A53_SAMPLES: GuestSample[] = withA53TraceVariants(CORTEX_A53_SAMPLE
  * manifest has the matching rows.
  *
  * The tail is on the SoC's GP-SPI2 instead, through the same arrangement
- * (hw/ssi/host_spi.c and src/hostSpi.ts). Not here: accel_chart, which needs a
- * framebuffer this machine does not have, and sct2024, whose latch and
- * output-enable lines are bound to the virtio GPIO model rather than to
- * whichever controller the board has.
+ * (hw/ssi/host_spi.c and src/hostSpi.ts). Not here: accel_chart, which wants a
+ * framebuffer, and the machine's only one is `esp_rgb`: a device Espressif
+ * invented for their own QEMU, not ESP32-C3 hardware, with no Zephyr driver.
+ * Nor sct2024, whose latch and output-enable lines are bound to the virtio
+ * GPIO model rather than to whichever controller the board has.
  */
 const ESP32C3_BRIDGED_SAMPLE_IDS = [
   'eeprom',
