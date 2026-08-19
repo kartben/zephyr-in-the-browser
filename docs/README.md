@@ -25,6 +25,7 @@ other end of the wire.
 | [tours.md](tours.md) | Guided tours — a Markdown DSL that breaks anywhere in a stock sample and shows what it finds |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
+| [esp32.md](esp32.md) | `esp32c3_devkitc` board: why the emulator comes from a QEMU fork, and why it boots from flash rather than `-kernel` |
 | [trace-networking-plan.md](trace-networking-plan.md) | Trace panel **Networking** tab from Zephyr socket / `net_*` CTF — the socket swimlanes shipped; the connection ribbon and cross-panel linking did not |
 | [cpu-power-states.md](cpu-power-states.md) | CPU suspend states in the Trace panel from PM CTF, ranked by the devicetree — the CPU lane group, the Power tab, the sample and the guest overlay; visual language set by [the mockup](cpu-power-mockup.html) |
 
