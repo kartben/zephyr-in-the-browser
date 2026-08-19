@@ -115,6 +115,46 @@ function mmioPollMs(): number {
   return derived.steppers.length > 0 ? MMIO_POLL_STEPPER_MS : MMIO_POLL_MS
 }
 
+/** DT GPIO_ACTIVE_LOW. A button with this set reads low when it is pressed. */
+const GPIO_ACTIVE_LOW = 0x1
+
+function isActiveLow(pin: Pin): boolean {
+  return (pin.flags & GPIO_ACTIVE_LOW) !== 0
+}
+
+/**
+ * The electrical level an input sits at when nothing is pressing it. Zero for
+ * an ordinary active-high button; high for an active-low one, which is what
+ * its pull-up does on real hardware. Seeding this matters: a guest that samples
+ * an active-low button before the first press would otherwise read it as held
+ * down from boot.
+ */
+function restInputs(): number {
+  let mask = 0
+  for (const b of derived.buttons) {
+    if (isActiveLow(b)) mask |= 1 << b.id
+  }
+  return mask
+}
+
+/**
+ * Press or release a button, in the button's own terms. The panel speaks
+ * "pressed"; the device wants a level, and the two are opposites on an
+ * active-low pin.
+ */
+export function setPressed(pin: number, pressed: boolean) {
+  const button = derived.buttons.find((b) => b.id === pin)
+  const activeLow = button ? isActiveLow(button) : false
+  setInput(pin, activeLow ? !pressed : pressed)
+}
+
+/** Whether a button reads as pressed, accounting for its active level. */
+export function isPressed(pin: number): boolean {
+  const button = derived.buttons.find((b) => b.id === pin)
+  const high = isInputHigh(pin)
+  return button && isActiveLow(button) ? !high : high
+}
+
 function recomputeDerived() {
   const bridged = getDeviceTree()?.insights?.gpioControllers.find((c) => c.bridged)
   derived = bridged
@@ -136,6 +176,12 @@ function recomputeDerived() {
         node: null,
         ngpios: 8,
       }
+  // A new devicetree can change which pins are active low, so re-seed the
+  // resting levels. Nothing is held down at this point: the tree only changes
+  // between guests.
+  inputs = restInputs()
+  if (mmio) mmio.setInputs(inputs)
+  else gpioModel.setInputs(inputs)
   restartMmioPoller()
 }
 
