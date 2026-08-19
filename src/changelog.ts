@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "ESP32-C3 DevKitC board, booting from emulated SPI flash."
+      },
+      {
+        "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
       },
       {
