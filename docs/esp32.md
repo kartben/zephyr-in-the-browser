@@ -225,8 +225,29 @@ waits for it forever, which hangs the guest before the boot banner.
   input to its resting level from the devicetree flags, which is where the
   ESP32-C3 button's pull-up effectively comes from. A native build has nobody
   to do that, so an active-low button there reads as held.
-- **`-icount 3` is required.** The C3 has no free-running mode. It caps
-  throughput and rules out the guest-MIPS readout other boards use.
+- **`-icount 3` is required.** The C3 has no free-running mode, unlike
+  `qemu_riscv32`, which runs free. It rules out the guest-MIPS readout other
+  boards use, and it is worth knowing what it does and does not cost, because
+  the board *looks* slow and mostly is not.
+
+  Measured in the browser on the shell sample: at an idle prompt the guest
+  clock tracks wall clock almost exactly, because icount warps the clock
+  forward whenever every vCPU is halted. Under load it does not: a full
+  `i2c scan` is **4 ms of guest time** and about **150 ms of wall time**, the
+  same 4 ms it takes natively. So compute is roughly 30x slower than real time
+  and idle is free, which is why a sample that sleeps between steps feels
+  right and one that computes feels sluggish.
+
+  The shift is **not** a throughput lever, which is easy to get wrong. It
+  scales how much virtual time an instruction buys, not how fast the emulator
+  executes: `-icount 4` was measurably no better, because the same instructions
+  still take the same wall time and only the guest's sense of elapsed time
+  changes. The lever that would matter is the wasm JIT the Cortex-A53 build
+  uses (`ktock/qemu-wasm`'s wasm32 TCG backend); this artifact is built with
+  `--enable-tcg-interpreter`, so every guest instruction goes through TCI.
+  Putting the JIT under the ESP32 machines means replaying that backend onto
+  the espressif fork as well, which is a second rebase of the kind the top of
+  this file describes.
 - **Cost to the shared artifact: +0.24 MB (+2.8%)**, 8.77 MB to 9.01 MB, for both
   `esp32c3` and `esp32c6`. Carrying them in the existing `qemu-system-riscv32`
   rather than a second binary keeps `Board.qemuBinary` and the asset probe
