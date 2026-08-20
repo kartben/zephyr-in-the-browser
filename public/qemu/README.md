@@ -98,7 +98,7 @@ need a bundle (firmware blobs, a root filesystem) can still set
   `tools/qemu-jit-patches/`. Set `QEMU_AARCH64_ACCEL=tci` to build upstream
   QEMU for this target instead.
 - `riscv32-softmmu` builds **upstream QEMU** with TCI and
-  `tools/qemu-riscv-patches/` (RISC-V `virt` machine wiring). Opt-in: not part
+  `tools/qemu-esp-patches/` (RISC-V `virt` machine wiring). Opt-in: not part
   of the default `all` target yet.
 
 Emscripten support landed upstream in QEMU 10.1, contributed by Kohei Tokunaga,

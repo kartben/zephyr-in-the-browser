@@ -17,7 +17,7 @@ Per-peer configure/control UI (draft):
 | --- | --- |
 | QEMU `hci0` chardev slot | `tools/qemu-*-patches/*chardev-add-browser-hci-slot.patch` |
 | A53 HCI UART @ `0x090f0000` | `tools/qemu-jit-patches/0019-hw-char-add-browser-hci-uart-on-virt.patch` |
-| RISC-V HCI UART @ `0x1000c000` | `tools/qemu-riscv-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch` |
+| RISC-V HCI UART @ `0x1000c000` | `tools/qemu-esp-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch` |
 | Feature bit `"hci"` | `tools/build-qemu-wasm.sh` → `features.json` |
 | Page bridge | `src/hostBt.ts`, `src/bt/h4.ts`, `src/bt/bumbleController.ts` |
 | In-page peers | `src/bt/peers.ts` — HRM / advertiser / scanner / A2DP speaker on the same LocalLink |

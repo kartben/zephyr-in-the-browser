@@ -5,7 +5,7 @@
  * formals are optional — without them we still label arg/return/temp/callee-saved.
  */
 
-export type HintArch = 'arm' | 'aarch64' | 'riscv32'
+export type HintArch = 'arm' | 'aarch64' | 'riscv32' | 'xtensa'
 
 export interface RegHintContext {
   arch: HintArch | null
@@ -19,6 +19,9 @@ export interface RegHintContext {
 export function inferArchFromDump(dump: string): HintArch | null {
   if (/\bX\d{2}=/i.test(dump) || /\bPSTATE=/i.test(dump)) return 'aarch64'
   if (/\bR\d{2}=/i.test(dump) || /\bXPSR=/i.test(dump)) return 'arm'
+  // Before RISC-V: that test matches a bare `a0=`, and Xtensa's two-digit
+  // `a00=` does not collide, but `windowbase=` settles it either way.
+  if (/\ba\d{2}=/i.test(dump) || /\bwindowbase=/i.test(dump)) return 'xtensa'
   if (/\ba0=/i.test(dump) || /\bra=/i.test(dump)) return 'riscv32'
   return null
 }
@@ -95,12 +98,30 @@ export function regRole(name: string, ctx: RegHintContext): string | null {
     if (low === 'zero') return 'hard-wired zero'
   }
 
+  // Xtensa's windowed ABI, as seen from inside the current window. There is no
+  // callee-saved class to name: a call rotates the window instead of spilling,
+  // so what the caller keeps it keeps by not being in the window at all.
+  if (arch === 'xtensa') {
+    const m = /^A(\d{2})$/.exec(n)
+    if (m) {
+      const i = Number(m[1])
+      if (i === 0) return 'return address (windowed)'
+      if (i === 1) return 'stack pointer'
+      if (i <= 7) return argHint(i - 2, formals, i === 2)
+      return 'temp / outgoing window'
+    }
+    if (n === 'PS') return 'processor state'
+    if (n === 'WINDOWBASE') return 'window base: which physical regs a0..a15 are'
+    if (n === 'WINDOWSTART') return 'window start: which frames are live'
+  }
+
   return null
 }
 
 function inferArchFromName(n: string): HintArch | null {
   if (/^X\d{2}$/.test(n) || n === 'PSTATE') return 'aarch64'
   if (/^R\d{2}$/.test(n) || n === 'XPSR') return 'arm'
+  if (/^A\d{2}$/.test(n) || n === 'WINDOWBASE') return 'xtensa'
   return null
 }
 

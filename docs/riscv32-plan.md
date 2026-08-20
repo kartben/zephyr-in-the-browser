@@ -10,7 +10,7 @@ Wiring for the board is in-tree:
 
 | Piece | Location |
 | --- | --- |
-| Softmmu patches (TCI) | `tools/qemu-riscv-patches/` |
+| Softmmu patches (TCI) | `tools/qemu-esp-patches/` |
 | Build target | `tools/build-qemu-wasm.sh riscv32-softmmu` (also built by `all`) |
 | Board registry | `src/boards.ts` → `qemu_riscv32` |
 | Shield overlay | `zephyr-module/boards/shields/browser_bridge/boards/qemu_riscv32.overlay` |
@@ -28,7 +28,7 @@ A local `riscv32-softmmu` build boots: `hello_world` reaches
 whole bridge set enumerated — seven sensors and the JHD1313 on `virtio_i2c0`,
 the PT6314 on `virtio_spi0` CS1, host audio at `0x10009000`, host mic at
 `0x1000a000`, virtio-net and virtio-input. Note the SPI bus realizes here, so
-`device-id=45` needs `tools/qemu-riscv-patches/0011-*` in whatever emulator
+`device-id=45` needs `tools/qemu-esp-patches/0011-*` in whatever emulator
 ships.
 
 Still outstanding: LVGL rendering through ramfb under TCI (the device
@@ -56,7 +56,7 @@ GNSS, audio, display where feasible).
 | Softmmu | New `riscv32-softmmu` artifact | Separate binary from ARM/AArch64 |
 | Accel | Upstream QEMU v10.1.0 + TCI | JIT not validated for RISC-V |
 | Guest board | `qemu_riscv32` | Stock Zephyr; `virt`, `-bios none`, `-m 256` |
-| Bridges | `tools/qemu-riscv-patches/` on `hw/riscv/virt.c` | Virtio TS is arch-neutral; machine C is not |
+| Bridges | `tools/qemu-esp-patches/` on `hw/riscv/virt.c` | Virtio TS is arch-neutral; machine C is not |
 | icount | Deferred | Optional Simulation panel later |
 
 ## Machine MMIO map (patched)

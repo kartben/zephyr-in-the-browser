@@ -4,7 +4,7 @@
 #
 #   tools/build-qemu-wasm.sh [target]        # target defaults to all
 #                                             (arm-softmmu + aarch64-softmmu
-#                                              + riscv32-softmmu)
+#                                              + riscv32-softmmu + xtensa-softmmu)
 #
 # Environment overrides:
 #   QEMU_REPO             upstream git remote      (default: qemu/qemu)
@@ -17,13 +17,20 @@
 #   JOBS                  parallel build jobs       (default: container nproc)
 #   PLATFORM              docker platform           (default: linux/amd64)
 #
-# The Cortex-M and RISC-V artifacts build upstream QEMU with its TCI
+# The Cortex-M, RISC-V and Xtensa artifacts build QEMU with its TCI
 # interpreter. The Cortex-A53 artifact uses ktock/qemu-wasm's experimental
 # wasm32 TCG backend: it starts blocks in TCI, then compiles hot blocks into
 # small Wasm modules. The JIT is not upstream QEMU and previously miscompiled
 # Cortex-M timer paths, so it is deliberately limited to the AArch64 display
-# machine. RISC-V uses tools/qemu-riscv-patches/ (not the ARM Stellaris series)
-# so machine wiring lands in hw/riscv/virt.c.
+# machine.
+#
+# Three trees, one patch series each. The series is named for the tree, not the
+# target. RISC-V and Xtensa share $ESP_SRC (the espressif models exist nowhere
+# else), so both apply tools/qemu-esp-patches/. Most of that series wires
+# hw/riscv/virt.c, which an Xtensa build simply does not compile; what it needs
+# out of it is the xterm-pty link, the link optimisation and the browser
+# chardevs, and taking the series whole is what keeps the two targets from
+# fighting over one working tree.
 #
 # The dependency image (glib, pixman, zlib, libffi cross-compiled to Wasm) is
 # built from tools/Dockerfile.deps and is the slow part; it is cached, so
@@ -243,6 +250,14 @@ build_qemu() {
   if [ "$target" = "riscv32-softmmu" ] && [ -f "$src/pc-bios/esp32c3-rom.bin" ]; then
     cp "$src/pc-bios/esp32c3-rom.bin" "$DEST/esp32c3-rom.bin"
   fi
+  # The ESP32's is two files, not one: the Xtensa part is dual-core, and each
+  # core enters a different ROM image.
+  if [ "$target" = "xtensa-softmmu" ]; then
+    for rom in esp32-v3-rom.bin esp32-v3-rom-app.bin; do
+      [ -f "$src/pc-bios/$rom" ] && cp "$src/pc-bios/$rom" "$DEST/$rom"
+    done
+    write_esp32_efuse "$DEST/esp32-eco3-efuse.bin"
+  fi
   # Only some Emscripten versions emit a separate pthread worker shim.
   if docker cp "$CONTAINER:/build/$binary.worker.js" "$DEST/$binary.worker.js" 2>/dev/null; then
     echo "  - $binary.worker.js"
@@ -252,34 +267,83 @@ build_qemu() {
 
   docker rm -f "$CONTAINER" >/dev/null
 
-  # Record which optional bridges this build actually carries.
+  # Record which optional bridges the artifact set carries.
   #
   # The page reads features.json before assembling argv, because QEMU exits on
   # an unknown -chardev backend: guessing wrong would stop an older emulator
   # booting at all rather than merely lose a feature. Detected from the emitted
   # glue rather than hardcoded, so the file can never claim more than is there.
-  write_features "$DEST" "$binary"
+  write_features "$DEST"
+}
+
+# The ESP32's eFuse image, written rather than checked in: 124 bytes of which
+# two bits matter, and a blob in git would say nothing about which.
+#
+# ESP-IDF reads the chip revision as three bits: CHIP_VER_REV1 and
+# CHIP_VER_REV2 out of eFuse BLK0 (bits 111 and 180, so word 3 bit 15 and word 5
+# bit 20), and a third out of APB_CTRL_DATE_REG bit 31, which hw/xtensa/esp32.c
+# already asserts. All three set is revision 3, ECO3. Without them the ROM
+# reports v0.0 and the boot stub stops on an unsupported revision rather than
+# starting Zephyr.
+#
+# The layout is hw/nvram/esp32_efuse.h's Esp32EfuseRegs, read whole from offset
+# 0 at reset: blk0[7] then blk1[8], blk2[8], blk3[8]. Everything else is zero,
+# which is an unfused part.
+write_esp32_efuse() {
+  local out="$1"
+  python3 -c 'import struct, sys
+words = [0] * 31
+words[3] |= 1 << 15   # CHIP_VER_REV1
+words[5] |= 1 << 20   # CHIP_VER_REV2
+open(sys.argv[1], "wb").write(struct.pack("<31I", *words))' "$out"
+  echo "  - $(basename "$out") ($(command wc -c < "$out" | xargs) bytes, ECO3)"
 }
 
 # Probe the Emscripten glue for the exports each optional bridge is known by.
+#
+# One features.json describes the whole artifact set, because the page fetches
+# it once and not per board. So a feature is listed only when *every* binary in
+# public/qemu/ carries it: an intersection, not a union, and deliberately so:
+# the page turns a listed feature into `-chardev browser,...` on the argv of
+# whichever board is booting, and QEMU exits on a chardev backend it does not
+# know. Over-claiming stops a board booting at all; under-claiming only loses
+# the feature until the lagging target is rebuilt.
+#
+# This also means a single-target rebuild no longer answers for targets it did
+# not touch: it re-probes every binary that is present.
 write_features() {
-  local dest="$1" binary="$2"
+  local dest="$1"
   local -a feats=()
+  local -a binaries=()
+  local js
 
-  if grep -q "qemu_browser_monitor_feed" "$dest/$binary.js" 2>/dev/null; then
-    feats+=("\"monitor\"")
+  for js in "$dest"/qemu-system-*.js; do
+    # The pthread shim matches that glob and exports none of this; counting it
+    # would make every intersection empty.
+    case "$js" in *.worker.js) continue ;; esac
+    [ -e "$js" ] && binaries+=("$js")
+  done
+  if [ ${#binaries[@]} -eq 0 ]; then
+    return
   fi
-  if grep -q "qemu_browser_gdb_feed" "$dest/$binary.js" 2>/dev/null; then
-    feats+=("\"gdb\"")
-  fi
-  if grep -q "qemu_browser_hci_feed" "$dest/$binary.js" 2>/dev/null; then
-    feats+=("\"hci\"")
-  fi
+
+  local export_name feature
+  for pair in "qemu_browser_monitor_feed:monitor" \
+              "qemu_browser_gdb_feed:gdb" \
+              "qemu_browser_hci_feed:hci"; do
+    export_name="${pair%%:*}"
+    feature="${pair##*:}"
+    local all=1
+    for js in "${binaries[@]}"; do
+      grep -q "$export_name" "$js" 2>/dev/null || { all=0; break; }
+    done
+    [ "$all" = 1 ] && feats+=("\"$feature\"")
+  done
 
   local joined
   joined=$(IFS=,; echo "${feats[*]}")
   printf '{\n  "features": [%s]\n}\n' "$joined" > "$dest/features.json"
-  echo "  - features.json: [$joined]"
+  echo "  - features.json: [$joined] (across ${#binaries[@]} binaries)"
 }
 
 # ---------------------------------------------------------------------------
@@ -295,19 +359,19 @@ build_target() {
     ref="$JIT_REF"
     patches="$ROOT/tools/qemu-jit-patches"
     accel=jit
-  elif [ "$target" = "riscv32-softmmu" ]; then
+  elif [ "$target" = "riscv32-softmmu" ] || [ "$target" = "xtensa-softmmu" ]; then
     # Dedicated series: ARM Stellaris / arm-virt patches must not land here.
     #
-    # Its own tree, and not upstream's: this artifact carries the `esp32c3` and
-    # `esp32c6` machines alongside `virt`, and those models exist only in
-    # espressif/qemu, which is still on 9.2.2. ESP_REF is that delta replayed
-    # onto the same v10.1.0 the other targets build, since 9.2.2 predates
-    # upstream's Emscripten support. A separate directory also keeps this off
-    # the tree arm-softmmu uses.
+    # Its own tree, and not upstream's: riscv32 carries the `esp32c3` and
+    # `esp32c6` machines alongside `virt`, xtensa carries `esp32` and `esp32s3`,
+    # and those models exist only in espressif/qemu, which is still on 9.2.2.
+    # ESP_REF is that delta replayed onto the same v10.1.0 the other targets
+    # build, since 9.2.2 predates upstream's Emscripten support. A separate
+    # directory also keeps this off the tree arm-softmmu uses.
     src="$ESP_SRC"
     repo_url="$ESP_REPO_URL"
     ref="$ESP_REF"
-    patches="$ROOT/tools/qemu-riscv-patches"
+    patches="$ROOT/tools/qemu-esp-patches"
     accel=tci
   else
     src="$TCI_SRC"
@@ -327,6 +391,7 @@ if [ "$TARGET_ARG" = "all" ]; then
   build_target arm-softmmu
   build_target aarch64-softmmu
   build_target riscv32-softmmu
+  build_target xtensa-softmmu
 else
   build_target "$TARGET_ARG"
 fi

@@ -150,7 +150,12 @@ export interface Board {
    * keeping is the core.
    */
   shortLabel: string
-  /** Zephyr board target, i.e. `west build -b <zephyrTarget>`. */
+  /**
+   * Zephyr board target, i.e. `west build -b <zephyrTarget>`, and what
+   * tools/samples.manifest names in its first field. May carry hwmv2
+   * qualifiers (`esp32_devkitc/esp32/procpu`); see {@link boardAssetDir}
+   * for where the images then land.
+   */
   zephyrTarget: string
   /** Guest architecture, for display. */
   arch: string
@@ -1005,7 +1010,7 @@ export const BOARDS: Board[] = [
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
       // SPI on slot 5. device-id=45 requires the VIRTIO_ID_SPI backport in
-      // tools/qemu-riscv-patches/0011-*, for the same reason as the A53 board
+      // tools/qemu-esp-patches/0011-*, for the same reason as the A53 board
       // above. The packaged emulator carries that patch.
       '-device',
       'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
@@ -1154,6 +1159,107 @@ export const BOARDS: Board[] = [
     ],
     usesDataBundle: false,
   },
+  {
+    id: 'esp32_devkitc',
+    label: 'ESP32 DevKitC',
+    shortLabel: 'ESP32',
+    // The board has two CPU clusters and only PRO is booted; APP is left in
+    // reset, which is what a unicore Zephyr build expects.
+    zephyrTarget: 'esp32_devkitc/esp32/procpu',
+    arch: 'Xtensa LX6',
+    // The one board here that is not in a shared artifact: the Xtensa machines
+    // exist in no other target, so this is a fourth qemu-system-* download,
+    // paid only by someone who picks this board.
+    qemuBinary: 'qemu-system-xtensa',
+    args: [
+      '-nographic',
+      '-machine',
+      'esp32',
+      // As on the C3, this machine has no free-running mode, and 3 (8 ns per
+      // instruction, an apparent 125 MHz) is the same shift the C3 uses.
+      //
+      // Raising it is tempting and does not pay off here. Natively under TCI
+      // the ESP32 boot ROM is almost entirely fixed-duration spin-waits, so it
+      // is the one case where the shift *is* a throughput lever: to the Zephyr
+      // banner, shift 3 is 3.5 s, 4 is 1.9 s, 5 is 1.1 s, and it keeps halving.
+      // In the browser it bought nothing measurable, which is where the boot is
+      // actually slow, so the fidelity is worth more than the promise. See
+      // docs/esp32.md.
+      '-icount',
+      '3',
+      // Two ROM images, not one: each core enters a different one. The machine
+      // looks them up with qemu_find_file(QEMU_FILE_TYPE_BIOS), so they have to
+      // sit in the datadir rather than being passed with `-bios`.
+      '-L',
+      '/pack/pc-bios',
+      '-drive',
+      'file=/pack/flash.bin,if=mtd,format=raw',
+      // Without this the boot ROM reports chip revision v0.0 and ESP-IDF's boot
+      // stub refuses to continue on an unsupported revision. The image sets the
+      // two ECO bits in eFuse BLK0; the third the revision is made of is
+      // APB_CTRL_DATE_REG bit 31, which the machine already asserts.
+      '-drive',
+      'file=/pack/pc-bios/esp32-eco3-efuse.bin,if=none,format=raw,id=efuse',
+      '-global',
+      'driver=nvram.esp32.efuse,property=drive,value=efuse',
+    ],
+    kernelFsPath: '/pack/zephyr.elf',
+    flashFsPath: '/pack/flash.bin',
+    // The same story as the C3: the peripherals are the SoC's own and the guest
+    // drives them with stock Zephyr drivers. The GPIO controller model is
+    // literally shared between the two parts.
+    peripherals: {
+      hostGpio: true,
+    },
+    samples: [
+      {
+        id: 'hello_world',
+        label: 'Hello World',
+        description: 'Prints one line and stops',
+        zephyrSample: 'samples/hello_world',
+      },
+      {
+        // led0 is GPIO2, where a DevKitC puts its on-board LED. The node comes
+        // from the shield: the board devicetree has no LED of its own.
+        id: 'blinky',
+        label: 'Blinky',
+        description: 'Blinks LED0. Watch it in the device dock',
+        zephyrSample: 'samples/basic/blinky',
+        primaryPanels: ['gpio'],
+      },
+      {
+        // sw0 is the BOOT button on GPIO0, already in the stock board
+        // devicetree, so this one needs no overlay at all.
+        id: 'basic_button',
+        label: 'Button',
+        description: 'Press SW0 in the device dock',
+        zephyrSample: 'samples/basic/button',
+        primaryPanels: ['gpio'],
+      },
+      {
+        id: 'shell',
+        label: 'Shell',
+        description: 'Interactive Zephyr shell on the ESP32’s UART0',
+        zephyrSample: 'samples/subsys/shell/shell_module',
+      },
+      {
+        // Two threads handing a semaphore back and forth: something for the
+        // Debug panel's thread list to show that is not the idle loop.
+        id: 'synchronization',
+        label: 'Synchronization',
+        description: 'Two threads passing a semaphore; open Debug to watch them',
+        zephyrSample: 'samples/synchronization',
+        primaryPanels: ['debug'],
+      },
+    ],
+    defaultSampleId: 'hello_world',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/esp32-v3-rom.bin', asset: 'esp32-v3-rom.bin' },
+      { fsPath: '/pack/pc-bios/esp32-v3-rom-app.bin', asset: 'esp32-v3-rom-app.bin' },
+      { fsPath: '/pack/pc-bios/esp32-eco3-efuse.bin', asset: 'esp32-eco3-efuse.bin' },
+    ],
+    usesDataBundle: false,
+  },
 ]
 
 /** Landing board: A53 (wasm JIT) with the shell sample — see defaultSampleId.
@@ -1174,9 +1280,21 @@ export function samplePrimaryPanels(board: Board, sampleId: string): Set<PanelKi
   return new Set(getSample(board, sampleId).primaryPanels)
 }
 
+/**
+ * The directory a board's images live in, under public/qemu/zephyr/.
+ *
+ * Not always the board target: an hwmv2 target can carry SoC and cluster
+ * qualifiers (`esp32_devkitc/esp32/procpu`), and a path must not carry slashes.
+ * tools/build-zephyr-image.sh flattens them the same way, and the two have to
+ * agree or the page fetches a 404.
+ */
+export function boardAssetDir(board: Board): string {
+  return board.zephyrTarget.replace(/\//g, '_')
+}
+
 /** Where a board's prebuilt image lives under public/qemu/. */
 export function sampleAsset(board: Board, sampleId: string): string {
-  return `zephyr/${board.zephyrTarget}/${sampleId}.elf`
+  return `zephyr/${boardAssetDir(board)}/${sampleId}.elf`
 }
 
 /**
@@ -1188,11 +1306,11 @@ export function sampleAsset(board: Board, sampleId: string): string {
  * beside the ELF by tools/build-zephyr-image.sh.
  */
 export function sampleFlashAsset(board: Board, sampleId: string): string {
-  return `zephyr/${board.zephyrTarget}/${sampleId}.flash.bin`
+  return `zephyr/${boardAssetDir(board)}/${sampleId}.flash.bin`
 }
 
 export function sampleDtsAsset(board: Board, sampleId: string): string {
-  return `zephyr/${board.zephyrTarget}/${sampleId}.dts`
+  return `zephyr/${boardAssetDir(board)}/${sampleId}.dts`
 }
 
 /**
@@ -1208,5 +1326,5 @@ function baseSampleId(sampleId: string): string {
  * so the line numbers a tour resolves out of DWARF index straight into it.
  */
 export function sampleSourceAsset(board: Board, sampleId: string, file: string): string {
-  return `zephyr/${board.zephyrTarget}/src/${baseSampleId(sampleId)}/${file}`
+  return `zephyr/${boardAssetDir(board)}/src/${baseSampleId(sampleId)}/${file}`
 }

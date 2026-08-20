@@ -11,6 +11,7 @@ via the help dialog (?).
 - **Added:** SPI flash and LittleFS on the ESP32-C3.
 - **Added:** CAN on the ESP32-C3's own TWAI controller.
 - **Added:** ESP32-C3 light and deep sleep, with a power card in the dock.
+- **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
 - **Added:** Button tour for gpio-keys and input events.
 - **Improved:** Blinky tour shows the LED pin from devicetree.
 - **Added:** Help button in the top bar for shortcuts and changelog.

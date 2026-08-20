@@ -1,3 +1,5 @@
+import type { GdbArch } from '@/debug/gdb/regs'
+
 /** Classic hexdump width. */
 export const BYTES_PER_ROW = 16
 
@@ -41,7 +43,7 @@ export function wheelRowDelta(deltaY: number, deltaMode: number): number {
  * Window top for a PC seed: clear ARM Thumb LSB, then snap down to a row so
  * the hex gutter stays aligned and the instruction bytes are in view.
  */
-export function pcWindowTop(pc: number, arch: 'arm' | 'aarch64' | 'riscv32' | null): number {
+export function pcWindowTop(pc: number, arch: GdbArch | null): number {
   let addr = pc >>> 0
   if (arch === 'arm') addr &= ~1
   return Math.floor(addr / BYTES_PER_ROW) * BYTES_PER_ROW
