@@ -12,6 +12,7 @@ import type { ElfSymbol } from '@/debug/elfSymbols'
 import type { ZephyrThread } from '@/debug/kernel/threads'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import type { StackFrame, UnwindMethod, UnwindResult } from '@/debug/callStack'
+import type { GdbArch } from '@/debug/gdb/regs'
 
 export interface DebugSnapshot {
   /** Either bridge is present. */
@@ -36,7 +37,7 @@ export interface DebugSnapshot {
   /** DWARF formals for the function at PC (empty if unknown). */
   regFormals: string[]
   /** Register ABI arch for hover hints. */
-  regArch: 'arm' | 'aarch64' | 'riscv32' | null
+  regArch: GdbArch | null
   threads: ZephyrThread[]
   threadsLoading: boolean
   threadsError: string | null

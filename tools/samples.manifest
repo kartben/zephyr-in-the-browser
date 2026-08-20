@@ -73,7 +73,7 @@
 # not wall-clock accurate — but a few multi-threaded ones (philosophers,
 # synchronization) stall. Cortex-A53 uses the wasm JIT and has no such limit.
 # qemu_riscv32 uses TCI on RISC-V virt with the same virtio bridges as A53
-# (tools/qemu-riscv-patches/); build it with
+# (tools/qemu-esp-patches/); build it with
 # `tools/build-qemu-wasm.sh riscv32-softmmu`.
 #
 # Networking samples talk to the browser page, which implements the whole
@@ -216,3 +216,14 @@ esp32c3_devkitc:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50x
 esp32c3_devkitc:can_counter:zephyr-module/apps/can_counter:conf/esp32-can.conf:esp32-can
 esp32c3_devkitc:light_sleep:samples/boards/espressif/light_sleep
 esp32c3_devkitc:deep_sleep:samples/boards/espressif/deep_sleep:conf/esp32-deep-sleep.conf
+
+# ESP32 DevKitC (Xtensa LX6). The other Espressif part, in its own
+# qemu-system-xtensa artifact. Same shape as the C3 above: the peripherals are
+# the SoC's own and the stock Zephyr esp32 drivers bind to them. The button is
+# the board's BOOT button on GPIO0 and is already in the board devicetree, so
+# only the LED needs a snippet.
+esp32_devkitc/esp32/procpu:hello_world:samples/hello_world
+esp32_devkitc/esp32/procpu:blinky:samples/basic/blinky::esp32-leds
+esp32_devkitc/esp32/procpu:basic_button:samples/basic/button
+esp32_devkitc/esp32/procpu:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf
+esp32_devkitc/esp32/procpu:synchronization:samples/synchronization

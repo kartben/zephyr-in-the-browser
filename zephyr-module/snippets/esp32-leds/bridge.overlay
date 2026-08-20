@@ -2,7 +2,9 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * Enable the gpio-leds node the shield leaves disabled on the ESP32-C3.
+ * Enable the gpio-leds node the shield leaves disabled on an Espressif
+ * DevKitC. Only the label is named, so the ESP32-C3 and the ESP32 share this;
+ * which pin it is comes from the shield's per-board overlay.
  */
 
 &esp32_leds {

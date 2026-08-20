@@ -69,6 +69,52 @@ describe('decodeGPacket frame registers', () => {
     })
   })
 
+  /**
+   * Xtensa is the one layout where an offset table is not enough: the packet
+   * carries the 64 *physical* address registers, and which four of them the
+   * ABI is talking about depends on windowbase. These pin both halves: the
+   * rotation, and the return address that is not an address.
+   */
+  it('finds a1 / a0 through windowbase in an xtensa blob', () => {
+    const AR0 = 4
+    const hex = packet(628, [
+      { at: 0, width: 4, value: 0x400d_2000 }, // pc
+      // windowbase 3 => a0..a15 start at physical register 12.
+      { at: 276, width: 4, value: 3 },
+      { at: AR0 + 12 * 4, width: 4, value: 0x8000_1234 }, // a0, windowed return
+      { at: AR0 + 13 * 4, width: 4, value: 0x3ffb_0800 }, // a1 = sp
+      // The same values at physical 0/1 would be picked up by a decoder that
+      // ignored windowbase, so make them obviously wrong.
+      { at: AR0 + 0 * 4, width: 4, value: 0xdead_0000 },
+      { at: AR0 + 1 * 4, width: 4, value: 0xdead_0001 },
+    ])
+    const view = decodeGPacket('xtensa', hex)
+
+    expect(view.pc).toBe('400d2000')
+    expect(view.frame.pc).toBe(0x400d_2000)
+    expect(view.frame.sp).toBe(0x3ffb_0800)
+    // a0 = 0x80001234: drop the call-increment bits, take the region from pc.
+    expect(view.frame.lr).toBe(0x4000_1234)
+    // The windowed ABI has no frame-pointer chain to walk.
+    expect(view.frame.fp).toBeNull()
+    expect(view.dump).toContain('a01=3ffb0800')
+  })
+
+  it('wraps the xtensa window around the end of the register file', () => {
+    const AR0 = 4
+    const hex = packet(628, [
+      { at: 0, width: 4, value: 0x400d_3000 },
+      // windowbase 15 => a0 is physical 60, and a4 wraps to physical 0.
+      { at: 276, width: 4, value: 15 },
+      { at: AR0 + 61 * 4, width: 4, value: 0x3ffb_0900 }, // a1 = sp
+      { at: AR0 + 0 * 4, width: 4, value: 0x0000_00a4 }, // a4 after the wrap
+    ])
+    const view = decodeGPacket('xtensa', hex)
+
+    expect(view.frame.sp).toBe(0x3ffb_0900)
+    expect(view.dump).toContain('a04=000000a4')
+  })
+
   it('reports no frame registers when the blob is short', () => {
     expect(decodeGPacket('aarch64', '00').frame).toEqual({
       pc: null,
@@ -89,15 +135,16 @@ describe('archFromElf', () => {
     return bytes
   }
 
-  it('maps the three wired machines', () => {
+  it('maps the four wired machines', () => {
     expect(archFromElf(header(40))).toBe('arm')
     expect(archFromElf(header(183, 2))).toBe('aarch64')
     expect(archFromElf(header(243, 1))).toBe('riscv32')
+    expect(archFromElf(header(94))).toBe('xtensa') // EM_XTENSA
   })
 
   it('declines 64-bit RISC-V and unknown machines', () => {
     expect(archFromElf(header(243, 2))).toBeNull() // rv64: no decoder
-    expect(archFromElf(header(94))).toBeNull() // Xtensa/ESP32
+    expect(archFromElf(header(8))).toBeNull() // EM_MIPS
   })
 
   it('declines non-ELF bytes', () => {

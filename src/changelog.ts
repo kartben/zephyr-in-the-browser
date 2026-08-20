@@ -45,6 +45,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "ESP32 DevKitC board (Xtensa), with blinky, button and a shell."
+      },
+      {
+        "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
       },
       {

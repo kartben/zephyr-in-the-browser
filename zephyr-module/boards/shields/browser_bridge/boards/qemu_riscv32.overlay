@@ -7,7 +7,7 @@
  * audio/mic bridges, and virtio-mmio devices matching src/boards.ts slot
  * indices (net=0, gpu=1, gpio=2, tablet=3, i2c=4, spi=5).
  *
- * MMIO holes used by tools/qemu-riscv-patches/ against hw/riscv/virt.c:
+ * MMIO holes used by tools/qemu-esp-patches/ against hw/riscv/virt.c:
  *   0x10009000  qemu-host-audio
  *   0x1000a000  qemu-host-mic
  *   0x1000b000  GNSS UART (PLIC IRQ 12)

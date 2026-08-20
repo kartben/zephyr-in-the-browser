@@ -74,9 +74,18 @@ ASSETS=()
 # --- emulator ---------------------------------------------------------------
 
 if want_emulator; then
-  for binary in qemu-system-arm qemu-system-aarch64 qemu-system-riscv32; do
+  for binary in qemu-system-arm qemu-system-aarch64 qemu-system-riscv32 qemu-system-xtensa; do
     [ -f "$SRC/$binary.js" ] && [ -f "$SRC/$binary.wasm" ] \
       || { echo "Missing $binary artifacts — run tools/build-qemu-wasm.sh first." >&2; exit 1; }
+  done
+
+  # The two Espressif families each need files beside their binary that the
+  # machine looks up by name at startup rather than taking on argv, so a tarball
+  # can carry the emulator and still not boot. Checked here because the failure
+  # otherwise lands in someone's browser as a ROM-not-found abort.
+  for datafile in esp32c3-rom.bin esp32-v3-rom.bin esp32-v3-rom-app.bin esp32-eco3-efuse.bin; do
+    [ -f "$SRC/$datafile" ] \
+      || { echo "Missing $datafile: run tools/build-qemu-wasm.sh first." >&2; exit 1; }
   done
 
   # README.md is checked in; zephyr/ ships as its own asset. Everything else

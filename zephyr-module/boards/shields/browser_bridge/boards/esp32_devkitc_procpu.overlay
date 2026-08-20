@@ -1,0 +1,55 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * ESP32 DevKitC (Xtensa LX6). The same arrangement as the ESP32-C3 one file
+ * over: nothing here is a browser-backed *device*. The peripherals are the
+ * SoC's own, modelled in QEMU, and the guest drives them with the stock Zephyr
+ * esp32 drivers. What the browser supplies is what would be wired to them.
+ *
+ * GPIO reaches the page through the same two exported functions the Cortex-M3's
+ * qemu,host-gpio device provides, so src/hostGpio.ts binds to this board
+ * without knowing the difference. The controller model is literally the one the
+ * C3 uses: only the per-pin register block and the CPU interrupt register move
+ * between the parts, and those are class fields.
+ *
+ * The board devicetree already brings a button: `sw0` is a gpio-keys node on
+ * GPIO0 (the BOOT button), active low with a pull-up, so the button sample
+ * needs no overlay at all. It has no LED, though, so blinky needs the node
+ * below.
+ *
+ * GPIO2 is where a DevKitC puts its on-board LED, and it is in the low bank the
+ * QEMU model implements. As on the other boards the node is declared
+ * `status = "disabled"` and a snippet turns it on: `-S esp32-leds`. The shield
+ * says where the device is; the manifest says which images carry it, because
+ * the dock is grounded in the running build's devicetree.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	esp32_leds: leds {
+		compatible = "gpio-leds";
+		status = "disabled";
+
+		led0: led_0 {
+			gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+			label = "LED0";
+		};
+	};
+
+	aliases {
+		led0 = &led0;
+	};
+};
+
+/*
+ * The board devicetree turns i2c0 on unconditionally, because a real DevKitC
+ * really does have that controller on GPIO21/22. Here it is off unless a sample
+ * asks for it, so that a bus left on for hello_world is not a dock card the
+ * user has to look past. Same rule as the LED node above, and the same rule the
+ * C3 overlay applies.
+ */
+&i2c0 {
+	status = "disabled";
+};

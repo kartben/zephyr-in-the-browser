@@ -1,6 +1,6 @@
 /*
  * Browser HCI UART on RISC-V virt: 16550 at 0x1000c000 (PLIC IRQ 13),
- * matching tools/qemu-riscv-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch.
+ * matching tools/qemu-esp-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch.
  */
 
 / {

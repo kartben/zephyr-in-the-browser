@@ -1,17 +1,24 @@
 name: esp32-leds
 description: >
-  Turn on the gpio-leds node the browser_bridge shield declares on the ESP32-C3
-  DevKitC (led0 on GPIO8), so blinky has an led0 alias to drive. The board
-  devicetree has no LED of its own; its button (sw0 on GPIO9) is already there
-  and needs no snippet.
+  Turn on the gpio-leds node the browser_bridge shield declares on an Espressif
+  DevKitC, so blinky has an led0 alias to drive: GPIO8 on the ESP32-C3, GPIO2 on
+  the ESP32. Neither board devicetree has an LED of its own; both already have a
+  button (sw0 on GPIO9 and GPIO0), which needs no snippet.
 
   Unlike host-gpio on the Cortex-M3, this enables only the LED node: the GPIO
   controller itself is the SoC's, always present, and driven by the stock
   Zephyr esp32 driver.
 
-# ESP32-C3 only. See host-audio/snippet.yml for why the qualified spelling is
-# written out rather than the bare board name, which matches nothing.
+  The overlay names only the node label, so both boards share it, and the shield's
+  per-board overlay is what decides which pin it is.
+
+# Espressif boards only. See host-audio/snippet.yml for why the qualified
+# spelling is written out rather than the bare board name, which matches
+# nothing.
 boards:
   esp32c3_devkitc/esp32c3:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: bridge.overlay
+  esp32_devkitc/esp32/procpu:
     append:
       EXTRA_DTC_OVERLAY_FILE: bridge.overlay

@@ -2,7 +2,7 @@ name: Build guest images
 
 # On-demand CI build of the packaged Zephyr samples — the cloud counterpart of
 # `tools/release.sh images`. The runner gets a west workspace (west.yml at the
-# repo root) and the two guest toolchains from zephyrproject-rtos'
+# repo root) and the guest toolchains from zephyrproject-rtos'
 # action-zephyr-setup, so no Docker and no local checkout are involved; the
 # build script runs in its native mode against that workspace.
 #
@@ -62,7 +62,7 @@ jobs:
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: zephyr-in-the-browser
-          toolchains: arm-zephyr-eabi:aarch64-zephyr-elf:riscv64-zephyr-elf
+          toolchains: arm-zephyr-eabi:aarch64-zephyr-elf:riscv64-zephyr-elf:xtensa-espressif_esp32_zephyr-elf
 
       - name: Build images
         working-directory: zephyr-in-the-browser

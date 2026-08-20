@@ -1,10 +1,15 @@
 # ESP32 in the browser
 
-The `esp32c3_devkitc` board boots Zephyr on an emulated ESP32-C3, through the
-real Espressif first-stage boot ROM, in the same `qemu-system-riscv32` artifact
-that runs `qemu_riscv32`.
+Two Espressif boards run here, and both boot Zephyr through the real Espressif
+first-stage boot ROM out of emulated SPI flash:
 
-Two things make it different from every other board here.
+- **`esp32c3_devkitc`**: an ESP32-C3 (RISC-V), in the same
+  `qemu-system-riscv32` artifact that runs `qemu_riscv32`. This is the developed
+  one: four peripherals reach the page and about two dozen samples run.
+- **`esp32_devkitc`**: an ESP32 (Xtensa LX6), in a `qemu-system-xtensa`
+  artifact of its own. Newer, and further down this file.
+
+Two things make them different from every other board here.
 
 ## The emulator comes from a fork
 
@@ -34,7 +39,8 @@ gaining a return-address argument, `CPUClass::has_work` moving into the const
 
 ### Bugs found in the fork
 
-Worth sending upstream to Espressif; all four are fixed in the rebased branch.
+Worth sending upstream to Espressif; all of them are fixed in the rebased
+branch, and none has been reported yet.
 
 - **`RISCV_ESP32C3` / `C6` under-declare their Kconfig dependencies.** They
   select `OPENCORES_ETH` and `UNIMP` but not `SSI`, `SSI_M25P80` or
@@ -62,15 +68,34 @@ Worth sending upstream to Espressif; all four are fixed in the rebased branch.
   (OUT/ENABLE/IN/STATUS and the per-pin interrupt configuration), which the
   ESP32 and the RISC-V parts share; only the per-pin block and the CPU
   interrupt register move, so those became class fields.
-- **The C3 machine never connected the GPIO interrupt.** It realized the device
-  and mapped its registers but never called `sysbus_connect_irq`, leaving
+- **Neither ESP32 machine connected the GPIO interrupt.** Both realized the
+  device and mapped its registers but never called `sysbus_connect_irq`, leaving
   `ETS_GPIO_INTR_SOURCE` unused. Nothing noticed while the controller had no
-  state to interrupt from.
+  state to interrupt from. The symptom once it does have state is quiet:
+  `samples/basic/button` prints "Press the button" and then nothing at all,
+  however many times the pin is driven, because the guest is waiting on an edge
+  that never arrives. Fixed on the C3 first and on the Xtensa ESP32 with it.
 - **`MAX_CALL_IARGS` was not raised for `DEF_HELPER_8`.** The fork adds
   `DEF_HELPER_8` and `tcg_gen_call8` but leaves `MAX_CALL_IARGS` at 7, which
   `tci.c` uses to size `call_slots[]`. Only `target/xtensa/helper.h` uses it, so
-  it does not affect the RISC-V artifact, but a TCI or wasm Xtensa build would
-  trip `assert(nargs <= MAX_CALL_IARGS)`.
+  it does not affect the RISC-V artifact, but a TCI or wasm Xtensa build trips
+  `assert(nargs <= MAX_CALL_IARGS)`.
+- **`esp32_flash_enc.c` includes `<gcrypt.h>` unconditionally.** Its one gcrypt
+  call site is already behind `#ifdef CONFIG_GCRYPT`, with a `QCryptoCipher`
+  fallback immediately below it, so the include is the only thing that was
+  missing. It is in the unconditional `CONFIG_XTENSA_ESP32` file list, so
+  `--disable-gcrypt` fails to compile the machine at all.
+- **The ESP32 machine instantiates `TYPE_ESP32_RSA` unconditionally**, while
+  `hw/misc/meson.build` only compiles `esp32_rsa.c` under `if gcrypt.found()`.
+  Without gcrypt the machine aborts at startup with
+  `unknown type 'misc.esp32.rsa'`. `esp32c3.c` already guards its own RSA and
+  AES and drops an unimplemented-device stub in their place; this is the same
+  treatment one machine over. (`esp32_aes.c` needs no guard: it is in the
+  unconditional list and does not touch gcrypt.)
+- **`XTENSA_ESP32` under-declares its Kconfig `select`s too**, the same bug as
+  the C3's, just with a different set: the machine uses `CAN_SJA1000`
+  unconditionally and never selects it, and it selected `TMP105` only for a demo
+  thermometer soldered on at a fixed address.
 
 Also carried, and specific to running in a browser: `esp32c3_cache.c` filled its
 cache with a synchronous `blk_pread()` from the MMIO handler that guest MMU
@@ -256,7 +281,7 @@ it, so the finish bit never arrived. Memory does not decay under emulation, so
 the check exists only to be passed: finish immediately and leave the digest
 alone.
 
-## Known limits
+## Known limits (ESP32-C3)
 - **The only display Zephyr can drive is the OLED.** The machine does map a
   framebuffer at `0x20000000` (`esp_rgb`, plus 8 MB of VRAM), but that is a
   device Espressif invented for their own QEMU rather than anything an
@@ -322,10 +347,144 @@ alone.
   rather than a second binary keeps `Board.qemuBinary` and the asset probe
   unchanged, since the Emscripten `.js` glue hardcodes its own `.wasm` name and
   a second riscv32 build cannot simply be renamed on install.
-- **Xtensa is ported but not shipped.** The same tree builds a
-  `qemu-system-xtensa` with `esp32` and `esp32s3` that boots
-  `esp32_devkitc/esp32/procpu` natively, including the ECO3 eFuse image the
-  guest needs to report rev v3.0. Shipping it needs a fourth entry in
-  `tools/package-emulator.sh`, the `xtensa-espressif_esp32_zephyr-elf` toolchain
-  in CI, the `MAX_CALL_IARGS` fix above, and an ELF-machine-94 decoder in
-  `src/debug/gdb/regs.ts`, which returns `null` for Xtensa today.
+- **The ESP32-S3 is compiled in but has no board.** `xtensa-softmmu` carries
+  `esp32s3` alongside `esp32` because dropping it would save little and the
+  models are already there, but nothing in `src/boards.ts` or
+  `tools/samples.manifest` selects it and it has not been booted here.
+## The Xtensa board
+
+`esp32_devkitc` is the ESP32 proper: two Xtensa LX6 cores where the C3 has one
+RISC-V, and the same story everywhere else. It boots the same way (Espressif
+boot ROM, merged image in emulated SPI flash), from the same fork, with the same
+`browser_bridge` shield deciding which nodes a sample gets.
+
+What is genuinely different is worth knowing before touching it.
+
+### It is a fourth binary
+
+The Xtensa machines exist in no other target, so unlike `esp32c3`/`esp32c6`
+riding along in `qemu-system-riscv32`, this is its own `qemu-system-xtensa`:
+**7.7 MB of wasm**, downloaded only by someone who picks the board. The
+`riscv32` artifact is untouched and nobody else pays for this.
+
+`tools/build-qemu-wasm.sh` builds it from the *same* `$WORK/qemu-esp` tree as
+`riscv32-softmmu`, applying the same `tools/qemu-esp-patches/` series. Most of
+that series wires `hw/riscv/virt.c`, which an Xtensa build simply does not
+compile; what it needs out of it is the xterm-pty link, the link optimisation
+and the browser chardevs. Taking the series whole is deliberate: two series
+against one working tree would fight, because `apply_local_patches` restores the
+tree with `git checkout --force` before every build.
+
+`configs/devices/xtensa-softmmu/browser.mak` trims the target to the two ESP32
+machines. Dropping `XTENSA_VIRT` is the one that pays: it selects the PCI
+Express bridge and the PCI device catalogue, for a pair of machines with no PCI
+bus at all.
+
+### Two ROMs and an eFuse image
+
+The part is dual-core and each core enters a different ROM image, so the datadir
+carries `esp32-v3-rom.bin` *and* `esp32-v3-rom-app.bin` rather than the C3's
+single file. Both are found by name through `qemu_find_file()`, so `-L
+/pack/pc-bios` is what puts them in reach.
+
+Then there is a third file, and it is the one that is easy to lose a morning to.
+Out of the box the ROM prints `chip revision: v0.0` and ESP-IDF's boot stub
+stops: *"You are using ESP32 chip revision (0) that is unsupported."* Nothing is
+wrong with the image; the machine simply reports an unfused part.
+
+ESP-IDF reads the revision as three bits ORed together: `CHIP_VER_REV1` and
+`CHIP_VER_REV2` out of eFuse BLK0 (bits 111 and 180, so word 3 bit 15 and word 5
+bit 20), plus `APB_CTRL_DATE_REG` bit 31, which `hw/xtensa/esp32.c` already
+asserts. All three set is revision 3, ECO3. So the eFuse image is 124 bytes of
+which two bits matter, and `tools/build-qemu-wasm.sh` writes it rather than
+carrying a blob in git, because a blob would say nothing about which two.
+
+### The bridges are wired but not yet reachable
+
+`hw/i2c/host_i2c.c`, `hw/ssi/host_spi.c` and `net/can/can_browser.c` are all
+SoC-agnostic, and the ESP32's own controllers are the models the C3's subclass,
+so wiring them into `hw/xtensa/esp32.c` was the C3's blocks almost line for
+line: the browser I2C slave on `i2c0`, one `qemu-host-spi` per HSPI chip select
+(all three), and a CAN bus linked before the TWAI is realized.
+
+They are in the artifact and confirmed present (`info qom-tree` shows the slave,
+three SSI peripherals and the bus). What is *not* done is the Zephyr side: no
+`esp32-i2c` / `esp32-spi` / `esp32-can` snippet lists this board yet, and no
+manifest row asks for one. That is per-board overlay work, not model work, and
+it is the obvious next step.
+
+Two details differ from the C3 and are already handled:
+
+- HSPI (`spi2`) carries the browser's chip selects rather than the C3's GP-SPI2,
+  and there is no equivalent of `-machine esp32c3,host-spi-cs=0`. It is not
+  needed: SPI1 already carries the real flash and VSPI (`spi3`) is left entirely
+  free for a QEMU device.
+- The I2C slave replaced a `tmp105` this machine used to solder on at 0x48. A
+  device at a fixed address is the wrong shape here, because `host_i2c.c`
+  answers for every address the page says it has a chip at, and the page models
+  thermometers among much else, so a hardcoded one would collide.
+
+### The icount shift, and why it stays at 3
+
+The C3 runs at `-icount 3` and the shift is not a throughput lever there. Here
+it is, and by a lot, because the ESP32 boot ROM is mostly fixed-duration
+spin-waits: a wait reaches its deadline in half the instructions each time the
+shift goes up. Measured natively under TCI, to the Zephyr banner:
+
+| `-icount` | ns/insn | apparent clock | boot |
+| --- | --- | --- | --- |
+| 3 | 8 | 125 MHz | 3.5 s |
+| 4 | 16 | 62 MHz | 1.9 s |
+| 5 | 32 | 31 MHz | 1.1 s |
+| 6 | 64 | 16 MHz | 0.7 s |
+| 7 | 128 | 8 MHz | 0.4 s |
+
+It keeps halving, so the stopping point is not performance but plausibility: the
+shift is also what the guest reads as its own clock. 5 would put it at ~31 MHz,
+low for a part that runs at 240 MHz; two more shifts would buy another 2.5x and
+claim 8 MHz.
+
+The board ships at 3 anyway, because **none of that showed up in the browser**,
+which is the artifact that matters. A shell prompt takes roughly a minute and a
+half there either way, against 1 to 4 seconds natively, so whatever dominates
+the wasm build is not the ROM's instruction count. The likely suspect is already
+written down two sections up: this build never advances the icount clock while
+the vCPU is halted, which is what killed the halt-on-sleep experiment too. If
+someone fixes that, re-measure this table in the browser before touching the
+shift; until then a faithful 125 MHz beats an unfaithful 31 MHz that buys
+nothing.
+
+`-smp 1` is not an option, tempting as it looks for a unicore Zephyr build: the
+machine takes `ms->smp.cpus` in some loops and `ESP32_CPU_COUNT` in others, and
+with one CPU it never reaches the banner at all.
+
+### Registers, and what the Debug panel can do
+
+QEMU's Xtensa gdbstub serves **no** `target.xml`, so the `g` packet layout is
+not discoverable at runtime: it is whatever `core-esp32/gdb-config.inc.c`
+declares, minus the entry types `xtensa_count_regs()` skips (window, mapped,
+unmapped, TIE state). That is 157 registers and exactly 628 bytes, which matches
+what the stub sends. `src/debug/gdb/regs.ts` hardcodes the offsets that matter:
+pc at 0, the 64-entry physical register file at 4, then `windowbase` at 276,
+`windowstart` at 280 and `ps` at 292.
+
+Two things about that file are Xtensa-specific and both are load-bearing:
+
+- **The packet carries physical registers, not `a0..a15`.** Those are a rotating
+  view, so the ABI's stack pointer is `ar[(windowbase * 4 + 1) % 64]`. A decoder
+  that read `ar1` would be right only when `windowbase` happened to be 0.
+- **A windowed return address is not an address.** `call4`/`call8`/`call12` put
+  the window increment in the top two bits of `a0` and drop the top two bits of
+  the address, which the return reconstructs from the current PC. Undo that or
+  nothing resolves against the symbol table.
+
+Verified against a real stop: PC in `arch_cpu_idle`, reconstructed return
+address nine bytes into `idle`, which is the call the idle thread actually made.
+
+The call stack falls back to a stack scan here rather than walking frame
+records, and that is correct: the windowed ABI spills a caller's registers below
+its own stack pointer instead of threading a `{caller fp, return}` record
+through a fixed register, so there is no chain. `decodeXtensa` returns a null
+frame pointer for exactly that reason, which is what sends `unwindStack` to the
+scan. The spill area is full of saved `a0` values, so the scan finds real
+callers.
