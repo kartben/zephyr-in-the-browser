@@ -1182,11 +1182,28 @@ export const BOARDS: Board[] = [
       // the ESP32 boot ROM is almost entirely fixed-duration spin-waits, so it
       // is the one case where the shift *is* a throughput lever: to the Zephyr
       // banner, shift 3 is 3.5 s, 4 is 1.9 s, 5 is 1.1 s, and it keeps halving.
-      // In the browser it bought nothing measurable, which is where the boot is
-      // actually slow, so the fidelity is worth more than the promise. See
-      // docs/esp32.md.
+      // 5, not the C3's 3, and it is measured rather than taste.
+      //
+      // The shift is normally not a throughput lever: it rescales the guest's
+      // sense of time, not the emulator's speed. The exception is a
+      // fixed-duration spin-wait, which reaches its deadline in half the
+      // instructions each time the shift goes up, and the ESP32 boot ROM is
+      // almost entirely spin-waits. Nothing halts, so no icount warping is
+      // involved and the saving is pure instruction count, which is why it
+      // shows up in the browser as well as natively.
+      //
+      // To the Zephyr banner: natively under TCI, 3.5 s at shift 3 against
+      // 1.1 s at 5. In the browser on an idle machine, hello_world was booted
+      // by 39 s at shift 5 while shift 3 had not yet printed the ROM banner at
+      // the same mark and finished at 113 s.
+      //
+      // 5 rather than 6 or 7 because the shift is also what the guest reads as
+      // its own clock. 32 ns per instruction is an apparent ~31 MHz: low for a
+      // part that runs at 240 MHz, but still a believable microcontroller, and
+      // the C3's 125 MHz is already wrong in the same direction. Two more
+      // shifts would buy roughly another 2.5x and claim 8 MHz.
       '-icount',
-      '3',
+      '5',
       // Two ROM images, not one: each core enters a different one. The machine
       // looks them up with qemu_find_file(QEMU_FILE_TYPE_BIOS), so they have to
       // sit in the datadir rather than being passed with `-bios`.

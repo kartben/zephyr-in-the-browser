@@ -474,7 +474,7 @@ Two details differ from the C3 and are already handled:
   answers for every address the page says it has a chip at, and the page models
   thermometers among much else, so a hardcoded one would collide.
 
-### The icount shift, and why it stays at 3
+### The icount shift, and why it is 5
 
 The C3 runs at `-icount 3` and the shift is not a throughput lever there. Here
 it is, and by a lot, because the ESP32 boot ROM is mostly fixed-duration
@@ -490,23 +490,57 @@ shift goes up. Measured natively under TCI, to the Zephyr banner:
 | 7 | 128 | 8 MHz | 0.4 s |
 
 It keeps halving, so the stopping point is not performance but plausibility: the
-shift is also what the guest reads as its own clock. 5 would put it at ~31 MHz,
-low for a part that runs at 240 MHz; two more shifts would buy another 2.5x and
-claim 8 MHz.
+shift is also what the guest reads as its own clock. 5 puts it at ~31 MHz, low
+for a part that runs at 240 MHz but still a believable microcontroller, and the
+C3's 125 MHz is already wrong in the same direction. Two more shifts would buy
+roughly another 2.5x and claim 8 MHz, which is not.
 
-The board ships at 3 anyway, because **none of that showed up in the browser**,
-which is the artifact that matters. A shell prompt takes roughly a minute and a
-half there either way, against 1 to 4 seconds natively, so whatever dominates
-the wasm build is not the ROM's instruction count. The likely suspect is already
-written down two sections up: this build never advances the icount clock while
-the vCPU is halted, which is what killed the halt-on-sleep experiment too. If
-someone fixes that, re-measure this table in the browser before touching the
-shift; until then a faithful 125 MHz beats an unfaithful 31 MHz that buys
-nothing.
+**The same saving shows up in the browser**, which is the artifact that matters.
+On an idle machine, `hello_world` was booted by 39 s at shift 5, while shift 3
+had not printed the ROM banner at that mark and finished at 113 s.
+
+That is worth stating carefully, because it was first measured the other way
+round and written down here as "the shift buys nothing in the browser". That
+measurement was taken with four browser panes open, each running a QEMU instance
+at 100% CPU and a host load average around 9; under that contention nothing is
+measurable. Check `uptime` and close stale panes before timing anything here.
+
+The mechanism says the browser *must* benefit, which is the reason to distrust
+the original result rather than the theory. These are spin-waits: the guest
+polls a register, executing instructions, and nothing halts. No icount warping
+is involved, so the saving is pure instruction count and is as real in wasm as
+it is natively. Warping is a separate mechanism with its own trap, below.
 
 `-smp 1` is not an option, tempting as it looks for a unicore Zephyr build: the
 machine takes `ms->smp.cpus` in some loops and `ESP32_CPU_COUNT` in others, and
 with one CPU it never reaches the banner at all.
+
+### Warping is a different mechanism, and `sleep=off` is its switch
+
+A *halted* wait is not a spin-wait and the shift does nothing for it. What
+matters there is icount warping, and it is worth reading
+`accel/tcg/icount-common.c:333` before assuming anything about it, because the
+default is not what "warp" suggests.
+
+With `icount_sleep` on, which is the default, a halted vCPU does **not**
+fast-forward. `icount_start_warp_timer()` arms `icount_warp_timer`, and that is
+a `QEMU_CLOCK_VIRTUAL_RT` timer: real time. The comment in the source says so
+outright, that it advances the virtual clock only "after some real time ... has
+passed", deliberately, so warps are not visible externally. A five second guest
+sleep therefore costs five seconds of wall clock, and it needs the main loop to
+service that timer.
+
+With `sleep=off` the same function instead adds the deadline straight to
+`qemu_icount_bias` and notifies, with no timer and no main loop involved. That
+is the mode that makes a halted wait effectively instant.
+
+This bears on the halt-on-sleep dead end recorded near the top of this file,
+which reports that `sleep=off` "makes no difference". The code says it is
+precisely the relevant switch, and the mechanism it removes, a real-time timer
+serviced by the main loop, is exactly the sort of thing an Emscripten build is
+likely to mishandle. That is a reading of the source against an observation, not
+a refutation of it, so treat it as one retest worth doing rather than a known
+answer.
 
 ### Registers, and what the Debug panel can do
 
