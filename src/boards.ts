@@ -630,7 +630,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   {
     id: 'philosophers',
     label: 'Philosophers',
-    description: 'Dining philosophers, animated in-place over VT100',
+    description: 'Threads and mutexes; Trace Timeline shows the scheduler',
     zephyrSample: 'samples/philosophers',
   },
   {
