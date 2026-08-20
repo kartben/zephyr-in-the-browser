@@ -433,6 +433,10 @@ from a thread that holds no lock and an interrupt delivery wants one. Both fixes
 are in the fork; the second lives in the shared bridge because the requirement
 is not ESP32-specific, even though only the ESP32 tripped it.
 
+Verified in the browser: a press through the device dock reports
+`Button 11 released at ...` with the emulator still running, and costs the page
+about 1 ms in its event handler, which is what not blocking on a lock buys.
+
 The lesson for the next bridge that pushes state *into* the guest rather than
 answering a request from it: a browser callback is not a vCPU thread, and the
 answer is not to make it act like one. Taking the BQL from the page deadlocks
