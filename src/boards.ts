@@ -1136,6 +1136,16 @@ export const BOARDS: Board[] = [
         zephyrSample: 'samples/boards/espressif/light_sleep',
         primaryPanels: ['perf'],
       },
+      {
+        // The whole cycle: the core powers down, the RTC timer resets the SoC,
+        // and the counter in RTC memory survives to prove it was a wake and
+        // not a cold boot. The power card names the reset reason afterwards.
+        id: 'deep_sleep',
+        label: 'Deep sleep',
+        description: 'Powers down and reboots on the RTC timer; the wake takes a while',
+        zephyrSample: 'samples/boards/espressif/deep_sleep',
+        primaryPanels: ['perf'],
+      },
       ...ESP32C3_BRIDGED_SAMPLES,
     ],
     defaultSampleId: 'hello_world',

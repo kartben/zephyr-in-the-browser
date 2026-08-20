@@ -215,3 +215,4 @@ esp32c3_devkitc:auxdisplay_pt6314:samples/drivers/auxdisplay:conf/pt6314.conf:pt
 esp32c3_devkitc:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50xx-only
 esp32c3_devkitc:can_counter:zephyr-module/apps/can_counter:conf/esp32-can.conf:esp32-can
 esp32c3_devkitc:light_sleep:samples/boards/espressif/light_sleep
+esp32c3_devkitc:deep_sleep:samples/boards/espressif/deep_sleep:conf/esp32-deep-sleep.conf
