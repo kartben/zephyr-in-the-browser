@@ -24,6 +24,7 @@ other end of the wire.
 | [deploying.md](deploying.md) | Cutting a release and deploying to GitHub Pages |
 | [tours.md](tours.md) | Guided tours — a Markdown DSL that breaks anywhere in a stock sample and shows what it finds |
 | [sample-docs.md](sample-docs.md) | The mirrored Zephyr sample docs and their "Run in simulator" widget |
+| [sample-cues.md](sample-cues.md) | Plan: guest `CUE_*` macros → popups, source highlight, pauses (`button_lab` first) |
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 | [esp32.md](esp32.md) | `esp32c3_devkitc` board: why the emulator comes from a QEMU fork, and why it boots from flash rather than `-kernel` |
 | [trace-networking-plan.md](trace-networking-plan.md) | Trace panel **Networking** tab from Zephyr socket / `net_*` CTF — the socket swimlanes shipped; the connection ribbon and cross-panel linking did not |
