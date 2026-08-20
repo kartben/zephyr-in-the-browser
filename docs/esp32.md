@@ -244,6 +244,18 @@ model keeps. That card is not decoration. Light sleep is otherwise invisible:
 the guest stops printing, and nothing distinguishes that from a crash, a busy
 loop or a wedged emulator.
 
+Deep sleep needed one more register, and finding it is the useful part of the
+story. The guest reached "Powering off" and hung, and the RTC model was not
+what it was missing: `info registers` on the QEMU monitor showed the PC pinned
+at a fixed ROM address across repeated samples, and the four instructions
+around it decoded to "set bit 8, spin until bit 31, clear bit 8" against a base
+of `0x600c0000`. That identified it by offset alone:
+`SYSTEM_RTC_FASTMEM_CONFIG`, where the ROM computes a CRC over RTC fast memory
+so it can tell on the way back out that the wake stub survived. Nothing modelled
+it, so the finish bit never arrived. Memory does not decay under emulation, so
+the check exists only to be passed: finish immediately and leave the digest
+alone.
+
 ## Known limits
 - **The only display Zephyr can drive is the OLED.** The machine does map a
   framebuffer at `0x20000000` (`esp_rgb`, plus 8 MB of VRAM), but that is a
@@ -254,10 +266,26 @@ loop or a wedged emulator.
   output-enable lines are bound to the virtio GPIO model rather than to
   whichever controller the board has, so it needs page-side work rather than
   another overlay.
-- **Deep sleep does not run to completion.** It hangs in ESP-IDF's power-down
-  preparation, before it ever arms the wake timer, so the RTC model is not the
-  last piece it needs. Light sleep works, and `samples/boards/espressif/
-  light_sleep` is packaged.
+- **Sleep is timer-wakeup only.** Both `light_sleep` and `deep_sleep` are
+  packaged and run, but the RTC model arms nothing else: GPIO, touch and UART
+  wake sources are not there, and a sleep with no timer armed is rejected
+  rather than entered.
+
+  **A sleep costs its own duration times how far behind real time this machine
+  runs**, which is the ~30x above: the guest spins in `rtc_sleep_start()`
+  waiting for a wake it cannot reach on its own, and under `-icount` every
+  microsecond of that wait is emulated instruction by instruction. Five seconds
+  of deep sleep is about two minutes of wall clock in the browser, which is why
+  the packaged sample asks for one second.
+
+  Halting the vCPU is the obvious fix and it works beautifully *natively* -
+  light sleep went from 55 cycles to 245 in the same wall time, because a
+  halted CPU lets the icount clock warp straight to the wake timer. It was
+  tried and reverted, because the wasm build never advances the icount clock
+  while the vCPU is halted: the wake is then never reached at all, and a deep
+  sleep that took two minutes before simply never returned. `sleep=off` on the
+  icount argument makes no difference. Uniformly slow beats fast natively and
+  broken in the artifact that ships.
 - **GP-SPI2 is controller mode only.** Target mode, segmented transfers and the
   GDMA path are not modelled. Zephyr uses the FIFO path when a node has no
   `dma-enabled`, which is what the snippet declares.

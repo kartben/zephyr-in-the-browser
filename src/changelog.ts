@@ -41,7 +41,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Power card showing ESP32-C3 sleep state and wake reason."
+        "text": "ESP32-C3 light and deep sleep, with a power card in the dock."
       },
       {
         "tag": "Added",
