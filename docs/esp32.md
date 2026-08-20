@@ -87,10 +87,18 @@ branch, and none has been reported yet.
   Bail out!
   ```
 
-  Worth knowing that the C3 survived a press without the lock and the ESP32 did
+  Worth knowing that the C3 survived a press without a lock and the ESP32 did
   not: the Xtensa interrupt matrix routes per-CPU and kicks the vCPU directly.
   That is luck rather than a real difference, since both machines reach the same
-  function from the same thread, so the lock is in the shared bridge.
+  function from the same thread.
+
+  The fix is *not* to take the BQL there, which was tried and is worse. It stops
+  the assertion, and it also blocks the browser's main thread inside
+  `bql_lock()`; the page makes one of these calls at attach, while QEMU is still
+  bringing the machine up and holding the lock across most of that, so the boot
+  never finishes. Three boots in a row stopped at "Adding SPI flash device".
+  Instead the page records the value and a `QEMU_CLOCK_VIRTUAL` timer applies it
+  from QEMU's side, where the BQL is already held.
 - **`MAX_CALL_IARGS` was not raised for `DEF_HELPER_8`.** The fork adds
   `DEF_HELPER_8` and `tcg_gen_call8` but leaves `MAX_CALL_IARGS` at 7, which
   `tci.c` uses to size `call_slots[]`. Only `target/xtensa/helper.h` uses it, so
@@ -426,8 +434,16 @@ are in the fork; the second lives in the shared bridge because the requirement
 is not ESP32-specific, even though only the ESP32 tripped it.
 
 The lesson for the next bridge that pushes state *into* the guest rather than
-answering a request from it: a browser callback is not a vCPU thread. Anything
-it touches that can raise an interrupt needs `bql_lock()`.
+answering a request from it: a browser callback is not a vCPU thread, and the
+answer is not to make it act like one. Taking the BQL from the page deadlocks
+against QEMU's own startup. Have the page publish a value and let something on
+QEMU's side pick it up under a lock it already holds, which is what
+`net/can/can_browser.c` does with a ring and a timer and what the GPIO bridge
+now does with a word and a timer.
+
+The three bridges that answer *requests* (I2C, SPI, and the output half of
+GPIO) need none of this, because the guest is the one that starts the exchange
+and QEMU is already on a thread entitled to touch device state.
 
 ### The bridges are wired but not yet reachable
 
