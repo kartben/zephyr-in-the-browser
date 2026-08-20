@@ -75,6 +75,22 @@ branch, and none has been reported yet.
   `samples/basic/button` prints "Press the button" and then nothing at all,
   however many times the pin is driven, because the guest is waiting on an edge
   that never arrives. Fixed on the C3 first and on the Xtensa ESP32 with it.
+- **`qemu_host_gpio_set_inputs()` did not take the BQL**, which only mattered
+  once the interrupt above was connected. The page calls it from the browser's
+  main thread, which is not a vCPU thread and holds no lock; a pin change can
+  raise the controller's interrupt, and delivering one reaches `cpu_interrupt()`,
+  which asserts `bql_locked()`. So the first button press aborts the emulator
+  outright:
+
+  ```
+  ERROR:../qemu/system/cpus.c:268: assertion failed: (bql_locked())
+  Bail out!
+  ```
+
+  Worth knowing that the C3 survived a press without the lock and the ESP32 did
+  not: the Xtensa interrupt matrix routes per-CPU and kicks the vCPU directly.
+  That is luck rather than a real difference, since both machines reach the same
+  function from the same thread, so the lock is in the shared bridge.
 - **`MAX_CALL_IARGS` was not raised for `DEF_HELPER_8`.** The fork adds
   `DEF_HELPER_8` and `tcg_gen_call8` but leaves `MAX_CALL_IARGS` at 7, which
   `tci.c` uses to size `call_slots[]`. Only `target/xtensa/helper.h` uses it, so
@@ -398,6 +414,20 @@ bit 20), plus `APB_CTRL_DATE_REG` bit 31, which `hw/xtensa/esp32.c` already
 asserts. All three set is revision 3, ECO3. So the eFuse image is 124 bytes of
 which two bits matter, and `tools/build-qemu-wasm.sh` writes it rather than
 carrying a blob in git, because a blob would say nothing about which two.
+
+### The button, and a lock the bridge was missing
+
+The BOOT button is worth calling out because getting it working took two fixes,
+not one, and the second only became reachable after the first. Connecting the
+GPIO interrupt (see the fork-bug list above) turned "the press does nothing"
+into "the press aborts QEMU on a BQL assertion", because the page drives pins
+from a thread that holds no lock and an interrupt delivery wants one. Both fixes
+are in the fork; the second lives in the shared bridge because the requirement
+is not ESP32-specific, even though only the ESP32 tripped it.
+
+The lesson for the next bridge that pushes state *into* the guest rather than
+answering a request from it: a browser callback is not a vCPU thread. Anything
+it touches that can raise an interrupt needs `bql_lock()`.
 
 ### The bridges are wired but not yet reachable
 
