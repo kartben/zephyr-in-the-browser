@@ -2,29 +2,15 @@
 # and qemu,host-mic (DMIC) drivers, plus the browser_bridge shield
 # (boards/shields/browser_bridge/), which wires the browser-fed peripherals into
 # the QEMU boards. It also carries vendored copies of the not-yet-upstream
-# virtio,gpu / virtio,gpio / virtio,i2c / virtio,spi drivers, the auxdisplay
-# shell, and a workqueue-based gpio-7-segment fix (drivers/vendor/).
+# virtio,gpu driver, the auxdisplay shell, and a workqueue-based gpio-7-segment
+# fix (drivers/vendor/). The virtio,gpio / virtio,i2c / virtio,spi drivers were
+# vendored here until they landed in mainline; the Zephyr tree ships them now.
 
 # Vendored drivers, built only while Zephyr itself lacks them: an in-tree copy
 # would define the same symbols and break the link. See drivers/vendor/VENDOR.md.
 set(VENDORED_VIRTIO_GPU drivers/vendor/display_virtio_gpu.c)
 if(EXISTS ${ZEPHYR_BASE}/drivers/display/display_virtio_gpu.c)
   set(VENDORED_VIRTIO_GPU "")
-endif()
-
-set(VENDORED_VIRTIO_GPIO drivers/vendor/gpio_virtio.c)
-if(EXISTS ${ZEPHYR_BASE}/drivers/gpio/gpio_virtio.c)
-  set(VENDORED_VIRTIO_GPIO "")
-endif()
-
-set(VENDORED_VIRTIO_SPI drivers/vendor/spi_virtio.c)
-if(EXISTS ${ZEPHYR_BASE}/drivers/spi/spi_virtio.c)
-  set(VENDORED_VIRTIO_SPI "")
-endif()
-
-set(VENDORED_VIRTIO_I2C drivers/vendor/i2c_virtio.c)
-if(EXISTS ${ZEPHYR_BASE}/drivers/i2c/i2c_virtio.c)
-  set(VENDORED_VIRTIO_I2C "")
 endif()
 
 set(VENDORED_AUXDISPLAY_SHELL drivers/vendor/auxdisplay_shell.c)
@@ -43,33 +29,14 @@ zephyr_include_directories(include)
 # zephyr_library() is created once and shared by all the drivers.
 if(CONFIG_QEMU_HOST_GPIO OR CONFIG_QEMU_HOST_AUDIO
    OR CONFIG_QEMU_HOST_MIC OR (CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
-   OR (CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
-   OR (CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
-   OR (CONFIG_I2C_VIRTIO AND VENDORED_VIRTIO_I2C)
    OR (CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)
    OR CONFIG_AUXDISPLAY_GPIO_7SEG_WQ
    OR CONFIG_PM_DEMO_DEVICE)
   zephyr_library()
 endif()
 
-if(CONFIG_I2C_VIRTIO AND VENDORED_VIRTIO_I2C)
-  zephyr_library_sources(${VENDORED_VIRTIO_I2C})
-endif()
-
 if(CONFIG_VIRTIO_GPU_DISPLAY AND VENDORED_VIRTIO_GPU)
   zephyr_library_sources(${VENDORED_VIRTIO_GPU})
-endif()
-
-if(CONFIG_GPIO_VIRTIO AND VENDORED_VIRTIO_GPIO)
-  zephyr_library_sources(${VENDORED_VIRTIO_GPIO})
-endif()
-
-if(CONFIG_SPI_VIRTIO AND VENDORED_VIRTIO_SPI)
-  zephyr_library_sources(${VENDORED_VIRTIO_SPI})
-  # spi_virtio.c uses the shared spi_context.h/spi_rtio.h helpers, which live in
-  # the tree's drivers/spi and are not on the default include path for an
-  # out-of-tree module source.
-  zephyr_library_include_directories(${ZEPHYR_BASE}/drivers/spi)
 endif()
 
 if(CONFIG_AUXDISPLAY_SHELL AND VENDORED_AUXDISPLAY_SHELL)

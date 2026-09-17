@@ -3,7 +3,7 @@
  *
  * This is a port of `hw/virtio/virtio-gpio.c` — the 576-line C device model
  * that patch 0010 added — onto the generic bridge. The guest side is
- * unchanged: the vendored upstream `virtio,gpio` driver talks to what it
+ * unchanged: Zephyr's in-tree `virtio,gpio` driver talks to what it
  * believes is an ordinary VIRTIO GPIO controller, because it is one. Only the
  * far end of the virtqueues moved, from QEMU to here.
  *

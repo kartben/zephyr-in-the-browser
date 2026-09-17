@@ -26,6 +26,11 @@
  * the wire, with room for the R/W bit — which is what Linux's driver sends and
  * what the spec's examples show.
  *
+ * The adapter offers `VIRTIO_I2C_F_ZERO_LENGTH_REQUEST` (feature bit 0, set as
+ * `features=0x1` on the `-device` line in src/boards.ts), which is what Zephyr's
+ * driver requires: `M_RD` in the out header is the direction of a message, and a
+ * message with no payload at all is legal, which is what an `i2c scan` sends.
+ *
  * A chip that is not attached NAKs, which is what makes `i2c scan` a real scan
  * rather than a list of everything: the guest sees exactly the addresses the
  * page is answering for.
@@ -38,7 +43,11 @@ const VQ_REQUEST = 0
 
 const OUT_HDR_BYTES = 8
 
-/** Fail the following request too, if this one fails. */
+/**
+ * Fail the following request too, if this one fails: the device runs the two
+ * back to back, with a restart rather than a stop between them. The driver
+ * clears it on the last message of each such group.
+ */
 const FLAGS_FAIL_NEXT = 1 << 0
 /** This message is a read; otherwise it is a write. */
 const FLAGS_M_RD = 1 << 1

@@ -171,9 +171,10 @@
  * virtio-net, virtio-gpu, the GPIO controller and the tablet.
  *
  * The adapter is the same generic bridge the GPIO controller uses — one C file
- * in QEMU, no device model of its own. What is new is the guest side: Zephyr
- * has no virtio I2C driver, so this repo carries one at
- * zephyr-module/drivers/i2c_virtio.c, written to go upstream.
+ * in QEMU, no device model of its own. The guest driver started here, because
+ * Zephyr had no virtio I2C driver at all, and is now in-tree as
+ * drivers/i2c/i2c_virtio.c. It requires VIRTIO_I2C_F_ZERO_LENGTH_REQUEST, so
+ * the QEMU device carries features=0x1; see src/boards.ts.
  *
  * The chips on the bus are page-side models under src/virtio/devices/chips/,
  * so what a build sees here is whatever the page has attached — an address
@@ -199,9 +200,9 @@
  * `-device virtio-browser-device,...,name=spi,device-id=45`. Slots 0-4 are
  * virtio-net, virtio-gpu, GPIO, tablet and I2C.
  *
- * Same generic bridge as GPIO and I2C. The guest driver is vendored from
- * kartben/zephyr#469 (zephyr-module/drivers/vendor/spi_virtio.c) until it
- * lands upstream. Chips on the bus are page-side models under
+ * Same generic bridge as GPIO and I2C. The guest driver is in-tree
+ * (drivers/spi/spi_virtio.c); it was written here and vendored until it landed
+ * upstream. Chips on the bus are page-side models under
  * src/virtio/devices/; chip select is the child's `reg`.
  *
  * Declared disabled: `-S virtio-spi` turns it on and adds the flash node.

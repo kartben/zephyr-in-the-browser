@@ -11,8 +11,8 @@
  *   whenever it likes, so we poll on an interval. The LM3S6965 machine has no
  *   virtio-mmio bus to move onto, so it keeps this.
  *
- * - **Cortex-A53 — VIRTIO GPIO.** A standard VIRTIO GPIO controller the
- *   vendored upstream `virtio,gpio` driver binds to. The *device model* is
+ * - **Cortex-A53 — VIRTIO GPIO.** A standard VIRTIO GPIO controller Zephyr's
+ *   in-tree `virtio,gpio` driver binds to. The *device model* is
  *   TypeScript — `src/virtio/devices/gpio.ts`, running on the generic bridge —
  *   so nothing is polled at all: an input edge fires the guest's interrupt
  *   synchronously, and a guest-driven output notifies this module the moment

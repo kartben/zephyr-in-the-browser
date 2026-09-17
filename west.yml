@@ -6,9 +6,10 @@
 # guest toolchains. Local builds do not need it — tools/build-zephyr-image.sh
 # defaults to the containerized flow against your own workspace (ZEPHYR_WS).
 #
-# Zephyr tracks `main` because the browser_bridge module targets current Zephyr
-# (vendored not-yet-upstream virtio drivers, hwmv2 board names). Pin a tag or
-# SHA here when a build needs to be reproducible; the CI cache keys off this
+# Zephyr tracks `main` because the browser_bridge module targets current Zephyr:
+# the in-tree virtio GPIO/I2C/SPI drivers the browser boards use, hwmv2 board
+# names, and the vendored virtio-gpu driver that is still in review. Pin a tag
+# or SHA here when a build needs to be reproducible; the CI cache keys off this
 # file, so changing the revision naturally invalidates it.
 manifest:
   self:

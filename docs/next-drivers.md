@@ -63,7 +63,7 @@ reports `-ENOTSUP`, so it pairs with the shell rather than the IRQ-driven button
 sample; wiring a GPIO IRQ line to the Stellaris NVIC is the obvious follow-up.
 
 **Interrupts landed on the Cortex-A53 instead**, by a different route: a standard
-**VIRTIO GPIO** controller on virtio-mmio slot 2, behind the vendored upstream
+**VIRTIO GPIO** controller on virtio-mmio slot 2, behind Zephyr's in-tree
 `virtio,gpio` driver and the `-S virtio-gpio` snippet. It offers
 `VIRTIO_GPIO_F_IRQ`, so `gpio-keys` runs interrupt-driven and
 `samples/basic/button` is packaged for that board. The M3 keeps its MMIO device
@@ -209,11 +209,12 @@ feature bits and config space from the QEMU command line. So:
 - A new virtio **device type** costs no C and no QEMU rebuild. It is a
   TypeScript file under `src/virtio/devices/` plus one `-device` argument.
 - What remains per device is the **guest driver**, when Zephyr does not already
-  have one. For virtio-i2c it does not, and that — not the QEMU side — is now
-  the dominant cost of the next device.
+  have one. That, not the QEMU side, is now the dominant cost of the next
+  device: virtio-i2c and virtio-spi were both written here first and upstreamed
+  (`drivers/i2c/i2c_virtio.c`, `drivers/spi/spi_virtio.c`).
 
 The proof is virtio-gpio: 576 lines of C device model deleted, replaced by
-`src/virtio/devices/gpio.ts`, with the guest binary, the vendored `virtio,gpio`
+`src/virtio/devices/gpio.ts`, with the guest binary, the stock `virtio,gpio`
 driver and the devicetree all untouched. Restated, the rule is now: **virtio
 removes the guest-side cost; the bridge removes the per-device host-side one;
 what is left is whichever side has no driver yet.**
@@ -371,9 +372,9 @@ and virtio-spi bridges mean a new chip is TypeScript + a DT node (+ a JSON
 register map for register-file parts) — no wasm rebuild.
 
 **SPI bus — ✅ done (controller + JEDEC NOR + LittleFS + SCT2024 LED + WS2812 strip + TMC50xx).** Same generic bridge as I2C, on
-virtio-mmio slot 5 (`name=spi`, device-id 45). Guest driver vendored from
-kartben/zephyr#469; page model in [`spi.ts`](../src/virtio/devices/spi.ts);
-first chip is a W25Q-class stub
+virtio-mmio slot 5 (`name=spi`, device-id 45). Guest driver written here and
+upstreamed as `drivers/spi/spi_virtio.c`; page model in
+[`spi.ts`](../src/virtio/devices/spi.ts); first chip is a W25Q-class stub
 ([`w25q.ts`](../src/virtio/devices/chips/w25q.ts)) packaged as
 `samples/drivers/spi_flash` and `samples/subsys/fs/littlefs` behind `-S virtio-spi`
 (storage partition + fstab `lfs1` → `/lfs`, `SPI_NOR_FLASH_LAYOUT_PAGE_SIZE=4096`).

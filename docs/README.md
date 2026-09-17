@@ -7,7 +7,7 @@ other end of the wire.
 | Document | What it covers |
 | --- | --- |
 | [focus.md](focus.md) | Cortex-A53 is the primary board; with/without tracing sample variants |
-| [peripherals.md](peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the vendored drivers behind snippets, and touch input |
+| [peripherals.md](peripherals.md) | How the browser-fed devices reach the guest: the `browser_bridge` shield, the virtio devices behind snippets, and touch input |
 | [pwm-leds.md](pwm-leds.md) | Spec: `pwm-leds` dock strip beside the PWM duty chart |
 | [gpio-controller.md](gpio-controller.md) | Spec (Proposal B): claimed-pin GPIO table + `used by` reveal |
 | [can-bus.md](can-bus.md) | The CAN bus class, where the page models *the rest of the network* — spec, plus what iteration 1 changed about it |

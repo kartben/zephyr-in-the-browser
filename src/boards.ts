@@ -910,7 +910,7 @@ export const BOARDS: Board[] = [
       '-device',
       'virtio-tablet-device,bus=virtio-mmio-bus.3',
       // GPIO: a standard VIRTIO GPIO device on the slot the shield overlay
-      // reserves for it (0x0a000400, SPI 18), driven by the vendored
+      // reserves for it (0x0a000400, SPI 18), driven by Zephyr's in-tree
       // virtio,gpio driver. QEMU has no virtio-gpio device model of its own,
       // and now neither do we: this is the *generic* bridge, and the device
       // model is src/virtio/devices/gpio.ts. `name=gpio` is what binds the two.
@@ -927,12 +927,16 @@ export const BOARDS: Board[] = [
       'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
         'queues=2,features=0x1,config=1000000000000000',
       // I2C: a VIRTIO I2C adapter (device id 34) on slot 4, the first free one
-      // after net, gpu, gpio and the tablet. One request queue, no feature bits
-      // and no config space — the adapter has none. The chips on the bus are
-      // page-side models (src/virtio/devices/chips/), so adding one is a
+      // after net, gpu, gpio and the tablet. One request queue and no config
+      // space: the adapter has none. Feature bit 0 is
+      // VIRTIO_I2C_F_ZERO_LENGTH_REQUEST, which Zephyr's driver requires. It
+      // makes the out header's M_RD flag, rather than the descriptor layout,
+      // carry the direction of a message, which is how
+      // src/virtio/devices/i2c.ts has always read it. The chips on the bus
+      // are page-side models (src/virtio/devices/chips/), so adding one is a
       // TypeScript file rather than an emulator rebuild.
       '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
+      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1,features=0x1',
       // SPI on virtio-mmio slot 5. device-id=45 requires the VIRTIO_ID_SPI
       // backport in tools/qemu-jit-patches/0013-*: stock QEMU v10.1.0's
       // virtio_device_names only goes to GPIO (41), and realizing an unnamed
@@ -1008,7 +1012,9 @@ export const BOARDS: Board[] = [
       'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
         'queues=2,features=0x1,config=1000000000000000',
       '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1',
+      // features=0x1 is VIRTIO_I2C_F_ZERO_LENGTH_REQUEST, required by Zephyr's
+      // driver: see the A53 board above.
+      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1,features=0x1',
       // SPI on slot 5. device-id=45 requires the VIRTIO_ID_SPI backport in
       // tools/qemu-esp-patches/0011-*, for the same reason as the A53 board
       // above. The packaged emulator carries that patch.
