@@ -481,8 +481,8 @@ automatically. Both maps now carry an `mcp2515` entry.
 **The mode handshake timed out, then produced garbage.** Zephyr's SPI stack
 splits a multi-`spi_buf` transceive (opcode+address in one segment, the data
 phase in another) into separate virtio-spi requests with chip select held
-low between them — see `spi_virtio_transceive` in
-`zephyr-module/drivers/vendor/spi_virtio.c`. `mcp2515.ts`'s original
+low between them — see `spi_virtio_transceive` in Zephyr's
+`drivers/spi/spi_virtio.c`. `mcp2515.ts`'s original
 `transfer()` treated every call as a self-contained command; the second
 request in a split pair arrived as a bare data byte with no opcode context
 and read back zero. The chip model is now a byte-stream state machine
@@ -518,7 +518,7 @@ correctly refusing to enqueue while off the bus. What the new Registers panel
 the guest ever sent, latched forever. The driver's interrupt thread never
 serviced it, because it was never woken. Zephyr configures this line
 `GPIO_INT_EDGE_TO_ACTIVE`, and the virtio-gpio event-virtqueue protocol
-(`zephyr-module/drivers/vendor/gpio_virtio.c`, `src/virtio/devices/gpio.ts`)
+(Zephyr's `drivers/gpio/gpio_virtio.c`, `src/virtio/devices/gpio.ts`)
 correctly implements it — an armed line only fires when the page's `inputs`
 word actually transitions. The bug was earlier: `hostCan.ts`'s `wire()` seeds
 the line idle-high (`setInput(INT_PIN, true)`) as soon as the chip attaches,

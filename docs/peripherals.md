@@ -1,7 +1,7 @@
 # How browser peripherals reach the guest
 
 The guest-facing half of every browser-backed device: the Zephyr shield that
-declares them, the two vendored drivers behind snippets, and touch input — the
+declares them, the virtio devices behind snippets, and touch input — the
 one that needed no shield entry at all.
 
 For the host-facing half — what each bridge costs in QEMU C, and which shape a
@@ -266,11 +266,12 @@ tarballs), the old hardcoded tables in
 [`src/virtio/devices/registry.ts`](../src/virtio/devices/registry.ts) and
 [`src/hostGpio.ts`](../src/hostGpio.ts) take over, so nothing regresses.
 
-## The vendored drivers
+## Three virtio devices worth their own note
 
-The module also carries pristine copies of not-yet-upstream Zephyr drivers
-([`zephyr-module/drivers/vendor/`](../zephyr-module/drivers/vendor)), each opt-in
-behind a snippet:
+Beside the I²C and SPI bridges above, the shield declares these, each opt-in
+behind a snippet. Their guest drivers are stock Zephyr, except virtio-gpu,
+whose driver is still in review and is carried as a pristine copy under
+[`zephyr-module/drivers/vendor/`](../zephyr-module/drivers/vendor):
 
 - **virtio-gpu** (`-S virtio-gpu`) swaps the Cortex-A53 panel off ramfb. Proven
   on the guest side but with no browser bridge yet, so nothing renders in the
@@ -280,10 +281,11 @@ behind a snippet:
 - **virtio-gpio** (`-S virtio-gpio`) gives the Cortex-A53 the GPIO panel, on
   virtio-mmio slot 2. This is the same browser buttons and LEDs the Cortex-M3
   gets from `qemu,host-gpio`, but reached through a *standard* device: the guest
-  runs a stock VIRTIO driver instead of one written against a bespoke register
-  block, and because the device offers `VIRTIO_GPIO_F_IRQ`, buttons interrupt
-  the guest rather than being polled by it. The trade is latency — every GPIO
-  call is a virtqueue round trip, so the API is thread-context only.
+  runs Zephyr's in-tree `drivers/gpio/gpio_virtio.c` instead of a driver written
+  against a bespoke register block, and because the device offers
+  `VIRTIO_GPIO_F_IRQ`, buttons interrupt the guest rather than being polled by
+  it. The trade is latency — every GPIO call is a virtqueue round trip, so the
+  API is thread-context only.
 
   Going virtio does *not* remove the downstream QEMU patch: `hw/virtio/` ships
   only `vhost-user-gpio`, which forwards the virtqueues to a separate daemon

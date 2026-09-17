@@ -22,7 +22,7 @@ C file is a GPIO controller, an I2C adapter, or anything else:
 
 ```
 -device virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,queues=2,features=0x1,config=0800000000000000
--device virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1
+-device virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1,features=0x1
 -device virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000
 ```
 
@@ -30,10 +30,16 @@ The payoff is the iteration loop. A new device type, or a new simulated I2C
 or SPI chip, is a TypeScript file with a vitest suite — not a containerised QEMU
 rebuild.
 
-What it does *not* buy: the guest still needs a driver per device type. For
-virtio-gpio and virtio-spi that driver is vendored
-([VENDOR.md](../zephyr-module/drivers/vendor/VENDOR.md)); for I2C it does not
-exist in Zephyr yet and has to be written.
+What it does *not* buy: the guest still needs a driver per device type. GPIO,
+I2C and SPI are stock Zephyr now (`drivers/gpio/gpio_virtio.c`,
+`drivers/i2c/i2c_virtio.c`, `drivers/spi/spi_virtio.c`); they were vendored
+here while they were in review, and anything the bridge grows next may have to
+be again ([VENDOR.md](../zephyr-module/drivers/vendor/VENDOR.md)).
+
+The I2C driver requires `VIRTIO_I2C_F_ZERO_LENGTH_REQUEST` (feature bit 0),
+which is why the `name=i2c` line above carries `features=0x1`: with it, the out
+header's `M_RD` flag is what says whether a message is a read, which is what
+[`src/virtio/devices/i2c.ts`](../src/virtio/devices/i2c.ts) decodes.
 
 ### When *not* to use the bridge: virtio-blk
 

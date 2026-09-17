@@ -71,10 +71,23 @@ describe('virtio-i2c model', () => {
   it('ACKs only the addresses a chip is attached to', () => {
     i2c.attachChip(createAt24({ address: 0x50 }))
 
-    // What `i2c scan` does: a one-byte read of every address in 0x04..0x77.
     const found: number[] = []
     for (let address = 0x04; address <= 0x77; address++) {
       if (read(address, 1).status === MSG_OK) found.push(address)
+    }
+    expect(found).toEqual([0x50])
+  })
+
+  it('scans with zero-length writes, the way the shell does', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+
+    // What `i2c scan` actually puts on the bus: one zero-length write per
+    // address, which is legal only because the adapter offers
+    // VIRTIO_I2C_F_ZERO_LENGTH_REQUEST. The chain is the out header and the
+    // status byte, with no payload descriptor between them.
+    const found: number[] = []
+    for (let address = 0x04; address <= 0x77; address++) {
+      if (write(address, new Uint8Array(0)) === MSG_OK) found.push(address)
     }
     expect(found).toEqual([0x50])
   })
