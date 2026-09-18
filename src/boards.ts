@@ -387,6 +387,17 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['display'],
   },
   {
+    id: 'android_auto',
+    label: 'Android Auto Head Unit',
+    description:
+      'Decodes an H.264 navigation stream. Hold the button to share the display with its GUI',
+    zephyrSample: 'samples/subsys/usb/android_auto_headunit',
+    // No phone to project from a browser tab, so the sample decodes a clip
+    // built into its own image; everything after the decoder is what a phone's
+    // pictures go through.
+    primaryPanels: ['display', 'gpio'],
+  },
+  {
     id: 'accel_chart',
     label: 'Accelerometer Chart',
     description: 'Device accelerometer traced live on an LVGL chart',
