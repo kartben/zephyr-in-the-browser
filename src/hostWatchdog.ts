@@ -8,8 +8,15 @@
  * the bite after the reset.
  *
  * Like src/hostPowerState.ts this is a read-only window onto a block the model
- * keeps up to date (`hw/timer/esp_timg.c` in the ESP32 QEMU fork): no protocol,
- * just a read on the shared beat. Two differences:
+ * keeps up to date: no protocol, just a read on the shared beat. There are two
+ * blocks with one layout. `qemu_esp_wdt_status()` is the ESP32 timer groups'
+ * (`hw/timer/esp_timg.c` in the ESP32 QEMU fork), and
+ * `qemu_browser_wdt_status()` is the one upstream models write through
+ * `hw/watchdog/browser-wdt-status.c`: the Cortex-M3's CMSDK watchdog
+ * (tools/qemu-patches/) and the SiFive watchdog the patched RISC-V `virt`
+ * carries (tools/qemu-esp-patches/). A machine fills whichever it has, and a
+ * binary that has both (riscv32 builds the ESP32-C3 and `virt`) leaves the
+ * other block's slots unclaimed. Two differences from the power block:
  *
  * - Fields that go together (a deadline and the clock it is measured against)
  *   are guarded by a per-slot seqlock, since QEMU writes while the page reads.
@@ -22,7 +29,10 @@
 
 import { HOST_POLL_MS, register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
-/** Byte offsets into ESPWdtStatus / ESPWdtStatusSlot. Must match esp_timg.c. */
+/**
+ * Byte offsets into the status block and its slots. Must match both writers:
+ * ESPWdtStatus in esp_timg.c and BrowserWdtStatus in browser-wdt-status.c.
+ */
 const HEADER = {
   magic: 0,
   version: 4,
@@ -59,7 +69,7 @@ const STAGE_COUNT = 4
 /** Retries before a slot being rewritten is left for the next beat. */
 const SEQLOCK_TRIES = 4
 
-/** ESPWdtStageConf. */
+/** ESPWdtStageConf, and BrowserWdtAction, which has the same values. */
 export type StageAction = 'off' | 'interrupt' | 'reset-cpu' | 'reset-system'
 const ACTIONS: StageAction[] = ['off', 'interrupt', 'reset-cpu', 'reset-system']
 
@@ -78,8 +88,12 @@ export interface WatchdogBite {
   agoMs: number
 }
 
+/** Which status block a timer came from. */
+export type WatchdogSource = 'esp' | 'browser'
+
 export interface WatchdogTimer {
-  /** Timer group index: 0 is TIMG0's MWDT. */
+  source: WatchdogSource
+  /** Slot within its block: for the ESP32, 0 is TIMG0's MWDT. */
   index: number
   enabled: boolean
   /** Stage the counter is in now, 0-3. */
@@ -106,13 +120,24 @@ const POLL_ID = 'host-watchdog'
 
 interface WatchdogExports {
   _qemu_esp_wdt_status?: () => number
+  _qemu_browser_wdt_status?: () => number
   HEAPU8?: Uint8Array
 }
 
+const EXPORTS: Record<WatchdogSource, keyof WatchdogExports> = {
+  esp: '_qemu_esp_wdt_status',
+  browser: '_qemu_browser_wdt_status',
+}
+
+interface Block {
+  source: WatchdogSource
+  base: number
+  slotCount: number
+  slotSize: number
+}
+
 let mod: WatchdogExports | null = null
-let base = 0
-let slotCount = 0
-let slotSize = 0
+let blocks: Block[] = []
 let words: Int32Array | null = null
 let snapshot: WatchdogSnapshot = IDLE
 const listeners = new Set<() => void>()
@@ -130,7 +155,7 @@ function ns(lo: number, hi: number): number {
 }
 
 /** One consistent read of a slot, or null if QEMU kept rewriting it. */
-function readSlot(at: number): WatchdogTimer | null {
+function readSlot(source: WatchdogSource, at: number): WatchdogTimer | null {
   for (let tries = 0; tries < SEQLOCK_TRIES; tries++) {
     const before = Atomics.load(words!, at >> 2) >>> 0
     if (before & 1) continue
@@ -151,6 +176,7 @@ function readSlot(at: number): WatchdogTimer | null {
     const enabled = w(SLOT.enabled) !== 0
     const bites = w(SLOT.bites)
     const timer: WatchdogTimer = {
+      source,
       index: w(SLOT.index),
       enabled,
       stage: w(SLOT.stage),
@@ -176,6 +202,7 @@ function readSlot(at: number): WatchdogTimer | null {
 
 function sameTimer(a: WatchdogTimer, b: WatchdogTimer): boolean {
   return (
+    a.source === b.source &&
     a.index === b.index &&
     a.enabled === b.enabled &&
     a.stage === b.stage &&
@@ -196,12 +223,16 @@ function sample() {
     return
   }
   const timers: WatchdogTimer[] = []
-  for (let i = 0; i < slotCount; i++) {
-    const at = base + HEADER.slots + i * slotSize
-    if (word(at + SLOT.present) === 0) continue
-    // A slot mid-update keeps its previous value for one more beat.
-    const timer = readSlot(at) ?? snapshot.timers.find((t) => t.index === i)
-    if (timer) timers.push(timer)
+  for (const block of blocks) {
+    for (let i = 0; i < block.slotCount; i++) {
+      const at = block.base + HEADER.slots + i * block.slotSize
+      if (word(at + SLOT.present) === 0) continue
+      // A slot mid-update keeps its previous value for one more beat.
+      const timer =
+        readSlot(block.source, at) ??
+        snapshot.timers.find((t) => t.source === block.source && t.index === i)
+      if (timer) timers.push(timer)
+    }
   }
   const prev = snapshot
   if (
@@ -216,25 +247,36 @@ function sample() {
 }
 
 function discover() {
-  const at = mod?._qemu_esp_wdt_status?.() ?? 0
   const heap = mod?.HEAPU8
-  if (!at || !heap) return
+  if (!mod || !heap) return
 
   const view = new Int32Array(heap.buffer)
-  if ((view[at >> 2]! >>> 0) !== STATUS_MAGIC) {
-    console.warn('[watchdog] status block has the wrong magic; ignoring it')
+  const found: Block[] = []
+  for (const source of Object.keys(EXPORTS) as WatchdogSource[]) {
+    const fn = mod[EXPORTS[source]] as (() => number) | undefined
+    const at = fn?.() ?? 0
+    if (!at) continue
+    if ((view[at >> 2]! >>> 0) !== STATUS_MAGIC) {
+      console.warn(`[watchdog] ${source} status block has the wrong magic; ignoring it`)
+      continue
+    }
+    const version = view[(at + HEADER.version) >> 2]!
+    if (version !== STATUS_VERSION) {
+      console.warn(`[watchdog] emulator speaks protocol ${version}, page speaks ${STATUS_VERSION}`)
+      continue
+    }
+    found.push({
+      source,
+      base: at,
+      slotCount: view[(at + HEADER.slotCount) >> 2]!,
+      slotSize: view[(at + HEADER.slotSize) >> 2]!,
+    })
+  }
+  if (found.length === 0) {
     mod = null
     return
   }
-  const version = view[(at + HEADER.version) >> 2]!
-  if (version !== STATUS_VERSION) {
-    console.warn(`[watchdog] emulator speaks protocol ${version}, page speaks ${STATUS_VERSION}`)
-    mod = null
-    return
-  }
-  base = at
-  slotCount = view[(at + HEADER.slotCount) >> 2]!
-  slotSize = view[(at + HEADER.slotSize) >> 2]!
+  blocks = found
   words = view
   sample()
 }
@@ -252,9 +294,7 @@ export function detach() {
   const was = snapshot.available
   mod = null
   words = null
-  base = 0
-  slotCount = 0
-  slotSize = 0
+  blocks = []
   snapshot = IDLE
   if (was) notify()
 }
@@ -272,16 +312,28 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-/**
- * Which timer group a devicetree watchdog node is, by its register address.
- * The model's slots are numbered by timer group and know nothing of the
- * devicetree, so the page matches them here. ESP32-C3 addresses: the MWDT
- * registers start 0x48 into each group.
- */
-const ESP32C3_MWDT_BASES = [0x6001f048, 0x60020048]
+/** A slot in one of the blocks: what a dock row follows. */
+export interface WatchdogRef {
+  source: WatchdogSource
+  index: number
+}
 
-export function timerIndexForAddress(address: number | undefined): number | undefined {
-  if (address === undefined) return undefined
-  const index = ESP32C3_MWDT_BASES.indexOf(address)
-  return index < 0 ? undefined : index
+/**
+ * Which slot a devicetree watchdog node is, by its register address. The
+ * models number their slots in the order they are realized and know nothing
+ * of the devicetree, so the page matches them here. Each machine has at most
+ * one of these addresses per block, so the table can be flat.
+ */
+const SLOT_BY_ADDRESS: ReadonlyMap<number, WatchdogRef> = new Map([
+  // ESP32-C3: the MWDT registers start 0x48 into each timer group.
+  [0x6001f048, { source: 'esp', index: 0 }],
+  [0x60020048, { source: 'esp', index: 1 }],
+  // Cortex-M3: the LM3S6965's watchdog, QEMU's luminary-watchdog.
+  [0x40000000, { source: 'browser', index: 0 }],
+  // RISC-V virt: the SiFive E always-on block tools/qemu-esp-patches/ adds.
+  [0x1000d000, { source: 'browser', index: 0 }],
+])
+
+export function watchdogForAddress(address: number | undefined): WatchdogRef | undefined {
+  return address === undefined ? undefined : SLOT_BY_ADDRESS.get(address)
 }

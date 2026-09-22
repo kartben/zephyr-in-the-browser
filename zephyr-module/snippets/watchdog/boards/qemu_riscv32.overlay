@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the watchdog the browser_bridge shield declares disabled.
+ *
+ * Zephyr's sifive,wdt driver resets in a single stage: the count reaching its
+ * compare value resets the part. The IRQ it also raises may or may not reach
+ * the sample's callback first; the reset is already on its way either way.
+ */
+
+&wdt0 {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		watchdog0 = &wdt0;
+	};
+};

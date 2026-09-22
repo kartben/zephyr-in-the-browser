@@ -54,6 +54,7 @@
 #   accel-display  shrink ramfb to 480x320 for the accelerometer chart
 #   bt-hci-uart .. H:4 controller on a spare UART
 #   cpu-power-states  a ladder of CPU suspend states for CONFIG_PM to walk
+#   watchdog ..... the machine's own watchdog, aliased watchdog0 (M3, RISC-V)
 #   pm-demo-devices   three devices that implement PM, so the system-managed
 #                  device walk has something to suspend
 #   browser-tracing, browser-tracing-net — added automatically, see below
@@ -84,6 +85,7 @@
 qemu_cortex_m3:gnss:samples/drivers/gnss::gnss
 qemu_cortex_m3:shell:samples/subsys/shell/shell_module:conf/host-gpio.conf,conf/host-audio.conf:host-gpio,host-audio
 qemu_cortex_m3:hsm:samples/subsys/smf/hsm_psicc2
+qemu_cortex_m3:watchdog:samples/drivers/watchdog::watchdog
 qemu_cortex_m3:dhcp:samples/net/dhcpv4_client:conf/net.conf:net
 qemu_cortex_m3:http_server:samples/net/sockets/dumb_http_server:conf/net.conf:net
 qemu_cortex_m3:http_get:samples/net/sockets/http_get:conf/net.conf:net
@@ -145,6 +147,7 @@ qemu_cortex_a53:hello_world:samples/hello_world
 # tools/build-qemu-wasm.sh riscv32-softmmu (TCI). Tracing samples are omitted —
 # they ride ARM semihosting on A53.
 qemu_riscv32:gnss:samples/drivers/gnss::gnss
+qemu_riscv32:watchdog:samples/drivers/watchdog::watchdog
 qemu_riscv32:display:samples/drivers/display::ramfb
 qemu_riscv32:touch:samples/subsys/input/draw_touch_events::ramfb,virtio-input
 qemu_riscv32:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf:ramfb,virtio-input

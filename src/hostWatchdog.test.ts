@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { attach, available, detach, getSnapshot, subscribe, timerIndexForAddress } from './hostWatchdog'
+import { attach, available, detach, getSnapshot, subscribe, watchdogForAddress } from './hostWatchdog'
 import { HOST_POLL_MS } from './hostPoll'
 
 /**
  * The status block's layout, spelled out again rather than imported: this is
- * the contract with hw/timer/esp_timg.c in the ESP32 QEMU fork. Byte offsets.
+ * the contract with hw/timer/esp_timg.c in the ESP32 QEMU fork and with
+ * hw/watchdog/browser-wdt-status.c in the patch series. Byte offsets.
  */
 const HEADER = { magic: 0, version: 4, slotCount: 8, slotSize: 12, slots: 16 } as const
 const SLOT = {
@@ -177,10 +178,41 @@ describe('hostWatchdog', () => {
     expect(getSnapshot().timers).toEqual([])
   })
 
-  it('places devicetree nodes on their timer group by address', () => {
-    expect(timerIndexForAddress(0x6001f048)).toBe(0)
-    expect(timerIndexForAddress(0x60020048)).toBe(1)
-    expect(timerIndexForAddress(0x6000_0000)).toBeUndefined()
-    expect(timerIndexForAddress(undefined)).toBeUndefined()
+  it('reads the upstream models\' block too, and tells the two apart', () => {
+    detach()
+    // A second block, as the riscv32 binary exports: the ESP32 one above,
+    // with its two slots, and the browser one with a single SiFive watchdog.
+    const OTHER = 4096
+    const at = (field: number) => OTHER + HEADER.slots + field
+    set(OTHER + HEADER.magic, MAGIC)
+    set(OTHER + HEADER.version, 1)
+    set(OTHER + HEADER.slotCount, SLOTS)
+    set(OTHER + HEADER.slotSize, SLOT_SIZE)
+    set(at(SLOT.present), 1)
+    set(at(SLOT.enabled), 1)
+    set(at(SLOT.actions), 3) // one stage, and it resets
+    set(at(SLOT.freqHz), 32768)
+    set(at(SLOT.stageTicks), 32768)
+    set(at(SLOT.nowLo), 100 * MS)
+    set(at(SLOT.deadlineLo), 350 * MS)
+    attach({
+      _qemu_esp_wdt_status: () => BASE,
+      _qemu_browser_wdt_status: () => OTHER,
+      HEAPU8: heap,
+    })
+
+    const timers = getSnapshot().timers
+    expect(timers.map((t) => `${t.source}:${t.index}`)).toEqual(['esp:0', 'esp:1', 'browser:0'])
+    expect(timers[2]).toMatchObject({ enabled: true, remainingMs: 250 })
+    expect(timers[2]!.stages[0]).toEqual({ action: 'reset-system', timeoutMs: 1000 })
+  })
+
+  it('places devicetree nodes on their status slot by address', () => {
+    expect(watchdogForAddress(0x6001f048)).toEqual({ source: 'esp', index: 0 })
+    expect(watchdogForAddress(0x60020048)).toEqual({ source: 'esp', index: 1 })
+    expect(watchdogForAddress(0x40000000)).toEqual({ source: 'browser', index: 0 })
+    expect(watchdogForAddress(0x1000d000)).toEqual({ source: 'browser', index: 0 })
+    expect(watchdogForAddress(0x6000_0000)).toBeUndefined()
+    expect(watchdogForAddress(undefined)).toBeUndefined()
   })
 })

@@ -344,7 +344,9 @@ is measured against that. And the bite counters live outside the device's
 reset, since a bite is only interesting after the reset it caused: the card
 keeps it, next to the reset reason from the power block.
 
-The RTC watchdog (reason 9) is not modelled, and nothing here arms it.
+The RTC watchdog (reason 9) is not modelled, and nothing here arms it. The
+Cortex-M3 and RISC-V boards have watchdogs too, reported through the same
+layout: see [watchdog.md](watchdog.md).
 
 ## Known limits (ESP32-C3)
 - **The only display Zephyr can drive is the OLED.** The machine does map a

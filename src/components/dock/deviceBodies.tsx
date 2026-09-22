@@ -195,7 +195,7 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
     case 'power':
       return <PowerBody />
     case 'watchdog':
-      return <WatchdogBody timerIndex={node.watchdogIndex ?? 0} />
+      return node.watchdog ? <WatchdogBody watchdog={node.watchdog} /> : null
     case 'spi-flash':
       return (
         <SpiFlashBody

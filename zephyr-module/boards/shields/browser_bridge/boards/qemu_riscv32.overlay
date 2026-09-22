@@ -11,13 +11,14 @@
  *   0x10009000  qemu-host-audio
  *   0x1000a000  qemu-host-mic
  *   0x1000b000  GNSS UART (PLIC IRQ 12)
+ *   0x1000d000  SiFive E always-on block, for its watchdog (PLIC IRQ 14)
  *   0x10100000  fw_cfg (stock)
  *
  * Virtio-mmio bases are stock: 0x10001000 + n×0x1000 (PLIC IRQs 1–8).
  *
  * Like the A53 overlay, every device here is declared `status = "disabled"`
  * and a snippet named after it turns it on — `-S gnss`, `-S host-audio`,
- * `-S host-mic`, `-S ramfb`, `-S virtio-input`, `-S net`. See that file's
+ * `-S host-mic`, `-S ramfb`, `-S virtio-input`, `-S net`, `-S watchdog`. See that file's
  * header for why; the snippets share its overlay wherever the node names
  * match, which is everywhere except the two this board declares itself.
  */
@@ -74,6 +75,20 @@
 				compatible = "gnss-nmea-generic";
 				status = "disabled";
 			};
+		};
+
+		/*
+		 * `-S watchdog`, which also adds the `watchdog0` alias. virt has
+		 * no watchdog of its own, so the patched machine carries the
+		 * SiFive E's always-on block, whose watchdog Zephyr's stock
+		 * sifive,wdt driver binds. It counts at 32768 Hz, as on the FE310.
+		 */
+		wdt0: watchdog@1000d000 {
+			compatible = "sifive,wdt";
+			reg = <0x1000d000 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <14 1>;
+			status = "disabled";
 		};
 
 		/* `-S host-audio`. */

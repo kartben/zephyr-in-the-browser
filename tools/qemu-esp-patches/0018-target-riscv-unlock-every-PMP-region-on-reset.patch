@@ -1,0 +1,31 @@
+diff --git a/target/riscv/pmp.c b/target/riscv/pmp.c
+index 72f1372..f26d975 100644
+--- a/target/riscv/pmp.c
++++ b/target/riscv/pmp.c
+@@ -167,12 +167,24 @@ static bool pmp_write_cfg(CPURISCVState *env, uint32_t pmp_index, uint8_t val)
+ 
+ void pmp_unlock_entries(CPURISCVState *env)
+ {
+-    uint32_t pmp_num = pmp_get_num_rules(env);
++    uint8_t pmp_regions = riscv_cpu_cfg(env)->pmp_regions;
+     int i;
+ 
+-    for (i = 0; i < pmp_num; i++) {
++    /*
++     * Every region, not the first num_rules of them: active rules need not
++     * be the lowest-numbered ones. Zephyr locks entry 0 over its text and
++     * entry 15 as a no-execute catch-all, so counting to two left entry 15
++     * locked across a reset and the first fetch from the reset vector
++     * faulted, for ever. Then recompute what the check caches, since the
++     * range test runs before the A field is looked at.
++     */
++    for (i = 0; i < pmp_regions; i++) {
+         env->pmp_state.pmp[i].cfg_reg &= ~(PMP_LOCK | PMP_AMATCH);
+     }
++    for (i = 0; i < pmp_regions; i++) {
++        pmp_update_rule_addr(env, i);
++    }
++    pmp_update_rule_nums(env);
+ }
+ 
+ static void pmp_decode_napot(hwaddr a, hwaddr *sa, hwaddr *ea)

@@ -53,7 +53,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "ESP32-C3 watchdog sample, with a live countdown and reset reason."
+        "text": "Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown."
       },
       {
         "tag": "Added",
