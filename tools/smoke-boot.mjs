@@ -85,6 +85,20 @@ const CASES = [
     profileField: 'i2cHz',
   },
   {
+    id: 'aarch64-smp',
+    binary: 'qemu-system-aarch64',
+    board: 'qemu_cortex_a53_smp',
+    app: 'smp_bench',
+    // A second case on an artifact the matrix already covers, because what it
+    // checks is not the artifact: it is that the emulator still runs more than
+    // one vCPU. A build that lost MTTCG would not fail anything else here, and
+    // the symptom on the page is a guest that hangs before its first line
+    // rather than an error. Matching the last core's banner is what says all
+    // four started.
+    expect: /Secondary CPU core 3 \(MPID:0x3\) is up/,
+    expectWhy: 'the fourth core reporting in',
+  },
+  {
     id: 'xtensa',
     binary: 'qemu-system-xtensa',
     board: 'esp32_devkitc',

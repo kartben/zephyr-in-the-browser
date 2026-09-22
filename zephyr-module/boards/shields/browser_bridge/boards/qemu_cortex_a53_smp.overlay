@@ -1,0 +1,45 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The SMP variant of the A53 board is the same virt machine with more cores,
+ * so it gets the same bridge wiring, but it has to ask for it by name.
+ *
+ * Zephyr matches a shield's board file against the build string with the SoC
+ * segment dropped: `qemu_cortex_a53/qemu_cortex_a53` shortens to
+ * `qemu_cortex_a53`, while `qemu_cortex_a53/qemu_cortex_a53/smp` shortens to
+ * `qemu_cortex_a53_smp`. Without this file the shield's board overlay simply
+ * does not apply and the SMP board boots with none of the browser
+ * peripherals, no warning given. The same trap catches a stock sample's own
+ * boards/qemu_cortex_a53.conf, which is why the SMP board runs apps from
+ * zephyr-module/apps/ rather than stock samples tuned per board.
+ *
+ * On top of the shared wiring: two more CPU nodes. Upstream's
+ * arm64/qemu/qemu-virt-a53.dtsi declares cpu@0 and cpu@1 only, and Zephyr
+ * starts secondaries from the devicetree, so a fourth core on the QEMU argv
+ * without a node here fails with "Can't find CPU Core 2 from dts". The count
+ * is unconditional rather than a snippet because the page's SMP board always
+ * passes `-smp 4` (src/boards.ts): a guest that expects fewer leaves cores
+ * idle, and one that expects more hangs waiting for a core QEMU never made.
+ */
+#include "qemu_cortex_a53.overlay"
+
+/ {
+	cpus {
+		cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <2>;
+			i-cache-line-size = <64>;
+			d-cache-line-size = <64>;
+		};
+
+		cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <3>;
+			i-cache-line-size = <64>;
+			d-cache-line-size = <64>;
+		};
+	};
+};

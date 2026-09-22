@@ -907,6 +907,22 @@ const CORTEX_A53_DEVICE_ARGS: string[] = [
   '/pack/zephyr.elf',
 ]
 
+/**
+ * The SMP board ships one program, because the point of a four-core machine in
+ * a browser tab is whether the cores are real. Anything else that wants them
+ * goes here too, but it has to be one of this repo's own apps: a stock Zephyr
+ * sample's per-board tuning (boards/qemu_cortex_a53.conf) does not reach this
+ * board target. See tools/samples.manifest.
+ */
+const CORTEX_A53_SMP_SAMPLES: GuestSample[] = [
+  {
+    id: 'smp_bench',
+    label: 'Parallel Speedup',
+    description: 'Runs fixed work on one core, then two, three, four, and times each',
+    zephyrSample: 'zephyr-module/apps/smp_bench',
+  },
+]
+
 export const BOARDS: Board[] = [
   {
     id: 'qemu_cortex_m3',
@@ -976,6 +992,57 @@ export const BOARDS: Board[] = [
     // Interactive shell is the landing sample: it surfaces the I²C/SPI/audio
     // bridges that make A53 the showcase board.
     defaultSampleId: 'shell',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
+      { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
+    ],
+    usesDataBundle: false,
+  },
+  {
+    id: 'qemu_cortex_a53_smp',
+    label: 'QEMU Cortex-A53 SMP',
+    shortLabel: 'A53×4',
+    zephyrTarget: 'qemu_cortex_a53/qemu_cortex_a53/smp',
+    arch: 'ARMv8-A',
+    qemuBinary: 'qemu-system-aarch64',
+    args: [
+      '-nographic',
+      // No `secure=on`, unlike the single-core board above. Zephyr's SMP
+      // variant is CONFIG_ARMV8_A_NS, and it has to be: with a secure machine
+      // QEMU starts the boot CPU at EL3 and disables its own PSCI conduit,
+      // expecting firmware to provide one, so nothing can turn a second core
+      // on. That single option is why this is a separate board rather than an
+      // `extraArgs` on a sample.
+      '-machine',
+      'virt,gic-version=3',
+      '-cpu',
+      'cortex-a53',
+      // Must match CONFIG_MP_MAX_NUM_CPUS and the cpu@N nodes, both of which
+      // the shield sets for this board target
+      // (zephyr-module/boards/shields/browser_bridge/boards/
+      // qemu_cortex_a53_smp.{conf,overlay}). Zephyr waits for every CPU the
+      // devicetree declares, so too few here is a hang, not a warning.
+      '-smp',
+      '4',
+      ...CORTEX_A53_DEVICE_ARGS,
+    ],
+    kernelFsPath: '/pack/zephyr.elf',
+    // The same machine as the A53 board, so the same bridges are soldered on;
+    // which of them a given image carries is still the snippet list's call.
+    peripherals: {
+      gnss: true,
+      hostGpio: true,
+      hostAudio: true,
+      hostMic: true,
+      ramfb: true,
+      hostInput: true,
+      hostNet: true,
+      virtio: true,
+      hostTrace: true,
+      hostBt: true,
+    },
+    samples: CORTEX_A53_SMP_SAMPLES,
+    defaultSampleId: 'smp_bench',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
