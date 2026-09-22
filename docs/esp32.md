@@ -124,8 +124,8 @@ branch, and none has been reported yet.
 Also carried, and specific to running in a browser: `esp32c3_cache.c` filled its
 cache with a synchronous `blk_pread()` from the MMIO handler that guest MMU
 writes land in. Reading the image once at realize and serving fills from memory
-keeps block I/O out of guest execution, which matters more under Asyncify
-coroutines than it does natively.
+keeps block I/O out of guest execution, which matters more when a coroutine
+switch is a round trip through the worker's event loop than it does natively.
 
 ## The guest boots from flash, not from `-kernel`
 
@@ -204,7 +204,7 @@ scan the slowest thing on the board. Transfers themselves park the guest's
 thread on a futex until the page answers or 250 ms passes, which is a real
 blocking wait: a slow browser stalls the guest the way a slow I2C device
 would. Nothing re-enters the block layer or a coroutine, which is what makes
-that safe from guest context under Asyncify.
+that safe from guest context, whatever the coroutine backend.
 
 The awkward part was read length. Zephyr's driver splits a read of N bytes into
 N-1 and 1 so it can NAK the last one, so a *message* is not what the slave

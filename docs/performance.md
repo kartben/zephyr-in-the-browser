@@ -23,7 +23,7 @@ the list matters for a given workload:
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Atomic QEMU→page request wake** — productionized; no DAC throughput win in A/B test | `src/virtio/transport.ts`, virtio QEMU patch | Medium, latency/idle CPU | Medium | Low |
 | 1d | **Coalesce page→QEMU kicks per poll** — one BH for a multi-msg I²C batch | `src/virtio/transport.ts` | Medium for register reads / multi-queue drains; none for DAC | Very low | Low |
-| 2 | Asyncify instruments 88 to 92% of every binary; builds without it measured 1.4 to 1.6× on guest compute on the M3 and 1.2× on the A53 JIT, with the wasm at 55% and 60% of its size, see [jspi-feasibility.md](jspi-feasibility.md) | build | High, everything | High (new coroutine backend) | Medium |
+| 2 | Asyncify instrumented 88 to 92% of every binary: **done**, replaced by a JSPI coroutine backend; 1.4 to 1.6× on M3 compute, 1.2× on the A53 JIT, wasm at 55 to 60%, see [jspi-feasibility.md](jspi-feasibility.md) | build | High, everything | Done | Low |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk 3.1.50 to 4.0.10: **done**, -26% build time, no throughput change anywhere | `tools/Dockerfile.deps` | Build time only | Done | Low |
@@ -63,9 +63,9 @@ blocked). The JS handle + MCP4725 path is microseconds.
 
 What still moves the needle:
 
-1. **Raise guest MIPS** — link `-O3` (patched, unmeasured), `ASYNCIFY_ADVISE`
-   prune (item 2), newer emsdk (item 5). Helps every sync virtio path, not
-   only I²C.
+1. **Raise guest MIPS**: link `-O3` (done), JSPI instead of Asyncify (item
+   2, done: 1.2× on the A53), newer emsdk (item 5, done: build time only).
+   Helps every sync virtio path, not only I²C.
 2. **Re-profile against the published emulator.** Kick-primary drain and #118
    are on the deployed page as of v97, but ~748 Hz is still a local number, and
    local ~748 Hz against older deployed ~236 Hz mixes rebuild confounds; do not
@@ -201,45 +201,23 @@ quiet downgrade, and the 50 ms tick that survives only does maintenance:
 discovery, reset detection, the watchdog, and a completion ring that was
 momentarily full.
 
-## 2. Asyncify very likely instruments the TCG execution path
+## 2. Asyncify instrumented the TCG execution path: resolved with JSPI
 
-`configs/meson/emscripten.txt` links with `-sASYNCIFY=1`, and QEMU's wasm
-coroutine backend (`util/coroutine-wasm.c`, selected here by
-`--with-coroutine=wasm`) is built on `emscripten/fiber.h`, which is Asyncify.
-So Asyncify is structural — it cannot simply be dropped — but *how much of the
-binary it instruments* is a build parameter, and nothing in this project has
-ever looked at it.
+`configs/meson/emscripten.txt` linked with `-sASYNCIFY=1`, and QEMU's wasm
+coroutine backend is `emscripten/fiber.h`, which is Asyncify by construction.
+Measured on the deployed artifacts with `tools/asyncify-share.py`: 88 to 92% of
+the code bytes of every binary carried the instrumentation, the largest
+functions included. A Cortex-M3 build linked without it (a ceiling build that
+never switches a coroutine) ran CPU-bound guest code 1.4 to 1.6× faster and
+booted 1.3× faster with a wasm at 55% of the size; the A53 JIT gained 1.2×.
 
-This matters because Asyncify's cost is paid per call in every instrumented
-function: a state check on entry, spilling locals to the unwind stack, and a
-rewind path. Its analysis is a whole-program reachability question — any
-function that could be on the stack when a suspend happens must be instrumented
-— and it resolves indirect calls conservatively. QEMU is built out of indirect
-calls: `MemoryRegionOps` handlers, `qdev` methods, TCG helpers, and the TCI
-interpreter's dispatch. The plausible outcome is that nearly everything is
-instrumented, including `cpu_exec` and the interpreter loop that *is* the
-Cortex-M3 board's entire execution model.
-
-The diagnostic is one build away and costs nothing to run: add
-`-sASYNCIFY_ADVISE` next to the `-O3` in
-`tools/qemu-*patches/*-emscripten-optimise-the-link.patch` and rebuild. It
-prints every instrumented function and the call path that forced it. If
-`tcg_qemu_tb_exec`, the TCI dispatch loop, or the softmmu load/store helpers
-appear, prune them with `-sASYNCIFY_REMOVE=…` (or invert it with
-`-sASYNCIFY_ONLY=…` once the real suspend set is known) and re-measure with the
-MIPS panel.
-
-Risk is real and worth stating plainly: removing a function that genuinely can
-be on the stack across a suspend corrupts the unwind rather than failing
-loudly. The safe path is to prune only functions the advise output shows are
-reached exclusively from the vCPU execution path, and to boot every sample in
-`tools/samples.manifest` afterwards — the network and display samples especially,
-since they are the ones that suspend for real.
-
-Expected payoff if the hypothesis holds: Asyncify overhead on hot code is
-routinely 1.5–2×, and the TCI board pays it on every interpreted guest
-instruction. This is the largest single number on the page, and also the least
-certain — which is exactly why the advise run should come first.
+The fix was not pruning but a different coroutine backend:
+`util/coroutine-jspi.c`, JavaScript Promise Integration, plus Wasm-EH `longjmp`
+so that no JavaScript frame sits under `cpu_exec`. Every artifact now builds
+with `--with-coroutine=jspi` and `-sJSPI`, and the page requires a JSPI browser
+(Chrome and Edge 137, Firefox 153, Safari 27). The design, the measurements and
+the two boot-time coroutine users that made the ceiling build harder than
+expected are in [jspi-feasibility.md](jspi-feasibility.md).
 
 ## 3. Nothing sets an optimisation level at link time
 
@@ -450,13 +428,9 @@ Two lessons worth keeping:
 - "It booted" is not "it works" for a toolchain bump. Boot a board and then
   exercise a bridge, or the failure hides until someone uses I2C.
 
-JSPI (`-sJSPI`) removes Asyncify instrumentation entirely and is the real
-answer to item 2, but it is not a link flag here: QEMU's coroutine backend is
-`emscripten_fiber_*`, which only exists under Asyncify, so it takes a new
-coroutine backend, Wasm-EH `longjmp` and a newer emsdk, and it raises the
-browser floor. The assessment, with the measured instrumented share of each
-deployed binary (88 to 92% of code bytes), is in
-[jspi-feasibility.md](jspi-feasibility.md).
+JSPI has since replaced Asyncify (item 2): the pin bought build time, the
+coroutine backend bought the throughput, and the two numbers do not add. The
+measurements are in [jspi-feasibility.md](jspi-feasibility.md).
 
 ## 6. `-icount` prevents the DAC reaching 1 kHz
 
@@ -735,8 +709,8 @@ robustness rather than end-to-end latency.
    is a precondition for trusting item 2. Compare MIPS before and after.
 4. ~~Item 4 (trim the machine list)~~ — patched; rides the same rebuild as item
    3 without confounding it, since one moves size and the other speed.
-5. Item 2's `ASYNCIFY_ADVISE` run — one flag in the same patch, and it either
-   promotes item 2 to the top of the list or removes it from it.
+5. ~~Item 2's `ASYNCIFY_ADVISE` run~~: superseded, item 2 is resolved by the
+   JSPI coroutine backend rather than by pruning.
 6. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
 7. ~~Item 8 (shared host poll)~~ — done in-page. Items 9/14 — move audio
    (and mic) onto `AudioWorklet`.

@@ -5,6 +5,8 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
+- **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
 - **Added:** ESP32-C3 DevKitC board, booting from emulated SPI flash.
 - **Added:** Blinky and Button samples on the ESP32-C3, with a live GPIO panel.
 - **Added:** I²C sensors, displays and EEPROM on the ESP32-C3.

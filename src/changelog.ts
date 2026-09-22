@@ -20,6 +20,14 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Improved",
+        "text": "Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download."
+      },
+      {
+        "tag": "Changed",
+        "text": "Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI)."
+      },
+      {
         "tag": "Added",
         "text": "ESP32-C3 DevKitC board, booting from emulated SPI flash."
       },

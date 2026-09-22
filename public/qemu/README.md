@@ -105,13 +105,44 @@ Emscripten support landed upstream in QEMU 10.1, contributed by Kohei Tokunaga,
 who also maintains the experimental JIT branch.
 
 `configure` auto-detects Emscripten and pulls in `configs/meson/emscripten.txt`,
-which already carries ASYNCIFY, PROXY_TO_PTHREAD, EXPORT_ES6 and FORCE_FILESYSTEM.
-The upstream TCI build uses two important flags:
+which carries PROXY_TO_PTHREAD, EXPORT_ES6 and FORCE_FILESYSTEM; the link patch
+in each series replaces its `-sASYNCIFY=1` with `-sJSPI` (see below). The
+upstream TCI build uses two important flags:
 
 ```
---with-coroutine=wasm      upstream has a real wasm backend (the fork used 'fiber')
+--with-coroutine=jspi      the JSPI backend the series adds; upstream's 'wasm'
+                           backend is emscripten fibers, which need Asyncify
 --enable-tcg-interpreter   mandatory: the TCG->Wasm JIT is not upstreamed
 ```
+
+### Coroutines run on JSPI, not Asyncify
+
+QEMU switches coroutines for block I/O, the QMP monitor and a few other paths.
+Upstream's wasm backend does it with `emscripten_fiber_*`, which Emscripten
+implements on Asyncify: every function that could be on the stack during a
+switch is instrumented, and here that was 88 to 92% of each binary's code
+bytes, the TCI interpreter included. `util/coroutine-jspi.c`, the
+`*-util-add-a-JSPI-coroutine-backend.patch` of every series, runs each
+coroutine on its own WebAssembly stack through JavaScript Promise Integration
+instead: a switch parks the running stack on a promise and resumes the other by
+resolving its promise, and nothing is instrumented. Two things follow:
+
+- **`setjmp` is Wasm exception handling**: `-sSUPPORT_LONGJMP=wasm` at compile
+  time and at link time. JSPI cannot suspend across a JavaScript frame, and the
+  JavaScript-based longjmp puts one under `cpu_exec` on every vCPU thread.
+- **The browser floor is JSPI's**: Chrome and Edge 137, Firefox 153, Safari 27.
+  The page checks for `WebAssembly.promising` before fetching anything and
+  names those releases when it is missing (`src/backends/jspi.ts`).
+
+The JIT tree needs one more change, `0022-tcg-wasm32-stop-consulting-Asyncify.patch`:
+its translated blocks used to call back into JavaScript after every helper call
+to ask whether Asyncify was unwinding. Nothing unwinds through a block now, so
+the check is not emitted and the import it declared returns 1.
+
+What it buys is measured in `docs/jspi-feasibility.md`: against the Asyncify
+build, the Cortex-M3 (TCI) runs CPU-bound guest code 1.4 to 1.6× faster and
+its `.wasm` is about half the size; the A53 JIT, whose translated blocks were
+never instrumented, gains about 1.2× on compute and a wasm at 60%.
 
 The JIT does not write executable memory. Translation blocks start in the TCI
 interpreter; after 1,500 executions, the backend emits a small WebAssembly
@@ -143,11 +174,9 @@ QEMU compiles at `-O2` — meson's `default_options` in `meson.build` set
 `optimization=2` — but meson passes optimisation flags to the *compiler* only,
 and for Emscripten the link step is where Binaryen runs. With no `-O` on the
 link line, emcc's link-time optimisation level is 0: wasm-opt's post-link passes
-are skipped, `ASSERTIONS` defaults on, the JS glue is left unminified, and
-Asyncify's instrumentation — which every build here carries, because QEMU's wasm
-coroutine backend is `emscripten_fiber_*` — is emitted without the cleanup that
-normally follows it. Emscripten's own Asyncify documentation is explicit that
-building it unoptimised instruments far more code than necessary.
+are skipped, `ASSERTIONS` defaults on, and the JS glue is left unminified.
+(While the builds still used Asyncify, its instrumentation was also emitted
+without the cleanup that normally follows it.)
 
 So the patch series adds `-O3` to `c_link_args`/`cpp_link_args`
 (`0009-emscripten-optimise-the-link.patch`, and `0011-` in the JIT series).
@@ -169,9 +198,8 @@ Two practical notes:
   up. The guest-side number to compare before and after is the Performance
   panel's MIPS readout.
 
-To experiment with other link flags — `-sASYNCIFY_ADVISE` prints every function
-Asyncify instruments and why, which is the next thing worth knowing — edit the
-patch, not the checkout under `.qemu-wasm-build/`. The build script restores
+To experiment with other link flags, edit the patch, not the checkout under
+`.qemu-wasm-build/`. The build script restores
 tracked files to the pinned revision before applying the series on every run, so
 hand-edits to the source tree do not survive.
 

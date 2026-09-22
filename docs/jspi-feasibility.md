@@ -1,10 +1,16 @@
 # Replacing Asyncify with JSPI
 
-An assessment, written 2026-09-22, of what it would take to build the emulator
-with JavaScript Promise Integration (JSPI) instead of Asyncify, and what it
-would buy. Nothing here is implemented. The instrumented share and the
-Cortex-M3 ceiling below are measured; the A53 numbers are estimates, and say
-so.
+**Status: implemented.** The backend sketched below is `util/coroutine-jspi.c`,
+carried by every series as `*-util-add-a-JSPI-coroutine-backend.patch`; the
+link patches select `-sJSPI` and Wasm-EH `longjmp`; the JIT series stops its
+translated blocks from consulting Asyncify; and the page checks for JSPI
+before fetching anything (`src/backends/jspi.ts`). What the shipped build
+measures against the Asyncify one is in "What shipped", at the end.
+
+The rest is the assessment that preceded it, written 2026-09-22: what it would
+take to build the emulator with JavaScript Promise Integration (JSPI) instead
+of Asyncify, and what it would buy. The instrumented share and the Cortex-M3
+and A53 ceilings are measured.
 
 ## Short answer
 
@@ -354,6 +360,89 @@ nothing in the ratio below is a toolchain effect. The ratio bounds a different
 thing from item 5 in performance.md, what removing the instrumentation gives
 against what a newer LLVM gives the same instrumented code, and the two must
 not be added.
+
+## What shipped
+
+The build the series now produces, measured with the same harness and guest
+against the deployed Asyncify artifact. Two toolchain versions are involved
+(the deployed build is emsdk 3.1.50, the JSPI build 4.0.10), and performance.md
+item 5 measured that bump as throughput-neutral on this very guest, so the
+ratios are the backend's.
+
+### Every artifact, by size
+
+The deployed set against the JSPI set built from the same trees and series
+(emsdk 4.0.10 adds 0.2% on its own, per performance.md item 5):
+
+| Artifact | Asyncify (deployed) | JSPI | Ratio |
+| --- | --- | --- | --- |
+| `qemu-system-arm.wasm` | 8.36 MB | 4.57 MB | 0.55× |
+| `qemu-system-aarch64.wasm` | 15.89 MB | 8.88 MB | 0.56× |
+| `qemu-system-riscv32.wasm` | 9.05 MB | 5.03 MB | 0.56× |
+| `qemu-system-xtensa.wasm` | 7.66 MB | 4.81 MB | 0.63× |
+
+No function in any of the four carries the rewind check any more, and none
+imports an `invoke_*` trampoline.
+
+### Cortex-M3 (TCI)
+
+Stock board arguments, monitor and gdb chardevs off on both sides, medians of
+nine samples per workload:
+
+| Metric | Asyncify (deployed) | JSPI | Ratio |
+| --- | --- | --- | --- |
+| `cpu_bench` int | 1850 ms | 1290 ms | 1.43× |
+| `cpu_bench` float | 3220 ms | 2570 ms | 1.26× |
+| `cpu_bench` mem | 8000 ms | 5740 ms | 1.39× |
+| `cpu_bench`: runtime initialised to the banner | 103 ms | 73 ms | 1.41× |
+| shell: runtime initialised to `uart:~$` | 136 ms | 89 ms | 1.53× |
+| wasm fetch, compile and instantiate on the main thread | 64 ms | 38 ms | 1.68× |
+| `qemu-system-arm.wasm` | 8.36 MB | 4.57 MB | 0.55× |
+
+Against the ceiling (1.40 to 1.58× on the same workloads) the shipped build
+gives back what was predicted: the switch itself, paid only at switches, and
+Wasm-EH `longjmp` at `cpu_exec` entry. Boot gains more than the ceiling build
+did because the smaller module also compiles faster. All eleven Cortex-M3
+samples boot with the monitor, gdb and HCI chardevs on, the toured ones
+included, which is the QMP dispatcher coroutine in use on every boot.
+
+### Cortex-A53 (JIT)
+
+Same conditions, ratios on the 62.5 MHz cycle counter:
+
+| Metric | Asyncify (deployed) | JSPI | Ratio |
+| --- | --- | --- | --- |
+| `cpu_bench` int | 270 ms | 210 ms | 1.27× |
+| `cpu_bench` float (FP helpers) | 40 ms | 30 ms | 1.76× |
+| `cpu_bench` mem (SIMD memcpy helpers) | 1760 ms | 1260 ms | 1.39× |
+| `cpu_bench`: runtime initialised to the banner | 177 ms | 149 ms | 1.19× |
+| shell: runtime initialised to `uart:~$` | 485 ms | 495 ms | 0.98× |
+| wasm fetch, compile and instantiate on the main thread | 80 ms | 60 ms | 1.31× |
+| `qemu-system-aarch64.wasm` | 15.89 MB | 8.88 MB | 0.56× |
+
+The float loop gains more than the ceiling build showed (1.22×) because the
+ceiling build still bound the JIT's `helper.u` import to a JavaScript closure
+that every helper call invoked; the shipped backend no longer emits that call
+at all, and FP-heavy guest code is one helper call per operation. The shell's
+boot stays where it was, waiting on the page's virtio bridges. All 47 samples
+boot with the monitor, gdb and HCI chardevs on, and virtio-blk enumerates its
+disk through the block layer; two samples fail the harness's banner check
+for their own reasons (`philosophers` clears the screen, `lp50xx` floods the
+log at boot and the banner is among the lines it drops), and both are running
+in the transcript.
+
+### The other two artifacts
+
+Not benchmarked separately (same interpreter and same instrumented share as
+the Cortex-M3), but validated the same way, monitor, gdb and HCI chardevs on:
+the riscv32 artifact boots 41 of the 43 `qemu_riscv32` samples and 25 of the
+26 ESP32-C3 ones, the xtensa artifact all 5 ESP32 samples, and the two CI
+smoke cases pass with their bridge checks (`accel_chart` on `qemu_riscv32` at
+240 I²C transactions per second, `hello_world` on the ESP32 from emulated
+flash). The misses are the same banner artifacts as on the A53 (`philosophers`
+and `lp50xx`), and both ESP32 boards booting from `-drive if=mtd` is the block
+layer taking coroutines from the vCPU thread, the case the design note about
+same-thread resumption was written for.
 
 ## Sources
 
