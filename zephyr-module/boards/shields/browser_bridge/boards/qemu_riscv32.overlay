@@ -45,10 +45,13 @@
 		};
 	};
 
-	/* `-S ramfb`. */
+	/* `-S ramfb`. The fw_cfg phandle is `firmware`, the name the upstream
+	 * qemu,ramfb binding declares; it was `fwcfg` before Zephyr commit
+	 * fcfc799d11d moved the driver onto the common framebuffer helpers.
+	 */
 	ramfb0: ramfb {
 		compatible = "qemu,ramfb";
-		fwcfg = <&fwcfg0>;
+		firmware = <&fwcfg0>;
 		memory-region = <&ramfb_mem>;
 		width = <600>;
 		height = <400>;
