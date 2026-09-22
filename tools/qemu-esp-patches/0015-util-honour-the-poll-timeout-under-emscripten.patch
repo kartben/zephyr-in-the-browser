@@ -1,5 +1,5 @@
 diff --git a/hw/virtio/virtio-browser.c b/hw/virtio/virtio-browser.c
-index ff2ae52..54add95 100644
+index 7e18656..2451c2e 100644
 --- a/hw/virtio/virtio-browser.c
 +++ b/hw/virtio/virtio-browser.c
 @@ -191,6 +191,13 @@ uintptr_t qemu_virtio_browser_wake_addr(void);
@@ -16,7 +16,7 @@ index ff2ae52..54add95 100644
  /*
   * Futex word the page Atomics.notify-s after publishing cmp_wr. kick() also
   * futex-wakes it and schedules a BH to drain on the QEMU main loop (BQL held).
-@@ -864,6 +871,9 @@ static void virtio_browser_device_realize(DeviceState *dev, Error **errp)
+@@ -776,6 +783,9 @@ static void virtio_browser_device_realize(DeviceState *dev, Error **errp)
          virtio_browser_kick_bh = qemu_bh_new(virtio_browser_kick_bh_cb, NULL);
      }
  
