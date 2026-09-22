@@ -30,3 +30,6 @@ zephyr-images.tar.gz
 
 # Python bytecode from tools/
 __pycache__/
+
+# failure transcripts and screenshots from tools/smoke-boot.mjs
+smoke-out/

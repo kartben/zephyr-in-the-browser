@@ -178,6 +178,38 @@ jobs:
           fi
           du -sh dist
 
+      # The checks above prove the files are *there*. They cannot prove the
+      # emulator runs, and a dead one looks identical on disk: the emsdk 4.0.10
+      # spike linked with no warnings, passed typecheck and the whole vitest
+      # suite, and showed nothing at all in the browser, because newer
+      # Emscripten stopped assigning the HEAP* views onto Module and every
+      # bridge that reads guest memory degrades to a silent no-op. Only running
+      # it can see that, so run it: one board per qemu-system-* artifact,
+      # checked for guest output and for the page still reaching guest memory.
+      #
+      # Both halves are needed. The emulator alone has nothing to boot, and
+      # images alone are boot-tested by whatever emulator is already deployed.
+      - name: Install Chromium for the boot smoke test
+        if: env.EMULATOR_TAG != '' && env.IMAGES_TAG != ''
+        run: npx playwright install --with-deps chromium
+
+      - name: Boot smoke test
+        if: env.EMULATOR_TAG != '' && env.IMAGES_TAG != ''
+        # The script bounds every case itself; this is only so a wedged runner
+        # cannot sit on the deploy for the job's six-hour default.
+        timeout-minutes: 30
+        run: node tools/smoke-boot.mjs
+
+      # A boot that fails only on the runner is the hard kind to chase, so keep
+      # what the page looked like when it gave up.
+      - name: Upload boot smoke failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-smoke-failures
+          path: smoke-out/
+          if-no-files-found: ignore
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
