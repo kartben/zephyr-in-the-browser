@@ -185,13 +185,22 @@ than draining inline.
   Completions are kicked into a BH; the idle timer is only recovery and
   config-change notification. Without kick, a synchronous guest
   (`dac_write` → `k_sem_take(K_FOREVER)` → answer → `k_sleep`) used to wait out
-  idle between transfers — **10 ms idle → ~45 I²C Hz** on Cortex-A53 `dac`.
-  Kick removed that ceiling; raising idle to 50 ms (matching the page's
-  maintenance tick) avoids waking the QEMU main loop once per ms per device
-  when nothing is in flight. The page also **coalesces kicks across one poll**:
-  a multi-message I²C transfer that lands as N request records is answered
-  with one `Atomics.notify` + kick rather than N. Delayed replies outside the
-  poll (GPIO event queues) still kick immediately.
+  idle between transfers: **10 ms idle → ~45 I²C Hz** on Cortex-A53 `dac`.
+  Kick removed that ceiling, but the BH still ran at the next main-loop poll,
+  and the busy drain timer quantised that poll to about 1 ms. The queue
+  handler now `emscripten_futex_wait`s on the same word the page
+  `Atomics.notify`s, with the BQL dropped, and drains before returning from
+  the MMIO notify. A synchronous write resumes in that notify instead of a
+  millisecond later. The wait is capped (a page that never signals cannot
+  freeze the machine) and the timer remains the safety net. The page
+  notifies the same word when it parks a chain, without a kick, so a GPIO
+  event re-arm returns at once with no completion. Raising idle to 50 ms
+  (matching the page's maintenance tick) avoids waking the QEMU main loop
+  once per ms per device when nothing is in flight. The page also
+  **coalesces kicks across one poll**: a multi-message I²C transfer that
+  lands as N request records is answered with one `Atomics.notify` + kick
+  rather than N. Delayed replies outside the poll (GPIO event queues) still
+  kick immediately.
 - **QEMU → page.** After publishing a complete request record and `req_wr`,
   QEMU increments one process-wide futex and calls
   `emscripten_futex_wake()`. A dedicated page worker blocks on that word with

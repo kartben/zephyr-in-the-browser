@@ -29,7 +29,11 @@ export interface DisplaySnapshot {
   stride: number
   fourcc: number
   pointer: number
-  /** Atomic uint32 updated by QEMU after a guest framebuffer write. */
+  /**
+   * Atomic uint32 updated by QEMU after a guest framebuffer write.
+   * Zero when this artifact does not publish one (the current ramfb bridge
+   * does not: dirty logging made framebuffer stores slow).
+   */
   frameSeqPointer: number
   /** QEMU wakes waiters after incrementing frameSeqPointer. */
   frameWaitSupported: boolean
@@ -152,9 +156,10 @@ export function getFrame(): Uint8Array | null {
 }
 
 /**
- * The QEMU-side dirty tracker increments this shared uint32 after a guest
- * write. A null result means this is an older emulator, a non-pthread build,
- * or an invalid export; callers should retain their content-based fallback.
+ * The optional QEMU dirty-sequence word, or null when this artifact does not
+ * publish one. Current ramfb builds return a null pointer on purpose (see
+ * the ramfb patch): the worker checksums instead. Older artifacts still
+ * increment a shared uint32 after a guest write.
  */
 export function getFrameSequence(): number | null {
   const heap = exports?.HEAPU8

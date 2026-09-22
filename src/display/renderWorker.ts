@@ -14,8 +14,10 @@
  * updates. The worker samples those callbacks at a controlled rate rather
  * than re-reading shared memory on every high-refresh tick. Once a panel stays
  * unchanged for a short grace period, its sequence is checked at 30 Hz instead.
- * A pointer event wakes the hot path immediately. New emulator artifacts expose
- * an atomic dirty sequence; older artifacts retain a checksum fallback.
+ * A pointer event wakes the hot path immediately. Builds that publish an
+ * atomic dirty sequence use it. Current builds do not: VGA dirty logging
+ * taxed every guest store to the framebuffer, so the worker checksums the
+ * shared pixels instead.
  */
 import { createWebGLRenderer, type FrameRenderer, type UploadMode } from './renderers'
 
