@@ -548,6 +548,63 @@ What can still show up in a sticky dock profile:
   derive inventory. Steady-state chip value updates do *not* recreate inventory;
   attach/detach storms at sample start still do.
 
+## 15. QEMU's main loop proxies a poll() syscall to the browser main thread
+
+**Resolved for the spin, not for the coupling.** The most consequential number
+in this file, because it caps every "keep the guest moving while the UI is busy"
+idea, and it sits below the bridge entirely.
+
+Emscripten implements `poll()` as a readiness scan that **ignores its timeout**
+and returns immediately, and under `-sPROXY_TO_PTHREAD` that scan is a
+*synchronous* proxied call to the browser main thread. Measured on the A53 with
+an instrumented artifact (counters bracketing `os_host_main_loop_wait`, plus one
+on the main-thread side of `emscripten_receive_on_main_thread_js`):
+
+```
+main loop iterations:   83,457 /sec
+proxied to main thread:
+  xterm_pty_old_poll    83,457 /sec   <- exactly 1:1 with iterations
+  xterm_pty_old_fd_read     781 /sec
+  _fd_write                 500 /sec
+```
+
+So the main loop spun, and every turn was a blocking round trip to the thread
+that also renders. The consequence, measured on the 7-segment multiplex: burning
+CPU on the main thread in 250 ms chunks dropped the loop to 23% and virtio
+completions to 25% of idle, while burning the **identical** CPU in a worker cost
+nothing (103% and 101%). That control is what makes it coupling rather than
+contention, and it is worth re-running before believing any similar result.
+
+`tools/qemu-jit-patches/0020-util-honour-the-poll-timeout-under-emscripten.patch`
+waits out the timeout the loop already asked for, on virtio-browser's completion
+futex so a page-side kick cuts the wait short. The cap is measured:
+
+| | stock | cap 1 ms | cap 0.25 ms |
+|---|---|---|---|
+| idle completions/s | 496 | 331 | **500** |
+| under a main-thread burn | 125 | 73 | **125** |
+| main-loop iterations/s | 73,087 | 1,751 | 4,224 |
+| proxied calls/s to main | 84,738 | 2,745 | **5,722** |
+
+At 1 ms the wait swallows kicked completions and costs a third of the guest's
+blocking-transfer throughput. At 0.25 ms throughput is unchanged and the proxied
+traffic is down 93%, which is roughly 79,000 fewer main-thread round trips per
+second: headroom item 8 can use.
+
+What it does **not** do is change the coupling ratio, still ~25% retained under
+a 250 ms stall. The loop needs the main thread once per iteration either way,
+just 20x less often. Removing that means not proxying `poll` at all, which is an
+Emscripten or xterm-pty change rather than a QEMU one, and would benefit every
+qemu-wasm user.
+
+Two dead ends, recorded so they are not re-derived. QEMU's realtime drain timer
+does not provide a floor for a worker-published completion:
+`notifySourceStats().viaTimer` was 0 in every run, idle or loaded, because the
+main loop only turns while the main thread is free, so its timers do not fire
+independently either. And xterm-pty's `Atomics.wait(..., -1)` in
+`PTY_waitForReadableWithAtomic` is not the block: hard-capping it at 50 ms
+changed nothing at any stall length. The syscall, not the wait, was the cost.
+
 ## 14. Microphone capture is still main-thread ScriptProcessor
 
 [`hostMic.ts`](../src/hostMic.ts) uses deprecated `ScriptProcessorNode` with
