@@ -1,0 +1,246 @@
+diff --git a/meson.build b/meson.build
+index d2c2fd1..60af0d5 100644
+--- a/meson.build
++++ b/meson.build
+@@ -523,7 +523,7 @@ supported_backends = []
+ if host_os == 'windows'
+   supported_backends += ['windows']
+ elif host_os == 'emscripten'
+-  supported_backends += ['wasm']
++  supported_backends += ['wasm', 'jspi']
+ else
+   if host_os != 'darwin' and cc.links(ucontext_probe)
+     supported_backends += ['ucontext']
+diff --git a/meson_options.txt b/meson_options.txt
+index fff1521..38407cd 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -34,7 +34,7 @@ option('fuzzing_engine', type : 'string', value : '',
+ option('trace_file', type: 'string', value: 'trace',
+        description: 'Trace file prefix for simple backend')
+ option('coroutine_backend', type: 'combo',
+-       choices: ['ucontext', 'sigaltstack', 'windows', 'wasm', 'auto'],
++       choices: ['ucontext', 'sigaltstack', 'windows', 'wasm', 'jspi', 'auto'],
+        value: 'auto', description: 'coroutine backend to use')
+ 
+ # Everything else can be set via --enable/--disable-* option
+diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
+index 0ebe6bc..67c479e 100644
+--- a/scripts/meson-buildoptions.sh
++++ b/scripts/meson-buildoptions.sh
+@@ -80,7 +80,7 @@ meson_options_help() {
+   printf "%s\n" '  --tls-priority=VALUE     Default TLS protocol/cipher priority string'
+   printf "%s\n" '                           [NORMAL]'
+   printf "%s\n" '  --with-coroutine=CHOICE  coroutine backend to use (choices:'
+-  printf "%s\n" '                           auto/sigaltstack/ucontext/wasm/windows)'
++  printf "%s\n" '                           auto/jspi/sigaltstack/ucontext/wasm/windows)'
+   printf "%s\n" '  --with-pkgversion=VALUE  use specified string as sub-version of the'
+   printf "%s\n" '                           package'
+   printf "%s\n" '  --with-suffix=VALUE      Suffix for QEMU data/modules/config directories'
+diff --git a/util/coroutine-jspi.c b/util/coroutine-jspi.c
+new file mode 100644
+index 0000000..5469481
+--- /dev/null
++++ b/util/coroutine-jspi.c
+@@ -0,0 +1,201 @@
++/*
++ * JSPI coroutine backend for Emscripten
++ *
++ * Each coroutine runs on its own WebAssembly stack, created through
++ * WebAssembly.promising(). A switch parks the running stack on a promise by
++ * calling a suspending import (JavaScript Promise Integration), and resumes
++ * the other stack by resolving the promise it is parked on. Nothing is
++ * unwound or rewound: the engine keeps a parked stack as it is, so no
++ * function needs Asyncify instrumentation. The program has to be linked
++ * with -sJSPI, and compiled with -sSUPPORT_LONGJMP=wasm, because only
++ * WebAssembly frames may sit between a stack's entry and the suspend, and
++ * the JavaScript-based setjmp puts a JavaScript frame under cpu_exec.
++ *
++ * What the engine does not switch is the C shadow stack in linear memory,
++ * so every coroutine still owns one, and the switch saves and restores the
++ * stack pointer around the park, the way the fiber backend does.
++ *
++ * A parked coroutine can only be resumed on the thread that parked it, since
++ * the promise lives in that worker. Without iothreads QEMU keeps a coroutine
++ * on the thread that runs its AioContext; a resume from anywhere else stops
++ * with a message rather than corrupting anything.
++ *
++ * Copyright (C) 2006  Anthony Liguori <anthony@codemonkey.ws>
++ * Copyright (C) 2011  Kevin Wolf <kwolf@redhat.com>
++ * Copyright (C) 2026  Benjamin Cabé
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.0 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/coroutine_int.h"
++#include "qemu/coroutine-tls.h"
++
++#include <emscripten.h>
++#include <emscripten/stack.h>
++
++typedef struct {
++    Coroutine base;
++    void *stack;
++    size_t stack_size;
++    /* Shadow stack bounds, high address first, as emscripten_stack_set_limits() takes them. */
++    uintptr_t stack_base;
++    uintptr_t stack_end;
++    /* Shadow stack pointer to restore when this coroutine runs again. */
++    uintptr_t stack_ptr;
++    CoroutineAction action;
++    /* Has a WebAssembly stack: from the first entry until termination. */
++    bool started;
++} CoroutineJSPI;
++
++/**
++ * Per-thread coroutine bookkeeping
++ */
++QEMU_DEFINE_STATIC_CO_TLS(Coroutine *, current);
++QEMU_DEFINE_STATIC_CO_TLS(CoroutineJSPI *, leader);
++
++/* compiler-rt's stack_ops: sets the shadow stack pointer. */
++void _emscripten_stack_restore(uintptr_t ptr);
++
++/*
++ * The scheduler is JavaScript, one per worker: the resolve function of the
++ * promise each parked coroutine waits on, keyed by coroutine pointer. A
++ * fresh coroutine is started from a microtask so that it runs only once the
++ * caller has parked, which is also when a resolved coroutine continues.
++ */
++EM_JS(void, qemu_jspi_wake, (void *to, void *entry, int fresh), {
++    if (!Module.qemuJspiParked) {
++        if (typeof WebAssembly.promising !== 'function') {
++            abort('this build needs JavaScript Promise Integration (WebAssembly.promising)');
++        }
++        Module.qemuJspiParked = new Map();
++        Module.qemuJspiStart = WebAssembly.promising(wasmTable.get(entry));
++    }
++    if (fresh) {
++        const start = Module.qemuJspiStart;
++        queueMicrotask(() => { start(to); });
++        return;
++    }
++    const resolve = Module.qemuJspiParked.get(to);
++    if (!resolve) {
++        abort('qemu_coroutine_switch: coroutine ' + to + ' is not parked on this thread');
++    }
++    Module.qemuJspiParked.delete(to);
++    resolve();
++});
++
++EM_ASYNC_JS(void, qemu_jspi_park, (void *self), {
++    await new Promise((resolve) => { Module.qemuJspiParked.set(self, resolve); });
++});
++
++static void coroutine_trampoline(Coroutine *co)
++{
++    co->entry(co->entry_arg);
++    qemu_coroutine_switch(co, co->caller, COROUTINE_TERMINATE);
++    /*
++     * The switch returns without parking on termination, so this stack ends
++     * here; the caller continues once the return reaches the event loop.
++     */
++}
++
++/*
++ * Runs on a fresh WebAssembly stack, called from JavaScript. The shadow stack
++ * pointer still belongs to whichever coroutine last ran on this thread, so
++ * nothing before the restore may touch it.
++ */
++static __attribute__((noinline)) void coroutine_entry(void *co_)
++{
++    CoroutineJSPI *co = co_;
++
++    _emscripten_stack_restore(co->stack_base);
++    emscripten_stack_set_limits((void *)co->stack_base, (void *)co->stack_end);
++    coroutine_trampoline(&co->base);
++}
++
++Coroutine *qemu_coroutine_new(void)
++{
++    CoroutineJSPI *co;
++
++    co = g_malloc0(sizeof(*co));
++    co->stack_size = COROUTINE_STACK_SIZE;
++    co->stack = qemu_alloc_stack(&co->stack_size);
++    co->stack_base = (uintptr_t)co->stack + co->stack_size;
++    co->stack_end = (uintptr_t)co->stack;
++
++    return &co->base;
++}
++
++void qemu_coroutine_delete(Coroutine *co_)
++{
++    CoroutineJSPI *co = DO_UPCAST(CoroutineJSPI, base, co_);
++
++    /* Only terminated coroutines are deleted, and those hold no stack. */
++    qemu_free_stack(co->stack, co->stack_size);
++    g_free(co);
++}
++
++CoroutineAction qemu_coroutine_switch(Coroutine *from_, Coroutine *to_,
++                                      CoroutineAction action)
++{
++    CoroutineJSPI *from = DO_UPCAST(CoroutineJSPI, base, from_);
++    CoroutineJSPI *to = DO_UPCAST(CoroutineJSPI, base, to_);
++    bool fresh = !to->started;
++
++    set_current(to_);
++    to->action = action;
++    to->started = true;
++    qemu_jspi_wake(to, (void *)coroutine_entry, fresh);
++
++    if (action == COROUTINE_TERMINATE) {
++        /*
++         * Do not park: the trampoline and the entry return, the promise of
++         * this stack settles and the engine drops it. The next entry starts
++         * the coroutine on a new stack, with the same C stack.
++         */
++        from->started = false;
++        return action;
++    }
++
++    from->stack_ptr = emscripten_stack_get_current();
++    qemu_jspi_park(from);
++    _emscripten_stack_restore(from->stack_ptr);
++    emscripten_stack_set_limits((void *)from->stack_base, (void *)from->stack_end);
++    return from->action;
++}
++
++Coroutine *qemu_coroutine_self(void)
++{
++    Coroutine *self = get_current();
++
++    if (!self) {
++        CoroutineJSPI *leaderp = get_leader();
++        if (!leaderp) {
++            leaderp = g_malloc0(sizeof(*leaderp));
++            leaderp->stack_base = emscripten_stack_get_base();
++            leaderp->stack_end = emscripten_stack_get_end();
++            leaderp->started = true;
++            set_leader(leaderp);
++        }
++        self = &leaderp->base;
++        set_current(self);
++    }
++    return self;
++}
++
++bool qemu_in_coroutine(void)
++{
++    Coroutine *self = get_current();
++
++    return self && self->caller;
++}
