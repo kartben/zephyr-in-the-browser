@@ -14,6 +14,7 @@ import {
   subscribe as subscribeDeviceTree,
 } from '@/devicetree'
 import { createGpioModel } from './devices/gpio'
+import type { GpioBatch } from './devices/gpioProtocol'
 import { createI2cModel } from './devices/i2c'
 import type { I2cChip } from './devices/i2c'
 import { createSpiModel } from './devices/spi'
@@ -43,7 +44,14 @@ import { createPca9685 } from './devices/chips/pca9685'
 import { createPcf8523 } from './devices/rtc/pcf8523'
 import { FALLBACK_DT_SLOTS, chipType } from './devices/registry'
 import { spiChipType } from './devices/spiRegistry'
-import { attach as transportAttach, detach as transportDetach, register } from './transport'
+import {
+  attach as transportAttach,
+  detach as transportDetach,
+  isWorkerOwned,
+  postToDevice,
+  register,
+  subscribeDeviceMessages,
+} from './transport'
 import {
   clearBusRoster,
   forgetI2cAddress,
@@ -502,11 +510,27 @@ export function attach(mod: unknown) {
   register(i2cModel)
   register(spiModel)
   transportAttach(mod)
+  // Only once the transport has decided. When GPIO runs in the worker the
+  // model here is a mirror: it reports what the worker computed and forwards
+  // input words rather than detecting edges itself.
+  gpioModel.setRemote(
+    isWorkerOwned(gpioModel.name)
+      ? (mask) => postToDevice(gpioModel.name, { type: 'inputs', mask })
+      : null,
+  )
 }
 
 export function detach() {
   transportDetach()
+  gpioModel.setRemote(null)
 }
+
+// Batches arrive whether or not anything is watching; applying them is what
+// keeps `gpioModel` a faithful mirror for hostGpio, hostSevenSeg and the
+// SCT2024's latch pin, none of which know the model moved.
+subscribeDeviceMessages(({ name, payload }) => {
+  if (name === gpioModel.name) gpioModel.applyBatch(payload as GpioBatch)
+})
 
 export {
   available,

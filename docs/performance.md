@@ -28,7 +28,7 @@ the list matters for a given workload:
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
 | 6 | `-icount` prevents the DAC reaching 1 kHz — **disabled after measurement** | `src/boards.ts` | High, synchronous virtio | Very low | Low (MIPS telemetry unavailable) |
-| 7 | QEMU **completion wake** + idle drain 10→50 ms safety net — local measured, release pending | virtio patch | High, I²C-bound | Low | Medium |
+| 7 | QEMU **completion wake** + idle drain 10→50 ms safety net: local measured, shipped in v97 | virtio patch | High, I²C-bound | Low | Medium |
 | 8 | Slow host bridges share one 100 ms beat (`hostPoll`) — net / stepper / virtio keep private timers | `src/hostPoll.ts`, `src/host*.ts` | Medium | Done | Low |
 | 9 | Audio is pulled on a 100 ms timer, not an AudioWorklet | `src/hostAudio.ts` | Medium, audio only | Medium | Low |
 | 10 | Startup: default board is the interpreter one; no wasm prefetch | `src/boards.ts`, `index.html` | Low–Medium | Low | Low |
@@ -48,12 +48,12 @@ Measured ceiling after the work above:
 | Lever | Status | Effect on DAC `i2cHz` |
 | --- | --- | --- |
 | Batch msgs before notify (guest) | Done | Avoids N×RTT for register reads |
-| MessagePort nesting reset (1 ms poll) | Done | ~3 ms off every timer-path RTT |
+| MessagePort nesting reset (1 ms poll) | Deleted with the poll | ~3 ms off every timer-path RTT, while there was one |
 | Completion kick BH | Done (#72 / #118) | Was timer-capped ~45 Hz |
 | Guest tick 10 kHz | Done | Real 1 ms sleeps on QEMU |
 | `-icount` off on A53 | Done | ~349 → ~1000 I²C Hz |
 | Atomic request waiter | Done (#102) | **No DAC win** in same-build A/B (~800 Hz both ways) |
-| QEMU hot-path (token stack, idle 50 ms) | Done (#118) | Needs published wasm |
+| QEMU hot-path (token stack, idle 50 ms) | Done (#118) | Live on the deployed page since v97 |
 | **Coalesce completion kicks per poll** | Done (this change) | Cuts BH storms on multi-msg transfers; DAC unchanged (1 msg) |
 | Page chip model | Not the limit | Pure-JS microbench ~380 kHz |
 
@@ -66,9 +66,10 @@ What still moves the needle:
 1. **Raise guest MIPS** — link `-O3` (patched, unmeasured), `ASYNCIFY_ADVISE`
    prune (item 2), newer emsdk (item 5). Helps every sync virtio path, not
    only I²C.
-2. **Publish the rebuilt qemu-wasm** so kick-primary drain and #118 land on
-   the deployed page (local ~748 Hz vs older deployed ~236 Hz mixes rebuild
-   confounds; do not attribute that gap to the request waiter).
+2. **Re-profile against the published emulator.** Kick-primary drain and #118
+   are on the deployed page as of v97, but ~748 Hz is still a local number, and
+   local ~748 Hz against older deployed ~236 Hz mixes rebuild confounds; do not
+   attribute that gap to the request waiter.
 3. **Fewer transfers in the guest app** — OLED fps is ~11 because Zephyr's
    SSD1306 driver issues ~9 chunked writes per frame (132-byte chunks). Larger
    chunks or partial updates raise fps without bridge changes. DAC cannot
@@ -96,62 +97,74 @@ something new:
 - `node tools/profile-accel.mjs` drives the whole thing under Playwright and
   prints a ten-second sample.
 
-Item 1 added `bridgePollMs` (the compatibility hot-loop pace), `bridgeHz`
-(requests drained per second), `bridgeWakeHz` (atomic worker notifications per
-second), and `bridgeWaiterActive`. A hot workload on an old emulator gets a
-`bridge_waiter_inactive` note; `tools/probe-timer-clamp.mjs` measures the timer
-fallback in isolation.
+Item 1 added `bridgeHz` (requests drained per second) and `bridgeWakeHz`
+(atomic worker notifications per second). Now that the atomic waiter is the only
+request-detection path, `bridgeWakeHz` tracking `bridgeHz` is the check that
+wake coverage is complete: a gap means a request that no wake accounted for.
 
 What is still missing is the other half of the round trip: the page cannot see
 how long QEMU took to notice a completion. Item 7 is now measured from the
-page side via `tools/profile-dac.mjs` (`i2cHz` / `bridgePollMs`); settling the
-QEMU-side half still means counting the interval from a completion being
-published to the drain timer picking it up.
+page side via `tools/profile-dac.mjs` (`i2cHz`); settling the QEMU-side half
+still means counting the interval from a completion being published to the
+drain timer picking it up.
 
-## 1. The bridge's hot poll runs at 4 ms, not the 1 ms it documents
+The QEMU-side counters that do exist (`qemu_virtio_wake_*` vCPU wake latency,
+`notifyViaKick` against `notifyViaTimer`) say which path delivered a completion,
+not how late it was, and they are an **aarch64-only** instrument. That is
+structural, not a question of artifact vintage: they come from
+`tools/qemu-jit-patches/` 0015 to 0017, and `tools/qemu-esp-patches/`, which
+riscv32 and xtensa build from, has no counterpart patches.
 
-[`src/virtio/transport.ts:483`](../src/virtio/transport.ts) paces the hot poll
-with `schedule(HOT_PERIOD_MS)`, which lands on `setTimeout(poll, 1)` at line 499
-— scheduled from inside `poll`, which was itself invoked from a timer callback. That is the textbook shape for the HTML spec's
-timer nesting clamp: once the nesting level passes 5, every browser raises the
-minimum to 4 ms. The loop reaches nesting level 5 after five iterations — about
-5 ms into any burst — and stays there for the rest of the hot window. The
-comment at that line, and the "1 ms between polls" in
-[`docs/virtio-bridge.md`](virtio-bridge.md#timing), describe an intent the
-browser does not honour.
+## 1. The bridge's hot poll ran at 4 ms, not the 1 ms it documented
 
-The corroborating measurement is already in the tree:
+**Resolved, and kept for the reasoning.** The poll this item is about no longer
+exists. The atomic request waiter of (b)+(c) below is the only
+request-detection path, so there is no nesting level to clamp and no
+`MessagePort` reset to keep. The measurements stay because they are the record
+of why patching the timer was never going to be the end of it.
+
+`src/virtio/transport.ts` paced the hot poll with `schedule(HOT_PERIOD_MS)`,
+which landed on `setTimeout(poll, 1)` scheduled from inside `poll`, which was
+itself invoked from a timer callback. That is the textbook shape for the HTML
+spec's timer nesting clamp: once the nesting level passes 5, every browser
+raises the minimum to 4 ms. The loop reached nesting level 5 after five
+iterations, about 5 ms into any burst, and stayed there for the rest of the hot
+window. The comment on it, and the "1 ms between polls" that
+[`docs/virtio-bridge.md`](virtio-bridge.md#timing) then carried, described an
+intent the browser did not honour.
+
+The corroborating measurement is still in the tree:
 [`src/virtio/devices/chips/ssd1306.ts:13`](../src/virtio/devices/chips/ssd1306.ts)
 records "~100 blocking transfers per second", i.e. **~10 ms per round trip**,
 and derives the OLED's ~11 fps from it. A 4 ms page poll plus QEMU's 1 ms busy
-drain (item 7) plus main-loop granularity accounts for most of that; a genuine
+drain (item 7) plus main-loop granularity accounted for most of that; a genuine
 1 ms poll would not.
 
-Three fixes, in increasing order of both payoff and work:
+Three fixes were on the table, in increasing order of both payoff and work:
 
-**(a) Reset the nesting level — a few lines. Done.** The nesting level is
-inherited from the task that calls `setTimeout`, and a task started by
-`postMessage` sits at level 0, so a `setTimeout(poll, 1)` issued from a
-`message` handler is not clamped. The channel was already there for the attach
-kick; the hot path now posts to it and arms the timer inside the handler,
-keeping the deliberate 1 ms pace — which exists to avoid the ~700k
-`Atomics.load`/s busy-loop the file documents — while actually getting 1 ms.
+**(a) Reset the nesting level, a few lines. Done, then deleted with the poll.**
+The nesting level is inherited from the task that calls `setTimeout`, and a task
+started by `postMessage` sits at level 0, so a `setTimeout(poll, 1)` issued from
+a `message` handler is not clamped. The channel was already there for the attach
+kick; the hot path posted to it and armed the timer inside the handler, keeping
+the deliberate 1 ms pace (which existed to avoid the ~700k `Atomics.load`/s
+busy-loop the file documented) while actually getting 1 ms.
 
-[`tools/probe-timer-clamp.mjs`](../tools/probe-timer-clamp.mjs) measures both
-shapes in Chromium and is the evidence for the change:
+A Playwright probe, `tools/probe-timer-clamp.mjs`, measured both shapes in
+Chromium and was the evidence for the change. It is in git history rather than
+the tree, having been removed with the code it justified:
 
 | Rearmed from | Steady-state period |
 | --- | --- |
 | the previous timer's callback (before) | 4.14 ms |
 | a `MessagePort` message handler (after) | 1.13 ms |
 
-So ~3 ms comes off every blocking transfer. Against the ~10 ms round trip the
-OLED measured, that is arithmetic worth about 11 → 16 fps — which
-`bridgePollMs`, `bridgeHz` and `i2cHz` in
-[`src/display/profile.ts`](../src/display/profile.ts) now report directly, so
-the next person does not have to take the arithmetic on trust. `transport.ts`
-counts the gaps between consecutive hot polls for exactly that reason: the pace
-was wrong for a long time precisely because nothing looked at it.
+So ~3 ms came off every blocking transfer. Against the ~10 ms round trip the
+OLED measured, that was arithmetic worth about 11 → 16 fps. The habit is the
+part worth keeping: the pace was wrong for a long time precisely because nothing
+looked at it, which is why `bridgeHz` and `i2cHz` in
+[`src/display/profile.ts`](../src/display/profile.ts) report the bridge's rate
+directly instead of leaving the next person to take arithmetic on trust.
 
 **(b)+(c) Use an atomic request wake — productionized, with an important
 limit.** The earlier gated I²C-only spike established that a worker blocking in
@@ -173,13 +186,20 @@ before the first wait changes the expected value instead of becoming a lost
 edge. Device models that own browser state (`localStorage`, motion events, and
 UI subscriptions) remain unchanged on the main thread.
 
-This removes the timer-clamping and hidden-tab latency of request detection and
-eliminates the bridge's idle polling floor; it is not expected to make the DAC
-faster. A local rebuilt A53 artifact measured ~748 request wakes/s, exactly
-tracking bridge requests, with `bridgePollMs = 0` and a ~5.5 s DAC period. That
+This removed the timer-clamping and hidden-tab latency of request detection and
+eliminated the bridge's idle polling floor; it was never expected to make the
+DAC faster. A local rebuilt A53 artifact measured ~748 request wakes/s, exactly
+tracking bridge requests, with no polls at all and a ~5.5 s DAC period. That
 validates wake coverage, not a throughput gain: the earlier same-build A/B test
-is the causal measurement. Older emulator artifacts do not expose the request
-word, so the page retains its capability-based 1/50 ms timer fallback.
+is the causal measurement.
+
+The waiter is now the whole mechanism, and the timer fallback is gone. Every
+packaged artifact that carries the bridge exports the request word: under
+`EMULATOR_RELEASE=v97`, aarch64 and riscv32 both do, and `arm`/`xtensa` have no
+bridge to export it for. A missing export is an `attach()` error rather than a
+quiet downgrade, and the 50 ms tick that survives only does maintenance:
+discovery, reset detection, the watchdog, and a completion ring that was
+momentarily full.
 
 ## 2. Asyncify very likely instruments the TCG execution path
 
@@ -394,8 +414,10 @@ under `PROXY_TO_PTHREAD` that export runs on the *browser* thread, not the
 QEMU pthread. A local rebuilt artifact measured **~748 I²C Hz**, with about
 5.5 s per 4096-code DAC period, versus ~236 Hz / 17.3 s on the deployed page
 observed before these changes. `bridgeWakeHz` tracked `bridgeHz`, and
-`notifyViaKick` handled essentially every completion. The release artifact
-still needs rebuilding and publishing.
+`notifyViaKick` handled essentially every completion. Both are published: the
+deployed pin is `EMULATOR_RELEASE=v97`, which carries the kick BH, the 1/50 ms
+drain and the request-wake export. The ~748 Hz is still a local number, though.
+Nobody has re-profiled the DAC against the published artifact.
 
 Superseded: the ~45 Hz measured here turned out to be dominated by the
 guest's own tick-rate rounding, not this drain mechanism — see
@@ -416,7 +438,7 @@ Attached at once on the A53 board:
 
 | Poller | Period | File | Timer |
 | --- | --- | --- | --- |
-| virtio bridge | atomic request wake; 50 ms maintenance/fallback | `src/virtio/transport.ts` | own |
+| virtio bridge | atomic request wake; 50 ms maintenance tick | `src/virtio/transport.ts` | own |
 | net | 10 ms hot, 100 ms idle | `src/hostNet.ts` | own (adaptive) |
 | GPIO (MMIO boards) | 100 ms; 1 ms with steppers | `src/hostGpio.ts` | shared / own |
 | audio | 100 ms | `src/hostAudio.ts` | shared |
@@ -536,9 +558,10 @@ robustness rather than end-to-end latency.
 
 ## Suggested order
 
-1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
-2. ~~Item 1(b)+(c) (atomic request waiter)~~ — done and locally profiled;
-   **needs release artifact publication**.
+1. ~~Item 1(a) (`postMessage` nesting reset)~~: done; 4.14 ms → 1.13 ms, and
+   since deleted along with the poll it paced.
+2. ~~Item 1(b)+(c) (atomic request waiter)~~: done, locally profiled, and
+   published in v97; **now the only request-detection path**.
 2b. ~~Item 1d (coalesce completion kicks per poll)~~ — done; helps multi-msg
    transfers, not the one-msg DAC ceiling (see "I²C throughput: what is left").
 3. ~~Item 3 (link `-O3`)~~ — patched; **needs one rebuild to confirm**, and it

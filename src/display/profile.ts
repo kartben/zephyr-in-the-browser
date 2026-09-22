@@ -40,28 +40,19 @@ export interface ProfileSnapshot {
   drawMs: number
   /** I²C transactions / second. */
   i2cHz: number
-  /**
-   * Mean gap between consecutive hot-window polls of the virtio bridge, ms —
-   * the pace the loop *achieves*, against the 1 ms it asks for. A reading near
-   * 4 means timer-nesting clamping has it, which costs the guest a round trip's
-   * worth of latency on every blocking transfer. 0 when the bridge stayed idle.
-   */
-  bridgePollMs: number
-  /** Share of those polls that missed the pace, 0..100. */
-  bridgePollSlowPct: number
   /** Virtio requests drained / second, across every bound device. */
   bridgeHz: number
   /** Atomic request notifications delivered by the waiter worker / second. */
   bridgeWakeHz: number
-  /** True when request arrival is futex-driven rather than timer-polled. */
-  bridgeWaiterActive: boolean
   /** Guest MIPS (ema). */
   mips: number
   /**
    * Diagnostic: mean/max ns from virtio_notify() to the RR vCPU thread
    * resuming, and how many samples that average is over. Cumulative since
-   * boot (QEMU-side counters, not windowed). -1/0 when the build predates
-   * the instrumentation. See docs/performance.md item 7.
+   * boot (QEMU-side counters, not windowed). -1/0 on riscv32 and xtensa: they
+   * are patched from tools/qemu-esp-patches/, which carries no diagnostics
+   * patches, so the exports are absent by construction rather than by vintage.
+   * See docs/performance.md item 7.
    */
   wakeAvgNs: number
   wakeMaxNs: number
@@ -92,13 +83,9 @@ interface Counters {
 }
 
 const ZERO_BRIDGE: BridgeStats = {
-  hotPolls: 0,
-  hotGapMsSum: 0,
-  hotPollsSlow: 0,
   requests: 0,
   kicks: 0,
   waiterWakeups: 0,
-  waiterActive: false,
 }
 
 const empty = (): Counters => ({
@@ -134,11 +121,8 @@ let lastSnapshot: ProfileSnapshot = {
   digestMs: 0,
   drawMs: 0,
   i2cHz: 0,
-  bridgePollMs: 0,
-  bridgePollSlowPct: 0,
   bridgeHz: 0,
   bridgeWakeHz: 0,
-  bridgeWaiterActive: false,
   mips: 0,
   wakeAvgNs: -1,
   wakeMaxNs: -1,
@@ -219,13 +203,6 @@ function rollWindow() {
   const i2cNow = i2cModel.transactionCount()
   const i2cDelta = Math.max(0, i2cNow - c.i2cStart)
   const bridgeNow = bridgeStats()
-  const hotPolls = Math.max(0, bridgeNow.hotPolls - c.bridgeStart.hotPolls)
-  const bridgePollMs = hotPolls
-    ? Math.max(0, bridgeNow.hotGapMsSum - c.bridgeStart.hotGapMsSum) / hotPolls
-    : 0
-  const bridgePollSlowPct = hotPolls
-    ? (Math.max(0, bridgeNow.hotPollsSlow - c.bridgeStart.hotPollsSlow) / hotPolls) * 100
-    : 0
   const notes: string[] = []
   const guestFps = c.guestFrames / elapsed
   const uploadFps = c.uploads / elapsed
@@ -233,12 +210,6 @@ function rollWindow() {
   if (uploadFps + 0.5 < guestFps) notes.push('uploads_behind_guest')
   if (i2cDelta / elapsed > 40) notes.push('i2c_hot')
   if (c.digestCount && c.digestMsSum / c.digestCount > 0.5) notes.push('digest_expensive')
-  // The hot loop asks for 1 ms. Anything near 4 is the timer nesting clamp,
-  // and every blocking guest transfer pays it — see transport.ts.
-  if (hotPolls > 20 && bridgePollMs > 2) notes.push('bridge_poll_clamped')
-  if (i2cDelta / elapsed > 40 && !bridgeNow.waiterActive) {
-    notes.push('bridge_waiter_inactive')
-  }
   const wake = wakeLatencyStats()
   const warp = warpOvershootStats()
   const notifySource = notifySourceStats()
@@ -252,12 +223,9 @@ function rollWindow() {
     digestMs: c.digestCount ? c.digestMsSum / c.digestCount : 0,
     drawMs: c.drawCount ? c.drawMsSum / c.drawCount : 0,
     i2cHz: i2cDelta / elapsed,
-    bridgePollMs,
-    bridgePollSlowPct,
     bridgeHz: Math.max(0, bridgeNow.requests - c.bridgeStart.requests) / elapsed,
     bridgeWakeHz:
       Math.max(0, bridgeNow.waiterWakeups - c.bridgeStart.waiterWakeups) / elapsed,
-    bridgeWaiterActive: bridgeNow.waiterActive,
     mips: stats.mips,
     wakeAvgNs: wake?.avgNs ?? -1,
     wakeMaxNs: wake?.maxNs ?? -1,

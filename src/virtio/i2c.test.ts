@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { createFakeBridge, type FakeDevice } from './testing/fakeBridge'
+import {
+  createFakeBridge,
+  installFakeRequestWaiter,
+  type FakeDevice,
+} from './testing/fakeBridge'
 import { createI2cModel, type I2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
@@ -14,6 +18,21 @@ const FLAGS_M_RD = 1 << 1
 
 const MSG_OK = 0
 const MSG_ERR = 1
+
+/**
+ * Node has no `Worker` global, and the transport has no timer fallback left, so
+ * without a stand-in every `attach` below logs a dead request waiter.
+ */
+let restoreWorker: () => void
+
+beforeEach(() => {
+  restoreWorker = installFakeRequestWaiter()
+})
+
+afterEach(() => {
+  detach()
+  restoreWorker()
+})
 
 /**
  * One `struct i2c_msg` as the guest driver puts it on the wire: an out_hdr

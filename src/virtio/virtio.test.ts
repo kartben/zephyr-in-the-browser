@@ -1,10 +1,46 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { createFakeBridge } from './testing/fakeBridge'
+import {
+  FakeRequestWaiter,
+  createFakeBridge,
+  installFakeRequestWaiter,
+} from './testing/fakeBridge'
 import { createGpioModel } from './devices/gpio'
-import { attach, detach, available, boundNames, pollOnce, register, stats } from './transport'
+import {
+  attach,
+  detach,
+  available,
+  boundNames,
+  pollOnce,
+  register,
+  resetWorkerOwnedModelsForTest,
+  setWorkerOwnedModels,
+  stats,
+} from './transport'
 import type { VirtioDeviceModel, VirtioRequest } from './transport'
 import { CMP_FAIL, CMP_OK } from './protocol'
+
+/**
+ * Node has no `Worker` global, and the transport has no timer fallback left, so
+ * every `attach` below would otherwise log a dead waiter. Install the stand-in
+ * for the whole file; the one test that cares reaches for its instance.
+ */
+let restoreWorker: () => void
+
+beforeEach(() => {
+  restoreWorker = installFakeRequestWaiter()
+  // These tests drive the bridge synchronously through `pollOnce`, which only
+  // covers the bridges this thread owns. Keeping every model in-process is what
+  // lets them assert on the model object they registered. The worker-owned
+  // routing has its own tests in deviceWorker.test.ts.
+  setWorkerOwnedModels([])
+})
+
+afterEach(() => {
+  detach()
+  restoreWorker()
+  resetWorkerOwnedModelsForTest()
+})
 
 /** ngpio = 8, names_size = 0 — what `config=0800000000000000` seeds. */
 const GPIO_CONFIG = Uint8Array.of(8, 0, 0, 0, 0, 0, 0, 0)
@@ -262,10 +298,9 @@ describe('virtio transport', () => {
     globalThis.TextDecoder = StrictTextDecoder as typeof RealTextDecoder
 
     try {
-      const bridge = createFakeBridge(
-        [{ name: 'gpio', deviceId: VIRTIO_ID_GPIO, numQueues: 2, config: GPIO_CONFIG }],
-        { shared: true },
-      )
+      const bridge = createFakeBridge([
+        { name: 'gpio', deviceId: VIRTIO_ID_GPIO, numQueues: 2, config: GPIO_CONFIG },
+      ])
       register(createGpioModel())
       attach(bridge.module)
       pollOnce()
@@ -276,10 +311,9 @@ describe('virtio transport', () => {
   })
 
   it('works against a SharedArrayBuffer heap, as -pthread gives us', () => {
-    const bridge = createFakeBridge(
-      [{ name: 'gpio', deviceId: VIRTIO_ID_GPIO, numQueues: 2, config: GPIO_CONFIG }],
-      { shared: true },
-    )
+    const bridge = createFakeBridge([
+      { name: 'gpio', deviceId: VIRTIO_ID_GPIO, numQueues: 2, config: GPIO_CONFIG },
+    ])
     expect(bridge.module.HEAPU8).toBeInstanceOf(Uint8Array)
     expect((bridge.module.HEAPU8 as Uint8Array).buffer).toBeInstanceOf(SharedArrayBuffer)
 
@@ -374,108 +408,49 @@ describe('virtio transport', () => {
 
   /*
    * Every other test here drives the loop by hand through pollOnce. This one
-   * does not touch it: what is under test is the scheduling itself, which is
-   * where the guest's latency comes from once it is blocking on us.
-   *
-   * What it cannot check is the reason the hot path bounces through a
-   * MessagePort before arming its timer — browsers clamp a timer nested inside
-   * another timer's callback to 4 ms, and node does not clamp at all, so the
-   * pace here is honest about the plumbing and says nothing about the clamp.
-   * The number that answers that question is `bridgePollMs` from
-   * src/display/profile.ts, read in a real browser.
+   * does not touch it: the waiter is now the only thing that notices a request,
+   * so what is under test is that a futex wake alone gets the guest answered,
+   * with no timer in the path at all.
    */
-  it('drives itself, and counts what it drained and how fast it looked', async () => {
-    const bridge = createFakeBridge([
-      { name: 'gpio', deviceId: VIRTIO_ID_GPIO, numQueues: 2, config: GPIO_CONFIG },
-    ])
-    register(createGpioModel())
+  it('drains from the atomic request waiter without waiting for a timer', () => {
+    const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }])
+    register({
+      name: 'echo',
+      handle: (req) => req.reply(req.out.slice()),
+    })
     const before = stats()
 
     attach(bridge.module)
-    const dev = bridge.device('gpio')
-    dev.kick(VQ_REQUEST, gpioRequest(MSG_SET_DIRECTION, 0, DIRECTION_OUT), 8)
+    const worker = FakeRequestWaiter.instance
+    expect(worker).not.toBeNull()
+    expect(worker!.posted).toMatchObject({
+      type: 'start',
+      wordIndex: 3,
+    })
+    worker!.emit({ type: 'ready' })
 
-    const deadline = Date.now() + 2000
-    while (dev.completions().length === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5))
-    }
-    // Answering opens the hot window; let the loop spin inside it long enough
-    // to have timed itself against a predecessor.
-    await new Promise((resolve) => setTimeout(resolve, 40))
+    const dev = bridge.device('echo')
+    dev.kick(0, Uint8Array.of(1, 2, 3), 3)
+    expect(dev.completions()).toEqual([])
 
-    const after = stats()
-    expect(after.requests).toBe(before.requests + 1)
-    // A request opens the hot window, so the loop should have gone round it a
-    // few times under its own power while we waited.
-    expect(after.hotPolls).toBeGreaterThan(before.hotPolls)
-    const gap =
-      (after.hotGapMsSum - before.hotGapMsSum) / Math.max(1, after.hotPolls - before.hotPolls)
-    expect(gap).toBeGreaterThan(0)
-    expect(gap).toBeLessThan(20)
+    worker!.emit({ type: 'wake', count: 1 })
+    expect(dev.completions()).toHaveLength(1)
+    expect(stats().requests).toBe(before.requests + 1)
+    expect(stats().waiterWakeups).toBe(before.waiterWakeups + 1)
+
+    detach()
+    expect(worker!.terminated).toBe(true)
   })
 
-  it('drains from the atomic request waiter without waiting for a timer', () => {
-    class FakeRequestWaiter {
-      static instance: FakeRequestWaiter | null = null
+  it('refuses an emulator that predates the request-wake export', () => {
+    // The pin lives in a GitHub repository variable, so a re-pin to an older
+    // tag reaches nothing else in this repo that would notice.
+    const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }])
+    const stale = { ...bridge.module }
+    delete stale._qemu_virtio_browser_request_wake_addr
 
-      onmessage: ((event: MessageEvent) => void) | null = null
-      onerror: ((event: ErrorEvent) => void) | null = null
-      posted: unknown = null
-      terminated = false
-
-      constructor(..._args: unknown[]) {
-        FakeRequestWaiter.instance = this
-      }
-
-      postMessage(message: unknown) {
-        this.posted = message
-      }
-
-      terminate() {
-        this.terminated = true
-      }
-
-      emit(data: unknown) {
-        this.onmessage?.({ data } as MessageEvent)
-      }
-    }
-
-    vi.stubGlobal('Worker', FakeRequestWaiter)
-    try {
-      const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }], {
-        shared: true,
-      })
-      register({
-        name: 'echo',
-        handle: (req) => req.reply(req.out.slice()),
-      })
-      const before = stats()
-
-      attach(bridge.module)
-      const worker = FakeRequestWaiter.instance
-      expect(worker).not.toBeNull()
-      expect(worker!.posted).toMatchObject({
-        type: 'start',
-        wordIndex: 3,
-      })
-      worker!.emit({ type: 'ready' })
-      expect(stats().waiterActive).toBe(true)
-
-      const dev = bridge.device('echo')
-      dev.kick(0, Uint8Array.of(1, 2, 3), 3)
-      expect(dev.completions()).toEqual([])
-
-      worker!.emit({ type: 'wake', count: 1 })
-      expect(dev.completions()).toHaveLength(1)
-      expect(stats().waiterWakeups).toBe(before.waiterWakeups + 1)
-
-      detach()
-      expect(worker!.terminated).toBe(true)
-      expect(stats().waiterActive).toBe(false)
-    } finally {
-      detach()
-      vi.unstubAllGlobals()
-    }
+    expect(() => attach(stale)).toThrow(/request-wake export/)
+    expect(available()).toBe(false)
   })
 
   it('Atomics.notify-s the wake word and kicks QEMU after each completion', () => {

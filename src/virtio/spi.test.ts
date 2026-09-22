@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createFakeBridge, type FakeDevice } from './testing/fakeBridge'
+import {
+  createFakeBridge,
+  installFakeRequestWaiter,
+  type FakeDevice,
+} from './testing/fakeBridge'
 import { createSpiModel, type SpiModel } from './devices/spi'
 import { createSpiLoopback, createW25q, W25Q_JEDEC_ID } from './devices/chips/w25q'
 import { attach, detach, pollOnce, register } from './transport'
@@ -9,6 +13,21 @@ const VIRTIO_ID_SPI = 45
 const HEAD_BYTES = 32
 const TRANS_OK = 0
 const TRANS_ERR = 2
+
+/**
+ * Node has no `Worker` global, and the transport has no timer fallback left, so
+ * without a stand-in every `attach` below logs a dead request waiter.
+ */
+let restoreWorker: () => void
+
+beforeEach(() => {
+  restoreWorker = installFakeRequestWaiter()
+})
+
+afterEach(() => {
+  detach()
+  restoreWorker()
+})
 
 /** Seed matching boards.ts `config=` for the SPI bridge. */
 function spiConfig(): Uint8Array {

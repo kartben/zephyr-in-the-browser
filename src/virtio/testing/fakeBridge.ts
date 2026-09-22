@@ -57,20 +57,49 @@ export interface FakeDeviceSpec {
   ringSize?: number
 }
 
-export interface FakeBridgeOptions {
-  /**
-   * Back the heap with a SharedArrayBuffer, as `-pthread` does for real. Worth
-   * doing at least once per suite: several APIs quietly refuse shared views —
-   * `TextDecoder.decode` throws outright — so a plain ArrayBuffer can pass a
-   * test that fails against QEMU.
-   */
-  shared?: boolean
+/**
+ * Stand-in for `requestWaitWorker.ts`. Node has no `Worker` global and the
+ * transport has no timer fallback, so a suite that attaches the transport has
+ * to supply one or watch every poll come from the 50 ms maintenance tick.
+ */
+export class FakeRequestWaiter {
+  static instance: FakeRequestWaiter | null = null
+
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onerror: ((event: ErrorEvent) => void) | null = null
+  posted: unknown = null
+  terminated = false
+
+  constructor(..._args: unknown[]) {
+    FakeRequestWaiter.instance = this
+  }
+
+  postMessage(message: unknown) {
+    this.posted = message
+  }
+
+  terminate() {
+    this.terminated = true
+  }
+
+  /** Deliver a worker→main message, standing in for a futex wake. */
+  emit(data: unknown) {
+    this.onmessage?.({ data } as MessageEvent)
+  }
 }
 
-export function createFakeBridge(
-  specs: FakeDeviceSpec[],
-  options: FakeBridgeOptions = {},
-): FakeBridge {
+/** Install {@link FakeRequestWaiter} as `Worker`; call the result to undo it. */
+export function installFakeRequestWaiter(): () => void {
+  const globals = globalThis as { Worker?: unknown }
+  const previous = globals.Worker
+  FakeRequestWaiter.instance = null
+  globals.Worker = FakeRequestWaiter
+  return () => {
+    globals.Worker = previous
+  }
+}
+
+export function createFakeBridge(specs: FakeDeviceSpec[]): FakeBridge {
   // Lay every device out back to back: area, request ring, completion ring.
   const layouts = specs.map((spec) => ({
     spec,
@@ -84,9 +113,10 @@ export function createFakeBridge(
   const HEAP_BASE = 16
   const total = layouts.reduce((n, l) => n + AREA_BYTES + 2 * l.ringSize, HEAP_BASE)
   const bytes = align4(total)
-  const heap = new Uint8Array(
-    options.shared ? new SharedArrayBuffer(bytes) : new ArrayBuffer(bytes),
-  )
+  // Always shared, as `-pthread` gives us for real. Several APIs quietly
+  // refuse shared views (`TextDecoder.decode` throws outright), so a plain
+  // ArrayBuffer here can pass a test that fails against QEMU.
+  const heap = new Uint8Array(new SharedArrayBuffer(bytes))
   const view = new DataView(heap.buffer)
   const words = new Int32Array(heap.buffer)
 
