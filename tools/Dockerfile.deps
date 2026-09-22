@@ -3,22 +3,35 @@
 # Derived from ktock/qemu-wasm's Dockerfile (the work of Kohei Tokunaga, who
 # also upstreamed QEMU's Emscripten support). Vendored rather than fetched so
 # this repository does not depend on that fork at all: the QEMU source now comes
-# straight from qemu/qemu. Two changes from the original:
+# straight from qemu/qemu. Changes from the original:
 #
 #   * zlib comes from the GitHub release. zlib.net keeps only the current
 #     release at its root path, so the pinned tarball 404s, and curl pipes the
 #     HTML error page into tar -- which surfaces as "File format not recognized"
 #     rather than as a download failure.
 #   * tomli is installed; QEMU 10.1's configure requires it.
+#   * The toolchain and library pins follow upstream QEMU's own wasm dockerfile
+#     rather than the fork's, and libffi/glib carry the two workarounds a
+#     post-3.1.50 Emscripten needs. Each is explained where it appears below.
 #
 # syntax = docker/dockerfile:1.5
 
-ARG EMSDK_VERSION_QEMU=3.1.50 # TODO: support recent version
-ARG ZLIB_VERSION=1.3.1
-ARG GLIB_MINOR_VERSION=2.75
+# 4.0.10 is upstream QEMU's own pin (tests/docker/dockerfiles/
+# emsdk-wasm64-cross.docker at v11.1.1). It is here for build time, not for
+# guest speed: the aarch64 link falls from 180s to 133s because Binaryen's
+# post-link passes got much faster. Guest throughput is unchanged, measured on
+# a CPU-bound guest rather than assumed; docs/performance.md item 5 has the
+# numbers and why an encouraging microbenchmark did not transfer. 6.0.10 was
+# measured too and adds nothing while emitting a larger module.
+ARG EMSDK_VERSION_QEMU=4.0.10
+ARG ZLIB_VERSION=1.3.2
+ARG GLIB_MINOR_VERSION=2.84
 ARG GLIB_VERSION=${GLIB_MINOR_VERSION}.0
+# Stays on 0.42.2 deliberately: 0.44.x is meson-only, so the autotools recipe
+# below cannot build it. pixman is display blitting, nowhere near the TCG hot
+# path, so the newer release would buy nothing to justify porting the stanza.
 ARG PIXMAN_VERSION=0.42.2
-ARG FFI_VERSION=adbcf2b247696dde2667ab552cb93e0c79455c84
+ARG FFI_VERSION=v3.5.2
 
 FROM emscripten/emsdk:$EMSDK_VERSION_QEMU AS build-base
 # Porting glib to emscripten inspired by https://github.com/emscripten-core/emscripten/issues/11066
@@ -59,8 +72,12 @@ RUN git clone https://github.com/libffi/libffi /libffi
 WORKDIR /libffi
 RUN git checkout $FFI_VERSION
 RUN autoreconf -fiv
-RUN LDFLAGS="$LDFLAGS -sEXPORTED_RUNTIME_METHODS='getTempRet0,setTempRet0'" ; \
-    emconfigure ./configure --host=$CHOST --prefix=$TARGET --enable-static --disable-shared --disable-dependency-tracking \
+# The old recipe appended -sEXPORTED_RUNTIME_METHODS='getTempRet0,setTempRet0'
+# here. It has to go: configure passes LDFLAGS through verbatim, so the single
+# quotes reached emcc's argv and newer Emscripten parses them as part of the
+# symbol name ("undefined exported symbol"). The helpers are obsolete under
+# -sWASM_BIGINT anyway, which is why upstream QEMU dropped the flag as well.
+RUN emconfigure ./configure --host=$CHOST --prefix=$TARGET --enable-static --disable-shared --disable-dependency-tracking \
     --disable-builddir --disable-multi-os-directory --disable-raw-api --disable-structs --disable-docs
 RUN emmake make install SUBDIRS='include'
 
@@ -133,6 +150,10 @@ RUN sed -i -E "/#define HAVE_CLOSE_RANGE 1/d" ./_build/config.h
 RUN sed -i -E "/#define HAVE_EPOLL_CREATE 1/d" ./_build/config.h
 RUN sed -i -E "/#define HAVE_KQUEUE 1/d" ./_build/config.h
 RUN sed -i -E "/#define HAVE_POSIX_SPAWN 1/d" ./_build/config.h
+# glib 2.84 calls pthread_getname_np, which Emscripten does not provide.
+# meson's probe does not catch it, so it only surfaces as a wasm-ld undefined
+# symbol when glib links its own tools. Upstream QEMU carries the same fix.
+RUN sed -i -E "/#define HAVE_PTHREAD_GETNAME_NP 1/d" ./_build/config.h
 RUN sed -i -E "/#define HAVE_FALLOCATE 1/d" ./_build/config.h
 RUN meson install -C _build
 

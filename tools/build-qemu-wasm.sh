@@ -14,6 +14,8 @@
 #   QEMU_ESP_REF          ESP32 branch/sha         (pinned below)
 #   QEMU_JIT_REF          JIT commit               (pinned below)
 #   QEMU_WORKDIR          scratch dir               (default: <repo>/.qemu-wasm-build)
+#   QEMU_DEPS_IMAGE       dependency image tag      (default: qemu-wasm-deps:emsdk-<pin>)
+#   QEMU_DEPS_DOCKERFILE  dependency Dockerfile     (default: tools/Dockerfile.deps)
 #   JOBS                  parallel build jobs       (default: container nproc)
 #   PLATFORM              docker platform           (default: linux/amd64)
 #
@@ -55,7 +57,17 @@ ESP_SRC="$WORK/qemu-esp"
 DEST="$ROOT/public/qemu"
 
 CONTAINER=build-qemu-wasm-$$
-IMAGE=qemu-wasm-deps
+DEPS_DOCKERFILE="${QEMU_DEPS_DOCKERFILE:-$ROOT/tools/Dockerfile.deps}"
+# The tag carries the toolchain version, because build_dep_image() reuses any
+# image that already exists under the tag. With a fixed name, bumping
+# EMSDK_VERSION_QEMU would silently keep building against whatever image the
+# machine had cached, and the bump would be a no-op nobody noticed. Deriving the
+# tag from the pin means changing the pin forces the rebuild it implies.
+DEPS_EMSDK="$(sed -n 's/^ARG EMSDK_VERSION_QEMU=\([^ #]*\).*/\1/p' "$DEPS_DOCKERFILE" | head -1)"
+[ -n "$DEPS_EMSDK" ] || { echo "error: no ARG EMSDK_VERSION_QEMU in $DEPS_DOCKERFILE" >&2; exit 1; }
+# Overridable so two toolchains can be A/B'd without clobbering each other's
+# image: build both tags once, then re-run this script against each in turn.
+IMAGE="${QEMU_DEPS_IMAGE:-qemu-wasm-deps:emsdk-$DEPS_EMSDK}"
 
 log() { printf '\n\033[1;35m==>\033[0m %s\n' "$*"; }
 
@@ -188,7 +200,7 @@ build_dep_image() {
     return
   fi
   log "Building dependency image (glib, pixman, zlib, libffi -> wasm; slow)"
-  docker build --progress=plain --platform "$PLATFORM" -t "$IMAGE" - < "$ROOT/tools/Dockerfile.deps"
+  docker build --progress=plain --platform "$PLATFORM" -t "$IMAGE" - < "$DEPS_DOCKERFILE"
 }
 
 build_qemu() {
@@ -262,6 +274,11 @@ build_qemu() {
   if docker cp "$CONTAINER:/build/$binary.worker.js" "$DEST/$binary.worker.js" 2>/dev/null; then
     echo "  - $binary.worker.js"
   else
+    # Drop any shim an older Emscripten left behind: public/qemu/ persists
+    # across builds, and package-emulator.sh tars whatever is in it, so a stale
+    # worker would otherwise ride along in the release beside a .js that never
+    # asks for it.
+    rm -f "$DEST/$binary.worker.js"
     echo "  - no $binary.worker.js emitted (fine on newer Emscripten)"
   fi
 
