@@ -26,7 +26,7 @@ the list matters for a given workload:
 | 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
-| 5 | emsdk pinned to 3.1.50 (Sept 2023) | `tools/Dockerfile.deps` | Unknown, plausibly high | Medium | Medium |
+| 5 | emsdk 3.1.50 to 4.0.10: **done**, -26% build time, no throughput change anywhere | `tools/Dockerfile.deps` | Build time only | Done | Low |
 | 6 | `-icount` prevents the DAC reaching 1 kHz — **disabled after measurement** | `src/boards.ts` | High, synchronous virtio | Very low | Low (MIPS telemetry unavailable) |
 | 7 | QEMU **completion wake** + idle drain 10→50 ms safety net: local measured, shipped in v97 | virtio patch | High, I²C-bound | Low | Medium |
 | 8 | Slow host bridges share one 100 ms beat (`hostPoll`) — net / stepper / virtio keep private timers | `src/hostPoll.ts`, `src/host*.ts` | Medium | Done | Low |
@@ -356,14 +356,99 @@ written out. It is very likely safe — the guest is virtio-mmio end to end, and
 survives — but it has not been tried, and being wrong costs an hours-long
 rebuild. It is the first thing to flip once a build has succeeded.
 
-## 5. The Emscripten SDK is pinned to 3.1.50
+## 5. The Emscripten SDK pin: measured, 2026-09-22
 
-`tools/Dockerfile.deps:16` pins `EMSDK_VERSION_QEMU=3.1.50` with a
-`# TODO: support recent version` next to it — a September 2023 toolchain,
-inherited from ktock's Dockerfile. Everything in items 2 and 3 is executed by
-that toolchain's LLVM and Binaryen, so their payoff is capped by it. A newer
-emsdk is worth trying on its own merits, and worth trying *before* concluding
-anything about Asyncify pruning.
+`tools/Dockerfile.deps` pinned `EMSDK_VERSION_QEMU=3.1.50` (November 2023,
+LLVM 17.0.4) with a `# TODO: support recent version` beside it, inherited from
+ktock's Dockerfile. It has now been taken to **4.0.10** (LLVM 20.1.8), which is
+upstream QEMU's own pin at v11.1.1. 6.0.10 (LLVM 22.1.8) was measured too and
+adds nothing over 4.0.10 while emitting a larger module, so it is not the pin.
+
+**What it bought, measured rather than assumed:**
+
+| | 3.1.50 | 4.0.10 |
+| --- | --- | --- |
+| aarch64 link, wall | 180 s | **133 s** (-26%) |
+| arm link, wall | 117 s | **93 s** (-20%) |
+| `.wasm` size (aarch64) | 15,889,760 B | 15,919,662 B (+0.19%) |
+| `.js` glue | 177,954 B | 156,429 B (-12%) |
+| TCI-shaped interpreter microbench | 869 MIPS | **960 MIPS** (+10.5%) |
+| arm CPU-bound guest, int / float / mem | 1843 / 3184 / 8078 ms | 1896 / 3242 / 8104 ms |
+| A53 `accel_chart` guestFps / i2cHz | 24.0 / 239 | 23.5 / 236 |
+| riscv32 `accel_chart` guestFps / i2cHz | 25.9 / 239.8 | 26.5 / 240.3 |
+
+The build-time win is real and is the Binaryen post-link speedup the 3.1.68
+changelog advertises. **There is no guest-throughput win at all.** Every A/B
+was interleaved over 3 rounds.
+
+That is expected rather than disappointing, for two separate reasons. The A53 is
+the one artifact built with the wasm32 TCG JIT, so its hot code is wasm the JIT
+emits at runtime, not interpreter code LLVM compiled. And `accel_chart` on
+either board is bound by the virtio/I2C round trip and the display, not by guest
+MIPS, which is what the top of this document already says: `i2cHz` sits at ~240
+on both boards and both toolchains.
+
+**The +10.5% microbenchmark did not transfer, and that is the useful result.**
+It was later checked directly, on a purpose-built CPU-bound Cortex-M3 guest
+(integer LCG with dependent loads and stores, soft-float, and bulk memset and
+memcpy; self-timed, no I/O inside the timed region), run interleaved, 9 samples
+per workload per toolchain. The two toolchains are indistinguishable: the
+per-round spread within one toolchain is larger than the gap between them, and
+the +2.8% the means suggest for `int` comes from a single outlier round (1983
+against 1820, 1870, 1840, 1837, 1867).
+
+So the microbenchmark measured something real about a 114 KB module and said
+nothing about an 8 MB one. A tight interpreter loop on its own is not the same
+workload as the same loop inside QEMU, where i-cache pressure, indirect branch
+prediction across a huge module and helper calls dominate. **Treat "same shape"
+microbenchmarks at 70x the code size as a hypothesis, not evidence.**
+
+The conclusion for this pin: **it buys build time, not guest throughput.**
+Nothing measured, anywhere, ran faster.
+
+Where TCI throughput does come from is item 2, and it is not close. A separate
+experiment linked the same tree with `-sASYNCIFY=0` and ran this same CPU-bound
+guest against the same dependency image: int 1.58x, float 1.40x, mem 1.53x,
+boot to shell prompt 1.36x, and the wasm halves, 8.36 MB to 4.56 MB. That is an
+upper bound and not a shippable build, because it needs QEMU's QMP dispatcher
+coroutine deleted and lm3s6965evb's default `if=sd` drive removed, both of
+which take a coroutine during boot. It does say the Asyncify instrumentation is
+worth roughly a third to a half of the guest's time on these boards, which no
+toolchain pin was ever going to reach. `docs/jspi-feasibility.md` is the
+canonical record for that measurement, including the A53, where the figure is
+an unmeasured estimate rather than a result: the JIT's hot code is emitted at
+runtime and carries no instrumentation, so the ratio there has to be measured
+on its own.
+
+One caveat on the riscv32 row: its baseline is the shipping artifact rather than
+a same-source rebuild, so that comparison carries a source-revision confound the
+A53 and arm rows do not.
+
+**The trap this uncovered, which matters more than the pin.** All three patch
+series pinned `EXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS`.
+Emscripten stopped assigning the `HEAP*` views onto `Module` by default, and
+the page reads guest memory through eight of them (`HEAPU8` alone appears ~85
+times, in `hostI2c`, `hostNet`, `hostMonitor` and the virtio/ramfb bridges).
+On 3.1.50 the glue emitted `Module["HEAPU8"]=...` regardless, so the omission
+never showed. On 4.0.10 it does not, and the A53 aborts during startup with
+
+```
+Aborted('HEAPU8' was not exported. add it to EXPORTED_RUNTIME_METHODS)
+```
+
+which in a release build presents only as a **silent hang**: no output, no
+display, no GDB stub, no error anywhere. Worse, the three TCI targets *booted*
+in that state, because `hello_world` never touches a bridge that reads guest
+memory. The views are now named explicitly in all three link patches, which is
+correct on 3.1.50 too and removes the tripwire.
+
+Two lessons worth keeping:
+
+- A silent qemu-wasm hang says nothing until you rebuild with
+  `-sASSERTIONS=2 -g2` and drop `-O3` from the link. That one build named the
+  abort after a long stretch of guessing; see also `docs/esp32.md`.
+- "It booted" is not "it works" for a toolchain bump. Boot a board and then
+  exercise a bridge, or the failure hides until someone uses I2C.
 
 One thing not to chase yet: JSPI (`-sJSPI`) removes Asyncify instrumentation
 entirely and would be the ideal answer to item 2, but QEMU's coroutine backend
