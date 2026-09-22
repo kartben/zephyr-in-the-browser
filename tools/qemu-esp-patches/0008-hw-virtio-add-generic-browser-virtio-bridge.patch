@@ -31,7 +31,7 @@ new file mode 100644
 index 0000000..7c06366
 --- /dev/null
 +++ b/hw/virtio/virtio-browser.c
-@@ -0,0 +1,856 @@
+@@ -0,0 +1,899 @@
 +/*
 + * Generic browser-backed VIRTIO device.
 + *
@@ -56,12 +56,14 @@ index 0000000..7c06366
 + * from JavaScript hand out a pointer and a count, the page touches nothing but
 + * ring memory, and a timer on the QEMU thread does every virtqueue operation.
 + *
-+ * Completions are primarily event-driven: the page kicks a BH after publishing
-+ * cmp_wr. The drain timer is the safety net (missed wakes, config_gen bumps
-+ * that do not kick). It runs on QEMU_CLOCK_REALTIME -- deliberate, because
-+ * under -icount with sleep=on a virtual-clock drain would race ahead of the
-+ * browser, fire on an empty ring, and inflate guest time while making no
-+ * progress.
++ * Completions are primarily event-driven. On Emscripten the queue handler
++ * itself waits on the completion futex, so a synchronous guest (a DAC write,
++ * a sensor read) resumes in the same MMIO notify instead of at the next
++ * main-loop poll. The page still kicks a BH on a real completion, and the
++ * realtime drain timer remains the safety net for a missed wake or a native
++ * build. The timer stays on QEMU_CLOCK_REALTIME: under -icount with sleep=on
++ * a virtual-clock drain would race ahead of the browser, fire on an empty
++ * ring, and inflate guest time while making no progress.
 + *
 + * Nothing here is browser-specific: the entry points are ordinary C, so the
 + * rings can be driven from a native test harness with no browser in the loop.
@@ -123,6 +125,13 @@ index 0000000..7c06366
 + */
 +#define VIRTIO_BROWSER_DRAIN_IDLE_MS 50
 +#define VIRTIO_BROWSER_DRAIN_BUSY_MS 1
++/*
++ * Bound on the in-handler futex wait. A posted reply usually lands in a
++ * fraction of a millisecond, once the browser thread runs the device model.
++ * The page also notifies this word when it parks a chain, so that wait
++ * returns with no completion. The cap covers a page that never signals.
++ */
++#define VIRTIO_BROWSER_SYNC_WAIT_MS 2.0
 +
 +/* Record headers, in bytes. Both are multiples of 4, so a payload padded to 4
 + * keeps every subsequent record aligned. */
@@ -507,7 +516,41 @@ index 0000000..7c06366
 +
 +static void virtio_browser_handle_queue(VirtIODevice *vdev, VirtQueue *vq)
 +{
-+    virtio_browser_pump(VIRTIO_BROWSER(vdev), vq);
++    VirtIOBrowser *b = VIRTIO_BROWSER(vdev);
++    uint32_t before = b->outstanding;
++
++    virtio_browser_pump(b, vq);
++
++#ifdef __EMSCRIPTEN__
++    /*
++     * The guest is stopped inside this notify until we return. Scheduling a
++     * BH and hoping qemu_notify_event breaks the main loop's poll left every
++     * synchronous transfer waiting out that poll (about 1 ms on the busy
++     * drain timer). A 1 kHz DAC write cannot keep real time at that pace,
++     * and an icount read of the same loop shows the guest itself is idle:
++     * the wall time is the round trip, not emulated instructions.
++     *
++     * req_write has already futex-woken the page. Block on the completion
++     * word the page Atomics.notify's, with the BQL dropped so that thread
++     * can run the device model (and so a racing kick BH can drain). If the
++     * reply was published before we waited, skip the wait: the wake would
++     * already have been consumed. The page notifies this word on park too,
++     * so a held chain returns at once. The timeout covers a silent page.
++     */
++    if (b->outstanding > before && bql_locked()) {
++        VirtioBrowserArea *area = b->area;
++        uint32_t seen = qatomic_read(&virtio_browser_wake);
++        uint32_t cmp_rd = area->cmp_rd;
++
++        bql_unlock();
++        if (qatomic_load_acquire(&area->cmp_wr) == cmp_rd) {
++            emscripten_futex_wait(&virtio_browser_wake, seen,
++                                  VIRTIO_BROWSER_SYNC_WAIT_MS);
++        }
++        bql_lock();
++        virtio_browser_drain(b);
++    }
++#endif
 +}
 +
 +/* --- completion ring (the page writes, QEMU reads) ------------------------ */

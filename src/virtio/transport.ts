@@ -17,18 +17,22 @@
  * Completions are kicked back into QEMU rather than waiting on its drain
  * timer: after publishing `cmp_wr` the page `Atomics.notify`s a shared wake
  * word and calls `_qemu_virtio_browser_kick()`, which futex-wakes and
- * `qemu_bh_schedule`s a drain on the QEMU main loop (BQL held — the export
- * itself may run on the browser thread under PROXY_TO_PTHREAD). Without that,
- * every blocking transfer sat until the next realtime drain tick (~50 Hz on
- * dac). Old emulators without the export keep working — they just stay on the
- * timer.
+ * `qemu_bh_schedule`s a drain on the QEMU main loop (BQL held: the export
+ * itself may run on the browser thread under PROXY_TO_PTHREAD). On a current
+ * emulator the queue handler is already blocked in `emscripten_futex_wait` on
+ * that same word, so the notify resumes the guest inside the MMIO that
+ * submitted the request. The kick is the fallback when that wait times out
+ * (a page that never signals, a stalled model). Old emulators without the
+ * export keep working: they just stay on the timer.
  *
  * Wakes coalesce across one poll tick. The guest I²C driver queues a whole
  * multi-message transfer before notifying, so a register read lands here as
  * two (or more) request records in one drain; answering each with its own
  * kick would schedule that many BHs for work QEMU can finish in one. A single
- * wake after the batch is enough. Delayed replies outside the poll (GPIO
- * event queues) still kick immediately.
+ * wake after the batch is enough. A poll that only parks chains (GPIO
+ * re-arming its event queue) notifies the futex and does not kick: the
+ * in-handler wait must return, and there is no completion to drain.
+ * Delayed replies outside the poll still kick immediately.
  *
  * New emulators wake a dedicated request waiter whenever they publish to a
  * request ring. The waiter blocks in Atomics.wait() on the shared wasm heap,
@@ -138,7 +142,8 @@ export interface VirtioRequest {
    * Declare that this chain is being held on purpose, waiving the watchdog.
    * An interrupt event queue parks a chain per line until the line fires; a
    * model that does that must say so, or the bridge decides after 5 s that it
-   * leaked the chain and fails it.
+   * leaked the chain and fails it. Also notifies the completion futex without
+   * scheduling a kick, so the in-handler wait returns instead of timing out.
    */
   park(): void
   /** Whether this request has already been answered. */
@@ -290,8 +295,14 @@ let wakeWordIndex = -1
  * flag early and double-kick.
  */
 let coalesceWakeDepth = 0
-/** A wake was requested inside the current coalesce window. */
+/** A completion wake was requested inside the current coalesce window. */
 let wakePending = false
+/**
+ * A park notified the completion futex inside the current coalesce window.
+ * Folded into {@link wakePending} when a reply is in the same batch, so a
+ * mixed poll still crosses into QEMU once.
+ */
+let notifyPending = false
 
 export function stats(): BridgeStats {
   return {
@@ -623,16 +634,15 @@ function flush(b: Bridge) {
 /**
  * Tell QEMU a completion is waiting. Two channels on purpose:
  *
- * 1. `Atomics.notify` on the shared wake word — lock-free from the page, wakes
- *    any futex wait the emulator (or a future drain path) parks on.
- * 2. `_qemu_virtio_browser_kick()` — futex-wakes the same word, schedules a
- *    BH to drain under the BQL on the QEMU thread, and `qemu_notify_event()`s
- *    so `-icount sleep=on` does not sit on the realtime drain timer. Must not
- *    drain inline: the export runs on the browser thread.
+ * 1. `Atomics.notify` on the shared wake word. A current emulator is blocked
+ *    in the virtqueue handler on this word, so the notify is what resumes the
+ *    guest. Lock-free from the page.
+ * 2. `_qemu_virtio_browser_kick()` schedules a BH and `qemu_notify_event()`s,
+ *    for the case where that wait already timed out. Must not drain inline:
+ *    the export runs on the browser thread.
  *
- * Either alone is enough on a rebuilt emulator; doing both covers the case
- * where the worker is in a generic sleep futex rather than our wake word.
- * Absent exports (old wasm) this is a no-op and the timer remains the path.
+ * Both run on every completion. Absent exports (old wasm) the notify is a
+ * no-op and the timer remains the path.
  *
  * Inside {@link withCoalescedWake} this only sets a flag; the outermost exit
  * fires one real wake for the whole batch.
@@ -651,12 +661,32 @@ function forceWakeQemu() {
   doWakeQemu()
 }
 
-function doWakeQemu() {
-  kicksSeen += 1
+/** Bump the completion futex. Resumes an in-handler wait; no BH, no kick. */
+function notifyWaiter() {
   if (words && wakeWordIndex >= 0) {
     Atomics.add(words, wakeWordIndex, 1)
     Atomics.notify(words, wakeWordIndex)
   }
+}
+
+/**
+ * Park path. Inside {@link withCoalescedWake} this only sets a flag so a
+ * batch of event-queue re-arms pays one notify, and so a reply in the same
+ * poll can absorb it into the single completion wake.
+ */
+function requestWaiterNotify() {
+  if (coalesceWakeDepth > 0) {
+    notifyPending = true
+    return
+  }
+  notifyWaiter()
+}
+
+function doWakeQemu() {
+  kicksSeen += 1
+  // The kick's notify covers any parks in this batch.
+  notifyPending = false
+  notifyWaiter()
   try {
     exports?._qemu_virtio_browser_kick?.()
   } catch (err) {
@@ -680,6 +710,9 @@ function withCoalescedWake(fn: () => void) {
     if (coalesceWakeDepth === 0 && wakePending) {
       wakePending = false
       doWakeQemu()
+    } else if (coalesceWakeDepth === 0 && notifyPending) {
+      notifyPending = false
+      notifyWaiter()
     }
   }
 }
@@ -715,7 +748,9 @@ function makeRequest(
       enqueue(b, token, CMP_FAIL, null)
     },
     park() {
+      if (answered || entry.parked) return
       entry.parked = true
+      requestWaiterNotify()
     },
   }
   entry.req = req

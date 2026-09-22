@@ -538,16 +538,73 @@ describe('virtio transport', () => {
       },
     })
     const before = stats()
+    const wakeAddr = (bridge.module as { _qemu_virtio_browser_wake_addr: () => number })
+      ._qemu_virtio_browser_wake_addr()
+    const words = new Int32Array((bridge.module as { HEAPU8: Uint8Array }).HEAPU8.buffer)
+    const wakeBefore = Atomics.load(words, wakeAddr >> 2)
     attach(bridge.module)
     const dev = bridge.device('park')
     dev.kick(0, Uint8Array.of(1), 1)
     pollOnce()
-    // Parking answers nothing, so the drain produced no completion wake.
+    // Parking answers nothing, so there is no kick. The futex still moves:
+    // the in-handler wait is blocked on this word and must return.
     expect(stats().kicks).toBe(before.kicks)
+    expect(Atomics.load(words, wakeAddr >> 2)).toBe(wakeBefore + 1)
     expect(held).not.toBeNull()
 
     held!.reply(Uint8Array.of(0xaa))
     expect(stats().kicks).toBe(before.kicks + 1)
+    expect(dev.completions()).toHaveLength(1)
+  })
+
+  it('notifies the futex once when a poll only parks', () => {
+    const bridge = createFakeBridge([{ name: 'park', deviceId: 99 }])
+    register({
+      name: 'park',
+      handle(req) {
+        req.park()
+      },
+    })
+    const before = stats()
+    const wakeAddr = (bridge.module as { _qemu_virtio_browser_wake_addr: () => number })
+      ._qemu_virtio_browser_wake_addr()
+    const words = new Int32Array((bridge.module as { HEAPU8: Uint8Array }).HEAPU8.buffer)
+    const wakeBefore = Atomics.load(words, wakeAddr >> 2)
+    attach(bridge.module)
+    const dev = bridge.device('park')
+    dev.kick(0, Uint8Array.of(1), 1)
+    dev.kick(0, Uint8Array.of(2), 1)
+    pollOnce()
+
+    expect(stats().kicks).toBe(before.kicks)
+    expect(Atomics.load(words, wakeAddr >> 2)).toBe(wakeBefore + 1)
+    expect(dev.completions()).toHaveLength(0)
+  })
+
+  it('folds a park notify into the completion kick of the same poll', () => {
+    const bridge = createFakeBridge([{ name: 'mix', deviceId: 99 }])
+    register({
+      name: 'mix',
+      handle(req) {
+        if (req.out[0] === 1) req.park()
+        else req.reply(req.out.slice())
+      },
+    })
+    const before = stats()
+    const wakeAddr = (bridge.module as { _qemu_virtio_browser_wake_addr: () => number })
+      ._qemu_virtio_browser_wake_addr()
+    const words = new Int32Array((bridge.module as { HEAPU8: Uint8Array }).HEAPU8.buffer)
+    const wakeBefore = Atomics.load(words, wakeAddr >> 2)
+    attach(bridge.module)
+    const dev = bridge.device('mix')
+    dev.kick(0, Uint8Array.of(1), 1)
+    dev.kick(0, Uint8Array.of(2), 1)
+    pollOnce()
+
+    // One page notify inside the kick, plus the fake kick's own bump.
+    // A second park notify would land at +3.
+    expect(stats().kicks).toBe(before.kicks + 1)
+    expect(Atomics.load(words, wakeAddr >> 2)).toBe(wakeBefore + 2)
     expect(dev.completions()).toHaveLength(1)
   })
 })

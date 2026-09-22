@@ -36,6 +36,8 @@ the list matters for a given workload:
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
 | 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
+| 15 | **Virtio queue handler waits on the completion futex** instead of the 1 ms drain poll | virtio QEMU patch | High, synchronous virtio (DAC) | Low | Medium |
+| 16 | **ramfb no longer arms VGA dirty logging** on guest RAM | ramfb QEMU patch | High, framebuffer paints | Low | Low |
 
 ## I²C throughput: what is left
 
@@ -57,25 +59,29 @@ Measured ceiling after the work above:
 | **Coalesce completion kicks per poll** | Done (this change) | Cuts BH storms on multi-msg transfers; DAC unchanged (1 msg) |
 | Page chip model | Not the limit | Pure-JS microbench ~380 kHz |
 
-The binding constraint for a synchronous one-message write is still ~1.1–1.2 ms
-of **guest VirtIO/I²C stack work** under Wasm TCG (~1.1 measured MIPS while
-blocked). The JS handle + MCP4725 path is microseconds.
+The JS handle + MCP4725 path is microseconds, and an icount read of the same
+loop advances only about 2 ms of guest time per wall second (`dac/clock.ts`).
+The guest is idle. The 1.1 to 1.2 ms is the completion sitting in QEMU's
+main-loop poll (item 15), not a million emulated instructions.
 
 What still moves the needle:
 
-1. **Raise guest MIPS** — link `-O3` (patched, unmeasured), `ASYNCIFY_ADVISE`
+1. **Resume the guest from the completion futex** (item 15). Patched; needs a
+   qemu-wasm rebuild before the DAC sample can keep a 1 ms step.
+2. **Stop VGA dirty logging on ramfb** (item 16). Patched; same rebuild. Guest
+   framebuffer stores were leaving the TCG fast path on every frame.
+3. **Raise guest MIPS**: link `-O3` (patched, unmeasured), `ASYNCIFY_ADVISE`
    prune (item 2), newer emsdk (item 5). Helps every sync virtio path, not
    only I²C.
-2. **Publish the rebuilt qemu-wasm** so kick-primary drain and #118 land on
-   the deployed page (local ~748 Hz vs older deployed ~236 Hz mixes rebuild
-   confounds; do not attribute that gap to the request waiter).
-3. **Fewer transfers in the guest app** — OLED fps is ~11 because Zephyr's
-   SSD1306 driver issues ~9 chunked writes per frame (132-byte chunks). Larger
-   chunks or partial updates raise fps without bridge changes. DAC cannot
-   coalesce: each MCP4725 fast-write is one 2-byte code by design.
-4. **Keep the main thread free** for virtio replies (item 8 / #126) — reduces
-   jank under load, not the DAC's steady-state Hz once the bridge is event-
-   driven.
+4. **Publish the rebuilt qemu-wasm** so the futex wait, the ramfb change, and
+   the earlier kick-primary drain land on the deployed page.
+5. **Fewer transfers in the guest app**: OLED fps is about 11 because Zephyr's
+   SSD1306 driver issues about 9 chunked writes per frame (132-byte chunks).
+   Larger chunks or partial updates raise fps without bridge changes. DAC
+   cannot coalesce: each MCP4725 fast-write is one 2-byte code by design.
+6. **Keep the main thread free** for virtio replies (item 8). The handler
+   wait runs the device model on this thread; a long turn is the new round
+   trip.
 
 Not worth chasing for I²C Hz: moving chip models into a Worker (#101 measured
 zero gain), SCL/"bus speed" knobs (there is no bus), or classic DMA/FIFO.
@@ -534,6 +540,48 @@ manual resampling into the shared heap. Same argument as item 9: an
 already dominated by the guest's 100 ms block reads, so this is glitch
 robustness rather than end-to-end latency.
 
+## 15. The virtio completion waited out the main-loop poll
+
+Request detection is a futex. The completion was not. After the page published
+`cmp_wr` it scheduled a BH; that BH ran the next time QEMU's main loop polled,
+which the busy drain timer holds to 1 ms while a token is outstanding. An
+icount sample of the DAC loop moves about 2 ms of guest time per wall second,
+so the guest is blocked, not busy. A 1 kHz `dac_write` cannot keep real time
+when each write gives back a millisecond it does not have.
+
+The queue handler now drops the BQL and `emscripten_futex_wait`s on
+`virtio_browser_wake`, the word the page already `Atomics.notify`s. The
+browser thread runs the device model while that wait is parked, and the
+handler drains the completion before returning to the guest. The guest's
+`k_sem_take` then observes an interrupt that has already been raised. The
+wait is capped at 2 ms so a page that never signals cannot freeze the
+machine. A current page notifies the same word when it parks a chain and
+does not kick, so a virtio-gpio event re-arm returns immediately with
+nothing to drain. The kick BH and the realtime timer stay as the path that
+picks up a late answer.
+
+This needs a qemu-wasm rebuild before a DAC write or a framebuffer store
+gets faster. Until that artifact is published, completions are still notify
+plus kick and the timer is still the safety net. The park notify is harmless
+on an older emulator: nothing is blocked on the word, and it does not
+schedule a kick.
+
+## 16. ramfb dirty logging taxed framebuffer stores
+
+The ramfb bridge turned on `DIRTY_MEMORY_VGA` for the MemoryRegion that backs
+the guest framebuffer and cleared it every 16 ms. TCG implements that by
+taking the notdirty slow path on the next store to each cleared page, and
+`snapshot_and_clear_dirty` runs on the QEMU thread. A 480×320 frame is about
+150 pages. Every LVGL refresh paid that, on top of the copy the guest was
+already struggling to finish.
+
+The browser never needed it. The render worker already checksums the shared
+pixels (about 0.4 ms for 600×400 on a desktop JS engine) and skips the upload
+when nothing changed, and once a frame is animating it uploads without
+hashing. New builds return 0 from the frame-sequence exports so that path is
+the one that runs. Older artifacts still publish a sequence; the worker keeps
+honouring it.
+
 ## Suggested order
 
 1. ~~Item 1(a) (`postMessage` nesting reset)~~ — done; 4.14 ms → 1.13 ms.
@@ -550,5 +598,7 @@ robustness rather than end-to-end latency.
 6. ~~Items 11/12 (trace + panels-menu React waste)~~ — done in-page; no rebuild.
 7. ~~Item 8 (shared host poll)~~ — done in-page. Items 9/14 — move audio
    (and mic) onto `AudioWorklet`.
-8. Item 13 leftovers — hex cell memoization / shared `useDeviceTree` only if a
+8. Items 15 and 16 ride the next qemu-wasm rebuild. Profile DAC `i2cHz`
+   (want ~1000) and a display sample's guest frame rate before and after.
+9. Item 13 leftovers: hex cell memoization / shared `useDeviceTree` only if a
    profile still shows them after the NetBadge / dock-memo / flash-coalesce pass.
