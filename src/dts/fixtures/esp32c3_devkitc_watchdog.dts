@@ -1,0 +1,38 @@
+/dts-v1/;
+
+/*
+ * Trimmed from the esp32c3_devkitc build of samples/drivers/watchdog: the two
+ * timer group watchdogs as the board leaves them, TIMG0's enabled and TIMG1's
+ * not.
+ */
+/ {
+	#address-cells = < 0x1 >;
+	#size-cells = < 0x1 >;
+	model = "Espressif ESP32C3-DevkitC";
+	compatible = "espressif,esp32c3";
+
+	aliases {
+		watchdog0 = &wdt0;
+	};
+
+	soc {
+		#address-cells = < 0x1 >;
+		#size-cells = < 0x1 >;
+		compatible = "simple-bus";
+		ranges;
+
+		wdt0: watchdog@6001f048 {
+			compatible = "espressif,esp32-watchdog";
+			reg = < 0x6001f048 0x20 >;
+			interrupts = < 0x21 0x0 0x0 >;
+			status = "okay";
+		};
+
+		wdt1: watchdog@60020048 {
+			compatible = "espressif,esp32-watchdog";
+			reg = < 0x60020048 0x20 >;
+			interrupts = < 0x23 0x0 0x0 >;
+			status = "disabled";
+		};
+	};
+};

@@ -24,6 +24,7 @@ import * as hostI2c from '@/hostI2c'
 import * as hostSpi from '@/hostSpi'
 import * as hostTwai from '@/hostTwai'
 import * as hostPowerState from '@/hostPowerState'
+import * as hostWatchdog from '@/hostWatchdog'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
@@ -73,6 +74,7 @@ function deriveShared(
     avail.spi,
     avail.can,
     avail.power,
+    avail.watchdog,
     avail.display,
     avail.input,
   ]
@@ -133,6 +135,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     hostPowerState.available,
     () => false,
   )
+  const watchdog = useSyncExternalStore(hostWatchdog.subscribe, hostWatchdog.available, () => false)
   const gnss = useSyncExternalStore(hostGnss.subscribe, hostGnss.available, () => false)
   const bluetooth = useSyncExternalStore(hostBt.subscribe, hostBt.available, () => false)
   const gpio = useSyncExternalStore(hostGpio.subscribe, hostGpio.available, () => false)
@@ -173,7 +176,8 @@ export function useDeviceTree(boardId: string): DeviceInventory {
 
   const inventory = useMemo(() => {
     const avail: Availability = {
-      gnss, bluetooth, gpio, audio, mic, net, i2c, spi, can, power, display, input, disk,
+      gnss, bluetooth, gpio, audio, mic, net, i2c, spi, can, power, watchdog, display, input,
+      disk,
     }
     return deriveShared(tree, chips, spiChips, avail, boardId, phase)
   }, [
@@ -190,6 +194,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     spi,
     can,
     power,
+    watchdog,
     display,
     input,
     disk,

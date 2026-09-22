@@ -120,6 +120,13 @@ branch, and none has been reported yet.
   the C3's, just with a different set: the machine uses `CAN_SJA1000`
   unconditionally and never selects it, and it selected `TMP105` only for a demo
   thermometer soldered on at a fixed address.
+- **The MWDT fed while locked.** `WDTFEED` is write-protected by
+  `WDTWPROTECT` like `WDTCONFIG0-5`, and the model only checked the key on
+  `WDTCONFIG0`. Zephyr's `wdt_esp32` driver calls `wdt_hal_handle_intr()` from
+  its ISR with the WDT sealed, and that HAL call feeds as well as clearing the
+  interrupt; on the part the feed is dropped. Here it landed, so every stage 0
+  interrupt re-armed stage 0, the reset stage was never reached, and
+  `samples/drivers/watchdog` sat in "Waiting for reset..." for ever.
 
 Also carried, and specific to running in a browser: `esp32c3_cache.c` filled its
 cache with a synchronous `blk_pread()` from the MMIO handler that guest MMU
@@ -304,6 +311,40 @@ so it can tell on the way back out that the wake stub survived. Nothing modelled
 it, so the finish bit never arrived. Memory does not decay under emulation, so
 the check exists only to be passed: finish immediately and leave the digest
 alone.
+
+### The watchdog card
+
+`samples/drivers/watchdog` runs stock: the board aliases `watchdog0` to TIMG0's
+MWDT. Zephyr programs two stages of the same timeout, an interrupt then a
+system reset; the sample's callback feeds once from the first interrupt, so
+the second one moves the counter into stage 1 and the SoC resets with reason
+`TG0WDT_SYS_RESET`, which the ROM prints as `rst:0x7` on the way back up.
+
+Once the feed fix above was in, the reset path needed no work. What was
+missing was a way to see it: a watchdog that is running looks like nothing at
+all from the terminal, and a watchdog reset looks like any other boot. So
+`hw/timer/esp_timg.c` keeps a status block per timer group, exported as
+`qemu_esp_wdt_status()`, and `src/hostWatchdog.ts` reads it on the shared
+beat:
+
+| Field | Meaning |
+| --- | --- |
+| `seq` | seqlock: odd while QEMU is writing the slot |
+| `enabled`, `stage` | whether the WDT runs, and which stage it is in |
+| `actions`, `stage_ticks[4]`, `freq_hz` | each stage's action and timeout |
+| `deadline`, `now` | when the stage expires, and the clock it is measured against |
+| `feeds` | since the last reset |
+| `interrupts`, `bites`, `bite_*` | this session, surviving the resets they cause |
+
+Two details are there for the browser. The page has no guest clock on this
+machine, and under `-icount` guest time runs slower than the wall's whenever
+TCI is busy, which is exactly when a watchdog is about to bite, so while a WDT
+runs the model republishes `now` every 20 ms of virtual time and the countdown
+is measured against that. And the bite counters live outside the device's
+reset, since a bite is only interesting after the reset it caused: the card
+keeps it, next to the reset reason from the power block.
+
+The RTC watchdog (reason 9) is not modelled, and nothing here arms it.
 
 ## Known limits (ESP32-C3)
 - **The only display Zephyr can drive is the OLED.** The machine does map a

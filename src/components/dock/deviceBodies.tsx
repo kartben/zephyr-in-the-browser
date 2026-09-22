@@ -30,6 +30,7 @@ import {
   Volume2,
   Waves,
   Bluetooth,
+  ShieldCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MicBody, SpeakerBody } from '@/components/AudioPanel'
@@ -46,6 +47,7 @@ import { SpiBody, SpiCsDot } from '@/components/SpiPanel'
 import { UartBody } from '@/components/UartPanel'
 import { CanBody } from '@/components/CanPanel'
 import { PowerBody } from '@/components/PowerCard'
+import { WatchdogBody } from '@/components/WatchdogCard'
 import { LedMatrixBody, RgbLedBody, LedBarBody } from '@/components/LedPanel'
 import { FlashBadge } from '@/components/FlashStats'
 import { DiskBadge, DiskBody } from '@/components/DiskPanel'
@@ -192,6 +194,8 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
       return <CanBody />
     case 'power':
       return <PowerBody />
+    case 'watchdog':
+      return <WatchdogBody timerIndex={node.watchdogIndex ?? 0} />
     case 'spi-flash':
       return (
         <SpiFlashBody
@@ -271,6 +275,8 @@ export function deviceIcon(node: DeviceNode): LucideIcon {
       return Network
     case 'power':
       return BatteryCharging
+    case 'watchdog':
+      return ShieldCheck
     case 'spi-flash':
       return MemoryStick
     case 'disk':
