@@ -1,12 +1,22 @@
 diff --git a/configs/meson/emscripten.txt b/configs/meson/emscripten.txt
-index 6b31006..310f287 100644
+index 6b31006..aa1d9e7 100644
 --- a/configs/meson/emscripten.txt
 +++ b/configs/meson/emscripten.txt
-@@ -4,5 +4,5 @@ cpp_args = ['-pthread']
- objc_args = ['-pthread']
+@@ -1,8 +1,12 @@
+ [built-in options]
+-c_args = ['-pthread']
+-cpp_args = ['-pthread']
+-objc_args = ['-pthread']
++c_args = ['-pthread','-sSUPPORT_LONGJMP=wasm']
++cpp_args = ['-pthread','-sSUPPORT_LONGJMP=wasm']
++objc_args = ['-pthread','-sSUPPORT_LONGJMP=wasm']
  # -sPROXY_TO_PTHREAD link time flag always requires -pthread even during
  # configuration so explicitly add the flag here.
 -c_link_args = ['-pthread','-sASYNCIFY=1','-sPROXY_TO_PTHREAD=1','-sFORCE_FILESYSTEM','-sALLOW_TABLE_GROWTH','-sTOTAL_MEMORY=2GB','-sWASM_BIGINT','-sEXPORT_ES6=1','-sASYNCIFY_IMPORTS=ffi_call_js','-sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS','--js-library=/build/node_modules/xterm-pty/emscripten-pty.js']
 -cpp_link_args = ['-pthread','-sASYNCIFY=1','-sPROXY_TO_PTHREAD=1','-sFORCE_FILESYSTEM','-sALLOW_TABLE_GROWTH','-sTOTAL_MEMORY=2GB','-sWASM_BIGINT','-sEXPORT_ES6=1','-sASYNCIFY_IMPORTS=ffi_call_js','-sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS','--js-library=/build/node_modules/xterm-pty/emscripten-pty.js']
-+c_link_args = ['-pthread','-O3','-sASYNCIFY=1','-sPROXY_TO_PTHREAD=1','-sFORCE_FILESYSTEM','-sALLOW_TABLE_GROWTH','-sTOTAL_MEMORY=2GB','-sWASM_BIGINT','-sEXPORT_ES6=1','-sASYNCIFY_IMPORTS=ffi_call_js','-sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64','--js-library=/build/node_modules/xterm-pty/emscripten-pty.js']
-+cpp_link_args = ['-pthread','-O3','-sASYNCIFY=1','-sPROXY_TO_PTHREAD=1','-sFORCE_FILESYSTEM','-sALLOW_TABLE_GROWTH','-sTOTAL_MEMORY=2GB','-sWASM_BIGINT','-sEXPORT_ES6=1','-sASYNCIFY_IMPORTS=ffi_call_js','-sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64','--js-library=/build/node_modules/xterm-pty/emscripten-pty.js']
++# -sJSPI switches coroutines with JavaScript Promise Integration instead of
++# Asyncify (see util/coroutine-jspi.c). Only WebAssembly frames may sit on a
++# suspending stack, so setjmp must not go through JavaScript trampolines:
++# -sSUPPORT_LONGJMP=wasm, at compile time as well as at link time.
++c_link_args = ['-pthread','-O3','-sJSPI','-sJSPI_IMPORTS=emscripten_sleep','-sSUPPORT_LONGJMP=wasm','-sPROXY_TO_PTHREAD=1','-sFORCE_FILESYSTEM','-sALLOW_TABLE_GROWTH','-sTOTAL_MEMORY=2GB','-sWASM_BIGINT','-sEXPORT_ES6=1','-sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64','--js-library=/build/node_modules/xterm-pty/emscripten-pty.js']
++cpp_link_args = ['-pthread','-O3','-sJSPI','-sJSPI_IMPORTS=emscripten_sleep','-sSUPPORT_LONGJMP=wasm','-sPROXY_TO_PTHREAD=1','-sFORCE_FILESYSTEM','-sALLOW_TABLE_GROWTH','-sTOTAL_MEMORY=2GB','-sWASM_BIGINT','-sEXPORT_ES6=1','-sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,TTY,FS,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64','--js-library=/build/node_modules/xterm-pty/emscripten-pty.js']
