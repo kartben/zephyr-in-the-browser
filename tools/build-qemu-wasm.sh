@@ -216,9 +216,12 @@ build_qemu() {
   local jobs="${JOBS:-$(docker exec "$CONTAINER" nproc)}"
 
   # configure auto-detects Emscripten and pulls in configs/meson/emscripten.txt,
-  # which already carries ASYNCIFY, PROXY_TO_PTHREAD, EXPORT_ES6 and friends —
-  # so unlike the old fork build there is no wall of flags to keep in sync.
-  #   --with-coroutine=wasm      upstream has a real wasm backend (not 'fiber')
+  # which carries PROXY_TO_PTHREAD, EXPORT_ES6 and friends, so unlike the old
+  # fork build there is no wall of flags to keep in sync. The link patch in each
+  # series swaps its -sASYNCIFY for -sJSPI and Wasm-EH longjmp.
+  #   --with-coroutine=jspi      the JSPI backend the series adds: upstream's
+  #                              'wasm' backend is emscripten fibers, which
+  #                              only exist under Asyncify
   #   --enable-tcg-interpreter   mandatory for upstream; omitted for the
   #                              experimental native wasm32 TCG backend
   #   --with-devices-<arch>      configs/devices/<target>/browser.mak instead of
@@ -232,12 +235,12 @@ build_qemu() {
     docker exec "$CONTAINER" emconfigure /qemu/configure \
       --static --target-list="$target" --cross-prefix= \
       --without-default-features --enable-system "$devices" \
-      --with-coroutine=wasm
+      --with-coroutine=jspi
   else
     docker exec "$CONTAINER" emconfigure /qemu/configure \
       --static --target-list="$target" --cross-prefix= \
       --without-default-features --enable-system "$devices" \
-      --with-coroutine=wasm --enable-tcg-interpreter
+      --with-coroutine=jspi --enable-tcg-interpreter
   fi
 
   # Note the target is "<binary>.js", not "<binary>" as in the fork.

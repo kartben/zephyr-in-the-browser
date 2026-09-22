@@ -36,7 +36,7 @@ ARG FFI_VERSION=v3.5.2
 FROM emscripten/emsdk:$EMSDK_VERSION_QEMU AS build-base
 # Porting glib to emscripten inspired by https://github.com/emscripten-core/emscripten/issues/11066
 ENV TARGET=/build/target
-ENV CFLAGS="-O2 -matomics -mbulk-memory -DNDEBUG -sWASM_BIGINT -DWASM_BIGINT -pthread -sMALLOC=mimalloc  -sASYNCIFY=1 "
+ENV CFLAGS="-O2 -matomics -mbulk-memory -DNDEBUG -sWASM_BIGINT -DWASM_BIGINT -pthread -sMALLOC=mimalloc"
 ENV CXXFLAGS="$CFLAGS"
 ENV LDFLAGS="-L$TARGET/lib -O2"
 ENV CPATH="$TARGET/include"
@@ -108,7 +108,7 @@ COPY --link --from=zlib-emscripten-dev /build/ /build/
 COPY --link --from=libffi-emscripten-dev /build/ /build/
 
 WORKDIR /glib
-ENV CFLAGS="-Wno-error=incompatible-function-pointer-types -Wincompatible-function-pointer-types -O2 -matomics -mbulk-memory -DNDEBUG -pthread -sWASM_BIGINT -sMALLOC=mimalloc -sASYNCIFY=1"
+ENV CFLAGS="-Wno-error=incompatible-function-pointer-types -Wincompatible-function-pointer-types -O2 -matomics -mbulk-memory -DNDEBUG -pthread -sWASM_BIGINT -sMALLOC=mimalloc"
 ENV CXXFLAGS="$CFLAGS"
 RUN <<EOF
 cat <<'EOT' > /emcc-meson-wrap.sh
