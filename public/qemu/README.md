@@ -203,7 +203,7 @@ To experiment with other link flags, edit the patch, not the checkout under
 tracked files to the pinned revision before applying the series on every run, so
 hand-edits to the source tree do not survive.
 
-Thirteen browser integrations are supplied by the target-specific patch
+Fourteen browser integrations are supplied by the target-specific patch
 directories under `tools/`:
 
 * `--js-library=.../xterm-pty/emscripten-pty.js`, or `Module.pty` is ignored and
@@ -283,6 +283,11 @@ directories under `tools/`:
   (wired to a spare UART by the HCI virt patches — see `docs/bluetooth.md`).
   gdb0 stays closed until `qemu_browser_gdb_attach()` so boot is not frozen
   waiting for a client. See `docs/debug-gdb-plan.md`.
+* A **watchdog status block** (`hw/watchdog/browser-wdt-status.c`), exported as
+  `qemu_browser_wdt_status`: the countdown, feeds and bites of the Cortex-M3's
+  CMSDK watchdog and of the SiFive watchdog the RISC-V patches put on `virt`,
+  for the dock's watchdog card (`src/hostWatchdog.ts`). The ESP32 timer
+  groups keep the same layout in the fork itself. See `docs/watchdog.md`.
 * A `qemu_browser_guest_icount` export (AArch64 only) returning the guest
   instruction count, or `-1` when the build is not running under `-icount`. It
   backs the Performance panel's MIPS readout (`src/guestStats.ts`).

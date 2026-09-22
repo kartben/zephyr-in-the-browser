@@ -291,10 +291,15 @@ const BRIDGED_SPI_COMPATS = new Set(['virtio,spi', 'espressif,esp32-spi'])
 const BRIDGED_CAN_COMPATS = new Set(['espressif,esp32-twai'])
 
 /**
- * Watchdogs whose QEMU model publishes its countdown. The ESP32-C3's timer
- * group MWDTs, through the status block in the fork's hw/timer/esp_timg.c.
+ * Watchdogs whose QEMU model publishes its countdown (src/hostWatchdog.ts):
+ * the ESP32-C3's timer group MWDTs, the LM3S6965's CMSDK-style watchdog, and
+ * the SiFive watchdog on the patched RISC-V virt.
  */
-const WATCHED_WDT_COMPATS = new Set(['espressif,esp32-watchdog'])
+const WATCHED_WDT_COMPATS = new Set([
+  'espressif,esp32-watchdog',
+  'arm,cmsdk-watchdog',
+  'sifive,wdt',
+])
 /** The GPIO controllers the browser panel drives, one per board. */
 // espressif,esp32-gpio is the odd one out: not a browser-invented device but
 // the SoC's own controller, modelled in QEMU and driven by the stock Zephyr

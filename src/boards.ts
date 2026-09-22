@@ -220,9 +220,10 @@ export interface Board {
      */
     powerState?: boolean
     /**
-     * The SoC's watchdogs report their countdown and bites to the dock's
-     * watchdog card. Read-only, no bridge: see src/hostWatchdog.ts. ESP32-C3
-     * only.
+     * The machine's watchdog reports its countdown and bites to the dock's
+     * watchdog card. Read-only, no bridge: see src/hostWatchdog.ts. The
+     * ESP32-C3's timer groups, the Cortex-M3's CMSDK watchdog, and the SiFive
+     * watchdog the patched RISC-V virt carries.
      */
     watchdog?: boolean
     /**
@@ -293,6 +294,17 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     label: 'State Machine',
     description: 'Hierarchical state machine driven from the shell',
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
+  },
+  {
+    // The LM3S6965's own watchdog, which QEMU models and the board devicetree
+    // leaves out; `-S watchdog` adds it. Zephyr's driver expects its callback
+    // on the NMI, where MPS2 wires this block, and the LM3S6965 puts it on
+    // IRQ 18, so the first timeout interrupts nobody and the second resets.
+    id: 'watchdog',
+    label: 'Watchdog',
+    description: 'Feeds, stops feeding, and gets reset; watch the countdown',
+    zephyrSample: 'samples/drivers/watchdog',
+    primaryPanels: ['watchdog'],
   },
   {
     // main() returns after kicking DHCP off; progress rides the RX interrupt
@@ -861,6 +873,7 @@ export const BOARDS: Board[] = [
       hostAudio: true,
       hostMic: true,
       hostNet: true,
+      watchdog: true,
     },
     samples: CORTEX_M3_SAMPLES,
     // The shell is the one worth landing on: it is interactive, and its `gpio`
@@ -1043,6 +1056,7 @@ export const BOARDS: Board[] = [
       virtio: true,
       // No -icount / guest-icount export on the TCI riscv32 build yet.
       hostBt: true,
+      watchdog: true,
     },
     // Same guest apps as A53 base (no `_trace` twins — ARM semihosting CTF path,
     // and this board has no hostTrace peripheral to feed it). Drop dedicated
@@ -1050,13 +1064,25 @@ export const BOARDS: Board[] = [
     // goes too: the RISC-V virt SoC does not select HAS_PM either, and the
     // cpu-power-states snippet only carries an A53 overlay, so the sample would
     // build with no state ladder and never suspend.
-    samples: CORTEX_A53_SAMPLES_BASE.filter(
-      (s) =>
-        s.id !== 'tracing' &&
-        s.id !== 'tracing_pipeline' &&
-        s.id !== 'msg_queue' &&
-        s.id !== 'pm_latency',
-    ),
+    samples: [
+      ...CORTEX_A53_SAMPLES_BASE.filter(
+        (s) =>
+          s.id !== 'tracing' &&
+          s.id !== 'tracing_pipeline' &&
+          s.id !== 'msg_queue' &&
+          s.id !== 'pm_latency',
+      ),
+      {
+        // virt has no watchdog, so the patched machine carries the SiFive E's
+        // always-on block and `-S watchdog` turns it on. Zephyr's sifive,wdt
+        // driver resets in one stage: the first timeout is the reset.
+        id: 'watchdog',
+        label: 'Watchdog',
+        description: 'Feeds, stops feeding, and gets reset; watch the countdown',
+        zephyrSample: 'samples/drivers/watchdog',
+        primaryPanels: ['watchdog'],
+      },
+    ],
     defaultSampleId: 'hello_world',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },

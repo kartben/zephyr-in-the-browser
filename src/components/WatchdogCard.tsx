@@ -4,6 +4,7 @@ import {
   getSnapshot,
   subscribe,
   type StageAction,
+  type WatchdogRef,
   type WatchdogTimer,
 } from '@/hostWatchdog'
 import { getSnapshot as getPowerSnapshot, subscribe as subscribePower } from '@/hostPowerState'
@@ -15,8 +16,9 @@ import { cn } from '@/lib/utils'
  * The countdown is the guest's, not the wall's: see src/hostWatchdog.ts for
  * why that matters under the interpreter. After a bite the part reboots and
  * the guest starts printing its boot banner again, which from the terminal
- * looks like any other reset; the card keeps the bite and puts the SoC's own
- * reset-reason register next to it, so there is no doubt what happened.
+ * looks like any other reset; the card keeps the bite, and on the ESP32-C3,
+ * the one SoC here with a reset-reason register, puts that register next to
+ * it, so there is no doubt what happened.
  */
 
 /** How long a fresh bite stays highlighted, in wall-clock milliseconds. */
@@ -67,10 +69,12 @@ function useFreshBite(timer: WatchdogTimer | undefined): boolean {
   return fresh
 }
 
-export function WatchdogBody({ timerIndex }: { timerIndex: number }) {
+export function WatchdogBody({ watchdog }: { watchdog: WatchdogRef }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const power = useSyncExternalStore(subscribePower, getPowerSnapshot, getPowerSnapshot)
-  const timer = snap.timers.find((t) => t.index === timerIndex)
+  const timer = snap.timers.find(
+    (t) => t.source === watchdog.source && t.index === watchdog.index,
+  )
   const fresh = useFreshBite(timer)
 
   if (!timer) {

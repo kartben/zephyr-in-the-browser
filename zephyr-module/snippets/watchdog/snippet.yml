@@ -1,0 +1,17 @@
+name: watchdog
+description: >
+  Turn on the SoC's own watchdog and alias it watchdog0, so
+  samples/drivers/watchdog runs and the dock's watchdog card counts it down.
+  The watchdog is the machine's, not a browser device: the LM3S6965's
+  CMSDK-style watchdog on the Cortex-M3, and on RISC-V virt the SiFive E
+  always-on block the patched machine adds. The ESP32-C3 needs no snippet,
+  since its board devicetree already enables TIMG0's MWDT.
+
+boards:
+  qemu_cortex_m3/ti_lm3s6965:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_cortex_m3.overlay
+      EXTRA_CONF_FILE: boards/qemu_cortex_m3.conf
+  qemu_riscv32/qemu_virt_riscv32:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: boards/qemu_riscv32.overlay

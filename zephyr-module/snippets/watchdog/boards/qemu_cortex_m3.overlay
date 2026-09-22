@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Turn on the LM3S6965's watchdog the browser_bridge shield declares disabled.
+ *
+ * Zephyr's driver delivers its pre-reset callback from the NMI, which is
+ * where MPS2 wires this block. The LM3S6965 puts it on IRQ 18 instead (and so
+ * does QEMU), so the callback never runs here: the first timeout raises an
+ * interrupt nothing listens to, and the second resets the part. The reset is
+ * the point of the sample, and that works as it would on the chip.
+ */
+
+&wdt0 {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		watchdog0 = &wdt0;
+	};
+};

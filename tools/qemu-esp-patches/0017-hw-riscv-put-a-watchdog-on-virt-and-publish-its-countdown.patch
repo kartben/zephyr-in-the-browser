@@ -1,0 +1,491 @@
+diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
+index 4e35657..5ade2e6 100644
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -200,6 +200,7 @@ config SIFIVE_E_PRCI
+ 
+ config SIFIVE_E_AON
+     bool
++    select BROWSER_WDT_STATUS
+ 
+ config SIFIVE_U_OTP
+     bool
+diff --git a/hw/misc/sifive_e_aon.c b/hw/misc/sifive_e_aon.c
+index 6eef38d..c14b152 100644
+--- a/hw/misc/sifive_e_aon.c
++++ b/hw/misc/sifive_e_aon.c
+@@ -26,6 +26,7 @@
+ #include "qapi/error.h"
+ #include "system/watchdog.h"
+ #include "hw/qdev-properties.h"
++#include "hw/watchdog/browser-wdt-status.h"
+ 
+ REG32(AON_WDT_WDOGCFG, 0x0)
+     FIELD(AON_WDT_WDOGCFG, SCALE, 0, 4)
+@@ -62,6 +63,39 @@ static void sifive_e_aon_wdt_update_wdogcount(SiFiveEAONState *r)
+     r->wdog_restart_time = now;
+ }
+ 
++/*
++ * One stage: the count reaching WDOGCMP0 resets the part when RSTEN is set,
++ * and otherwise only raises IP0.
++ */
++static void sifive_e_aon_wdt_status(void *opaque, BrowserWdtState *st)
++{
++    SiFiveEAONState *r = opaque;
++    const unsigned scale = FIELD_EX32(r->wdogcfg, AON_WDT_WDOGCFG, SCALE);
++    const int64_t expires = timer_expire_time_ns(r->wdog_timer);
++
++    st->enabled = FIELD_EX32(r->wdogcfg, AON_WDT_WDOGCFG, EN_ALWAYS) ||
++                  FIELD_EX32(r->wdogcfg, AON_WDT_WDOGCFG, EN_CORE_AWAKE);
++    st->stage = 0;
++    st->action[0] = FIELD_EX32(r->wdogcfg, AON_WDT_WDOGCFG, RSTEN)
++                    ? BROWSER_WDT_RESET_SYSTEM : BROWSER_WDT_INTERRUPT;
++    st->action[1] = st->action[2] = st->action[3] = BROWSER_WDT_OFF;
++    st->freq_hz = r->wdogclk_freq >> scale;
++    st->stage_ticks[0] = r->wdogcmp0;
++    st->stage_ticks[1] = st->stage_ticks[2] = st->stage_ticks[3] = 0;
++    st->deadline_ns = expires > 0 && expires != INT64_MAX ? expires : 0;
++}
++
++static void sifive_e_aon_wdt_publish(SiFiveEAONState *r, bool bite)
++{
++    BrowserWdtState st = { 0 };
++
++    if (r->status_slot < 0) {
++        return;
++    }
++    sifive_e_aon_wdt_status(r, &st);
++    browser_wdt_publish(r->status_slot, &st, bite);
++}
++
+ static void sifive_e_aon_wdt_update_state(SiFiveEAONState *r)
+ {
+     uint16_t wdogs;
+@@ -80,7 +114,10 @@ static void sifive_e_aon_wdt_update_state(SiFiveEAONState *r)
+ 
+     if (cmp_signal) {
+         if (FIELD_EX32(r->wdogcfg, AON_WDT_WDOGCFG, RSTEN) == 1) {
++            sifive_e_aon_wdt_publish(r, true);
+             watchdog_perform_action();
++        } else {
++            browser_wdt_count_interrupt(r->status_slot);
+         }
+         r->wdogcfg = FIELD_DP32(r->wdogcfg, AON_WDT_WDOGCFG, IP0, 1);
+     }
+@@ -98,6 +135,10 @@ static void sifive_e_aon_wdt_update_state(SiFiveEAONState *r)
+     } else {
+         timer_mod(r->wdog_timer, INT64_MAX);
+     }
++
++    if (!cmp_signal || !FIELD_EX32(r->wdogcfg, AON_WDT_WDOGCFG, RSTEN)) {
++        sifive_e_aon_wdt_publish(r, false);
++    }
+ }
+ 
+ /*
+@@ -193,6 +234,7 @@ sifive_e_aon_wdt_write(void *opaque, hwaddr addr,
+             return;
+         }
+         if (value == SIFIVE_E_AON_WDOGFEED) {
++            browser_wdt_count_feed(r->status_slot);
+             r->wdogcount = 0;
+             r->wdog_restart_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+         }
+@@ -265,14 +307,31 @@ static void sifive_e_aon_reset(DeviceState *dev)
+ {
+     SiFiveEAONState *r = SIFIVE_E_AON(dev);
+ 
+-    r->wdogcfg = FIELD_DP32(r->wdogcfg, AON_WDT_WDOGCFG, RSTEN, 0);
+-    r->wdogcfg = FIELD_DP32(r->wdogcfg, AON_WDT_WDOGCFG, EN_ALWAYS, 0);
+-    r->wdogcfg = FIELD_DP32(r->wdogcfg, AON_WDT_WDOGCFG, EN_CORE_AWAKE, 0);
++    /*
++     * The FE310 manual defines only these three bits at reset and leaves the
++     * rest undefined, so clearing the whole register is as correct, and on
++     * virt, where a reset is the whole machine, it is the one that works:
++     * keeping IP0 from a bite left the interrupt pending into the next boot,
++     * and Zephyr's sifive,wdt ISR answers it by programming the maximum
++     * timeout, over the configuration the sample had just installed.
++     */
++    r->wdogcfg = 0;
++    r->wdogcount = 0;
++    r->wdogunlock = 0;
+     r->wdogcmp0 = 0xbeef;
+ 
++    browser_wdt_reset_feeds(r->status_slot);
+     sifive_e_aon_wdt_update_state(r);
+ }
+ 
++static void sifive_e_aon_realize(DeviceState *dev, Error **errp)
++{
++    SiFiveEAONState *r = SIFIVE_E_AON(dev);
++
++    r->status_slot = browser_wdt_claim();
++    browser_wdt_set_refresh(r->status_slot, sifive_e_aon_wdt_status, r);
++}
++
+ static void sifive_e_aon_init(Object *obj)
+ {
+     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
+@@ -286,6 +345,7 @@ static void sifive_e_aon_init(Object *obj)
+     r->wdog_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                  sifive_e_aon_wdt_expired_cb, r);
+     r->wdogclk_freq = SIFIVE_E_LFCLK_DEFAULT_FREQ;
++    r->status_slot = -1;
+     sysbus_init_irq(sbd, &r->wdog_irq);
+ }
+ 
+@@ -298,6 +358,7 @@ static void sifive_e_aon_class_init(ObjectClass *oc, const void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(oc);
+ 
++    dc->realize = sifive_e_aon_realize;
+     device_class_set_legacy_reset(dc, sifive_e_aon_reset);
+     device_class_set_props(dc, sifive_e_aon_properties);
+ }
+diff --git a/hw/riscv/Kconfig b/hw/riscv/Kconfig
+index d9e0ba3..5fbc378 100644
+--- a/hw/riscv/Kconfig
++++ b/hw/riscv/Kconfig
+@@ -62,6 +62,7 @@ config RISCV_VIRT
+     select RISCV_IMSIC
+     select SIFIVE_PLIC
+     select SIFIVE_TEST
++    select SIFIVE_E_AON
+     select SMBIOS
+     select VIRTIO_MMIO
+     select FW_CFG_DMA
+diff --git a/hw/riscv/virt.c b/hw/riscv/virt.c
+index 6668232..490b604 100644
+--- a/hw/riscv/virt.c
++++ b/hw/riscv/virt.c
+@@ -45,6 +45,7 @@
+ #include "hw/intc/riscv_aplic.h"
+ #include "hw/intc/sifive_plic.h"
+ #include "hw/misc/sifive_test.h"
++#include "hw/misc/sifive_e_aon.h"
+ #include "hw/platform-bus.h"
+ #include "chardev/char.h"
+ #include "system/device_tree.h"
+@@ -1741,6 +1742,22 @@ static void virt_machine_init(MachineState *machine)
+         }
+     }
+ 
++    /*
++     * A watchdog, which virt has none of: the SiFive E's always-on block at
++     * 0x1000d000 (PLIC IRQ 14), next in the window the browser devices above
++     * already use. Zephyr has a stock sifive,wdt driver for its watchdog, and
++     * the model resets through the generic watchdog action. Only the watchdog
++     * half of the block is modelled; the RTC and PMU are not.
++     */
++    {
++        DeviceState *aon = qdev_new(TYPE_SIFIVE_E_AON);
++
++        sysbus_realize_and_unref(SYS_BUS_DEVICE(aon), &error_fatal);
++        sysbus_mmio_map(SYS_BUS_DEVICE(aon), 0, 0x1000d000);
++        sysbus_connect_irq(SYS_BUS_DEVICE(aon), 0,
++                           qdev_get_gpio_in(mmio_irqchip, 14));
++    }
++
+     sysbus_create_simple("goldfish_rtc", s->memmap[VIRT_RTC].base,
+         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
+ 
+diff --git a/hw/watchdog/Kconfig b/hw/watchdog/Kconfig
+index 861fd00..d4a0859 100644
+--- a/hw/watchdog/Kconfig
++++ b/hw/watchdog/Kconfig
+@@ -2,6 +2,9 @@ config CMSDK_APB_WATCHDOG
+     bool
+     select PTIMER
+ 
++config BROWSER_WDT_STATUS
++    bool
++
+ config WDT_IB6300ESB
+     bool
+     default y if PCI_DEVICES
+diff --git a/hw/watchdog/browser-wdt-status.c b/hw/watchdog/browser-wdt-status.c
+new file mode 100644
+index 0000000..90c5e1d
+--- /dev/null
++++ b/hw/watchdog/browser-wdt-status.c
+@@ -0,0 +1,190 @@
++/*
++ * Watchdog status block for the browser's device dock
++ *
++ * A running watchdog is invisible. The guest prints "Feeding watchdog..." and
++ * some time later the part reboots, with nothing in between to say how close
++ * it came, and afterwards the boot banner looks like any other. This keeps
++ * what the page needs to show both: the stage, its deadline and the clock it
++ * is measured against, and counts of feeds, interrupts and bites.
++ *
++ * The page reads it from the browser's main thread while QEMU writes, and the
++ * fields go together, so each slot has a seqlock: `seq` is odd while a write
++ * is in progress and a reader retries if it moved.
++ *
++ * The page also has no guest clock of its own, and under -icount the guest's
++ * time is not the wall's. So while a watchdog runs, a QEMU_CLOCK_VIRTUAL
++ * timer republishes `now` every 20 ms, and the countdown is measured against
++ * that.
++ *
++ * Bites survive the reset they cause, since that is when they matter.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/timer.h"
++#include "hw/watchdog/browser-wdt-status.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
++
++#define STATUS_MAGIC     0x53544457u /* "WDTS" */
++#define STATUS_VERSION   1
++#define STATUS_SLOTS     4
++#define STATUS_PERIOD_NS (20 * SCALE_MS)
++
++/* Must match src/hostWatchdog.ts */
++typedef struct BrowserWdtSlot {
++    uint32_t seq;
++    uint32_t present;
++    uint32_t index;
++    uint32_t enabled;
++    uint32_t stage;
++    uint32_t actions;
++    uint32_t freq_hz;
++    uint32_t stage_ticks[BROWSER_WDT_STAGES];
++    uint32_t feeds;
++    uint32_t interrupts;
++    uint32_t bites;
++    uint32_t bite_action;
++    uint32_t bite_stage;
++    uint32_t deadline_lo, deadline_hi;
++    uint32_t now_lo, now_hi;
++    uint32_t bite_lo, bite_hi;
++} BrowserWdtSlot;
++
++typedef struct BrowserWdtStatus {
++    uint32_t magic;
++    uint32_t version;
++    uint32_t slot_count;
++    uint32_t slot_size;
++    BrowserWdtSlot slot[STATUS_SLOTS];
++} BrowserWdtStatus;
++
++static BrowserWdtStatus status = {
++    .magic = STATUS_MAGIC,
++    .version = STATUS_VERSION,
++    .slot_count = STATUS_SLOTS,
++    .slot_size = sizeof(BrowserWdtSlot),
++};
++
++typedef struct Heartbeat {
++    QEMUTimer *timer;
++    BrowserWdtRefresh refresh;
++    void *opaque;
++    int slot;
++} Heartbeat;
++
++static Heartbeat heartbeats[STATUS_SLOTS];
++static int claimed;
++
++#ifdef __EMSCRIPTEN__
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_wdt_status(void)
++{
++    return (uint32_t)(uintptr_t)&status;
++}
++#endif
++
++static void split(uint32_t *lo, uint32_t *hi, int64_t v)
++{
++    *lo = (uint32_t)v;
++    *hi = (uint32_t)((uint64_t)v >> 32);
++}
++
++static void heartbeat_cb(void *opaque)
++{
++    Heartbeat *hb = opaque;
++    BrowserWdtState st = { 0 };
++
++    if (!hb->refresh) {
++        return;
++    }
++    hb->refresh(hb->opaque, &st);
++    browser_wdt_publish(hb->slot, &st, false);
++}
++
++int browser_wdt_claim(void)
++{
++    if (claimed >= STATUS_SLOTS) {
++        return -1;
++    }
++    const int n = claimed++;
++    status.slot[n].present = 1;
++    status.slot[n].index = n;
++    heartbeats[n].slot = n;
++    heartbeats[n].timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, heartbeat_cb, &heartbeats[n]);
++    return n;
++}
++
++void browser_wdt_set_refresh(int slot, BrowserWdtRefresh refresh, void *opaque)
++{
++    if (slot < 0) {
++        return;
++    }
++    heartbeats[slot].refresh = refresh;
++    heartbeats[slot].opaque = opaque;
++}
++
++void browser_wdt_publish(int slot, const BrowserWdtState *st, bool bite)
++{
++    if (slot < 0) {
++        return;
++    }
++    BrowserWdtSlot *s = &status.slot[slot];
++    const int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++
++    qatomic_set(&s->seq, s->seq + 1);
++    smp_wmb();
++
++    s->enabled = st->enabled;
++    s->stage = st->stage;
++    s->actions = 0;
++    for (int i = 0; i < BROWSER_WDT_STAGES; i++) {
++        s->actions |= (st->action[i] & 3) << (2 * i);
++        s->stage_ticks[i] = st->stage_ticks[i];
++    }
++    s->freq_hz = st->freq_hz;
++    split(&s->deadline_lo, &s->deadline_hi, st->enabled ? st->deadline_ns : 0);
++    split(&s->now_lo, &s->now_hi, now);
++    if (bite) {
++        s->bites++;
++        s->bite_action = st->action[st->stage < BROWSER_WDT_STAGES ? st->stage : 0];
++        s->bite_stage = st->stage;
++        split(&s->bite_lo, &s->bite_hi, now);
++    }
++
++    smp_wmb();
++    qatomic_set(&s->seq, s->seq + 1);
++
++    QEMUTimer *t = heartbeats[slot].timer;
++    if (t) {
++        if (st->enabled && !bite) {
++            timer_mod_ns(t, now + STATUS_PERIOD_NS);
++        } else {
++            timer_del(t);
++        }
++    }
++}
++
++void browser_wdt_count_feed(int slot)
++{
++    if (slot >= 0) {
++        status.slot[slot].feeds++;
++    }
++}
++
++void browser_wdt_count_interrupt(int slot)
++{
++    if (slot >= 0) {
++        status.slot[slot].interrupts++;
++    }
++}
++
++void browser_wdt_reset_feeds(int slot)
++{
++    if (slot >= 0) {
++        status.slot[slot].feeds = 0;
++    }
++}
+diff --git a/hw/watchdog/meson.build b/hw/watchdog/meson.build
+index 1537056..32f31bf 100644
+--- a/hw/watchdog/meson.build
++++ b/hw/watchdog/meson.build
+@@ -1,4 +1,5 @@
+ system_ss.add(files('watchdog.c'))
++system_ss.add(when: 'CONFIG_BROWSER_WDT_STATUS', if_true: files('browser-wdt-status.c'))
+ system_ss.add(when: 'CONFIG_ALLWINNER_WDT', if_true: files('allwinner-wdt.c'))
+ system_ss.add(when: 'CONFIG_CMSDK_APB_WATCHDOG', if_true: files('cmsdk-apb-watchdog.c'))
+ system_ss.add(when: 'CONFIG_WDT_IB6300ESB', if_true: files('wdt_i6300esb.c'))
+diff --git a/include/hw/misc/sifive_e_aon.h b/include/hw/misc/sifive_e_aon.h
+index 2ae1c41..12f416e 100644
+--- a/include/hw/misc/sifive_e_aon.h
++++ b/include/hw/misc/sifive_e_aon.h
+@@ -55,6 +55,9 @@ struct SiFiveEAONState {
+     uint16_t wdogcmp0;
+     uint32_t wdogcount;
+     uint8_t wdogunlock;
++
++    /* Browser status block slot (hw/watchdog/browser-wdt-status.c), or -1 */
++    int status_slot;
+ };
+ 
+ #endif
+diff --git a/include/hw/watchdog/browser-wdt-status.h b/include/hw/watchdog/browser-wdt-status.h
+new file mode 100644
+index 0000000..e85dd47
+--- /dev/null
++++ b/include/hw/watchdog/browser-wdt-status.h
+@@ -0,0 +1,59 @@
++/*
++ * Watchdog status block for the browser's device dock
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_WATCHDOG_BROWSER_WDT_STATUS_H
++#define HW_WATCHDOG_BROWSER_WDT_STATUS_H
++
++#include "qemu/timer.h"
++
++/*
++ * What a watchdog model publishes so the page can draw its countdown and say
++ * afterwards why the part reset. The layout is the ESP32 timer group's
++ * (hw/timer/esp_timg.c in the ESP32 tree) so one reader, src/hostWatchdog.ts,
++ * serves both; only the exported function's name differs.
++ *
++ * Stages are the model's own notion: a CMSDK watchdog interrupts on its first
++ * expiry and resets on its second, which is two stages of the same length.
++ */
++#define BROWSER_WDT_STAGES 4
++
++typedef enum {
++    BROWSER_WDT_OFF = 0,
++    BROWSER_WDT_INTERRUPT = 1,
++    BROWSER_WDT_RESET_CPU = 2,
++    BROWSER_WDT_RESET_SYSTEM = 3,
++} BrowserWdtAction;
++
++typedef struct BrowserWdtState {
++    bool enabled;
++    unsigned stage;
++    BrowserWdtAction action[BROWSER_WDT_STAGES];
++    uint32_t freq_hz;
++    uint32_t stage_ticks[BROWSER_WDT_STAGES];
++    /* QEMU_CLOCK_VIRTUAL ns when the current stage expires; 0 if not armed */
++    int64_t deadline_ns;
++} BrowserWdtState;
++
++/* Claim a slot for a watchdog; -1 once they are all taken */
++int browser_wdt_claim(void);
++
++/*
++ * Publish `st`. A bite also records the reset about to be requested. Keeps a
++ * timer republishing the clock every 20 ms of virtual time while `st` is
++ * enabled (see the .c file for why), which `refresh` fills in again.
++ */
++void browser_wdt_publish(int slot, const BrowserWdtState *st, bool bite);
++
++/* Count a feed, a stage interrupt, or clear the feeds at reset */
++void browser_wdt_count_feed(int slot);
++void browser_wdt_count_interrupt(int slot);
++void browser_wdt_reset_feeds(int slot);
++
++/* Called on the heartbeat to refetch a model's state */
++typedef void (*BrowserWdtRefresh)(void *opaque, BrowserWdtState *st);
++void browser_wdt_set_refresh(int slot, BrowserWdtRefresh refresh, void *opaque);
++
++#endif

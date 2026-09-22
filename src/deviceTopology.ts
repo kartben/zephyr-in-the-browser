@@ -18,7 +18,7 @@
 
 import type { PanelKind } from '@/boards'
 import type { DeviceTreeState } from '@/devicetree'
-import { timerIndexForAddress } from '@/hostWatchdog'
+import { watchdogForAddress, type WatchdogRef } from '@/hostWatchdog'
 import type { DtsDocument, DtsInsights, DtsNode, I2cSlot, SpiSlot } from '@/dts'
 import { byPath, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regAddress } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
@@ -172,8 +172,8 @@ export interface DeviceNode {
   busLabel?: string
   /** Chip select this part sits on, for rows under a SPI bus — drives the CS dot. */
   spiCs?: number
-  /** Timer group a 'watchdog' body follows, from src/hostWatchdog.ts. */
-  watchdogIndex?: number
+  /** The status slot a 'watchdog' body follows, from src/hostWatchdog.ts. */
+  watchdog?: WatchdogRef
   /** The legacy panel kind whose expand-on-boot rule this row inherits. */
   panelKind?: PanelKind
 }
@@ -1009,14 +1009,15 @@ function deriveFromTree(
   }
 
   /*
-   * Watchdogs, one row per enabled node the model reports on. The board turns
-   * TIMG0's on for every build, so the row is there even when nothing arms it:
-   * "Disabled" is true, and a reset reason is worth having regardless. A node
-   * the page cannot place on a timer group is left inert.
+   * Watchdogs, one row per enabled node the model reports on. The ESP32-C3's
+   * board turns TIMG0's on for every build, so there the row is there even
+   * when nothing arms it: "Disabled" is true, and a reset reason is worth
+   * having regardless. Elsewhere `-S watchdog` is what enables the node. A
+   * node the page cannot place on a status slot is left inert.
    */
   for (const wdt of insights.watchdogs) {
-    const index = timerIndexForAddress(wdt.address)
-    const live = avail.watchdog && index !== undefined
+    const ref = watchdogForAddress(wdt.address)
+    const live = avail.watchdog && ref !== undefined
     push({
       key: uniqueKey(ids, wdt.controllerLabel),
       nodeName: wdt.nodeName,
@@ -1026,7 +1027,7 @@ function deriveFromTree(
       path: wdt.path,
       presence: live ? 'interactive' : 'inert',
       body: live ? 'watchdog' : undefined,
-      watchdogIndex: index,
+      watchdog: ref,
       panelKind: 'watchdog',
     })
   }

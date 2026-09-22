@@ -1,0 +1,422 @@
+diff --git a/hw/watchdog/Kconfig b/hw/watchdog/Kconfig
+index 861fd00..adb1d62 100644
+--- a/hw/watchdog/Kconfig
++++ b/hw/watchdog/Kconfig
+@@ -1,6 +1,10 @@
+ config CMSDK_APB_WATCHDOG
+     bool
+     select PTIMER
++    select BROWSER_WDT_STATUS
++
++config BROWSER_WDT_STATUS
++    bool
+ 
+ config WDT_IB6300ESB
+     bool
+diff --git a/hw/watchdog/browser-wdt-status.c b/hw/watchdog/browser-wdt-status.c
+new file mode 100644
+index 0000000..90c5e1d
+--- /dev/null
++++ b/hw/watchdog/browser-wdt-status.c
+@@ -0,0 +1,190 @@
++/*
++ * Watchdog status block for the browser's device dock
++ *
++ * A running watchdog is invisible. The guest prints "Feeding watchdog..." and
++ * some time later the part reboots, with nothing in between to say how close
++ * it came, and afterwards the boot banner looks like any other. This keeps
++ * what the page needs to show both: the stage, its deadline and the clock it
++ * is measured against, and counts of feeds, interrupts and bites.
++ *
++ * The page reads it from the browser's main thread while QEMU writes, and the
++ * fields go together, so each slot has a seqlock: `seq` is odd while a write
++ * is in progress and a reader retries if it moved.
++ *
++ * The page also has no guest clock of its own, and under -icount the guest's
++ * time is not the wall's. So while a watchdog runs, a QEMU_CLOCK_VIRTUAL
++ * timer republishes `now` every 20 ms, and the countdown is measured against
++ * that.
++ *
++ * Bites survive the reset they cause, since that is when they matter.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/atomic.h"
++#include "qemu/timer.h"
++#include "hw/watchdog/browser-wdt-status.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
++
++#define STATUS_MAGIC     0x53544457u /* "WDTS" */
++#define STATUS_VERSION   1
++#define STATUS_SLOTS     4
++#define STATUS_PERIOD_NS (20 * SCALE_MS)
++
++/* Must match src/hostWatchdog.ts */
++typedef struct BrowserWdtSlot {
++    uint32_t seq;
++    uint32_t present;
++    uint32_t index;
++    uint32_t enabled;
++    uint32_t stage;
++    uint32_t actions;
++    uint32_t freq_hz;
++    uint32_t stage_ticks[BROWSER_WDT_STAGES];
++    uint32_t feeds;
++    uint32_t interrupts;
++    uint32_t bites;
++    uint32_t bite_action;
++    uint32_t bite_stage;
++    uint32_t deadline_lo, deadline_hi;
++    uint32_t now_lo, now_hi;
++    uint32_t bite_lo, bite_hi;
++} BrowserWdtSlot;
++
++typedef struct BrowserWdtStatus {
++    uint32_t magic;
++    uint32_t version;
++    uint32_t slot_count;
++    uint32_t slot_size;
++    BrowserWdtSlot slot[STATUS_SLOTS];
++} BrowserWdtStatus;
++
++static BrowserWdtStatus status = {
++    .magic = STATUS_MAGIC,
++    .version = STATUS_VERSION,
++    .slot_count = STATUS_SLOTS,
++    .slot_size = sizeof(BrowserWdtSlot),
++};
++
++typedef struct Heartbeat {
++    QEMUTimer *timer;
++    BrowserWdtRefresh refresh;
++    void *opaque;
++    int slot;
++} Heartbeat;
++
++static Heartbeat heartbeats[STATUS_SLOTS];
++static int claimed;
++
++#ifdef __EMSCRIPTEN__
++EMSCRIPTEN_KEEPALIVE
++uint32_t qemu_browser_wdt_status(void)
++{
++    return (uint32_t)(uintptr_t)&status;
++}
++#endif
++
++static void split(uint32_t *lo, uint32_t *hi, int64_t v)
++{
++    *lo = (uint32_t)v;
++    *hi = (uint32_t)((uint64_t)v >> 32);
++}
++
++static void heartbeat_cb(void *opaque)
++{
++    Heartbeat *hb = opaque;
++    BrowserWdtState st = { 0 };
++
++    if (!hb->refresh) {
++        return;
++    }
++    hb->refresh(hb->opaque, &st);
++    browser_wdt_publish(hb->slot, &st, false);
++}
++
++int browser_wdt_claim(void)
++{
++    if (claimed >= STATUS_SLOTS) {
++        return -1;
++    }
++    const int n = claimed++;
++    status.slot[n].present = 1;
++    status.slot[n].index = n;
++    heartbeats[n].slot = n;
++    heartbeats[n].timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, heartbeat_cb, &heartbeats[n]);
++    return n;
++}
++
++void browser_wdt_set_refresh(int slot, BrowserWdtRefresh refresh, void *opaque)
++{
++    if (slot < 0) {
++        return;
++    }
++    heartbeats[slot].refresh = refresh;
++    heartbeats[slot].opaque = opaque;
++}
++
++void browser_wdt_publish(int slot, const BrowserWdtState *st, bool bite)
++{
++    if (slot < 0) {
++        return;
++    }
++    BrowserWdtSlot *s = &status.slot[slot];
++    const int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++
++    qatomic_set(&s->seq, s->seq + 1);
++    smp_wmb();
++
++    s->enabled = st->enabled;
++    s->stage = st->stage;
++    s->actions = 0;
++    for (int i = 0; i < BROWSER_WDT_STAGES; i++) {
++        s->actions |= (st->action[i] & 3) << (2 * i);
++        s->stage_ticks[i] = st->stage_ticks[i];
++    }
++    s->freq_hz = st->freq_hz;
++    split(&s->deadline_lo, &s->deadline_hi, st->enabled ? st->deadline_ns : 0);
++    split(&s->now_lo, &s->now_hi, now);
++    if (bite) {
++        s->bites++;
++        s->bite_action = st->action[st->stage < BROWSER_WDT_STAGES ? st->stage : 0];
++        s->bite_stage = st->stage;
++        split(&s->bite_lo, &s->bite_hi, now);
++    }
++
++    smp_wmb();
++    qatomic_set(&s->seq, s->seq + 1);
++
++    QEMUTimer *t = heartbeats[slot].timer;
++    if (t) {
++        if (st->enabled && !bite) {
++            timer_mod_ns(t, now + STATUS_PERIOD_NS);
++        } else {
++            timer_del(t);
++        }
++    }
++}
++
++void browser_wdt_count_feed(int slot)
++{
++    if (slot >= 0) {
++        status.slot[slot].feeds++;
++    }
++}
++
++void browser_wdt_count_interrupt(int slot)
++{
++    if (slot >= 0) {
++        status.slot[slot].interrupts++;
++    }
++}
++
++void browser_wdt_reset_feeds(int slot)
++{
++    if (slot >= 0) {
++        status.slot[slot].feeds = 0;
++    }
++}
+diff --git a/hw/watchdog/cmsdk-apb-watchdog.c b/hw/watchdog/cmsdk-apb-watchdog.c
+index 6a8d07c..f5ac395 100644
+--- a/hw/watchdog/cmsdk-apb-watchdog.c
++++ b/hw/watchdog/cmsdk-apb-watchdog.c
+@@ -32,6 +32,7 @@
+ #include "hw/registerfields.h"
+ #include "hw/qdev-clock.h"
+ #include "hw/watchdog/cmsdk-apb-watchdog.h"
++#include "hw/watchdog/browser-wdt-status.h"
+ #include "migration/vmstate.h"
+ 
+ REG32(WDOGLOAD, 0x0)
+@@ -94,6 +95,46 @@ static bool cmsdk_apb_watchdog_resetstatus(CMSDKAPBWatchdog *s)
+     return s->resetstatus && (s->control & R_WDOGCONTROL_RESEN_MASK);
+ }
+ 
++/*
++ * The counter as two stages of the same length: the first expiry interrupts,
++ * the second resets if RESEN allows it and otherwise just stops the count.
++ */
++static void cmsdk_apb_watchdog_status(void *opaque, BrowserWdtState *st)
++{
++    CMSDKAPBWatchdog *s = opaque;
++    const bool running = (s->control & R_WDOGCONTROL_INTEN_MASK) && !s->resetstatus;
++    const uint32_t limit = ptimer_get_limit(s->timer);
++
++    st->enabled = running;
++    st->stage = s->intstatus ? 1 : 0;
++    st->action[0] = BROWSER_WDT_INTERRUPT;
++    st->action[1] = (s->control & R_WDOGCONTROL_RESEN_MASK) ? BROWSER_WDT_RESET_SYSTEM
++                                                            : BROWSER_WDT_OFF;
++    st->action[2] = st->action[3] = BROWSER_WDT_OFF;
++    st->freq_hz = clock_get_hz(s->wdogclk);
++    st->stage_ticks[0] = st->stage_ticks[1] = limit;
++    st->stage_ticks[2] = st->stage_ticks[3] = 0;
++    st->deadline_ns = running
++        ? qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
++          clock_ticks_to_ns(s->wdogclk, ptimer_get_count(s->timer))
++        : 0;
++}
++
++static void cmsdk_apb_watchdog_publish(CMSDKAPBWatchdog *s, bool bite)
++{
++    BrowserWdtState st = { 0 };
++
++    if (s->status_slot < 0 || !s->timer) {
++        return;
++    }
++    cmsdk_apb_watchdog_status(s, &st);
++    if (bite) {
++        /* Report the stage that bit, not the stopped counter's */
++        st.stage = 1;
++    }
++    browser_wdt_publish(s->status_slot, &st, bite);
++}
++
+ static void cmsdk_apb_watchdog_update(CMSDKAPBWatchdog *s)
+ {
+     bool wdogint;
+@@ -113,7 +154,10 @@ static void cmsdk_apb_watchdog_update(CMSDKAPBWatchdog *s)
+ 
+     qemu_set_irq(s->wdogint, wdogint);
+     if (wdogres) {
++        cmsdk_apb_watchdog_publish(s, true);
+         watchdog_perform_action();
++    } else {
++        cmsdk_apb_watchdog_publish(s, false);
+     }
+ }
+ 
+@@ -200,6 +244,7 @@ static void cmsdk_apb_watchdog_write(void *opaque, hwaddr offset,
+         ptimer_transaction_begin(s->timer);
+         ptimer_set_limit(s->timer, value, 1);
+         ptimer_transaction_commit(s->timer);
++        cmsdk_apb_watchdog_publish(s, false);
+         break;
+     case A_WDOGCONTROL: {
+         uint32_t prev_control = s->control;
+@@ -232,6 +277,8 @@ static void cmsdk_apb_watchdog_write(void *opaque, hwaddr offset,
+         break;
+     }
+     case A_WDOGINTCLR:
++        /* What a feed looks like to this block: clear, and reload */
++        browser_wdt_count_feed(s->status_slot);
+         s->intstatus = 0;
+         ptimer_transaction_begin(s->timer);
+         ptimer_set_count(s->timer, ptimer_get_limit(s->timer));
+@@ -298,6 +345,7 @@ static void cmsdk_apb_watchdog_tick(void *opaque)
+     if (!s->intstatus) {
+         /* Count expired for the first time: raise interrupt */
+         s->intstatus = R_WDOGRIS_INT_MASK;
++        browser_wdt_count_interrupt(s->status_slot);
+     } else {
+         /* Count expired for the second time: raise reset and stop clock */
+         s->resetstatus = 1;
+@@ -328,6 +376,8 @@ static void cmsdk_apb_watchdog_reset(DeviceState *dev)
+     ptimer_stop(s->timer);
+     ptimer_set_limit(s->timer, 0xffffffff, 1);
+     ptimer_transaction_commit(s->timer);
++    browser_wdt_reset_feeds(s->status_slot);
++    cmsdk_apb_watchdog_publish(s, false);
+ }
+ 
+ static void cmsdk_apb_watchdog_clk_update(void *opaque, ClockEvent event)
+@@ -354,6 +404,7 @@ static void cmsdk_apb_watchdog_init(Object *obj)
+ 
+     s->is_luminary = false;
+     s->id = cmsdk_apb_watchdog_id;
++    s->status_slot = -1;
+ }
+ 
+ static void cmsdk_apb_watchdog_realize(DeviceState *dev, Error **errp)
+@@ -375,6 +426,9 @@ static void cmsdk_apb_watchdog_realize(DeviceState *dev, Error **errp)
+     ptimer_transaction_begin(s->timer);
+     ptimer_set_period_from_clock(s->timer, s->wdogclk, 1);
+     ptimer_transaction_commit(s->timer);
++
++    s->status_slot = browser_wdt_claim();
++    browser_wdt_set_refresh(s->status_slot, cmsdk_apb_watchdog_status, s);
+ }
+ 
+ static const VMStateDescription cmsdk_apb_watchdog_vmstate = {
+diff --git a/hw/watchdog/meson.build b/hw/watchdog/meson.build
+index 1537056..32f31bf 100644
+--- a/hw/watchdog/meson.build
++++ b/hw/watchdog/meson.build
+@@ -1,4 +1,5 @@
+ system_ss.add(files('watchdog.c'))
++system_ss.add(when: 'CONFIG_BROWSER_WDT_STATUS', if_true: files('browser-wdt-status.c'))
+ system_ss.add(when: 'CONFIG_ALLWINNER_WDT', if_true: files('allwinner-wdt.c'))
+ system_ss.add(when: 'CONFIG_CMSDK_APB_WATCHDOG', if_true: files('cmsdk-apb-watchdog.c'))
+ system_ss.add(when: 'CONFIG_WDT_IB6300ESB', if_true: files('wdt_i6300esb.c'))
+diff --git a/include/hw/watchdog/browser-wdt-status.h b/include/hw/watchdog/browser-wdt-status.h
+new file mode 100644
+index 0000000..e85dd47
+--- /dev/null
++++ b/include/hw/watchdog/browser-wdt-status.h
+@@ -0,0 +1,59 @@
++/*
++ * Watchdog status block for the browser's device dock
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_WATCHDOG_BROWSER_WDT_STATUS_H
++#define HW_WATCHDOG_BROWSER_WDT_STATUS_H
++
++#include "qemu/timer.h"
++
++/*
++ * What a watchdog model publishes so the page can draw its countdown and say
++ * afterwards why the part reset. The layout is the ESP32 timer group's
++ * (hw/timer/esp_timg.c in the ESP32 tree) so one reader, src/hostWatchdog.ts,
++ * serves both; only the exported function's name differs.
++ *
++ * Stages are the model's own notion: a CMSDK watchdog interrupts on its first
++ * expiry and resets on its second, which is two stages of the same length.
++ */
++#define BROWSER_WDT_STAGES 4
++
++typedef enum {
++    BROWSER_WDT_OFF = 0,
++    BROWSER_WDT_INTERRUPT = 1,
++    BROWSER_WDT_RESET_CPU = 2,
++    BROWSER_WDT_RESET_SYSTEM = 3,
++} BrowserWdtAction;
++
++typedef struct BrowserWdtState {
++    bool enabled;
++    unsigned stage;
++    BrowserWdtAction action[BROWSER_WDT_STAGES];
++    uint32_t freq_hz;
++    uint32_t stage_ticks[BROWSER_WDT_STAGES];
++    /* QEMU_CLOCK_VIRTUAL ns when the current stage expires; 0 if not armed */
++    int64_t deadline_ns;
++} BrowserWdtState;
++
++/* Claim a slot for a watchdog; -1 once they are all taken */
++int browser_wdt_claim(void);
++
++/*
++ * Publish `st`. A bite also records the reset about to be requested. Keeps a
++ * timer republishing the clock every 20 ms of virtual time while `st` is
++ * enabled (see the .c file for why), which `refresh` fills in again.
++ */
++void browser_wdt_publish(int slot, const BrowserWdtState *st, bool bite);
++
++/* Count a feed, a stage interrupt, or clear the feeds at reset */
++void browser_wdt_count_feed(int slot);
++void browser_wdt_count_interrupt(int slot);
++void browser_wdt_reset_feeds(int slot);
++
++/* Called on the heartbeat to refetch a model's state */
++typedef void (*BrowserWdtRefresh)(void *opaque, BrowserWdtState *st);
++void browser_wdt_set_refresh(int slot, BrowserWdtRefresh refresh, void *opaque);
++
++#endif
+diff --git a/include/hw/watchdog/cmsdk-apb-watchdog.h b/include/hw/watchdog/cmsdk-apb-watchdog.h
+index c6b3e78..29443b2 100644
+--- a/include/hw/watchdog/cmsdk-apb-watchdog.h
++++ b/include/hw/watchdog/cmsdk-apb-watchdog.h
+@@ -63,6 +63,9 @@ struct CMSDKAPBWatchdog {
+     uint32_t itop;
+     uint32_t resetstatus;
+     const uint32_t *id;
++
++    /* Browser status block slot (hw/watchdog/browser-wdt-status.c), or -1 */
++    int status_slot;
+ };
+ 
+ #endif
