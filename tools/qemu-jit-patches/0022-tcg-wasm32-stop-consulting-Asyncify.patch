@@ -1,0 +1,44 @@
+diff --git a/tcg/wasm32.c b/tcg/wasm32.c
+index fe6f2f1..bd95963 100644
+--- a/tcg/wasm32.c
++++ b/tcg/wasm32.c
+@@ -57,9 +57,12 @@ EM_JS(int, instantiate_wasm, (int wasm_begin,
+     const memory_v = new DataView(HEAP8.buffer);
+     const wasm = HEAP8.subarray(wasm_begin, wasm_begin + wasm_size);
+     var helper = {};
+-    helper.u = () => {
+-        return (Asyncify.state != Asyncify.State.Unwinding) ? 1 : 0;
+-    };
++    /*
++     * Under JSPI nothing unwinds through a translated block: the engine
++     * suspends the whole stack, translated frames included. The import is
++     * still declared by every block, so keep it satisfied.
++     */
++    helper.u = () => 1;
+     for (var i = 0; i < import_vec_size / 4; i++) {
+         helper[i] = wasmTable.get(
+             memory_v.getInt32(import_vec_begin + i * 4, true));
+diff --git a/tcg/wasm32/tcg-target.c.inc b/tcg/wasm32/tcg-target.c.inc
+index a2815db..41acd37 100644
+--- a/tcg/wasm32/tcg-target.c.inc
++++ b/tcg/wasm32/tcg-target.c.inc
+@@ -1915,13 +1915,12 @@ static int get_helper_idx(TCGContext *s, int helper_idx_on_qemu)
+ 
+ static void tcg_wasm_out_handle_unwinding(TCGContext *s)
+ {
+-    tcg_wasm_out_op_call(s, CHECK_UNWINDING_IDX);
+-    tcg_wasm_out_op_i32_eqz(s);
+-    tcg_wasm_out_op_if_noret(s);
+-    tcg_wasm_out_op_i32_const(s, 0);
+-    /* returns if unwinding */
+-    tcg_wasm_out_op_return(s);
+-    tcg_wasm_out_op_end(s);
++    /*
++     * Nothing to emit under JSPI: a coroutine switch suspends the whole
++     * stack, translated frames included, so a helper never returns into a
++     * block that has to unwind. Skipping the check also saves the call into
++     * JavaScript that every helper call used to make.
++     */
+ }
+ 
+ static void tcg_wasm_out_call(TCGContext *s, int func,
