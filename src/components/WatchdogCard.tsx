@@ -93,25 +93,17 @@ export function WatchdogBody({ watchdog }: { watchdog: WatchdogRef }) {
       ? Math.min(1, Math.max(0, timer.remainingMs! / current.timeoutMs))
       : 0
   const danger = running && isReset(current.action)
-  const Icon = fresh ? ShieldAlert : timer.enabled ? ShieldCheck : ShieldOff
+  const Icon = timer.enabled ? ShieldCheck : ShieldOff
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Icon
-          className={cn(
-            'h-3.5 w-3.5',
-            fresh ? 'text-red-400' : danger ? 'text-amber-400' : 'text-muted-foreground',
-          )}
+          className={cn('h-3.5 w-3.5', danger ? 'text-amber-400' : 'text-muted-foreground')}
           aria-hidden
         />
-        <span
-          className={cn(
-            'text-[11px] font-medium',
-            fresh ? 'text-red-300' : 'text-foreground',
-          )}
-        >
-          {fresh ? 'Bit: reset the SoC' : timer.enabled ? 'Running' : 'Disabled'}
+        <span className="text-[11px] font-medium text-foreground">
+          {timer.enabled ? 'Running' : 'Disabled'}
         </span>
         {running && (
           <span className="text-[10px] text-muted-foreground">
@@ -119,6 +111,18 @@ export function WatchdogBody({ watchdog }: { watchdog: WatchdogRef }) {
           </span>
         )}
       </div>
+
+      {/*
+        * Its own line rather than the header: a guest in a reset loop
+        * re-arms the watchdog well inside the highlight, and the header
+        * should say what the watchdog is doing now.
+        */}
+      {fresh && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-300">
+          <ShieldAlert className="h-3.5 w-3.5 text-red-400" aria-hidden />
+          Bit: the watchdog reset the SoC
+        </div>
+      )}
 
       {running && (
         <div className="space-y-1">
