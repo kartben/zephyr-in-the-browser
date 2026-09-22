@@ -1,0 +1,79 @@
+diff --git a/util/main-loop.c b/util/main-loop.c
+index 51aeb24..e4c2da6 100644
+--- a/util/main-loop.c
++++ b/util/main-loop.c
+@@ -23,6 +23,10 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#include <emscripten/threading.h>
++#endif
+ #include "qapi/error.h"
+ #include "qemu/cutils.h"
+ #include "qemu/timer.h"
+@@ -290,6 +294,15 @@ static void glib_pollfds_poll(void)
+ 
+ #define MAX_MAIN_LOOP_SPIN (1000)
+ 
++#ifdef __EMSCRIPTEN__
++/*
++ * Completion futex, defined in hw/virtio/virtio-browser.c and declared there
++ * rather than in a header because until now nothing inside QEMU called it.
++ * See the wait below for why this one does.
++ */
++uintptr_t qemu_virtio_browser_wake_addr(void);
++#endif
++
+ static int os_host_main_loop_wait(int64_t timeout)
+ {
+     GMainContext *context = g_main_context_default();
+@@ -304,6 +317,47 @@ static int os_host_main_loop_wait(int64_t timeout)
+ 
+     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
+ 
++#ifdef __EMSCRIPTEN__
++    /*
++     * Emscripten implements poll() as a readiness scan that ignores its
++     * timeout and returns immediately, and under -sPROXY_TO_PTHREAD that scan
++     * is a *synchronous* proxied call to the browser main thread. So this loop
++     * spins, and every turn of it is a blocking round trip to the thread that
++     * is also trying to render: measured on the A53 display machine at 83k
++     * iterations/s, matched 1:1 by proxied poll calls.
++     *
++     * Wait out the timeout the loop already asked for instead. The word waited
++     * on is virtio-browser's completion futex, which qemu_virtio_browser_kick()
++     * already increments and futex-wakes and which nothing waited on before, so
++     * a page-side completion cuts the wait short rather than paying for it.
++     *
++     * The 0.25 ms cap is measured, not chosen for looking round. This wait is
++     * not interruptible by anything but that futex: qemu_notify_event() reaches
++     * the loop through an fd only the next poll looks at. At a 1 ms cap the wait
++     * swallows kicked completions and costs a third of the guest's
++     * blocking-transfer throughput (496 -> 331 completions/s on the stock
++     * 7-segment multiplex). At 0.25 ms throughput is unchanged (500/s) and the
++     * proxied traffic is still down 93%, from 84.7k to 5.7k calls/s.
++     *
++     * Deliberately inside the bql_unlock() window: waiting while holding the
++     * BQL would stall the vCPU thread, which is the opposite of the point.
++     */
++    if (ret == 0 && timeout > 0) {
++        double browser_poll_sleep = timeout / 1000000.0;
++        uint32_t *browser_wake = (uint32_t *)qemu_virtio_browser_wake_addr();
++
++        if (browser_poll_sleep > 0.25) {
++            browser_poll_sleep = 0.25;
++        }
++        if (browser_wake) {
++            emscripten_futex_wait(browser_wake, qatomic_read(browser_wake),
++                                  browser_poll_sleep);
++        } else {
++            emscripten_thread_sleep(browser_poll_sleep);
++        }
++    }
++#endif
++
+     replay_mutex_lock();
+     bql_lock();
+ 
