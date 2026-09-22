@@ -41,6 +41,7 @@ import {
   sampleDtsAsset,
   sampleFlashAsset,
 } from '@/boards'
+import { JSPI_UNSUPPORTED_MESSAGE, supportsJspi } from './jspi'
 import type { PtyBackend, Slave, StartOptions } from './types'
 
 /**
@@ -237,6 +238,11 @@ export function createQemuBackend(): PtyBackend {
             'Cross-Origin-Embedder-Policy: require-corp.',
         )
       }
+
+      // The emulator builds suspend through JSPI. Without it the failure would
+      // surface inside the worker at the first coroutine switch, as an error
+      // that names neither the feature nor the fix, so check here instead.
+      if (!supportsJspi()) throw new Error(JSPI_UNSUPPORTED_MESSAGE)
 
       // Deliberately not gated on __QEMU_ASSETS_PRESENT__: that flag is
       // computed when Vite starts, so it goes stale the moment artifacts are
