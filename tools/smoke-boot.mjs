@@ -214,11 +214,23 @@ async function waitForServer(port, timeoutMs = 60_000) {
   throw new Error(`vite dev server did not come up on :${port}`)
 }
 
+/**
+ * The dev server is a process tree: npm runs vite through a shell. Killing npm
+ * alone leaves the shell and vite alive holding our stdout pipes, and on Linux
+ * that keeps this process from ever exiting: in CI the cases all passed and the
+ * step then sat idle until its 30-minute timeout. So the server gets its own
+ * process group, and stopVite() signals the whole group.
+ */
 function startVite(port) {
   const vite = spawn(
     'npm',
     ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-    { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, BROWSER: 'none' } },
+    {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, BROWSER: 'none' },
+      detached: true,
+    },
   )
   let log = ''
   const keep = (d) => {
@@ -227,6 +239,14 @@ function startVite(port) {
   vite.stdout.on('data', keep)
   vite.stderr.on('data', keep)
   return { vite, log: () => log }
+}
+
+function stopVite(vite) {
+  try {
+    process.kill(-vite.pid, 'SIGTERM')
+  } catch {
+    vite.kill('SIGTERM')
+  }
 }
 
 /**
@@ -538,10 +558,14 @@ try {
   process.exitCode = 1
 } finally {
   await browser.close()
-  vite.kill('SIGTERM')
+  stopVite(vite)
 }
 
 if (results.length) {
   report(results, opts)
   if (results.some((r) => !r.ok)) process.exitCode = 1
 }
+
+// Everything is reported; if some handle still keeps the event loop alive, do
+// not let it hold a CI step open. Unref'd, so a clean exit is not delayed.
+setTimeout(() => process.exit(process.exitCode ?? 0), 5_000).unref()

@@ -58,10 +58,14 @@ if (process.env.AB_TRACE) {
   }
 }
 
+// Own process group, so the whole npx/vite tree can be signalled at the end;
+// killing only the parent leaves vite holding these pipes and, on Linux, the
+// harness never exits (see tools/smoke-boot.mjs).
 const vite = spawn('npx', ['vite', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, BROWSER: 'none' },
+  detached: true,
 })
 let viteLog = ''
 vite.stdout.on('data', (d) => (viteLog += d.toString()))
@@ -182,7 +186,11 @@ try {
   }
 } finally {
   await browser.close()
-  vite.kill('SIGTERM')
+  try {
+    process.kill(-vite.pid, 'SIGTERM')
+  } catch {
+    vite.kill('SIGTERM')
+  }
 }
 
 const median = (xs) => {
