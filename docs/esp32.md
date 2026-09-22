@@ -127,6 +127,14 @@ branch, and none has been reported yet.
   interrupt; on the part the feed is dropped. Here it landed, so every stage 0
   interrupt re-armed stage 0, the reset stage was never reached, and
   `samples/drivers/watchdog` sat in "Waiting for reset..." for ever.
+- **The MWDT ran at twice its rate after the first watchdog reset.** A
+  `CONF_UPDATE_EN` write only recomputed the counter clock when the prescaler
+  or `USE_XTAL` looked changed, comparing against the register, which a write
+  without `CONF_UPDATE_EN` can change on its own; and the reset left the
+  guest's `WDTCONFIG1` in place. After a bite the boot ROM latched that stale
+  prescaler on the 80 MHz APB clock, set `USE_XTAL` unlatched, and Zephyr's
+  update then compared equal on both counts. `tools/qemu-esp-patches/0019`
+  latches on every update and resets `WDTCONFIG1`.
 
 Also carried, and specific to running in a browser: `esp32c3_cache.c` filled its
 cache with a synchronous `blk_pread()` from the MMIO handler that guest MMU
