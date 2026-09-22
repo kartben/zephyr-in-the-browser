@@ -22,7 +22,7 @@
 	status = "okay";
 	pinctrl-0 = <&twai_default>;
 	pinctrl-names = "default";
-	bus-speed = <500000>;
+	bitrate = <500000>;
 	sample-point = <875>;
 };
 
