@@ -575,8 +575,9 @@ completions to 25% of idle, while burning the **identical** CPU in a worker cost
 nothing (103% and 101%). That control is what makes it coupling rather than
 contention, and it is worth re-running before believing any similar result.
 
-`tools/qemu-jit-patches/0020-util-honour-the-poll-timeout-under-emscripten.patch`
-waits out the timeout the loop already asked for, on virtio-browser's completion
+`0020-util-honour-the-poll-timeout-under-emscripten.patch` in
+tools/qemu-jit-patches, and `0015-*` of the same name in tools/qemu-esp-patches,
+wait out the timeout the loop already asked for, on virtio-browser's completion
 futex so a page-side kick cuts the wait short. The cap is measured:
 
 | | stock | cap 1 ms | cap 0.25 ms |
@@ -590,6 +591,28 @@ At 1 ms the wait swallows kicked completions and costs a third of the guest's
 blocking-transfer throughput. At 0.25 ms throughput is unchanged and the proxied
 traffic is down 93%, which is roughly 79,000 fewer main-thread round trips per
 second: headroom item 8 can use.
+
+The word is registered by `virtio-browser.c` through a setter in main-loop.c
+rather than called directly, because util/ is built once for every target and
+cannot reference a device symbol that may not be linked: the ESP32 machines
+enable no VIRTIO, so `configs/devices/xtensa-softmmu/browser.mak` pulls in no
+virtio-browser at all and that target takes the plain-sleep branch. An undefined
+weak function would have been the smaller patch, but taking its address is not
+reliable under wasm-ld.
+
+All three targets measured on the same 7-segment workload, with the page-side
+request counter (riscv32 and xtensa carry no diagnostics patches, so
+`notifySourceStats()` is null there):
+
+| target | proxied calls/s before | after | guest requests/s |
+|---|---|---|---|
+| aarch64 (jit) | 84,738 | 5,771 | 499, was 496 |
+| riscv32 (esp) | 60,472 | 5,662 | 497, was 501 |
+| xtensa (esp) | not measured | 3,990 | n/a, no virtio |
+
+xtensa has no virtio bridge, so there is no throughput number to hold steady
+there; what it verifies is that the fix links and the guest still runs (blinky
+toggling at 1.1 s intervals under TCI).
 
 What it does **not** do is change the coupling ratio, still ~25% retained under
 a 250 ms stall. The loop needs the main thread once per iteration either way,
