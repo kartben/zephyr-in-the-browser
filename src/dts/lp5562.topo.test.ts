@@ -16,6 +16,7 @@ const ALL: Availability = {
   spi: false,
   can: false,
   power: false,
+  watchdog: false,
   display: true,
   input: true,
   disk: false,

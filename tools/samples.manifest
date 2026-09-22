@@ -216,6 +216,7 @@ esp32c3_devkitc:tmc50xx:samples/drivers/stepper/tmc50xx:conf/tmc50xx.conf:tmc50x
 esp32c3_devkitc:can_counter:zephyr-module/apps/can_counter:conf/esp32-can.conf:esp32-can
 esp32c3_devkitc:light_sleep:samples/boards/espressif/light_sleep
 esp32c3_devkitc:deep_sleep:samples/boards/espressif/deep_sleep:conf/esp32-deep-sleep.conf
+esp32c3_devkitc:watchdog:samples/drivers/watchdog
 
 # ESP32 DevKitC (Xtensa LX6). The other Espressif part, in its own
 # qemu-system-xtensa artifact. Same shape as the C3 above: the peripherals are

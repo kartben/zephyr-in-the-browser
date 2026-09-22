@@ -18,6 +18,7 @@
 
 import type { PanelKind } from '@/boards'
 import type { DeviceTreeState } from '@/devicetree'
+import { timerIndexForAddress } from '@/hostWatchdog'
 import type { DtsDocument, DtsInsights, DtsNode, I2cSlot, SpiSlot } from '@/dts'
 import { byPath, compatibles, isEffectivelyOkay, nodesByCompatible, pathOf, regAddress } from '@/dts'
 import type { I2cChip } from '@/virtio/devices/i2c'
@@ -60,6 +61,7 @@ export type DeviceClass =
   | 'uart-bus'
   | 'can-bus'
   | 'power'
+  | 'watchdog'
   | 'gpio'
   | 'keys'
   | 'buzzer'
@@ -92,6 +94,7 @@ export type BodyKind =
   | 'uart'
   | 'can'
   | 'power'
+  | 'watchdog'
   | 'bluetooth'
   | 'spi-flash'
   | 'disk'
@@ -119,6 +122,8 @@ export interface Availability {
   can: boolean
   /** The SoC's RTC controller is reporting sleep state (src/hostPowerState.ts). */
   power: boolean
+  /** The SoC's watchdogs are reporting their countdown (src/hostWatchdog.ts). */
+  watchdog: boolean
   display: boolean
   input: boolean
   disk: boolean
@@ -167,6 +172,8 @@ export interface DeviceNode {
   busLabel?: string
   /** Chip select this part sits on, for rows under a SPI bus — drives the CS dot. */
   spiCs?: number
+  /** Timer group a 'watchdog' body follows, from src/hostWatchdog.ts. */
+  watchdogIndex?: number
   /** The legacy panel kind whose expand-on-boot rule this row inherits. */
   panelKind?: PanelKind
 }
@@ -207,6 +214,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   'uart-bus': 'UART buses',
   'can-bus': 'CAN',
   power: 'Power',
+  watchdog: 'Watchdog',
   gpio: 'GPIO',
   keys: 'Keys',
   buzzer: 'Buzzer',
@@ -233,6 +241,7 @@ const CLASS_ORDER: DeviceClass[] = [
   'uart-bus',
   'can-bus',
   'power',
+  'watchdog',
   'gpio',
   'keys',
   'buzzer',
@@ -996,6 +1005,29 @@ function deriveFromTree(
       presence: 'interactive',
       body: 'power',
       panelKind: 'perf',
+    })
+  }
+
+  /*
+   * Watchdogs, one row per enabled node the model reports on. The board turns
+   * TIMG0's on for every build, so the row is there even when nothing arms it:
+   * "Disabled" is true, and a reset reason is worth having regardless. A node
+   * the page cannot place on a timer group is left inert.
+   */
+  for (const wdt of insights.watchdogs) {
+    const index = timerIndexForAddress(wdt.address)
+    const live = avail.watchdog && index !== undefined
+    push({
+      key: uniqueKey(ids, wdt.controllerLabel),
+      nodeName: wdt.nodeName,
+      label: `Watchdog (${wdt.controllerLabel})`,
+      compatible: wdt.compatible || undefined,
+      deviceClass: 'watchdog',
+      path: wdt.path,
+      presence: live ? 'interactive' : 'inert',
+      body: live ? 'watchdog' : undefined,
+      watchdogIndex: index,
+      panelKind: 'watchdog',
     })
   }
 

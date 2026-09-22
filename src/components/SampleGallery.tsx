@@ -55,6 +55,7 @@ const PANEL_TAGS: Record<PanelKind, string> = {
   'fuel-gauge': 'battery',
   can: 'CAN',
   bluetooth: 'Bluetooth',
+  watchdog: 'watchdog',
   trace: 'trace',
   debug: 'debug',
 }

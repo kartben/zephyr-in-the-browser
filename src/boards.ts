@@ -34,6 +34,7 @@ export type PanelKind =
   | 'fuel-gauge'
   | 'can'
   | 'bluetooth'
+  | 'watchdog'
   | 'trace'
   | 'debug'
 
@@ -218,6 +219,12 @@ export interface Board {
      * card. Read-only, no bridge: see src/hostPowerState.ts. ESP32-C3 only.
      */
     powerState?: boolean
+    /**
+     * The SoC's watchdogs report their countdown and bites to the dock's
+     * watchdog card. Read-only, no bridge: see src/hostWatchdog.ts. ESP32-C3
+     * only.
+     */
+    watchdog?: boolean
     /**
      * Poll Emscripten FS for Zephyr's semihosting CTF stream (`tracing.bin`).
      * Needs `-semihosting` on the argv; the Trace dock row follows it.
@@ -1099,6 +1106,7 @@ export const BOARDS: Board[] = [
       hostSpi: true,
       hostTwai: true,
       powerState: true,
+      watchdog: true,
     },
     samples: [
       {
@@ -1156,6 +1164,17 @@ export const BOARDS: Board[] = [
         description: 'Powers down and reboots on the RTC timer; the wake takes a while',
         zephyrSample: 'samples/boards/espressif/deep_sleep',
         primaryPanels: ['perf'],
+      },
+      {
+        // The stock sample, and it needs nothing: the board aliases watchdog0
+        // to TIMG0's MWDT. Stage 0 interrupts, the callback feeds once, and
+        // the next timeout reaches stage 1, which resets the SoC; then it all
+        // starts over. The watchdog card counts it down and keeps the bite.
+        id: 'watchdog',
+        label: 'Watchdog',
+        description: 'Feeds, stops feeding, and gets reset; watch the countdown',
+        zephyrSample: 'samples/drivers/watchdog',
+        primaryPanels: ['watchdog'],
       },
       ...ESP32C3_BRIDGED_SAMPLES,
     ],

@@ -189,6 +189,16 @@ export interface CanController {
   bridged: boolean
 }
 
+/** A watchdog the page can watch count down. */
+export interface WatchdogNode {
+  nodeName: string
+  controllerLabel: string
+  path: string
+  compatible: string
+  /** First `reg` cell, which is how the page tells the timer groups apart. */
+  address?: number
+}
+
 export interface DtsInsights {
   /** Root `model` string — display-only. */
   model?: string
@@ -203,6 +213,8 @@ export interface DtsInsights {
   gpioControllers: GpioController[]
   /** Standalone CAN controllers (not a chip on a bus). */
   canControllers: CanController[]
+  /** Enabled watchdogs whose model reports its countdown (src/hostWatchdog.ts). */
+  watchdogs: WatchdogNode[]
   /** Children of okay `pwm-leds` groups that resolve a PWM controller. */
   pwmLeds: PwmLed[]
   /** Panels this build can meaningfully use. */
@@ -277,6 +289,12 @@ const BRIDGED_SPI_COMPATS = new Set(['virtio,spi', 'espressif,esp32-spi'])
  * on a bus and so needs nothing here.
  */
 const BRIDGED_CAN_COMPATS = new Set(['espressif,esp32-twai'])
+
+/**
+ * Watchdogs whose QEMU model publishes its countdown. The ESP32-C3's timer
+ * group MWDTs, through the status block in the fork's hw/timer/esp_timg.c.
+ */
+const WATCHED_WDT_COMPATS = new Set(['espressif,esp32-watchdog'])
 /** The GPIO controllers the browser panel drives, one per board. */
 // espressif,esp32-gpio is the odd one out: not a browser-invented device but
 // the SoC's own controller, modelled in QEMU and driven by the stock Zephyr
@@ -468,6 +486,23 @@ function collectCanControllers(doc: DtsDocument): CanController[] {
   return controllers
 }
 
+function collectWatchdogs(doc: DtsDocument): WatchdogNode[] {
+  const watchdogs: WatchdogNode[] = []
+  walk(doc.root, (node) => {
+    if (node.name === '/' || !effectivelyOkay(node)) return
+    const compats = compatibles(node)
+    if (!compats.some((c) => WATCHED_WDT_COMPATS.has(c))) return
+    watchdogs.push({
+      nodeName: node.name,
+      controllerLabel: labelOf(node),
+      path: pathOf(node),
+      compatible: compats[0] ?? '',
+      address: regAddress(node),
+    })
+  })
+  return watchdogs
+}
+
 function collectGpioControllers(doc: DtsDocument): GpioController[] {
   const controllers: Array<GpioController & { node: DtsNode }> = []
   walk(doc.root, (node) => {
@@ -646,6 +681,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
   const uartBuses = collectUartBuses(doc)
   const gpioControllers = collectGpioControllers(doc)
   const canControllers = collectCanControllers(doc)
+  const watchdogs = collectWatchdogs(doc)
   const pwmLeds = collectPwmLeds(doc)
   const chosenTable = chosen(doc)
 
@@ -721,6 +757,7 @@ export function computeInsights(doc: DtsDocument): DtsInsights {
     uartBuses,
     gpioControllers,
     canControllers,
+    watchdogs,
     pwmLeds,
     panels,
   }
