@@ -1,0 +1,37 @@
+diff --git a/hw/timer/esp_timg.c b/hw/timer/esp_timg.c
+index 48b869c..f0276cf 100644
+--- a/hw/timer/esp_timg.c
++++ b/hw/timer/esp_timg.c
+@@ -419,12 +419,17 @@ static void esp_wdt_update_config(ESPWdtState* wdt, uint32_t value)
+     const bool enabled_changed = FIELD_EX32(former_conf, TIMG_WDTCONFIG0, EN) != enabled;
+ 
+     if (FIELD_EX32(value, TIMG_WDTCONFIG0, CONF_UPDATE_EN)) {
+-        /* If the prescaler value or the source clock changed update the timer */
+-        if ((FIELD_EX32(wdt->prescaler_mirror, TIMG_WDTCONFIG1, CLK_PRESCALE) != wdt->prescaler) ||
+-            (FIELD_EX32(former_conf, TIMG_WDTCONFIG0, USE_XTAL) != FIELD_EX32(value, TIMG_WDTCONFIG0, USE_XTAL)))
+-        {
+-            esp_wdt_update_prescaler(wdt, wdt->prescaler_mirror);
+-        }
++        /*
++         * CONF_UPDATE_EN latches the clock source and the prescaler, so
++         * recompute both every time rather than only when one looks changed.
++         * The comparison used to be against the register, which a write
++         * without CONF_UPDATE_EN can change without touching the clock: after
++         * a watchdog reset the boot ROM latched the stale 40000 prescaler on
++         * the APB clock, then set USE_XTAL unlatched, so Zephyr's own update
++         * compared equal on both counts and the MWDT ran at twice the rate
++         * the guest had programmed.
++         */
++        esp_wdt_update_prescaler(wdt, wdt->prescaler_mirror);
+ 
+         /* Update the stage configuration mirror */
+         wdt->stage_conf[0] = FIELD_EX32(value, TIMG_WDTCONFIG0, STG0);
+@@ -926,6 +931,8 @@ static void esp_timg_reset_hold(Object *obj, ResetType type)
+     s->wdt.stage[2] = 0x0FFFFFFF;
+     s->wdt.stage[3] = 0x0FFFFFFF;
+     s->wdt.prescaler = 1;
++    /* WDTCONFIG1's reset value: a prescaler of 1 */
++    s->wdt.prescaler_mirror = 1 << R_TIMG_WDTCONFIG1_CLK_PRESCALE_SHIFT;
+     s->wdt.raw_st = 0;
+     s->wdt.int_enabled = 0;
+     if (s->wdt.status_slot >= 0) {
