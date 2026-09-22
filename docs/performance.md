@@ -23,7 +23,7 @@ the list matters for a given workload:
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Atomic QEMU→page request wake** — productionized; no DAC throughput win in A/B test | `src/virtio/transport.ts`, virtio QEMU patch | Medium, latency/idle CPU | Medium | Low |
 | 1d | **Coalesce page→QEMU kicks per poll** — one BH for a multi-msg I²C batch | `src/virtio/transport.ts` | Medium for register reads / multi-queue drains; none for DAC | Very low | Low |
-| 2 | Asyncify probably instruments the TCG hot path | build | High, everything | Medium | Medium |
+| 2 | Asyncify instruments 88 to 92% of every binary; builds without it measured 1.4 to 1.6× on guest compute on the M3 and 1.2× on the A53 JIT, with the wasm at 55% and 60% of its size, see [jspi-feasibility.md](jspi-feasibility.md) | build | High, everything | High (new coroutine backend) | Medium |
 | 3 | Nothing set an optimisation level at *link* — **patched, unmeasured** | build | Medium–High, everything | Very low | Low |
 | 4 | Every ARM machine QEMU ships was compiled in — **patched, unmeasured** | build | High, startup only | Low | Low |
 | 5 | emsdk 3.1.50 to 4.0.10: **done**, -26% build time, no throughput change anywhere | `tools/Dockerfile.deps` | Build time only | Done | Low |
@@ -450,11 +450,13 @@ Two lessons worth keeping:
 - "It booted" is not "it works" for a toolchain bump. Boot a board and then
   exercise a bridge, or the failure hides until someone uses I2C.
 
-One thing not to chase yet: JSPI (`-sJSPI`) removes Asyncify instrumentation
-entirely and would be the ideal answer to item 2, but QEMU's coroutine backend
-here is `emscripten_fiber_*`, which is Asyncify by construction. Switching would
-mean a different coroutine backend upstream, not a link flag. Worth watching, not
-worth attempting.
+JSPI (`-sJSPI`) removes Asyncify instrumentation entirely and is the real
+answer to item 2, but it is not a link flag here: QEMU's coroutine backend is
+`emscripten_fiber_*`, which only exists under Asyncify, so it takes a new
+coroutine backend, Wasm-EH `longjmp` and a newer emsdk, and it raises the
+browser floor. The assessment, with the measured instrumented share of each
+deployed binary (88 to 92% of code bytes), is in
+[jspi-feasibility.md](jspi-feasibility.md).
 
 ## 6. `-icount` prevents the DAC reaching 1 kHz
 
