@@ -19,6 +19,7 @@
  */
 
 import type { VirtioDeviceModel, VirtioRequest } from '../transport'
+import type { GpioBatch } from './gpioProtocol'
 
 /** Queue indices, per the spec. */
 const VQ_REQUEST = 0
@@ -61,6 +62,21 @@ export interface GpioModel extends VirtioDeviceModel {
   /** Runtime direction the guest last programmed (`in` / `out` / `none`). */
   getDirection(line: number): 'in' | 'out' | 'none'
   subscribe(fn: () => void): () => void
+  /**
+   * Route `setInputs` elsewhere, for when the authoritative copy of this model
+   * is running in `deviceWorker.ts`. The word is still recorded here so
+   * `getInputs()` reflects what the panel is driving, but the edge detection
+   * and interrupt delivery belong to whichever copy owns the virtqueues.
+   * Passing null restores in-process behaviour.
+   */
+  setRemote(send: ((mask: number) => void) | null): void
+  /**
+   * Replay a batch from the worker-side copy. Every retained edge is applied in
+   * order and notified, because the consumers downstream latch on the sequence
+   * rather than sampling the end of it: `src/hostSevenSeg.ts` reconstructs a
+   * multiplexed display, and the SCT2024 latches on a pin edge.
+   */
+  applyBatch(batch: GpioBatch): void
 }
 
 export function createGpioModel(name = 'gpio'): GpioModel {
@@ -77,6 +93,8 @@ export function createGpioModel(name = 'gpio'): GpioModel {
   let outputs = 0
   let ngpio = 0
   let lineMask = 0
+  /** Non-null when the virtqueues are owned by a copy of this model elsewhere. */
+  let remote: ((mask: number) => void) | null = null
 
   const notify = () => {
     for (const fn of listeners) fn()
@@ -298,6 +316,17 @@ export function createGpioModel(name = 'gpio'): GpioModel {
     },
 
     setInputs(mask) {
+      if (remote) {
+        // Deliberately not masked by lineMask here. A mirror may not have been
+        // told ngpio yet, and dropping the word against a zero mask is exactly
+        // the bug attachConfig's notify exists to paper over. The owning copy
+        // masks it, and applyBatch brings the real value back.
+        if (mask === inputs) return
+        inputs = mask
+        remote(mask)
+        notify()
+        return
+      }
       const next = mask & lineMask
       if (next === inputs) return
       const rose = next & ~inputs
@@ -305,6 +334,35 @@ export function createGpioModel(name = 'gpio'): GpioModel {
       inputs = next
       fireIrqs(next, rose, fell)
       notify()
+    },
+
+    setRemote(send) {
+      remote = send
+    },
+
+    applyBatch(batch) {
+      ngpio = batch.ngpio
+      lineMask = ngpio >= 32 ? -1 : (1 << ngpio) - 1
+      for (let i = 0; i < batch.ngpio; i++) {
+        const d = batch.directions[i]!
+        direction[i] = d
+      }
+      // A batch that lost edges cannot be replayed honestly: a missing
+      // multiplex frame latches a wrong digit rather than a late one, so
+      // resynchronise from the endpoint and let the next batch be clean.
+      if (batch.dropped === 0) {
+        for (let i = 0; i < batch.edges.length; i++) {
+          const word = batch.edges[i]!
+          if (word === outputs) continue
+          outputs = word
+          notify()
+        }
+      }
+      const changed = outputs !== batch.outputs || inputs !== batch.inputs
+      outputs = batch.outputs
+      inputs = batch.inputs
+      // Always notify at least once: direction and ngpio move without outputs.
+      if (changed || batch.edges.length === 0) notify()
     },
 
     getInputs: () => inputs,
