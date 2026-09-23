@@ -37,6 +37,8 @@ npm run dev
 
 Open <http://localhost:5173>. You'll land on a **mock backend**: a fake shell that echoes input and answers a few commands, so the UI works out of the box without a full emulator build.
 
+`npm run electron:dev` starts that same dev server and opens it in its own window. `npm run electron:dist` packages an installer from the production build. Guest images already in `public/qemu/` are included. Without them, the window runs the mock shell.
+
 To boot real Zephyr, build the emulator and a sample image, then restart the dev server:
 
 ```console

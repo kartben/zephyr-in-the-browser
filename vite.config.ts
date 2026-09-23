@@ -5,6 +5,7 @@ import path from 'node:path'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin } from 'vite'
+import { COI_HEADERS } from './src/desktop/coiHeaders'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const QEMU_ASSET_DIR = path.join(root, 'public', 'qemu')
@@ -17,14 +18,11 @@ const QEMU_ASSET_DIR = path.join(root, 'public', 'qemu')
  *
  * Without these two headers the terminal mounts and then silently hangs the
  * moment the guest reads from stdin, so we set them on *every* response from
- * both the dev server and `vite preview`.
+ * both the dev server and `vite preview`. The desktop app sends the same pair
+ * from its loopback server (src/desktop/staticServer.ts): file:// cannot.
  *
  * See https://web.dev/coop-coep/ and public/qemu/README.md.
  */
-const COI_HEADERS = {
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Embedder-Policy': 'require-corp',
-}
 
 function crossOriginIsolation(): Plugin {
   return {

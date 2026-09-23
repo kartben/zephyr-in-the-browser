@@ -186,3 +186,26 @@ isolation headers QEMU needs, so the deployed build uses
 client-side. And since the emulator is GPLv2-licensed QEMU, this repo being
 public — with release notes pointing at the pinned sources — satisfies the
 corresponding-source requirement.
+
+## Desktop app
+
+`npm run electron:dist` packages the production build as a desktop app (Linux
+AppImage and deb, macOS dmg, Windows nsis). The window loads that build from
+a loopback server. `file://` cannot send the cross-origin isolation headers
+QEMU needs, and the COI service worker does not run there. The server sets
+the same `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`
+headers as the dev server.
+
+Whatever is in `public/qemu/` at build time is copied into the package,
+including the GPLv2 emulator. Build and place those artifacts first, or the
+app ships the mock shell. Corresponding source for the emulator is the same
+public tree and release notes as the website.
+
+`npm run electron:dev` opens the dev server in the window instead of a
+packaged build. `npm run electron:start` runs the production build unpackaged,
+which is the check to make before packaging.
+
+`node tools/smoke-electron.mjs` opens that unpackaged window and fails if the
+page is not cross-origin isolated, JSPI is missing, or the URL is not
+loopback. Build first (`npm run build && npm run build:electron`). It does
+not boot a guest.

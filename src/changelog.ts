@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Added",
+        "text": "Desktop app that runs the page in its own window."
+      },
+      {
         "tag": "Improved",
         "text": "Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download."
       },
