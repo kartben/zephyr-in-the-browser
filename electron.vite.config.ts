@@ -8,6 +8,9 @@ import { defineConfig } from 'vite'
  * app does not need the frontend's node_modules.
  */
 export default defineConfig({
+  // public/ belongs to the renderer build (dist/). Copying it here would
+  // duplicate the guest images into the main-process bundle.
+  publicDir: false,
   build: {
     ssr: 'electron/main.ts',
     outDir: 'dist-electron',

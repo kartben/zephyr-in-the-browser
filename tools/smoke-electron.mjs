@@ -50,7 +50,14 @@ mkdirSync(outDir, { recursive: true })
 try {
   const window = await app.firstWindow()
   window.on('pageerror', (err) => console.error('pageerror', err))
-  await window.getByLabel('Board').waitFor({ timeout: 30_000 })
+  await window.getByRole('combobox', { name: 'Board', exact: true }).waitFor({ timeout: 30_000 })
+
+  // Settings is real React UI, so this checks the window takes a click and
+  // shows a dialog. The terminal draws onto a canvas, which this probe cannot
+  // read back as text.
+  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await window.getByLabel('Bridge WebSocket URL').waitFor({ timeout: 10_000 })
+  await window.keyboard.press('Escape')
 
   const facts = await window.evaluate(() => ({
     isolated: globalThis.crossOriginIsolated,
