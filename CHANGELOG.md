@@ -5,7 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
-- **Improved:** GPIO LED labels stay centered when they wrap.
+- **Improved:** Demo dock lists only peripherals you can open.
 - **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.
 - **Added:** More menu on phones for Parts and Samples.
 - **Improved:** Blinky tour shows the Simulator, terminal, and dock first.

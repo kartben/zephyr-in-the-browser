@@ -21,7 +21,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Improved",
-        "text": "GPIO LED labels stay centered when they wrap."
+        "text": "Demo dock lists only peripherals you can open."
       },
       {
         "tag": "Improved",

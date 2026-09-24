@@ -501,7 +501,7 @@ export default function App() {
           are listed from the first paint (inert until their bridge is live);
           the derivation in useDeviceTree owns that gating.
         */}
-        <Dock boardId={boardId} />
+        <Dock boardId={boardId} demo={backendId === 'mock'} />
         <FloatingWindows boardId={boardId} />
         <InstrumentWindows />
       </main>

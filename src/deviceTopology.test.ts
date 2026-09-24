@@ -7,7 +7,8 @@ import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
 import type { Availability, DeviceInventory, Row } from './deviceTopology'
-import { buildRowList, deriveDeviceInventory, learnerBusName } from './deviceTopology'
+import { buildRowList, demoVisibleNodes, deriveDeviceInventory, learnerBusName } from './deviceTopology'
+import type { DeviceNode } from './deviceTopology'
 
 const treeOf = (text: string, name = 'test.dts') => {
   const doc = parseDts(text)
@@ -678,5 +679,38 @@ describe('buildRowList', () => {
     const rows = buildRowList(inv, 'classes')
     const bme = rows.find((row) => row.kind === 'device' && row.node.key === 'i2c0:76')
     expect((bme as Extract<Row, { kind: 'device' }>).depth).toBe(1)
+  })
+})
+
+function node(partial: Pick<DeviceNode, 'key' | 'presence'> & Partial<DeviceNode>): DeviceNode {
+  return {
+    nodeName: partial.key,
+    label: partial.key,
+    deviceClass: 'sensor',
+    path: `/${partial.key}`,
+    ...partial,
+  }
+}
+
+describe('demo dock', () => {
+  it('keeps live rows and the bus they hang from, and counts the rest', () => {
+    const { nodes, hidden } = demoVisibleNodes([
+      node({ key: 'i2c', presence: 'inert', deviceClass: 'i2c-bus' }),
+      node({ key: 'tmp', presence: 'inert', parentKey: 'i2c' }),
+      node({ key: 'uart', presence: 'interactive', deviceClass: 'uart-bus' }),
+      node({ key: 'gnss', presence: 'interactive', parentKey: 'uart', deviceClass: 'gnss' }),
+      node({ key: 'ghost', presence: 'ghost' }),
+    ])
+    expect(nodes.map((n) => n.key)).toEqual(['uart', 'gnss'])
+    expect(hidden).toBe(3)
+  })
+
+  it('keeps an inert parent when a live child still needs it', () => {
+    const { nodes, hidden } = demoVisibleNodes([
+      node({ key: 'uart', presence: 'inert', deviceClass: 'uart-bus' }),
+      node({ key: 'bt', presence: 'interactive', parentKey: 'uart', deviceClass: 'bluetooth' }),
+    ])
+    expect(nodes.map((n) => n.key)).toEqual(['uart', 'bt'])
+    expect(hidden).toBe(0)
   })
 })

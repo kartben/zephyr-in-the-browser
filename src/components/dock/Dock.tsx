@@ -21,7 +21,7 @@ import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/Do
 import { DockInstruments } from '@/components/dock/Instruments'
 import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
-import { buildRowList, type DockView } from '@/deviceTopology'
+import { buildRowList, demoVisibleNodes, type DockView } from '@/deviceTopology'
 import { get as getDeviceTree } from '@/devicetree'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
@@ -42,9 +42,17 @@ import {
 const REM = 16
 const clampWidth = (w: number) => Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, w))
 
-export function Dock({ boardId }: { boardId: string }) {
+export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolean }) {
   const state = useSyncExternalStore(subscribe, getState, getState)
-  const inventory = useDeviceTree(boardId)
+  const fullInventory = useDeviceTree(boardId)
+  const { inventory, hiddenInert } = useMemo(() => {
+    if (!demo) return { inventory: fullInventory, hiddenInert: 0 }
+    const visible = demoVisibleNodes(fullInventory.nodes)
+    return {
+      inventory: { ...fullInventory, nodes: visible.nodes },
+      hiddenInert: visible.hidden,
+    }
+  }, [demo, fullInventory])
   const desktop = useIsDesktop()
   const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
 
@@ -213,6 +221,11 @@ export function Dock({ boardId }: { boardId: string }) {
                 </p>
               ) : (
                 rendered
+              )}
+              {demo && hiddenInert > 0 && (
+                <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Other peripherals appear when a Zephyr app is running.
+                </p>
               )}
             </>
           )}
