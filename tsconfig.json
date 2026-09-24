@@ -23,5 +23,5 @@
 
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "electron.vite.config.ts", "electron/main.ts"]
 }
