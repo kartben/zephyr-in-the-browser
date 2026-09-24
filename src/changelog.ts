@@ -24,6 +24,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Dock crumbs say I²C/SPI, not virtio bus names."
       },
       {
+        "tag": "Added",
+        "text": "More menu on phones so Parts stays reachable."
+      },
+      {
         "tag": "Improved",
         "text": "Blinky tour shows the Simulator, terminal, and dock first."
       },

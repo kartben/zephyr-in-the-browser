@@ -129,12 +129,13 @@ export function Dock({ boardId }: { boardId: string }) {
       {/*
         Narrow viewports: the dock floats over the stage instead of taking a
         column out of it. A 21rem sidebar on a 375px phone left the terminal
-        about eighty pixels wide — one character per line. Tapping the scrim
-        closes it, the way a drawer should.
+        about eighty pixels wide — one character per line. The drawer and its
+        scrim start below the top bar (h-14) so Help, Settings, and More stay
+        clickable; tapping the dimmed stage dismisses the drawer.
       */}
       {!desktop && (
         <div
-          className="fixed inset-0 z-30 bg-background/70 backdrop-blur-[1px]"
+          className="fixed inset-x-0 bottom-0 top-14 z-30 bg-black/45"
           onClick={hide}
           aria-hidden
         />
@@ -145,7 +146,7 @@ export function Dock({ boardId }: { boardId: string }) {
           'flex flex-col border-l border-border bg-card',
           desktop
             ? 'relative h-full shrink-0'
-            : 'fixed inset-y-0 right-0 z-40 w-[min(22rem,88vw)] shadow-2xl',
+            : 'fixed bottom-0 right-0 top-14 z-40 w-[min(22rem,88vw)] shadow-2xl',
         )}
         style={desktop ? { width: `${width}rem` } : undefined}
       >

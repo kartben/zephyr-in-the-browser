@@ -88,9 +88,26 @@ function matchesQuery(part: PartIdentity, query: string): boolean {
     .every((token) => haystack.includes(token))
 }
 
-export function PartsCatalog() {
+interface PartsCatalogProps {
+  /**
+   * Show a text label beside the cable icon. Used on `sm+` where the control
+   * sits next to the app picker; mobile reaches the catalog from More instead.
+   */
+  labeled?: boolean
+  /**
+   * When set with `onOpenChange`, the dialog is controlled by the parent
+   * (mobile More menu) and the default top-bar trigger is not rendered.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
+export function PartsCatalog({ labeled = false, open: openProp, onOpenChange }: PartsCatalogProps = {}) {
   const searchRef = useRef<HTMLInputElement>(null)
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const controlled = onOpenChange !== undefined
+  const open = controlled ? (openProp ?? false) : uncontrolledOpen
+  const setOpen = controlled ? onOpenChange : setUncontrolledOpen
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -119,17 +136,24 @@ export function PartsCatalog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 text-muted-foreground"
-          aria-label="Supported parts catalog"
-          title="Supported parts"
-        >
-          <Cable className="size-3.5" aria-hidden />
-        </Button>
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size={labeled ? 'default' : 'icon'}
+            className={
+              labeled
+                ? 'h-8 shrink-0 gap-1.5 px-2 text-muted-foreground'
+                : 'size-8 shrink-0 text-muted-foreground'
+            }
+            aria-label="Supported parts"
+            title="Supported parts"
+          >
+            <Cable className="size-3.5" aria-hidden />
+            {labeled && <span className="text-sm">Parts</span>}
+          </Button>
+        </DialogTrigger>
+      )}
 
       <DialogContent className="h-[min(85vh,42rem)] max-w-xl">
         <DialogHeader>
