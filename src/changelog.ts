@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Fixed",
+        "text": "CAN counter sample counts again."
+      },
+      {
         "tag": "Improved",
         "text": "GPIO LED labels stay centered when they wrap."
       },

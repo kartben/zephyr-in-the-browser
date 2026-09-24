@@ -177,9 +177,12 @@ function recomputeDerived() {
         ngpios: 8,
       }
   // A new devicetree can change which pins are active low, so re-seed the
-  // resting levels. Nothing is held down at this point: the tree only changes
-  // between guests.
-  inputs = restInputs()
+  // button resting levels. Nothing is held down at this point: the tree only
+  // changes between guests. Pins that are not buttons (the CAN INT line, for
+  // one) keep the level a caller already drove. Replacing the whole word
+  // here cleared that line back to low after the chip had idled it high.
+  const buttonBits = derived.buttons.reduce((mask, pin) => mask | (1 << pin.id), 0)
+  inputs = (inputs & ~buttonBits) | restInputs()
   if (mmio) mmio.setInputs(inputs)
   else gpioModel.setInputs(inputs)
   restartMmioPoller()

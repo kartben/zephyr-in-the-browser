@@ -93,6 +93,15 @@ export function createGpioModel(name = 'gpio'): GpioModel {
   let outputs = 0
   let ngpio = 0
   let lineMask = 0
+  /**
+   * `setInputs` that arrived before config space told us `ngpio`. Masking
+   * that word with a zero `lineMask` drops it, and the caller (hostGpio)
+   * will not send the same word again. Held here and applied in
+   * `attachConfig`. The owning copy is the one that has to remember it:
+   * when this model runs in the device worker, the main-thread re-push
+   * only updates the mirror.
+   */
+  let pendingInputs: number | null = null
   /** Non-null when the virtqueues are owned by a copy of this model elsewhere. */
   let remote: ((mask: number) => void) | null = null
 
@@ -106,6 +115,16 @@ export function createGpioModel(name = 'gpio'): GpioModel {
     if (!req) return
     irqReq[line] = null
     req.reply(Uint8Array.of(status))
+  }
+
+  function commitInputs(mask: number) {
+    const next = mask & lineMask
+    if (next === inputs) return
+    const rose = next & ~inputs
+    const fell = ~next & inputs
+    inputs = next
+    fireIrqs(next, rose, fell)
+    notify()
   }
 
   /**
@@ -285,13 +304,16 @@ export function createGpioModel(name = 'gpio'): GpioModel {
       ngpio = Math.min(dv.getUint16(0, true), MAX_LINES)
       lineMask = ngpio >= 32 ? -1 : (1 << ngpio) - 1
       inputs &= lineMask
-      // A caller's setInputs() before this point was masked to 0 by the
-      // then-unknown lineMask (ngpio defaults to 0), silently dropping it —
-      // notify so a subscriber can re-push its real intended word now that
-      // lineMask is meaningful. Without this, a line a consumer means to
-      // idle high (e.g. an active-low interrupt line) stays stuck at its
-      // default low forever, and no transition off that wrong baseline is
-      // ever a real edge.
+      // Apply a setInputs that arrived while ngpio was still unknown.
+      // Masking it then was a no-op, and nothing else will repeat it.
+      // Without this, an active-low line meant to idle high (the MCP2515
+      // INT pin) stays stuck low, so the first assert is not an edge and
+      // the driver's interrupt thread never wakes.
+      const staged = pendingInputs
+      pendingInputs = null
+      if (staged !== null) commitInputs(staged)
+      // Subscribers on the in-process path still re-push their own word.
+      // A no-op once commitInputs already stored it.
       notify()
     },
 
@@ -319,7 +341,7 @@ export function createGpioModel(name = 'gpio'): GpioModel {
       if (remote) {
         // Deliberately not masked by lineMask here. A mirror may not have been
         // told ngpio yet, and dropping the word against a zero mask is exactly
-        // the bug attachConfig's notify exists to paper over. The owning copy
+        // the bug the pending-input stash exists to fix. The owning copy
         // masks it, and applyBatch brings the real value back.
         if (mask === inputs) return
         inputs = mask
@@ -327,13 +349,14 @@ export function createGpioModel(name = 'gpio'): GpioModel {
         notify()
         return
       }
-      const next = mask & lineMask
-      if (next === inputs) return
-      const rose = next & ~inputs
-      const fell = ~next & inputs
-      inputs = next
-      fireIrqs(next, rose, fell)
-      notify()
+      // ngpio is 0 until the guest reads config space. Masking now drops
+      // every bit. Remember the word and apply it once lineMask is real.
+      if (lineMask === 0) {
+        pendingInputs = mask
+        return
+      }
+      pendingInputs = null
+      commitInputs(mask)
     },
 
     setRemote(send) {
