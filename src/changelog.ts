@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Added",
+        "text": "More menu on phones so Parts stays reachable."
+      },
+      {
         "tag": "Improved",
         "text": "Blinky tour shows the Simulator, terminal, and dock first."
       },
