@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
+  AppWindow,
   Cable,
   CircleHelp,
   Cpu,
@@ -23,6 +24,7 @@ import { SettingsMenu } from '@/components/SettingsMenu'
 import { PauseDebugControl } from '@/components/PauseDebugControl'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { formatChord, isMacPlatform, toggleHelp } from '@/lib/shortcuts'
+import { runCommand } from '@/lib/commands'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import type { SessionMode } from '@/lib/modeStore'
 import * as bridge from '@/probe/client'
@@ -86,8 +88,8 @@ export function TopBar({
    * toggle): the board is physical, so picking one, booting apps, wiring
    * parts, and restarting a guest have nothing to act on.
    *
-   * Below `sm`, Parts / DTS / Clear fold into More so the catalog stays
-   * reachable when the icon cluster is stripped (H5 / M6).
+   * Below `sm`, Samples / Parts / DTS / Clear fold into More so discovery
+   * stays reachable when the icon cluster is stripped (H5 / M6).
    */
   return (
     <header className="relative z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:gap-3 sm:px-5">
@@ -291,6 +293,18 @@ function MoreToolsMenu() {
           role="menu"
           className="absolute right-0 top-full z-50 mt-1 min-w-[11rem] rounded-lg border border-border bg-card p-1 shadow-xl"
         >
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+            onClick={() => {
+              setMenuOpen(false)
+              runCommand('open-samples')
+            }}
+          >
+            <AppWindow className="size-3.5 text-muted-foreground" aria-hidden />
+            Samples
+          </button>
           <button
             type="button"
             role="menuitem"

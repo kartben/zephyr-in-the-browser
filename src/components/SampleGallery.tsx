@@ -245,12 +245,14 @@ export function SampleGallery({
   return (
     <div className="flex min-w-0 shrink items-center gap-2">
       <Dialog open={open} onOpenChange={setOpen}>
+        {/* Trigger lives in the top bar from `sm` up; below that, More opens
+            the same dialog via the open-samples command (H5). */}
         <DialogTrigger asChild>
           <button
             type="button"
             aria-label="Choose the Zephyr app to boot"
             className={cn(
-              'flex h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-transparent px-2.5 text-sm',
+              'hidden h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-transparent px-2.5 text-sm sm:flex',
               'transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background',
             )}
           >
@@ -355,7 +357,7 @@ export function SampleGallery({
         <Button
           variant="ghost"
           size="icon"
-          className="size-6 shrink-0"
+          className="hidden size-6 shrink-0 sm:inline-flex"
           aria-label="Go back to a built-in app"
           title="Go back to a built-in app"
           onClick={onClearImage}
