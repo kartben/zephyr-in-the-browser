@@ -74,8 +74,10 @@ vi.mock('@/debug/control', () => ({
  * Tours are bundled with the page rather than fetched, so this is what stands
  * in for the glob — the store asks for a sample id, not a URL.
  */
+const tourText = vi.hoisted(() => ({ body: '' }))
+
 vi.mock('@/tours/catalog', () => ({
-  loadTourSource: async (id: string) => (id.startsWith('tour-') ? TOUR : null),
+  loadTourSource: async (id: string) => (id.startsWith('tour-') ? tourText.body : null),
   hasTour: () => true,
   tourIds: () => ['tour'],
   baseSampleId: (id: string) => id.replace(/_trace$/, ''),
@@ -160,6 +162,7 @@ beforeEach(async () => {
   revealed.length = 0
   swallowed.length = 0
   stopFilter = null
+  tourText.body = TOUR
   // A fresh id each time: the tour cache is keyed by it, deliberately.
   await loadFor(`tour-${url++}`)
   await arm()
@@ -288,6 +291,52 @@ describe('leaving', () => {
     expect(getSnapshot().finished).toBe(true)
     expect(getSnapshot().armed).toBe(false)
     expect(getSnapshot().current).toBeNull()
+    expect(paused).toBe(false)
+  })
+
+  it('Got it on a final stop: no step clears that breakpoint and leaves the guest running', async () => {
+    // Blinky's last card says "Got it" (`stop: no`). The breakpoint it just
+    // hit has to be gone before the guest is let go, or the next pass stops
+    // the LED again. Leave the tour already did this; finishing must too.
+    reset()
+    tourText.body = `---
+tour: Blinky shape
+sample: samples/basic/blinky
+---
+
+## The stop
+
+\`\`\`tour
+at: 0x8000
+when: first
+\`\`\`
+
+Prose.
+
+## Keep going
+
+\`\`\`tour
+at: 0x9000
+when: first
+stop: no
+\`\`\`
+
+Prose.
+`
+    await loadFor(`tour-${url++}`)
+    await arm()
+    await stopAt(0x8000)
+    next()
+    await settle()
+    await stopAt(0x9000)
+    expect(getSnapshot().current?.paused).toBe(false)
+    expect(breakpoints.has(0x9000)).toBe(false)
+    expect(paused).toBe(false)
+    next()
+    await settle()
+    expect(breakpoints.size).toBe(0)
+    expect(stopFilter).toBeNull()
+    expect(getSnapshot().finished).toBe(true)
     expect(paused).toBe(false)
   })
 

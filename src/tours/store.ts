@@ -392,6 +392,7 @@ async function plantNext(): Promise<boolean> {
   )
   if (!runtime?.anchor) return steps.some((s) => s.planted)
   runtime.planted = await debug.addBreakpoint(runtime.anchor.addr)
+  if (runtime.planted) ownedBreakpoints.add(runtime.anchor.addr)
   if (!runtime.planted) {
     publish({
       problems: [
@@ -433,11 +434,10 @@ async function loadPatternSources(): Promise<void> {
 
 /** Drop every planted breakpoint — leaving the tour, or turning tours off. */
 async function disarm(): Promise<void> {
-  for (const runtime of steps) {
-    if (!runtime.planted || !runtime.anchor) continue
-    runtime.planted = false
-    await debug.removeBreakpoint(runtime.anchor.addr)
-  }
+  for (const runtime of steps) runtime.planted = false
+  const addrs = [...ownedBreakpoints]
+  ownedBreakpoints.clear()
+  for (const addr of addrs) await debug.removeBreakpoint(addr)
   // Stop claiming hits once the tour is over; leftover filters look like a
   // stuck pause when the reader finishes the last step.
   gdb.setStopFilter(null)
@@ -451,6 +451,12 @@ async function disarm(): Promise<void> {
 let wasPaused = false
 let pauseEpoch = 0
 let handledEpoch = -1
+/**
+ * Addresses this tour inserted. A step marks itself unplanted before the
+ * stub has actually dropped the breakpoint, and "Got it" on a `stop: no`
+ * step can run in that window. Disarm removes these, not the planted flag.
+ */
+const ownedBreakpoints = new Set<number>()
 
 /**
  * Decide, at the raw stop, whether this hit is one the reader should see.
@@ -545,9 +551,14 @@ async function showPending(): Promise<void> {
     const addr = runtime.anchor.addr
     runtime.planted = false
     // The address may still belong to another step; only lift the breakpoint
-    // once nothing is waiting on it.
+    // once nothing is waiting on it. Await the lift before anything resumes:
+    // a `stop: no` step continues in this same turn, and "Got it" can dismiss
+    // the card while that continue is still queued. The address stays in
+    // ownedBreakpoints until the stub has actually dropped it, so finish
+    // still removes it if the reader gets there first.
     if (!steps.some((s) => s.planted && s.anchor?.addr === addr)) {
-      void debug.removeBreakpoint(addr)
+      await debug.removeBreakpoint(addr)
+      ownedBreakpoints.delete(addr)
     }
   }
 
@@ -744,6 +755,7 @@ export function reset(): void {
   lineIndexFor = null
   wasPaused = false
   handledEpoch = -1
+  ownedBreakpoints.clear()
   state = { ...EMPTY, enabled: state.enabled, seen: new Set() }
   notify()
 }
