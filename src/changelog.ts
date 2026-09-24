@@ -37,6 +37,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Fixed",
+        "text": "Resuming from a breakpoint no longer stops on it again."
+      },
+      {
+        "tag": "Fixed",
         "text": "An ELF without a devicetree shows the board's buses."
       },
       {

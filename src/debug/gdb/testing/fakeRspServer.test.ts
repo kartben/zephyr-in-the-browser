@@ -59,6 +59,22 @@ describe('FakeRspServer', () => {
     expect(t.drain().length).toBe(0)
   })
 
+  it('re-traps a continue from a breakpoint, and lets a step past it', () => {
+    const server = new FakeRspServer({ pc: 0x2000 })
+    const t = server.transport()
+    t.send(encodePacket('QStartNoAckMode'))
+    t.send(encodePacket('Z0,2000,2'))
+    t.drain()
+    t.send(encodePacket('vCont;c'))
+    expect(server.running).toBe(false)
+    expect(server.pc).toBe(0x2000)
+    expect(text(t.drain())).toBe(encodePacket('T05thread:01;'))
+    t.send(encodePacket('vCont;s'))
+    expect(server.pc).toBe(0x2002)
+    t.send(encodePacket('vCont;c'))
+    expect(server.running).toBe(true)
+  })
+
   it('rejects vCont without support and Z0 in flash', () => {
     const server = new FakeRspServer({
       supportsVCont: false,

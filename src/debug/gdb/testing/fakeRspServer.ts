@@ -22,6 +22,10 @@
  *   comparator) works there.
  * - Writes into flash fail with an error reply, like a real target.
  * - A `\x03` to a halted target is discarded in silence.
+ * - **A continue from a breakpoint traps on it again at once**, without
+ *   retiring an instruction; only a single step gets past it. OpenOCD resumes
+ *   with handle_breakpoints off and leaves stepping over to gdb, and QEMU's
+ *   stub behaves the same way ("Singlestep overrides breakpoints").
  */
 
 import { bytesToHex, checksum, decodeStream, encodePacket } from '@/debug/gdb/rspCodec'
@@ -197,6 +201,9 @@ export class FakeRspServer {
       }
       this.running = true
       this.lastStopPayload = null
+      if (this.swBreakpoints.has(this.pc) || this.hwBreakpoints.has(this.pc)) {
+        this.hitBreakpoint()
+      }
       return
     }
     if (payload === 'vCont;s' || payload === 's') {
