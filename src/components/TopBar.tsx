@@ -1,5 +1,14 @@
-import { useCallback, useState, useSyncExternalStore } from 'react'
-import { CircleHelp, Cpu, FileCode2, RefreshCw, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  Cable,
+  CircleHelp,
+  Cpu,
+  Ellipsis,
+  FileCode2,
+  RefreshCw,
+  RotateCcw,
+  Unplug,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { StatusPill } from '@/components/StatusPill'
@@ -18,6 +27,12 @@ import { useIsDesktop } from '@/hooks/useMediaQuery'
 import type { SessionMode } from '@/lib/modeStore'
 import * as bridge from '@/probe/client'
 import type { BackendStatus } from '@/backends'
+import {
+  clearUserPeripherals,
+  hasUserPeripherals,
+  i2cModel,
+  spiModel,
+} from '@/virtio'
 
 interface Props {
   mode: SessionMode
@@ -70,14 +85,21 @@ export function TopBar({
    * (Settings, Help, panels; dock via the edge tab or the mobile drawer
    * toggle): the board is physical, so picking one, booting apps, wiring
    * parts, and restarting a guest have nothing to act on.
+   *
+   * Below `sm`, Parts / DTS / Clear fold into More so the catalog stays
+   * reachable when the icon cluster is stripped (H5 / M6).
    */
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 sm:gap-3 sm:px-5">
-      <div className="flex shrink-0 items-center gap-2.5">
-        <Cpu className="size-4 text-primary" aria-hidden />
-        {/* The wordmark is the first thing to go when the bar gets tight. */}
-        <h1 className="hidden whitespace-nowrap text-sm font-semibold tracking-tight lg:block">
-          Zephyr in the Browser
+    <header className="relative z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:gap-3 sm:px-5">
+      <div className="flex min-w-0 shrink-0 items-center gap-2.5">
+        <Cpu className="size-4 shrink-0 text-primary" aria-hidden />
+        {/*
+          Keep a compact brand on narrow widths. The full product name only
+          fits once the bar has room (`lg+`).
+        */}
+        <h1 className="truncate text-sm font-semibold tracking-tight">
+          <span className="lg:hidden">Zephyr</span>
+          <span className="hidden lg:inline">Zephyr in the Browser</span>
         </h1>
       </div>
 
@@ -97,12 +119,15 @@ export function TopBar({
               onClearImage={onClearImage}
             />
 
-            {/* Reference and layout tools — the first things to fold away. */}
+            {/* Reference and layout tools — icon/text cluster from `sm` up. */}
             <span className="hidden items-center sm:flex">
               <RunningDtsButton />
-              <PartsCatalog />
+              <PartsCatalog labeled />
               <ClearPeripheralsControl />
             </span>
+
+            {/* Narrow: Parts (and DTS / Clear when present) live under More. */}
+            <MoreToolsMenu />
           </>
         )}
 
@@ -217,6 +242,112 @@ function MobileDockToggle() {
 }
 
 /**
+ * Mobile overflow for reference tools that leave the top bar below `sm`.
+ * Samples stay as their own control; Parts is the discovery gap this closes.
+ */
+function MoreToolsMenu() {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [partsOpen, setPartsOpen] = useState(false)
+  const [dtsOpen, setDtsOpen] = useState(false)
+  const rootRef = useRef<HTMLSpanElement | null>(null)
+  const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
+  useSyncExternalStore(i2cModel.subscribe, i2cModel.chips, i2cModel.chips)
+  useSyncExternalStore(spiModel.subscribe, spiModel.chips, spiModel.chips)
+  const canClear = hasUserPeripherals()
+  const dtsLoad = useCallback(() => Promise.resolve(getDeviceTree()?.text ?? null), [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
+
+  return (
+    <span ref={rootRef} className="relative sm:hidden">
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn('size-8 shrink-0', menuOpen && 'bg-secondary')}
+        aria-label="More"
+        aria-expanded={menuOpen}
+        title="More"
+        onClick={() => setMenuOpen((o) => !o)}
+      >
+        <Ellipsis className="size-4" />
+      </Button>
+
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-1 min-w-[11rem] rounded-lg border border-border bg-card p-1 shadow-xl"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+            onClick={() => {
+              setMenuOpen(false)
+              setPartsOpen(true)
+            }}
+          >
+            <Cable className="size-3.5 text-muted-foreground" aria-hidden />
+            Parts
+          </button>
+          {deviceTree && (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+              onClick={() => {
+                setMenuOpen(false)
+                setDtsOpen(true)
+              }}
+            >
+              <FileCode2 className="size-3.5 text-muted-foreground" aria-hidden />
+              Devicetree
+            </button>
+          )}
+          {canClear && (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+              onClick={() => {
+                setMenuOpen(false)
+                clearUserPeripherals()
+              }}
+            >
+              <Unplug className="size-3.5 text-muted-foreground" aria-hidden />
+              Clear attached parts
+            </button>
+          )}
+        </div>
+      )}
+
+      <PartsCatalog open={partsOpen} onOpenChange={setPartsOpen} />
+      {deviceTree && (
+        <DtsViewer
+          open={dtsOpen}
+          onOpenChange={setDtsOpen}
+          title={`${deviceTree.name}: running build`}
+          load={dtsLoad}
+        />
+      )}
+    </span>
+  )
+}
+
+/**
  * Opens the devicetree of the *running* build in the viewer. Self-subscribed
  * rather than threaded through TopBar's props: whether a tree is known is the
  * devicetree store's business, and the button simply is not there when none is.
@@ -243,7 +374,7 @@ function RunningDtsButton() {
       <DtsViewer
         open={open}
         onOpenChange={setOpen}
-        title={`${deviceTree.name} — running build`}
+        title={`${deviceTree.name}: running build`}
         load={load}
       />
     </>
