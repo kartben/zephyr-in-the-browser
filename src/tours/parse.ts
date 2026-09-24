@@ -143,6 +143,12 @@ export interface TourDoc {
   sample: string
   /** Prose between the front matter and the first step. */
   intro: string
+  /**
+   * When false (`source: no` in front matter), the card skips file/line crumbs
+   * and source / devicetree snippets. Breakpoints from `at:` still plant; only
+   * the teaching surface is prose + dock/terminal focus. Default true.
+   */
+  showSource: boolean
   steps: TourStep[]
   /** Authoring errors, in file order. Rendered in dev, ignored in production. */
   problems: string[]
@@ -607,6 +613,8 @@ export function parseTour(text: string): TourDoc {
     title: asScalar(front.get('tour')) ?? asScalar(front.get('title')) ?? 'Guided tour',
     sample: asScalar(front.get('sample')) ?? '',
     intro: intro.join('\n').trim(),
+    // `source: no` hides guest source / DTS excerpts on the card (tool tours).
+    showSource: asBool(front.get('source'), true),
     steps,
     problems,
   }

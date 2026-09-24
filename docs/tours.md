@@ -22,6 +22,10 @@ Create `tours/<sample-id>.tour.md`, where `<sample-id>` is the app id from
 a fenced ` ```tour ` block under the heading holds the stage directions; the
 rest of the section is the prose.
 
+Front-matter keys: `tour` (title), `sample` (Zephyr sample path), and optional
+`source: no` to hide guest source / DTS excerpts on the card (breakpoints from
+`at:` still plant; use this for page-orientation tours).
+
 ````markdown
 ---
 tour: Blinky, explained

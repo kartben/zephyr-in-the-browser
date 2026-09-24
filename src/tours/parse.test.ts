@@ -100,7 +100,18 @@ describe('parseTour', () => {
     expect(doc.title).toBe('Blinky, explained')
     expect(doc.sample).toBe('samples/basic/blinky')
     expect(doc.intro).toBe('An introduction.')
+    expect(doc.showSource).toBe(true)
     expect(doc.problems).toEqual([])
+  })
+
+  it('honours source: no in the front matter', () => {
+    const tool = parseTour(
+      ['---', 'tour: Page tour', 'sample: samples/basic/blinky', 'source: no', '---', '', '## Step', '', '```tour', 'at: main', '```', '', 'Prose.', ''].join(
+        '\n',
+      ),
+    )
+    expect(tool.showSource).toBe(false)
+    expect(tool.problems).toEqual([])
   })
 
   it('makes one step per heading, in file order', () => {

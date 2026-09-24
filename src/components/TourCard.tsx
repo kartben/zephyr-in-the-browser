@@ -83,16 +83,19 @@ export function TourCard({ board, sampleId }: Props) {
   if (!card || !state.enabled) return null
 
   const { step, anchor, paused, values, memory, objects, registers, threads } = card
+  const showSource = state.doc?.showSource !== false
   const total = state.doc?.steps.length ?? 0
-  const src = anchor?.file
-    ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, baseName(anchor.file))}`
-    : null
+  const src =
+    showSource && anchor?.file
+      ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, baseName(anchor.file))}`
+      : null
 
-  const where = anchor
-    ? anchor.file && anchor.line
-      ? `${baseName(anchor.file)}:${anchor.line}`
-      : (anchor.symbol ?? `0x${anchor.addr.toString(16)}`)
-    : null
+  const where =
+    showSource && anchor
+      ? anchor.file && anchor.line
+        ? `${baseName(anchor.file)}:${anchor.line}`
+        : (anchor.symbol ?? `0x${anchor.addr.toString(16)}`)
+      : null
 
   return (
     <div className="pointer-events-auto w-full max-w-[34rem]">
@@ -110,7 +113,7 @@ export function TourCard({ board, sampleId }: Props) {
           {paused && (
             <span
               className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
-              title="The guest is paused on this line"
+              title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
             >
               <Pause className="size-2.5" aria-hidden />
               paused
@@ -178,7 +181,7 @@ export function TourCard({ board, sampleId }: Props) {
             </div>
           )}
 
-          {dts && dtsRanges.length > 0 && (
+          {showSource && dts && dtsRanges.length > 0 && (
             <SourceSnippet
               text={dts.text}
               filename={dts.name}
