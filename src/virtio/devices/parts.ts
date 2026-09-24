@@ -79,7 +79,7 @@ export const PARTS: readonly PartIdentity[] = [
     kind: 'sensor',
     datasheetUrl: 'https://www.ti.com/lit/ds/symlink/tmp112.pdf',
     bindingUrl: binding('sensor/ti%2Ctmp112.html'),
-    summary: 'Digital thermometer; stock Zephyr `ti,tmp112` over virtio-i2c.',
+    summary: 'Digital thermometer; stock Zephyr `ti,tmp112` on I²C.',
   },
   {
     id: 'lm75',

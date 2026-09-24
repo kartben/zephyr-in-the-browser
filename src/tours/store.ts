@@ -438,6 +438,9 @@ async function disarm(): Promise<void> {
     runtime.planted = false
     await debug.removeBreakpoint(runtime.anchor.addr)
   }
+  // Stop claiming hits once the tour is over; leftover filters look like a
+  // stuck pause when the reader finishes the last step.
+  gdb.setStopFilter(null)
   publish({ armed: false })
 }
 
@@ -696,7 +699,7 @@ export function next(): void {
     if (finished) {
       await disarm()
       publish({ armed: false, finished: true })
-      if (card?.paused && state.live) debug.resume()
+      if (state.live && (card?.paused || gdb.getSnapshot().paused)) debug.resume()
       return
     }
     const planted = await plantNext()
@@ -717,9 +720,12 @@ export function revisit(index: number): void {
 /** Leave the tour: drop the breakpoints, resume, say nothing more. */
 export function skip(): void {
   const wasStopped = state.current?.paused ?? false
-  void disarm()
   publish({ current: null, finished: true })
-  if (wasStopped && state.live) debug.resume()
+  void (async () => {
+    await disarm()
+    publish({ armed: false, finished: true })
+    if (state.live && (wasStopped || gdb.getSnapshot().paused)) debug.resume()
+  })()
 }
 
 /** Drop everything — a new guest is starting. */

@@ -25,7 +25,7 @@ import type { I2cChip } from '@/virtio/devices/i2c'
 import type { SpiChip } from '@/virtio/devices/spi'
 import type { ChipKind } from '@/virtio/devices/registry'
 import { FALLBACK_DT_SLOTS, CHIP_TYPES, chipType } from '@/virtio/devices/registry'
-import { partCompatible } from '@/virtio/devices/parts'
+import { partById, partCompatible } from '@/virtio/devices/parts'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
 import { isLp5562 } from '@/virtio/devices/chips/lp5562'
 import { isLp50xx } from '@/virtio/devices/chips/lp50xx'
@@ -149,12 +149,12 @@ export interface DeviceNode {
    * the bus — the NAK/bus-error demo, visible.
    */
   presence: 'interactive' | 'inert' | 'ghost'
-  /** Short annotation ('→ terminal', 'no page model', 'NAK — detached'). */
+  /** Short annotation ('→ terminal', 'no page model', 'NAK: detached'). */
   note?: string
   /** Small qualifier chip ('not in devicetree' for an attached-but-undeclared part). */
   tag?: string
   body?: BodyKind
-  /** ▤-view breadcrumb locating the row on the hardware ('virtio_i2c0 · 0x48'). */
+  /** ▤-view breadcrumb locating the row on the hardware ('I²C · 0x48'). */
   crumb?: string
   /** Live chip handle, for sensor/memory/oled/spi-flash bodies. */
   chip?: I2cChip | SpiChip
@@ -342,6 +342,57 @@ function uniqueKey(ids: Ids, base: string): string {
   return key
 }
 
+/**
+ * Classes-view bus name for crumbs and bus-row labels.
+ *
+ * Emulator bridges (`virtio_i2c0`, `host_i2c`, …) become the bus kind a Zephyr
+ * learner cares about (`I²C`). Real board labels (`i2c0`, `uart1`, `pca9685_0`)
+ * stay as written. Tree view still shows DT node names (`virtio-i2c`).
+ */
+export function learnerBusName(controllerLabel: string): string {
+  if (!/^(virtio[_-]?|host_)/i.test(controllerLabel)) return controllerLabel
+  const rest = controllerLabel.replace(/^(virtio[_-]?|host_)/i, '')
+  const kind = rest.replace(/\d+$/, '').toLowerCase()
+  switch (kind) {
+    case 'i2c':
+      return 'I²C'
+    case 'spi':
+      return 'SPI'
+    case 'gpio':
+      return 'GPIO'
+    case 'uart':
+      return 'UART'
+    case 'net':
+      return 'Network'
+    case 'blk':
+      return 'Disk'
+    default:
+      return controllerLabel
+  }
+}
+
+/** Chip address crumb for the Classes view (`I²C · 0x48`). */
+function addressCrumb(busLabel: string, address: number): string {
+  return `${learnerBusName(busLabel)} · 0x${hex(address)}`
+}
+
+/** SPI chip-select crumb for the Classes view (`SPI · CS0`). */
+function csCrumb(busLabel: string, cs: number): string {
+  return `${learnerBusName(busLabel)} · CS${cs}`
+}
+
+/**
+ * Classes secondary for a bus controller alone. Soft names like `GPIO` next to
+ * a row already titled "GPIO LEDs" are noise; keep the virtio label on
+ * {@link DeviceNode.busLabel} / the row tooltip instead.
+ */
+function softBusCrumb(controllerLabel: string): string | undefined {
+  const soft = learnerBusName(controllerLabel)
+  if (soft === controllerLabel) return soft
+  // Softened virtio/host bridge with no address/CS: omit from the row.
+  return undefined
+}
+
 /** Declared I²C children under a bus that is not live yet — same keys/classes as ghosts. */
 function declaredI2cChildren(
   ids: Ids,
@@ -363,7 +414,7 @@ function declaredI2cChildren(
         path: `${busPath}/${slot.nodeName}`,
         parentKey: busKey,
         presence: 'inert' as const,
-        crumb: `${busLabel} · 0x${hex(slot.address)}`,
+        crumb: addressCrumb(busLabel, slot.address),
         partId: slot.chipId,
         busLabel,
       }
@@ -380,28 +431,31 @@ function declaredSpiChildren(
 ): DeviceNode[] {
   return [...slots]
     .sort((a, b) => a.cs - b.cs)
-    .map((slot) => ({
-      key: uniqueKey(ids, `${busLabel}:${slot.cs.toString(16)}`),
-      nodeName: slot.nodeName,
-      label: slot.compatible || slot.nodeName,
-      compatible: slot.compatible || undefined,
-      deviceClass:
-        slot.chipId === 'w25q'
-          ? ('memory' as const)
-          : slot.chipId === 'sct2024' || slot.chipId === 'ws2812'
-            ? ('led' as const)
-            : slot.chipId === 'pt6314'
-              ? ('auxdisplay' as const)
-              : slot.chipId === 'tmc50xx'
-                ? ('stepper' as const)
-                : ('spi-bus' as const),
-      path: `${busPath}/${slot.nodeName}`,
-      parentKey: busKey,
-      presence: 'inert' as const,
-      crumb: `${busLabel} · CS${slot.cs}`,
-      partId: slot.chipId,
-      busLabel,
-    }))
+    .map((slot) => {
+      const part = slot.chipId ? partById(slot.chipId) : undefined
+      return {
+        key: uniqueKey(ids, `${busLabel}:${slot.cs.toString(16)}`),
+        nodeName: slot.nodeName,
+        label: part?.label ?? (slot.compatible || slot.nodeName),
+        compatible: slot.compatible || undefined,
+        deviceClass:
+          slot.chipId === 'w25q'
+            ? ('memory' as const)
+            : slot.chipId === 'sct2024' || slot.chipId === 'ws2812'
+              ? ('led' as const)
+              : slot.chipId === 'pt6314'
+                ? ('auxdisplay' as const)
+                : slot.chipId === 'tmc50xx'
+                  ? ('stepper' as const)
+                  : ('spi-bus' as const),
+        path: `${busPath}/${slot.nodeName}`,
+        parentKey: busKey,
+        presence: 'inert' as const,
+        crumb: csCrumb(busLabel, slot.cs),
+        partId: slot.chipId,
+        busLabel,
+      }
+    })
 }
 
 /**
@@ -424,7 +478,7 @@ function liveBusChildren(
   for (const address of addresses) {
     const slot = slotByAddr.get(address)
     const chip = chipByAddr.get(address)
-    const crumb = `${busLabel} · 0x${hex(address)}`
+    const crumb = addressCrumb(busLabel, address)
 
     if (chip) {
       // Backlight is a side-channel address on the JHD1313 module (DT property
@@ -465,7 +519,7 @@ function liveBusChildren(
       path: `${busPath}/${declared.nodeName}`,
       parentKey: busKey,
       presence: 'ghost',
-      note: 'NAK — detached',
+      note: 'NAK: detached',
       crumb,
       partId: declared.chipId,
       busLabel,
@@ -490,7 +544,7 @@ function liveSpiBusChildren(
   for (const cs of selects) {
     const slot = slotByCs.get(cs)
     const chip = chipByCs.get(cs)
-    const crumb = `${busLabel} · CS${cs}`
+    const crumb = csCrumb(busLabel, cs)
     const keyCs = cs.toString(16)
 
     if (chip) {
@@ -569,10 +623,11 @@ function liveSpiBusChildren(
     }
 
     const declared = slot!
+    const part = declared.chipId ? partById(declared.chipId) : undefined
     rows.push({
       key: uniqueKey(ids, `${busLabel}:${keyCs}`),
       nodeName: declared.nodeName,
-      label: declared.compatible || declared.nodeName,
+      label: part?.label ?? (declared.compatible || declared.nodeName),
       compatible: declared.compatible || undefined,
       deviceClass:
         declared.chipId === 'w25q'
@@ -587,7 +642,7 @@ function liveSpiBusChildren(
       path: `${busPath}/${declared.nodeName}`,
       parentKey: busKey,
       presence: 'ghost',
-      note: 'ERR — detached',
+      note: 'ERR: detached',
       crumb,
       partId: declared.chipId,
       busLabel,
@@ -671,7 +726,7 @@ function deriveFromTree(
         path: pathOf(nic),
         presence: live ? 'interactive' : 'inert',
         body: live ? 'net' : undefined,
-        crumb: nic.labels[0],
+        crumb: nic.labels[0] ? learnerBusName(nic.labels[0]) : undefined,
         panelKind: live ? 'net' : undefined,
       })
     }
@@ -730,7 +785,7 @@ function deriveFromTree(
         path: pathOf(disk),
         presence: live ? 'interactive' : 'inert',
         body: live ? 'disk' : undefined,
-        crumb: disk.labels[0],
+        crumb: disk.labels[0] ? learnerBusName(disk.labels[0]) : undefined,
         panelKind: live ? 'disk' : undefined,
       })
     }
@@ -750,14 +805,15 @@ function deriveFromTree(
     push({
       key: uniqueKey(ids, primary ? 'gpio' : `gpio:${ctl.controllerLabel}`),
       nodeName,
-      label: primary ? 'GPIO' : ctl.controllerLabel,
+      label: primary ? 'GPIO' : learnerBusName(ctl.controllerLabel),
       compatible: ctl.compatible || undefined,
       deviceClass: 'gpio',
       path: ctl.path,
       presence: live ? 'interactive' : 'inert',
       note: live || ctl.bridged ? undefined : 'no page model',
       body: live ? 'gpio' : undefined,
-      crumb: ctl.controllerLabel,
+      crumb: softBusCrumb(ctl.controllerLabel),
+      busLabel: ctl.controllerLabel,
       panelKind: live ? 'gpio' : undefined,
     })
   }
@@ -778,7 +834,8 @@ function deriveFromTree(
       path: keysNode ? pathOf(keysNode) : '/keys',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-keys' : undefined,
-      crumb: bridgedKeys.controllerLabel,
+      crumb: softBusCrumb(bridgedKeys.controllerLabel),
+      busLabel: bridgedKeys.controllerLabel,
       panelKind: live ? 'keys' : undefined,
     })
   }
@@ -800,7 +857,8 @@ function deriveFromTree(
       path: ledsNode ? pathOf(ledsNode) : '/leds',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-leds' : undefined,
-      crumb: bridgedLeds.controllerLabel,
+      crumb: softBusCrumb(bridgedLeds.controllerLabel),
+      busLabel: bridgedLeds.controllerLabel,
       panelKind: live ? 'led' : undefined,
     })
   }
@@ -824,7 +882,7 @@ function deriveFromTree(
         path: disp.id,
         presence: live ? 'interactive' : 'inert',
         body: live ? 'seven-seg' : undefined,
-        crumb: `${disp.digits.length}-digit · ${bridgedSeven.controllerLabel}`,
+        crumb: `${disp.digits.length}-digit · ${learnerBusName(bridgedSeven.controllerLabel)}`,
         panelKind: live ? 'auxdisplay' : undefined,
       })
     }
@@ -927,7 +985,7 @@ function deriveFromTree(
     push({
       key: busKey,
       nodeName: busNode?.name ?? bus.controllerLabel,
-      label: bus.controllerLabel,
+      label: learnerBusName(bus.controllerLabel),
       compatible: bus.compatible || undefined,
       deviceClass: 'i2c-bus',
       path: bus.path,
@@ -958,7 +1016,7 @@ function deriveFromTree(
     push({
       key: busKey,
       nodeName: busNode?.name ?? bus.controllerLabel,
-      label: bus.controllerLabel,
+      label: learnerBusName(bus.controllerLabel),
       compatible: bus.compatible || undefined,
       deviceClass: 'spi-bus',
       path: bus.path,
@@ -1090,7 +1148,7 @@ function deriveFromTree(
           parentKey: busKey,
           presence: live ? 'interactive' : 'inert',
           body: live ? 'gnss' : undefined,
-          crumb: bus.controllerLabel,
+          crumb: learnerBusName(bus.controllerLabel),
           panelKind: live ? 'gnss' : undefined,
         })
         continue
@@ -1107,7 +1165,7 @@ function deriveFromTree(
           parentKey: busKey,
           presence: live ? 'interactive' : 'inert',
           body: live ? 'bluetooth' : undefined,
-          crumb: bus.controllerLabel,
+          crumb: learnerBusName(bus.controllerLabel),
           panelKind: live ? 'bluetooth' : undefined,
         })
         continue
@@ -1122,7 +1180,7 @@ function deriveFromTree(
         path: `${bus.path}/${slot.nodeName}`,
         parentKey: busKey,
         presence: 'inert',
-        crumb: bus.controllerLabel,
+        crumb: learnerBusName(bus.controllerLabel),
       })
     }
   }
@@ -1284,7 +1342,7 @@ function deriveFallback(
       parentKey: uartKey,
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gnss' : undefined,
-      crumb: names.gnssUart.label,
+      crumb: names.gnssUart.label ? learnerBusName(names.gnssUart.label) : undefined,
       panelKind: live ? 'gnss' : undefined,
     })
   }
@@ -1362,7 +1420,7 @@ function deriveFallback(
       path: `/soc/${names.net.nodeName}`,
       presence: live ? 'interactive' : 'inert',
       body: live ? 'net' : undefined,
-      crumb: names.net.label,
+      crumb: names.net.label ? learnerBusName(names.net.label) : undefined,
       panelKind: live ? 'net' : undefined,
     })
   }
@@ -1378,7 +1436,8 @@ function deriveFallback(
       path: `/soc/${names.gpio.nodeName}`,
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio' : undefined,
-      crumb: names.gpio.label,
+      crumb: softBusCrumb(names.gpio.label),
+      busLabel: names.gpio.label,
       panelKind: live ? 'gpio' : undefined,
     })
     nodes.push({
@@ -1390,7 +1449,8 @@ function deriveFallback(
       path: '/keys',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-keys' : undefined,
-      crumb: names.gpio.label,
+      crumb: softBusCrumb(names.gpio.label),
+      busLabel: names.gpio.label,
       panelKind: live ? 'keys' : undefined,
     })
     // Fallback fan-out always includes LEDs (hostGpio FALLBACK_LEDS) — same
@@ -1404,7 +1464,8 @@ function deriveFallback(
       path: '/leds',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-leds' : undefined,
-      crumb: names.gpio.label,
+      crumb: softBusCrumb(names.gpio.label),
+      busLabel: names.gpio.label,
       panelKind: live ? 'led' : undefined,
     })
   }
@@ -1444,7 +1505,7 @@ function deriveFallback(
     nodes.push({
       key: busKey,
       nodeName: names.i2c.nodeName,
-      label: names.i2c.label,
+      label: learnerBusName(names.i2c.label),
       compatible: names.i2c.compatible,
       deviceClass: 'i2c-bus',
       path: busPath,
@@ -1473,7 +1534,7 @@ function deriveFallback(
     nodes.push({
       key: busKey,
       nodeName: names.spi.nodeName,
-      label: names.spi.label,
+      label: learnerBusName(names.spi.label),
       compatible: names.spi.compatible,
       deviceClass: 'spi-bus',
       path: busPath,
@@ -1583,7 +1644,7 @@ function devicetreeRows(inventory: DeviceInventory): Row[] {
       key: 'root',
       name: '/',
       depth: 0,
-      note: [inventory.rootName, inventory.treeName].filter(Boolean).join(' — '),
+      note: [inventory.rootName, inventory.treeName].filter(Boolean).join(' · '),
     })
   }
   const baseDepth = rows.length > 0 ? 1 : 0

@@ -42,4 +42,10 @@ describe('PARTS catalog', () => {
     expect(new Set(ids).size).toBe(ids.length)
     expect(new Set(comps).size).toBe(comps.length)
   })
+
+  it('keeps virtio out of learner-facing summaries', () => {
+    for (const part of PARTS) {
+      expect(part.summary, part.id).not.toMatch(/virtio/i)
+    }
+  })
 })

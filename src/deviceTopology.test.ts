@@ -7,7 +7,7 @@ import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
 import type { Availability, DeviceInventory, Row } from './deviceTopology'
-import { buildRowList, deriveDeviceInventory } from './deviceTopology'
+import { buildRowList, deriveDeviceInventory, learnerBusName } from './deviceTopology'
 
 const treeOf = (text: string, name = 'test.dts') => {
   const doc = parseDts(text)
@@ -114,6 +114,23 @@ const nodeByKey = (inv: DeviceInventory, key: string) => {
 const deviceKeys = (rows: Row[]) =>
   rows.flatMap((row) => (row.kind === 'device' ? [row.node.key] : []))
 
+describe('learnerBusName', () => {
+  it('softens virtio and host bridge labels to the bus kind', () => {
+    expect(learnerBusName('virtio_i2c0')).toBe('I²C')
+    expect(learnerBusName('virtio_spi0')).toBe('SPI')
+    expect(learnerBusName('virtio_gpio0')).toBe('GPIO')
+    expect(learnerBusName('virtio_net0')).toBe('Network')
+    expect(learnerBusName('host_gpio')).toBe('GPIO')
+  })
+
+  it('leaves real board labels alone', () => {
+    expect(learnerBusName('i2c0')).toBe('i2c0')
+    expect(learnerBusName('uart1')).toBe('uart1')
+    expect(learnerBusName('pca9685_0')).toBe('pca9685_0')
+    expect(learnerBusName('eth0')).toBe('eth0')
+  })
+})
+
 describe('deriveDeviceInventory from a devicetree', () => {
   it('grounds the A53 shell tree: live bus, chips, gnss under its uart', () => {
     const inv = deriveDeviceInventory(treeOf(a53Shell, 'shell.dts'), A53_SHELL_CHIPS, [], ALL, 'qemu_cortex_a53')
@@ -125,6 +142,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(bus.presence).toBe('interactive')
     expect(bus.body).toBe('i2c')
     expect(bus.nodeName).toBe('virtio-i2c')
+    expect(bus.label).toBe('I²C')
+    expect(bus.busLabel).toBe('virtio_i2c0')
 
     // All eleven declared chips, in address order, named by their DT nodes.
     // Backlight @0x62 is not a DT child (backlight-addr on the LCD node).
@@ -147,7 +166,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(tmp.compatible).toBe('ti,tmp112')
     expect(tmp.deviceClass).toBe('sensor')
     expect(tmp.body).toBe('sensor')
-    expect(tmp.crumb).toBe('virtio_i2c0 · 0x48')
+    expect(tmp.crumb).toBe('I²C · 0x48')
     expect(nodeByKey(inv, 'virtio_i2c0:50').deviceClass).toBe('memory')
     expect(nodeByKey(inv, 'virtio_i2c0:3c').body).toBe('oled')
     expect(nodeByKey(inv, 'virtio_i2c0:3e').body).toBe('auxdisplay')
@@ -182,7 +201,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
 
     const ghosts = inv.nodes.filter((n) => n.presence === 'ghost')
     expect(ghosts).toHaveLength(11)
-    expect(ghosts.every((n) => n.note === 'NAK — detached')).toBe(true)
+    expect(ghosts.every((n) => n.note === 'NAK: detached')).toBe(true)
 
     // A detached declared sensor still files under Sensors, as a ghost.
     const tmp = nodeByKey(inv, 'virtio_i2c0:48')
@@ -371,7 +390,7 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(row!.compatible).toBe('gpio-7-segment')
     expect(row!.panelKind).toBe('auxdisplay')
     expect(row!.label).toBe('7-segment LED')
-    expect(row!.crumb).toBe('3-digit · virtio_gpio0')
+    expect(row!.crumb).toBe('3-digit · GPIO')
   })
 
   it('emits a stepper dock row when gpio step/dir is on the bridged controller', () => {
@@ -427,6 +446,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(leds.compatible).toBe('gpio-leds')
     expect(leds.panelKind).toBe('led')
     expect(leds.label).toBe('GPIO LEDs')
+    expect(leds.crumb).toBeUndefined()
+    expect(leds.busLabel).toBe('virtio_gpio0')
     expect(nodeByKey(inv, 'gpio').body).toBe('gpio')
   })
 
@@ -445,6 +466,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(keys.compatible).toBe('gpio-keys')
     expect(keys.panelKind).toBe('keys')
     expect(keys.label).toBe('GPIO Keys')
+    expect(keys.crumb).toBeUndefined()
+    expect(keys.busLabel).toBe('virtio_gpio0')
   })
 
   it('emits a pwm-leds dock row alongside the PCA9685 PWM chip', () => {
@@ -530,7 +553,7 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     const tmp = nodeByKey(inv, 'virtio_i2c0:48')
     expect(tmp.nodeName).toBe('tmp112@48')
     expect(tmp.compatible).toBe('ti,tmp112')
-    expect(nodeByKey(inv, 'net').crumb).toBe('virtio_net0')
+    expect(nodeByKey(inv, 'net').crumb).toBe('Network')
     expect(nodeByKey(inv, 'uart0').nodeName).toBe('uart@9000000')
     expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
     expect(nodeByKey(inv, 'display').presence).toBe('interactive')
@@ -584,6 +607,8 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     expect(nodeByKey(inv, 'display').presence).toBe('inert')
     expect(nodeByKey(inv, 'display').body).toBeUndefined()
     expect(nodeByKey(inv, 'virtio_spi0:0').presence).toBe('inert')
+    expect(nodeByKey(inv, 'virtio_spi0:0').label).toBe('W25Q SPI NOR')
+    expect(nodeByKey(inv, 'virtio_spi0:0').crumb).toBe('SPI · CS0')
   })
 })
 

@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Improved",
+        "text": "Dock crumbs say I²C/SPI, not virtio bus names."
+      },
+      {
         "tag": "Added",
         "text": "More menu on phones so Parts stays reachable."
       },
