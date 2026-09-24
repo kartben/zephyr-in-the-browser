@@ -21,7 +21,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Improved",
-        "text": "Blinky tour orients you to the page chrome first."
+        "text": "Blinky tour shows the Simulator, terminal, and dock first."
       },
       {
         "tag": "Added",

@@ -5,7 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
-- **Improved:** Blinky tour orients you to the page chrome first.
+- **Improved:** Blinky tour shows the Simulator, terminal, and dock first.
 - **Added:** Sample gallery pins guided tours in their own section.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).

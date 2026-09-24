@@ -16,7 +16,7 @@ panel: gpio
 You are in the **Simulator**. The **terminal** is the guest's serial console.
 Boot lines and sample output land here.
 
-The board and app pickers in the top bar chose this session.
+Pick the board and app in the top bar to choose what runs.
 
 ## Watch the LED in the device dock
 
@@ -29,7 +29,7 @@ panel: led
 The **device dock** lists peripherals for this board. Blinky drives an LED:
 open that row and watch it toggle as the sample runs.
 
-Other samples light up other rows (sensors, network, and more).
+Other samples show up in other rows (sensors, network, and more).
 
 ## Browse samples when you are ready
 
