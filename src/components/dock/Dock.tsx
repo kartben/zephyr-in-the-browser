@@ -200,7 +200,6 @@ export function Dock({ boardId }: { boardId: string }) {
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
-          <SectionHeading>Instruments</SectionHeading>
           <DockInstruments />
           {/* Devices come from the guest's devicetree; a Live board session
               has no guest, and "waiting for the guest to boot" would be a lie. */}

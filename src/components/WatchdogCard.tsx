@@ -78,7 +78,7 @@ export function WatchdogBody({ watchdog }: { watchdog: WatchdogRef }) {
   const fresh = useFreshBite(timer)
 
   if (!timer) {
-    return <p className="text-[10px] text-muted-foreground">Waiting for the emulator…</p>
+    return <p className="text-[10px] text-muted-foreground">Waiting for the guest…</p>
   }
 
   // A stage whose action is `off` is skipped by the counter, so it is not

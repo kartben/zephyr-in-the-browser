@@ -97,15 +97,23 @@ function DebugBadge() {
     liveDebug.getSnapshot,
     liveDebug.getSnapshot,
   )
+  const bridge = useSyncExternalStore(
+    bridgeClient.subscribe,
+    bridgeClient.getSnapshot,
+    bridgeClient.getSnapshot,
+  )
+  const mode = useMode()
   const live = snap.gdb
-  const bridgeSource = gdbSnap.source === 'bridge'
+  const bridgeSource = gdbSnap.source === 'bridge' || mode === 'live'
   const detail = !live
     ? bridgeSource
       ? liveSnap.phase === 'attaching'
         ? 'attaching'
         : liveSnap.phase === 'error'
           ? 'error'
-          : 'live board'
+          : bridge.phase !== 'connected'
+            ? 'bridge off'
+            : 'ready'
       : 'attaching'
     : snap.paused
       ? (snap.pcLabel ?? (snap.pc ? compactHex(snap.pc) : 'paused'))
@@ -214,18 +222,44 @@ function useInstrumentState(instrument: Instrument) {
 }
 
 export function DockInstruments() {
+  // Call once per known instrument (fixed list). Hide the whole section —
+  // heading included — when nothing would paint (typical mock/Shell boot).
+  const perf = useInstrumentState(INSTRUMENTS[0])
+  const trace = useInstrumentState(INSTRUMENTS[1])
+  const dbg = useInstrumentState(INSTRUMENTS[2])
+  const rows = [
+    { instrument: INSTRUMENTS[0], ...perf },
+    { instrument: INSTRUMENTS[1], ...trace },
+    { instrument: INSTRUMENTS[2], ...dbg },
+  ]
+  if (!rows.some((row) => row.shown)) return null
+
   return (
     <>
-      {INSTRUMENTS.map((instrument) => (
-        <InstrumentRow key={instrument.key} instrument={instrument} />
-      ))}
+      <SectionHeading>Instruments</SectionHeading>
+      {rows.map(({ instrument, shown, windowed, expanded }) =>
+        shown ? (
+          <InstrumentRow
+            key={instrument.key}
+            instrument={instrument}
+            windowed={windowed}
+            expanded={expanded}
+          />
+        ) : null,
+      )}
     </>
   )
 }
 
-function InstrumentRow({ instrument }: { instrument: Instrument }) {
-  const { shown, windowed, expanded } = useInstrumentState(instrument)
-  if (!shown) return null
+function InstrumentRow({
+  instrument,
+  windowed,
+  expanded,
+}: {
+  instrument: Instrument
+  windowed: boolean
+  expanded: boolean
+}) {
   const { Badge, Body } = instrument
 
   return (
@@ -243,6 +277,15 @@ function InstrumentRow({ instrument }: { instrument: Instrument }) {
     >
       <Body />
     </DockRowShell>
+  )
+}
+
+/** Matches Dock's section label so Instruments can own its own empty-state gate. */
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-1.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 first:pt-0.5">
+      {children}
+    </p>
   )
 }
 

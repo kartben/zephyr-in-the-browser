@@ -29,8 +29,8 @@ export function ClearPeripheralsControl() {
       variant="ghost"
       size="icon"
       className="size-8 shrink-0 text-muted-foreground"
-      aria-label="Clear breadboard attachments"
-      title="Clear breadboard attachments"
+      aria-label="Clear attached parts"
+      title="Clear attached parts"
       onClick={() => clearUserPeripherals()}
     >
       <Unplug className="size-3.5" aria-hidden />
