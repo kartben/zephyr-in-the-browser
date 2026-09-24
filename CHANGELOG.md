@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Improved:** Demo dock lists only peripherals you can open.
 - **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.
 - **Added:** More menu on phones for Parts and Samples.

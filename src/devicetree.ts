@@ -232,3 +232,15 @@ export async function claimStashedDts(): Promise<void> {
   phase = 'ready'
   notify()
 }
+
+/**
+ * Install a custom ELF's stashed devicetree, or confirm none is coming.
+ *
+ * Skipping the prompt clears the stash and reloads. The sample fetch is also
+ * skipped for a custom image, so without this the dock stays empty (`pending`)
+ * and the board's I²C and SPI buses never appear.
+ */
+export async function claimCustomImageTree(): Promise<void> {
+  await claimStashedDts()
+  if (phase === 'pending') await markAbsent()
+}

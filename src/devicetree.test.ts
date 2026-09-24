@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  claimCustomImageTree,
   claimStashedDts,
   clear,
   clearStashedDts,
@@ -129,6 +130,19 @@ describe('devicetree store', () => {
 
       // Reload: claim again without clearing — row must still be there.
       await claimStashedDts()
+      expect(get()?.name).toBe('zephyr.dts')
+    })
+
+    it('treats a custom ELF with no stashed devicetree as absent', async () => {
+      await claimCustomImageTree()
+      expect(get()).toBeNull()
+      expect(getPhase()).toBe('absent')
+    })
+
+    it('keeps a stashed devicetree when claiming a custom ELF', async () => {
+      await stashUserDts('zephyr.dts', a53Shell)
+      await claimCustomImageTree()
+      expect(getPhase()).toBe('ready')
       expect(get()?.name).toBe('zephyr.dts')
     })
 

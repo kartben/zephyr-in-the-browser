@@ -1,6 +1,6 @@
 import type { PtyBackend, Slave, StartOptions } from './types'
 import { sampleDtsAsset } from '@/boards'
-import { loadSampleDts } from '@/devicetree'
+import { getPhase, loadSampleDts, markAbsent } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
 import { attachMockDemo as attachHostBtDemo, detach as detachHostBt } from '@/hostBt'
@@ -78,6 +78,8 @@ export function createMockBackend(): PtyBackend {
           `${import.meta.env.BASE_URL}qemu/${sampleDtsAsset(board, sampleId)}`,
           `${sampleId}.dts`,
         )
+      } else if (getPhase() === 'pending') {
+        void markAbsent()
       }
 
       // A short pause so the loading state is actually observable, and so the

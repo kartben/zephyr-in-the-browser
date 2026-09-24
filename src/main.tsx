@@ -4,7 +4,7 @@ import App from './App'
 import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
 import { claimStashed as claimStashedLiveElf } from './liveImage'
-import { claimStashedDts, clearStashedDts } from './devicetree'
+import { claimCustomImageTree, clearStashedDts } from './devicetree'
 import { resolveModeConfig } from './lib/modeStore'
 import { installProfile } from './display/profile'
 import './index.css'
@@ -30,7 +30,7 @@ Promise.all([
   resolveModeConfig().mode === 'live'
     ? claimStashedLiveElf()
     : claimStashed().then(async (image) => {
-        if (image) await claimStashedDts()
+        if (image) await claimCustomImageTree()
         else await clearStashedDts()
       }),
   detectQemuAssets(),
