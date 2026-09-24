@@ -983,10 +983,10 @@ export const BOARDS: Board[] = [
       hostBt: true,
     },
     samples: CORTEX_A53_SAMPLES,
-    // Blinky is the landing sample: it carries a guided tour so first load
-    // orients a Zephyr learner. Shell remains one pick away for the full
-    // I²C/SPI/audio showcase.
-    defaultSampleId: 'blinky',
+    // Interactive shell is the landing sample: it surfaces the I²C/SPI/audio
+    // bridges that make A53 the showcase board. Guided tours stay one pick
+    // away in the gallery (Blinky and friends).
+    defaultSampleId: 'shell',
     extraFiles: [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
@@ -1332,7 +1332,7 @@ export const BOARDS: Board[] = [
   },
 ]
 
-/** Landing board: A53 (wasm JIT) with Blinky (guided); see defaultSampleId.
+/** Landing board: A53 (wasm JIT) with the shell sample; see defaultSampleId.
  * Cortex-A53 is the development focus for the foreseeable future (docs/focus.md).
  */
 export const DEFAULT_BOARD_ID = 'qemu_cortex_a53'

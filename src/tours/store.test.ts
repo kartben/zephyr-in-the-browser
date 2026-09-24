@@ -266,4 +266,26 @@ describe('leaving', () => {
     expect(getSnapshot().finished).toBe(true)
     expect(getSnapshot().current).toBeNull()
   })
+
+  it('on finish clears leftover breakpoints so the guest free-runs', async () => {
+    await stopAt(0x8000) // step 1
+    next()
+    await settle()
+    await stopAt(0x8000)
+    await stopAt(0x8000)
+    await stopAt(0x8000) // step 2 (repeat, stop: no) — leaves its BP planted
+    next()
+    await settle()
+    await stopAt(0x9000) // step 3
+    expect(getSnapshot().current?.paused).toBe(true)
+    // Repeating step 2 still wants 0x8000 until the tour is over.
+    expect(breakpoints.has(0x8000)).toBe(true)
+    next()
+    await settle()
+    expect(breakpoints.size).toBe(0)
+    expect(getSnapshot().finished).toBe(true)
+    expect(getSnapshot().armed).toBe(false)
+    expect(getSnapshot().current).toBeNull()
+    expect(paused).toBe(false)
+  })
 })

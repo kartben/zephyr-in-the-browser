@@ -171,11 +171,11 @@ describe('guided pin helpers', () => {
 })
 
 describe('A53 default sample', () => {
-  it('lands on Blinky so the guided tour is the first-load orientation', () => {
+  it('still lands on Shell; guided tours stay a gallery pick', () => {
     const a53 = getBoard('qemu_cortex_a53')
-    expect(a53.defaultSampleId).toBe('blinky')
-    expect(groupIsGuided(buildSampleGroups(a53.samples, null).find((g) => g.base.id === 'blinky')!)).toBe(
-      true,
-    )
+    expect(a53.defaultSampleId).toBe('shell')
+    expect(
+      groupIsGuided(buildSampleGroups(a53.samples, null).find((g) => g.base.id === 'blinky')!),
+    ).toBe(true)
   })
 })
