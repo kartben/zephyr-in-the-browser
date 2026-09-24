@@ -5,7 +5,6 @@ via the help dialog (?).
 
 ## Unreleased
 
-- **Fixed:** CAN counter sample counts again.
 - **Improved:** GPIO LED labels stay centered when they wrap.
 - **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.
 - **Added:** More menu on phones for Parts and Samples.
