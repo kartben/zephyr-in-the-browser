@@ -656,7 +656,7 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     const value = regs.get(name.toLowerCase())
     return {
       name: name.toUpperCase(),
-      value: value === undefined ? '—' : `0x${value.toString(16)}`,
+      value: value === undefined ? 'n/a' : `0x${value.toString(16)}`,
     }
   })
 
@@ -803,7 +803,7 @@ function demoCard(runtime: StepRuntime): TourCard {
       label: watch.label ?? watch.expr,
       expr: watch.expr,
       format: watch.format,
-      text: '—',
+      text: 'n/a',
       detail: null,
       ok: false,
     })),
@@ -818,7 +818,7 @@ function demoCard(runtime: StepRuntime): TourCard {
         }
       : null,
     objects: step.objects ? { types: step.objects.types, focus: null } : null,
-    registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: '—' })),
+    registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: 'n/a' })),
     threads: step.threads,
     highlight: resolveHighlights(step, null),
   }

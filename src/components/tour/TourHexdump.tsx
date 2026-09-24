@@ -40,7 +40,7 @@ export function TourHexdump({ memory }: { memory: TourMemory }) {
       <div className="flex items-center gap-1.5 border-b border-border/70 px-2 py-1">
         <MemoryStick className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         <span className="font-mono text-[10px] tabular-nums text-foreground/70">
-          {addr === null ? '—' : `0x${addr.toString(16)}`}
+          {addr === null ? 'n/a' : `0x${addr.toString(16)}`}
           <span className="text-muted-foreground"> +{len}</span>
         </span>
         {error && <span className="text-[10px] text-destructive">{error}</span>}

@@ -32,10 +32,14 @@ const HELP = [
   'Available commands:',
   '  clear    :Clear screen.',
   '  help     :Prints the help message.',
-  '  history  :Command history.',
   '  kernel   :Kernel commands.',
   '  version  :Kernel version.',
 ]
+
+/** Special keys can leave CSI / ESC junk in the assembled line; drop it. */
+function scrubLine(line: string): string {
+  return line.replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\x1b./g, '')
+}
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -65,7 +69,7 @@ export function createMockBackend(): PtyBackend {
 
     async start(slave: Slave, { board, sampleId, onStatus, signal }: StartOptions) {
       teardown()
-      onStatus({ status: 'loading', detail: 'starting mock' })
+      onStatus({ status: 'loading', detail: 'starting demo' })
 
       // Same devicetree side-channel as the real backend, so the panels story
       // can be exercised without QEMU whenever the .dts assets are served.
@@ -87,12 +91,12 @@ export function createMockBackend(): PtyBackend {
         if (signal.aborted) return
       }
 
-      slave.write('\x1b[2m[mock backend — no QEMU running. See public/qemu/README.md]\x1b[0m\n\n')
+      slave.write('\x1b[2m[Demo shell (no full Zephyr image in this checkout).]\x1b[0m\n\n')
       slave.write(PROMPT)
-      onStatus({ status: 'running', detail: 'mock' })
+      onStatus({ status: 'running', detail: 'demo' })
 
       const run = (line: string) => {
-        const [cmd, ...rest] = line.trim().split(/\s+/)
+        const [cmd, ...rest] = scrubLine(line).trim().split(/\s+/)
         switch (cmd) {
           case '':
             break

@@ -26,7 +26,7 @@ export function ModeSwitch({
         active={mode === 'sim'}
         onClick={() => onModeChange('sim')}
         label="Simulator"
-        title="Run Zephyr apps in the in-page emulator"
+        title="Run Zephyr apps in the Simulator"
       >
         <Box className="size-3.5" aria-hidden />
         <span className="hidden sm:inline">Simulator</span>
