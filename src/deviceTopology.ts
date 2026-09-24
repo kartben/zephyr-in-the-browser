@@ -1634,6 +1634,27 @@ export function buildRowList(inventory: DeviceInventory, view: DockView): Row[] 
   return view === 'devicetree' ? devicetreeRows(inventory) : classRows(inventory.nodes)
 }
 
+/**
+ * Demo shell: keep rows the learner can open, and the buses those rows hang
+ * from. Inert chips stay in the inventory (a real guest fills them in without
+ * the list jumping) but the demo dock does not paint them.
+ */
+export function demoVisibleNodes(nodes: DeviceNode[]): { nodes: DeviceNode[]; hidden: number } {
+  const byKey = new Map(nodes.map((node) => [node.key, node]))
+  const keep = new Set<string>()
+  for (const node of nodes) {
+    if (node.presence !== 'interactive') continue
+    keep.add(node.key)
+    let parent = node.parentKey
+    while (parent) {
+      keep.add(parent)
+      parent = byKey.get(parent)?.parentKey
+    }
+  }
+  const visible = nodes.filter((node) => keep.has(node.key))
+  return { nodes: visible, hidden: nodes.length - visible.length }
+}
+
 function devicetreeRows(inventory: DeviceInventory): Row[] {
   const { nodes } = inventory
   const rows: Row[] = []
