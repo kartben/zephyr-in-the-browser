@@ -280,7 +280,7 @@ function LedPin({ pin }: { pin: Pin }) {
 
   return (
     <div
-      className="flex flex-col items-center gap-1 rounded-md border border-border bg-secondary py-1.5 text-[11px] text-muted-foreground"
+      className="flex flex-col items-center gap-1 rounded-md border border-border bg-secondary py-1.5 text-center text-[11px] text-muted-foreground"
       title={`${pin.label} (pin ${pin.id}) ${high ? 'on' : 'off'}`}
     >
       <span
@@ -292,7 +292,7 @@ function LedPin({ pin }: { pin: Pin }) {
             : 'border-border bg-transparent',
         )}
       />
-      <span>{pin.label}</span>
+      <span className="w-full px-0.5 leading-tight">{pin.label}</span>
     </div>
   )
 }
