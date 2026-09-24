@@ -22,7 +22,8 @@ import { setExpanded, setWindowed } from '@/lib/dockStore'
 /**
  * Secondary text beside the row's primary name.
  *
- * Classes view: bus breadcrumb (`virtio_i2c0 · 0x48`).
+ * Classes view: bus breadcrumb (`I²C · 0x48`). Virtio controller labels stay
+ * on the tooltip and in the device-tree view's node names.
  * Device-tree view: the friendly label beside the DT node name. Compatible
  * strings used to sit here too, but PartIdentityStrip already shows them on
  * expanded chip bodies — repeating `ti,tmp112` on every ⌗ row was noise and
@@ -36,6 +37,15 @@ export function dockRowSecondary(node: DeviceNode, view: DockView): string | und
   if (node.partId) return undefined
   if (node.compatible && node.compatible !== node.nodeName) return node.compatible
   return undefined
+}
+
+/** Tooltip for a device row: node name, label, and virtio bus when soft-named. */
+export function dockRowTitle(node: DeviceNode): string {
+  const parts = [node.nodeName, node.label]
+  if (node.busLabel && node.busLabel !== node.label && !parts.includes(node.busLabel)) {
+    parts.push(node.busLabel)
+  }
+  return parts.join(' · ')
 }
 
 /** Indent guides: one thin rule per ancestor level, echoing a tree gutter. */
@@ -165,7 +175,7 @@ export function DockRowShell({
                   : `Open ${windowLabel} in a window`
               }
               aria-pressed={isWindowed}
-              title={isWindowed ? 'In a window — return to the dock' : 'Open in a floating window'}
+              title={isWindowed ? 'In a window: return to the dock' : 'Open in a floating window'}
               onClick={() => onWindowedChange(!isWindowed)}
             >
               {isWindowed ? <DockIcon className="size-3" /> : <PictureInPicture2 className="size-3" />}
@@ -206,7 +216,7 @@ export const DockDeviceRow = memo(function DockDeviceRow({
       className={cn(node.presence === 'ghost' && 'opacity-70')}
       icon={deviceIcon(node)}
       name={view === 'devicetree' ? node.nodeName : node.label}
-      nameTitle={`${node.nodeName} — ${node.label}`}
+      nameTitle={dockRowTitle(node)}
       nameClassName={cn(
         view === 'devicetree' ? 'font-mono' : 'font-medium',
         !interactive && 'text-muted-foreground',

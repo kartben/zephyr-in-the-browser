@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Improved",
+        "text": "Dock crumbs say I²C/SPI, not virtio bus names."
+      },
+      {
+        "tag": "Improved",
         "text": "Blinky tour shows the Simulator, terminal, and dock first."
       },
       {
