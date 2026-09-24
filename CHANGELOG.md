@@ -9,6 +9,7 @@ via the help dialog (?).
 - **Added:** Tours hand you tasks, end on a recap, and chain onward.
 - **Added:** Tours can open a Trace tab or a Debug section.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
+- **Fixed:** Resuming from a breakpoint no longer stops on it again.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Improved:** Demo dock lists only peripherals you can open.
 - **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.
