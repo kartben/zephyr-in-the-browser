@@ -25,7 +25,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "More menu on phones so Parts stays reachable."
+        "text": "More menu on phones for Parts and Samples."
       },
       {
         "tag": "Improved",
