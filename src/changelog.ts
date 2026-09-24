@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Improved",
+        "text": "GPIO LED labels stay centered when they wrap."
+      },
+      {
+        "tag": "Improved",
         "text": "Dock crumbs say I²C/SPI, not virtio bus names."
       },
       {
