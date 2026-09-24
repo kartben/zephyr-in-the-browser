@@ -6,7 +6,7 @@ via the help dialog (?).
 ## Unreleased
 
 - **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.
-- **Added:** More menu on phones so Parts stays reachable.
+- **Added:** More menu on phones for Parts and Samples.
 - **Improved:** Blinky tour shows the Simulator, terminal, and dock first.
 - **Added:** Sample gallery pins guided tours in their own section.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
