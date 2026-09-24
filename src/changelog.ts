@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Fixed",
+        "text": "Resuming from a breakpoint no longer stops on it again."
+      },
+      {
         "tag": "Changed",
         "text": "Retired the old gateway and probe packages; use the desktop bridge."
       },

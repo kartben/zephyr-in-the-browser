@@ -317,6 +317,15 @@ export class RspClient {
 
   async step(): Promise<StopInfo> {
     if (this.running) throw new Error('cannot step a running machine')
+    // Like continue(), a step moves the machine on, so reads still queued
+    // for the old stop are stale. Supersede them rather than fail with
+    // "already in flight": the stop waiter skips their late replies.
+    this.epoch++
+    if (this.waiting) {
+      clearTimeout(this.waiting.timer)
+      this.waiting.reject(new Error('superseded'))
+      this.waiting = null
+    }
     // The vCPU really does run for the length of the instruction, so hold the
     // gate shut until the stop lands — and reopen it even if the reply is lost,
     // since a single step always ends halted.

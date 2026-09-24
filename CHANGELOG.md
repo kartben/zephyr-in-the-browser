@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Fixed:** Resuming from a breakpoint no longer stops on it again.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Improved:** Demo dock lists only peripherals you can open.

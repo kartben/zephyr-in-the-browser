@@ -462,10 +462,11 @@ const ownedBreakpoints = new Set<number>()
  *
  * This runs before the debugger has done anything expensive, and it is the
  * only place hits are counted. A step conditioned on `hits % 10 == 0` rejects
- * nine hits out of ten and each rejection costs one register read and a
- * continue — no pause published, no thread walk, no card. Without that, a
- * condition on anything hotter than a once-a-second blink would be unusable,
- * and `when:` would be a promise the implementation could not keep.
+ * nine hits out of ten and each rejection costs one register read, a step off
+ * the breakpoint and a continue: no pause published, no thread walk, no card.
+ * Without that, a condition on anything hotter than a once-a-second blink
+ * would be unusable, and `when:` would be a promise the implementation could
+ * not keep.
  *
  * Returning true means "not this one, let it go".
  */
