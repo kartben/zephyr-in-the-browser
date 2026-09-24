@@ -381,6 +381,18 @@ function csCrumb(busLabel: string, cs: number): string {
   return `${learnerBusName(busLabel)} · CS${cs}`
 }
 
+/**
+ * Classes secondary for a bus controller alone. Soft names like `GPIO` next to
+ * a row already titled "GPIO LEDs" are noise; keep the virtio label on
+ * {@link DeviceNode.busLabel} / the row tooltip instead.
+ */
+function softBusCrumb(controllerLabel: string): string | undefined {
+  const soft = learnerBusName(controllerLabel)
+  if (soft === controllerLabel) return soft
+  // Softened virtio/host bridge with no address/CS: omit from the row.
+  return undefined
+}
+
 /** Declared I²C children under a bus that is not live yet — same keys/classes as ghosts. */
 function declaredI2cChildren(
   ids: Ids,
@@ -800,7 +812,8 @@ function deriveFromTree(
       presence: live ? 'interactive' : 'inert',
       note: live || ctl.bridged ? undefined : 'no page model',
       body: live ? 'gpio' : undefined,
-      crumb: learnerBusName(ctl.controllerLabel),
+      crumb: softBusCrumb(ctl.controllerLabel),
+      busLabel: ctl.controllerLabel,
       panelKind: live ? 'gpio' : undefined,
     })
   }
@@ -821,7 +834,8 @@ function deriveFromTree(
       path: keysNode ? pathOf(keysNode) : '/keys',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-keys' : undefined,
-      crumb: learnerBusName(bridgedKeys.controllerLabel),
+      crumb: softBusCrumb(bridgedKeys.controllerLabel),
+      busLabel: bridgedKeys.controllerLabel,
       panelKind: live ? 'keys' : undefined,
     })
   }
@@ -843,7 +857,8 @@ function deriveFromTree(
       path: ledsNode ? pathOf(ledsNode) : '/leds',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-leds' : undefined,
-      crumb: learnerBusName(bridgedLeds.controllerLabel),
+      crumb: softBusCrumb(bridgedLeds.controllerLabel),
+      busLabel: bridgedLeds.controllerLabel,
       panelKind: live ? 'led' : undefined,
     })
   }
@@ -1421,7 +1436,8 @@ function deriveFallback(
       path: `/soc/${names.gpio.nodeName}`,
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio' : undefined,
-      crumb: learnerBusName(names.gpio.label),
+      crumb: softBusCrumb(names.gpio.label),
+      busLabel: names.gpio.label,
       panelKind: live ? 'gpio' : undefined,
     })
     nodes.push({
@@ -1433,7 +1449,8 @@ function deriveFallback(
       path: '/keys',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-keys' : undefined,
-      crumb: learnerBusName(names.gpio.label),
+      crumb: softBusCrumb(names.gpio.label),
+      busLabel: names.gpio.label,
       panelKind: live ? 'keys' : undefined,
     })
     // Fallback fan-out always includes LEDs (hostGpio FALLBACK_LEDS) — same
@@ -1447,7 +1464,8 @@ function deriveFallback(
       path: '/leds',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-leds' : undefined,
-      crumb: learnerBusName(names.gpio.label),
+      crumb: softBusCrumb(names.gpio.label),
+      busLabel: names.gpio.label,
       panelKind: live ? 'led' : undefined,
     })
   }

@@ -150,7 +150,7 @@ export function DockRowShell({
             {name}
           </span>
           {secondary && (
-            <span className="hidden min-w-0 truncate font-mono text-[10px] text-muted-foreground/80 sm:inline">
+            <span className="hidden min-w-0 truncate font-mono text-[10px] leading-none text-muted-foreground/80 sm:inline">
               {secondary}
             </span>
           )}

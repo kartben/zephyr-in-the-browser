@@ -446,6 +446,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(leds.compatible).toBe('gpio-leds')
     expect(leds.panelKind).toBe('led')
     expect(leds.label).toBe('GPIO LEDs')
+    expect(leds.crumb).toBeUndefined()
+    expect(leds.busLabel).toBe('virtio_gpio0')
     expect(nodeByKey(inv, 'gpio').body).toBe('gpio')
   })
 
@@ -464,6 +466,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(keys.compatible).toBe('gpio-keys')
     expect(keys.panelKind).toBe('keys')
     expect(keys.label).toBe('GPIO Keys')
+    expect(keys.crumb).toBeUndefined()
+    expect(keys.busLabel).toBe('virtio_gpio0')
   })
 
   it('emits a pwm-leds dock row alongside the PCA9685 PWM chip', () => {
