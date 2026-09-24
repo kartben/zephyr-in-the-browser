@@ -9,7 +9,7 @@ there first.
 | Wasm JIT | Sustained guest throughput; Cortex-M3 stays on TCI |
 | Virtio | Full browser_bridge + virtio-mmio device set |
 | Tracing | ARM semihosting CTF → in-page Trace panel |
-| Default landing | Shell sample on A53 (`DEFAULT_BOARD_ID`) |
+| Default landing | Blinky (guided) on A53 (`DEFAULT_BOARD_ID`) |
 
 Cortex-M3 and `qemu_riscv32` remain packaged where useful, but they are not the
 development focus. Tracing variants (`*_trace`) are A53-only — they need

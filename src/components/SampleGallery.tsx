@@ -121,6 +121,23 @@ export function groupHasTracing(group: SampleGroup): boolean {
   )
 }
 
+/** True when the base sample (or its twin's base) carries a guided tour. */
+export function groupIsGuided(group: SampleGroup): boolean {
+  return isGuided(group.base)
+}
+
+/**
+ * Keep title order within each bucket, but float guided samples to the top so
+ * first-open of the gallery surfaces tours without a separate filter control.
+ */
+export function pinGuidedFirst(groups: SampleGroup[]): SampleGroup[] {
+  return [...groups].sort((a, b) => {
+    const ga = groupIsGuided(a) ? 0 : 1
+    const gb = groupIsGuided(b) ? 0 : 1
+    return ga - gb
+  })
+}
+
 /** Which artifact a row click should boot under the current Tracing filter. */
 export function selectSampleId(group: SampleGroup, tracing: boolean): string {
   if (tracing && group.traced) return group.traced.id
@@ -135,6 +152,7 @@ function groupHaystack(group: SampleGroup): string {
     group.base.description,
     group.base.id,
     group.base.zephyrSample,
+    ...(groupIsGuided(group) ? ['guided', 'tour'] : []),
     ...(group.traced
       ? [group.traced.id, group.traced.label, 'traced', 'tracing', 'ctf']
       : []),
@@ -208,10 +226,16 @@ export function SampleGallery({
     return () => cancelAnimationFrame(id)
   }, [open, board, sampleId])
 
-  const catalog = groups.filter((group) => {
-    if (tracing && !groupHasTracing(group)) return false
-    return matchesGroupQuery(group, query)
-  })
+  const catalog = pinGuidedFirst(
+    groups.filter((group) => {
+      if (tracing && !groupHasTracing(group)) return false
+      return matchesGroupQuery(group, query)
+    }),
+  )
+  const guidedCatalog = catalog.filter(groupIsGuided)
+  const otherCatalog = catalog.filter((group) => !groupIsGuided(group))
+  // Section only when both buckets have rows: a lone search hit needs no header.
+  const showGuidedSection = guidedCatalog.length > 0 && otherCatalog.length > 0
 
   const select = (id: string) => {
     setOpen(false)
@@ -277,6 +301,30 @@ export function SampleGallery({
                     ? `No traced samples match “${query.trim()}”.`
                     : `No samples match “${query.trim()}”.`}
               </p>
+            ) : showGuidedSection ? (
+              <>
+                <GallerySection label="Guided tours" />
+                {guidedCatalog.map((group) => (
+                  <SampleGroupRow
+                    key={group.base.id}
+                    group={group}
+                    sampleId={sampleId}
+                    customImage={customImage}
+                    tracing={tracing}
+                    onSelect={select}
+                  />
+                ))}
+                {otherCatalog.map((group) => (
+                  <SampleGroupRow
+                    key={group.base.id}
+                    group={group}
+                    sampleId={sampleId}
+                    customImage={customImage}
+                    tracing={tracing}
+                    onSelect={select}
+                  />
+                ))}
+              </>
             ) : (
               catalog.map((group) => (
                 <SampleGroupRow
@@ -435,6 +483,15 @@ function SampleGroupRow({
         )}
       </span>
     </div>
+  )
+}
+
+/** Small uppercase heading between gallery buckets. */
+function GallerySection({ label }: { label: string }) {
+  return (
+    <p className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      {label}
+    </p>
   )
 }
 

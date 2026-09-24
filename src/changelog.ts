@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Changed",
+        "text": "Cortex-A53 opens on Blinky so its guided tour shows first."
+      },
+      {
         "tag": "Improved",
         "text": "Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download."
       },

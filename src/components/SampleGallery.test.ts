@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { GuestSample } from '@/boards'
+import { getBoard } from '@/boards'
 import {
   buildSampleGroups,
   groupHasTracing,
+  groupIsGuided,
   matchesGroupQuery,
+  pinGuidedFirst,
   sampleTags,
   selectSampleId,
 } from '@/components/SampleGallery'
@@ -151,5 +154,28 @@ describe('matchesGroupQuery', () => {
   it('matches tracing keywords against the twin', () => {
     expect(matchesGroupQuery(group, 'traced')).toBe(true)
     expect(matchesGroupQuery(group, 'ctf')).toBe(true)
+  })
+})
+
+describe('guided pin helpers', () => {
+  it('pinGuidedFirst floats guided samples above the rest', () => {
+    // isGuided reads the real tours/ catalog; Blinky ships a tour, Shell does not.
+    const a53 = getBoard('qemu_cortex_a53')
+    const groups = buildSampleGroups(a53.samples, null)
+    const pinned = pinGuidedFirst(groups)
+    const firstUnguided = pinned.findIndex((g) => !groupIsGuided(g))
+    expect(firstUnguided).toBeGreaterThan(0)
+    expect(pinned.slice(0, firstUnguided).every(groupIsGuided)).toBe(true)
+    expect(pinned.slice(firstUnguided).every((g) => !groupIsGuided(g))).toBe(true)
+  })
+})
+
+describe('A53 default sample', () => {
+  it('lands on Blinky so the guided tour is the first-load orientation', () => {
+    const a53 = getBoard('qemu_cortex_a53')
+    expect(a53.defaultSampleId).toBe('blinky')
+    expect(groupIsGuided(buildSampleGroups(a53.samples, null).find((g) => g.base.id === 'blinky')!)).toBe(
+      true,
+    )
   })
 })

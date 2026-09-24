@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Changed:** Cortex-A53 opens on Blinky so its guided tour shows first.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
 - **Added:** ESP32-C3 DevKitC board, booting from emulated SPI flash.
