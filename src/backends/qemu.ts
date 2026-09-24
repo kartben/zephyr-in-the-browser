@@ -32,7 +32,7 @@ import {
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
 import { hasTour } from '@/tours/catalog'
 import { get as getGuestImage } from '@/guestImage'
-import { get as getDeviceTree, loadSampleDts } from '@/devicetree'
+import { get as getDeviceTree, getPhase, loadSampleDts, markAbsent } from '@/devicetree'
 import {
   GDB_ARGS,
   HCI_ARGS,
@@ -270,6 +270,10 @@ export function createQemuBackend(): PtyBackend {
       // custom ELF's tree, if any, was installed by the drop flow instead.
       if (!custom) {
         void loadSampleDts(url(sampleDtsAsset(board, sampleId)), `${sampleId}.dts`)
+      } else if (getPhase() === 'pending') {
+        // Drop flow marks a skipped prompt absent before reload. If that
+        // handoff was missed, do it here so the dock lists the board's buses.
+        void markAbsent()
       }
       const sample = getSample(board, sampleId)
       const preloaded = [

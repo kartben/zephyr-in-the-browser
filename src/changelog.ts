@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Fixed",
+        "text": "An ELF without a devicetree shows the board's buses."
+      },
+      {
         "tag": "Improved",
         "text": "Demo dock lists only peripherals you can open."
       },
