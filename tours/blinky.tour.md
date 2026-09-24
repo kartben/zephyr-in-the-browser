@@ -1,6 +1,7 @@
 ---
 tour: Blinky: find your way around
 sample: samples/basic/blinky
+source: no
 ---
 
 Blinky is a short guided sample. These stops introduce the page: the
@@ -10,6 +11,8 @@ Blinky is a short guided sample. These stops introduce the page: the
 
 ```tour
 at: main.c:/gpio_pin_configure_dt/ | main.c:32
+when: first
+stop: no
 panel: gpio
 ```
 
