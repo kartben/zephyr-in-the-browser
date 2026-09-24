@@ -1,30 +1,24 @@
 ---
-tour: Blinky: LED, GPIO, sleep
+tour: Blinky: find your way around
 sample: samples/basic/blinky
 ---
 
-This is Zephyr's blinky sample. It finds an LED in **devicetree**, configures
-the pin, then toggles it in a loop.
+Blinky is a short guided sample. These stops introduce the page: the
+**Simulator**, the **terminal**, and the **device dock**.
 
-Watch the LED in the **device dock** while you step.
-
-## The pin comes from the board
+## The terminal is the guest console
 
 ```tour
 at: main.c:/gpio_pin_configure_dt/ | main.c:32
-highlight: /GPIO_DT_SPEC_GET/
-dts: /led0: led_0/ + 3
 panel: gpio
 ```
 
-An application typically does not reference pin numbers directly. The board's
-**devicetree** names the LED `led0`, and `GPIO_DT_SPEC_GET` looks that alias up
-at **build** time.
+You are in the **Simulator**. The **terminal** is the guest's serial console.
+Boot lines and sample output land here.
 
-`gpio_pin_configure_dt()` then sets that pin as an output. Check the GPIO row
-in the **device dock**: the pin is an output.
+The board and app pickers in the top bar chose this session.
 
-## Toggle the LED
+## Watch the LED in the device dock
 
 ```tour
 at: main.c:/gpio_pin_toggle_dt/ | main.c:38
@@ -32,12 +26,12 @@ when: first
 panel: led
 ```
 
-The loop calls `gpio_pin_toggle_dt()`. The GPIO **API** flips the pin for you.
+The **device dock** lists peripherals for this board. Blinky drives an LED:
+open that row and watch it toggle as the sample runs.
 
-Watch the LED in the **device dock**, and the `LED state:` lines in the
-**terminal**.
+Other samples light up other rows (sensors, network, and more).
 
-## Sleep between blinks
+## Browse samples when you are ready
 
 ```tour
 at: main.c:/k_msleep/ | main.c:45
@@ -46,7 +40,7 @@ stop: no
 panel: led
 ```
 
-`k_msleep(SLEEP_TIME_MS)` asks the **kernel** to wake this **thread** in one
-second. The LED stays on (or off) long enough to see.
+Open the app picker (it currently says **Blinky**) to browse samples. Ones
+marked **guided** carry a tour like this one.
 
-Without this call, the pin would toggle as fast as the CPU can go.
+Continue to let the guest keep running on its own. The LED keeps blinking.

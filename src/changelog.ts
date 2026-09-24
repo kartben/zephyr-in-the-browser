@@ -20,8 +20,12 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
-        "tag": "Changed",
-        "text": "Cortex-A53 opens on Blinky so its guided tour shows first."
+        "tag": "Improved",
+        "text": "Blinky tour orients you to the page chrome first."
+      },
+      {
+        "tag": "Added",
+        "text": "Sample gallery pins guided tours in their own section."
       },
       {
         "tag": "Improved",
@@ -66,10 +70,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Added",
         "text": "Button tour for gpio-keys and input events."
-      },
-      {
-        "tag": "Improved",
-        "text": "Blinky tour shows the LED pin from devicetree."
       },
       {
         "tag": "Added",

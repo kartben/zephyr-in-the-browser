@@ -5,7 +5,8 @@ via the help dialog (?).
 
 ## Unreleased
 
-- **Changed:** Cortex-A53 opens on Blinky so its guided tour shows first.
+- **Improved:** Blinky tour orients you to the page chrome first.
+- **Added:** Sample gallery pins guided tours in their own section.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
 - **Added:** ESP32-C3 DevKitC board, booting from emulated SPI flash.
@@ -17,7 +18,6 @@ via the help dialog (?).
 - **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
 - **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
 - **Added:** Button tour for gpio-keys and input events.
-- **Improved:** Blinky tour shows the LED pin from devicetree.
 - **Added:** Help button in the top bar for shortcuts and changelog.
 - **Improved:** Collapsed device dock leaves an edge tab to reopen it.
 - **Added:** In-app changelog tab in the keyboard help dialog.

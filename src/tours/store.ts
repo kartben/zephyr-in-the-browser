@@ -684,18 +684,23 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
  * The next breakpoint goes in *before* the resume. `main()` and the line after
  * it are microseconds apart on a JIT guest, so a plant that races the resume
  * loses the step — reliably, not occasionally.
+ *
+ * When every step has had its turn, drop every remaining breakpoint so the
+ * guest free-runs instead of trapping on a leftover stop.
  */
 export function next(): void {
   const card = state.current
   publish({ current: null })
   void (async () => {
+    const finished = steps.every((s) => s.card !== null || s.unresolved)
+    if (finished) {
+      await disarm()
+      publish({ armed: false, finished: true })
+      if (card?.paused && state.live) debug.resume()
+      return
+    }
     const planted = await plantNext()
-    publish({
-      armed: planted,
-      // Over when nothing is left to reach: every step has either had its turn
-      // or could not be resolved against this build.
-      finished: steps.every((s) => s.card !== null || s.unresolved),
-    })
+    publish({ armed: planted, finished: false })
     if (card?.paused && state.live) debug.resume()
   })()
 }
