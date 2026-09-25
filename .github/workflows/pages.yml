@@ -170,11 +170,10 @@ jobs:
               && test -f dist/qemu/zephyr/qemu_cortex_a53/gnss.elf \
               && test -f dist/qemu/zephyr/qemu_riscv32/gnss.elf \
               || { echo "::error::images release did not contain a GNSS image for every board in src/boards.ts"; exit 1; }
-            # A .dts next to each image is expected of tarballs built since the
-            # devicetree-aware UI, but older releases without them still deploy
-            # fine — the app falls back to its static tables.
+            # tools/build-zephyr-image.sh ships each image's zephyr.dts beside it;
+            # without them the dock and devicetree viewer lose the real tree.
             [ -n "$(find dist/qemu/zephyr -name '*.dts' -print -quit 2>/dev/null)" ] \
-              || echo "::warning::images release contains no zephyr.dts files; devicetree features will fall back"
+              || { echo "::error::images release contains no zephyr.dts files"; exit 1; }
           fi
           du -sh dist
 

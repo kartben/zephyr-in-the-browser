@@ -73,7 +73,7 @@ export function DtsViewer({ open, onOpenChange, title, load }: DtsViewerProps) {
           <DialogDescription>
             {state.kind === 'loading' && 'Loading devicetree…'}
             {state.kind === 'absent' &&
-              'No devicetree is shipped for this image — likely an older build of the sample assets.'}
+              'No devicetree was shipped with this image.'}
             {state.kind === 'ready' && (summary ?? 'Devicetree source (could not be parsed as a tree).')}
           </DialogDescription>
         </DialogHeader>

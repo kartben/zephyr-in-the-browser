@@ -284,8 +284,7 @@ dts: /led0: led_0/ + 3
 ```
 
 The card shows a second excerpt, labelled with the `.dts` file name. Absence
-(an older image tarball, a user ELF with no tree) is silent: the prose still
-stands.
+(a user ELF with no tree) is silent: the prose still stands.
 
 ### `objects:`
 

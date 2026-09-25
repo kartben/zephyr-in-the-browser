@@ -80,9 +80,8 @@ sibling assets with `/qemu/`.
 Note there is **no `load.js` and no `.data`**. Guest ELFs are fetched over HTTP
 and written into the Emscripten filesystem in `preRun` via the exported
 `FS_createPath` / `FS_createDataFile` helpers (images ship unstripped so the
-debugger can resolve `CONFIG_DEBUG_THREAD_INFO` symbols). Boards that genuinely
-need a bundle (firmware blobs, a root filesystem) can still set
-`usesDataBundle: true` in `src/boards.ts`, and the loader will pull `load.js`.
+debugger can resolve `CONFIG_DEBUG_THREAD_INFO` symbols). Anything else a board
+needs in the guest filesystem goes in its `extraFiles` in `src/boards.ts`.
 
 ## Where the emulator comes from
 

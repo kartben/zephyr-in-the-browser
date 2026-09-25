@@ -144,7 +144,7 @@ export default defineConfig({
     alias: { '@': path.join(root, 'src') },
   },
   server: {
-    // Emscripten .data blobs are large; don't let Vite try to inline or watch them.
+    // The emulator artifacts are large; don't let Vite watch them.
     watch: { ignored: ['**/public/qemu/**'] },
   },
 })

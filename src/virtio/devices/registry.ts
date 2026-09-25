@@ -17,7 +17,7 @@
  * Where the declared addresses come from: the *parsed devicetree of the running
  * build* when one is loaded (src/devicetree.ts) — the bridged virtio,i2c bus's
  * enabled children are the truth, including "none, this build has no bus". Only
- * when no devicetree is known (older image tarballs, a custom ELF without one)
+ * when no devicetree is known (a custom ELF without one)
  * does the hardcoded mirror of the virtio-i2c snippet overlay take over.
  */
 

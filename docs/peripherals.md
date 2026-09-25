@@ -261,8 +261,7 @@ opts each sample in: this list *is* the dock, so the bill of materials in
 
 A user-supplied ELF gets the same treatment when its `zephyr.dts` is dropped
 or picked alongside it; without one, every panel the machine exposes shows
-expanded, as before. When no devicetree is known at all (older image
-tarballs), the old hardcoded tables in
+expanded, as before. When no devicetree is known at all, the hardcoded tables in
 [`src/virtio/devices/registry.ts`](../src/virtio/devices/registry.ts) and
 [`src/hostGpio.ts`](../src/hostGpio.ts) take over, so nothing regresses.
 
