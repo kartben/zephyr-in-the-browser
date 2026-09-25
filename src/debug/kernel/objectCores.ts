@@ -75,6 +75,15 @@ interface ObjectDescriptor {
 
 type Layouts = Record<string, Record<string, number>>
 
+/** Member offsets the Mem pane lays over a kernel object's bytes. */
+export interface KernelLayouts {
+  ptrBytes: 4 | 8
+  /** Struct name (`k_sem`, `_thread_base`) to member name to byte offset. */
+  structs: Readonly<Record<string, Readonly<Record<string, number>>>>
+  /** `k_obj_core`'s own members: node, type, stats. */
+  core: Readonly<Record<string, number>>
+}
+
 export interface ObjectCoreMeta {
   ptrBytes: 4 | 8
   typeListAddr: number
@@ -195,6 +204,9 @@ const LAYOUT_NAMES = [
   'k_mem_slab_info',
   'sys_mem_blocks_info',
   'k_cycle_stats',
+  // The Mem pane names a k_thread's members, and the ones that matter (its
+  // wait-queue node, what it is pended on) live in here.
+  '_thread_base',
 ] as const
 
 const MAX_TYPES = 64

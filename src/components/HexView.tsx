@@ -605,7 +605,9 @@ function NoteLabel({
   const tone = TONE_CLASSES[label.tone ?? note.tone]
   const className = cn(
     'flex items-center gap-1',
-    shrink ? 'min-w-0' : 'shrink-0',
+    // The first label gives way (its name truncates, then it clips) so the
+    // `+n` after it always stays in view.
+    shrink ? 'min-w-0 overflow-hidden' : 'shrink-0',
     tone.text,
     note.onFollow && 'hover:[&_.name]:underline',
     lit && '[&_.name]:underline',

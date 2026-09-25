@@ -94,7 +94,7 @@ describe('buildMemoryNotes', () => {
       map,
       threads: [thread],
       follow: () => {},
-    })
+    }).notes
 
   it('names a thread the way the Threads tab does', () => {
     const [note] = build(0x4005_bcf0, [THREAD.base])
@@ -102,14 +102,25 @@ describe('buildMemoryNotes', () => {
     expect(note!.tone).toBe('object')
   })
 
-  it('flags a word holding its own address without naming it', () => {
-    const [self, back] = build(0x4005_bd20, [0x4005_bd20, 0x4005_bd20])
+  it('flags a lone word holding its own address without naming it', () => {
+    const [self] = build(0x4005_bd20, [0x4005_bd20, 0])
+    expect(self!.info.kind).toBe('pointer')
     expect(self!.label).toBeUndefined()
     expect(self!.onFollow).toBeUndefined()
     expect(self!.mark).toBe('dashed')
-    // The word after it points back at it: a link, and labelled.
-    expect(back!.label?.head).toBe('shell_uart_ctx')
-    expect(back!.group).toBe(self!.group)
+  })
+
+  it('reads two words holding the first one\'s address as one probably-empty list', () => {
+    const notes = build(0x4005_bd20, [0x4005_bd20, 0x4005_bd20])
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatchObject({
+      offset: 0,
+      length: 16,
+      tone: 'quiet',
+      mark: 'dashed',
+      label: { head: 'empty list?' },
+      info: { kind: 'list', empty: true, owner: null },
+    })
   })
 
   it('keeps object-core links quiet and ranked below real targets', () => {

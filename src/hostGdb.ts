@@ -36,6 +36,7 @@ import {
   objectCoreWaitObjects,
   parseObjectCoreMeta,
   readObjectCores,
+  type KernelLayouts,
   type ObjectCoreMeta,
   type ObjectCoreSnapshot,
 } from '@/debug/kernel/objectCores'
@@ -215,6 +216,19 @@ export function getSymbolIndex(): SymbolIndex | null {
 /** Named thread stacks from the image, for naming addresses that land in one. */
 export function getStackRegions(): readonly StackRegion[] {
   return stackRegions
+}
+
+/**
+ * DWARF member offsets of the kernel object structs, for naming the members of
+ * an object in the Mem dump. Null without object core (or without DWARF).
+ */
+export function getKernelLayouts(): KernelLayouts | null {
+  if (!objectCoreMeta) return null
+  return {
+    ptrBytes: objectCoreMeta.ptrBytes,
+    structs: objectCoreMeta.layouts,
+    core: objectCoreMeta.coreMembers,
+  }
 }
 
 /**

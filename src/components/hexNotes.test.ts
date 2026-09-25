@@ -10,8 +10,8 @@ const note = (head: string, rank = 0, extra: Partial<HexNoteLabel> = {}) => ({
 describe('labelWidth', () => {
   it('counts the badge pill and the role as well as the name', () => {
     expect(labelWidth({ head: 'shell_uart' })).toBe(10)
-    // `k_sem` plus a character of padding either side.
-    expect(labelWidth({ badge: 'k_sem', head: 'fork', tail: '[1]' })).toBe(7 + 4 + 3)
+    // `k_sem`, a character of padding either side, and the gap after it.
+    expect(labelWidth({ badge: 'k_sem', head: 'fork', tail: '[1]' })).toBe(8 + 4 + 3)
     expect(labelWidth({ role: '.wait_q', head: 'empty' })).toBe(8 + 5)
   })
 })

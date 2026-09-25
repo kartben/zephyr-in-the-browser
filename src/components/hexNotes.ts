@@ -134,8 +134,9 @@ export interface HexSection {
 
 /** Characters a label takes on screen, badge pill included. */
 export function labelWidth(label: HexNoteLabel): number {
+  // Each part after the first is a gap away; the badge is a padded pill.
   const role = label.role ? label.role.length + 1 : 0
-  const badge = label.badge ? label.badge.length + 2 : 0
+  const badge = label.badge ? label.badge.length + 3 : 0
   return role + badge + label.head.length + (label.tail?.length ?? 0)
 }
 

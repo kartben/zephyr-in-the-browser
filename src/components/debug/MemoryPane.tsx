@@ -264,7 +264,7 @@ export function MemoryPane({
     setAddrText(compactHex(addr.toString(16)))
     void jumpTo(addr)
   }
-  const notes = useMemo(
+  const dump = useMemo(
     () =>
       memory
         ? buildMemoryNotes({
@@ -273,10 +273,14 @@ export function MemoryPane({
             ptrBytes,
             map: addressMap,
             threads: snap.threads,
+            objects: snap.objects,
+            layouts: debug.kernelLayouts(),
             follow: (addr) => followRef.current(addr),
           })
-        : [],
-    [memory, ptrBytes, addressMap, snap.threads],
+        : { notes: [], sections: [] },
+    // kernelLayouts only changes with the image, which also flips hasSymbols.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [memory, ptrBytes, addressMap, snap.threads, snap.objects, snap.hasSymbols],
   )
 
   /** What the window itself is sitting on, for the inspector's idle line. */
@@ -544,7 +548,8 @@ export function MemoryPane({
         >
           <MemoryDump
             chip={chip}
-            notes={notes}
+            notes={dump.notes}
+            sections={dump.sections}
             noteColumn={!addressMap.empty}
             here={here}
             ptrBytes={ptrBytes}
