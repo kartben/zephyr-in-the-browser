@@ -209,7 +209,13 @@ describe('buildStructure', () => {
   it('reads a wait queue with one thread in it', () => {
     const note = at['0:.wait_q']!
     expect(note.length).toBe(16)
-    expect(note.label).toEqual({ role: '.wait_q', badge: '1 waiting', head: 'shell_uart' })
+    expect(note.label).toEqual({
+      role: '.wait_q',
+      badge: '1 waiting',
+      keepBadge: true,
+      head: 'shell_uart',
+      tail: '',
+    })
     expect(note.tone).toBe('object')
     const info = note.info as ListInfo
     expect(info.waiters.map((t) => t.name)).toEqual(['shell_uart'])
@@ -243,7 +249,7 @@ describe('buildStructure', () => {
     const note = at['72:.obj_core.next']!
     expect(note.tone).toBe('quiet')
     expect(explainMember(note.info as MemberInfo)).toMatch(
-      /lands on the \.obj_core of the next semaphore, not on its start: subtract 0x18/,
+      /lands on the \.obj_core of the next semaphore, k_sem shell_uart_mpsc_buffer\+0x38, not on its start: subtract 0x18/,
     )
   })
 
@@ -288,5 +294,63 @@ describe('buildStructure', () => {
   it("names the member a pointer sits in, for a pointer the layout does not cover", () => {
     const { roleAt } = build(THREAD, new Uint8Array(256))
     expect(roleAt(THREAD + 88 + 0x10)).toBe('.callee_saved+0x10')
+  })
+
+  it("says a mutex's owner is the thread, not the queue node at its first byte", () => {
+    const layouts: KernelLayouts = {
+      ...LAYOUTS,
+      structs: { ...LAYOUTS.structs, k_mutex: { wait_q: 0, owner: 16, lock_count: 24, obj_core: 32 } },
+    }
+    const MUTEX = 0x4005_1ae8
+    const objects: ObjectCoreSnapshot = {
+      ...OBJECTS,
+      types: [
+        ...OBJECTS.types,
+        { addr: 4, id: 4, code: 'MUTX', name: 'Mutexes', objectSize: 56, objects: [object(MUTEX, 'MUTX', 'cmd_get_mutex', 56)] },
+      ],
+    }
+    const bytes = window([
+      [MUTEX, 8],
+      [MUTEX, 8],
+      [THREAD, 8],
+      [1, 4],
+      [0, 4],
+    ])
+    const { notes } = buildStructure({
+      base: MUTEX,
+      bytes,
+      ptrBytes: 8,
+      map,
+      threads: [shellUart],
+      objects,
+      layouts,
+      follow: () => {},
+    })
+    const owner = notes.find((note) => note.label?.role === '.owner')!
+    expect(owner.label).toMatchObject({ role: '.owner', badge: 'k_thread', head: 'shell_uart' })
+    expect(explainMember(owner.info as MemberInfo)).toBe(
+      'k_mutex.owner holds 0x4005b660, the address of k_thread shell_uart (shell_uart_thread, 960 B): that thread holds this mutex.',
+    )
+  })
+
+  it("names a thread's saved registers", () => {
+    const layouts: KernelLayouts = {
+      ...LAYOUTS,
+      structs: { ...LAYOUTS.structs, _callee_saved: { x19: 0, x20: 8, sp_elx: 16, lr: 24 } },
+    }
+    const thread = kernelObjects(OBJECTS, []).find((ref) => ref.struct === 'k_thread')!
+    const regs = membersOf(thread, layouts).filter((m) => m.path.startsWith('callee_saved.'))
+    expect(regs.map((m) => [roleOf(m), m.addr - THREAD])).toEqual([
+      ['saved x19', 88],
+      ['saved x20', 96],
+      ['saved sp_elx', 104],
+      ['saved lr', 112],
+    ])
+  })
+
+  it('gives a type descriptor the last slot in a crowded row', () => {
+    const type = notes.find((note) => note.label?.role === '.obj_core.type')!
+    const empty = at['48:.wait_q']!
+    expect(type.rank!).toBeGreaterThan(empty.rank!)
   })
 })

@@ -75,9 +75,12 @@ function pointerNote(run: PointerRun, ctx: NoteContext, role: string | undefined
     offset: run.offset,
     length: run.length,
     tone,
-    mark: run.self ? 'dashed' : 'solid',
+    // Matched by value alone: dotted, where the layout's own words are solid.
+    mark: run.self ? 'dashed' : 'dotted',
     // A word holding its own address leads nowhere; flag it, do not name it.
-    ...(run.self ? {} : { label: pointerLabel(info), onFollow: () => ctx.follow(run.value) }),
+    ...(run.self
+      ? {}
+      : { label: { ...pointerLabel(info), guess: true }, onFollow: () => ctx.follow(run.value) }),
     pointsAt: run.value,
     group: `v:${run.value.toString(16)}`,
     quietAscii: true,

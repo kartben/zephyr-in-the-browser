@@ -47,11 +47,12 @@ describe('fitLabels', () => {
     ])
   })
 
-  it('leaves room for the +n that says something was dropped', () => {
-    // 5 + 2 + 5 = 12 fits exactly, but not with "+1" after it.
-    const notes = [note('aaaaa'), note('bbbbb'), note('ccccc')]
+  it('leaves room for the "n more" that says something was dropped', () => {
+    // 5 + 2 + 5 = 12 fits, but not with "1 more" (and its gap) after it.
+    const notes = [note('aaaaa'), note('bbbbb'), note('cccccccccc')]
     expect(fitLabels(notes, 12).shown).toHaveLength(1)
-    expect(fitLabels(notes, 16).shown).toHaveLength(2)
+    expect(fitLabels(notes, 20).shown).toHaveLength(2)
+    expect(fitLabels(notes, 24).shown).toHaveLength(3)
   })
 
   it('ignores notes without a label', () => {

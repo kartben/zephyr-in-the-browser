@@ -86,11 +86,16 @@ export function badgeFor(target: ResolvedAddress): string {
  * `shell_uart_ctx+0x300` and `fork_objs[1]` differ from their siblings only in
  * their tails, so a plain end ellipsis (`shell_uart_ctx+…`) throws away the one
  * thing that matters. The tail starts at the first `+0x`, `[` or `.` after the
- * leading identifier; the offset into the target goes on the end of it.
+ * leading identifier, or failing that at a trailing number (`Philosopher 5`,
+ * `data_0`); the offset into the target goes on the end of it.
  */
 export function splitName(name: string, offset = 0): { head: string; tail: string } {
+  // Every type descriptor starts the same way; the type is the part to keep.
+  const type = /^(obj_type)(_\w+)$/.exec(name)
+  if (type && offset === 0) return { head: type[1]!, tail: type[2]! }
   const at = name.slice(1).search(/\+0x|\[|\./)
-  const cut = at < 0 ? name.length : at + 1
+  const number = /[ _-]?\d+$/.exec(name.slice(1))
+  const cut = at >= 0 ? at + 1 : number ? number.index + 1 : name.length
   const suffix = offset === 0 ? '' : `+${hex(offset)}`
   return { head: name.slice(0, cut), tail: name.slice(cut) + suffix }
 }
@@ -102,8 +107,7 @@ export function targetName(info: Pick<PointerInfo, 'target' | 'thread' | 'stackO
 } {
   const { target } = info
   const who = info.thread ?? info.stackOf
-  if (who) return { head: who.name, tail: target.offset ? `+${hex(target.offset)}` : '' }
-  return splitName(target.name, target.offset)
+  return splitName(who ? who.name : target.name, target.offset)
 }
 
 export function pointerLabel(info: PointerInfo): HexNoteLabel {
@@ -127,8 +131,19 @@ export function describeTarget(info: Pick<PointerInfo, 'target' | 'thread' | 'st
   if (target.kind === 'objectCore') {
     return `${struct} ${target.name.replace(/\.obj_core$/, '')}`
   }
-  const name = info.thread ? `${info.thread.name} (${target.name})` : target.name
-  return `${struct} ${name}${size}`
+  if (info.thread) {
+    const extra = [target.name, target.size ? formatStackSize(target.size) : null].filter(Boolean)
+    return `${struct} ${info.thread.name} (${extra.join(', ')})`
+  }
+  return `${struct} ${target.name}${size}`
+}
+
+/** `the address of k_sem X`, or `0x1f10 bytes into shell_uart's stack (8 KiB)`. */
+export function landsOn(info: Pick<PointerInfo, 'target' | 'thread' | 'stackOf'>): string {
+  const what = describeTarget(info)
+  return info.target.offset === 0
+    ? `the address of ${what}`
+    : `${hex(info.target.offset)} bytes into ${what}`
 }
 
 /** One or two sentences saying what the word probably is. */

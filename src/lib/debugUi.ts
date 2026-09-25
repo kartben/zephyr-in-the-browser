@@ -134,6 +134,23 @@ export function focusDebugObject(addr: number, from: FocusOrigin | null = null):
   revealDockRow(STAGE_DEBUG_KEY)
 }
 
+/**
+ * A tab was opened by a link from another one (a `tcb 0x…` in Threads opening
+ * Mem): record where from, so the destination can offer the way back. The
+ * caller switches the tab itself.
+ */
+export function arrive(section: DebugSection, from: FocusOrigin): void {
+  state = {
+    nonce: state.nonce + 1,
+    section,
+    threadAddr: null,
+    threadName: null,
+    objectAddr: null,
+    from,
+  }
+  notify()
+}
+
 /** Forget the origin: the user moved on by hand, so there is no "back" to offer. */
 export function clearOrigin(): void {
   if (!state.from) return

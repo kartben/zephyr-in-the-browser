@@ -238,7 +238,7 @@ export function KernelObjectsPane({
                           <button
                             type="button"
                             className="text-primary/90 hover:underline"
-                            onClick={() => onThread(thread.addr)}
+                            onClick={() => debugUi.focusDebugThread(thread.addr, thread.name, from)}
                           >
                             Threads
                           </button>

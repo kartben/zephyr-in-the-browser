@@ -127,6 +127,8 @@ export interface MemberInfo {
   text?: string
   /** A pointer member whose target is a thread. */
   thread?: ZephyrThread
+  /** ...or a thread's stack: whose. */
+  stackOf?: ZephyrThread
 }
 
 /** Where an object begins: its section line. */
@@ -158,6 +160,14 @@ export interface StructureContext {
   follow: (addr: number) => void
 }
 
+/**
+ * Pointers whose target is a *member*, so the note names it: `pended_on` is a
+ * `_wait_q_t *`, which lands on a `.wait_q`. Any other pointer that lands on an
+ * object's first byte means the object, even when a member starts there too
+ * (a mutex's `owner` is the thread, not its queue node).
+ */
+const POINTS_AT_MEMBER = new Set(['base.pended_on'])
+
 /** Members that hold an address, whatever the value looks like. */
 const POINTER_MEMBERS = new Set([
   'owner',
@@ -185,7 +195,34 @@ const POINTER_MEMBERS = new Set([
  * inspector spells the full path out.
  */
 export function roleOf(member: ObjectMember): string {
-  return `.${member.path.replace(/^base\./, '').replace('obj_core.node.next', 'obj_core.next')}`
+  if (member.path.startsWith('callee_saved.')) return `saved ${member.path.slice(13)}`
+  return `.${member.path
+    .replace(/^(base|entry)\./, '')
+    .replace('obj_core.node.next', 'obj_core.next')}`
+}
+
+/** The member's real C path, `.obj_core.node.next`: what compiles, for the inspector. */
+export function cPath(member: ObjectMember): string {
+  return `.${member.path}`
+}
+
+/**
+ * Whether this image's wait queues are red-black trees (CONFIG_WAITQ_SCALABLE):
+ * a k_sem's (or k_mutex's) `wait_q` is then wider than the two pointers of a
+ * `sys_dlist_t`.
+ */
+export function waitQueuesAreTrees(layouts: KernelLayouts): boolean {
+  const p = layouts.ptrBytes
+  for (const [struct, after] of [
+    ['k_sem', 'count'],
+    ['k_mutex', 'owner'],
+  ] as const) {
+    const layout = layouts.structs[struct]
+    if (layout?.wait_q !== undefined && layout[after] !== undefined) {
+      return layout[after] - layout.wait_q !== 2 * p
+    }
+  }
+  return false
 }
 
 function memberKind(name: string, size: number, p: number): MemberKind {
@@ -232,6 +269,24 @@ export function membersOf(ref: KernelObjectRef, layouts: KernelLayouts): ObjectM
       out.push(...threadBase(addr, size, layouts))
       return
     }
+    // The registers saved at a context switch, by name (`sp_elx`, `ra`, `psp`),
+    // and what the thread was created to run (`pEntry`, `parameter1`).
+    const nested =
+      ref.struct === 'k_thread' && name === 'callee_saved'
+        ? layouts.structs._callee_saved
+        : ref.struct === 'k_thread' && name === 'entry'
+          ? layouts.structs._thread_entry
+          : null
+    if (nested && Object.keys(nested).length > 1) {
+      const fields = Object.entries(nested).sort((a, b) => a[1] - b[1])
+      fields.forEach(([field, at], k) => {
+        const next = k + 1 < fields.length ? fields[k + 1]![1] : size
+        if (next > at && at < size) {
+          out.push({ path: `${name}.${field}`, addr: addr + at, size: next - at, kind: 'other' })
+        }
+      })
+      return
+    }
     out.push({ path: name, addr, size, kind: memberKind(name, size, p) })
   })
   return out
@@ -242,24 +297,36 @@ function threadBase(addr: number, size: number, layouts: KernelLayouts): ObjectM
   const tb = layouts.structs._thread_base ?? {}
   const p = layouts.ptrBytes
   const out: ObjectMember[] = []
-  // qnode_dlist sits in an anonymous union at offset 0, so DWARF gives it no
-  // name here; it is everything before pended_on.
+  // The queue node sits in an anonymous union at offset 0, so DWARF gives it no
+  // name here; it is everything before pended_on. With tree-shaped wait queues
+  // a pended thread hangs in the tree by `qnode_rb` (two child pointers, the
+  // colour in a low bit), where next/prev would be the wrong reading.
   const node = tb.pended_on ?? 2 * p
-  if (node === 2 * p) out.push({ path: 'base.qnode_dlist', addr, size: node, kind: 'dnode' })
+  if (node === 2 * p) {
+    out.push(
+      waitQueuesAreTrees(layouts)
+        ? { path: 'base.qnode_rb', addr, size: node, kind: 'other' }
+        : { path: 'base.qnode_dlist', addr, size: node, kind: 'dnode' },
+    )
+  }
   if (tb.pended_on !== undefined) {
     out.push({ path: 'base.pended_on', addr: addr + tb.pended_on, size: p, kind: 'pointer' })
   }
-  if (tb.user_options !== undefined) {
-    out.push({ path: 'base.user_options', addr: addr + tb.user_options, size: 2, kind: 'flags' })
-    // prio sits in another anonymous union, right after the 16-bit options.
-    if (tb.thread_state === undefined || tb.thread_state >= tb.user_options + 3) {
-      out.push({ path: 'base.prio', addr: addr + tb.user_options + 2, size: 1, kind: 'signed' })
-    }
+  const options = tb.user_options
+  const state = tb.thread_state
+  if (options !== undefined && state !== undefined && state > options) {
+    // Today: a u16 of options, then the {prio, sched_locked} union, then the
+    // state. Older trees had a u8 of options and the state right after it,
+    // with the union following the state. Little-endian: prio is the union's
+    // first byte.
+    const wide = state - options >= 3
+    out.push({ path: 'base.user_options', addr: addr + options, size: wide ? 2 : 1, kind: 'flags' })
+    out.push({ path: 'base.prio', addr: addr + (wide ? options + 2 : state + 1), size: 1, kind: 'signed' })
+    out.push({ path: 'base.thread_state', addr: addr + state, size: 1, kind: 'flags' })
   }
-  if (tb.thread_state !== undefined) {
-    out.push({ path: 'base.thread_state', addr: addr + tb.thread_state, size: 1, kind: 'flags' })
-  }
-  return out.filter((m) => m.addr + m.size <= addr + size)
+  return out
+    .filter((m) => m.addr + m.size <= addr + size)
+    .sort((a, b) => a.addr - b.addr)
 }
 
 /** Every live object, tightest first so a nested one claims its bytes. */
@@ -291,7 +358,7 @@ export function kernelObjects(
 
 /** An object's name the way a person would say it: a thread by its own name. */
 export function objectName(ref: KernelObjectRef): { head: string; tail: string } {
-  return ref.thread ? { head: ref.thread.name, tail: '' } : splitName(ref.name)
+  return splitName(ref.thread ? ref.thread.name : ref.name)
 }
 
 /**
@@ -299,10 +366,20 @@ export function objectName(ref: KernelObjectRef): { head: string; tail: string }
  * start goes unsaid: `k_event shell_uart_ctx+0x2d0` already is its `.wait_q`
  * address, and the inspector says which it is.
  */
-function objectLabel(ref: KernelObjectRef, member?: ObjectMember | null): HexNoteLabel {
-  const name = objectName(ref)
-  const suffix = member && member.addr !== ref.addr ? roleOf(member) : ''
-  return { badge: ref.struct, head: name.head, tail: name.tail + suffix }
+/**
+ * A link that lands on a member (a queue node's next, a `pended_on`) always
+ * says which one, even at offset 0, and keeps it whole: the whole object name
+ * is what truncates, so `k_event ….wait_q` never reads as an offset into it.
+ */
+function memberLinkLabel(where: Where): HexNoteLabel {
+  const ref = where.object
+  const name = ref.thread ? ref.thread.name : ref.name
+  const delta = where.delta ? `+${hex(where.delta)}` : ''
+  return {
+    badge: ref.struct,
+    head: name,
+    tail: where.member ? `${cPath(where.member)}${delta}` : delta,
+  }
 }
 
 const bytesOf = (bytes: Uint8Array, at: number, length: number) =>
@@ -393,7 +470,7 @@ export function buildStructure(ctx: StructureContext): {
       const label: HexNoteLabel = idle
         ? { role, head: 'not queued' }
         : where
-          ? { role, ...objectLabel(where.object, where.member) }
+          ? { role, ...memberLinkLabel(where) }
           : info.target
             ? { role, ...pointerLabel({ ...pointerFields(next, info.target) }) }
             : { role, head: hex(next) }
@@ -436,7 +513,8 @@ export function buildStructure(ctx: StructureContext): {
       if (member.kind === 'signed' && value >= 2 ** (member.size * 8 - 1)) {
         value -= 2 ** (member.size * 8)
       }
-      const shown = member.kind === 'flags' ? hex(value) : String(value)
+      const state = member.path === 'base.thread_state' ? threadStateNames(value) : ''
+      const shown = member.kind === 'flags' ? `${hex(value)}${state ? ` ${state}` : ''}` : String(value)
       return {
         id,
         offset,
@@ -455,10 +533,14 @@ export function buildStructure(ctx: StructureContext): {
     const value = readLe(bytes, offset, p)
     const target = resolve(value)
     if (member.kind === 'other' && !target) return null
-    const where = member.kind === 'pointer' && value ? whereIs(value) : null
+    const where = value && POINTS_AT_MEMBER.has(member.path) ? whereIs(value) : null
     const thread =
       target?.typeCode === 'THRD' && target.kind === 'object'
         ? ctx.threads.find((t) => t.addr === target.base && t.name)
+        : undefined
+    const stackOf =
+      target?.kind === 'stack'
+        ? ctx.threads.find((t) => t.stackStart === target.base && t.name)
         : undefined
     const info: MemberInfo = {
       kind: 'member',
@@ -469,6 +551,7 @@ export function buildStructure(ctx: StructureContext): {
       target,
       where,
       ...(thread ? { thread } : {}),
+      ...(stackOf ? { stackOf } : {}),
     }
     let label: HexNoteLabel
     let tone: NoteTone
@@ -478,13 +561,18 @@ export function buildStructure(ctx: StructureContext): {
     } else if (member.kind === 'type') {
       label = { role, head: target?.name ?? hex(value) }
       tone = 'quiet'
-    } else if (member.kind === 'pointer' && where?.member && where.delta === 0) {
+    } else if (where?.member) {
       // Pointing at a member of a known object: say which one (`pended_on`
       // lands on a `.wait_q`, not on the object as a whole).
-      label = { role, ...objectLabel(where.object, where.member) }
+      label = { role, ...memberLinkLabel(where) }
       tone = 'object'
     } else if (target) {
-      label = { role, ...pointerLabel(pointerFields(value, target, thread)) }
+      label = {
+        role,
+        ...pointerLabel({ ...pointerFields(value, target, thread), ...(stackOf ? { stackOf } : {}) }),
+        // A member of unknown type whose value matches a name: evidence, not proof.
+        ...(member.kind === 'other' ? { guess: true } : {}),
+      }
       tone = member.kind === 'next' ? 'quiet' : targetTone(target)
     } else {
       label = { role, head: hex(value) }
@@ -496,12 +584,15 @@ export function buildStructure(ctx: StructureContext): {
       length: p,
       tone,
       // NULL is said in words ("end of list"); an underline would only add noise.
-      mark: value === 0 || tone === 'plain' ? 'none' : 'solid',
+      // A member of unknown type that merely lands on a name is a guess: dotted.
+      mark: value === 0 || tone === 'plain' ? 'none' : member.kind === 'other' ? 'dotted' : 'solid',
       label,
       ...(value && target ? { onFollow: () => ctx.follow(value), pointsAt: value } : {}),
       group: `v:${value.toString(16)}`,
       quietAscii: true,
-      rank: RANK[tone],
+      // A type descriptor is the same for every object of the type: last to
+      // get a slot in a crowded row.
+      rank: member.kind === 'type' || member.path === 'obj_core.stats' ? RANK.quiet + 1 : RANK[tone],
       info,
     }
   }
@@ -553,7 +644,7 @@ export function buildStructure(ctx: StructureContext): {
       tone = 'quiet'
     } else if (waiters.length > 0) {
       const lead = first ?? waiters[0]!
-      label = { role, badge: `${waiters.length} waiting`, head: lead.name }
+      label = { role, badge: `${waiters.length} waiting`, keepBadge: true, ...splitName(lead.name) }
       tone = 'object'
     } else if (shape === 'tree') {
       label = { role, head: 'no waiters' }
@@ -635,4 +726,23 @@ export function buildStructure(ctx: StructureContext): {
   }
 
   return { notes, sections: sections.sort((a, b) => a.offset - b.offset), roleAt }
+}
+
+/** `_THREAD_*` bits, include/zephyr/kernel_structs.h. */
+const THREAD_STATES: ReadonlyArray<[number, string]> = [
+  [0x01, 'dummy'],
+  [0x02, 'pending'],
+  [0x04, 'sleeping'],
+  [0x08, 'dead'],
+  [0x10, 'suspended'],
+  [0x20, 'aborting'],
+  [0x40, 'suspending'],
+  [0x80, 'queued'],
+]
+
+/** `pending`, `pending sleeping`: the thread_state bits that are set. */
+export function threadStateNames(value: number): string {
+  return THREAD_STATES.filter(([bit]) => value & bit)
+    .map(([, name]) => name)
+    .join(' ')
 }

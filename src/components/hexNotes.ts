@@ -87,13 +87,23 @@ export const TONE_CLASSES: Record<
  * their tails, so an end ellipsis would throw away the one thing that matters.
  */
 export interface HexNoteLabel {
-  /** Short kind word in a pill: `k_sem`, `fn`, `var`. */
+  /** Short word in a pill: a kind (`k_sem`, `fn`, `var`) or a count (`2 waiting`). */
   badge?: string
+  /**
+   * The badge carries information the rest does not (a waiter count), so a
+   * tight column must not drop it the way it drops a kind the colour repeats.
+   */
+  keepBadge?: boolean
   /** A role, shown before the badge in the default text colour: `.wait_q`. */
   role?: string
   head: string
   tail?: string
   tone?: NoteTone
+  /**
+   * Matched by value only: nothing says this word is a pointer except that it
+   * lands on a name. Drawn with a muted `?` so a guess never looks like a fact.
+   */
+  guess?: boolean
 }
 
 export interface HexNote {
@@ -105,7 +115,12 @@ export interface HexNote {
   length: number
   tone: NoteTone
   /** How the bytes are marked. `none` leaves them as they are. */
-  mark: 'solid' | 'dashed' | 'none'
+  /**
+   * How the bytes are marked: `solid` for what the layout says, `dotted` for a
+   * guess from the value alone, `dashed` for bookkeeping, `none` for a plain
+   * value.
+   */
+  mark: 'solid' | 'dotted' | 'dashed' | 'none'
   /** Compact label for the notes column; omit for none. */
   label?: HexNoteLabel
   /** Navigate: a click on the label, or ⌘/Ctrl-click on the bytes. */
@@ -137,7 +152,8 @@ export function labelWidth(label: HexNoteLabel): number {
   // Each part after the first is a gap away; the badge is a padded pill.
   const role = label.role ? label.role.length + 1 : 0
   const badge = label.badge ? label.badge.length + 3 : 0
-  return role + badge + label.head.length + (label.tail?.length ?? 0)
+  const guess = label.guess ? 2 : 0
+  return role + guess + badge + label.head.length + (label.tail?.length ?? 0)
 }
 
 /**
@@ -158,7 +174,8 @@ export function fitLabels<T extends { label?: HexNoteLabel; rank?: number }>(
   const byRank = labelled
     .map((note, index) => ({ note, index }))
     .sort((a, b) => (a.note.rank ?? 0) - (b.note.rank ?? 0) || a.index - b.index)
-  const more = (n: number) => (n > 0 ? String(n).length + 1 + gap : 0)
+  // "2 more", not "+2": in a dump where +0x… is an offset, a plus sign reads as one.
+  const more = (n: number) => (n > 0 ? String(n).length + 5 + gap : 0)
   const keep = new Set<number>([byRank[0]!.index])
   let used = labelWidth(byRank[0]!.note.label!)
   for (let i = 1; i < byRank.length; i++) {

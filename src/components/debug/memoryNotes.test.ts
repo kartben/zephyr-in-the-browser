@@ -67,6 +67,12 @@ describe('splitName', () => {
     expect(splitName('led', 8)).toEqual({ head: 'led', tail: '+0x8' })
   })
 
+  it('keeps a trailing number out of the ellipsis too', () => {
+    expect(splitName('Philosopher 5')).toEqual({ head: 'Philosopher', tail: ' 5' })
+    expect(splitName('i2c_virtio_data_0')).toEqual({ head: 'i2c_virtio_data', tail: '_0' })
+    expect(splitName('i2c_virtio_data_0+0x40')).toEqual({ head: 'i2c_virtio_data_0', tail: '+0x40' })
+  })
+
   it('does not split on a leading dot', () => {
     expect(splitName('.bss')).toEqual({ head: '.bss', tail: '' })
   })
@@ -98,7 +104,8 @@ describe('buildMemoryNotes', () => {
 
   it('names a thread the way the Threads tab does', () => {
     const [note] = build(0x4005_bcf0, [THREAD.base])
-    expect(note!.label).toEqual({ badge: 'k_thread', head: 'shell_uart', tail: '' })
+    // Matched by value alone, so it says so.
+    expect(note!.label).toEqual({ badge: 'k_thread', head: 'shell_uart', tail: '', guess: true })
     expect(note!.tone).toBe('object')
   })
 

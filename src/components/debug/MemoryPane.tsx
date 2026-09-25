@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BackChip } from '@/components/debug/BackChip'
 import { MemoryDump } from '@/components/debug/MemoryDump'
 import { buildMemoryNotes } from '@/components/debug/memoryNotes'
 import { compactHex } from '@/debug/hexFormat'
@@ -316,6 +317,9 @@ export function MemoryPane({
   }, [chip])
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Keys typed into a byte's editor are the edit's, not the window's.
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
     if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       e.preventDefault()
       if (!busy && snap.paused) stepTrail(e.key === 'ArrowLeft' ? -1 : 1)
@@ -437,6 +441,7 @@ export function MemoryPane({
 
   return (
     <div className="space-y-2 px-1">
+      <BackChip section="memory" />
       <div className="flex gap-1">
         {trail.length > 1 && (
           <>

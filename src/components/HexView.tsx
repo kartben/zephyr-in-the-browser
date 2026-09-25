@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import {
   TONE_CLASSES,
   fitLabels,
+  labelWidth,
   type HexNote,
   type HexSection,
 } from '@/components/hexNotes'
@@ -90,7 +91,9 @@ function dedupeLabels(notes: HexNote[]): HexNote[] {
 function labelText(note: HexNote): string {
   const label = note.label
   if (!label) return ''
-  return [label.role, label.badge, `${label.head}${label.tail ?? ''}`].filter(Boolean).join(' ')
+  return [label.role, label.guess ? 'probably' : '', label.badge, `${label.head}${label.tail ?? ''}`]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -188,6 +191,7 @@ export function HexView({
   selectedNote = null,
   onNoteHover,
   onNoteSelect,
+  editRequest = null,
 }: {
   chip: HexBacked
   jump?: HexJump | null
@@ -211,8 +215,10 @@ export function HexView({
   selectedNote?: string | null
   /** Pointer or focus moved onto a note or section, or off every one (`null`). */
   onNoteHover?: (id: string | null) => void
-  /** A click on an annotated word. */
+  /** A click on an annotated word or a section line. */
   onNoteSelect?: (id: string) => void
+  /** Open the editor on a byte, from outside (the inspector's Edit). */
+  editRequest?: { offset: number; token: number } | null
 }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<EditTarget | null>(null)
@@ -232,6 +238,14 @@ export function HexView({
   const nav = useNavMode(followable, gridRef)
 
   const showNotes = noteColumn || noteList.length > 0 || (sections?.length ?? 0) > 0
+  // With notes, a click is for looking and underlined words read as links, so
+  // editing takes a double-click everywhere, in both columns. A plain dump
+  // (an EEPROM) keeps click-to-edit.
+  const clickEdits = !showNotes
+
+  useEffect(() => {
+    if (editRequest) setEditing({ offset: editRequest.offset, column: 'hex' })
+  }, [editRequest])
 
   // The notes column holds only what fits; measure it rather than guess.
   const trackRef = useRef<HTMLSpanElement>(null)
@@ -326,10 +340,10 @@ export function HexView({
             else onNoteSelect?.(note.id)
             return
           }
-          setEditing({ offset, column: 'hex' })
+          if (clickEdits) setEditing({ offset, column: 'hex' })
         }}
         onDoubleClick={() => setEditing({ offset, column: 'hex' })}
-        annotated={Boolean(note)}
+        editOn={clickEdits && !note ? 'click' : 'dblclick'}
         onHover={() => onNoteHover?.(note ? note.id : null)}
         onCommit={(next, keepGoing) => {
           chip.poke(offset, next)
@@ -368,6 +382,7 @@ export function HexView({
               note.mark !== 'none' && '-mb-px border-b',
               note.mark !== 'none' && tone.underline,
               note.mark === 'dashed' && !lit && 'border-dashed',
+              note.mark === 'dotted' && !lit && 'border-dotted',
               lit && tone.lit,
               note.id === selectedNote && 'rounded-[2px] ring-1 ring-foreground/50',
               trailingAt(last),
@@ -409,6 +424,9 @@ export function HexView({
             note={note}
             lit={isLit(note)}
             shrink={index === 0}
+            // Too long for the column: the badge goes before the name does;
+            // the colour still says the kind.
+            compact={index === 0 && !note.label!.keepBadge && labelWidth(note.label!) > budget}
             onHover={() => onNoteHover?.(note.id)}
           />
         ))}
@@ -422,7 +440,7 @@ export function HexView({
             onFocus={() => onNoteHover?.(hidden[0]!.id)}
             onClick={() => onNoteSelect?.(hidden[0]!.id)}
           >
-            +{hidden.length}
+            {hidden.length} more
           </button>
         )}
       </span>
@@ -432,24 +450,32 @@ export function HexView({
   /** The line above a row where an object begins, indented to its first byte. */
   const sectionLine = (section: HexSection, rowBase: number) => {
     const tone = TONE_CLASSES[section.label.tone ?? 'object']
-    const lit = section.id === activeNote
+    const lit = section.id === activeNote || section.id === selectedNote
     return [
+      // No address here: the row under it has one, and the start's own address
+      // printed above the row's would read out of order. The indent says where.
       <span
         key={`${section.id}-addr`}
-        className={cn('select-none text-[9px] opacity-80', tone.text)}
+        aria-hidden
+        className="sticky left-0 z-10 self-stretch bg-background"
         style={{ gridColumn: 1 }}
-      >
-        {(addressBase + section.offset).toString(16).padStart(offsetDigits, '0')}
-      </span>,
-      <span
+      />,
+      <button
+        type="button"
         key={`${section.id}-line`}
         className={cn(
-          'flex min-w-0 items-center gap-1 overflow-hidden text-[9px]',
+          // The gap above keeps the previous row's underline from reading as
+          // this line's overline.
+          'mt-1 flex min-w-0 items-center gap-1 overflow-hidden text-left text-[9px] leading-[1.4]',
           tone.text,
           lit && 'underline',
+          section.id === selectedNote && 'rounded-sm ring-1 ring-foreground/50',
         )}
         style={{ gridColumn: '2 / -1', paddingLeft: byteX(section.offset - rowBase) }}
+        aria-label={`${[section.label.badge, section.label.head + (section.label.tail ?? '')].filter(Boolean).join(' ')} starts at 0x${(addressBase + section.offset).toString(16)}`}
         onPointerEnter={() => onNoteHover?.(section.id)}
+        onFocus={() => onNoteHover?.(section.id)}
+        onClick={() => onNoteSelect?.(section.id)}
       >
         <span aria-hidden className="shrink-0 opacity-70">
           ┌
@@ -464,7 +490,7 @@ export function HexView({
         {section.detail && (
           <span className="shrink-0 text-muted-foreground">· {section.detail}</span>
         )}
-      </span>,
+      </button>,
     ]
   }
 
@@ -546,7 +572,14 @@ export function HexView({
               <div key={rowBase} className="contents">
                 {starting.map((section) => sectionLine(section, rowBase))}
 
-                <span className="select-none text-muted-foreground" style={{ gridColumn: 1 }}>
+                <span
+                  // Sticky, so scrolling right to read the names keeps the addresses.
+                  className={cn(
+                    'sticky left-0 z-10 select-none bg-background pr-1',
+                    starting.length > 0 ? TONE_CLASSES.object.text : 'text-muted-foreground',
+                  )}
+                  style={{ gridColumn: 1 }}
+                >
                   {(addressBase + rowBase).toString(16).padStart(offsetDigits, '0')}
                 </span>
 
@@ -568,6 +601,7 @@ export function HexView({
                         lit={lit ?? (inActiveSection(offset) ? 'bg-foreground/10' : undefined)}
                         quiet={Boolean(note?.quietAscii)}
                         editing={editing?.column === 'ascii' && editing.offset === offset}
+                        editOn={clickEdits ? 'click' : 'dblclick'}
                         onEdit={() => setEditing({ offset, column: 'ascii' })}
                         onCommit={(next, keepGoing) => {
                           chip.poke(offset, next)
@@ -593,12 +627,15 @@ function NoteLabel({
   note,
   lit,
   shrink,
+  compact = false,
   onHover,
 }: {
   note: HexNote
   lit: boolean
   /** Only the row's first label may truncate; the others were fitted whole. */
   shrink: boolean
+  /** Drop the badge to leave the name room. */
+  compact?: boolean
   onHover: () => void
 }) {
   const label = note.label!
@@ -615,7 +652,12 @@ function NoteLabel({
   const content = (
     <>
       {label.role && <span className="shrink-0 text-foreground/60">{label.role}</span>}
-      {label.badge && (
+      {label.guess && (
+        <span className="shrink-0 text-muted-foreground/70" title="Matched by value only">
+          ?
+        </span>
+      )}
+      {label.badge && !compact && (
         <span className={cn('shrink-0 rounded-sm px-1 text-[9px]', tone.badge)}>{label.badge}</span>
       )}
       <span className="flex min-w-0">
@@ -656,7 +698,7 @@ function ByteCell({
   follow,
   trailing,
   describe,
-  annotated,
+  editOn,
   onClick,
   onDoubleClick,
   onHover,
@@ -679,8 +721,8 @@ function ByteCell({
   describe?: string
   onClick: (e: { metaKey: boolean; ctrlKey: boolean }) => void
   onDoubleClick: () => void
-  /** Part of a note: a click selects it, so editing takes a double-click. */
-  annotated: boolean
+  /** Which gesture opens the editor: a click in a plain dump, a double-click once a click means "look". */
+  editOn: 'click' | 'dblclick'
   /** Pointer or focus arrived. */
   onHover: () => void
   /** `advance` asks the view to move the caret to the next byte. */
@@ -743,12 +785,14 @@ function ByteCell({
     <button
       type="button"
       onClick={onClick}
-      onDoubleClick={annotated ? onDoubleClick : undefined}
+      onDoubleClick={editOn === 'dblclick' ? onDoubleClick : undefined}
       onPointerEnter={onHover}
       onFocus={onHover}
       // A note's bytes are described by the inspector; a native tooltip on top
       // of it would only cover the rows being read.
-      title={describe ? undefined : `${where} — click to edit`}
+      title={
+        describe ? undefined : editOn === 'click' ? `${where} — click to edit` : `${where}: double-click to edit`
+      }
       aria-label={describe ? `${where}, ${describe}` : undefined}
       className={cn(
         'w-[2ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
@@ -781,6 +825,7 @@ function AsciiCell({
   lit,
   quiet,
   editing,
+  editOn,
   onEdit,
   onCommit,
   onCancel,
@@ -793,6 +838,7 @@ function AsciiCell({
   /** Part of a word that is not text (a pointer): dim it so it does not read as a string. */
   quiet: boolean
   editing: boolean
+  editOn: 'click' | 'dblclick'
   onEdit: () => void
   onCommit: (value: number, advance: boolean) => void
   onCancel: () => void
@@ -841,15 +887,20 @@ function AsciiCell({
   return (
     <button
       type="button"
-      onClick={onEdit}
-      title={`0x${address.toString(16).padStart(4, '0')} — click to type a character`}
+      onClick={editOn === 'click' ? onEdit : undefined}
+      onDoubleClick={editOn === 'dblclick' ? onEdit : undefined}
+      title={
+        editOn === 'click'
+          ? `0x${address.toString(16).padStart(4, '0')} — click to type a character`
+          : `0x${address.toString(16).padStart(4, '0')}: double-click to type a character`
+      }
       className={cn(
         'w-[1ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
         flash && 'bg-primary/30 text-foreground',
         !flash && lit,
         !flash &&
           (quiet
-            ? 'text-muted-foreground/30'
+            ? 'text-muted-foreground/45 dark:text-muted-foreground/30'
             : isPrintable(value)
               ? 'text-muted-foreground'
               : 'text-muted-foreground/40'),
