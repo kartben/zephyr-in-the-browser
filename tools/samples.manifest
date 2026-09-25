@@ -231,3 +231,13 @@ esp32_devkitc/esp32/procpu:blinky:samples/basic/blinky::esp32-leds
 esp32_devkitc/esp32/procpu:basic_button:samples/basic/button
 esp32_devkitc/esp32/procpu:shell:samples/subsys/shell/shell_module:conf/boot-banner.conf
 esp32_devkitc/esp32/procpu:synchronization:samples/synchronization
+
+# Cortex-A53 SMP: the same virt machine with four cores, which the page runs as
+# a board of its own because SMP needs the non-secure machine (CONFIG_ARMV8_A_NS
+# drops `secure=on`, without which QEMU boots at EL3 with no PSCI conduit and no
+# secondary can start). The CPU count and the extra cpu@N nodes come from the
+# shield's qemu_cortex_a53_smp.{conf,overlay}, not from a snippet, so a sample
+# added here cannot forget them. Note that a *stock* sample's own
+# boards/qemu_cortex_a53.conf does not apply to this board target (its build
+# string shortens to qemu_cortex_a53_smp), so samples here are this repo's own.
+qemu_cortex_a53/qemu_cortex_a53/smp:smp_bench:zephyr-module/apps/smp_bench

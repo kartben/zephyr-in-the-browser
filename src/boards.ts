@@ -835,6 +835,104 @@ const ESP32C3_BRIDGED_SAMPLES: GuestSample[] = ESP32C3_BRIDGED_SAMPLE_IDS.map((i
   return sample
 })
 
+/**
+ * Everything on the A53 machine that is not the machine itself: the browser's
+ * framebuffer, its bridges and the kernel. Shared by the single-core board and
+ * the SMP one below, which differ only in the `-machine` line and the core
+ * count, so a bridge added here reaches both.
+ */
+const CORTEX_A53_DEVICE_ARGS: string[] = [
+  '-device',
+  'ramfb',
+  '-vga',
+  'none',
+  '-L',
+  '/pack/pc-bios',
+  // Do not enable -icount here. Its per-instruction accounting roughly
+  // halves sustained Wasm TCG throughput for synchronous virtio workloads
+  // such as the DAC sample; see docs/performance.md.
+  '-rtc',
+  'clock=vm',
+  // ARM semihosting: Zephyr's CTF tracing backend appends to ./tracing.bin
+  // in the Emscripten FS; hostTrace.ts polls it for the Trace panel. Harmless
+  // when the guest never opens a semihost file.
+  '-semihosting',
+  // Zephyr's virtio-mmio driver only speaks modern (v2) transports.
+  '-global',
+  'virtio-mmio.force-legacy=false',
+  // Ethernet: virtio-net on the first virtio-mmio slot, backed by the
+  // browser netdev (the page implements the LAN — src/net/). The MAC
+  // must match the shield overlay's local-mac-address: QEMU filters
+  // inbound unicast against it and the guest driver never programs it.
+  '-netdev',
+  'browser,id=n0',
+  '-device',
+  'virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0,mac=02:00:00:00:00:01',
+  // Pointer input: a stock virtio tablet on the slot the board devicetree
+  // reserves for it (0x0a000600, SPI 19), driven by Zephyr's upstream
+  // virtio,input driver. Unlike every other bridge here there is no QEMU
+  // device of ours — only a frontend feeding QEMU's input core, since the
+  // wasm build has no SDL/GTK/VNC to do it. Slot 3 and not 2 because
+  // Zephyr's own board.cmake picks 3, so a native `west build -t run`
+  // reproduces the browser's wiring exactly.
+  '-device',
+  'virtio-tablet-device,bus=virtio-mmio-bus.3',
+  // GPIO: a standard VIRTIO GPIO device on the slot the shield overlay
+  // reserves for it (0x0a000400, SPI 18), driven by Zephyr's in-tree
+  // virtio,gpio driver. QEMU has no virtio-gpio device model of its own,
+  // and now neither do we: this is the *generic* bridge, and the device
+  // model is src/virtio/devices/gpio.ts. `name=gpio` is what binds the two.
+  //
+  // device-id 41 is VIRTIO_ID_GPIO; two queues are the request and event
+  // queues; feature bit 0 is VIRTIO_GPIO_F_IRQ, without which the guest
+  // driver polls instead of taking interrupts. `config` is the device's
+  // config space as hex — struct virtio_gpio_config { le16 ngpio; u8
+  // padding[2]; le32 gpio_names_size; } — so 16 lines and no names. It is a
+  // property rather than something the page supplies because the guest can
+  // read config space before the page has attached. ngpio must match the
+  // overlay's ngpios (16 covers gpio-7-segment on pins 5–15 plus keys/LED).
+  '-device',
+  'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
+    'queues=2,features=0x1,config=1000000000000000',
+  // I2C: a VIRTIO I2C adapter (device id 34) on slot 4, the first free one
+  // after net, gpu, gpio and the tablet. One request queue and no config
+  // space: the adapter has none. Feature bit 0 is
+  // VIRTIO_I2C_F_ZERO_LENGTH_REQUEST, which Zephyr's driver requires. It
+  // makes the out header's M_RD flag, rather than the descriptor layout,
+  // carry the direction of a message, which is how
+  // src/virtio/devices/i2c.ts has always read it. The chips on the bus
+  // are page-side models (src/virtio/devices/chips/), so adding one is a
+  // TypeScript file rather than an emulator rebuild.
+  '-device',
+  'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1,features=0x1',
+  // SPI on virtio-mmio slot 5. device-id=45 requires the VIRTIO_ID_SPI
+  // backport in tools/qemu-jit-patches/0013-*: stock QEMU v10.1.0's
+  // virtio_device_names only goes to GPIO (41), and realizing an unnamed
+  // id aborts in virtio_id_to_name, taking down every guest on this
+  // board. The packaged emulator carries that patch.
+  '-device',
+  'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
+    'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
+  '-kernel',
+  '/pack/zephyr.elf',
+]
+
+/**
+ * The SMP board ships one program, because the point of a four-core machine in
+ * a browser tab is whether the cores are real. Anything else that wants them
+ * goes here too, but it has to be one of this repo's own apps: a stock Zephyr
+ * sample's per-board tuning (boards/qemu_cortex_a53.conf) does not reach this
+ * board target. See tools/samples.manifest.
+ */
+const CORTEX_A53_SMP_SAMPLES: GuestSample[] = [
+  {
+    id: 'smp_bench',
+    label: 'Parallel Speedup',
+    description: 'Runs fixed work on one core, then two, three, four, and times each',
+    zephyrSample: 'zephyr-module/apps/smp_bench',
+  },
+]
+
 export const BOARDS: Board[] = [
   {
     id: 'qemu_cortex_m3',
@@ -884,79 +982,7 @@ export const BOARDS: Board[] = [
       'virt,secure=on,gic-version=3',
       '-cpu',
       'cortex-a53',
-      '-device',
-      'ramfb',
-      '-vga',
-      'none',
-      '-L',
-      '/pack/pc-bios',
-      // Do not enable -icount here. Its per-instruction accounting roughly
-      // halves sustained Wasm TCG throughput for synchronous virtio workloads
-      // such as the DAC sample; see docs/performance.md.
-      '-rtc',
-      'clock=vm',
-      // ARM semihosting: Zephyr's CTF tracing backend appends to ./tracing.bin
-      // in the Emscripten FS; hostTrace.ts polls it for the Trace panel. Harmless
-      // when the guest never opens a semihost file.
-      '-semihosting',
-      // Zephyr's virtio-mmio driver only speaks modern (v2) transports.
-      '-global',
-      'virtio-mmio.force-legacy=false',
-      // Ethernet: virtio-net on the first virtio-mmio slot, backed by the
-      // browser netdev (the page implements the LAN — src/net/). The MAC
-      // must match the shield overlay's local-mac-address: QEMU filters
-      // inbound unicast against it and the guest driver never programs it.
-      '-netdev',
-      'browser,id=n0',
-      '-device',
-      'virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0,mac=02:00:00:00:00:01',
-      // Pointer input: a stock virtio tablet on the slot the board devicetree
-      // reserves for it (0x0a000600, SPI 19), driven by Zephyr's upstream
-      // virtio,input driver. Unlike every other bridge here there is no QEMU
-      // device of ours — only a frontend feeding QEMU's input core, since the
-      // wasm build has no SDL/GTK/VNC to do it. Slot 3 and not 2 because
-      // Zephyr's own board.cmake picks 3, so a native `west build -t run`
-      // reproduces the browser's wiring exactly.
-      '-device',
-      'virtio-tablet-device,bus=virtio-mmio-bus.3',
-      // GPIO: a standard VIRTIO GPIO device on the slot the shield overlay
-      // reserves for it (0x0a000400, SPI 18), driven by Zephyr's in-tree
-      // virtio,gpio driver. QEMU has no virtio-gpio device model of its own,
-      // and now neither do we: this is the *generic* bridge, and the device
-      // model is src/virtio/devices/gpio.ts. `name=gpio` is what binds the two.
-      //
-      // device-id 41 is VIRTIO_ID_GPIO; two queues are the request and event
-      // queues; feature bit 0 is VIRTIO_GPIO_F_IRQ, without which the guest
-      // driver polls instead of taking interrupts. `config` is the device's
-      // config space as hex — struct virtio_gpio_config { le16 ngpio; u8
-      // padding[2]; le32 gpio_names_size; } — so 16 lines and no names. It is a
-      // property rather than something the page supplies because the guest can
-      // read config space before the page has attached. ngpio must match the
-      // overlay's ngpios (16 covers gpio-7-segment on pins 5–15 plus keys/LED).
-      '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.2,name=gpio,device-id=41,' +
-        'queues=2,features=0x1,config=1000000000000000',
-      // I2C: a VIRTIO I2C adapter (device id 34) on slot 4, the first free one
-      // after net, gpu, gpio and the tablet. One request queue and no config
-      // space: the adapter has none. Feature bit 0 is
-      // VIRTIO_I2C_F_ZERO_LENGTH_REQUEST, which Zephyr's driver requires. It
-      // makes the out header's M_RD flag, rather than the descriptor layout,
-      // carry the direction of a message, which is how
-      // src/virtio/devices/i2c.ts has always read it. The chips on the bus
-      // are page-side models (src/virtio/devices/chips/), so adding one is a
-      // TypeScript file rather than an emulator rebuild.
-      '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.4,name=i2c,device-id=34,queues=1,features=0x1',
-      // SPI on virtio-mmio slot 5. device-id=45 requires the VIRTIO_ID_SPI
-      // backport in tools/qemu-jit-patches/0013-*: stock QEMU v10.1.0's
-      // virtio_device_names only goes to GPIO (41), and realizing an unnamed
-      // id aborts in virtio_id_to_name, taking down every guest on this
-      // board. The packaged emulator carries that patch.
-      '-device',
-      'virtio-browser-device,bus=virtio-mmio-bus.5,name=spi,device-id=45,' +
-        'queues=1,config=04010000800000000f00000080f0fa0200000000000000000000000000000000',
-      '-kernel',
-      '/pack/zephyr.elf',
+      ...CORTEX_A53_DEVICE_ARGS,
     ],
     kernelFsPath: '/pack/zephyr.elf',
     peripherals: {
@@ -981,6 +1007,57 @@ export const BOARDS: Board[] = [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
     ],
+  },
+  {
+    id: 'qemu_cortex_a53_smp',
+    label: 'QEMU Cortex-A53 SMP',
+    shortLabel: 'A53×4',
+    zephyrTarget: 'qemu_cortex_a53/qemu_cortex_a53/smp',
+    arch: 'ARMv8-A',
+    qemuBinary: 'qemu-system-aarch64',
+    args: [
+      '-nographic',
+      // No `secure=on`, unlike the single-core board above. Zephyr's SMP
+      // variant is CONFIG_ARMV8_A_NS, and it has to be: with a secure machine
+      // QEMU starts the boot CPU at EL3 and disables its own PSCI conduit,
+      // expecting firmware to provide one, so nothing can turn a second core
+      // on. That single option is why this is a separate board rather than an
+      // `extraArgs` on a sample.
+      '-machine',
+      'virt,gic-version=3',
+      '-cpu',
+      'cortex-a53',
+      // Must match CONFIG_MP_MAX_NUM_CPUS and the cpu@N nodes, both of which
+      // the shield sets for this board target
+      // (zephyr-module/boards/shields/browser_bridge/boards/
+      // qemu_cortex_a53_smp.{conf,overlay}). Zephyr waits for every CPU the
+      // devicetree declares, so too few here is a hang, not a warning.
+      '-smp',
+      '4',
+      ...CORTEX_A53_DEVICE_ARGS,
+    ],
+    kernelFsPath: '/pack/zephyr.elf',
+    // The same machine as the A53 board, so the same bridges are soldered on;
+    // which of them a given image carries is still the snippet list's call.
+    peripherals: {
+      gnss: true,
+      hostGpio: true,
+      hostAudio: true,
+      hostMic: true,
+      ramfb: true,
+      hostInput: true,
+      hostNet: true,
+      virtio: true,
+      hostTrace: true,
+      hostBt: true,
+    },
+    samples: CORTEX_A53_SMP_SAMPLES,
+    defaultSampleId: 'smp_bench',
+    extraFiles: [
+      { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
+      { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
+    ],
+    usesDataBundle: false,
   },
   {
     id: 'qemu_riscv32',

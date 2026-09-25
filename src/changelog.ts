@@ -57,6 +57,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Four-core Cortex-A53 SMP board, with a parallel speedup demo."
+      },
+      {
+        "tag": "Added",
         "text": "ESP32-C3 DevKitC board, booting from emulated SPI flash."
       },
       {
