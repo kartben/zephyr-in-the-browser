@@ -241,11 +241,6 @@ export interface Board {
    * like. None of the current boards need any.
    */
   extraFiles?: Array<{ fsPath: string; asset: string }>
-  /**
-   * Whether this board needs a file_packager bundle (`load.js` + `.data`).
-   * Unnecessary for a bare ELF, which is fetched and injected directly.
-   */
-  usesDataBundle: boolean
 }
 
 /*
@@ -875,7 +870,6 @@ export const BOARDS: Board[] = [
     // The shell is the one worth landing on: it is interactive, and its `gpio`
     // and `hostaudio` commands drive this board's browser bridges directly.
     defaultSampleId: 'shell',
-    usesDataBundle: false,
   },
   {
     id: 'qemu_cortex_a53',
@@ -987,7 +981,6 @@ export const BOARDS: Board[] = [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
     ],
-    usesDataBundle: false,
   },
   {
     id: 'qemu_riscv32',
@@ -1085,7 +1078,6 @@ export const BOARDS: Board[] = [
       { fsPath: '/pack/pc-bios/vgabios-ramfb.bin', asset: 'vgabios-ramfb.bin' },
       { fsPath: '/pack/pc-bios/efi-virtio.rom', asset: 'efi-virtio.rom' },
     ],
-    usesDataBundle: false,
   },
   {
     id: 'esp32c3_devkitc',
@@ -1205,7 +1197,6 @@ export const BOARDS: Board[] = [
     extraFiles: [
       { fsPath: '/pack/pc-bios/esp32c3-rom.bin', asset: 'esp32c3-rom.bin' },
     ],
-    usesDataBundle: false,
   },
   {
     id: 'esp32_devkitc',
@@ -1324,7 +1315,6 @@ export const BOARDS: Board[] = [
       { fsPath: '/pack/pc-bios/esp32-v3-rom-app.bin', asset: 'esp32-v3-rom-app.bin' },
       { fsPath: '/pack/pc-bios/esp32-eco3-efuse.bin', asset: 'esp32-eco3-efuse.bin' },
     ],
-    usesDataBundle: false,
   },
 ]
 

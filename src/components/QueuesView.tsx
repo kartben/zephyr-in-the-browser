@@ -8,10 +8,10 @@
  */
 
 /*
- * d3 submodules, not the `d3` meta-package. Rolldown already shakes most of
- * `import * as d3 from 'd3'` out, so this is worth about 17 kB raw / 5 kB
- * gzipped — small, but naming the four modules this file needs also stops the
- * dependency being "all of d3" the next time someone reads it.
+ * d3 submodules, not the `d3` meta-package, and package.json lists exactly
+ * these five. Rolldown already shook most of `import * as d3 from 'd3'` out,
+ * so this saves about 17 kB raw / 5 kB gzipped; it also stops the dependency
+ * being "all of d3" the next time someone reads it.
  */
 import { range, ticks } from 'd3-array'
 import { axisBottom, axisLeft } from 'd3-axis'
@@ -302,10 +302,6 @@ function renderChart(
   let rowsG = zoomG.select<SVGGElement>('g.rows')
   if (rowsG.empty()) rowsG = zoomG.append('g').attr('class', 'rows')
 
-  // Drop legacy unclipped groups if a previous render left them on `frame`.
-  frame.select(':scope > g.grid').remove()
-  frame.select(':scope > g.rows').remove()
-
   const rowSel = rowsG
     .selectAll<SVGGElement, RowLayout>('g.row')
     .data(layouts, (d) => String(d.queue.id))
@@ -458,11 +454,6 @@ function renderChart(
       .attr('stroke', DOT_STROKE)
       .attr('stroke-width', 0.75)
   })
-
-  // Drop legacy unclipped groups if a previous render left them on `frame`.
-  frame.select(':scope > g.grid').remove()
-  frame.select(':scope > g.rows').remove()
-  frame.select(':scope > g.hover').remove()
 
   let xAxisG = frame.select<SVGGElement>('g.x-axis')
   if (xAxisG.empty()) xAxisG = frame.append('g').attr('class', 'x-axis')

@@ -4,9 +4,9 @@
  * Two ways a tree arrives:
  *
  * - **Bundled sample** — the build ships `<app>.dts` next to `<app>.elf` and
- *   the backend fires `loadSampleDts` after picking the kernel. Absence is a
- *   supported state (older image tarballs have no .dts), so that path never
- *   throws and never delays a boot.
+ *   the backend fires `loadSampleDts` after picking the kernel. A missing or
+ *   unreadable .dts is a supported state, so that path never throws and never
+ *   delays a boot.
  * - **User ELF** — the drop/pick flow offers an optional zephyr.dts; it comes
  *   in through `setUserDts`, and survives Reload / refresh for the rest of the
  *   session via the same IndexedDB store the guest image uses (its own key).

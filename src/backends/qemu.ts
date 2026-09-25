@@ -49,11 +49,10 @@ import type { PtyBackend, Slave, StartOptions } from './types'
  * Loads a prebuilt qemu-wasm Emscripten artifact set out of public/qemu/ and
  * hands its stdio to the xterm-pty slave.
  *
- * The loading sequence mirrors ktock/qemu-wasm's own example page
+ * The loading sequence follows ktock/qemu-wasm's own example page
  * (examples/riscv64/src/htdocs/index.html on the `master` branch): a global
- * `Module` is populated first, the file_packager stub `load.js` is pulled in as
- * a *classic* script so it can register its preRun hooks onto that global, and
- * only then is the board's generated ES-module imported and invoked.
+ * `Module` is populated first, then the board's generated ES module is
+ * imported and invoked with it.
  *
  * Nothing here is built in this repo — see public/qemu/README.md for the drop-in
  * contract and how to produce the artifacts.
@@ -61,13 +60,9 @@ import type { PtyBackend, Slave, StartOptions } from './types'
 
 const ASSET_BASE = `${import.meta.env.BASE_URL}qemu/`
 
-/** file_packager.py stub that fetches and mounts the .data blob at /pack/. */
-const PACKAGE_SCRIPT = 'load.js'
-
 /**
- * Flipped the moment we touch document-global state — assigning `globalThis.
- * Module` or injecting `load.js`. Those are not undoable: `load.js` appends its
- * .data-fetching hooks to Module.preRun, and PROXY_TO_PTHREAD spawns workers
+ * Flipped the moment we touch document-global state by assigning
+ * `globalThis.Module`. That is not undoable: PROXY_TO_PTHREAD spawns workers
  * bound to that one instance. A second boot in the same document wedges rather
  * than restarts, so once this is set the only way back is a reload.
  *
@@ -90,8 +85,7 @@ interface QemuModule {
   TTY?: { stream_ops: { poll: (stream: unknown, timeout: unknown) => number } }
   /**
    * Emscripten exports these thin aliases for FS.createPath / FS.createDataFile
-   * rather than the whole FS object — they are what file_packager itself uses,
-   * so they are present in any build that supports a .data bundle.
+   * rather than the whole FS object.
    */
   FS_createPath?: (parent: string, path: string, canRead: boolean, canWrite: boolean) => void
   FS_createDataFile?: (
@@ -110,17 +104,6 @@ declare global {
 }
 
 const url = (file: string) => new URL(ASSET_BASE + file, location.href).href
-
-function loadClassicScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const el = document.createElement('script')
-    el.src = src
-    el.async = false
-    el.onload = () => resolve()
-    el.onerror = () => reject(new Error(`failed to load ${src}`))
-    document.head.appendChild(el)
-  })
-}
 
 /* Two different failures need two different fixes, so keep them distinct. */
 
@@ -228,7 +211,6 @@ export function createQemuBackend(): PtyBackend {
       onStatus({ status: 'loading', detail: 'checking assets' })
       await assertAsset(mainScript)
       await assertAsset(`${board.qemuBinary}.wasm`)
-      if (board.usesDataBundle) await assertAsset(PACKAGE_SCRIPT)
       if (signal.aborted) return
 
       // preRun cannot await, so the guest files are fetched here and written
@@ -240,9 +222,9 @@ export function createQemuBackend(): PtyBackend {
         detail: custom ? `loading ${custom.name}` : `loading ${sampleId}`,
       })
       // The sample's devicetree rides along, ungated: it must never delay or
-      // fail a boot, and its absence (an older image tarball) is a supported
-      // state that just means the panels fall back to their static tables. A
-      // custom ELF's tree, if any, was installed by the drop flow instead.
+      // fail a boot, and its absence is a supported state that just means the
+      // panels fall back to their static tables. A custom ELF's tree, if any,
+      // was installed by the drop flow instead.
       if (!custom) {
         void loadSampleDts(url(sampleDtsAsset(board, sampleId)), `${sampleId}.dts`)
       } else if (getPhase() === 'pending') {
@@ -338,14 +320,12 @@ export function createQemuBackend(): PtyBackend {
         pty: slave,
         // pthread workers re-import the main script by absolute URL.
         mainScriptUrlOrBlob: url(mainScript),
-        // Resolves the .wasm and .data siblings under /qemu/.
-        // file_packager's load.js honours this too.
+        // Resolves the .wasm sibling under /qemu/.
         locateFile: (path) => ASSET_BASE + path,
         // Guest stdout/stderr go through the TTY hooks, not here; this only
         // surfaces Emscripten's own runtime diagnostics.
         printErr: (text) => console.error('[qemu]', text),
-        // Runs after the filesystem is up but before main(). load.js, when a
-        // board uses one, appends its own .data hooks to this same array.
+        // Runs after the filesystem is up but before main().
         preRun: [
           () => {
             for (const { fsPath, bytes } of preloaded) writeGuestFile(mod, fsPath, bytes)
@@ -361,14 +341,6 @@ export function createQemuBackend(): PtyBackend {
 
       documentTainted = true
       globalThis.Module = mod
-
-      // Classic script: it declares `var Module` and picks up the global we just
-      // set, then appends its .data-fetching hooks to Module.preRun. Only needed
-      // for guests whose image ships as a file_packager bundle.
-      if (board.usesDataBundle) {
-        await loadClassicScript(url(PACKAGE_SCRIPT))
-        if (signal.aborted) return
-      }
 
       // @vite-ignore keeps Vite from trying to resolve and bundle this at build
       // time — it is a static asset in public/, fetched at runtime.
