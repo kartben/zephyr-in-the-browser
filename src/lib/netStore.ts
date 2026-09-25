@@ -21,16 +21,16 @@ export type NetMode = 'sim' | 'uplink'
 
 export interface NetSettings {
   mode: NetMode
-  /** @deprecated Kept for storage back-compat; URL comes from Settings. */
-  url: string
 }
 
 export interface ResolvedNetConfig extends NetSettings {
+  /** The desktop bridge URL from Settings; empty unless mode is uplink. */
+  url: string
   source: 'default' | 'store' | 'query'
 }
 
 function defaults(): NetSettings {
-  return { mode: 'sim', url: '' }
+  return { mode: 'sim' }
 }
 
 /** True when load() restored an actual stored record (drives `source`). */
@@ -44,10 +44,7 @@ function load(): NetSettings {
     const parsed = JSON.parse(raw) as { v?: number } & Partial<NetSettings>
     if (!parsed || typeof parsed !== 'object' || parsed.v !== VERSION) return defaults()
     hadStored = true
-    return {
-      mode: parsed.mode === 'uplink' ? 'uplink' : 'sim',
-      url: '',
-    }
+    return { mode: parsed.mode === 'uplink' ? 'uplink' : 'sim' }
   } catch {
     return defaults()
   }
@@ -55,7 +52,7 @@ function load(): NetSettings {
 
 function save(next: NetSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, mode: next.mode, url: '' }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, mode: next.mode }))
     hadStored = true
   } catch {
     /* storage full or blocked — the choice just won't survive the reload */
@@ -106,13 +103,6 @@ export function resolveNetConfig(search?: string): ResolvedNetConfig {
       mode = 'sim'
       source = 'query'
     } else if (q === 'uplink') {
-      mode = 'uplink'
-      source = 'query'
-    } else if (/^wss?:\/\//i.test(q)) {
-      // Legacy deep links from the old net-only gateway. Mode only; URL is Settings.
-      console.warn(
-        `ignoring gateway URL in ?${NET_QUERY_PARAM}=…: use Settings (or ?bridge=) for the desktop bridge`,
-      )
       mode = 'uplink'
       source = 'query'
     } else {

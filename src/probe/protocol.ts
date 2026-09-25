@@ -1,5 +1,5 @@
 /**
- * Probe/uber-bridge wire frames (mirrors bridge/protocol.mjs).
+ * Desktop bridge wire frames (mirrors bridge/internal/protocol/protocol.go).
  */
 
 export const CH_CTF = 0x01

@@ -111,9 +111,63 @@ drops, the daemon keeps its TCP proxy; re-attach re-plants your breakpoints.
 
 ## Firmware
 
-CTF over UART/USB, not semihosting. Snippet `-S hardware-tracing` plus a
-`zephyr,tracing-uart` overlay. See [probe-bridge.md](probe-bridge.md) notes for
-Cortex-M vs ESP32.
+Do **not** use `CONFIG_TRACING_BACKEND_SEMIHOST` (that is for qemu). Keep
+**CTF** so the Trace panel can decode the stream.
+
+### Common (any board)
+
+```
+CONFIG_THREAD_NAME=y
+CONFIG_TRACING=y
+CONFIG_TRACING_CTF=y
+CONFIG_TRACING_SYNC=y
+```
+
+Plus **one** backend:
+
+| Backend | Kconfig | Notes |
+| --- | --- | --- |
+| UART CTF | `CONFIG_TRACING_BACKEND_UART=y` | Needs a free UART and `zephyr,tracing-uart` in DTS |
+| USB CTF | `CONFIG_TRACING_BACKEND_USB=y` | Board must expose device USB |
+| RAM | `CONFIG_TRACING_BACKEND_RAM=y` | Snapshot via GDB, not live follow |
+
+A snippet is provided: `-S hardware-tracing` (UART CTF defaults). You still
+need a board overlay that points `zephyr,tracing-uart` at a UART that is
+**not** the console.
+
+Example overlay sketch:
+
+```dts
+/ {
+  chosen {
+    zephyr,tracing-uart = &uart1;
+  };
+};
+
+&uart1 {
+  status = "okay";
+  current-speed = <115200>;
+};
+```
+
+If `CONFIG_TRACING_HANDLE_HOST_CMD=y`, the bridge sends `enable\r` when it
+opens the port (same as Zephyr's `trace_capture_uart.py`).
+
+For Debug-friendly builds, also set `CONFIG_DEBUG_THREAD_INFO=y` (and keep an
+unstripped ELF).
+
+### Cortex-M / ARM32
+
+UART CTF + ST-Link/J-Link/CMSIS-DAP is the usual path. Stock OpenOCD or pyOCD
+on `localhost:3333` can be attached from the TUI with `g` once you start
+`west debugserver` (or equivalent).
+
+### ESP32
+
+Same CTF Kconfig. Prefer UART CTF over the USB-serial port your DevKit
+already exposes. Use **Espressif OpenOCD** for GDB, not the Zephyr SDK
+OpenOCD. Classic Xtensa ESP32 register maps are not wired into the in-page
+Debug panel yet; RISC-V ESP32-C3/C6 are closer. Trace works regardless.
 
 ## Wire protocol
 
@@ -123,8 +177,9 @@ Binary WebSocket messages: `u8 channel | payload…`
 
 Hello advertises `protocol: "zitb-bridge"` and `features: {ctf,gdb,net}`.
 
-## Legacy packages
+## Security
 
-- [`gateway/`](../gateway/) — older net-only passt image (Linux/Docker). Prefer
-  this Go bridge.
-- [`probe/`](../probe/) — older Node CTF-only package; prefer `bridge/`.
+Anyone with the URL can read your board's trace stream, talk to the debug
+stub when GDB is attached, and send traffic from the bridge host's network
+when Bridge network is on. Token auth is on by default. Do not expose the port
+on the public internet without a tunnel you trust.

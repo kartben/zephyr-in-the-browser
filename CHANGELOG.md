@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Improved:** Demo dock lists only peripherals you can open.
 - **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.

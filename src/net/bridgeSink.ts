@@ -1,6 +1,6 @@
 /**
  * Net sink that rides the uber-bridge CH_NET channel (same WS as CTF/GDB).
- * Mirrors UplinkSink's surface so hostNet can swap either in.
+ * Fills hostNet's FrameSink seam, the same one the in-page NetStack fills.
  */
 
 import { LanSniffer, type SniffState } from '@/net/sniff'
