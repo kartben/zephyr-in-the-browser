@@ -69,4 +69,40 @@ describe('HexView', () => {
     expect(text).toContain('20000000')
     expect(text).toContain('200000f0')
   })
+
+  it('names annotated words in a column that does not depend on what the row holds', () => {
+    const chip = createAt24()
+    chip.write(Uint8Array.of(0x00, 0x10, 0x20, 0x30, 0x40))
+    const html = renderToStaticMarkup(
+      <HexView
+        chip={chip}
+        noteColumn
+        notes={[
+          {
+            id: 'p:0',
+            offset: 0,
+            length: 4,
+            tone: 'object',
+            mark: 'solid',
+            label: { badge: 'k_sem', head: 'shell_uart_ctx', tail: '+0x300' },
+            onFollow: () => {},
+          },
+        ]}
+      />,
+    )
+    // One grid for every row: the notes track is sized by the dock, so the
+    // ASCII column starts at the same x on every row whatever the labels say.
+    expect(html).toContain('grid-template-columns:max-content max-content minmax(24ch, 48ch) max-content')
+    const text = html.replace(/<[^>]+>/g, '')
+    expect(text).toContain('k_semshell_uart_ctx+0x300')
+    // The annotated bytes describe themselves instead of offering an edit.
+    expect(html).toContain('aria-label="0x0000, k_sem shell_uart_ctx+0x300"')
+    expect(html).not.toContain('title="0x0000 — click to edit"')
+    expect(html).toContain('title="0x0004 — click to edit"')
+  })
+
+  it('keeps the classic three columns when nothing is annotated', () => {
+    const html = renderToStaticMarkup(<HexView chip={createAt24()} />)
+    expect(html).toContain('grid-template-columns:max-content max-content max-content')
+  })
 })

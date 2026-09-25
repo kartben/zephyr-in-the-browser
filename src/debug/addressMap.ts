@@ -33,8 +33,10 @@ export interface ResolvedAddress {
   typeCode?: string
   /** Plural type label from object core, e.g. "Semaphores". */
   typeName?: string
-  /** Live fields object core already decoded — the hover card shows them. */
+  /** Live fields object core already decoded, for the inspector. */
   fields?: readonly ObjectCoreField[]
+  /** For an `objectCore` hit: the object that member is embedded in. */
+  objectAddr?: number
 }
 
 interface Range {
@@ -46,6 +48,7 @@ interface Range {
   typeCode?: string
   typeName?: string
   fields?: readonly ObjectCoreField[]
+  objectAddr?: number
 }
 
 export interface AddressMap {
@@ -127,6 +130,7 @@ export function buildAddressMap({ objects, stacks, symbols }: AddressMapSources)
           size: null,
           typeCode: object.typeCode,
           typeName: object.typeName,
+          objectAddr: object.addr,
         })
       }
     }
@@ -186,6 +190,7 @@ export function buildAddressMap({ objects, stacks, symbols }: AddressMapSources)
         ...(best.typeCode ? { typeCode: best.typeCode } : {}),
         ...(best.typeName ? { typeName: best.typeName } : {}),
         ...(best.fields && best.fields.length > 0 ? { fields: best.fields } : {}),
+        ...(best.objectAddr !== undefined ? { objectAddr: best.objectAddr } : {}),
       }
     }
 

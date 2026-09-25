@@ -181,6 +181,15 @@ const STRUCT_FOR_CODE: Record<string, string> = {
   TIMR: 'k_timer',
 }
 
+/**
+ * The C type behind an object-core code: `SEM4` is `k_sem`. The code is what
+ * the kernel stamps into each `k_obj_type`; the struct is what anyone reading
+ * the source, the docs or DWARF knows the thing by.
+ */
+export function structForCode(code: string): string | null {
+  return STRUCT_FOR_CODE[code] ?? null
+}
+
 const LAYOUT_NAMES = [
   ...new Set(Object.values(STRUCT_FOR_CODE)),
   'k_mem_slab_info',

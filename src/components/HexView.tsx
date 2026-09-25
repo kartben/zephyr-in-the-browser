@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { cn } from '@/lib/utils'
-import { formatTarget } from '@/debug/addressMap'
 import {
-  pointerRunsByOffset,
-  type PointerRun,
-} from '@/components/debug/memoryPointers'
+  TONE_CLASSES,
+  fitLabels,
+  type HexNote,
+  type HexSection,
+} from '@/components/hexNotes'
 import type { HexBacked } from '@/virtio/devices/memory/model'
 
 /** Classic hexdump width. 16 keeps a 256-byte part to a readable square. */
@@ -40,49 +41,103 @@ export type HexJump = { address: number; token: number }
 /** Inclusive-exclusive byte range currently shown in the dump. */
 export type HexViewRange = { start: number; end: number }
 
-/** Modifier that turns a byte click into "follow this pointer". */
+/** Modifier that turns a byte click into "follow". */
 const isFollowClick = (e: { metaKey: boolean; ctrlKey: boolean }) => e.metaKey || e.ctrlKey
 
-/** Named targets per row before the rest collapse into a `+n` with a tooltip. */
-const GUTTER_CHIPS = 2
-
-/** A run worth following — a self-reference goes nowhere. */
-function followable(run: PointerRun | undefined): run is PointerRun {
-  return Boolean(run && !run.self)
-}
+/**
+ * How long ⌘/Ctrl has to be held before the dump lights its links. A quick
+ * ⌘C, or a chord aimed at something else, should not flash every pointer.
+ */
+const NAV_HOLD_MS = 200
 
 /**
- * Same-target runs next to each other are one fact, not several: an empty
- * `sys_dlist_t` writes its own address into head *and* tail, so a k_msgq row
- * would otherwise name the same thread twice in a row.
+ * The notes column's width range, in characters. It is sized by the dock and
+ * never by what the window happens to contain, so neither the ASCII column
+ * nor the horizontal scroll range moves as the window scrolls.
  */
-function gutterRuns(runs: PointerRun[]): PointerRun[] {
-  const out: PointerRun[] = []
-  for (const run of runs) {
+const NOTES_MIN_CH = 24
+const NOTES_MAX_CH = 48
+
+/** Right margin after byte `i` of a row: hexdump's gap after the eighth. */
+const trailingAt = (i: number) => (i === 7 ? 'mr-2' : 'mr-[3px]')
+
+/** x of byte `i` within the hex column: 2ch cells, 3px apart, 8px after the eighth. */
+const byteX = (i: number) => `calc(${i} * (2ch + 3px) + ${i >= 8 ? 5 : 0}px)`
+
+/**
+ * Adjacent notes that say the same thing are one fact: an empty
+ * `sys_dlist_t` writes the same address into head *and* tail, and naming it
+ * twice in a row reads as two different pointers.
+ */
+function dedupeLabels(notes: HexNote[]): HexNote[] {
+  const out: HexNote[] = []
+  for (const note of notes) {
+    if (!note.label) continue
     const prev = out[out.length - 1]
-    if (prev && prev.value === run.value) continue
-    out.push(run)
+    if (
+      prev &&
+      note.group !== undefined &&
+      prev.group === note.group &&
+      prev.label?.role === note.label?.role
+    ) {
+      continue
+    }
+    out.push(note)
   }
   return out
 }
 
-function runTitle(run: PointerRun): string {
-  const kind = {
-    object: 'kernel object',
-    objectCore: 'object core',
-    stack: 'thread stack',
-    data: 'data symbol',
-    code: 'function',
-  }[run.target.kind]
-  const lines = [
-    `0x${run.value.toString(16)} → ${formatTarget(run.target)}`,
-    run.self ? `${kind} · points at itself (empty list)` : kind,
-  ]
-  if (run.target.typeName) lines.push(run.target.typeName)
-  if (run.target.size) lines.push(`${run.target.size} B`)
-  for (const field of run.target.fields ?? []) lines.push(`${field.label}: ${field.value}`)
-  if (!run.self) lines.push('Click to follow · ⌘-click the bytes')
-  return lines.join('\n')
+function labelText(note: HexNote): string {
+  const label = note.label
+  if (!label) return ''
+  return [label.role, label.badge, `${label.head}${label.tail ?? ''}`].filter(Boolean).join(' ')
+}
+
+/**
+ * ⌘/Ctrl held over the dump. Only while the pointer is over it or focus is in
+ * it, only after {@link NAV_HOLD_MS}, and never for a chord.
+ */
+function useNavMode(enabled: boolean, root: RefObject<HTMLElement | null>) {
+  const [on, setOn] = useState(false)
+  const inside = useRef(false)
+
+  useEffect(() => {
+    if (!enabled) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const clear = () => {
+      clearTimeout(timer)
+      timer = undefined
+      setOn(false)
+    }
+    const down = (e: KeyboardEvent) => {
+      if (e.key !== 'Meta' && e.key !== 'Control') {
+        // ⌘C and friends: a shortcut, not a request to navigate.
+        if (isFollowClick(e)) clear()
+        return
+      }
+      const focused = root.current?.contains(document.activeElement) ?? false
+      if (!inside.current && !focused) return
+      if (timer === undefined) timer = setTimeout(() => setOn(true), NAV_HOLD_MS)
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'Meta' || e.key === 'Control' || !isFollowClick(e)) clear()
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', clear)
+      clear()
+    }
+  }, [enabled, root])
+
+  const setInside = (value: boolean) => {
+    inside.current = value
+    if (!value) setOn(false)
+  }
+  return { on, setInside }
 }
 
 /**
@@ -111,10 +166,14 @@ function runTitle(run: PointerRun): string {
  * guest address while the backing buffer is still 0-based). Pass
  * {@link dimErased}`={false}` for RAM peeks where 0xff is ordinary data.
  *
- * Pass {@link pointers} to name the words that point at something: their bytes
- * get one continuous underline, a right-hand gutter names the target, and
- * holding ⌘/Ctrl lights every one of them up so it is obvious a click will
- * navigate rather than edit.
+ * Pass {@link notes} to say what runs of bytes *are* (see `hexNotes.ts`): their
+ * bytes get a mark, a notes column between the hex and the ASCII names them,
+ * and {@link sections} put a line above the row where an object begins. Every
+ * column sits on one grid whose tracks do not depend on the content, so the
+ * ASCII column stays where it is on every row and as the window scrolls. A
+ * click on an annotated word selects it rather than editing it (double-click
+ * edits), because underlined bytes read as a link; ⌘/Ctrl-click follows it,
+ * and holding ⌘/Ctrl over the dump lights up everything that can be followed.
  */
 export function HexView({
   chip,
@@ -122,8 +181,13 @@ export function HexView({
   onViewChange,
   addressBase = 0,
   dimErased = true,
-  pointers,
-  onFollowPointer,
+  notes,
+  sections,
+  noteColumn = false,
+  activeNote = null,
+  selectedNote = null,
+  onNoteHover,
+  onNoteSelect,
 }: {
   chip: HexBacked
   jump?: HexJump | null
@@ -132,35 +196,60 @@ export function HexView({
   addressBase?: number
   /** Dim cells equal to {@link HexBacked.decl.erased} (default 0xff). */
   dimErased?: boolean
-  /** Resolved pointers in this window, by offset into {@link chip.memory}. */
-  pointers?: readonly PointerRun[]
-  onFollowPointer?: (run: PointerRun) => void
+  /** What runs of bytes are, by offset into {@link chip.memory}. Non-overlapping. */
+  notes?: readonly HexNote[]
+  /** Where objects begin, by offset into {@link chip.memory}. */
+  sections?: readonly HexSection[]
+  /**
+   * Reserve the notes column even when this window has nothing to say, so
+   * scrolling past a string table does not slide the ASCII column over.
+   */
+  noteColumn?: boolean
+  /** The note or section being inspected (hovered or pinned); lit with its group. */
+  activeNote?: string | null
+  /** The pinned note, outlined. */
+  selectedNote?: string | null
+  /** Pointer or focus moved onto a note or section, or off every one (`null`). */
+  onNoteHover?: (id: string | null) => void
+  /** A click on an annotated word. */
+  onNoteSelect?: (id: string) => void
 }) {
   const { data, pointer, recent } = useMemorySnapshot(chip)
   const [editing, setEditing] = useState<EditTarget | null>(null)
   const [pageBase, setPageBase] = useState(0)
   const [follow, setFollow] = useState(true)
-  const [navMode, setNavMode] = useState(false)
+  const gridRef = useRef<HTMLDivElement>(null)
 
-  const runs = useMemo(() => pointerRunsByOffset(pointers ?? []), [pointers])
-  const linkable = Boolean(onFollowPointer) && runs.size > 0
-
-  // Holding the modifier is what switches the dump from "edit" to "navigate",
-  // so the whole address has to light up while it is down — not on click.
-  useEffect(() => {
-    if (!linkable) return
-    const sync = (e: KeyboardEvent) => setNavMode(isFollowClick(e))
-    const clear = () => setNavMode(false)
-    window.addEventListener('keydown', sync)
-    window.addEventListener('keyup', sync)
-    window.addEventListener('blur', clear)
-    return () => {
-      window.removeEventListener('keydown', sync)
-      window.removeEventListener('keyup', sync)
-      window.removeEventListener('blur', clear)
-      setNavMode(false)
+  const noteList = useMemo(() => notes ?? [], [notes])
+  const noteAt = useMemo(() => {
+    const out = new Map<number, HexNote>()
+    for (const note of noteList) {
+      for (let i = 0; i < note.length; i++) out.set(note.offset + i, note)
     }
-  }, [linkable])
+    return out
+  }, [noteList])
+  const followable = noteList.some((note) => note.onFollow)
+  const nav = useNavMode(followable, gridRef)
+
+  const showNotes = noteColumn || noteList.length > 0 || (sections?.length ?? 0) > 0
+
+  // The notes column holds only what fits; measure it rather than guess.
+  const trackRef = useRef<HTMLSpanElement>(null)
+  const chRef = useRef<HTMLSpanElement>(null)
+  const [budget, setBudget] = useState(NOTES_MIN_CH)
+  useLayoutEffect(() => {
+    const track = trackRef.current
+    const ch = chRef.current
+    if (!track || !ch || typeof ResizeObserver === 'undefined') return
+    const measure = () => {
+      const chPx = ch.getBoundingClientRect().width / 10
+      if (chPx > 0) setBudget(Math.max(8, Math.floor(track.getBoundingClientRect().width / chPx)))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(track)
+    return () => observer.disconnect()
+  }, [showNotes])
 
   const windowed = data.length > WINDOW_BYTES
   // A chip with no read pointer reports -1 (see debugMemoryChip, hostDisk),
@@ -191,6 +280,23 @@ export function HexView({
     Math.max(0, addressBase + data.length - 1).toString(16).length,
   )
 
+  const active = activeNote
+    ? (noteList.find((note) => note.id === activeNote) ?? null)
+    : null
+  const activeSection = activeNote
+    ? (sections?.find((section) => section.id === activeNote) ?? null)
+    : null
+  const isLit = (note: HexNote) =>
+    note.id === activeNote ||
+    (active?.group !== undefined && note.group === active.group) ||
+    (nav.on && Boolean(note.onFollow))
+  const inActiveSection = (offset: number) =>
+    activeSection !== null &&
+    offset >= activeSection.offset &&
+    offset < activeSection.offset + activeSection.length
+  // Where the inspected pointer lands, when that is on screen.
+  const landing = active?.pointsAt !== undefined ? active.pointsAt - addressBase : null
+
   /**
    * Move the caret to the next byte after a commit, so typing a string in the
    * ASCII column (or a run of hex pairs) does not need a click per byte.
@@ -201,72 +307,78 @@ export function HexView({
   }
 
   const cell = (offset: number, value: number, trailing: string) => {
-    const run = runs.get(offset)
+    const note = noteAt.get(offset)
     return (
-    <ByteCell
-      key={offset}
-      address={addressBase + offset}
-      value={value}
-      dim={dimErased && value === erased}
-      flash={recent.has(offset)}
-      isPointer={offset === pointer}
-      editing={editing?.column === 'hex' && editing.offset === offset}
-      follow={navMode && followable(run)}
-      // A cell's own tooltip would otherwise shadow the run's on the very bytes
-      // the pointer is made of — which is where you go looking for it.
-      title={run ? runTitle(run) : undefined}
-      onEdit={(e) => {
-        if (isFollowClick(e) && followable(run)) {
-          onFollowPointer?.(run)
-          return
-        }
-        setEditing({ offset, column: 'hex' })
-      }}
-      onCommit={(next, keepGoing) => {
-        chip.poke(offset, next)
-        if (keepGoing) advance({ offset, column: 'hex' })
-        else setEditing(null)
-      }}
-      onCancel={() => setEditing(null)}
-      trailing={trailing}
-    />
+      <ByteCell
+        key={offset}
+        address={addressBase + offset}
+        value={value}
+        dim={dimErased && value === erased}
+        flash={recent.has(offset)}
+        isPointer={offset === pointer}
+        landing={offset === landing}
+        editing={editing?.column === 'hex' && editing.offset === offset}
+        follow={nav.on && Boolean(note?.onFollow)}
+        describe={note ? labelText(note) : undefined}
+        onClick={(e) => {
+          if (note) {
+            if (isFollowClick(e) && note.onFollow) note.onFollow()
+            else onNoteSelect?.(note.id)
+            return
+          }
+          setEditing({ offset, column: 'hex' })
+        }}
+        onDoubleClick={() => setEditing({ offset, column: 'hex' })}
+        annotated={Boolean(note)}
+        onHover={() => onNoteHover?.(note ? note.id : null)}
+        onCommit={(next, keepGoing) => {
+          chip.poke(offset, next)
+          if (keepGoing) advance({ offset, column: 'hex' })
+          else setEditing(null)
+        }}
+        onCancel={() => setEditing(null)}
+        trailing={trailing}
+      />
     )
   }
 
   /**
-   * A pointer's bytes go under one wrapper so the underline is continuous —
-   * four separate underlined cells read as four things, not one address.
+   * A note's bytes go under one wrapper so the mark is continuous: four
+   * separately underlined cells read as four things, not one address. A note
+   * that crosses a row boundary gets one wrapper per row.
    */
   const hexCells = (rowBase: number, bytes: number[]) => {
     const out = []
     for (let i = 0; i < bytes.length; ) {
       const offset = rowBase + i
-      // A gap after the eighth byte, the way hexdump splits it.
-      const trailingAt = (k: number) => (k === 7 ? 'mr-2' : 'mr-[3px]')
-      const run = runs.get(offset)
-      if (run && run.offset === offset && i + run.length <= bytes.length) {
-        const last = i + run.length - 1
+      const note = noteAt.get(offset)
+      if (note) {
+        const end = Math.min(note.offset + note.length, rowBase + bytes.length)
+        const length = end - offset
+        const last = i + length - 1
+        const tone = TONE_CLASSES[note.tone]
+        const lit = isLit(note)
         out.push(
           <span
-            key={`ptr-${offset}`}
-            title={runTitle(run)}
+            key={`note-${offset}`}
             className={cn(
-              'inline-flex rounded-t-[3px] border-b transition-colors',
+              // -mb-px keeps the underline from making this row a pixel taller
+              // than its neighbours, which would jitter as the window scrolls.
+              'inline-flex transition-colors',
+              note.mark !== 'none' && '-mb-px border-b',
+              note.mark !== 'none' && tone.underline,
+              note.mark === 'dashed' && !lit && 'border-dashed',
+              lit && tone.lit,
+              note.id === selectedNote && 'rounded-[2px] ring-1 ring-foreground/50',
               trailingAt(last),
-              run.self
-                ? 'border-muted-foreground/40'
-                : 'border-primary/50 hover:bg-primary/15',
-              // Loud on purpose: the modifier changes what a click does, so the
-              // words it would act on have to be unmistakable while it is down.
-              navMode && !run.self && 'border-primary bg-primary/30 hover:bg-primary/50',
             )}
           >
-            {Array.from({ length: run.length }, (_, k) =>
-              cell(offset + k, bytes[i + k]!, k === run.length - 1 ? '' : 'mr-[3px]'),
+            {Array.from({ length }, (_, k) =>
+              cell(offset + k, bytes[i + k]!, k === length - 1 ? '' : 'mr-[3px]'),
             )}
           </span>,
         )
-        i += run.length
+        i += length
         continue
       }
       out.push(cell(offset, bytes[i]!, trailingAt(i)))
@@ -276,43 +388,84 @@ export function HexView({
   }
 
   /**
-   * One chip per distinct target on the row — the name the underline lacks room
-   * for. Self-references stay out of it: they are worth flagging in the dump but
-   * lead nowhere, and letting one take a slot buries a link that does.
-   *
-   * Sits ahead of the ASCII column rather than after it. The debug pane is
-   * narrower than a 16-byte dump even before this, so one of the two trailing
-   * columns is off-screen either way — and in a window whose words resolve to
-   * kernel objects the ASCII is a row of dots, while the names are the reason
-   * to look. Windows with no pointers keep the classic hex | ascii layout.
+   * The row's labels, in byte order, as many as the column fits; the rest
+   * collapse into `+n`. A note that began above the window is labelled on the
+   * first row, so a list head cut by the window's top edge is still named.
    */
-  const gutter = (rowBase: number, length: number) => {
-    if (!pointers?.length) return null
-    const here = gutterRuns(
-      pointers.filter(
-        (run) => !run.self && run.offset >= rowBase && run.offset < rowBase + length,
+  const notesCell = (rowBase: number, length: number, first: boolean) => {
+    const inRow = dedupeLabels(
+      noteList.filter(
+        (note) =>
+          (note.offset >= rowBase && note.offset < rowBase + length) ||
+          (first && note.offset < rowBase && note.offset + note.length > rowBase),
       ),
     )
-    if (here.length === 0) return null
+    const { shown, hidden } = fitLabels(inRow, budget)
     return (
-      <span className="flex items-center gap-2 pl-3">
-        {here.slice(0, GUTTER_CHIPS).map((run) => (
-          <PointerChip
-            key={run.offset}
-            run={run}
-            onFollow={onFollowPointer ? () => onFollowPointer(run) : undefined}
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden">
+        {shown.map((note, index) => (
+          <NoteLabel
+            key={note.id}
+            note={note}
+            lit={isLit(note)}
+            shrink={index === 0}
+            onHover={() => onNoteHover?.(note.id)}
           />
         ))}
-        {here.length > GUTTER_CHIPS && (
-          <span
-            className="text-muted-foreground/70"
-            title={here.slice(GUTTER_CHIPS).map(runTitle).join('\n\n')}
+        {hidden.length > 0 && (
+          <button
+            type="button"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            title={hidden.map(labelText).join('\n')}
+            aria-label={`${hidden.length} more: ${hidden.map(labelText).join(', ')}`}
+            onPointerEnter={() => onNoteHover?.(hidden[0]!.id)}
+            onFocus={() => onNoteHover?.(hidden[0]!.id)}
+            onClick={() => onNoteSelect?.(hidden[0]!.id)}
           >
-            +{here.length - GUTTER_CHIPS}
-          </span>
+            +{hidden.length}
+          </button>
         )}
       </span>
     )
+  }
+
+  /** The line above a row where an object begins, indented to its first byte. */
+  const sectionLine = (section: HexSection, rowBase: number) => {
+    const tone = TONE_CLASSES[section.label.tone ?? 'object']
+    const lit = section.id === activeNote
+    return [
+      <span
+        key={`${section.id}-addr`}
+        className={cn('select-none text-[9px] opacity-80', tone.text)}
+        style={{ gridColumn: 1 }}
+      >
+        {(addressBase + section.offset).toString(16).padStart(offsetDigits, '0')}
+      </span>,
+      <span
+        key={`${section.id}-line`}
+        className={cn(
+          'flex min-w-0 items-center gap-1 overflow-hidden text-[9px]',
+          tone.text,
+          lit && 'underline',
+        )}
+        style={{ gridColumn: '2 / -1', paddingLeft: byteX(section.offset - rowBase) }}
+        onPointerEnter={() => onNoteHover?.(section.id)}
+      >
+        <span aria-hidden className="shrink-0 opacity-70">
+          ┌
+        </span>
+        {section.label.badge && (
+          <span className={cn('shrink-0 rounded-sm px-1', tone.badge)}>{section.label.badge}</span>
+        )}
+        <span className="flex min-w-0">
+          <span className="min-w-0 truncate">{section.label.head}</span>
+          {section.label.tail && <span className="shrink-0">{section.label.tail}</span>}
+        </span>
+        {section.detail && (
+          <span className="shrink-0 text-muted-foreground">· {section.detail}</span>
+        )}
+      </span>,
+    ]
   }
 
   return (
@@ -358,31 +511,62 @@ export function HexView({
         </div>
       )}
       <div className="max-h-[min(30rem,60vh)] overflow-auto rounded-md border border-border bg-background">
-        <div className="min-w-max p-2 font-mono text-[10px] leading-[1.6]">
+        <div
+          ref={gridRef}
+          className="relative grid min-w-min items-center gap-x-2 p-2 font-mono text-[10px] leading-[1.6]"
+          style={{
+            gridTemplateColumns: showNotes
+              ? `max-content max-content minmax(${NOTES_MIN_CH}ch, ${NOTES_MAX_CH}ch) max-content`
+              : 'max-content max-content max-content',
+          }}
+          onPointerEnter={() => nav.setInside(true)}
+          onPointerLeave={() => {
+            nav.setInside(false)
+            onNoteHover?.(null)
+          }}
+        >
+          {showNotes && (
+            <>
+              {/* Zero-height probes: the notes track's width, and one ch. */}
+              <span ref={trackRef} aria-hidden className="h-0" style={{ gridColumn: 3 }} />
+              <span ref={chRef} aria-hidden className="invisible absolute">
+                0000000000
+              </span>
+            </>
+          )}
           {Array.from({ length: rows }, (_, row) => {
             const rowBase = base + row * BYTES_PER_ROW
             const bytes = Array.from(
               view.subarray(row * BYTES_PER_ROW, row * BYTES_PER_ROW + BYTES_PER_ROW),
             )
+            const starting = (sections ?? []).filter(
+              (section) => section.offset >= rowBase && section.offset < rowBase + bytes.length,
+            )
             return (
-              <div key={rowBase} className="flex items-center gap-2 whitespace-nowrap">
-                <span className="select-none text-muted-foreground">
+              <div key={rowBase} className="contents">
+                {starting.map((section) => sectionLine(section, rowBase))}
+
+                <span className="select-none text-muted-foreground" style={{ gridColumn: 1 }}>
                   {(addressBase + rowBase).toString(16).padStart(offsetDigits, '0')}
                 </span>
 
                 <span className="flex">{hexCells(rowBase, bytes)}</span>
 
-                {gutter(rowBase, bytes.length)}
+                {showNotes && notesCell(rowBase, bytes.length, row === 0)}
 
                 <span className="flex">
                   {bytes.map((value, i) => {
                     const offset = rowBase + i
+                    const note = noteAt.get(offset)
+                    const lit = note && isLit(note) ? TONE_CLASSES[note.tone].lit : undefined
                     return (
                       <AsciiCell
                         key={offset}
                         address={addressBase + offset}
                         value={value}
                         flash={recent.has(offset)}
+                        lit={lit ?? (inActiveSection(offset) ? 'bg-foreground/10' : undefined)}
+                        quiet={Boolean(note?.quietAscii)}
                         editing={editing?.column === 'ascii' && editing.offset === offset}
                         onEdit={() => setEditing({ offset, column: 'ascii' })}
                         onCommit={(next, keepGoing) => {
@@ -404,17 +588,76 @@ export function HexView({
   )
 }
 
+/** A note's name in the notes column: `.role [badge] head tail`. */
+function NoteLabel({
+  note,
+  lit,
+  shrink,
+  onHover,
+}: {
+  note: HexNote
+  lit: boolean
+  /** Only the row's first label may truncate; the others were fitted whole. */
+  shrink: boolean
+  onHover: () => void
+}) {
+  const label = note.label!
+  const tone = TONE_CLASSES[label.tone ?? note.tone]
+  const className = cn(
+    'flex items-center gap-1',
+    shrink ? 'min-w-0' : 'shrink-0',
+    tone.text,
+    note.onFollow && 'hover:[&_.name]:underline',
+    lit && '[&_.name]:underline',
+  )
+  const content = (
+    <>
+      {label.role && <span className="shrink-0 text-foreground/60">{label.role}</span>}
+      {label.badge && (
+        <span className={cn('shrink-0 rounded-sm px-1 text-[9px]', tone.badge)}>{label.badge}</span>
+      )}
+      <span className="flex min-w-0">
+        <span className="name min-w-0 truncate underline-offset-2">{label.head}</span>
+        {label.tail && <span className="name shrink-0 underline-offset-2">{label.tail}</span>}
+      </span>
+    </>
+  )
+  if (!note.onFollow) {
+    return (
+      <span className={className} onPointerEnter={onHover}>
+        {content}
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={`Follow ${labelText(note)}`}
+      onPointerEnter={onHover}
+      onFocus={onHover}
+      onClick={note.onFollow}
+    >
+      {content}
+    </button>
+  )
+}
+
 function ByteCell({
   address,
   value,
   dim,
   flash,
   isPointer,
+  landing,
   editing,
   follow,
   trailing,
-  title,
-  onEdit,
+  describe,
+  annotated,
+  onClick,
+  onDoubleClick,
+  onHover,
   onCommit,
   onCancel,
 }: {
@@ -423,14 +666,21 @@ function ByteCell({
   dim: boolean
   flash: boolean
   isPointer: boolean
+  /** The inspected pointer lands on this byte. */
+  landing: boolean
   editing: boolean
-  /** Modifier is down over a followable pointer — the click will navigate. */
+  /** Modifier is down over a followable note, so the click will navigate. */
   follow: boolean
-  /** Right-margin class; a pointer run carries its own so it stays continuous. */
+  /** Right-margin class; a note carries its own so its mark stays continuous. */
   trailing: string
-  /** Replaces the default hover text when the byte is part of a pointer. */
-  title?: string
-  onEdit: (e: { metaKey: boolean; ctrlKey: boolean }) => void
+  /** What the byte is part of; the inspector says the rest. */
+  describe?: string
+  onClick: (e: { metaKey: boolean; ctrlKey: boolean }) => void
+  onDoubleClick: () => void
+  /** Part of a note: a click selects it, so editing takes a double-click. */
+  annotated: boolean
+  /** Pointer or focus arrived. */
+  onHover: () => void
   /** `advance` asks the view to move the caret to the next byte. */
   onCommit: (value: number, advance: boolean) => void
   onCancel: () => void
@@ -486,52 +736,30 @@ function ByteCell({
     )
   }
 
+  const where = `0x${address.toString(16).padStart(4, '0')}`
   return (
     <button
       type="button"
-      onClick={onEdit}
-      title={title ?? `0x${address.toString(16).padStart(4, '0')} — click to edit`}
+      onClick={onClick}
+      onDoubleClick={annotated ? onDoubleClick : undefined}
+      onPointerEnter={onHover}
+      onFocus={onHover}
+      // A note's bytes are described by the inspector; a native tooltip on top
+      // of it would only cover the rows being read.
+      title={describe ? undefined : `${where} — click to edit`}
+      aria-label={describe ? `${where}, ${describe}` : undefined}
       className={cn(
         'w-[2ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
         flash && 'bg-primary/30 text-foreground',
         !flash && dim && 'text-muted-foreground/35',
         !flash && !dim && 'text-foreground',
         isPointer && 'outline outline-1 outline-primary',
+        landing && 'outline-dashed outline-1 outline-foreground/80',
         follow && 'cursor-alias',
         trailing,
       )}
     >
       {hex2(value)}
-    </button>
-  )
-}
-
-/**
- * The gutter link. The 4-char object-core type code carries the "what kind of
- * thing is this" that a colour alone would need a legend to explain.
- */
-function PointerChip({ run, onFollow }: { run: PointerRun; onFollow?: () => void }) {
-  const label = formatTarget(run.target)
-  if (!onFollow) {
-    return (
-      <span className="text-muted-foreground/70" title={runTitle(run)}>
-        {label}
-      </span>
-    )
-  }
-  return (
-    <button
-      type="button"
-      onClick={onFollow}
-      title={runTitle(run)}
-      className="flex max-w-[22ch] items-center gap-1 text-primary underline-offset-2 hover:underline"
-    >
-      {run.target.typeCode && (
-        <span className="rounded-sm bg-primary/15 px-1 text-[9px] tracking-wide">
-          {run.target.typeCode.replace(/_+$/, '')}
-        </span>
-      )}
-      <span className="truncate">{label}</span>
     </button>
   )
 }
@@ -548,6 +776,8 @@ function AsciiCell({
   address,
   value,
   flash,
+  lit,
+  quiet,
   editing,
   onEdit,
   onCommit,
@@ -556,6 +786,10 @@ function AsciiCell({
   address: number
   value: number
   flash: boolean
+  /** Background class while the note this byte belongs to is inspected. */
+  lit?: string
+  /** Part of a word that is not text (a pointer): dim it so it does not read as a string. */
+  quiet: boolean
   editing: boolean
   onEdit: () => void
   onCommit: (value: number, advance: boolean) => void
@@ -610,7 +844,13 @@ function AsciiCell({
       className={cn(
         'w-[1ch] cursor-pointer text-center transition-colors hover:bg-primary/20 hover:text-foreground',
         flash && 'bg-primary/30 text-foreground',
-        !flash && (isPrintable(value) ? 'text-muted-foreground' : 'text-muted-foreground/40'),
+        !flash && lit,
+        !flash &&
+          (quiet
+            ? 'text-muted-foreground/30'
+            : isPrintable(value)
+              ? 'text-muted-foreground'
+              : 'text-muted-foreground/40'),
       )}
     >
       {asciiChar(value)}
