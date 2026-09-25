@@ -184,7 +184,10 @@ export function DebugBody() {
                       ? 'bg-secondary text-foreground'
                       : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
                   )}
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    debugUi.clearOrigin()
+                    setTab(id)
+                  }}
                 >
                   {label}
                 </button>

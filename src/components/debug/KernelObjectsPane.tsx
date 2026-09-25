@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Search } from 'lucide-react'
 import { compactHex } from '@/debug/hexFormat'
 import { describeThreadStatus, formatStackSize } from '@/debug/kernel/threads'
 import { cn } from '@/lib/utils'
 import * as debugUi from '@/lib/debugUi'
 import { pulseElement } from '@/lib/dockReveal'
+import { BackChip } from '@/components/debug/BackChip'
+import { objectAt } from '@/components/debug/objectLinks'
 import type * as debug from '@/debug/control'
 
 export function KernelObjectsPane({
@@ -40,20 +42,49 @@ export function KernelObjectsPane({
   }, [objects, q])
 
   /*
-   * Somebody elsewhere pointed at one object — a fork on a tour card, say.
-   * Open the group it lives in (a collapsed <details> keeps its rows in the DOM
-   * but out of view, so scrolling to one would land nowhere) and blink it.
+   * Somebody elsewhere pointed at one object: a fork on a tour card, a wait in
+   * the Threads tab. Open the group it lives in (a collapsed <details> keeps its
+   * rows in the DOM but out of view, so scrolling to one would land nowhere) and
+   * blink it. A link must never lead nowhere: a filter hiding the object is
+   * cleared, and an address object core does not list opens in Mem instead.
    */
+  const handled = useRef(0)
   useEffect(() => {
     if (focus.nonce === 0 || focus.section !== 'objects' || focus.objectAddr == null) return
-    const row = listRef.current?.querySelector<HTMLElement>(
-      `[data-object-addr="${focus.objectAddr}"]`,
-    )
-    if (!row) return
+    if (handled.current === focus.nonce) return
+    if (snap.objectCores && !objects) return // still reading; this runs again when it lands
+    const target = objectAt(objects, focus.objectAddr)
+    if (!target) {
+      handled.current = focus.nonce
+      onPeek(focus.objectAddr.toString(16))
+      return
+    }
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-object-addr="${target.addr}"]`)
+    if (!row) {
+      if (query) setQuery('')
+      return
+    }
+    handled.current = focus.nonce
     row.closest('details')?.setAttribute('open', '')
     // Wait a frame so opening the group has painted.
     requestAnimationFrame(() => pulseElement(row))
-  }, [focus.nonce, focus.section, focus.objectAddr, objects])
+  }, [focus.nonce, focus.section, focus.objectAddr, objects, groups, query, snap.objectCores, onPeek])
+
+  /** A thread by name, linked to its row in Threads. */
+  const threadLink = (addr: number, from: debugUi.FocusOrigin): ReactNode => {
+    const thread = snap.threads.find((candidate) => candidate.addr === addr)
+    if (!thread) return null
+    return (
+      <button
+        type="button"
+        className="text-primary/90 underline-offset-2 hover:underline"
+        title={`Show ${thread.name} in Threads`}
+        onClick={() => debugUi.focusDebugThread(thread.addr, thread.name, from)}
+      >
+        {thread.name}
+      </button>
+    )
+  }
 
   if (!snap.objectCores) {
     return (
@@ -75,6 +106,7 @@ export function KernelObjectsPane({
 
   return (
     <div className="space-y-2">
+      <BackChip section="objects" />
       <div className="flex items-center gap-2 px-0.5">
         <label className="relative min-w-0 flex-1">
           <Search
@@ -131,6 +163,19 @@ export function KernelObjectsPane({
                       : undefined
                   const status = thread ? describeThreadStatus(thread) : null
                   const title = thread?.name || obj.name
+                  const size = obj.size ?? type.objectSize ?? 0
+                  const from: debugUi.FocusOrigin = {
+                    label: title,
+                    section: 'objects',
+                    objectAddr: obj.addr,
+                  }
+                  // Who is pended on it, from each thread's own pended_on.
+                  const waiting = snap.threads.filter(
+                    (candidate) =>
+                      candidate.pendedOn !== null &&
+                      candidate.pendedOn >= obj.addr &&
+                      candidate.pendedOn < obj.addr + Math.max(size, 1),
+                  )
                   return (
                     <li
                       key={obj.coreAddr}
@@ -141,14 +186,20 @@ export function KernelObjectsPane({
                       )}
                     >
                       <div className="flex min-w-0 items-baseline gap-2">
-                        <button
-                          type="button"
-                          className="min-w-0 flex-1 truncate text-left text-[11px] font-medium hover:text-primary"
-                          title={`Peek ${obj.typeName.toLowerCase()} at 0x${obj.addr.toString(16)}`}
-                          onClick={() => onPeek(obj.addr.toString(16), obj.size ?? undefined)}
-                        >
-                          {title}
-                        </button>
+                        {thread && onThread ? (
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 truncate text-left text-[11px] font-medium hover:text-primary"
+                            title={`Show ${title} in Threads`}
+                            onClick={() => debugUi.focusDebugThread(thread.addr, thread.name, from)}
+                          >
+                            {title}
+                          </button>
+                        ) : (
+                          <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                            {title}
+                          </span>
+                        )}
                         <span
                           className={cn(
                             'shrink-0 rounded px-1 py-0.5 text-[8px] uppercase tracking-wide',
@@ -170,6 +221,7 @@ export function KernelObjectsPane({
                         <button
                           type="button"
                           className="hover:text-primary"
+                          title={`Show its ${size ? formatStackSize(size) : 'bytes'} in Mem`}
                           onClick={() => onPeek(obj.addr.toString(16), obj.size ?? undefined)}
                         >
                           obj {compactHex(obj.addr.toString(16))}
@@ -193,7 +245,7 @@ export function KernelObjectsPane({
                         )}
                       </div>
 
-                      {(status?.label || obj.fields.length > 0) && (
+                      {(status?.label || obj.fields.length > 0 || waiting.length > 0) && (
                         <dl className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 text-[10px]">
                           {status?.label && (
                             <>
@@ -210,18 +262,39 @@ export function KernelObjectsPane({
                               <dd className="font-mono text-right tabular-nums">{thread.prio}</dd>
                             </>
                           )}
+                          {waiting.length > 0 && (
+                            <>
+                              <dt className="text-foreground/45">Waiting</dt>
+                              <dd className="flex flex-wrap justify-end gap-x-1.5 text-right">
+                                {waiting.map((candidate) => (
+                                  <span key={candidate.addr}>{threadLink(candidate.addr, from)}</span>
+                                ))}
+                              </dd>
+                            </>
+                          )}
                           {obj.fields.map((field) => (
                             <div key={field.label} className="contents">
                               <dt className="truncate text-foreground/45">{field.label}</dt>
                               <dd className="max-w-48 truncate font-mono text-right tabular-nums text-foreground/75">
                                 {field.addr ? (
-                                  <button
-                                    type="button"
-                                    className="hover:text-primary hover:underline"
-                                    onClick={() => onPeek(field.addr!.toString(16))}
-                                  >
-                                    {field.value}
-                                  </button>
+                                  (threadLink(field.addr, from) ?? (
+                                    <button
+                                      type="button"
+                                      className="hover:text-primary hover:underline"
+                                      title={
+                                        objectAt(objects, field.addr)
+                                          ? 'Show it in Objects'
+                                          : `Show 0x${field.addr.toString(16)} in Mem`
+                                      }
+                                      onClick={() => {
+                                        const target = objectAt(objects, field.addr!)
+                                        if (target) debugUi.focusDebugObject(target.addr, from)
+                                        else onPeek(field.addr!.toString(16))
+                                      }}
+                                    >
+                                      {field.value}
+                                    </button>
+                                  ))
                                 ) : (
                                   field.value
                                 )}

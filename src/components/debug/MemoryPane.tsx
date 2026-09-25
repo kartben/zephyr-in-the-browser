@@ -283,6 +283,12 @@ export function MemoryPane({
     [memory, ptrBytes, addressMap, snap.threads, snap.objects, snap.hasSymbols],
   )
 
+  /** A jump out to Threads or Objects offers the way back to this window. */
+  const memOrigin = (): debugUi.FocusOrigin => ({
+    label: compactHex(viewAddr.current.toString(16)),
+    section: 'memory',
+  })
+
   /** What the window itself is sitting on, for the inspector's idle line. */
   const here = memory ? addressMap.resolve(memory.addr) : null
 
@@ -554,8 +560,8 @@ export function MemoryPane({
             here={here}
             ptrBytes={ptrBytes}
             arch={snap.regArch}
-            onOpenObject={(addr) => debugUi.focusDebugObject(addr)}
-            onOpenThread={(addr) => debugUi.focusDebugThread(addr)}
+            onOpenObject={(addr) => debugUi.focusDebugObject(addr, memOrigin())}
+            onOpenThread={(addr) => debugUi.focusDebugThread(addr, null, memOrigin())}
           />
         </div>
       ) : (
