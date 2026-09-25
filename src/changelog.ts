@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Changed",
+        "text": "Retired the old gateway and probe packages; use the desktop bridge."
+      },
+      {
         "tag": "Fixed",
         "text": "An ELF without a devicetree shows the board's buses."
       },

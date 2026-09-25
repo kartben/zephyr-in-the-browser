@@ -69,7 +69,7 @@ class FakeWebSocket {
   emitMessage(bytes: Uint8Array) {
     this.onmessage?.({ data: bytes.slice().buffer })
   }
-  /** CTRL hello advertising passt net. */
+  /** CTRL hello advertising the net feature. */
   emitHelloNet() {
     this.emitMessage(
       encodeCtrl({

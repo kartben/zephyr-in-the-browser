@@ -36,13 +36,13 @@ afterEach(() => {
 
 describe('netStore', () => {
   it('defaults to the simulated LAN', () => {
-    expect(netStore.getSettings()).toEqual({ mode: 'sim', url: '' })
+    expect(netStore.getSettings()).toEqual({ mode: 'sim' })
   })
 
   it('persists mode across a reload (URL lives in Settings)', () => {
     netStore.setMode('uplink')
     netStore.reloadFromStorage()
-    expect(netStore.getSettings()).toEqual({ mode: 'uplink', url: '' })
+    expect(netStore.getSettings()).toEqual({ mode: 'uplink' })
     expect(localStorage.getItem('zephyr.net')).toContain('"v":1')
   })
 
@@ -56,11 +56,11 @@ describe('netStore', () => {
       netStore.reloadFromStorage()
       const s = netStore.getSettings()
       expect(['sim', 'uplink']).toContain(s.mode)
-      expect(s.url).toBe('')
+      expect(s).not.toHaveProperty('url')
     }
     localStorage.setItem('zephyr.net', '{"v":1,"mode":"uplink","url":"nope"}')
     netStore.reloadFromStorage()
-    expect(netStore.getSettings()).toEqual({ mode: 'uplink', url: '' })
+    expect(netStore.getSettings()).toEqual({ mode: 'uplink' })
   })
 
   describe('resolveNetConfig precedence', () => {
@@ -95,16 +95,6 @@ describe('netStore', () => {
       const cfg = netStore.resolveNetConfig('')
       expect(cfg.mode).toBe('uplink')
       expect(cfg.url).toBe('')
-    })
-
-    it('legacy ?net=<ws-url> forces uplink and warns to use Settings', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const cfg = netStore.resolveNetConfig('?net=ws://gw.example/')
-      expect(cfg.mode).toBe('uplink')
-      expect(cfg.url).toBe('')
-      expect(cfg.source).toBe('query')
-      expect(warn).toHaveBeenCalled()
-      warn.mockRestore()
     })
 
     it('an invalid query value warns and falls through to the store', () => {

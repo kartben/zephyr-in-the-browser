@@ -27,27 +27,26 @@ TypeScript with a vitest suite (`npm test`); under the mock backend a scripted
 fake guest drives the same stack, so the panel demos without a QEMU build.
 The same summary lives behind the ⓘ button in the panel itself.
 
-## The uplink (opt-in)
+## Bridge network (opt-in)
 
 The Network panel's **Uplink** section can unplug the cable from the sandbox
-and tunnel every frame over a **WebSocket** to a
-[self-hosted gateway](net-gateway.md) — one `docker run`, built on
-[passt](https://passt.top/) — where the guest gets real DHCP, real DNS, real
-TCP/UDP, even real ping:
+and send every frame to the [desktop bridge](bridge.md), which runs the
+guest's traffic through a user-mode network stack on your machine: real DHCP,
+real DNS, real TCP/UDP, even real ping.
 
 ```console
-docker run --rm --security-opt seccomp=unconfined -p 8737:8737 ghcr.io/kartben/zephyr-in-the-browser/gateway
+cd bridge && go run ./cmd/zephyr-bridge
 ```
 
-Paste the printed `ws://…?token=…` URL into the panel (or open the printed
-`?net=` deep link) and restart the emulator. The choice persists in
-`localStorage` (`zephyr.net`); a `?net=` query param overrides it per session.
+Paste the printed URL under **Settings → Desktop bridge**, choose **Bridge
+network** under Network → **Uplink**, and restart the emulator (⟳). The mode
+persists in `localStorage` (`zephyr.net`); a `?net=sim` or `?net=uplink` query
+param overrides it per session.
 Because the rings under the panel are unchanged, the throughput charts,
-capture, `.pcap` export and impairments keep working on uplinked traffic —
-only the dial-in tools (GET / Browser / echo) are sandbox-only, since they
+capture, `.pcap` export and impairments keep working on bridged traffic.
+Only the dial-in tools (GET / Browser / echo) are sandbox-only, since they
 ride the simulated stack's own TCP.
 
 The in-page sandbox remains the default: it needs no helper and nothing to
-trust. Setup, tunnels for a public `wss://` URL (Safari needs one), security
-notes, the wire protocol, and alternative gateways are all in
-[net-gateway.md](net-gateway.md).
+trust. Docker, port forwards, security notes and the wire protocol are in
+[bridge.md](bridge.md).

@@ -730,7 +730,7 @@ function NetBadge() {
       ? 'bg-success'
       : 'bg-destructive'
   const label = uplink
-    ? `Gateway uplink: ${phase || 'idle'}`
+    ? `Bridge network: ${phase || 'idle'}`
     : linkUp
       ? 'Link up'
       : 'Link down'

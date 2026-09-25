@@ -52,16 +52,4 @@ describe('bridgeStore', () => {
     expect(cfg).toEqual({ enabled: true, url, source: 'query' })
     expect(bridgeStore.getSettings().enabled).toBe(false)
   })
-
-  it('migrates legacy zephyr.probe', () => {
-    localStorage.setItem(
-      'zephyr.probe',
-      JSON.stringify({ v: 1, mode: 'bridge', url: 'ws://legacy:8740/' }),
-    )
-    bridgeStore.reloadFromStorage()
-    expect(bridgeStore.getSettings()).toEqual({
-      enabled: true,
-      url: 'ws://legacy:8740/',
-    })
-  })
 })

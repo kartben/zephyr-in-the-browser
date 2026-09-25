@@ -1,8 +1,8 @@
 /**
  * Global desktop bridge settings — one WebSocket URL for net + CTF + GDB.
  *
- * Persists under `zephyr.bridge`. Supersedes separate net/probe URLs in the UI;
- * Network and Trace read this store. `?bridge=` overrides for the session.
+ * Persists under `zephyr.bridge`. Network and Trace read this store.
+ * `?bridge=` overrides for the session.
  */
 
 const STORAGE_KEY = 'zephyr.bridge'
@@ -40,9 +40,9 @@ function load(): BridgeSettings {
   hadStored = false
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return migrateLegacy()
+    if (!raw) return defaults()
     const parsed = JSON.parse(raw) as { v?: number } & Partial<BridgeSettings>
-    if (!parsed || typeof parsed !== 'object' || parsed.v !== VERSION) return migrateLegacy()
+    if (!parsed || typeof parsed !== 'object' || parsed.v !== VERSION) return defaults()
     hadStored = true
     return {
       enabled: parsed.enabled === true,
@@ -51,35 +51,6 @@ function load(): BridgeSettings {
   } catch {
     return defaults()
   }
-}
-
-/** One-shot pull from older zephyr.net / zephyr.probe keys. */
-function migrateLegacy(): BridgeSettings {
-  try {
-    const probe = localStorage.getItem('zephyr.probe')
-    if (probe) {
-      const p = JSON.parse(probe) as { mode?: string; url?: string }
-      if (p?.mode === 'bridge' && typeof p.url === 'string' && isValidBridgeUrl(p.url)) {
-        const next = { enabled: true, url: p.url }
-        save(next)
-        hadStored = true
-        return next
-      }
-    }
-    const net = localStorage.getItem('zephyr.net')
-    if (net) {
-      const n = JSON.parse(net) as { mode?: string; url?: string }
-      if (n?.mode === 'uplink' && typeof n.url === 'string' && isValidBridgeUrl(n.url)) {
-        const next = { enabled: true, url: n.url }
-        save(next)
-        hadStored = true
-        return next
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return defaults()
 }
 
 function save(next: BridgeSettings): void {

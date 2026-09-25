@@ -457,8 +457,3 @@ export function _resetForTests(): void {
   gdbHandler = null
   notify()
 }
-
-// Back-compat aliases used by ProbeSection during the rename.
-export const startProbeClient = startBridgeClient
-export type ProbePhase = BridgePhase
-export type ProbeSnapshot = BridgeSnapshot
