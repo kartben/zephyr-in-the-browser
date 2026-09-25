@@ -289,11 +289,11 @@ export async function loadFor(
   if (gdb.sessionActive()) void arm()
 
   /*
-   * A tour that never arms should say which of the three ways it failed, not
-   * sit there looking like a sample with no tour. The reader sees the same
-   * nothing whether the images are older than the tour, the emulator was built
-   * without the gdbstub, or every anchor missed — and only the first of those
-   * is something they can do anything about.
+   * A tour that never arms should say which of the ways it failed, not sit
+   * there looking like a sample with no tour. The reader sees the same nothing
+   * whether the images are older than the tour, the gdbstub never attached, or
+   * every anchor missed. Only the first of those is something they can do
+   * anything about.
    */
   if (armWatchdog !== undefined) clearTimeout(armWatchdog)
   armWatchdog = setTimeout(() => {
@@ -301,8 +301,7 @@ export async function loadFor(
       console.warn(
         gdb.getSnapshot().attached
           ? '[tour] gdb is attached but no step armed — see the problems above'
-          : '[tour] no gdb session, so the tour cannot break anywhere. ' +
-              'The emulator build needs the gdbstub chardev (features.json "gdb").',
+          : '[tour] no gdb session, so the tour cannot break anywhere.',
       )
       return
     }

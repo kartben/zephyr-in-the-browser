@@ -179,8 +179,8 @@ describe('RspClient run control', () => {
     await client.continue()
     expect(client.isRunning()).toBe(true)
 
-    // Something halted the guest without a stop reply (a stray byte from any
-    // older build, a lost packet). The page still believes it is running.
+    // Something halted the guest without a stop reply (a stray byte, a lost
+    // packet). The page still believes it is running.
     stub.running = false
 
     // A running stub always answers 0x03, so silence means "already stopped".

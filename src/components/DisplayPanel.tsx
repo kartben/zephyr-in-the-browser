@@ -299,7 +299,7 @@ function DisplayCanvas({
       if (stopped) return
       if (now - previous >= FRAME_INTERVAL_MS) {
         const sequence = getFrameSequence()
-        if (sequence === null || sequence !== lastFrameSequence) {
+        if (sequence !== null && sequence !== lastFrameSequence) {
           const source = getFrame()
           if (source) renderer.draw(source)
           lastFrameSequence = sequence

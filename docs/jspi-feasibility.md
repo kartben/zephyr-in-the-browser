@@ -92,7 +92,7 @@ guest operation, a helper call per memory access, many locals live across them.
 Few places, and none of them hot:
 
 - The QMP dispatcher coroutine, created and entered at startup on every board
-  because `features.json` lists `monitor`, then once per command the page sends
+  because the page always passes `-mon`, then once per command the page sends
   (a handful per session: `query-status`, `stop`, `cont`, HMP commands).
 - The block layer, only where a board has a drive: both ESP32 boards boot from
   `-drive if=mtd` flash and write it through the block layer, and the A53

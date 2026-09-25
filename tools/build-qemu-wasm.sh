@@ -273,27 +273,8 @@ build_qemu() {
     done
     write_esp32_efuse "$DEST/esp32-eco3-efuse.bin"
   fi
-  # Only some Emscripten versions emit a separate pthread worker shim.
-  if docker cp "$CONTAINER:/build/$binary.worker.js" "$DEST/$binary.worker.js" 2>/dev/null; then
-    echo "  - $binary.worker.js"
-  else
-    # Drop any shim an older Emscripten left behind: public/qemu/ persists
-    # across builds, and package-emulator.sh tars whatever is in it, so a stale
-    # worker would otherwise ride along in the release beside a .js that never
-    # asks for it.
-    rm -f "$DEST/$binary.worker.js"
-    echo "  - no $binary.worker.js emitted (fine on newer Emscripten)"
-  fi
 
   docker rm -f "$CONTAINER" >/dev/null
-
-  # Record which optional bridges the artifact set carries.
-  #
-  # The page reads features.json before assembling argv, because QEMU exits on
-  # an unknown -chardev backend: guessing wrong would stop an older emulator
-  # booting at all rather than merely lose a feature. Detected from the emitted
-  # glue rather than hardcoded, so the file can never claim more than is there.
-  write_features "$DEST"
 }
 
 # The ESP32's eFuse image, written rather than checked in: 124 bytes of which
@@ -317,53 +298,6 @@ words[3] |= 1 << 15   # CHIP_VER_REV1
 words[5] |= 1 << 20   # CHIP_VER_REV2
 open(sys.argv[1], "wb").write(struct.pack("<31I", *words))' "$out"
   echo "  - $(basename "$out") ($(command wc -c < "$out" | xargs) bytes, ECO3)"
-}
-
-# Probe the Emscripten glue for the exports each optional bridge is known by.
-#
-# One features.json describes the whole artifact set, because the page fetches
-# it once and not per board. So a feature is listed only when *every* binary in
-# public/qemu/ carries it: an intersection, not a union, and deliberately so:
-# the page turns a listed feature into `-chardev browser,...` on the argv of
-# whichever board is booting, and QEMU exits on a chardev backend it does not
-# know. Over-claiming stops a board booting at all; under-claiming only loses
-# the feature until the lagging target is rebuilt.
-#
-# This also means a single-target rebuild no longer answers for targets it did
-# not touch: it re-probes every binary that is present.
-write_features() {
-  local dest="$1"
-  local -a feats=()
-  local -a binaries=()
-  local js
-
-  for js in "$dest"/qemu-system-*.js; do
-    # The pthread shim matches that glob and exports none of this; counting it
-    # would make every intersection empty.
-    case "$js" in *.worker.js) continue ;; esac
-    [ -e "$js" ] && binaries+=("$js")
-  done
-  if [ ${#binaries[@]} -eq 0 ]; then
-    return
-  fi
-
-  local export_name feature
-  for pair in "qemu_browser_monitor_feed:monitor" \
-              "qemu_browser_gdb_feed:gdb" \
-              "qemu_browser_hci_feed:hci"; do
-    export_name="${pair%%:*}"
-    feature="${pair##*:}"
-    local all=1
-    for js in "${binaries[@]}"; do
-      grep -q "$export_name" "$js" 2>/dev/null || { all=0; break; }
-    done
-    [ "$all" = 1 ] && feats+=("\"$feature\"")
-  done
-
-  local joined
-  joined=$(IFS=,; echo "${feats[*]}")
-  printf '{\n  "features": [%s]\n}\n' "$joined" > "$dest/features.json"
-  echo "  - features.json: [$joined] (across ${#binaries[@]} binaries)"
 }
 
 # ---------------------------------------------------------------------------

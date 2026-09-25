@@ -442,17 +442,6 @@ describe('virtio transport', () => {
     expect(worker!.terminated).toBe(true)
   })
 
-  it('refuses an emulator that predates the request-wake export', () => {
-    // The pin lives in a GitHub repository variable, so a re-pin to an older
-    // tag reaches nothing else in this repo that would notice.
-    const bridge = createFakeBridge([{ name: 'echo', deviceId: 99 }])
-    const stale = { ...bridge.module }
-    delete stale._qemu_virtio_browser_request_wake_addr
-
-    expect(() => attach(stale)).toThrow(/request-wake export/)
-    expect(available()).toBe(false)
-  })
-
   it('Atomics.notify-s the wake word and kicks QEMU after each completion', () => {
     const bridge = createFakeBridge([
       { name: 'echo', deviceId: 99 },

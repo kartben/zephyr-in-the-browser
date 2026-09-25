@@ -36,8 +36,7 @@
  * kick makes the answer immediate; missing it costs at most that 1 ms, and
  * costs it on the QEMU thread rather than behind a React commit.
  *
- * There is no timer fallback: {@link attach} refuses an emulator that does not
- * export the request-wake address, because a bridge that quietly drops back to
+ * There is no timer fallback for requests: a bridge that quietly drops back to
  * timer pace is the kind of regression that hides for months behind "it feels
  * slow". A 50 ms maintenance tick still runs, but only for discovery, reset
  * detection, the unanswered-chain watchdog, and a completion ring that was
@@ -53,10 +52,9 @@ export type { VirtioDeviceModel, VirtioRequest } from './bridgeCore'
 
 /**
  * The five core exports are required, not optional: every machine that carries
- * a virtio-browser device has them, so a module without them is a mis-pinned
- * emulator rather than a machine difference (see {@link attach}). The
- * diagnostics below really are optional: riscv32 and xtensa are patched from
- * tools/qemu-esp-patches/, which carries no diagnostics patches at all.
+ * a virtio-browser device has them. The diagnostics below really are optional:
+ * riscv32 and xtensa are patched from tools/qemu-esp-patches/, which carries no
+ * diagnostics patches at all.
  */
 interface BridgeExports {
   _qemu_virtio_browser_count: () => number
@@ -279,8 +277,7 @@ function onWorkerMessage(message: DeviceWorkerToMain) {
 }
 
 /**
- * Start the device worker. {@link attach} has already established that the
- * export exists; what is left is a sanity check on the address it hands over,
+ * Start the device worker, after a sanity check on the request-wake address,
  * because a bad one parks the worker on the wrong word and looks from the
  * outside exactly like a hung guest.
  */
@@ -368,19 +365,8 @@ export function register(model: VirtioDeviceModel) {
 /** Called by the qemu backend once its module is live. */
 export function attach(mod: unknown) {
   detach()
-  const candidate = mod as BridgeExports
-  // The emulator pin lives in a GitHub repository variable, not in git, so a
-  // re-pin to an older tag is invisible to every other check in this repo. Fail
-  // here, loudly, rather than serving no requests and blaming the guest.
-  if (typeof candidate._qemu_virtio_browser_request_wake_addr !== 'function') {
-    throw new Error(
-      '[virtio] this emulator artifact predates the virtio request-wake export ' +
-        '(_qemu_virtio_browser_request_wake_addr); rebuild the emulator or re-pin ' +
-        'EMULATOR_RELEASE to a build that has it',
-    )
-  }
-  exports = candidate
-  heap = candidate.HEAPU8 ?? null
+  exports = mod as BridgeExports
+  heap = exports.HEAPU8 ?? null
   if (heap) core = createBridgeCore({ heap, wake: kickQemu })
   startDeviceWorker()
   // Deliberately not resolving devices here: attach runs as soon as the module

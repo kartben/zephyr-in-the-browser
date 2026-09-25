@@ -97,7 +97,6 @@ try {
       {
         guestFps: +avg('guestFps').toFixed(2),
         uploadFps: +avg('uploadFps').toFixed(2),
-        digestMs: +avg('digestMs').toFixed(3),
         drawMs: +avg('drawMs').toFixed(3),
         i2cHz: +avg('i2cHz').toFixed(1),
         mips: +avg('mips').toFixed(1),

@@ -294,11 +294,8 @@ display driver, `CONFIG_LV_COLOR_DEPTH=16`, and an RGB565 upload path in
 `FOURCC_AR24` check both assume 32bpp; doing only some of them adds a conversion
 and loses). What remains is LVGL's own rendering, which the copy was masking.
 
-The browser-side render worker already skips unchanged frames via a checksum
-(and skips the checksum itself once a short dirty streak shows the guest is
-animating). A virtio-gpu flush event would still be nicer than guessing from
-pixels, but it is no longer what stands between a still panel and a wasted
-upload. For the LVGL accelerometer chart specifically, the packaged build is a small
+The browser-side render worker already skips unchanged frames: ramfb publishes
+an atomic dirty sequence, and the worker sleeps on it until the guest writes. For the LVGL accelerometer chart specifically, the packaged build is a small
 fork (`zephyr-module/apps/accelerometer_chart`) that uses circular chart updates
 and a 480×320 ramfb (`-S accel-display`), sampling at 25 Hz with 40 points —
 because the upstream SHIFT-mode full-screen chart outpaces what the emulated

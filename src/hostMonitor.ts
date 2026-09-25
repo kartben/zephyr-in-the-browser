@@ -22,12 +22,8 @@
  * Step 1 of in-page debugging reuses this same channel: when the machine is
  * stopped we ask for `info registers` (via `human-monitor-command`). There is
  * no HMP one-instruction step in QEMU 10.1 — that needs the gdbstub (see
- * docs/debug-gdb-plan.md). Until then this is a quiet "what is the PC" view
- * without a QEMU rebuild.
- *
- * Everything degrades to a no-op on an emulator built before the bridge —
- * `available()` is false and the button hides. Old image tarballs stay
- * bootable.
+ * docs/debug-gdb-plan.md), so this is a quiet "what is the PC" view for when no
+ * gdb session is attached.
  */
 
 import { parseRegisters } from '@/debug/parseRegisters'
