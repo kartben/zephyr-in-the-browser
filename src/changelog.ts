@@ -122,6 +122,14 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Improved",
         "text": "Live board Debug over the desktop bridge."
+      },
+      {
+        "tag": "Added",
+        "text": "Mem dump names pointers, kernel-object fields and waiting threads."
+      },
+      {
+        "tag": "Improved",
+        "text": "Thread wait links open the object in Objects, not memory."
       }
     ]
   },

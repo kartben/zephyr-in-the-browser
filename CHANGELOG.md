@@ -31,6 +31,8 @@ via the help dialog (?).
 - **Added:** Mode switch between Simulator and Live board.
 - **Added:** CPU power states in Trace Timeline and Power tab.
 - **Improved:** Live board Debug over the desktop bridge.
+- **Added:** Mem dump names pointers, kernel-object fields and waiting threads.
+- **Improved:** Thread wait links open the object in Objects, not memory.
 
 ## [0.5.0] - 2026-07-31
 
