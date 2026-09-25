@@ -11,7 +11,7 @@ import * as monitor from '@/hostMonitor'
 import type { AddressMapSources } from '@/debug/addressMap'
 import type { ElfSymbol } from '@/debug/elfSymbols'
 import type { ZephyrThread } from '@/debug/kernel/threads'
-import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
+import type { KernelLayouts, ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import type { StackFrame, UnwindMethod, UnwindResult } from '@/debug/callStack'
 import type { GdbArch } from '@/debug/gdb/regs'
 
@@ -229,4 +229,9 @@ export function setKernelImage(elf: Uint8Array | null) {
  */
 export function elfAddressSources(): Omit<AddressMapSources, 'objects'> {
   return { stacks: gdb.getStackRegions(), symbols: gdb.getSymbolIndex() }
+}
+
+/** Kernel struct layouts from DWARF, for naming an object's members. */
+export function kernelLayouts(): KernelLayouts | null {
+  return gdb.getKernelLayouts()
 }

@@ -5,6 +5,8 @@ import { formatStackSize, describeThreadStatus } from '@/debug/kernel/threads'
 import * as debug from '@/debug/control'
 import * as debugUi from '@/lib/debugUi'
 import { pulseElement } from '@/lib/dockReveal'
+import { BackChip } from '@/components/debug/BackChip'
+import { objectAt } from '@/components/debug/objectLinks'
 
 export function ThreadsPane({
   snap,
@@ -71,8 +73,26 @@ export function ThreadsPane({
   const objectCoreThreads =
     snap.objects?.types.find((type) => type.code === 'THRD')?.objects ?? []
 
+  /**
+   * A thread waits on a *thing*, so the link opens that thing where its kind
+   * is listed (its card in Objects, or the thread it joins) rather than a hex
+   * window at its address. Raw memory is the fallback, for a wait object
+   * object core does not list.
+   */
+  const openWaitObject = (thread: debug.DebugSnapshot['threads'][number], addr: number) => {
+    const from = { label: thread.name, section: 'threads' as const, threadAddr: thread.addr }
+    if (thread.waitingOn?.kind === 'join') {
+      debugUi.focusDebugThread(addr, thread.waitingOn.name, from)
+      return
+    }
+    const object = objectAt(snap.objects, addr)
+    if (object) debugUi.focusDebugObject(object.addr, from)
+    else onPeek(addr.toString(16))
+  }
+
   return (
     <div className="space-y-1.5">
+      <BackChip section="threads" />
       {threads.some((thread) => thread.objectCore) && (
         <div className="flex items-center justify-between px-1 text-[9px] uppercase tracking-wide text-foreground/40">
           <span>Live from the kernel</span>
@@ -107,14 +127,9 @@ export function ThreadsPane({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <button
-                      type="button"
-                      className="min-w-0 truncate text-left text-[12px] font-medium text-foreground"
-                      title={`Peek TCB at 0x${t.addr.toString(16)}`}
-                      onClick={() => onPeek(t.addr.toString(16))}
-                    >
+                    <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                       {t.name}
-                    </button>
+                    </span>
                     {t.prio != null && (
                       <span
                         className="shrink-0 font-mono text-[11px] tabular-nums text-foreground/70"
@@ -136,8 +151,8 @@ export function ThreadsPane({
                             <button
                               type="button"
                               className="font-mono text-primary underline-offset-2 hover:underline"
-                              title={`Peek wait object at 0x${status.detailAddr.toString(16)}`}
-                              onClick={() => onPeek(status.detailAddr!.toString(16))}
+                              title={waitLinkTitle(snap, t, status.detailAddr)}
+                              onClick={() => openWaitObject(t, status.detailAddr!)}
                             >
                               {status.detail}
                             </button>
@@ -177,7 +192,7 @@ export function ThreadsPane({
                     <button
                       type="button"
                       className="hover:text-foreground/70"
-                      title="Peek thread control block"
+                      title="Show the thread control block (struct k_thread) in Mem"
                       onClick={() => onPeek(t.addr.toString(16))}
                     >
                       tcb {compactHex(t.addr.toString(16))}
@@ -205,4 +220,15 @@ export function ThreadsPane({
       </ul>
     </div>
   )
+}
+
+function waitLinkTitle(
+  snap: debug.DebugSnapshot,
+  thread: debug.DebugSnapshot['threads'][number],
+  addr: number,
+): string {
+  if (thread.waitingOn?.kind === 'join') return `Show ${thread.waitingOn.name} in Threads`
+  return objectAt(snap.objects, addr)
+    ? 'Show it in Objects'
+    : `Show the wait object at 0x${addr.toString(16)} in Mem`
 }

@@ -42,6 +42,14 @@ const INSPECT_TABS = [
   'objects',
 ] as const satisfies readonly InspectTab[]
 
+const INSPECT_LABELS: Record<InspectTab, string> = {
+  cpu: 'CPU',
+  stack: 'Stack',
+  memory: 'Mem',
+  threads: 'Threads',
+  objects: 'Objects',
+}
+
 /** Run control, breakpoints and inspectors — the body of the Debug dock row. */
 export function DebugBody() {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
@@ -72,8 +80,19 @@ export function DebugBody() {
   const onPeek = (addrHex: string, _length?: number) => {
     if (!snap.paused) return
     setPeekAddr(compactHex(addrHex))
+    // Remember where the jump came from, so Mem can offer the way back.
+    const label = INSPECT_LABELS[tab]
+    debugUi.arrive('memory', { label, section: tab })
     setTab('memory')
   }
+
+  // Mem keeps its jump history, pin and search while another tab is up, so a
+  // trip to Objects and back does not start it over. Mounted on first visit
+  // only: until then, a pause should not cost a memory read.
+  const [memoryMounted, setMemoryMounted] = useState(tab === 'memory')
+  useEffect(() => {
+    if (tab === 'memory') setMemoryMounted(true)
+  }, [tab])
 
   /** One run-control action at a time — RSP answers a single packet at a time. */
   const runStep = async (action: () => Promise<unknown>) => {
@@ -184,7 +203,10 @@ export function DebugBody() {
                       ? 'bg-secondary text-foreground'
                       : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
                   )}
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    debugUi.clearOrigin()
+                    setTab(id)
+                  }}
                 >
                   {label}
                 </button>
@@ -216,12 +238,14 @@ export function DebugBody() {
                   onSeedConsumed={() => setStackThread(null)}
                 />
               )}
-              {tab === 'memory' && (
-                <MemoryPane
-                  snap={snap}
-                  seedAddr={peekAddr}
-                  onSeedConsumed={() => setPeekAddr(null)}
-                />
+              {memoryMounted && (
+                <div hidden={tab !== 'memory'}>
+                  <MemoryPane
+                    snap={snap}
+                    seedAddr={peekAddr}
+                    onSeedConsumed={() => setPeekAddr(null)}
+                  />
+                </div>
               )}
               {tab === 'threads' && (
                 <ThreadsPane
