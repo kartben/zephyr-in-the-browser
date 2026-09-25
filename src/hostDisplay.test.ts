@@ -10,7 +10,7 @@ import {
 const FRAME_POINTER = 64
 const FRAME_SEQUENCE_POINTER = 32
 
-function displayModule(frameSeqPointer?: number, frameWaitSupported = false) {
+function displayModule(frameSeqPointer: number) {
   const heap = new Uint8Array(new SharedArrayBuffer(4096))
   return {
     HEAPU8: heap,
@@ -19,28 +19,14 @@ function displayModule(frameSeqPointer?: number, frameWaitSupported = false) {
     _qemu_browser_ramfb_get_stride: () => 64,
     _qemu_browser_ramfb_get_data: () => FRAME_POINTER,
     _qemu_browser_ramfb_get_fourcc: () => FOURCC_AR24,
-    ...(frameSeqPointer === undefined
-      ? {}
-      : {
-          _qemu_browser_ramfb_get_frame_seq_ptr: () => frameSeqPointer,
-          ...(frameWaitSupported
-            ? { _qemu_browser_ramfb_frame_wait_supported: () => 1 }
-            : {}),
-        }),
+    _qemu_browser_ramfb_get_frame_seq_ptr: () => frameSeqPointer,
   }
 }
 
 afterEach(() => detach())
 
 describe('hostDisplay', () => {
-  it('keeps the checksum fallback available for an older emulator artifact', () => {
-    attach(displayModule())
-
-    expect(getSnapshot()).toMatchObject({ available: true, frameSeqPointer: 0 })
-    expect(getFrameSequence()).toBeNull()
-  })
-
-  it('reads the QEMU dirty sequence atomically when an artifact provides one', () => {
+  it('reads the QEMU dirty sequence atomically', () => {
     const module = displayModule(FRAME_SEQUENCE_POINTER)
     const sequence = new Int32Array(module.HEAPU8.buffer, FRAME_SEQUENCE_POINTER, 1)
     Atomics.store(sequence, 0, 7)
@@ -51,13 +37,5 @@ describe('hostDisplay', () => {
 
     Atomics.store(sequence, 0, 8)
     expect(getFrameSequence()).toBe(8)
-  })
-
-  it('only enables futex waits for artifacts that explicitly support them', () => {
-    attach(displayModule(FRAME_SEQUENCE_POINTER))
-    expect(getSnapshot().frameWaitSupported).toBe(false)
-
-    attach(displayModule(FRAME_SEQUENCE_POINTER, true))
-    expect(getSnapshot().frameWaitSupported).toBe(true)
   })
 })

@@ -18,7 +18,6 @@ Per-peer configure/control UI (draft):
 | QEMU `hci0` chardev slot | `tools/qemu-*-patches/*chardev-add-browser-hci-slot.patch` |
 | A53 HCI UART @ `0x090f0000` | `tools/qemu-jit-patches/0019-hw-char-add-browser-hci-uart-on-virt.patch` |
 | RISC-V HCI UART @ `0x1000c000` | `tools/qemu-esp-patches/0014-hw-char-add-browser-hci-uart-on-RISC-V-virt.patch` |
-| Feature bit `"hci"` | `tools/build-qemu-wasm.sh` → `features.json` |
 | Page bridge | `src/hostBt.ts`, `src/bt/h4.ts`, `src/bt/bumbleController.ts` |
 | In-page peers | `src/bt/peers.ts` — HRM / advertiser / scanner / A2DP speaker on the same LocalLink |
 | Bumble wheel | `public/vendor/bumble/` — see its README; fetch with `tools/vendor-bumble.sh` |
@@ -28,7 +27,7 @@ Per-peer configure/control UI (draft):
 | Packaged samples | `bt_peripheral` → Zephyr peripheral; `bt_central_hr` → browser variant that decodes SIG HRM; `bt_a2dp_source` → classic A2DP source |
 ## Rebuild checklist
 
-1. **Emulator** (once): `tools/build-qemu-wasm.sh` so `features.json` lists `"hci"`.
+1. **Emulator** (once): `tools/build-qemu-wasm.sh`.
 2. **Wheel** (once / on bump): `tools/vendor-bumble.sh`.
 3. **Guest image**: `tools/build-zephyr-image.sh qemu_cortex_a53 bt_peripheral`,
    `… bt_central_hr`, or `… bt_a2dp_source`

@@ -42,24 +42,20 @@ export type PanelKind =
  * Wires QEMU's QMP monitor to a chardev the page can read and write
  * (tools/qemu-*-patches/*-chardev-add-browser-backed-monitor-channel.patch).
  * That is what lets the page genuinely stop the machine — see src/hostMonitor.ts.
- *
- * Appended only when public/qemu/features.json says the emulator has the
- * bridge: an older build exits on an unknown -chardev backend, and every
- * published image tarball has to stay bootable.
  */
 export const MONITOR_ARGS = ['-chardev', 'browser,id=mon0', '-mon', 'chardev=mon0,mode=control']
 
 /**
- * GDB stub on a second browser chardev. Appended only when features.json lists
- * `"gdb"` (dual-channel chardev patch). Do not pass `-S` — the page attaches
- * after boot via qemu_browser_gdb_attach().
+ * GDB stub on a second browser chardev. Do not pass `-S` here: the page
+ * attaches after boot via qemu_browser_gdb_attach(), and adds `-S` itself only
+ * for a sample with a guided tour.
  */
 export const GDB_ARGS = ['-chardev', 'browser,id=gdb0', '-gdb', 'chardev:gdb0']
 
 /**
  * Bluetooth HCI (H:4) on a third browser chardev. The virt machine wires
  * `id=hci0` to a spare UART when present (A53 0x090f0000 / RISC-V 0x1000c000).
- * Appended only when features.json lists `"hci"`.
+ * Appended only on boards with the `hostBt` peripheral.
  */
 export const HCI_ARGS = ['-chardev', 'browser,id=hci0']
 
@@ -1368,10 +1364,6 @@ export function sampleAsset(board: Board, sampleId: string): string {
 }
 
 /**
- * The flattened devicetree shipped next to the image, when the build put one
- * there (tools/build-zephyr-image.sh does; older tarballs may not have it).
- */
-/**
  * The merged flash image for a sample, on boards that boot from flash. Built
  * beside the ELF by tools/build-zephyr-image.sh.
  */
@@ -1379,6 +1371,7 @@ export function sampleFlashAsset(board: Board, sampleId: string): string {
   return `zephyr/${boardAssetDir(board)}/${sampleId}.flash.bin`
 }
 
+/** The flattened devicetree tools/build-zephyr-image.sh ships next to the image. */
 export function sampleDtsAsset(board: Board, sampleId: string): string {
   return `zephyr/${boardAssetDir(board)}/${sampleId}.dts`
 }

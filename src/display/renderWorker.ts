@@ -14,8 +14,8 @@
  * updates. The worker samples those callbacks at a controlled rate rather
  * than re-reading shared memory on every high-refresh tick. Once a panel stays
  * unchanged for a short grace period, its sequence is checked at 30 Hz instead.
- * A pointer event wakes the hot path immediately. New emulator artifacts expose
- * an atomic dirty sequence; older artifacts retain a checksum fallback.
+ * A pointer event wakes the hot path immediately. QEMU publishes an atomic
+ * dirty sequence for the framebuffer, so an unchanged frame is never uploaded.
  */
 import { createWebGLRenderer, type FrameRenderer, type UploadMode } from './renderers'
 
@@ -28,7 +28,6 @@ export interface WorkerSnapshot {
   fourcc: number
   pointer: number
   frameSeqPointer: number
-  frameWaitSupported: boolean
 }
 
 export type MainToWorker =
@@ -51,7 +50,6 @@ export type WorkerToMain =
   | {
       type: 'frameStats'
       uploaded: boolean
-      digestMs: number
       drawMs: number
       /** Total synchronous work in this worker tick, including the idle check. */
       checkMs: number
@@ -72,9 +70,6 @@ let running = false
 let frameHandle = 0
 let frameScheduled = false
 let scheduledWithRaf = false
-/** Checksum of the last uploaded frame, and whether one has been uploaded. */
-let lastDigest = 0
-let hasDrawn = false
 let frameSeqView: Int32Array | null = null
 let frameSeqBuffer: SharedArrayBuffer | null = null
 let frameSeqPointer = 0
@@ -82,18 +77,7 @@ let lastFrameSequence = 0
 let hasFrameSequence = false
 let frameWaitPending = false
 let frameWaitGeneration = 0
-/**
- * Consecutive frames that differed from their predecessor. Once the guest is
- * clearly animating, hashing every pixel before each upload is pure overhead —
- * chart samples change every frame. Stay on a hot path that always uploads,
- * and only re-arm the checksum after a quiet stretch so an idle panel still
- * costs nothing.
- */
-let dirtyStreak = 0
-const HOT_AFTER = 3
-/** Re-check for a still frame about once a second while hot (~60 Hz present). */
-const HOT_RECHECK_EVERY = 60
-/** When true, time digest/draw and post frameStats to the main thread. */
+/** When true, time the draw and post frameStats to the main thread. */
 let profiling = false
 
 /** Limit active shared-memory reads to 72 Hz while retaining presentation pacing. */
@@ -137,12 +121,11 @@ function scheduleAfterCheck(changed: boolean) {
 }
 
 /**
- * Sleep without polling until QEMU publishes another dirty sequence. This is
- * deliberately opt-in: older artifacts increment the sequence but do not wake
- * JS waiters, so they retain the timed polling path above.
+ * Sleep without polling until QEMU publishes another dirty sequence. Falls
+ * back to the timed polling path above where `Atomics.waitAsync` is missing.
  */
 function waitForFrameSequence(sequence: number): boolean {
-  if (!snapshot?.frameWaitSupported || !frameSeqView) return false
+  if (!frameSeqView) return false
   if (frameWaitPending) return true
   const waitAsync = (Atomics as AtomicsWithWaitAsync).waitAsync
   if (!waitAsync) return false
@@ -175,24 +158,7 @@ function wake() {
   scheduleNext(0)
 }
 
-/**
- * Checksum of a frame, over every 32-bit pixel — a subsample would miss exactly
- * what matters here, a one-pixel-wide cursor or cross. Position-sensitive, so
- * a mark that moves without changing colour still registers. Returns null when
- * the frame cannot be viewed as 32-bit words, which forces an upload.
- */
-function digest(buffer: ArrayBufferLike, pointer: number, length: number): number | null {
-  if (pointer % 4 !== 0 || length % 4 !== 0) return null
-  const words = new Uint32Array(buffer, pointer, length / 4)
-  let hash = 0x811c9dc5
-  for (let i = 0; i < words.length; i += 1) hash = Math.imul(hash ^ words[i], 0x01000193)
-  return hash
-}
-
 function resetFrameTracking() {
-  lastDigest = 0
-  hasDrawn = false
-  dirtyStreak = 0
   frameSeqView = null
   frameSeqBuffer = null
   frameSeqPointer = 0
@@ -204,7 +170,7 @@ function resetFrameTracking() {
   lastActiveCheckAt = 0
 }
 
-/** Read QEMU's atomic dirty sequence, or null when the artifact predates it. */
+/** Read QEMU's atomic dirty sequence, or null when the pointer is not usable. */
 function getFrameSequence(source: ArrayBufferLike, pointer: number): number | null {
   if (
     typeof SharedArrayBuffer === 'undefined' ||
@@ -277,55 +243,27 @@ function frame(timestamp?: number) {
     return
   }
 
-  const checkStart = profiling ? performance.now() : 0
-  let digestMs = 0
-  let uploaded = true
   const sequence = getFrameSequence(buffer, snapshot.frameSeqPointer)
-  if (sequence !== null) {
-    if (hasFrameSequence && sequence === lastFrameSequence) {
-      uploaded = false
-      if (profiling) {
-        post({
-          type: 'frameStats',
-          uploaded,
-          digestMs,
-          drawMs: 0,
-          checkMs: performance.now() - checkStart,
-        })
-      }
-      if (!waitForFrameSequence(sequence)) scheduleAfterCheck(false)
-      return
-    }
-    hasFrameSequence = true
-    lastFrameSequence = sequence
-  } else {
-    // Old QEMU artifacts do not publish a dirty bit, so content is the signal.
-    const hot = dirtyStreak >= HOT_AFTER
-    const recheck = hot && dirtyStreak % HOT_RECHECK_EVERY === 0
-    if (!hot || recheck) {
-      const t0 = profiling ? performance.now() : 0
-      const hash = digest(buffer, snapshot.pointer, length)
-      if (profiling) digestMs = performance.now() - t0
-      if (hasDrawn && hash !== null && hash === lastDigest) {
-        dirtyStreak = 0
-        uploaded = false
-        if (profiling) {
-          post({
-            type: 'frameStats',
-            uploaded,
-            digestMs,
-            drawMs: 0,
-            checkMs: performance.now() - checkStart,
-          })
-        }
-        scheduleAfterCheck(false)
-        return
-      }
-      lastDigest = hash ?? 0
-    }
-    dirtyStreak += 1
+  if (sequence === null) {
+    scheduleNext(IDLE_INTERVAL_MS)
+    return
   }
-  hasDrawn = true
+
+  const checkStart = profiling ? performance.now() : 0
+  if (hasFrameSequence && sequence === lastFrameSequence) {
+    if (profiling) {
+      post({
+        type: 'frameStats',
+        uploaded: false,
+        drawMs: 0,
+        checkMs: performance.now() - checkStart,
+      })
+    }
+    if (!waitForFrameSequence(sequence)) scheduleAfterCheck(false)
+    return
+  }
+  hasFrameSequence = true
+  lastFrameSequence = sequence
 
   // Re-view every frame: an in-place heap growth keeps the SharedArrayBuffer's
   // identity but enlarges it, and a stale view would clamp to the old length.
@@ -334,13 +272,12 @@ function frame(timestamp?: number) {
   if (profiling) {
     post({
       type: 'frameStats',
-      uploaded,
-      digestMs,
+      uploaded: true,
       drawMs: performance.now() - t1,
       checkMs: performance.now() - checkStart,
     })
   }
-  if (sequence === null || !waitForFrameSequence(sequence)) scheduleAfterCheck(true)
+  if (!waitForFrameSequence(sequence)) scheduleAfterCheck(true)
 }
 
 self.addEventListener('message', (event: MessageEvent) => {
@@ -355,8 +292,8 @@ self.addEventListener('message', (event: MessageEvent) => {
       scheduleNext(0)
     }
   } else if (message.type === 'update') {
-    // A new buffer or pixel address invalidates the checksum: the same content
-    // at a new address must still reach the canvas.
+    // A new buffer or pixel address invalidates the last sequence: the same
+    // content at a new address must still reach the canvas.
     buffer = message.buffer
     snapshot = message.snapshot
     resetFrameTracking()

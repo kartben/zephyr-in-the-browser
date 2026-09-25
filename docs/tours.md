@@ -372,9 +372,8 @@ The plant is always awaited *before* the resume. `main()` and the line after it
 are microseconds apart on a JIT guest, so a plant racing a resume loses the step
 reliably rather than occasionally.
 
-The tour needs the gdbstub, so it needs an emulator built with the dual-channel
-chardev patch (`public/qemu/features.json` lists `"gdb"`). Without it the sample
-runs normally and the tour never starts.
+The tour needs the gdbstub. If it never attaches, the sample runs normally and
+the tour never starts.
 
 ## Trying it without building anything
 

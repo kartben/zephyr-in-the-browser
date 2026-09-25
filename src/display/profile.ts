@@ -9,7 +9,6 @@
  */
 
 import {
-  getFrame,
   getFrameSequence,
   getSnapshot,
   subscribe as subscribeDisplay,
@@ -34,8 +33,6 @@ export interface ProfileSnapshot {
   workerFps: number
   /** Mean synchronous worker cost per check, ms. */
   workerMs: number
-  /** Mean digest cost in the worker, ms (0 when hot-path skips it). */
-  digestMs: number
   /** Mean upload+draw cost in the worker, ms. */
   drawMs: number
   /** I²C transactions / second. */
@@ -73,8 +70,6 @@ interface Counters {
   uploads: number
   workerChecks: number
   workerMsSum: number
-  digestMsSum: number
-  digestCount: number
   drawMsSum: number
   drawCount: number
   i2cStart: number
@@ -93,8 +88,6 @@ const empty = (): Counters => ({
   uploads: 0,
   workerChecks: 0,
   workerMsSum: 0,
-  digestMsSum: 0,
-  digestCount: 0,
   drawMsSum: 0,
   drawCount: 0,
   i2cStart: 0,
@@ -102,8 +95,6 @@ const empty = (): Counters => ({
 })
 
 let enabled = false
-let lastDigest = 0
-let hasDigest = false
 let lastFrameSequence = 0
 let hasFrameSequence = false
 let poll: ReturnType<typeof setInterval> | undefined
@@ -118,7 +109,6 @@ let lastSnapshot: ProfileSnapshot = {
   uploadFps: 0,
   workerFps: 0,
   workerMs: 0,
-  digestMs: 0,
   drawMs: 0,
   i2cHz: 0,
   bridgeHz: 0,
@@ -149,43 +139,22 @@ function sampleGuestFrame() {
   const snap = getSnapshot()
   if (!snap.available) return
   const sequence = getFrameSequence()
-  if (sequence !== null) {
-    if (hasFrameSequence && sequence === lastFrameSequence) return
-    lastFrameSequence = sequence
-    hasFrameSequence = true
-    windowCounters.guestFrames += 1
-    return
-  }
-  const frame = getFrame()
-  if (!frame || frame.byteLength < 4) return
-  if (snap.pointer % 4 !== 0 || frame.byteLength % 4 !== 0) return
-  /**
- * Sparse FNV over every 4th pixel — thin chart strokes are easy to miss at
- * coarser strides, which made a live-but-flat trace report guestFps=0.
- */
-  const words = new Uint32Array(frame.buffer, frame.byteOffset, frame.byteLength / 4)
-  let hash = 0x811c9dc5
-  for (let i = 0; i < words.length; i += 4) hash = Math.imul(hash ^ words[i], 0x01000193)
-  if (hasDigest && hash === lastDigest) return
-  lastDigest = hash
-  hasDigest = true
+  if (sequence === null) return
+  if (hasFrameSequence && sequence === lastFrameSequence) return
+  lastFrameSequence = sequence
+  hasFrameSequence = true
   windowCounters.guestFrames += 1
 }
 
 /** Called from DisplayPanel when the render worker reports timing. */
 export function recordWorkerFrame(stats: {
   uploaded: boolean
-  digestMs?: number
   drawMs?: number
   checkMs?: number
 }) {
   if (!enabled) return
   windowCounters.workerChecks += 1
   if (stats.checkMs !== undefined) windowCounters.workerMsSum += stats.checkMs
-  if (stats.digestMs !== undefined && stats.digestMs > 0) {
-    windowCounters.digestMsSum += stats.digestMs
-    windowCounters.digestCount += 1
-  }
   if (!stats.uploaded) return
   windowCounters.uploads += 1
   if (stats.drawMs !== undefined) {
@@ -209,7 +178,6 @@ function rollWindow() {
   if (guestFps < 8) notes.push('guest_fps_low')
   if (uploadFps + 0.5 < guestFps) notes.push('uploads_behind_guest')
   if (i2cDelta / elapsed > 40) notes.push('i2c_hot')
-  if (c.digestCount && c.digestMsSum / c.digestCount > 0.5) notes.push('digest_expensive')
   const wake = wakeLatencyStats()
   const warp = warpOvershootStats()
   const notifySource = notifySourceStats()
@@ -220,7 +188,6 @@ function rollWindow() {
     uploadFps,
     workerFps: c.workerChecks / elapsed,
     workerMs: c.workerChecks ? c.workerMsSum / c.workerChecks : 0,
-    digestMs: c.digestCount ? c.digestMsSum / c.digestCount : 0,
     drawMs: c.drawCount ? c.drawMsSum / c.drawCount : 0,
     i2cHz: i2cDelta / elapsed,
     bridgeHz: Math.max(0, bridgeNow.requests - c.bridgeStart.requests) / elapsed,
@@ -258,7 +225,6 @@ function enable() {
   windowCounters = empty()
   windowCounters.i2cStart = i2cModel.transactionCount()
   windowCounters.bridgeStart = bridgeStats()
-  hasDigest = false
   hasFrameSequence = false
   const tick = () => {
     if (!enabled) return

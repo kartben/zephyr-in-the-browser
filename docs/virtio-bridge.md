@@ -105,10 +105,8 @@ finds them by name:
 
 `name` is matched rather than `device_id`, because two instances can share a
 device id (two I2C buses) and index order is a command-line accident. All five
-exports are required. `attach()` throws if the request-wake export is missing
-rather than quietly degrading to a poll, and every packaged target that carries
-the bridge has them: in `EMULATOR_RELEASE=v97` both aarch64 and riscv32 export
-all five. The `arm` and `xtensa` artifacts have no bridge at all, which is
+exports are required, and every packaged target that carries the bridge has
+them: in `EMULATOR_RELEASE=v101` both aarch64 and riscv32 export all five. The `arm` and `xtensa` artifacts have no bridge at all, which is
 right, because `attachVirtio` runs only for a board with `peripherals.virtio`
 set (`src/backends/qemu.ts`): the A53 and the RV32 `virt`.
 

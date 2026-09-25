@@ -185,31 +185,6 @@ async function assertAsset(file: string) {
   }
 }
 
-/**
- * Which optional bridges this emulator build has.
- *
- * tools/package-emulator.sh writes features.json beside the artifacts. A build
- * from before it exists answers 404, which reads as "none" — exactly right,
- * because that build predates the bridges the file would have listed.
- *
- * This matters for argv specifically: QEMU exits on an unknown `-chardev`
- * backend, so guessing wrong here would make every older image tarball fail to
- * boot rather than merely lose a feature.
- */
-async function emulatorFeatures(): Promise<Set<string>> {
-  try {
-    const res = await fetch(url('features.json'))
-    if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) {
-      return new Set()
-    }
-    const json: unknown = await res.json()
-    const list = (json as { features?: unknown })?.features
-    return Array.isArray(list) ? new Set(list.filter((f): f is string => typeof f === 'string')) : new Set()
-  } catch {
-    return new Set()
-  }
-}
-
 export function createQemuBackend(): PtyBackend {
   return {
     id: 'qemu',
@@ -319,11 +294,8 @@ export function createQemuBackend(): PtyBackend {
       // are appended here rather than baked into each board's argv. The
       // sample's own devices come last, for the same reason: they belong to
       // the program, not the machine.
-      const features = await emulatorFeatures()
-      let args = [...board.args]
-      if (features.has('monitor')) args = [...args, ...MONITOR_ARGS]
-      if (features.has('gdb')) args = [...args, ...GDB_ARGS]
-      if (features.has('hci') && board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
+      let args = [...board.args, ...MONITOR_ARGS, ...GDB_ARGS]
+      if (board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
       if (sample.extraArgs) args = [...args, ...sample.extraArgs]
 
       /*
@@ -335,7 +307,7 @@ export function createQemuBackend(): PtyBackend {
        * and nothing ever fired. So freeze the CPU at reset and let the attach
        * below start it, once every anchor is resolved and step one is planted.
        */
-      const frozen = features.has('gdb') && hasTour(sampleId)
+      const frozen = hasTour(sampleId)
       if (frozen) args = [...args, '-S']
 
       /*
@@ -354,7 +326,7 @@ export function createQemuBackend(): PtyBackend {
       const bluetoothSample =
         (sample.primaryPanels?.includes('bluetooth') ?? false) ||
         (getDeviceTree()?.insights?.uartBuses.some((bus) => bus.role === 'bluetooth') ?? false)
-      if (features.has('hci') && board.peripherals?.hostBt && bluetoothSample) {
+      if (board.peripherals?.hostBt && bluetoothSample) {
         onStatus({ status: 'loading', detail: 'preparing Bluetooth controller' })
         await prepareHostBtController()
         if (signal.aborted) return
@@ -366,7 +338,7 @@ export function createQemuBackend(): PtyBackend {
         pty: slave,
         // pthread workers re-import the main script by absolute URL.
         mainScriptUrlOrBlob: url(mainScript),
-        // Resolves the .wasm, .data and .worker.js siblings under /qemu/.
+        // Resolves the .wasm and .data siblings under /qemu/.
         // file_packager's load.js honours this too.
         locateFile: (path) => ASSET_BASE + path,
         // Guest stdout/stderr go through the TTY hooks, not here; this only
@@ -413,21 +385,15 @@ export function createQemuBackend(): PtyBackend {
       // blocked guest poll() does not stall waiting on the Emscripten TTY.
       // (Upstream's snippet writes `oldPoll.call(stream, timeout)`, dropping the
       // receiver; the receiver-preserving form below is what it means to do.)
-      const tty = instance.TTY
-      if (tty) {
-        const oldPoll = tty.stream_ops.poll
-        const pty = instance.pty
-        tty.stream_ops.poll = function (this: unknown, stream: unknown, timeout: unknown) {
-          if (!pty.readable) {
-            return (pty.readable ? 1 : 0) | (pty.writable ? 4 : 0)
-          }
-          return oldPoll.call(this, stream, timeout)
+      // The build exports TTY (-sEXPORTED_RUNTIME_METHODS), so it is set here.
+      const tty = instance.TTY!
+      const oldPoll = tty.stream_ops.poll
+      const pty = instance.pty
+      tty.stream_ops.poll = function (this: unknown, stream: unknown, timeout: unknown) {
+        if (!pty.readable) {
+          return (pty.readable ? 1 : 0) | (pty.writable ? 4 : 0)
         }
-      } else {
-        console.warn(
-          '[qemu] Module.TTY not exported; skipping poll patch. Build with ' +
-            '-sEXPORTED_RUNTIME_METHODS=...,TTY,FS',
-        )
+        return oldPoll.call(this, stream, timeout)
       }
 
       // Each emulator can contain optional browser bridge exports; board
@@ -471,21 +437,18 @@ export function createQemuBackend(): PtyBackend {
       // only the sample that declares one has an image to follow.
       if (sample.blankFiles?.length) attachHostDisk(instance)
       else detachHostDisk()
-      if (features.has('hci') && board.peripherals?.hostBt) attachHostBt(instance)
+      if (board.peripherals?.hostBt) attachHostBt(instance)
       else detachHostBt()
-      // Not gated on board metadata: the monitor is a property of the emulator
-      // build, not of the machine it is emulating. attach() no-ops when the
-      // exports are missing.
+      // Not gated on board metadata: the monitor and the gdbstub are
+      // properties of the emulator build, not of the machine it is emulating.
       attachHostMonitor(instance)
-      if (features.has('gdb')) {
-        bindHostGdb(instance, board.arch)
-        // Attach after the machine is running so OPENED does not freeze boot.
-        void attachHostGdbSession().then((ok) => {
-          // `-S` (below) leaves the machine frozen at reset. Attaching resumes
-          // it; if the stub never came up, nothing else will, so let it run.
-          if (!ok && frozen) kickMonitor()
-        })
-      }
+      bindHostGdb(instance, board.arch)
+      // Attach after the machine is running so OPENED does not freeze boot.
+      void attachHostGdbSession().then((ok) => {
+        // `-S` (above) leaves the machine frozen at reset. Attaching resumes
+        // it; if the stub never came up, nothing else will, so let it run.
+        if (!ok && frozen) kickMonitor()
+      })
 
       onStatus({ status: 'running', detail: custom ? custom.name : sampleId })
     },

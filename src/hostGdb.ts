@@ -1,9 +1,8 @@
 /**
  * Browser end of QEMU's gdbstub (RSP over the gdb0 browser chardev).
  *
- * Gated on features.json `"gdb"` and the `_qemu_browser_gdb_*` exports. Until
- * the emulator is rebuilt with the dual-channel chardev patch, attach() is a
- * no-op and the control façade keeps using QMP.
+ * Until a session is attached, the control façade (src/debug/control.ts) keeps
+ * using QMP.
  */
 
 import {

@@ -18,12 +18,12 @@ the record of how the debugger is wired —
 
 ### Phases A–C — gdbstub path (this work)
 
-**Phase A (QEMU patches + feature gate)**
+**Phase A (QEMU patches)**
 
 - Dual browser chardev slots: `id=mon0` (QMP, always open) and `id=gdb0`
   (gdbstub, closed until `qemu_browser_gdb_attach()`)
 - Parallel exports `qemu_browser_gdb_*` (+ attach/detach)
-- `features.json` may list `"gdb"`; `GDB_ARGS` appended only then
+- `GDB_ARGS` appended to every board's argv
 - Patches: `tools/qemu-{,jit-,riscv-}patches/*chardev-add-browser*`
 
 **Phase B (host RSP + control plane)**
@@ -40,10 +40,8 @@ the record of how the debugger is wired —
   Phase F. Memory turned out to be writable too: `M` behind an editable hex
   dump, gated on paused.
 
-The emulator rebuild this needed has happened — `features.json` in a packaged
-build lists `monitor`, `gdb` and `hci` (see `../public/qemu/README.md`). The
-fallback is still live code, so a page served an older tarball stays on Step 1
-automatically rather than breaking.
+Every released emulator carries the `monitor`, `gdb` and `hci` chardev slots
+(see `../public/qemu/README.md`), so the page passes them unconditionally.
 
 ---
 

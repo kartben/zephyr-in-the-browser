@@ -35,13 +35,10 @@ environment overrides; see the headers.
 public/qemu/
   qemu-system-arm.js          ARM factory
   qemu-system-arm.wasm        Cortex-M emulator
-  qemu-system-arm.worker.js   pthread worker shim
   qemu-system-aarch64.js      AArch64 factory
   qemu-system-aarch64.wasm    Cortex-A53 emulator
-  qemu-system-aarch64.worker.js
   qemu-system-riscv32.js      RISC-V 32-bit factory (opt-in build)
   qemu-system-riscv32.wasm    qemu_riscv32 emulator (TCI)
-  qemu-system-riscv32.worker.js
   efi-virtio.rom              default virt-machine option ROM
   vgabios-ramfb.bin           ramfb option ROM
   zephyr/
@@ -255,8 +252,8 @@ directories under `tools/`:
   second process. Its completion drain runs on `QEMU_CLOCK_REALTIME` rather
   than the virtual clock — this is the first bridge where the guest *blocks* on
   a browser answer, and under `-icount … sleep=on` a virtual-clock timer would
-  warp past the browser and inflate guest time. The realtime timer and the
-  page's adaptive timer remain fallbacks for old artifacts and missed wakes.
+  warp past the browser and inflate guest time. The realtime timer remains a
+  fallback for missed wakes.
   See `docs/virtio-bridge.md`.
 * Stable width, height, stride, format, and pixel-address exports for
   `qemu,ramfb`, allowing JavaScript to render the guest framebuffer.
@@ -291,10 +288,6 @@ directories under `tools/`:
 * A `qemu_browser_guest_icount` export (AArch64 only) returning the guest
   instruction count, or `-1` when the build is not running under `-icount`. It
   backs the Performance panel's MIPS readout (`src/guestStats.ts`).
-
-`features.json` lists which of those optional bridges the build actually
-exports (`monitor`, `gdb`, `hci`) so the page never passes an unknown
-`-chardev` backend to an older tarball.
 
 The dependency image — glib, pixman, zlib and libffi cross-compiled to Wasm — is
 built from `tools/Dockerfile.deps`, vendored from ktock's so this repository does

@@ -73,7 +73,7 @@ try {
     console.log(
       `  t=${((Date.now() - start) / 1000).toFixed(1)}s guest=${snap?.guestFps?.toFixed?.(1) ?? '-'} ` +
         `up=${snap?.uploadFps?.toFixed?.(1) ?? '-'} i2c=${snap?.i2cHz?.toFixed?.(0) ?? '-'} ` +
-        `mips=${snap?.mips?.toFixed?.(1) ?? '-'} digest=${snap?.digestMs?.toFixed?.(2) ?? '-'} ` +
+        `mips=${snap?.mips?.toFixed?.(1) ?? '-'} ` +
         `draw=${snap?.drawMs?.toFixed?.(2) ?? '-'} ${snap?.display?.width ?? '?'}x${snap?.display?.height ?? '?'} ` +
         `notes=${(snap?.notes ?? []).join(',')}`,
     )
@@ -91,7 +91,6 @@ try {
         all: {
           guestFps: +avg('guestFps').toFixed(2),
           uploadFps: +avg('uploadFps').toFixed(2),
-          digestMs: +avg('digestMs').toFixed(3),
           drawMs: +avg('drawMs').toFixed(3),
           i2cHz: +avg('i2cHz').toFixed(1),
           mips: +avg('mips').toFixed(1),
@@ -99,7 +98,6 @@ try {
         steady: {
           guestFps: +avgSteady('guestFps').toFixed(2),
           uploadFps: +avgSteady('uploadFps').toFixed(2),
-          digestMs: +avgSteady('digestMs').toFixed(3),
           drawMs: +avgSteady('drawMs').toFixed(3),
           i2cHz: +avgSteady('i2cHz').toFixed(1),
           mips: +avgSteady('mips').toFixed(1),
