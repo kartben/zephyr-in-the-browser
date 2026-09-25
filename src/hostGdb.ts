@@ -160,6 +160,8 @@ let frameRegs: FrameRegs = NO_FRAME_REGS
 let tempBp: number | null = null
 /** Suppress the stop handler's refresh while a step sequence drives its own. */
 let internalStep = false
+/** Code address of the stop the machine is parked at, once read; null while running. */
+let stopPc: number | null = null
 const listeners = new Set<() => void>()
 
 function labelFor(addr: number): string | null {
@@ -287,6 +289,7 @@ async function refreshRegs() {
     const view = decodeGPacket(arch, hex)
     const pc = view.pc
     const pcNum = pc ? Number.parseInt(pc, 16) : NaN
+    stopPc = pcAddr(pc)
     const pcLabel = Number.isFinite(pcNum) ? labelFor(pcNum) : null
     const regFormals = Number.isFinite(pcNum) ? formalsForPc(pcNum) : []
     const summary = pcLabel
@@ -634,6 +637,8 @@ async function openSession(
   let starting = true
   next.setStopHandler((info) => {
     if (info.kind !== 'signal') return
+    // A new stop: whatever PC we knew belongs to the last one.
+    stopPc = null
     // start() asks "why are you stopped?" as part of the handshake. That
     // reply is consumed explicitly below; do not launch a second, concurrent
     // full refresh from the ordinary asynchronous stop path.
@@ -658,9 +663,12 @@ async function openSession(
         } catch {
           pc = null
         }
+        stopPc = pcAddr(pc)
         if (pc !== null && stopFilter(pc)) {
           await clearTempBreakpoint()
-          await next.continue()
+          // The breakpoint that trapped is still in: a plain continue would
+          // trap on it again and hand the filter the same hit twice.
+          await continueFrom(next)
           return
         }
       }
@@ -746,6 +754,7 @@ export function detachLive(opts?: { keepImage?: boolean }) {
   frameRegs = NO_FRAME_REGS
   tempBp = null
   internalStep = false
+  stopPc = null
   if (opts?.keepImage === false) setKernelImage(null)
   state = {
     ...EMPTY,
@@ -785,6 +794,7 @@ export function detach() {
   frameRegs = NO_FRAME_REGS
   tempBp = null
   internalStep = false
+  stopPc = null
   kernelElf = null
   threadInfo = null
   objectCoreMeta = null
@@ -813,6 +823,9 @@ export async function pause(): Promise<void> {
   if (pausePending) return pausePending
   pausePending = (async () => {
     try {
+      // A continue that is still stepping off a breakpoint owns the pipe;
+      // let it finish, then halt what it let go.
+      await continuing
       await c.interrupt()
       publish({ paused: true, registersLoading: true })
       await clearTempBreakpoint()
@@ -837,7 +850,7 @@ export async function pause(): Promise<void> {
 export async function resume(): Promise<void> {
   if (!client || !state.attached) return
   try {
-    await client.continue()
+    await continueFrom(client)
     // Keep the last register / memory / thread snapshot so the inspect tabs
     // can stay visible (grayed) while running — makes the next-pause blink
     // against a frozen baseline.
@@ -856,6 +869,7 @@ export async function step(): Promise<void> {
   if (!client || !state.attached || !state.paused) return
   try {
     internalStep = true
+    stopPc = null
     await client.step()
     publish({ paused: true, registersLoading: true })
     await clearTempBreakpoint()
@@ -865,6 +879,73 @@ export async function step(): Promise<void> {
   } finally {
     internalStep = false
   }
+}
+
+/**
+ * Let the machine go from a stop, stepping off a breakpoint at the PC first.
+ *
+ * QEMU's gdbstub only lets a breakpoint at the current PC through while
+ * single-stepping (check_for_breakpoints_slow: "Singlestep overrides
+ * breakpoints"), and OpenOCD's resume does not step over one either. So a
+ * plain continue from a breakpoint that is still inserted traps on it again
+ * straight away, and whoever counts hits sees the same one twice. That is how
+ * a tour's `when: hits == N` fired on the first real pass, and how a step
+ * planted on the address the guest was already stopped at fired on that same
+ * stop. gdb steps over it, and so does this: one instruction with the
+ * breakpoint still in, then the continue.
+ *
+ * The step's stop never reaches the stop handler, since step() waits for it
+ * itself, so it neither publishes a pause nor counts as a hit. If the step
+ * lands on another breakpoint, the continue traps there at once, and that
+ * arrives as the ordinary stop it is: the guest really did get there.
+ *
+ * Concurrent callers (a filtered stop and a Resume click) share one attempt:
+ * two steps on the pipe at once would each supersede the other.
+ */
+let continuing: Promise<void> | null = null
+
+function continueFrom(c: RspClient): Promise<void> {
+  if (continuing) return continuing
+  continuing = (async () => {
+    try {
+      if (c.isRunning()) return
+      const pc = stopPc ?? (hasBreakpoints() ? await readStopPc(c) : null)
+      stopPc = null
+      if (pc !== null && breakpointAt(pc)) {
+        try {
+          await c.step()
+        } catch {
+          // Fall through: re-trapping on the breakpoint beats not running.
+        }
+      }
+      await c.continue()
+    } finally {
+      continuing = null
+    }
+  })()
+  return continuing
+}
+
+function hasBreakpoints(): boolean {
+  return tempBp !== null || state.breakpoints.length > 0
+}
+
+function breakpointAt(pc: number): boolean {
+  return tempBp === pc || state.breakpoints.some((b) => codeAddr(arch, b.addr) === pc)
+}
+
+async function readStopPc(c: RspClient): Promise<number | null> {
+  try {
+    return pcAddr(decodeGPacket(arch, await c.readRegisters()).pc)
+  } catch {
+    return null
+  }
+}
+
+/** A decoded PC as the code address breakpoints are kept at. */
+function pcAddr(pc: string | null): number | null {
+  const pcNum = pc ? Number.parseInt(pc, 16) : NaN
+  return Number.isFinite(pcNum) ? codeAddr(arch, pcNum) : null
 }
 
 /** Drop the Step over / Step out / Run to breakpoint once it has done its job. */
@@ -921,6 +1002,7 @@ export async function stepOver(): Promise<void> {
   const fromPc = frameRegs.pc != null ? codeAddr(arch, frameRegs.pc) : null
   try {
     internalStep = true
+    stopPc = null
     await client.step()
     publish({ paused: true, registersLoading: true })
     await clearTempBreakpoint()

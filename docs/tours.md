@@ -125,9 +125,10 @@ the breakpoint traps on every pass, and the ones that do not match are let go
 again. No `SAMPLE_ONCE()` is compiled into the guest, and the sample has no idea
 any of it is happening.
 
-**A rejected hit is not free, only cheap.** It costs one register read and a
-continue — the machine never publishes a pause, so nothing else runs: no memory
-peek, no thread walk, no stack unwind, no card. That is a few milliseconds plus
+**A rejected hit is not free, only cheap.** It costs one register read, a
+single step off the breakpoint and a continue. The machine never publishes a
+pause, so nothing else runs: no memory peek, no thread walk, no stack unwind, no
+card. That is a few milliseconds plus
 the stub's poll interval, which is fine at blinky's one-blink-a-second and not
 fine on something taking a mutex thirty times a second.
 
@@ -142,7 +143,16 @@ So match the condition to the rate:
 
 Two steps may share an address — "the line that does the work" and "the same
 line, ten passes later" are both about blinky's toggle. Each counts its own
-hits; the first whose condition fires is the one shown.
+hits; the first whose condition fires is the one shown. Two *consecutive* steps
+may share one too: the second waits for the guest's next pass, not the stop the
+first one is sitting on.
+
+A hit is one pass of the guest over the address. Neither QEMU's stub nor
+OpenOCD lets a plain continue past a breakpoint at the PC (it traps again
+without executing anything), so the debugger does what gdb does: it steps one
+instruction with the breakpoint still in, then continues. A rejected hit and
+the reader's Continue both go through that, which is what keeps a re-trap from
+counting as a second pass.
 
 ## What the card shows
 
