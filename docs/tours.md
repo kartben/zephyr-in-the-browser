@@ -131,19 +131,16 @@ A line anchor lands on the first code **at or after** the line, the same as
 gdb's `break file:n`, because an optimised build has no code for a comment or a
 folded branch. The card shows where it actually landed.
 
-A pattern has one weakness the other spellings do not: searching source text
-needs the source text, and *that* does arrive with the guest images. An image
-tarball older than the tour has no `src/<app>/`, and every pattern anchor in the
-tour fails. So give each one a fallback:
+Searching source text needs the source text, and *that* arrives with the guest
+images: the image build ships every toured sample's `src/<app>/`. The images are
+rebuilt with the tours, so a pattern needs no line-number fallback, and
+`npm run tour:check` fails on one that no longer matches. Alternatives are for
+what differs between boards, such as the driver a call ends up in, and are
+tried in order:
 
 ```yaml
-at: main.c:/gpio_pin_toggle_dt/ | main.c:38
+at: gpio_virtio_pin_configure | qhg_pin_configure | gpio_esp32_config
 ```
-
-Alternatives are tried in order. The pattern survives upstream editing the file;
-the line number survives an image build that predates the tour. Each covers the
-other's failure, and a test insists every pattern anchor in a shipped tour has
-one.
 
 An anchor that does not resolve costs one step, not the tour. The rest still
 run, the reason appears on the card, and a tour where *nothing* resolved says so
@@ -208,8 +205,7 @@ kernel/msg_q.c`, `this sample · main.c`, or `this page's module · …`.
 
 Images built before `sources:` existed carry no `index.json`. On those a stop
 outside the sample shows no code, a pattern in a kernel file falls through to
-its next alternative, and the sample's own files work as they always have. So
-give a kernel pattern a fallback, like any other.
+its next alternative, and the sample's own files work as they always have.
 
 ## When it fires — `when:` and friends
 
@@ -500,7 +496,7 @@ rather than the file `at:` stopped in. A step can pause on
 `gpio_pin_configure_dt()` and point at the `led0` node that named the pin:
 
 ```yaml
-at: main.c:/gpio_pin_configure_dt/ | main.c:32
+at: main.c:/gpio_pin_configure_dt/
 highlight: /GPIO_DT_SPEC_GET/
 dts: /led0: led_0/ + 3
 ```
@@ -973,11 +969,11 @@ built at another revision.
 ## Keeping tours honest
 
 The samples track Zephyr `main`, so the code a tour points at moves under it,
-and the page cannot tell. A `/pattern/` that stops matching falls back to its
-line number, the line number still resolves, and the card marks whatever is on
-that line now. `npm test` cannot see it either: resolving an anchor needs the
-ELF the tour runs against, and the images are a release asset, not part of the
-repository.
+and the page cannot tell. A `/pattern/` that stops matching costs its step, or,
+with a line-number fallback, the line number still resolves and the card marks
+whatever is on that line now. `npm test` cannot see it either: resolving an
+anchor needs the ELF the tour runs against, and the images are a release asset,
+not part of the repository.
 
 `npm run tour:check` does that half. For every tour, on every board that
 packages its sample (`_trace` twins included), it loads the ELF, the shipped

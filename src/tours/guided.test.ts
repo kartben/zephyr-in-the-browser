@@ -4,7 +4,6 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BOARDS, type GuestSample } from '@/boards'
 import { isKnownFormat } from '@/tours/expr'
-import { patternFile } from '@/tours/anchors'
 import { parseTour } from '@/tours/parse'
 import { tourIds } from '@/tours/catalog'
 import { appOfTour, isTourId } from '@/tours/tourId'
@@ -97,15 +96,9 @@ describe('tours/', () => {
     const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
     for (const step of doc.steps) {
       expect(step.at, `step ${step.index + 1} has no anchor`).toBeTruthy()
-      // A pattern anchor needs the sample's sources, which arrive with the
-      // guest images and can be older than the tour. Every one carries a
-      // fallback so the step still resolves on a build without them.
-      if (patternFile(step.at) !== null) {
-        expect(
-          step.at.includes('|'),
-          `step ${step.index + 1}: a pattern anchor wants a \`|\` fallback`,
-        ).toBe(true)
-      }
+      // A pattern anchor needs no `| main.c:NN` fallback. The image build ships
+      // every toured sample's sources, the images are rebuilt with the tours,
+      // and images.test.ts checks each pattern against them.
       expect(step.body.trim(), `step ${step.index + 1} has no prose`).not.toBe('')
       for (const watch of step.watch) {
         expect(isKnownFormat(watch.format)).toBe(true)
