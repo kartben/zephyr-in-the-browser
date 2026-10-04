@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   IMPLEMENTED_KEYS,
   RESERVED_KEYS,
+  parseCiAction,
   parseDirectives,
   parseHighlight,
   parseLook,
@@ -291,6 +292,68 @@ describe('await and do', () => {
     const doc = step('await: Go.\ndo: kernel thread suspend ${thred:consumer}')
     expect(doc.problems).toHaveLength(1)
     expect(doc.problems[0]).toContain('`do:`')
+  })
+})
+
+describe('ci', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('reads the playthrough’s actions, in the order written', () => {
+    const doc = step('ci:\n  - type msgq policy drop-oldest\n  - wait 500ms\n  - press sw0')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.ci).toEqual([
+      { kind: 'type', line: 'msgq policy drop-oldest' },
+      { kind: 'wait', ms: 500 },
+      { kind: 'press', key: 'sw0' },
+    ])
+  })
+
+  it('takes a single action inline, commas and all, and needs no `await:`', () => {
+    expect(step('ci: press sw0').steps[0]!.ci).toEqual([{ kind: 'press', key: 'sw0' }])
+    const doc = step('ci: type log list, then stop')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.ci).toEqual([{ kind: 'type', line: 'log list, then stop' }])
+  })
+
+  it('is absent unless the step asks, and is a key the parser knows', () => {
+    expect(step('panel: gpio').steps[0]!.ci).toEqual([])
+    expect(IMPLEMENTED_KEYS).toEqual(expect.arrayContaining(['ci']))
+  })
+
+  it('reads a wait in milliseconds or seconds', () => {
+    expect(parseCiAction('wait 250ms')).toEqual({ ok: true, action: { kind: 'wait', ms: 250 } })
+    expect(parseCiAction('wait 1.5s')).toEqual({ ok: true, action: { kind: 'wait', ms: 1500 } })
+    expect(parseCiAction('WAIT 2 S')).toEqual({ ok: true, action: { kind: 'wait', ms: 2000 } })
+  })
+
+  it('reports an action it does not know, naming the step, and keeps the rest', () => {
+    const doc = step('ci:\n  - push sw0\n  - press sw0')
+    expect(doc.steps[0]!.ci).toEqual([{ kind: 'press', key: 'sw0' }])
+    expect(doc.problems).toEqual([
+      'step 1 (“Step”): `ci: push sw0` is not an action (`press <key>`, `type <line>`, `wait <duration>`)',
+    ])
+  })
+
+  it('reports an action missing what it acts on', () => {
+    for (const bad of ['press', 'press sw0 sw1', 'type', 'wait', 'wait 500', 'wait 0ms', 'wait 11s']) {
+      const doc = step(`ci: ${bad}`)
+      expect(doc.steps[0]!.ci, bad).toEqual([])
+      expect(doc.problems, bad).toHaveLength(1)
+      expect(doc.problems[0], bad).toContain(`\`ci: ${bad}\``)
+    }
+  })
+
+  it('reports a block that is not a list of actions', () => {
+    const doc = step('ci:\n  press: sw0')
+    expect(doc.steps[0]!.ci).toEqual([])
+    expect(doc.problems[0]).toContain('`ci:` takes actions')
+  })
+
+  it('checks placeholders in `type` lines like a shell block', () => {
+    expect(step('ci: type kernel thread suspend ${thread:consumer}').problems).toEqual([])
+    const doc = step('ci: type kernel thread suspend ${thred:consumer}')
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('`ci:`')
   })
 })
 

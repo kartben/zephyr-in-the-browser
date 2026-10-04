@@ -126,6 +126,23 @@ export type LookSpec =
   | { kind: 'debug'; section: DebugSection }
   | { kind: 'dock'; panel: PanelKind }
 
+/**
+ * One `ci:` action: something the headless playthrough does for the reader so
+ * the guest reaches this step.
+ *
+ *     press sw0               a momentary press of a GPIO Keys button
+ *     type kernel uptime      one line into the terminal, as Run types it
+ *     wait 500ms              a pause before the next action
+ *
+ * Test-only. The page parses `ci:` so a typo fails `npm test`, and never acts
+ * on it: only tools/tour-playthrough.mjs does, through the `?test=1` hooks in
+ * src/lib/testHooks.ts.
+ */
+export type CiAction =
+  | { kind: 'press'; key: string }
+  | { kind: 'type'; line: string }
+  | { kind: 'wait'; ms: number }
+
 export interface TourStep {
   /** 0-based position, which is also the order the author wrote them in. */
   index: number
@@ -174,6 +191,8 @@ export interface TourStep {
   await: string | null
   /** Shell lines for the reader to type, shown on that same card. */
   do: string[]
+  /** What the headless playthrough does to reach this step; never acted on by the page. */
+  ci: CiAction[]
 }
 
 /** How a tour ends: a last `##` section with no ```tour block under it. */
@@ -385,6 +404,7 @@ export const IMPLEMENTED_KEYS = [
   'threads',
   'await',
   'do',
+  'ci',
 ] as const
 
 /**
@@ -741,6 +761,75 @@ function parseDo(value: Directive | undefined, where: string, problems: string[]
   return []
 }
 
+/** The longest pause a `ci:` action may ask for. A step only gets 30 s. */
+const CI_MAX_WAIT_MS = 10_000
+
+const CI_DURATION = /^(\d+(?:\.\d+)?)\s*(ms|s)$/i
+
+/**
+ * Parse one `ci:` action: `press <key>`, `type <line>` or `wait <duration>`.
+ *
+ * A key is a GPIO Keys button as the dock labels it, matched without case, so
+ * `press sw0` finds SW0. Which keys exist depends on the board, so that part is
+ * left to the playthrough, which fails with the keys it did find.
+ */
+export function parseCiAction(raw: string): { ok: true; action: CiAction } | { ok: false; error: string } {
+  const text = raw.trim()
+  const space = text.search(/\s/)
+  const verb = (space < 0 ? text : text.slice(0, space)).toLowerCase()
+  const rest = space < 0 ? '' : text.slice(space).trim()
+  switch (verb) {
+    case 'press':
+      return /^[\w-]+$/.test(rest)
+        ? { ok: true, action: { kind: 'press', key: rest } }
+        : { ok: false, error: 'takes one key, like `press sw0`' }
+    case 'type':
+      return rest !== ''
+        ? { ok: true, action: { kind: 'type', line: rest } }
+        : { ok: false, error: 'needs a line to type' }
+    case 'wait': {
+      const duration = CI_DURATION.exec(rest)
+      const ms = duration ? Number(duration[1]) * (duration[2]!.toLowerCase() === 's' ? 1000 : 1) : NaN
+      return ms > 0 && ms <= CI_MAX_WAIT_MS
+        ? { ok: true, action: { kind: 'wait', ms: Math.round(ms) } }
+        : { ok: false, error: `takes a duration up to ${CI_MAX_WAIT_MS / 1000}s, like \`wait 500ms\`` }
+    }
+    default:
+      return { ok: false, error: 'is not an action (`press <key>`, `type <line>`, `wait <duration>`)' }
+  }
+}
+
+/**
+ * Parse `ci:`, what the headless playthrough does to reach this step, in order.
+ *
+ * As with `do:`, a scalar is one action rather than a comma-separated list: a
+ * `type` line is a shell command, and a comma in one is ordinary text.
+ */
+function parseCi(value: Directive | undefined, where: string, problems: string[]): CiAction[] {
+  if (value === undefined) return []
+  if (typeof value !== 'string' && !Array.isArray(value)) {
+    problems.push(`${where}: \`ci:\` takes actions, not a block of \`key: value\``)
+    return []
+  }
+  const actions: CiAction[] = []
+  for (const raw of typeof value === 'string' ? [value] : value) {
+    if (raw === '') continue
+    const parsed = parseCiAction(raw)
+    if (!parsed.ok) {
+      problems.push(`${where}: \`ci: ${raw}\` ${parsed.error}`)
+      continue
+    }
+    // Typed the way a Run button types, placeholders and all.
+    if (parsed.action.kind === 'type') {
+      for (const problem of parsePlaceholders(parsed.action.line).problems) {
+        problems.push(`${where}: \`ci:\` ${problem}`)
+      }
+    }
+    actions.push(parsed.action)
+  }
+  return actions
+}
+
 function buildStep(
   index: number,
   title: string,
@@ -810,6 +899,7 @@ function buildStep(
   if (doLines.length > 0 && awaitText === null) {
     problems.push(`${where}: \`do:\` needs an \`await:\` to say what the lines are for`)
   }
+  const ci = parseCi(parsed.values.get('ci'), where, problems)
 
   return {
     index,
@@ -831,6 +921,7 @@ function buildStep(
     threads: walkable && threads,
     await: awaitText,
     do: doLines,
+    ci,
   }
 }
 
