@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Fixed",
+        "text": "Tour cards keep the stop line in view and name data pointers."
+      },
+      {
         "tag": "Added",
         "text": "Tour cards can type shell commands into the terminal."
       },
