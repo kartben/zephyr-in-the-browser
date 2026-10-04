@@ -743,6 +743,180 @@ describe('ending', () => {
   })
 })
 
+/*
+ * A dot in the outline opens a step already shown. The card it covers is where
+ * the reader really is, and closing the step read again has to take them back
+ * there, with the guest exactly as it was.
+ */
+describe('reading a step again', () => {
+  /** RUN_ON with every step stopping, so the guest is paused under each card. */
+  const STOPS = RUN_ON.replace('stop: no\n', '')
+
+  it('puts the paused card back, still paused, and its Continue resumes as usual', async () => {
+    await loadOnce(STOPS)
+    await pass(0x8000)
+    next()
+    await settle()
+    await pass(0x9000)
+    const live = getSnapshot().current
+    expect(live?.paused).toBe(true)
+
+    revisit(0)
+    expect(getSnapshot().current).toMatchObject({ step: { index: 0 }, paused: false })
+    next() // Back
+    await settle()
+    // The same card, the guest still stopped under it, and the tour no further
+    // on: step 3 goes in when the reader continues, not when they look back.
+    expect(getSnapshot().current).toBe(live)
+    expect(paused).toBe(true)
+    expect(resumed).toHaveLength(1)
+    expect(planted()).toEqual([])
+    expect(breakpoints.size).toBe(0)
+
+    next() // Continue
+    await settle()
+    expect(planted()).toEqual([2])
+    expect(resumed).toHaveLength(2)
+    expect(paused).toBe(false)
+  })
+
+  it('never finishes the tour from a step read again', async () => {
+    await loadLifecycle()
+    await stopAt(0x8000)
+    next()
+    await settle()
+    await stopAt(0x9000) // the last step
+    const last = getSnapshot().current
+    revisit(0)
+    next() // Back
+    await settle()
+    expect(getSnapshot().current).toBe(last)
+    expect(getSnapshot()).toMatchObject({ finished: false, completed: false })
+    expect(paused).toBe(true)
+
+    next() // Continue
+    await settle()
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: true })
+    expect(paused).toBe(false)
+  })
+
+  it('puts back a card the guest runs on under, and plants nothing', async () => {
+    // TOUR's second step is a note: its card stays up while the guest runs on
+    // towards the third.
+    await stopAt(0x8000)
+    next()
+    await settle()
+    for (let i = 0; i < 4; i++) await stopAt(0x8000)
+    const note = getSnapshot().current
+    expect(note).toMatchObject({ step: { index: 1 }, paused: false })
+    const before = { planted: planted(), resumed: resumed.length }
+
+    revisit(0)
+    next()
+    await settle()
+    expect(getSnapshot().current).toBe(note)
+    expect(planted()).toEqual(before.planted)
+    expect(resumed).toHaveLength(before.resumed)
+  })
+
+  it('returns to the your-turn card, and plants, resumes and reopens nothing', async () => {
+    await loadLifecycle()
+    await stopAt(0x8000)
+    next()
+    await settle()
+    const waiting = getSnapshot().waiting
+    expect(waiting?.index).toBe(1)
+
+    revisit(0)
+    next() // Back
+    await settle()
+    expect(getSnapshot().current).toBeNull()
+    expect(getSnapshot().waiting).toEqual(waiting)
+    expect([...breakpoints]).toEqual([0x9000])
+    expect(resumed).toHaveLength(1)
+    // The step's panel opened when its your-turn card first went up, and does
+    // not blink open again.
+    expect(revealed).toEqual(['keys'])
+  })
+
+  it('closes, and leaves the tour alone, when no card was up', async () => {
+    await loadOnce(RUN_ON)
+    await pass(0x8000) // the note
+    next() // Got it: the guest runs on towards step 2, with nothing on screen
+    await settle()
+    expect(getSnapshot()).toMatchObject({ current: null, waiting: null })
+
+    revisit(0)
+    next()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ current: null, waiting: null, finished: false })
+    expect(planted()).toEqual([1])
+    expect(resumed).toHaveLength(1)
+  })
+
+  it('keeps the way back however many steps are read on the way', async () => {
+    await loadOnce(STOPS)
+    for (const addr of [0x8000, 0x9000]) {
+      await pass(addr)
+      next()
+      await settle()
+    }
+    await pass(0xa000)
+    const live = getSnapshot().current
+    revisit(0)
+    revisit(1) // from the step read again
+    expect(getSnapshot().current?.step.index).toBe(1)
+    next()
+    expect(getSnapshot().current).toBe(live)
+  })
+
+  it('goes straight back when the reader picks the step the tour is on', async () => {
+    await loadOnce(STOPS)
+    await pass(0x8000)
+    next()
+    await settle()
+    await pass(0x9000)
+    const live = getSnapshot().current
+    revisit(1) // its own dot: there is nothing to read again
+    expect(getSnapshot().current).toBe(live)
+    revisit(0)
+    revisit(1)
+    expect(getSnapshot().current).toBe(live)
+  })
+
+  it('keeps a step that fires as the reader looks back, behind the step read again', async () => {
+    await loadLifecycle()
+    await stopAt(0x8000)
+    next()
+    await settle()
+    // The filter keeps the hit, and the reader picks a dot on the your-turn card
+    // before the stop is published.
+    const stop = stopAt(0x9000)
+    revisit(0)
+    await stop
+    expect(getSnapshot().current?.step.index).toBe(0)
+    expect(getSnapshot().waiting).toBeNull()
+
+    next() // Back
+    expect(getSnapshot().current).toMatchObject({ step: { index: 1 }, paused: true })
+    expect(paused).toBe(true)
+  })
+
+  it('still lets the guest go when the reader leaves from a step read again', async () => {
+    await loadOnce(STOPS)
+    await pass(0x8000)
+    next()
+    await settle()
+    await pass(0x9000)
+    revisit(0)
+    skip()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ current: null, finished: true, completed: false })
+    expect(breakpoints.size).toBe(0)
+    expect(paused).toBe(false)
+  })
+})
+
 /**
  * The lost-alarm finale in miniature: a step that checks a counter and an
  * argument, retries until the counter is right, then one more step and an
