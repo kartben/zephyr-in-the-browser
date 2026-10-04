@@ -21,7 +21,9 @@
 #
 # Images land at public/qemu/zephyr/<board>/<app>.elf, named after the *program*
 # rather than the board — several apps run on one board, so a board-named file
-# said nothing about what would actually boot.
+# said nothing about what would actually boot. Beside each: <app>.dts, its
+# flattened devicetree, and for an image that emits CTF, <app>.tsdl, the trace
+# event table of the Zephyr tree it was built from.
 #
 # Every build applies the browser_bridge shield (zephyr-module/boards/shields/),
 # which puts the browser-fed peripherals on the plain QEMU boards — GNSS UART,
@@ -351,6 +353,19 @@ build_one() {
   # in the devicetree viewer. Text that gzips to ~10 KB — not worth minifying.
   cp "$work/build/zephyr/zephyr.dts" "$dest/$id.dts"
   printf '    %-16s %8s bytes\n' "$id.dts" "$(command wc -c < "$dest/$id.dts" | xargs)"
+
+  # An image that emits CTF ships the event table of the tree it was built from.
+  # Event ids are positional in the TSDL and Zephyr renumbers them as events come
+  # and go, so the page decodes with this before its own public/tracing/metadata,
+  # which only matches whatever Zephyr it was last refreshed from. Per image, like
+  # the .dts: a partial rebuild from another tree must not strand the rest of the
+  # set. An image that stopped tracing loses its stale table.
+  if grep -qx 'CONFIG_TRACING_CTF=y' "$work/build/zephyr/.config"; then
+    cp "$ZEPHYR_WS/zephyr/subsys/tracing/ctf/tsdl/metadata" "$dest/$id.tsdl"
+    printf '    %-16s %8s bytes\n' "$id.tsdl" "$(command wc -c < "$dest/$id.tsdl" | xargs)"
+  else
+    rm -f "$dest/$id.tsdl"
+  fi
 
   # Espressif boards boot from SPI flash, not from -kernel, so they also need a
   # flash image: the app placed at its partition offset in an erased (0xFF)

@@ -17,8 +17,9 @@ Upstream Zephyr later added CTF events of its own for `pm_system_suspend` and
 device runtime PM, at different ids, but not those. So an image built from Zephyr
 main, which is every image the page ships today, draws no power band, and the
 Power tab says so. The branch predates upstream's PM events, so it wants rebasing
-onto them first. The page matches PM events by name, not id, so where that branch
-puts them does not matter.
+onto them first. An image built from it then decodes beside images built from
+main: each image ships the event table of its own tree (`<app>.tsdl`), and the
+page matches PM events by name, not id.
 
 ## Why
 

@@ -67,6 +67,8 @@ public/qemu/
       http_get.elf
       zperf.elf
       hello_world.elf
+      philosophers_trace.elf  a CTF-traced twin (docs/focus.md)
+      philosophers_trace.tsdl its CTF event table (subsys/tracing/ctf/tsdl/metadata)
       ...
     qemu_riscv32/
       hello_world.elf
@@ -78,6 +80,12 @@ used, copied verbatim by `tools/build-zephyr-image.sh`. The app parses it to
 ground the peripheral panels (which chips have drivers, which pins are wired)
 and to show the tree in the devicetree viewer. It is optional: an image without
 one boots identically, with the UI falling back to its static tables.
+
+An image built with `CONFIG_TRACING_CTF` also carries a `<app>.tsdl`: the CTF
+event table of the Zephyr tree it was built from, copied verbatim. CTF event ids
+are positional and Zephyr renumbers them, so the Trace panel decodes with this
+before its own `public/tracing/metadata`, which only matches whatever Zephyr it
+was last refreshed from. Also optional: without it the page uses its own copy.
 
 Emscripten names each generated JS loader after its binary. The selected board
 loads that matching JS/Wasm pair, and the app's `locateFile` hook prefixes its

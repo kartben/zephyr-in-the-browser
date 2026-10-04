@@ -11,10 +11,15 @@
  * shows an empty Trace panel.
  */
 
-import { fallbackDefs, loadEventDefs, TraceReader, type Trace } from '@/ctf'
+import { fallbackDefs, loadEventDefs, TraceReader, type EventDef, type Trace } from '@/ctf'
 import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
 const TRACE_PATHS = ['./tracing.bin', '/tracing.bin', 'tracing.bin']
+/**
+ * The page's own copy of Zephyr's TSDL, for a guest that ships no table of its
+ * own: an image from before tools/build-zephyr-image.sh shipped one, a dropped
+ * ELF, or a live board.
+ */
 const METADATA_URL = `${import.meta.env.BASE_URL}tracing/metadata`
 const POLL_ID = 'trace'
 const POLL_MS = 250
@@ -75,8 +80,12 @@ let reader: TraceReader | null = null
 let offset = 0
 let path: string | null = null
 let snapshot: TraceSnapshot = EMPTY
+/** The page's own table: what a live board, or a guest that ships none, decodes with. */
 let defsReady: Promise<void> | null = null
 let defs = fallbackDefs()
+/** The table shipped beside the running image, tried before METADATA_URL. */
+let guestTableUrl: string | null = null
+let guestDefsReady: Promise<Map<number, EventDef>> | null = null
 let revision = 0
 let lastPublishAt = 0
 let publishTimer: ReturnType<typeof setTimeout> | undefined
@@ -211,11 +220,25 @@ function readNewBytes(fs: EmscriptenFS, filePath: string): Uint8Array | null {
 
 async function ensureDefs() {
   if (!defsReady) {
-    defsReady = loadEventDefs(METADATA_URL).then((d) => {
+    defsReady = loadEventDefs([METADATA_URL]).then((d) => {
       defs = d
     })
   }
   await defsReady
+}
+
+/**
+ * The table to decode the attached guest with: the image's own first. CTF ids
+ * are positional and Zephyr renumbers them, so only the table an image was built
+ * with is sure to match it, while the page's copy matches only the Zephyr it was
+ * last refreshed from. Kept apart from `defs`, which a live board decodes with:
+ * an image's table describes that image and nothing else.
+ */
+function loadGuestDefs(): Promise<Map<number, EventDef>> {
+  guestDefsReady ??= guestTableUrl
+    ? loadEventDefs([guestTableUrl, METADATA_URL])
+    : ensureDefs().then(() => defs)
+  return guestDefsReady
 }
 
 function sample() {
@@ -229,8 +252,11 @@ function sample() {
     path = findTraceFile(fs)
     if (!path) return
     // File appeared — make sure defs are loaded before we decode.
-    void ensureDefs().then(() => {
-      if (!reader) reader = new TraceReader(defs)
+    const pending = loadGuestDefs()
+    void pending.then((guestDefs) => {
+      // A guest attached since then brought a table of its own.
+      if (pending !== guestDefsReady) return
+      if (!reader) reader = new TraceReader(guestDefs)
       publish()
     })
   }
@@ -254,10 +280,20 @@ function sample() {
   }
 }
 
-export function attach(instance: unknown) {
+/**
+ * Follow a booted guest's trace file.
+ *
+ * @param tableUrl - the CTF table its image shipped with, or null when it has
+ *   none. Fetched only once the guest actually writes a trace, so an untraced
+ *   image never asks for a table it does not have.
+ */
+export function attach(instance: unknown, tableUrl: string | null = null) {
   detach()
   mod = instance as TraceModule
-  void ensureDefs()
+  if (tableUrl !== guestTableUrl) {
+    guestTableUrl = tableUrl
+    guestDefsReady = null
+  }
   sample()
   registerPoll(POLL_ID, pollMs(), sample)
 }

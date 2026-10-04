@@ -141,14 +141,22 @@ export function parseMetadata(text: string): Map<number, EventDef> {
   return defs
 }
 
-export async function loadEventDefs(metadataUrl: string): Promise<Map<number, EventDef>> {
-  try {
-    const res = await fetch(metadataUrl)
-    if (!res.ok) return fallbackDefs()
-    const text = await res.text()
-    const defs = parseMetadata(text)
-    return defs.size > 0 ? defs : fallbackDefs()
-  } catch {
-    return fallbackDefs()
+/**
+ * The first table in `urls` that parses to any events, else the fallback set.
+ *
+ * A miss is more than a 404: the dev server answers an unknown path with
+ * index.html, which parses to nothing, so an empty parse also moves on.
+ */
+export async function loadEventDefs(urls: readonly string[]): Promise<Map<number, EventDef>> {
+  for (const url of urls) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const defs = parseMetadata(await res.text())
+      if (defs.size > 0) return defs
+    } catch {
+      // Unreachable is as good as absent: try the next one.
+    }
   }
+  return fallbackDefs()
 }

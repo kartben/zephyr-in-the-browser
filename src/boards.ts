@@ -1416,6 +1416,15 @@ export function sampleDtsAsset(board: Board, sampleId: string): string {
 }
 
 /**
+ * The CTF event table (Zephyr's TSDL `metadata`) of the tree the image was built
+ * from, which tools/build-zephyr-image.sh ships next to every image that emits
+ * CTF. Absent for older releases; the page then falls back to its own copy.
+ */
+export function sampleTsdlAsset(board: Board, sampleId: string): string {
+  return `zephyr/${boardAssetDir(board)}/${sampleId}.tsdl`
+}
+
+/**
  * A CTF-traced twin runs the same sources as the sample it was expanded from,
  * so it reads the same tour and the same shipped sources.
  */
