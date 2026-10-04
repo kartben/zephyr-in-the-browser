@@ -25,6 +25,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Several tours per sample, and links straight to a tour step."
+      },
+      {
+        "tag": "Added",
         "text": "Tours check the guest's state and let you try again."
       },
       {

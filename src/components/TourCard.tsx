@@ -21,6 +21,7 @@ import { CompletionCard, useTourTitle } from '@/components/tour/CompletionCard'
 import { TourHexdump } from '@/components/tour/TourHexdump'
 import { TourObjects } from '@/components/tour/TourObjects'
 import { TourOutline } from '@/components/tour/TourOutline'
+import { CopyTourLink, StartedAt, startedAt } from '@/components/tour/TourLink'
 import { WaitingCard } from '@/components/tour/WaitingCard'
 import { Button } from '@/components/ui/button'
 import { sampleSourceAsset, type Board } from '@/boards'
@@ -99,7 +100,14 @@ export function TourCard({ board, sampleId }: Props) {
       )
     }
     if (state.waiting) {
-      return <WaitingCard waiting={state.waiting} steps={state.doc?.steps ?? []} seen={state.seen} />
+      return (
+        <WaitingCard
+          waiting={state.waiting}
+          steps={state.doc?.steps ?? []}
+          seen={state.seen}
+          startedAt={startedAt(state, state.waiting.index)}
+        />
+      )
     }
     return null
   }
@@ -130,6 +138,8 @@ export function TourCard({ board, sampleId }: Props) {
         : (anchor.symbol ?? `0x${anchor.addr.toString(16)}`)
       : null
 
+  const startedAtStep = startedAt(state, step.index)
+
   // The data-tour-* attributes are what the headless playthrough waits on
   // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
   return (
@@ -149,23 +159,33 @@ export function TourCard({ board, sampleId }: Props) {
             seen={state.seen}
             currentIndex={step.index}
           />
-          {paused && (
-            <span
-              className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
-              title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
+          <div className="ml-auto flex items-center gap-1.5">
+            {paused && (
+              <span
+                className="flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
+                title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
+              >
+                <Pause className="size-2.5" aria-hidden />
+                paused
+              </span>
+            )}
+            {state.tourId && (
+              <CopyTourLink
+                boardId={board.id}
+                sampleId={sampleId}
+                tourId={state.tourId}
+                step={step.index + 1}
+              />
+            )}
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={next}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
             >
-              <Pause className="size-2.5" aria-hidden />
-              paused
-            </span>
-          )}
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={next}
-            className={`${paused ? '' : 'ml-auto '}rounded p-0.5 text-muted-foreground hover:text-foreground`}
-          >
-            <X className="size-3.5" aria-hidden />
-          </button>
+              <X className="size-3.5" aria-hidden />
+            </button>
+          </div>
         </div>
 
         <div className="max-h-[min(30rem,64vh)] space-y-2.5 overflow-y-auto px-3 py-2.5">
@@ -187,6 +207,8 @@ export function TourCard({ board, sampleId }: Props) {
               {card.hits > 1 && <span className="text-muted-foreground/70">· hit {card.hits}</span>}
             </p>
           )}
+
+          {startedAtStep !== null && <StartedAt step={startedAtStep} />}
 
           <Markdown
             body={step.body}

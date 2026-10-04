@@ -18,7 +18,10 @@ them.
 ## Writing one
 
 Create `tours/<sample-id>.tour.md`, where `<sample-id>` is the app id from
-`src/boards.ts`. Front matter names the tour; each `##` heading starts a step;
+`src/boards.ts`. That is the app's default tour; a sample can host more, as
+`tours/<sample-id>.<slug>.tour.md` (see
+[Several tours per sample, and links into one](#several-tours-per-sample-and-links-into-one)).
+Front matter names the tour; each `##` heading starts a step;
 a fenced ` ```tour ` block under the heading holds the stage directions; the
 rest of the section is the prose.
 
@@ -749,8 +752,9 @@ Once every step has had its turn, a **completion card** shows the outro and
 tour early still ends it quietly: the completion card is for readers who got
 to the end. A tour with no outro ends as before, with no card at all.
 
-`next:` in the front matter names the tour to offer after this one, by tour id
-(today, the app id):
+`next:` in the front matter names the tour to offer after this one, by tour id:
+the app id for an app's default tour, or `<app>.<slug>` for
+[another of its tours](#several-tours-per-sample-and-links-into-one):
 
 ```markdown
 ---
@@ -764,19 +768,72 @@ The completion card then has a **Next** button with that tour's title. It
 switches app on the same board, the way the app picker does, and the next tour
 starts with the new sample. A reader on a traced twin (`blinky_trace`) lands on
 the next app's traced twin when the board has one. A board that does not offer
-the next app gets no button.
+the next app gets no button. A `next:` that names another tour of an app
+(`basic_button.msgq`) opens that app with `?tour=basic_button.msgq`.
 
 `next:` needs an outro to put its button on. The tests fail when it names a
 tour that does not exist, the tour itself, or an app no board offers alongside
 this one.
 
+## Several tours per sample, and links into one
+
+`tours/<app>.tour.md` is the app's **default tour**. A sample can host more as
+`tours/<app>.<slug>.tour.md`: `tours/basic_button.msgq.tour.md` could teach the
+input subsystem's message queue on the same stock firmware as the button tour.
+A **tour id** is the file name without `.tour.md`, so `basic_button` or
+`basic_button.msgq`. The app is in the name, which keeps finding a sample's
+tours down to listing files. The tests fail when a name is not of that shape,
+names an app no board offers, or is an extra tour with no default tour beside
+it (the image build ships a toured sample's sources off that file).
+
+The gallery's guided section lists each sample's tours by title under its row,
+and the badge counts them when there is more than one. Picking the row runs the
+default tour; picking a title runs that tour.
+
+A tour is addressable from the URL:
+
+| Query | Runs |
+| --- | --- |
+| `?board=qemu_cortex_a53&app=basic_button` | the app's default tour, as always |
+| `…&tour=basic_button.msgq` | that tour |
+| `…&tour=basic_button.msgq&step=3` | that tour, from step 3 |
+| `…&tour=none` | the sample with no tour, and no freeze at reset |
+
+A query that names only a tour (`?board=qemu_cortex_a53&tour=basic_button.msgq`)
+runs that tour's app. A tour that does not exist or belongs to another app, and
+a step past the end, fall back to the default tour from the top: a stale link
+still lands on a toured sample rather than a silent one. Picking another app
+drops `?tour=` unless it is the new app's, and starts it at the top.
+
+**Copy link.** The link button in a step card's header copies
+`?board=&app=&tour=&step=` for the step on screen, on the reader's board and app
+(a traced twin stays traced). Step 1 leaves `step` out.
+
+**What `?step=` can promise.** Starting at step 3 skips steps 1 and 2: they are
+never planted, never shown, and not reported as problems. The guest still boots
+frozen at reset, step 3's breakpoint is the first one in, and its card says
+**Started at step 3**. That matches the lesson as written only when the guest
+reaches step 3's location by itself after boot. Whatever steps 1 and 2 had the
+reader do (press SW0, type a shell command) has not happened, so a stop that
+only those actions lead to waits until the reader does them unprompted, and
+the values on the card are what the guest holds when it gets there, not
+necessarily what a reader who took steps 1 and 2 would see. Link into steps the
+guest reaches on its own (startup, a loop, a thread that runs by itself), or
+into a step with `await:`, whose your-turn card says what to do first. Restart
+and **Run it again** take the tour from the top.
+
+**The docs widget.** `tools/docs-widget/widget.js` takes a `tour` in its config
+and appends `&tour=`; `tools/fetch-docs.mjs` passes each sample's default tour.
+See [sample-docs.md](sample-docs.md).
+
 ## How it runs
 
 1. The page loads the tour from its own bundle as the emulator starts.
-2. A sample with a tour boots with the CPU **frozen at reset** (`-S`), and
+2. A boot that runs a tour starts with the CPU **frozen at reset** (`-S`), and
    attaching the gdbstub is what starts it. Every anchor is resolved at that
    stop and the **first** step's breakpoint is planted before the guest has
-   executed an instruction.
+   executed an instruction. A sample with no tour, or one opened with
+   `?tour=none`, boots straight through.
 
    Without the freeze this is a race the tour loses: opening the stub does stop
    the machine, but only once the chardev is up a second or so in, and Zephyr
@@ -942,9 +999,10 @@ The cards carry what the harness waits on:
 | `data-tour-waiting` | the your-turn card |
 | `data-tour-complete` | the completion card |
 
-A sample's second tour, `tours/<app>.<slug>.tour.md`, is opened with
-`?tour=<id>`. A page that does not take that parameter yet opens the app's
-default tour instead, and the playthrough skips the second one with a warning.
+A sample's other tours, `tours/<app>.<slug>.tour.md`, are opened with
+`?tour=<id>` (see
+[Several tours per sample](#several-tours-per-sample-and-links-into-one)), and
+a page that opens another tour instead fails the run.
 
 ## What it costs the firmware
 
@@ -965,6 +1023,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | | |
 | --- | --- |
 | The tours | `tours/*.tour.md` |
+| Tour ids and links | `src/tours/tourId.ts`, `src/tours/catalog.ts`, `src/lib/selectionParams.ts` |
 | File format | `src/tours/parse.ts` |
 | Anchors | `src/tours/anchors.ts`, `src/debug/dwarfLines.ts` |
 | Checking them against images | `src/tours/check.ts`, `src/tours/images.test.ts` |
@@ -976,7 +1035,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
 | Playthrough | `tools/tour-playthrough.mjs`, `src/lib/testHooks.ts` |
-| Gallery badge | `src/tours/guided.ts` |
-| UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx`, `tour/WaitingCard.tsx`, `tour/CompletionCard.tsx` |
+| Gallery badge and tour list | `src/tours/guided.ts` |
+| UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx`, `tour/WaitingCard.tsx`, `tour/CompletionCard.tsx`, `tour/TourLink.tsx` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |
 | Packaging | `tools/build-zephyr-image.sh`, the `tours()` plugin in `vite.config.ts` |

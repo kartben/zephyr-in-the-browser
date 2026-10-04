@@ -20,7 +20,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -74,6 +74,22 @@ for (const line of readFileSync(path.join(repoRoot, 'tools', 'samples.manifest')
  */
 function defaultBoard(boards) {
   return boards.includes('qemu_cortex_m3') ? 'qemu_cortex_m3' : boards[0]
+}
+
+/** Every tour id: a file in tours/ without `.tour.md`, `<app>` or `<app>.<slug>`. */
+const TOUR_IDS = readdirSync(path.join(repoRoot, 'tours'))
+  .filter((file) => file.endsWith('.tour.md'))
+  .map((file) => file.slice(0, -'.tour.md'.length))
+  .sort()
+
+/**
+ * The tour the widget starts, by id: tours/<app>.tour.md, else the app's first
+ * other tour. The same rule as defaultTourFor in src/tours/catalog.ts. Null
+ * for an app with no tour.
+ */
+function defaultTour(app) {
+  if (TOUR_IDS.includes(app)) return app
+  return TOUR_IDS.find((id) => id.startsWith(`${app}.`)) ?? null
 }
 
 /** '/latest/samples/hello_world/README.html' -> 'samples/hello_world/README.html' */
@@ -201,10 +217,13 @@ function injectionFor(samplePath, entry, title) {
   const pageDir = samplePath // OUT-relative dir of the page
   const toDocsRoot = path.posix.relative(pageDir, '.') || '.'
   const toSiteRoot = `${toDocsRoot}/..`
+  const tour = defaultTour(entry.app)
   const config = {
     app: entry.app,
     board: defaultBoard(entry.boards),
     boards: entry.boards,
+    // The widget appends it as `&tour=`; a sample without a tour gets none.
+    ...(tour ? { tour } : {}),
     title,
     simRoot: `${toSiteRoot}/`,
     canonical: `${DOCS_BASE}${samplePath}/README.html`,

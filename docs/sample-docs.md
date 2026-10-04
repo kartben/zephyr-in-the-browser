@@ -29,6 +29,15 @@ pages have to opt in themselves for the embedded emulator to boot on GitHub
 Pages. Restart the dev server after regenerating — Vite caches the `public/`
 file list at startup.
 
+The widget reads its settings from a `window.ZEPHYR_SIM` object the script
+writes into each page: the app id, the board to boot by default, and, for a
+sample with a guided tour, `tour`, the tour id to start. The run link carries
+it as `&tour=`. The script passes each sample's default tour
+(`tours/<app>.tour.md`); a page could name another tour of the same sample
+instead (`basic_button.msgq`), or `none` for a run with no tour. Tour ids and
+the query string are in
+[tours.md](tours.md#several-tours-per-sample-and-links-into-one).
+
 The script also writes `public/docs/manifest.json` — per-sample title,
 description and links (mirrored page, canonical docs, GitHub source), keyed by
 sample path. The app's sample gallery ([src/sampleDocs.ts](../src/sampleDocs.ts))

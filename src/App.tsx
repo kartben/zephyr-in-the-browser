@@ -12,6 +12,8 @@ import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
 import { registerTerminal } from '@/lib/terminalInput'
 import { setSelector } from '@/lib/selection'
+import { carryTour, parseSelection } from '@/lib/selectionParams'
+import { defaultTourFor, tourToRun } from '@/tours/catalog'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import { seedForSelection } from '@/lib/dockStore'
 import {
@@ -42,10 +44,7 @@ import { setLiveMode } from '@/debug/liveDebug'
 import { LiveBoardHome } from '@/components/LiveBoardHome'
 import { set as setLiveImage, type LiveImage } from '@/liveImage'
 import {
-  BOARDS,
-  DEFAULT_BOARD_ID,
   getBoard,
-  getSample,
   sampleSourceAsset,
   samplePrimaryPanels,
   type PanelKind,
@@ -54,20 +53,18 @@ import {
 /**
  * The selection lives in the query string so it can survive the reload that a
  * committed QEMU session needs. Without this the board and backend dropdowns
- * become dead controls the moment the emulator is running.
+ * become dead controls the moment the emulator is running. A link can also
+ * name a tour and a step to start it at (src/lib/selectionParams.ts).
  */
 function readSelection() {
-  const params = new URLSearchParams(location.search)
-  const board = params.get('board')
-  const backend = params.get('backend')
-  const app = params.get('app')
-  const boardId = BOARDS.some((b) => b.id === board) ? board! : DEFAULT_BOARD_ID
-  const resolved = getBoard(boardId)
-  return {
-    boardId,
-    sampleId: getSample(resolved, app ?? resolved.defaultSampleId).id,
-    backendId: backend === 'mock' || backend === 'qemu' ? backend : defaultBackendId(),
-  }
+  return parseSelection(location.search, defaultBackendId())
+}
+
+/** What to boot next; any field left out stays as it is. See applySelection for `tour`. */
+interface SelectionChange {
+  boardId?: string
+  sampleId?: string
+  tour?: string | null
 }
 
 export default function App() {
@@ -86,6 +83,11 @@ export default function App() {
   const [backendId] = useState<BackendId>(() => readSelection().backendId)
   const [boardId, setBoardId] = useState(() => readSelection().boardId)
   const [sampleId, setSampleId] = useState(() => readSelection().sampleId)
+  // `?tour=` as asked (a tour id, `none`, or null for the default) and `?step=`.
+  const [askedTour, setAskedTour] = useState(() => readSelection().tour)
+  const [startStep, setStartStep] = useState(() => readSelection().step)
+  // The tour this sample actually runs, if any.
+  const tourId = tourToRun(sampleId, askedTour)
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
   const [nonce, setNonce] = useState(0)
@@ -131,8 +133,8 @@ export default function App() {
 
   // Current selection, readable from the mount-once terminal callbacks without
   // making them change identity (which would remount the terminal).
-  const configRef = useRef({ backendId, boardId, sampleId })
-  configRef.current = { backendId, boardId, sampleId }
+  const configRef = useRef({ backendId, boardId, sampleId, askedTour, tourId, startStep })
+  configRef.current = { backendId, boardId, sampleId, askedTour, tourId, startStep }
 
   const backendRef = useRef<PtyBackend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -155,15 +157,24 @@ export default function App() {
      * guest runs past main().
      */
     resetTour()
-    void loadTour(
-      configRef.current.sampleId,
-      (file) =>
-        `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(
-          getBoard(configRef.current.boardId),
-          configRef.current.sampleId,
-          file,
-        )}`,
-    )
+    // Which tour, and where a `?step=` link enters it. The backend is told
+    // too: only a toured boot starts frozen.
+    const tour =
+      configRef.current.tourId === null
+        ? null
+        : { id: configRef.current.tourId, startIndex: (configRef.current.startStep ?? 1) - 1 }
+    if (tour) {
+      void loadTour(
+        tour.id,
+        (file) =>
+          `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(
+            getBoard(configRef.current.boardId),
+            configRef.current.sampleId,
+            file,
+          )}`,
+        { startIndex: tour.startIndex },
+      )
+    }
 
     // Drop status updates from a session that has already been torn down —
     // StrictMode's double mount in dev makes this a real ordering hazard.
@@ -177,6 +188,7 @@ export default function App() {
       await backend.start(slave, {
         board: getBoard(configRef.current.boardId),
         sampleId: configRef.current.sampleId,
+        tour,
         onStatus,
         signal: ac.signal,
       })
@@ -244,18 +256,34 @@ export default function App() {
    * A committed QEMU document cannot be recycled, so a selection change there
    * has to go through a reload carrying the new choice in the URL. Otherwise
    * the key change on <XTerminal> remounts the session in place.
+   *
+   * `tour` names the tour to run, null for the app's default. Left out, the
+   * tour asked for so far stays only while it belongs to the new app. Either
+   * way the new run starts at the top: a `?step=` is where one link came in.
    */
-  const applySelection = useCallback((next: { boardId?: string; sampleId?: string }) => {
+  const applySelection = useCallback((next: SelectionChange) => {
+    const sampleId = next.sampleId ?? configRef.current.sampleId
+    const asked =
+      next.tour !== undefined
+        ? next.tour
+        : carryTour(configRef.current.askedTour, configRef.current.sampleId, sampleId)
+    // The default tour needs no `?tour=`: a plain link to the app runs it.
+    const tour = asked === defaultTourFor(sampleId) ? null : asked
     if (backendRef.current?.resetRequiresReload) {
       const params = new URLSearchParams(location.search)
       params.set('board', next.boardId ?? configRef.current.boardId)
-      params.set('app', next.sampleId ?? configRef.current.sampleId)
+      params.set('app', sampleId)
       params.set('backend', configRef.current.backendId)
+      if (tour === null) params.delete('tour')
+      else params.set('tour', tour)
+      params.delete('step')
       location.search = params.toString()
       return
     }
     if (next.boardId !== undefined) setBoardId(next.boardId)
     if (next.sampleId !== undefined) setSampleId(next.sampleId)
+    setAskedTour(tour)
+    setStartStep(null)
   }, [])
 
   const handleBoardChange = useCallback(
@@ -281,11 +309,11 @@ export default function App() {
    * IndexedDB clears before any hard navigation so Reload cannot resurrect them.
    */
   const handleSampleChange = useCallback(
-    (id: string) => {
+    (id: string, tour?: string | null) => {
       void (async () => {
         await clearGuestImage()
         await clearDeviceTree()
-        applySelection({ sampleId: id })
+        applySelection({ sampleId: id, tour })
       })()
     },
     [applySelection],
@@ -434,6 +462,16 @@ export default function App() {
   }, [])
 
   const handleRestart = useCallback(() => {
+    // A restart takes the tour from the top: `?step=` is where a link came in,
+    // not where every run starts.
+    if (configRef.current.startStep !== null) {
+      const params = new URLSearchParams(location.search)
+      params.delete('step')
+      const search = params.toString()
+      const url = `${location.pathname}${search && `?${search}`}${location.hash}`
+      history.replaceState(history.state, '', url)
+      setStartStep(null)
+    }
     const backend = backendRef.current
     if (backend?.resetRequiresReload) {
       // Custom ELF/DTS stay in IndexedDB across this navigation (claim leaves
@@ -452,7 +490,7 @@ export default function App() {
   useEffect(() => registerCommand('restart', handleRestart), [handleRestart])
   // A tour's Next button switches app the way the app picker does.
   useEffect(
-    () => setSelector(({ sampleId: id }) => handleSampleChange(id)),
+    () => setSelector(({ sampleId: id, tourId: next }) => handleSampleChange(id, next ?? null)),
     [handleSampleChange],
   )
 
@@ -464,6 +502,7 @@ export default function App() {
         boardId={boardId}
         onBoardChange={handleBoardChange}
         sampleId={sampleId}
+        tourId={tourId}
         onSampleChange={handleSampleChange}
         status={status}
         detail={detail}
@@ -490,9 +529,9 @@ export default function App() {
             <LiveBoardHome errorDetail={status === 'error' ? (detail ?? null) : null} />
           ) : (
             <>
-              {/* Changing board or backend remounts the session, same as Restart. */}
+              {/* Changing board, backend or tour remounts the session, same as Restart. */}
               <XTerminal
-                key={`${backendId}:${boardId}:${sampleId}:${nonce}`}
+                key={`${backendId}:${boardId}:${sampleId}:${tourId}:${nonce}`}
                 onSession={handleSession}
                 onTeardown={handleTeardown}
               />

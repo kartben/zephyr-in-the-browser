@@ -32,6 +32,13 @@ export interface StartOptions {
   board: Board
   /** Which of the board's prebuilt images to boot. Ignored if the user supplied an ELF. */
   sampleId: string
+  /**
+   * The tour that runs over this boot, by tour id, and the step it starts at
+   * as an index (`?step=3` is 2). Null for none: the sample has no tour, or
+   * the link asked for a clean run (`?tour=none`). Only a toured boot starts
+   * frozen at reset.
+   */
+  tour: { id: string; startIndex: number } | null
   onStatus: (event: StatusEvent) => void
   /**
    * Aborted when the terminal unmounts or the session restarts. Backends must

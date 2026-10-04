@@ -397,10 +397,9 @@ async function runTour(browser, tour, opts) {
     }
     result.total = info.steps.length
     result.state = info
+    // ?tour= picks a sample's other tours; landing on another one is a broken link.
     if (tour.id !== tour.app && info.title !== tour.title) {
-      result.status = 'skip'
-      result.failure = `the page opened “${info.title}” instead: it does not take ?tour= yet`
-      return result
+      throw new TourFailure(`?tour=${tour.id} opened “${info.title}” instead`)
     }
 
     info = await until(async () => {

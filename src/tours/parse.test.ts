@@ -236,11 +236,26 @@ describe('outro and next', () => {
     expect(doc.next).toBe('msgq_lab')
   })
 
+  it('takes another tour of an app as `next:`, by its full id', () => {
+    const doc = tour('next: basic_button.msgq\n', `${STEP}## Done\n\nOn to the queue.\n`)
+    expect(doc.problems).toEqual([])
+    expect(doc.next).toBe('basic_button.msgq')
+  })
+
   it('reports a `next:` that is not a tour id', () => {
     const doc = tour('next: samples/kernel/msg_queue\n', `${STEP}## Done\n\nBye.\n`)
     expect(doc.next).toBeNull()
     expect(doc.problems[0]).toContain('not a tour id')
   })
+
+  it.each(['basic_button.', '.msgq', 'basic_button..msgq', 'basic_button.msgq.more'])(
+    'reports `next: %s`, which has the dot in the wrong place',
+    (next) => {
+      const doc = tour(`next: ${next}\n`, `${STEP}## Done\n\nBye.\n`)
+      expect(doc.next).toBeNull()
+      expect(doc.problems[0]).toContain('not a tour id')
+    },
+  )
 
   it('reports a `next:` with no outro to offer it on', () => {
     const doc = tour('next: msgq_lab\n', STEP)

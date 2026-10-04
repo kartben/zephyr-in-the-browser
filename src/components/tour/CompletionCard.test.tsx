@@ -45,6 +45,12 @@ describe('CompletionCard', () => {
     expect(render('msgq_lab', null).text).toContain('Next: Message queue lab')
   })
 
+  it('goes on to another tour of an app, named by its full id', () => {
+    expect(render('msgq_lab.lost_alarm', 'The lost alarm').text).toContain('Next: The lost alarm')
+    // Until that tour has loaded, its app stands in, as for a default tour.
+    expect(render('msgq_lab.lost_alarm', null).text).toContain('Next: Message queue lab')
+  })
+
   it('offers no way on when this board does not have the next app', () => {
     const { text } = render('msgq_lab', 'Message queues, part 2', board('msg_queue'))
     expect(text).not.toContain('Next')

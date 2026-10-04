@@ -13,8 +13,15 @@
   var cfg = window.ZEPHYR_SIM
   if (!cfg) return
 
+  // cfg.tour names the guided tour to start (a tour id, `none` for a run with
+  // no tour); without it the app runs its default tour, if it has one.
   var simUrl =
-    cfg.simRoot + '?board=' + encodeURIComponent(cfg.board) + '&app=' + encodeURIComponent(cfg.app)
+    cfg.simRoot +
+    '?board=' +
+    encodeURIComponent(cfg.board) +
+    '&app=' +
+    encodeURIComponent(cfg.app) +
+    (cfg.tour ? '&tour=' + encodeURIComponent(cfg.tour) : '')
 
   var dialog = null
   var iframe = null

@@ -7,6 +7,7 @@ import { isKnownFormat } from '@/tours/expr'
 import { patternFile } from '@/tours/anchors'
 import { parseTour } from '@/tours/parse'
 import { tourIds } from '@/tours/catalog'
+import { appOfTour, isTourId } from '@/tours/tourId'
 
 /**
  * The tours in `tours/` are shipped content, and a broken one fails quietly at
@@ -44,7 +45,9 @@ describe('tours/', () => {
   it('is discovered from the files themselves', () => {
     // No hand-kept list to drift: dropping a file in `tours/` is the whole
     // wiring, and this is what proves the glob sees it.
-    expect(tourIds()).toEqual(tourFiles().map((f) => f.replace('.tour.md', '')))
+    // Sorted as ids: `blinky.second.tour.md` sorts before `blinky.tour.md` as
+    // a file name, but `blinky` comes before `blinky.second` as a tour id.
+    expect(tourIds()).toEqual(tourFiles().map((f) => f.replace('.tour.md', '')).sort())
   })
 
   it.each(tourFiles())('%s parses with no authoring errors', (file) => {
@@ -55,11 +58,22 @@ describe('tours/', () => {
   })
 
   it.each(tourFiles())('%s is about a sample the gallery offers', (file) => {
+    // `<app>.tour.md` is the app's default tour, `<app>.<slug>.tour.md`
+    // another one: the app is in the name, and it has to be a real one.
     const id = file.replace('.tour.md', '')
+    expect(isTourId(id), `${file} is not named <app>.tour.md or <app>.<slug>.tour.md`).toBe(true)
+    const app = appOfTour(id)
     const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
-    const sample = sampleById(id)
-    expect(sample, `no sample with id '${id}' in boards.ts`).toBeDefined()
+    const sample = sampleById(app)
+    expect(sample, `no sample with id '${app}' in boards.ts`).toBeDefined()
     expect(doc.sample).toBe(sample!.zephyrSample)
+  })
+
+  it.each(tourFiles())("%s sits beside its app's default tour", (file) => {
+    // The image build ships the sources a tour's excerpts show for apps with
+    // a `<app>.tour.md`, so another tour of the app needs that one too.
+    const app = appOfTour(file.replace('.tour.md', ''))
+    expect(tourFiles(), `${file} needs a tours/${app}.tour.md`).toContain(`${app}.tour.md`)
   })
 
   it.each(tourFiles())('%s ends somewhere real', (file) => {
@@ -71,12 +85,12 @@ describe('tours/', () => {
     // anchor, only at the end of the tour instead of the middle.
     expect(tourIds(), `next: ${doc.next} is not a tour`).toContain(doc.next)
     expect(doc.next, 'a tour cannot chain to itself').not.toBe(id)
-    // Next stays on the reader's board, so some board has to offer both.
+    // Next stays on the reader's board, so some board has to offer both apps.
+    const [from, to] = [appOfTour(id), appOfTour(doc.next)]
     const both = BOARDS.some(
-      (board) =>
-        board.samples.some((s) => s.id === id) && board.samples.some((s) => s.id === doc.next),
+      (board) => board.samples.some((s) => s.id === from) && board.samples.some((s) => s.id === to),
     )
-    expect(both, `no board offers both ${id} and ${doc.next}`).toBe(true)
+    expect(both, `no board offers both ${from} and ${to}`).toBe(true)
   })
 
   it.each(tourFiles())('%s has usable stage directions on every step', (file) => {
