@@ -38,7 +38,10 @@ vi.mock('@/hostGdb', () => ({
   getSymbolIndex: () => ({
     byAddr: [{ name: 'main', addr: 0x8000, size: 0x40 }],
     byName: [{ name: 'main', addr: 0x8000, size: 0x40 }],
-    objects: new Map([['led', { name: 'led', addr: 0x2000, size: 8 }]]),
+    objects: new Map([
+      ['led', { name: 'led', addr: 0x2000, size: 8 }],
+      ['z_interrupt_stacks', { name: 'z_interrupt_stacks', addr: 0x2000_0000, size: 0x2000 }],
+    ]),
   }),
   setAttachHook: () => {},
   setStopFilter: (fn: ((pc: string) => boolean) | null) => {
@@ -305,6 +308,31 @@ Prose.
   it('leaves a card that looks at nothing without notes', async () => {
     await stopAt(0x8000)
     expect(getSnapshot().current?.lookNotes).toEqual([])
+  })
+
+  it('names an address inside a data object, as it does one inside a function', async () => {
+    // The stack pointer sits in `z_interrupt_stacks`; it used to read as a bare
+    // address because only functions were ever looked up, and the name that was
+    // found only went to `detail`, which the card does not show.
+    reset()
+    tourText.body = `## Where the stack is
+
+\`\`\`tour
+at: main
+watch:
+  - stack = $sp as addr
+  - stopped in = $pc as code
+\`\`\`
+
+Prose.
+`
+    await loadFor(`tour-${url++}`)
+    await arm()
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.values).toMatchObject([
+      { label: 'stack', text: '0x20001000 · z_interrupt_stacks+0x1000' },
+      { label: 'stopped in', text: 'main+0x4' },
+    ])
   })
 })
 

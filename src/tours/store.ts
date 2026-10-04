@@ -19,7 +19,7 @@
 
 import { buildLineIndex, type LineIndex } from '@/debug/dwarfLines'
 import { registerValues } from '@/debug/registerModel'
-import { formatSymbol, resolveSymbol } from '@/debug/elfSymbols'
+import { formatSymbol, resolveDataSymbol, resolveSymbol } from '@/debug/elfSymbols'
 import * as debug from '@/debug/control'
 import * as gdb from '@/hostGdb'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
@@ -254,7 +254,9 @@ function liveTarget(): TourTarget {
       return debug.readMemoryRaw(addr >>> 0, length)
     },
     label(addr) {
-      return formatSymbol(resolveSymbol(index, addr))
+      // Data first here too: an object with a size says exactly where it ends,
+      // while a function with none would claim whatever follows it.
+      return formatSymbol(resolveDataSymbol(index, addr) ?? resolveSymbol(index, addr))
     },
   }
 }
