@@ -68,7 +68,13 @@ the JS bundle, and a sample that has one always has one.
 
 The directive block is a strict subset of YAML — `key: value`, `- item` lists,
 one level of nested mapping. Anything the parser accepts, a real YAML parser
-reads the same way.
+reads the same way, with one exception: a ` #` inside a `/pattern/` is part of
+the pattern, where YAML would start a comment. Quote the value if a YAML tool
+has to agree.
+
+The prose is Markdown. HTML comments (`<!-- ... -->`) in it are notes for the
+next author, and the card hides them the way GitHub does. Inside inline code or
+a fenced block a comment is what the prose is quoting, so it shows.
 
 Every key in the block must be one the parser knows. A misspelt `wacth:` fails
 `npm run test` instead of leaving a card quietly short of its values. Keys for
@@ -119,6 +125,26 @@ one.
 An anchor that does not resolve costs one step, not the tour. The rest still
 run, the reason appears on the card, and a tour where *nothing* resolved says so
 in the console rather than looking like a sample with no tour.
+
+### Lines that anchor well
+
+An anchor resolves to **one** address: the lowest one the line table has for
+that line. Two kinds of line have code in more than one place, and the step
+stops in only one of them.
+
+**Anchor on a plain statement, not a `LOG_*()` line.** One `LOG_INF()` expands
+to a level check, a call and the argument handling around it, which the compiler
+interleaves with its neighbours: about ten separate code ranges for one source
+line. The breakpoint goes on one of them, which is not necessarily the one that
+runs when you expect. An assignment or a call on a neighbouring line anchors
+cleanly.
+
+**A line inlined into several callers stops in only one of them.** The compiler
+copies a small `static` function into each caller, and every copy claims the
+same source lines. In a sample you control, mark the function `__noinline` so
+there is one copy at one address. Otherwise anchor one level down, in a function
+the inlined code calls (a kernel call such as `z_impl_k_msgq_put`): it has one
+address whichever copy called it.
 
 ## When it fires — `when:` and friends
 
@@ -239,6 +265,11 @@ render the address itself:
 | `code` | the address as `function+offset` |
 | `dec` | the value itself, in decimal and hex |
 
+Symbolised means the hex comes with the variable or function the address falls
+inside, so `$sp as addr` at an interrupt reads
+`0x40a1f7c0 · z_interrupt_stacks+0x7c0`, and a `ptr` holding a callback names
+the function.
+
 The default is `u32`. Nothing here needs type information, which is exactly why
 it works against a build nobody prepared: `*$arg0 as string` walks device →
 name without knowing what either struct looks like.
@@ -303,11 +334,17 @@ highlight:
   - /gpio_pin_configure_dt/ + 3
 ```
 
+On one line they are separated by commas (`highlight: 21, /toggle/ + 1`). A
+comma inside a `/pattern/` belongs to it, so `/k_msgq_put\(&q, &data/` is one
+entry.
+
 Line numbers are in the shipped source; patterns are searched in the same text
 an `at:` pattern uses, so a highlight and the code under it cannot disagree. A
 pattern that matches nothing is dropped rather than guessed at — a highlight
 over the wrong lines is worse than none. The excerpt grows to cover whatever is
-marked, up to a cap.
+marked, up to 40 lines. When the stop and the highlight are too far apart for
+one window, each gets its own few lines of context and the lines between them
+fold into a single `⋯` row, so the line the machine stopped on stays in view.
 
 ### `dts:`
 
