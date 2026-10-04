@@ -37,7 +37,10 @@
  * reported (see `problems`) instead of vanishing.
  */
 
+import { PANEL_KINDS, type PanelKind } from '@/boards'
 import { OBJECT_TYPES, objectTypeCode } from '@/debug/kernel/objectCores'
+import type { DebugSection } from '@/lib/debugUi'
+import { TRACE_TABS, traceTabFromTourName, traceTabTourName, type TraceTab } from '@/lib/traceTabs'
 import { FORMATS, isKnownFormat } from '@/tours/expr'
 
 /** One row of a step's `watch:` list — `label = expression as format`. */
@@ -96,6 +99,22 @@ export interface ObjectsSpec {
   focus: string | null
 }
 
+/**
+ * One `look:` target: a view to put in front of the reader when the step fires.
+ *
+ *     look: trace.queues          a Trace tab
+ *     look: debug.objects         a Debug section
+ *     look: dock.gpio             a device dock row, the same as `panel: gpio`
+ *
+ * `panel:` can only name a row. A step about a queue filling up wants the
+ * Queues tab inside Trace, and a reader left on the Timeline would not know
+ * that is where to look.
+ */
+export type LookSpec =
+  | { kind: 'trace'; tab: TraceTab }
+  | { kind: 'debug'; section: DebugSection }
+  | { kind: 'dock'; panel: PanelKind }
+
 export interface TourStep {
   /** 0-based position, which is also the order the author wrote them in. */
   index: number
@@ -111,7 +130,9 @@ export interface TourStep {
   /** Keep the breakpoint after the step has fired. */
   repeat: boolean
   /** A PanelKind for the device dock to reveal. */
-  panel: string | null
+  panel: PanelKind | null
+  /** Instrument views to open as the step fires, in the order written. */
+  look: LookSpec[]
   /**
    * Source to light up in the excerpt, independent of where the breakpoint is.
    *
@@ -252,6 +273,48 @@ function asBool(value: Directive | undefined, fallback: boolean): boolean {
 }
 
 /* ------------------------------------------------------------------ *
+ * Directive keys
+ * ------------------------------------------------------------------ */
+
+/**
+ * The keys a step's directive block may use that do something.
+ *
+ * A key outside this list and RESERVED_KEYS is reported, because the parser
+ * only reads the keys it knows: `wacth:` would cost the card its values and
+ * nothing would say why.
+ */
+export const IMPLEMENTED_KEYS = [
+  'at',
+  'when',
+  'stop',
+  'repeat',
+  'panel',
+  'reveal',
+  'look',
+  'highlight',
+  'dts',
+  'watch',
+  'memory',
+  'objects',
+  'registers',
+  'threads',
+] as const
+
+/**
+ * Keys a planned directive will use. They are accepted and ignored until it
+ * lands, so a tour written against it already parses; the change that
+ * implements one moves it to IMPLEMENTED_KEYS.
+ */
+export const RESERVED_KEYS = ['await', 'do', 'check', 'pass', 'fail', 'retry'] as const
+
+const KNOWN_KEYS: ReadonlySet<string> = new Set([...IMPLEMENTED_KEYS, ...RESERVED_KEYS])
+
+/** The keys in a directive block that neither list has, in the order written. */
+export function unknownKeys(keys: Iterable<string>): string[] {
+  return [...keys].filter((key) => !KNOWN_KEYS.has(key))
+}
+
+/* ------------------------------------------------------------------ *
  * Directive vocabulary
  * ------------------------------------------------------------------ */
 
@@ -366,6 +429,97 @@ function parseObjects(value: Directive | undefined, problems: string[]): Objects
   return { types, focus: map.focus?.trim() || null }
 }
 
+function isPanelKind(name: string): name is PanelKind {
+  return (PANEL_KINDS as readonly string[]).includes(name)
+}
+
+/**
+ * Parse `panel:`, or `reveal:`, its older spelling.
+ *
+ * A kind the dock does not know is reported rather than passed on: it would
+ * reveal nothing, which reads exactly like a board without that peripheral.
+ */
+function parsePanel(
+  values: Map<string, Directive>,
+  where: string,
+  problems: string[],
+): PanelKind | null {
+  for (const key of ['panel', 'reveal']) {
+    const raw = asScalar(values.get(key))
+    if (raw === null) continue
+    if (isPanelKind(raw)) return raw
+    problems.push(`${where}: \`${key}: ${raw}\` is not a panel (${PANEL_KINDS.join(', ')})`)
+    return null
+  }
+  return null
+}
+
+/**
+ * Debug sections a tour can open. A record rather than a list, so a section
+ * added to DebugSection cannot be left out here.
+ */
+const DEBUG_SECTIONS: Record<DebugSection, true> = {
+  breakpoints: true,
+  cpu: true,
+  stack: true,
+  memory: true,
+  threads: true,
+  objects: true,
+}
+
+/** Every `look:` spelling, for the problem a bad one reports. */
+const LOOK_TARGETS = [
+  ...TRACE_TABS.map((tab) => `trace.${traceTabTourName(tab)}`),
+  ...Object.keys(DEBUG_SECTIONS).map((section) => `debug.${section}`),
+  'dock.<panel>',
+].join(', ')
+
+/** Parse one `look:` target. Returns null for anything that names no view. */
+export function parseLook(raw: string): LookSpec | null {
+  const dot = raw.indexOf('.')
+  if (dot <= 0) return null
+  const name = raw.slice(dot + 1)
+  switch (raw.slice(0, dot)) {
+    case 'trace': {
+      const tab = traceTabFromTourName(name)
+      return tab ? { kind: 'trace', tab } : null
+    }
+    case 'debug':
+      return Object.hasOwn(DEBUG_SECTIONS, name)
+        ? { kind: 'debug', section: name as DebugSection }
+        : null
+    case 'dock':
+      return isPanelKind(name) ? { kind: 'dock', panel: name } : null
+    default:
+      return null
+  }
+}
+
+/**
+ * Parse `look:`, one target or a list.
+ *
+ *     look: trace.queues
+ *     look:
+ *       - trace.timeline
+ *       - debug.objects
+ *
+ * A target that names no view is reported: the step would otherwise fire and
+ * open nothing, and the prose would be pointing at a view that never appears.
+ */
+function parseLooks(value: Directive | undefined, where: string, problems: string[]): LookSpec[] {
+  if (value !== undefined && typeof value !== 'string' && !Array.isArray(value)) {
+    problems.push(`${where}: \`look:\` takes a target or a list of them, not a block`)
+    return []
+  }
+  const looks: LookSpec[] = []
+  for (const raw of parseList(value)) {
+    const look = parseLook(raw)
+    if (look) looks.push(look)
+    else problems.push(`${where}: \`look: ${raw}\` is not a view (${LOOK_TARGETS})`)
+  }
+  return looks
+}
+
 const HIGHLIGHT_RANGE = /^(\d+)\s*(?:-\s*(\d+))?$/
 const HIGHLIGHT_PATTERN = /^\/(.+)\/(?:\s*\+\s*(\d+))?$/
 
@@ -453,6 +607,9 @@ function buildStep(
   const where = `step ${index + 1} (“${title}”)`
   const parsed = parseDirectives(directives)
   for (const problem of parsed.problems) problems.push(`${where}: ${problem}`)
+  for (const key of unknownKeys(parsed.values.keys())) {
+    problems.push(`${where}: \`${key}:\` is not a directive`)
+  }
 
   const at = asScalar(parsed.values.get('at'))
   if (!at) {
@@ -479,6 +636,9 @@ function buildStep(
   const objectProblems: string[] = []
   const objects = parseObjects(parsed.values.get('objects'), objectProblems)
   for (const problem of objectProblems) problems.push(`${where}: ${problem}`)
+
+  const panel = parsePanel(parsed.values, where, problems)
+  const look = parseLooks(parsed.values.get('look'), where, problems)
 
   const highlight = parseHighlightList(parsed.values.get('highlight'), where, 'highlight', problems)
   const dts = parseHighlightList(parsed.values.get('dts'), where, 'dts', problems)
@@ -508,7 +668,8 @@ function buildStep(
     when: asScalar(parsed.values.get('when')),
     stop,
     repeat: asBool(parsed.values.get('repeat'), false),
-    panel: asScalar(parsed.values.get('panel')) ?? asScalar(parsed.values.get('reveal')),
+    panel,
+    look,
     highlight,
     dts,
     watch,

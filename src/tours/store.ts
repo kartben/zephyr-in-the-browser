@@ -22,10 +22,10 @@ import { registerValues } from '@/debug/registerModel'
 import { formatSymbol, resolveSymbol } from '@/debug/elfSymbols'
 import * as debug from '@/debug/control'
 import * as gdb from '@/hostGdb'
-import { revealPanelKind } from '@/lib/dockReveal'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
+import { focusStep, lookNotes } from '@/tours/look'
 import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
 import { whenFires } from '@/tours/when'
 
@@ -90,6 +90,8 @@ export interface TourCard {
   threads: boolean
   /** Lines the step is *about*, which need not be the line it stopped on. */
   highlight: TourHighlight[]
+  /** Why a view the step points at is not on screen, such as Trace on an untraced build. */
+  lookNotes: string[]
 }
 
 export interface TourState {
@@ -563,7 +565,7 @@ async function showPending(): Promise<void> {
 
   // Reveal before the card lands, so the row the step is about is already in
   // view when the reader's eye goes looking for it.
-  if (runtime.step.panel) revealPanelKind(runtime.step.panel)
+  focusStep(runtime.step)
 
   const seen = new Set(state.seen)
   seen.add(runtime.step.index)
@@ -684,6 +686,7 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     registers,
     threads: step.threads,
     highlight: resolveHighlights(step, runtime.anchor?.file ?? null),
+    lookNotes: lookNotes(step),
   }
 }
 
@@ -798,7 +801,7 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
       }
       runtime.hits = 1
       runtime.card = demoCard(runtime)
-      if (runtime.step.panel) revealPanelKind(runtime.step.panel)
+      focusStep(runtime.step)
       const seen = new Set(state.seen)
       seen.add(index)
       publish({ current: runtime.card, seen })
@@ -843,5 +846,6 @@ function demoCard(runtime: StepRuntime): TourCard {
     registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: 'n/a' })),
     threads: step.threads,
     highlight: resolveHighlights(step, null),
+    lookNotes: lookNotes(step),
   }
 }

@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Added",
+        "text": "Tours can open a Trace tab or a Debug section."
+      },
+      {
         "tag": "Changed",
         "text": "Retired the old gateway and probe packages; use the desktop bridge."
       },
