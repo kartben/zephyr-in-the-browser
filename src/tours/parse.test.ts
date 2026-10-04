@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { parseDirectives, parseHighlight, parseTour, parseWatch, resolveHighlightSpecs } from '@/tours/parse'
+import {
+  IMPLEMENTED_KEYS,
+  RESERVED_KEYS,
+  parseDirectives,
+  parseHighlight,
+  parseLook,
+  parseTour,
+  parseWatch,
+  resolveHighlightSpecs,
+  unknownKeys,
+} from '@/tours/parse'
 import m3Blinky from '@/dts/fixtures/qemu_cortex_m3_blinky.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
 
@@ -209,6 +219,126 @@ describe('objects', () => {
     expect(doc.steps[0]!.objects).toBeNull()
     expect(doc.steps[0]!.threads).toBe(false)
     expect(doc.problems[0]).toContain('stop: no')
+  })
+})
+
+describe('look and panel', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('takes one target or a list, in the order written', () => {
+    expect(step('look: trace.queues').steps[0]!.look).toEqual([{ kind: 'trace', tab: 'queues' }])
+    const doc = step('look:\n  - trace.net\n  - debug.objects\n  - dock.gpio')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.look).toEqual([
+      { kind: 'trace', tab: 'net' },
+      { kind: 'debug', section: 'objects' },
+      { kind: 'dock', panel: 'gpio' },
+    ])
+  })
+
+  it('names the Timeline as the reader sees it, not as it is stored', () => {
+    expect(parseLook('trace.timeline')).toEqual({ kind: 'trace', tab: 'schedule' })
+    expect(parseLook('trace.schedule')).toBeNull()
+  })
+
+  it('knows every Debug section and Trace tab', () => {
+    for (const section of ['breakpoints', 'cpu', 'stack', 'memory', 'threads', 'objects']) {
+      expect(parseLook(`debug.${section}`)).toEqual({ kind: 'debug', section })
+    }
+    expect(parseLook('trace.power')).toEqual({ kind: 'trace', tab: 'power' })
+  })
+
+  it('reports a target that names no view, and drops it', () => {
+    // It would fire and open nothing, with the prose pointing at a view that
+    // never appears.
+    for (const bad of ['trace.qeues', 'debug.registers', 'dock.gpoi', 'terminal', 'trace', '.queues']) {
+      const doc = step(`look: ${bad}`)
+      expect(doc.steps[0]!.look).toEqual([])
+      expect(doc.problems).toHaveLength(1)
+      expect(doc.problems[0]).toContain(`\`look: ${bad}\``)
+      expect(doc.problems[0]).toContain('trace.timeline')
+    }
+    expect(parseLook('debug.constructor')).toBeNull()
+  })
+
+  it('keeps the good targets of a list with a bad one in it', () => {
+    const doc = step('look:\n  - debug.cpu\n  - debug.cpuu')
+    expect(doc.steps[0]!.look).toEqual([{ kind: 'debug', section: 'cpu' }])
+    expect(doc.problems[0]).toContain('debug.cpuu')
+  })
+
+  it('refuses a block', () => {
+    const doc = step('look:\n  trace: queues')
+    expect(doc.steps[0]!.look).toEqual([])
+    expect(doc.problems[0]).toContain('not a block')
+  })
+
+  it('is empty when the step does not ask', () => {
+    expect(step('panel: gpio').steps[0]!.look).toEqual([])
+  })
+
+  it('takes the instruments as panels', () => {
+    for (const kind of ['trace', 'debug', 'perf']) {
+      const doc = step(`panel: ${kind}`)
+      expect(doc.problems).toEqual([])
+      expect(doc.steps[0]!.panel).toBe(kind)
+    }
+  })
+
+  it('reports a panel kind the dock does not know', () => {
+    // Revealing nothing reads exactly like a board without the peripheral.
+    const doc = step('panel: gpoi')
+    expect(doc.steps[0]!.panel).toBeNull()
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('`panel: gpoi`')
+  })
+
+  it('reads and checks `reveal:`, the older spelling of `panel:`', () => {
+    expect(step('reveal: led').steps[0]!.panel).toBe('led')
+    expect(step('reveal: lde').problems[0]).toContain('`reveal: lde`')
+  })
+})
+
+describe('directive keys', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('reports a key no directive answers to, and still builds the step', () => {
+    const doc = step('wacth:\n  - pin = led as u8\npanel: gpio')
+    expect(doc.steps[0]!.panel).toBe('gpio')
+    expect(doc.steps[0]!.watch).toEqual([])
+    expect(doc.problems).toEqual(['step 1 (“Step”): `wacth:` is not a directive'])
+  })
+
+  it('reports it even on a step dropped for having no anchor', () => {
+    const doc = parseTour('## Step\n\n```tour\nlok: trace.queues\n```\n\nProse.\n')
+    expect(doc.problems.some((p) => p.includes('`lok:`'))).toBe(true)
+  })
+
+  it('accepts the reserved keys without a word', () => {
+    // Tours written against directives still in review must parse today.
+    const doc = step(
+      [
+        'await: Stop the consumer, then watch the queue fill.',
+        'do:',
+        '  - msgq consumer suspend',
+        'check: used == 8',
+        'pass: Full.',
+        'fail: Not yet.',
+        'retry: yes',
+      ].join('\n'),
+    )
+    expect(doc.problems).toEqual([])
+  })
+
+  it('lists each key once, in one tier only', () => {
+    // A later change moves a key from reserved to implemented; leaving a copy
+    // behind would make the tiers disagree about what it does.
+    const all = [...IMPLEMENTED_KEYS, ...RESERVED_KEYS]
+    expect(new Set(all).size).toBe(all.length)
+  })
+
+  it('returns the unknown keys in the order written', () => {
+    expect(unknownKeys(['at', 'lok', 'await', 'wacth', 'look'])).toEqual(['lok', 'wacth'])
   })
 })
 

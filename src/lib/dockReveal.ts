@@ -6,6 +6,9 @@
 import type { PanelKind } from '@/boards'
 import type { DeviceClass, DeviceInventory } from '@/deviceTopology'
 import {
+  STAGE_DEBUG_KEY,
+  STAGE_PERF_KEY,
+  STAGE_TRACE_KEY,
   getState,
   setExpanded,
   setGroupCollapsed,
@@ -110,6 +113,16 @@ export function subscribeInventory(fn: () => void): () => void {
 }
 
 /**
+ * The instruments are dock rows too, but not inventory nodes: nothing in the
+ * devicetree declares them, so they are found by their fixed keys instead.
+ */
+const INSTRUMENT_ROWS = new Map<PanelKind, string>([
+  ['perf', STAGE_PERF_KEY],
+  ['trace', STAGE_TRACE_KEY],
+  ['debug', STAGE_DEBUG_KEY],
+])
+
+/**
  * Reveal the row that represents a panel kind.
  *
  * Prefers an interactive row: `led` matches both the LED indicators and a
@@ -118,6 +131,11 @@ export function subscribeInventory(fn: () => void): () => void {
  * a no-op — the sample may name a peripheral this board does not have.
  */
 export function revealPanelKind(kind: string): void {
+  const instrument = INSTRUMENT_ROWS.get(kind as PanelKind)
+  if (instrument) {
+    revealDockRow(instrument)
+    return
+  }
   const nodes = inventory?.nodes
   if (!nodes) return
   const matches = nodes.filter((node) => node.panelKind === (kind as PanelKind))

@@ -83,9 +83,11 @@ vi.mock('@/tours/catalog', () => ({
   baseSampleId: (id: string) => id.replace(/_trace$/, ''),
 }))
 
+/** Panel kinds and instrument row keys the step revealed, in order. */
 const revealed: string[] = []
 vi.mock('@/lib/dockReveal', () => ({
   revealPanelKind: (kind: string) => revealed.push(kind),
+  revealDockRow: (key: string) => revealed.push(key),
 }))
 
 const { arm, getSnapshot, getSteps, loadFor, next, reset, skip } = await import('@/tours/store')
@@ -257,6 +259,41 @@ describe('stops', () => {
   it('counts a step as seen so the outline can offer it again', async () => {
     await stopAt(0x8000)
     expect([...getSnapshot().seen]).toEqual([0])
+  })
+
+  it('opens the views a firing step looks at, and says which it cannot', async () => {
+    reset()
+    tourText.body = `---
+tour: Look test
+sample: samples/kernel/msg_queue
+---
+
+## The queue fills
+
+\`\`\`tour
+at: main
+look:
+  - dock.gpio
+  - debug.objects
+  - trace.queues
+\`\`\`
+
+Prose.
+`
+    await loadFor(`tour-${url++}`)
+    await arm()
+    await stopAt(0x8000)
+    // This guest writes no trace and its sample does not name Trace, so the
+    // Queues tab has nowhere to open: the card says so instead.
+    expect(revealed).toEqual(['gpio', 'stage:debug'])
+    expect(getSnapshot().current?.lookNotes).toEqual([
+      'This view needs the traced build of this sample.',
+    ])
+  })
+
+  it('leaves a card that looks at nothing without notes', async () => {
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.lookNotes).toEqual([])
   })
 })
 

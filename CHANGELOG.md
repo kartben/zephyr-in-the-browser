@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Tours can open a Trace tab or a Debug section.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Improved:** Demo dock lists only peripherals you can open.

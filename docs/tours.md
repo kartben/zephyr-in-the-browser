@@ -68,6 +68,12 @@ The directive block is a strict subset of YAML — `key: value`, `- item` lists,
 one level of nested mapping. Anything the parser accepts, a real YAML parser
 reads the same way.
 
+Every key in the block must be one the parser knows. A misspelt `wacth:` fails
+`npm run test` instead of leaving a card quietly short of its values. Keys for
+directives still on their way (`await`, `do`, `check`, `pass`, `fail`,
+`retry`) are accepted and ignored until they land; the lists are
+`IMPLEMENTED_KEYS` and `RESERVED_KEYS` in `src/tours/parse.ts`.
+
 ## Where a step breaks — `at:`
 
 | Spelling | Means |
@@ -148,11 +154,41 @@ hits; the first whose condition fires is the one shown.
 
 Everything below is optional, and a step with none of it is just prose.
 
-### `panel:`
+### `look:` and `panel:`
 
-A `PanelKind` from `src/boards.ts` (`gpio`, `led`, `i2c`, `net`, …). The device
-dock unhides that row, expands it and blinks it, so the reader's eye has
-somewhere to go when the machine stops.
+`panel:` names a row of the device dock: a `PanelKind` from `src/boards.ts`
+(`gpio`, `led`, `i2c`, `net`, …), or one of the instruments, `trace`, `debug`
+and `perf` (Simulation). The dock unhides that row, expands it and blinks it,
+so the reader's eye has somewhere to go when the machine stops.
+
+`look:` goes one level further in, to a tab of Trace or a section of Debug. A
+step about a queue filling up wants the Queues tab, and a reader left on the
+Timeline would not know that is where to look.
+
+```yaml
+look: trace.queues
+```
+
+```yaml
+look:
+  - trace.timeline
+  - debug.objects
+```
+
+| Target | Opens |
+| --- | --- |
+| `trace.timeline`, `trace.queues`, `trace.net`, `trace.power` | that Trace tab |
+| `debug.breakpoints`, `debug.cpu`, `debug.stack`, `debug.memory`, `debug.threads`, `debug.objects` | that Debug section |
+| `dock.<panel>` | a dock row, the same as `panel:` |
+
+Targets open in the order written, after `panel:`. A target or panel kind the
+page does not know fails the test, rather than making a step that opens
+nothing.
+
+Only the traced build of a sample has Trace: the `· traced` twin in the
+gallery, `<app>_trace`. Both builds read the same tour, so on the plain one a
+Trace target opens nothing, and the card says so in one muted line: "This view
+needs the traced build of this sample."
 
 ### `watch:`
 
@@ -353,7 +389,8 @@ card is a spinner nothing will resolve.
    starts the machine instead, and the sample runs untoured rather than frozen.
 3. Each stop is matched to a step by address. A stop nobody claims — the
    reader's own breakpoint, or the Pause button — is left alone.
-4. A firing step reads its values, reveals its panel, and puts up the card.
+4. A firing step reads its values, opens its panel and looks, and puts up the
+   card.
    Continue plants the next step's breakpoint and *then* resumes.
 
 **One breakpoint at a time.** A breakpoint traps on every pass, so a tour with
@@ -409,6 +446,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Expressions | `src/tours/expr.ts` |
 | Hit conditions | `src/tours/when.ts` |
 | Engine | `src/tours/store.ts` |
+| Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Gallery badge | `src/tours/guided.ts` |
 | UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |

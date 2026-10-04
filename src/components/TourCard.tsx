@@ -150,6 +150,12 @@ export function TourCard({ board, sampleId }: Props) {
             className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
           />
 
+          {card.lookNotes.map((note) => (
+            <p key={note} className="text-[11px] text-muted-foreground/80">
+              {note}
+            </p>
+          ))}
+
           {values.length > 0 && <Values values={values} live={state.live} />}
 
           {objects && <TourObjects spec={objects} snap={snap} live={state.live} />}
