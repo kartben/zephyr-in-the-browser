@@ -264,9 +264,12 @@ describe('checkTour', () => {
     ])
   })
 
-  it('fails an expression that does not even tokenize', () => {
+  it('fails an expression that does not parse', () => {
     expect(checkTour(tour('at: main\nwatch:\n  - counter & 3 as u32'), context())).toEqual([
       { step: 1, severity: 'fail', kind: 'expression', message: '`watch: counter & 3` is not an expression' },
+    ])
+    expect(checkTour(tour('at: main\nwatch:\n  - counter + as u32'), context())).toEqual([
+      { step: 1, severity: 'fail', kind: 'expression', message: '`watch: counter +` is not an expression' },
     ])
   })
 
