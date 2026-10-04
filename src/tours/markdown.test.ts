@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMarkdown, type InlineSpan } from './markdown'
+import { isRunnableShell, parseMarkdown, type InlineSpan } from './markdown'
 
 /** Flatten a single-paragraph body down to its spans. */
 function spans(body: string): InlineSpan[] {
@@ -94,5 +94,16 @@ describe('blocks', () => {
   it('returns nothing for an empty body', () => {
     expect(parseMarkdown('')).toEqual([])
     expect(parseMarkdown('\n\n  \n')).toEqual([])
+  })
+})
+
+describe('isRunnableShell', () => {
+  it('runs `shell` blocks only', () => {
+    expect(isRunnableShell('shell')).toBe(true)
+    expect(isRunnableShell('Shell')).toBe(true)
+    // Terminal transcripts, prompts and output included, are never typed in.
+    for (const language of ['sh', 'console', 'bash', 'c', '']) {
+      expect(isRunnableShell(language)).toBe(false)
+    }
   })
 })

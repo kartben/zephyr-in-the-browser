@@ -371,6 +371,65 @@ read while the machine is still halted, but the walks are dozens of round-trips
 that have not finished by the time the guest is let go, and what is left on the
 card is a spinner nothing will resolve.
 
+### Shell snippets
+
+A fenced `shell` block in a step's prose is a command the reader can run. The
+card shows it with **Run** and **Copy**:
+
+````markdown
+Stop the consumer, then watch the queue fill:
+
+```shell
+msgq consumer suspend
+```
+````
+
+**Run** types each line into the terminal followed by Enter, about 150 ms
+apart, exactly as if the reader had typed it: the shell echoes it and keeps it
+in its history. Blank lines and `#` comments are skipped, because the Zephyr
+shell has no comments and would answer one with "command not found". **Copy**
+puts the block on the clipboard as the card shows it.
+
+On a paused card the button reads **Continue and run**. A halted guest's shell
+cannot answer, so the button does what Continue does, waits for the debugger to
+report the guest running, then waits for the shell's prompt (the cursor right
+after a `$ `, as in `uart:~$ `) before it types. The prompt matters on a card
+paused early in boot: Zephyr's shell throws away anything that arrives before
+it has started (`shell_start()` flushes its receive buffer), and the prompt is
+the first thing it prints once it has. Both waits give up after a few seconds
+and type anyway. Continue plants the next step's breakpoint before it resumes,
+as always, so a step that fires before the shell has read the command holds it
+until the reader continues again.
+
+A command often needs something only the running guest knows. Two placeholders
+fill it in:
+
+| Placeholder | Becomes |
+| --- | --- |
+| `${thread:NAME}` | the address of the thread with that name, as `0x…` |
+| `${addr:SYMBOL}` | the address of that data symbol |
+
+```shell
+kernel thread suspend ${thread:consumer}
+```
+
+`thread:` looks the name up in the debugger's last thread walk, then falls back
+to the `_k_thread_obj_NAME` symbol that `K_THREAD_DEFINE()` leaves in the image,
+so a statically defined thread resolves before the guest has stopped once.
+Neither reads guest memory, which is why both work while the guest runs. The
+card shows the value it filled in, with the placeholder in a tooltip.
+
+A placeholder that does not resolve (no such thread, no such symbol, or no
+guest at all on the mock backend) disables Run, and the card says why. A
+malformed one, such as an unknown kind or a missing name or brace, is an
+authoring error, and `npm test` fails on it.
+
+Only `shell` blocks run. Docs show terminal sessions as `console` and `sh`,
+prompts and output included, so those stay ordinary code blocks and nothing
+pasted from a transcript becomes runnable by accident. Markdown outside a tour
+card never runs either. On the mock backend Run types into the demo shell, so a
+tour's snippets can be tried on a bare checkout.
+
 ## How it runs
 
 1. The page loads the tour from its own bundle as the emulator starts.
@@ -447,6 +506,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Hit conditions | `src/tours/when.ts` |
 | Engine | `src/tours/store.ts` |
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
+| Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
 | Gallery badge | `src/tours/guided.ts` |
 | UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |

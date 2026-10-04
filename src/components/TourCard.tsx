@@ -147,6 +147,8 @@ export function TourCard({ board, sampleId }: Props) {
 
           <Markdown
             body={step.body}
+            runnable
+            paused={paused}
             className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
           />
 

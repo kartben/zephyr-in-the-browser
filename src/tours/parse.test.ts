@@ -177,6 +177,37 @@ describe('parseTour', () => {
   })
 })
 
+describe('shell snippets', () => {
+  const step = (fence: string, text: string) =>
+    parseTour(
+      `## Stop the consumer\n\n\`\`\`tour\nat: main\n\`\`\`\n\nThen watch.\n\n\`\`\`${fence}\n${text}\n\`\`\`\n`,
+    )
+
+  it('accepts both placeholder kinds', () => {
+    const doc = step('shell', 'kernel thread suspend ${thread:consumer}\ndevmem ${addr:readings}')
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.body).toContain('${thread:consumer}')
+  })
+
+  it('reports a placeholder that could never resolve, naming the step', () => {
+    const doc = step('shell', 'kernel thread suspend ${thred:consumer}')
+    expect(doc.steps).toHaveLength(1)
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('step 1 (“Stop the consumer”)')
+    expect(doc.problems[0]).toContain('${thred:consumer}')
+  })
+
+  it('reports a shell block with nothing to run', () => {
+    const doc = step('shell', '# just a comment')
+    expect(doc.problems[0]).toContain('no command to run')
+  })
+
+  it('leaves transcripts alone: only `shell` blocks are run', () => {
+    expect(step('console', 'uart:~$ echo ${thred:x}').problems).toEqual([])
+    expect(step('sh', 'echo ${HOME').problems).toEqual([])
+  })
+})
+
 describe('objects', () => {
   const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
 

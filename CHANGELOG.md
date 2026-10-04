@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Tour cards can type shell commands into the terminal.
 - **Added:** Tours can open a Trace tab or a Debug section.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
