@@ -46,6 +46,7 @@ import { TRACE_TABS, traceTabFromTourName, traceTabTourName, type TraceTab } fro
 import { FORMATS, isKnownFormat } from '@/tours/expr'
 import { isRunnableShell, parseMarkdown } from '@/tours/markdown'
 import { isCommandLine, parsePlaceholders } from '@/tours/snippets'
+import { isShippableSource } from '@/tours/sources'
 
 /** One row of a step's `watch:` list — `label = expression as format`. */
 export interface WatchSpec {
@@ -189,6 +190,12 @@ export interface TourDoc {
    * the teaching surface is prose + dock/terminal focus. Default true.
    */
   showSource: boolean
+  /**
+   * Files outside the sample whose code a stop may land in, as paths in the
+   * Zephyr tree (`kernel/msg_q.c`). The image build ships a verbatim copy of
+   * each beside the sample's own sources; see src/tours/sources.ts.
+   */
+  sources: string[]
   steps: TourStep[]
   /** Shown once every step has had its turn, with a way on to `next`. */
   outro: TourOutro | null
@@ -918,12 +925,26 @@ export function parseTour(text: string): TourDoc {
     problems.push('front matter: `next:` needs an outro, a last `##` section with no ```tour block')
   }
 
+  // The build copies each of these out of the Zephyr tree, so one that would
+  // reach outside it is refused here as well as there.
+  const sources: string[] = []
+  for (const path of parseList(front.get('sources'))) {
+    if (isShippableSource(path)) {
+      sources.push(path)
+      continue
+    }
+    problems.push(
+      `front matter: \`sources: ${path}\` is not a path inside the Zephyr tree, like \`kernel/msg_q.c\``,
+    )
+  }
+
   return {
     title: asScalar(front.get('tour')) ?? asScalar(front.get('title')) ?? 'Guided tour',
     sample: asScalar(front.get('sample')) ?? '',
     intro: intro.join('\n').trim(),
     // `source: no` hides guest source / DTS excerpts on the card (tool tours).
     showSource: asBool(front.get('source'), true),
+    sources,
     steps,
     outro: outro && { title: outro.title, body: outro.body.join('\n').trim() },
     next,

@@ -8,6 +8,7 @@ via the help dialog (?).
 - **Fixed:** Tour cards keep the stop line in view and name data pointers.
 - **Added:** Tour cards can type shell commands into the terminal.
 - **Added:** Tours hand you tasks, end on a recap, and chain onward.
+- **Added:** Tours show Zephyr kernel code at stops inside the kernel.
 - **Added:** Tours can open a Trace tab or a Debug section.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** Resuming from a breakpoint no longer stops on it again.

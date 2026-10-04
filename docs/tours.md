@@ -27,6 +27,9 @@ Front-matter keys: `tour` (title), `sample` (Zephyr sample path), and optional
 `at:` still plant; use this for page-orientation tours). Optional `next` names
 the tour to offer at the end; see
 [Ending a tour](#ending-a-tour-outro-and-next).
+`at:` still plant; use this for page-orientation tours). Optional `sources:`
+lists Zephyr files outside the sample whose code the card should be able to
+show; see [Stops outside the sample](#stops-outside-the-sample-sources).
 
 ````markdown
 ---
@@ -102,7 +105,9 @@ All five are resolved against the ELF the page already fetched to boot the
 guest: `.symtab` for symbols, `.debug_line` for source lines. Zephyr builds
 with debug info, so the mapping is simply *there* — nothing is generated and
 nothing is prepared. That also means a tour can break in code it does not own:
-`at: z_impl_k_sleep` stops inside the kernel, and the sample never knows.
+`at: z_impl_k_sleep` stops inside the kernel, and the sample never knows. The
+card shows the code there only if the image carries it, which takes a line in
+the front matter (`sources:`, below).
 
 A line anchor lands on the first code **at or after** the line, the same as
 gdb's `break file:n`, because an optimised build has no code for a comment or a
@@ -145,6 +150,48 @@ same source lines. In a sample you control, mark the function `__noinline` so
 there is one copy at one address. Otherwise anchor one level down, in a function
 the inlined code calls (a kernel call such as `z_impl_k_msgq_put`): it has one
 address whichever copy called it.
+
+## Stops outside the sample: `sources:`
+
+For a toured sample, the image build ships the sample's own `src/` beside the
+ELF and nothing else, so a stop in `z_impl_k_msgq_put` resolves and stops, but
+the card has no code to show for it. A tour that teaches the kernel names the
+files it needs:
+
+```markdown
+---
+tour: Message queues
+sample: samples/kernel/msg_queue
+sources:
+  - kernel/msg_q.c
+---
+```
+
+Each entry is a path in the Zephyr tree. `tools/build-zephyr-image.sh` copies
+it verbatim, license header and all, to `src/<app>/zephyr/<path>` beside the
+sample's own files, and writes `src/<app>/index.json` naming every file it
+shipped. A path starting `zephyr-module/` names one of this repository's own
+files instead. Absolute paths and `..` are refused, by the parser and the build
+alike.
+
+With the file shipped, everything that works in the sample's sources works in
+it too, pattern anchors and highlights included:
+
+```yaml
+at: msg_q.c:/memcpy\(msgq->write_ptr/ | z_impl_k_msgq_put
+highlight: /pending_thread = z_unpend_first_thread_locked/ + 8
+```
+
+A stop knows its file only as the path DWARF recorded on whatever machine built
+the image: `/workdir/zephyr/kernel/msg_q.c` in the container, a home directory
+on a laptop. The page matches it to the shipped file that shares the longest
+tail with it, and the card says whose code it is: `Zephyr kernel ·
+kernel/msg_q.c`, `this sample · main.c`, or `this page's module · …`.
+
+Images built before `sources:` existed carry no `index.json`. On those a stop
+outside the sample shows no code, a pattern in a kernel file falls through to
+its next alternative, and the sample's own files work as they always have. So
+give a kernel pattern a fallback, like any other.
 
 ## When it fires — `when:` and friends
 
@@ -601,9 +648,12 @@ inventing a number. Enough to write and read a tour on a bare checkout. A step
 with `await:` gets a beat of its own for its your-turn card first, and a tour
 with an outro ends on its completion card.
 
-A dev-only Vite plugin serves `tours/*.tour.md` at the same URLs a real image
-build would. Source excerpts come from your Zephyr workspace when there is one
-(`ZEPHYR_WS`, default `~/zephyrproject`); without it the prose stands alone.
+A dev-only Vite plugin serves a toured sample's sources, the files its tour
+lists under `sources:` and their `index.json` at the same URLs a real image
+build would, out of your Zephyr workspace when there is one (`ZEPHYR_WS`,
+default `~/zephyrproject`); without it the prose stands alone. The workspace is
+whatever you have checked out, so its line numbers can drift from an image
+built at another revision.
 
 ## Keeping tours honest
 
@@ -659,8 +709,8 @@ is the first check).
 
 Nothing at all — not "nothing that matters". There is no macro, no table, no
 Kconfig, no generated header and no extra section. `tools/build-zephyr-image.sh`
-copies the tour and the sample's sources next to the image; the ELF is
-untouched.
+copies the sample's sources, and any the tour lists under `sources:`, next to
+the image; the ELF is untouched.
 
 That is the difference from the annotation system this replaces, which put the
 prose's *ids* in the guest, fired them from macros in the sample, and smuggled
@@ -677,6 +727,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | File format | `src/tours/parse.ts` |
 | Anchors | `src/tours/anchors.ts`, `src/debug/dwarfLines.ts` |
 | Checking them against images | `src/tours/check.ts`, `src/tours/images.test.ts` |
+| Shipped sources | `src/tours/sources.ts` |
 | Expressions | `src/tours/expr.ts` |
 | Hit conditions | `src/tours/when.ts` |
 | Engine | `src/tours/store.ts` |

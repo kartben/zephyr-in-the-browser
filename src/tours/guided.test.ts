@@ -1,5 +1,6 @@
-import { readFileSync, readdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BOARDS, type GuestSample } from '@/boards'
 import { isKnownFormat } from '@/tours/expr'
@@ -22,6 +23,9 @@ import { whenFires } from '@/tours/when'
  */
 
 const TOURS_DIR = resolve(process.cwd(), 'tours')
+
+/** The Zephyr tree `sources:` paths are relative to, when this machine has one. */
+const ZEPHYR_TREE = join(process.env.ZEPHYR_WS ?? join(homedir(), 'zephyrproject'), 'zephyr')
 
 function tourFiles(): string[] {
   return readdirSync(TOURS_DIR)
@@ -99,6 +103,19 @@ describe('tours/', () => {
       // A step that neither stops nor repeats fires once and is gone before
       // the reader can act on it — almost always a typo for `stop: no`.
       expect(step.stop || step.repeat || step.when !== null).toBe(true)
+    }
+  })
+
+  it.each(tourFiles())('%s lists only sources that exist', (file) => {
+    const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
+    // The parser has already refused absolute and `..` paths. A path that
+    // names no file ships nothing, and its stops show no code. This repo's
+    // own files can always be checked; Zephyr's only where a tree is at hand.
+    for (const source of doc.sources) {
+      const own = source.startsWith('zephyr-module/')
+      if (!own && !existsSync(ZEPHYR_TREE)) continue
+      const path = own ? resolve(process.cwd(), source) : join(ZEPHYR_TREE, source)
+      expect(existsSync(path), `\`sources: ${source}\` is not at ${path}`).toBe(true)
     }
   })
 })

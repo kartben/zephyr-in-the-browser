@@ -162,6 +162,99 @@ else
   REPO_MOUNT=/repo
 fi
 
+# Ship a toured sample's sources beside its image:
+#
+#   ship_tour_sources <tour.md> <sample> <dir>
+#
+#   <dir>/main.c                  the sample's own src/*.c and src/*.h
+#   <dir>/zephyr/kernel/msg_q.c   each Zephyr tree path the tour's front matter
+#                                 lists under `sources:`
+#   <dir>/index.json              {"files": [...]}, naming every file above
+#
+# None of it is in the ELF and none of it changes it: the page resolves each
+# stop from the DWARF already in the image, and needs the text only to show the
+# code there and to search it for `at: file.c:/pattern/` anchors. A `sources:`
+# path under zephyr-module/ names one of this repo's own files and keeps that
+# prefix. Everything is copied unmodified, license headers and all, because the
+# line numbers the page resolves out of `.debug_line` are in *those*
+# coordinates. See src/tours/sources.ts for how the page reads it.
+ship_tour_sources() {
+  local tour="$1" sample="$2" out="$3"
+  rm -rf "$out"
+  mkdir -p "$out"
+
+  local sample_src="$ZEPHYR_WS/zephyr/$sample/src"
+  case "$sample" in
+    zephyr-module/*) sample_src="$ROOT/$sample/src" ;;
+  esac
+  if [ -d "$sample_src" ]; then
+    find "$sample_src" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' \) \
+      -exec cp {} "$out/" \;
+  else
+    echo "    WARNING: no sources at $sample_src, so the tour will show no sample code." >&2
+  fi
+
+  # `sources:` read the way src/tours/parse.ts reads it: a `- path` list under
+  # the key, or one comma-separated line. A path that is absolute or climbs out
+  # of the tree is refused, as the page refuses it.
+  local path from
+  while IFS= read -r path; do
+    case "$path" in
+      zephyr-module/*) from="$ROOT/$path" ;;
+      *) from="$ZEPHYR_WS/zephyr/$path"; path="zephyr/$path" ;;
+    esac
+    if [ -f "$from" ]; then
+      mkdir -p "$(dirname "$out/$path")"
+      cp "$from" "$out/$path"
+    else
+      echo "    WARNING: $(basename "$tour") lists $from, which is not a file." >&2
+    fi
+  done < <(python3 -c 'import re, sys
+lines = open(sys.argv[1], encoding="utf-8").read().replace("\r\n", "\n").split("\n")
+end = 1
+while end < len(lines) and lines[end].strip() != "---":
+    end += 1
+if lines[0].strip() != "---":
+    end = 0
+def scalar(raw):
+    value = raw.strip()
+    if re.fullmatch(r"([\x22\x27]).*\1", value):
+        return value[1:-1]
+    return re.split(r"\s#", value, maxsplit=1)[0].strip()
+found, i = [], 1
+while i < end:
+    key = re.match(r"sources\s*:(.*)$", lines[i])
+    if key:
+        block = []
+        while i + 1 < end and re.match(r"\s+\S", lines[i + 1]):
+            i += 1
+            block.append(lines[i].strip())
+        if not block:
+            found = [v.strip() for v in scalar(key.group(1)).split(",")]
+        elif not key.group(1).strip():
+            lists = all(b.startswith("- ") for b in block)
+            found = [scalar(b[2:]) for b in block] if lists else []
+    i += 1
+for path in filter(None, found):
+    parts = path.split("/")
+    if path.startswith("/") or "\\" in path or any(p in ("", ".", "..") for p in parts):
+        print("    WARNING: refusing sources: " + path + ", not a path inside the Zephyr tree",
+              file=sys.stderr)
+    else:
+        print(path)' "$tour")
+
+  python3 -c 'import json, os, sys
+root = sys.argv[1]
+files = sorted(os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/")
+               for d, _, names in os.walk(root) for f in names
+               if not (d == root and f == "index.json"))
+with open(os.path.join(root, "index.json"), "w", encoding="utf-8") as index:
+    json.dump({"files": files}, index, indent=2)
+    index.write("\n")' "$out"
+  printf '    %-16s %8s file(s)\n' "src/$(basename "$out")/" \
+    "$(find "$out" -type f ! -name index.json | command wc -l | xargs)"
+}
+
 build_one() {
   local board="$1" id="$2" sample="$3" confs="$4" snippets="$5"
 
@@ -272,36 +365,16 @@ Path(sys.argv[2]).write_bytes(img)' \
     fi
   fi
 
-  # A sample with a guided tour ships the tour file beside its image, plus a
-  # verbatim copy of the sources it points at. Neither is in the ELF and neither
-  # changes it: a tour is Markdown the browser reads, and the addresses it
-  # breaks on are resolved at runtime from the DWARF already in the image.
-  #
-  # The sources are copied unmodified, because the line numbers the page
-  # resolves out of `.debug_line` are in *those* coordinates. Only the base
-  # build ships them — a `_trace` twin is the same sources, and the page reads
-  # both from the base id's files.
+  # A sample with a guided tour ships a verbatim copy of the sources its stops
+  # land in. The tour itself does not ship: the page bundles it, so a copy an
+  # older build left here goes. Only the base build ships sources, since a
+  # `_trace` twin is the same sources, and the page reads both from the base
+  # id's files.
   local base_id="${id%_trace}"
   local tour="$ROOT/tours/$base_id.tour.md"
   if [ "$id" = "$base_id" ] && [ -f "$tour" ]; then
-    cp "$tour" "$dest/$base_id.tour.md"
-    printf '    %-16s %8s bytes\n' "$base_id.tour.md" \
-      "$(command wc -c < "$dest/$base_id.tour.md" | xargs)"
-
-    local sample_src="$ZEPHYR_WS/zephyr/$sample/src"
-    case "$sample" in
-      zephyr-module/*) sample_src="$ROOT/$sample/src" ;;
-    esac
-    if [ -d "$sample_src" ]; then
-      rm -rf "$dest/src/$base_id"
-      mkdir -p "$dest/src/$base_id"
-      find "$sample_src" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' \) \
-        -exec cp {} "$dest/src/$base_id/" \;
-      printf '    %-16s %8s file(s)\n' "src/$base_id/" \
-        "$(find "$dest/src/$base_id" -type f | command wc -l | xargs)"
-    else
-      echo "    WARNING: no sources at $sample_src — the tour will show no code." >&2
-    fi
+    rm -f "$dest/$base_id.tour.md"
+    ship_tour_sources "$tour" "$sample" "$dest/src/$base_id"
   fi
 
   # The picker in the UI only shows ids it knows about. Traced twins are

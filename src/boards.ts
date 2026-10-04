@@ -1381,9 +1381,14 @@ function baseSampleId(sampleId: string): string {
 }
 
 /**
- * One of a sample's shipped source files — a verbatim copy of what was built,
+ * One of a sample's shipped source files: a verbatim copy of what was built,
  * so the line numbers a tour resolves out of DWARF index straight into it.
+ *
+ * `file` is a path under the sample's `src/`, so it may be nested: `main.c`,
+ * `index.json`, or `zephyr/kernel/msg_q.c` for a file a tour's `sources:`
+ * shipped from the Zephyr tree (src/tours/sources.ts).
  */
 export function sampleSourceAsset(board: Board, sampleId: string, file: string): string {
-  return `zephyr/${boardAssetDir(board)}/src/${baseSampleId(sampleId)}/${file}`
+  const path = file.split('/').map(encodeURIComponent).join('/')
+  return `zephyr/${boardAssetDir(board)}/src/${baseSampleId(sampleId)}/${path}`
 }
