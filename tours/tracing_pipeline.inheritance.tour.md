@@ -24,6 +24,21 @@ with the `storage` thread, and `bus_mutex` guards it. The mutex list shows
 who holds it now: `storage`, the lowest-priority thread in the app (its base
 priority is 9), which keeps the bus for 12 ms at a time while it flushes.
 
+```mermaid
+flowchart LR
+  temp([sensor_temp]) --> q[("sensor_q<br/><small>k_msgq</small>")]
+  press([sensor_press]) --> q
+  imu([sensor_imu]) --> q
+  q --> agg([aggregator])
+  agg --> cv{{"frame_cond<br/><small>k_condvar</small>"}}
+  cv --> c0([consumer0])
+  cv --> c1([consumer1])
+  agg --- bus[/"bus_mutex<br/><small>k_mutex</small>"/]
+  bus --- st([storage])
+  class agg,bus,st focus
+  class temp,press,imu,q,cv,c0,c1 dim
+```
+
 The aggregator, at priority 3, is about to call `k_mutex_lock()`. It will
 have to wait.
 
