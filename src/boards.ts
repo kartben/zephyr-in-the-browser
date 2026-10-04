@@ -706,6 +706,18 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     zephyrSample: 'samples/kernel/msg_queue',
   },
   {
+    // This repo's teaching sample for k_msgq: a sensor thread, a timer
+    // interrupt and SW0's interrupt feed one queue, a consumer thread drains
+    // it, and the `msgq` shell command changes how each side behaves. Its
+    // tour is part 2 of the message-queue lesson; the `_trace` twin adds the
+    // Queues and Timeline views the tour points at.
+    id: 'msgq_lab',
+    label: 'Message Queue Lab',
+    description: 'A sensor, a timer and SW0 fill one msgq; change it all from the shell',
+    zephyrSample: 'zephyr-module/apps/msgq_lab',
+    primaryPanels: ['keys'],
+  },
+  {
     // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
@@ -1076,13 +1088,15 @@ export const BOARDS: Board[] = [
     // tracing demos; zperf is already net-only in the base list. `pm_latency`
     // goes too: the RISC-V virt SoC does not select HAS_PM either, and the
     // cpu-power-states snippet only carries an A53 overlay, so the sample would
-    // build with no state ladder and never suspend.
+    // build with no state ladder and never suspend. `msgq_lab` is built for
+    // the A53 alone: its tour leans on the traced twin's Queues view.
     samples: [
       ...CORTEX_A53_SAMPLES_BASE.filter(
         (s) =>
           s.id !== 'tracing' &&
           s.id !== 'tracing_pipeline' &&
           s.id !== 'msg_queue' &&
+          s.id !== 'msgq_lab' &&
           s.id !== 'pm_latency' &&
           // Float inference every 40 ms is too much for this board's interpreter.
           s.id !== 'magic_wand',
