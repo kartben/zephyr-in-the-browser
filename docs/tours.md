@@ -710,7 +710,7 @@ the page does when the tour arms. These fail:
 | `drift`: a `/pattern/` no longer matches and a later fallback resolves | a step that stops on a line nobody chose |
 | `highlight`: an entry marks nothing in the file the step stops in | an excerpt that has lost its point, silently |
 | `symbol`: `watch:`, `memory:` or `objects: focus:` names a symbol the ELF lacks | "no symbol" where the value should be (registers are exempt) |
-| `expression`: an expression that does not even tokenize | an error where the value should be |
+| `expression`: an expression that does not parse | an error where the value should be |
 
 These warn:
 

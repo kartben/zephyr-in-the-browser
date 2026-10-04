@@ -46,6 +46,13 @@ export interface EvalResult {
   ok: boolean
   /** The address the expression resolved to, for "show me this in Mem". */
   addr: number | null
+  /**
+   * The whole number behind `text`, for the formats that come to one: the
+   * integer read, the pointer read, a flag as 0 or 1, or the value itself for
+   * `addr`, `code` and `dec`. Absent for `string` and `bytes:N`, and when the
+   * read failed.
+   */
+  value?: bigint
 }
 
 /* ------------------------------------------------------------------ *
@@ -98,96 +105,186 @@ function tokenize(src: string): Token[] | null {
   return tokens
 }
 
-class Evaluator {
+/** An expression once parsed: the shape of what it names, nothing looked up yet. */
+type Expr =
+  | { kind: 'num'; value: number; pointerScaled: boolean }
+  | { kind: 'sym' | 'reg'; name: string }
+  | { kind: 'load'; addr: Expr }
+  | { kind: 'add' | 'sub'; lhs: Expr; rhs: Expr }
+
+/**
+ * Recursive descent over the tokens. The whole grammar:
+ *
+ *     sum     := unary (('+' | '-') unary)*
+ *     unary   := '*' unary | primary
+ *     primary := number | $register | symbol | '(' sum ')'
+ *
+ * Parsing is kept apart from evaluating so that a tour can be checked with no
+ * guest at all: a typo in an expression is a mistake the parser reports, not a
+ * value the reader finds on the card.
+ */
+class Parser {
   private at = 0
 
-  constructor(
-    private readonly tokens: Token[],
-    private readonly target: TourTarget,
-  ) {}
+  constructor(private readonly tokens: Token[]) {}
 
-  async run(): Promise<number> {
-    const value = await this.sum()
+  parse(): Expr {
+    const expr = this.sum()
     if (this.at !== this.tokens.length) throw new Error('trailing input')
-    return value
+    return expr
   }
 
   private peek(): Token | undefined {
     return this.tokens[this.at]
   }
 
-  private async sum(): Promise<number> {
-    let value = await this.unary()
+  private sum(): Expr {
+    let expr = this.unary()
     for (;;) {
       const token = this.peek()
-      if (token?.kind !== 'op' || (token.text !== '+' && token.text !== '-')) return value
+      if (token?.kind !== 'op' || (token.text !== '+' && token.text !== '-')) return expr
       this.at++
-      const rhs = await this.unary()
-      value = token.text === '+' ? value + rhs : value - rhs
+      expr = { kind: token.text === '+' ? 'add' : 'sub', lhs: expr, rhs: this.unary() }
     }
   }
 
-  private async unary(): Promise<number> {
+  private unary(): Expr {
     const token = this.peek()
     if (token?.kind === 'op' && token.text === '*') {
       this.at++
-      const addr = await this.unary()
-      return this.load(addr)
+      return { kind: 'load', addr: this.unary() }
     }
     return this.primary()
   }
 
-  private async primary(): Promise<number> {
+  private primary(): Expr {
     const token = this.peek()
     if (token === undefined) throw new Error('expression ends early')
     this.at++
     if (token.kind === 'num') {
-      return token.pointerScaled ? token.value * this.target.pointerBytes : token.value
+      return { kind: 'num', value: token.value, pointerScaled: token.pointerScaled === true }
     }
-    if (token.kind === 'reg') {
-      const value = this.target.register(token.text)
-      if (value === null) throw new Error(`no register $${token.text}`)
-      return value
-    }
-    if (token.kind === 'sym') {
-      const addr = this.target.symbol(token.text)
-      if (addr === null) throw new Error(`no symbol \`${token.text}\``)
-      return addr
-    }
+    if (token.kind === 'reg' || token.kind === 'sym') return { kind: token.kind, name: token.text }
     if (token.text === '(') {
-      const value = await this.sum()
+      const expr = this.sum()
       const close = this.peek()
       if (close?.kind !== 'op' || close.text !== ')') throw new Error('missing `)`')
       this.at++
-      return value
+      return expr
     }
     throw new Error(`unexpected \`${token.text}\``)
   }
+}
 
-  private async load(addr: number): Promise<number> {
-    const width = this.target.pointerBytes
-    const bytes = await this.target.read(addr, width)
-    if (!bytes || bytes.length < width) throw new Error(`cannot read ${hex(addr)}`)
-    return Number(leToBigInt(bytes, width))
+function parseExpr(src: string): Expr {
+  const tokens = tokenize(src)
+  if (tokens === null || tokens.length === 0) throw new Error('not an expression')
+  return new Parser(tokens).parse()
+}
+
+async function evaluate(expr: Expr, target: TourTarget): Promise<number> {
+  switch (expr.kind) {
+    case 'num':
+      return expr.pointerScaled ? expr.value * target.pointerBytes : expr.value
+    case 'reg': {
+      const value = target.register(expr.name)
+      if (value === null) throw new Error(`no register $${expr.name}`)
+      return value
+    }
+    case 'sym': {
+      const addr = target.symbol(expr.name)
+      if (addr === null) throw new Error(`no symbol \`${expr.name}\``)
+      return addr
+    }
+    case 'load': {
+      const addr = await evaluate(expr.addr, target)
+      const width = target.pointerBytes
+      const bytes = await target.read(addr, width)
+      if (!bytes || bytes.length < width) throw new Error(`cannot read ${hex(addr)}`)
+      return Number(leToBigInt(bytes, width))
+    }
+    case 'add':
+    case 'sub': {
+      const lhs = await evaluate(expr.lhs, target)
+      const rhs = await evaluate(expr.rhs, target)
+      return expr.kind === 'add' ? lhs + rhs : lhs - rhs
+    }
   }
 }
 
 /** Resolve an expression to the address (or value) it names. */
 export async function evalAddress(expr: string, target: TourTarget): Promise<number> {
-  const tokens = tokenize(expr)
-  if (tokens === null || tokens.length === 0) throw new Error('not an expression')
-  return new Evaluator(tokens, target).run()
+  return evaluate(parseExpr(expr), target)
 }
 
 /**
- * The symbols an expression names, in order, or null when it does not even
- * tokenize. Registers are not symbols and are left out, so `*$arg0 + led`
- * gives `['led']`. What src/tours/check.ts looks up in the ELF ahead of time.
+ * Why an expression will not parse, or null when it will.
+ *
+ * The grammar only: whether a symbol or register exists is a question for the
+ * build and the stop, and is answered when the expression runs.
+ */
+export function expressionError(expr: string): string | null {
+  try {
+    parseExpr(expr)
+    return null
+  } catch (err) {
+    return err instanceof Error ? err.message : 'not an expression'
+  }
+}
+
+/** Symbols and registers (without the `$`) an expression names, once each. */
+export interface ExpressionNames {
+  symbols: string[]
+  registers: string[]
+}
+
+function collectNames(expr: Expr, names: ExpressionNames): void {
+  switch (expr.kind) {
+    case 'sym':
+    case 'reg': {
+      const list = expr.kind === 'sym' ? names.symbols : names.registers
+      if (!list.includes(expr.name)) list.push(expr.name)
+      return
+    }
+    case 'load':
+      collectNames(expr.addr, names)
+      return
+    case 'add':
+    case 'sub':
+      collectNames(expr.lhs, names)
+      collectNames(expr.rhs, names)
+      return
+    case 'num':
+      return
+  }
+}
+
+/**
+ * What an expression names, in the order written, without running it: the
+ * symbols a build must have for it to resolve, and the registers it reads at a
+ * stop. Null when it does not parse, since nothing it names can be trusted;
+ * expressionError says why.
+ */
+export function expressionNames(expr: string): ExpressionNames | null {
+  let parsed: Expr
+  try {
+    parsed = parseExpr(expr)
+  } catch {
+    return null
+  }
+  const names: ExpressionNames = { symbols: [], registers: [] }
+  collectNames(parsed, names)
+  return names
+}
+
+/**
+ * The symbols an expression names, in order, or null when it is not an
+ * expression at all. Registers are not symbols and are left out, so
+ * `*$arg0 + led` gives `['led']`. What src/tours/check.ts looks up in the ELF
+ * ahead of time.
  */
 export function expressionSymbols(expr: string): string[] | null {
-  const tokens = tokenize(expr)
-  if (tokens === null || tokens.length === 0) return null
-  return tokens.flatMap((token) => (token.kind === 'sym' ? [token.text] : []))
+  return expressionNames(expr)?.symbols ?? null
 }
 
 /* ------------------------------------------------------------------ *
@@ -257,17 +354,24 @@ async function readCString(addr: number, target: TourTarget): Promise<Uint8Array
   return out.length > 0 ? new Uint8Array(out) : null
 }
 
-function renderInt(bytes: Uint8Array, format: string): EvalResult['text'] {
-  const spec = INT_FORMATS[format]!
-  let value = leToBigInt(bytes, spec.bytes)
-  if (spec.signed) {
-    const span = 1n << BigInt(spec.bytes * 8)
-    if (value >= span / 2n) value -= span
-  }
-  const unsigned = spec.signed && value < 0n ? -value : value
+/** The integer in `bytes`, sign-extended when the format is signed. */
+function intValue(bytes: Uint8Array, spec: { bytes: number; signed: boolean }): bigint {
+  const value = leToBigInt(bytes, spec.bytes)
+  if (!spec.signed) return value
+  const span = 1n << BigInt(spec.bytes * 8)
+  return value >= span / 2n ? value - span : value
+}
+
+function renderInt(value: bigint): EvalResult['text'] {
+  const magnitude = value < 0n ? -value : value
   // Small numbers read better in decimal, addresses and masks in hex; showing
   // both costs a column and saves the reader converting in their head.
-  return unsigned < 10n ? `${value}` : `${value} · 0x${unsigned.toString(16)}`
+  return magnitude < 10n ? `${value}` : `${value} · 0x${magnitude.toString(16)}`
+}
+
+/** A JS number as a BigInt, when it is a whole one (it always is, here). */
+function wholeValue(value: number): bigint | undefined {
+  return Number.isInteger(value) ? BigInt(value) : undefined
 }
 
 /**
@@ -318,10 +422,22 @@ export async function evalWatch(
 
   if (format === 'addr') {
     const label = target.label(addr)
-    return { text: symbolised(addr, label), detail: label, ok: true, addr }
+    return {
+      text: symbolised(addr, label),
+      detail: label,
+      ok: true,
+      addr,
+      value: wholeValue(addr),
+    }
   }
   if (format === 'code') {
-    return { text: target.label(addr) ?? hex(addr), detail: hex(addr), ok: true, addr }
+    return {
+      text: target.label(addr) ?? hex(addr),
+      detail: hex(addr),
+      ok: true,
+      addr,
+      value: wholeValue(addr),
+    }
   }
   if (format === 'dec') {
     // The number the expression came to, with nothing read through it. Half of
@@ -333,6 +449,7 @@ export async function evalWatch(
       detail: null,
       ok: true,
       addr,
+      value: wholeValue(addr),
     }
   }
   if (format === 'string') {
@@ -344,21 +461,34 @@ export async function evalWatch(
     const width = target.pointerBytes
     const bytes = await target.read(addr, width)
     if (!bytes || bytes.length < width) return fail('unreadable')
-    const value = Number(leToBigInt(bytes, width))
-    const label = target.label(value)
-    return { text: symbolised(value, label), detail: label ?? `at ${hex(addr)}`, ok: true, addr }
+    const value = leToBigInt(bytes, width)
+    const to = Number(value)
+    const label = target.label(to)
+    return {
+      text: symbolised(to, label),
+      detail: label ?? `at ${hex(addr)}`,
+      ok: true,
+      addr,
+      value,
+    }
   }
   if (format === 'bool') {
     const bytes = await target.read(addr, 1)
     if (!bytes) return fail('unreadable')
-    return { text: bytes[0] ? 'true' : 'false', detail: hex(addr), ok: true, addr }
+    return {
+      text: bytes[0] ? 'true' : 'false',
+      detail: hex(addr),
+      ok: true,
+      addr,
+      value: bytes[0] ? 1n : 0n,
+    }
   }
   if (format === 'char') {
     const bytes = await target.read(addr, 1)
     if (!bytes) return fail('unreadable')
     const code = bytes[0]!
     const printable = code >= 0x20 && code < 0x7f ? `'${String.fromCharCode(code)}'` : `\\x${code.toString(16)}`
-    return { text: printable, detail: hex(addr), ok: true, addr }
+    return { text: printable, detail: hex(addr), ok: true, addr, value: BigInt(code) }
   }
   const bytesFormat = /^bytes:(\d+)$/.exec(format)
   if (bytesFormat) {
@@ -371,9 +501,38 @@ export async function evalWatch(
   if (spec) {
     const bytes = await target.read(addr, spec.bytes)
     if (!bytes || bytes.length < spec.bytes) return fail('unreadable')
-    return { text: renderInt(bytes, format), detail: hex(addr), ok: true, addr }
+    const value = intValue(bytes, spec)
+    return { text: renderInt(value), detail: hex(addr), ok: true, addr, value }
   }
   return { text: `unknown format \`${format}\``, detail: null, ok: false, addr }
+}
+
+/** A number to compare, and how the card shows it. */
+export interface ValueResult {
+  /** The number, or null when there is none: the read failed, or the format is not a number. */
+  value: bigint | null
+  /** The number as a `watch:` row would show it, or why there is none. */
+  text: string
+}
+
+/**
+ * Read the whole number an expression comes to under a format: what one side
+ * of a `check:` row compares.
+ *
+ * It is a watch row's read, so a value the card compares is the value a watch
+ * row on the same step would show, failures and all. `text` is how the card
+ * reports it, including why there is no number: a symbol the build does not
+ * have, a read that faulted, or a format such as `string` that is not a
+ * number at all.
+ */
+export async function evalValue(
+  expr: string,
+  format: string,
+  target: TourTarget,
+): Promise<ValueResult> {
+  if (!isNumberFormat(format)) return { value: null, text: `\`as ${format}\` is not a number` }
+  const result = await evalWatch(expr, format, target)
+  return { value: result.ok ? (result.value ?? null) : null, text: result.text }
 }
 
 /** Every format name the DSL knows, for the docs and for validation. */
@@ -399,5 +558,17 @@ export function isKnownFormat(format: string): boolean {
     ['bool', 'char', 'string', 'ptr'].includes(format) ||
     VALUE_FORMATS.includes(format) ||
     /^bytes:\d+$/.test(format)
+  )
+}
+
+/**
+ * True for a format that comes to one whole number, which is what a comparison
+ * needs: every format but `string` and `bytes:N`.
+ */
+export function isNumberFormat(format: string): boolean {
+  return (
+    Object.hasOwn(INT_FORMATS, format) ||
+    ['bool', 'char', 'ptr'].includes(format) ||
+    VALUE_FORMATS.includes(format)
   )
 }
