@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "Tour cards can type shell commands into the terminal."
+      },
+      {
+        "tag": "Added",
         "text": "Tours can open a Trace tab or a Debug section."
       },
       {

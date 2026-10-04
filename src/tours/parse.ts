@@ -42,6 +42,8 @@ import { OBJECT_TYPES, objectTypeCode } from '@/debug/kernel/objectCores'
 import type { DebugSection } from '@/lib/debugUi'
 import { TRACE_TABS, traceTabFromTourName, traceTabTourName, type TraceTab } from '@/lib/traceTabs'
 import { FORMATS, isKnownFormat } from '@/tours/expr'
+import { isRunnableShell, parseMarkdown } from '@/tours/markdown'
+import { isCommandLine, parsePlaceholders } from '@/tours/snippets'
 
 /** One row of a step's `watch:` list — `label = expression as format`. */
 export interface WatchSpec {
@@ -688,6 +690,27 @@ function buildStep(
 const FENCE = /^(```|~~~)\s*(\S*)\s*$/
 
 /**
+ * Check the runnable ```shell blocks in some prose.
+ *
+ * Their placeholders are filled in on the card, from the running guest. One
+ * that could never fill (a misspelt kind, a missing brace) is caught here, as
+ * a failing tour test, rather than as a Run button that never enables.
+ */
+function snippetProblems(where: string, markdown: string): string[] {
+  const problems: string[] = []
+  for (const block of parseMarkdown(markdown)) {
+    if (block.kind !== 'codeblock' || !isRunnableShell(block.language)) continue
+    if (!block.text.split('\n').some(isCommandLine)) {
+      problems.push(`${where}: a \`shell\` block has no command to run`)
+    }
+    for (const problem of parsePlaceholders(block.text).problems) {
+      problems.push(`${where}: ${problem}`)
+    }
+  }
+  return problems
+}
+
+/**
  * Parse a `.tour.md` document.
  *
  * Never throws. A file that is not a tour at all — the dev server answering an
@@ -722,7 +745,10 @@ export function parseTour(text: string): TourDoc {
   const flush = () => {
     if (title === null) return
     const step = buildStep(steps.length, title, (directives ?? []).join('\n'), body.join('\n'), problems)
-    if (step) steps.push(step)
+    if (step) {
+      steps.push(step)
+      problems.push(...snippetProblems(`step ${step.index + 1} (“${step.title}”)`, step.body))
+    }
     title = null
     directives = null
     body = []

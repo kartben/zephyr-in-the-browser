@@ -8,8 +8,9 @@
  * src/tours/markdown.ts for the grammar.
  */
 
-import { parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/tours/markdown'
+import { isRunnableShell, parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/tours/markdown'
 import { highlightCode, isCLanguage } from '@/lib/highlight'
+import { ShellSnippet } from '@/components/tour/ShellSnippet'
 
 function Spans({ spans }: { spans: InlineSpan[] }) {
   return (
@@ -72,7 +73,17 @@ function CodeBlockView({ language, text }: { language: string; text: string }) {
   )
 }
 
-function Block({ block }: { block: MarkdownBlock }) {
+interface RunOptions {
+  /**
+   * Render ```shell fences with Run and Copy. Off by default, so Markdown
+   * outside a tour card never types into the terminal.
+   */
+  runnable?: boolean
+  /** The card is paused on the guest: Run resumes it first. */
+  paused?: boolean
+}
+
+function Block({ block, runnable, paused }: { block: MarkdownBlock } & RunOptions) {
   switch (block.kind) {
     case 'list':
       return (
@@ -85,6 +96,9 @@ function Block({ block }: { block: MarkdownBlock }) {
         </ul>
       )
     case 'codeblock':
+      if (runnable && isRunnableShell(block.language)) {
+        return <ShellSnippet lines={block.text.split('\n')} paused={paused} />
+      }
       return <CodeBlockView language={block.language} text={block.text} />
     default:
       return (
@@ -106,13 +120,18 @@ export function InlineMarkdown({ text }: { text: string }) {
   return <Spans spans={first.spans} />
 }
 
-export function Markdown({ body, className }: { body: string; className?: string }) {
+export function Markdown({
+  body,
+  className,
+  runnable,
+  paused,
+}: { body: string; className?: string } & RunOptions) {
   const blocks = parseMarkdown(body)
   if (blocks.length === 0) return null
   return (
     <div className={className}>
       {blocks.map((block, i) => (
-        <Block key={i} block={block} />
+        <Block key={i} block={block} runnable={runnable} paused={paused} />
       ))}
     </div>
   )

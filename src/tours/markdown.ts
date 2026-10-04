@@ -175,3 +175,14 @@ export function parseMarkdown(body: string): MarkdownBlock[] {
 
   return blocks
 }
+
+/**
+ * Whether a fenced block is a command the reader can run from the card.
+ *
+ * Only `shell`. Docs show terminal sessions as `console` and `sh`, prompts and
+ * output included, so those stay inert: nothing pasted from a terminal session
+ * becomes runnable by accident.
+ */
+export function isRunnableShell(language: string): boolean {
+  return language.trim().toLowerCase() === 'shell'
+}
