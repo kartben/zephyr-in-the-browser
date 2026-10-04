@@ -31,6 +31,7 @@ via the help dialog (?).
 - **Fixed:** Rereading an earlier tour step no longer strands the paused guest.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Fixed:** Trace queue depth no longer counts hand-offs to waiting threads.
+- **Fixed:** The guest reads the ADXL345 at its real scale, not four times too high.
 
 ## [0.5.0] - 2026-07-31
 

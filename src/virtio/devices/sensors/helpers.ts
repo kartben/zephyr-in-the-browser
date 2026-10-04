@@ -5,6 +5,9 @@
  * so ADXL / LSM6DSO / LPS22HH / INA219 / ISL29035 stay consistent.
  */
 
+/** Standard gravity, m/s² per g. */
+export const STANDARD_GRAVITY = 9.80665
+
 /** Clamp to a signed `bits`-wide field, then return as an unsigned word. */
 export function clampToUint(counts: number, bits: 8 | 16 | 24 = 16): number {
   const max = (1 << (bits - 1)) - 1
