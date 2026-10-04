@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { decodeFields, fallbackDefs, makeEventDef, parseMetadata } from './metadata'
 import { TraceReader } from './reader'
-import { FALLBACK_EVENTS } from './types'
+import * as types from './types'
 
 function encU16(n: number): number[] {
   return [n & 0xff, (n >> 8) & 0xff]
@@ -124,20 +124,18 @@ describe('address[46] decode does not desync following events', () => {
    */
   it('decodes a PM record and keeps its place in the stream', () => {
     const bytes = Uint8Array.from([
-      // pm_state_set_enter: cpu 0, state 3 (standby), substate 1 — a 3-byte
+      ...record(1000, 0x180, [...encU32(130)]), // pm_system_suspend_enter
+      // pm_system_suspend_exit: ticks, then a one-byte state. An odd 5-byte
       // body, so a reader that mis-sized it would land mid-header next.
-      ...record(1000, 0x149, [0, 3, 1]),
-      ...record(2000, 0x156, [...encU32(0x4001_0a80), 0, ...encU32(0xffff_ffa8)]),
+      ...record(2000, 0x181, [...encU32(130), 0]),
       ...record(3000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
     const reader = new TraceReader(fallbackDefs())
     expect(reader.feed(bytes)).toBe(3)
     expect(reader.desync).toBe(false)
-    expect(reader.tr.events[0]?.name).toBe('pm_state_set_enter')
-    expect(reader.tr.events[0]?.fields).toMatchObject({ cpu: 0, state: 3, substate_id: 1 })
-    expect(reader.tr.events[1]?.name).toBe('pm_device_action_run_exit')
-    // -ENOSYS, the honest answer for a device with no PM callbacks at all.
-    expect(reader.tr.events[1]?.fields.ret).toBe(-88)
+    expect(reader.tr.events[0]?.name).toBe('pm_system_suspend_enter')
+    expect(reader.tr.events[1]?.name).toBe('pm_system_suspend_exit')
+    expect(reader.tr.events[1]?.fields).toEqual({ ticks: 130, state: 0 })
     // The record after the PM pair still lands, which is the real assertion.
     expect(reader.tr.events[2]?.name).toBe('thread_switched_in')
     expect(reader.tr.events[2]?.fields.name).toBe('main')
@@ -145,14 +143,14 @@ describe('address[46] decode does not desync following events', () => {
 
   it('an unknown id resyncs on the next record instead of freezing the stream', () => {
     const bytes = Uint8Array.from([
-      ...record(1000, 0x149, [0, 3, 1]),
+      ...record(1000, 0x180, [...encU32(130)]),
       ...record(2000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
       ...record(3000, 0x10, [...encU32(0x1000), ...encStr('main', 20)]),
       ...record(4000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
-    // fallbackDefs() minus the PM entries — what shipped before this landed.
+    // A table that predates the guest's PM events, which is what a stale copy is.
     const stale = fallbackDefs()
-    stale.delete(0x149)
+    stale.delete(0x180)
     const reader = new TraceReader(stale)
     // The PM record itself is unrecoverable (no size to skip it by), but the
     // reader slides forward byte by byte and lands back on the real header of
@@ -191,45 +189,57 @@ describe('address[46] decode does not desync following events', () => {
 
 /*
  * public/tracing/metadata is a verbatim copy of Zephyr's
- * subsys/tracing/ctf/tsdl/metadata, and it is the file the running page fetches.
- * When Zephyr gains events and this copy is not refreshed, the reader desyncs on
- * the first new record and the entire Trace panel stops — so "did someone forget
- * to re-copy it" is worth failing a build over rather than discovering live.
- * FALLBACK_EVENTS matters for the same reason: it is what decodes the stream
- * until the fetch resolves.
+ * subsys/tracing/ctf/tsdl/metadata, and it is the table the page falls back to
+ * for any guest that ships none of its own. When Zephyr renumbers its events and
+ * this copy is not refreshed, the reader desyncs on the first moved record, so
+ * "did someone forget to re-copy it" is worth failing a build over rather than
+ * discovering live. FALLBACK_EVENTS matters for the same reason: it is what
+ * decodes the stream when no table can be fetched at all.
  */
 describe('the shipped metadata asset', () => {
   const defs = parseMetadata(
     readFileSync(resolve(process.cwd(), 'public/tracing/metadata'), 'utf8'),
   )
 
-  it('declares every id FALLBACK_EVENTS knows, at the same record size', () => {
-    // Size, not name: record length is what the decoder advances by, so a size
-    // disagreement is the desync, whereas a name difference is survivable —
-    // reader.ts matches names as sets on purpose (SLEEP_ENTERS accepts both
-    // `k_sleep_enter`, which is what the TSDL calls 0x7F, and the older
-    // `thread_sleep_enter` this table still uses).
+  it('declares every id FALLBACK_EVENTS knows, as the same event at the same size', () => {
+    // Size is what the decoder advances by, so a size disagreement is the
+    // desync. The name is checked too, because an id refreshed by offset rather
+    // than by name can land on a different event of the very same size, and
+    // every name-keyed reconstruction would then read the wrong one.
     expect(defs.size).toBeGreaterThan(300)
-    for (const [key, { name, fields }] of Object.entries(FALLBACK_EVENTS)) {
+    for (const [key, { name, fields }] of Object.entries(types.FALLBACK_EVENTS)) {
       const eid = Number(key)
       const where = `id 0x${eid.toString(16)} (${name})`
       const def = defs.get(eid)
       expect(def, where).toBeDefined()
+      expect(def?.name, where).toBe(name)
       expect(def?.size, where).toBe(makeEventDef(eid, name, fields).size)
     }
   })
 
-  it('covers the power-management events, at the sizes the guest emits', () => {
+  it('names every id constant in types.ts after the event the table puts there', () => {
+    // Each constant is its event's name, upper-cased; two predate that habit.
+    // This is the check a refresh by offset fails: the id it lands on names
+    // the neighbouring event.
+    const alias: Record<string, string> = {
+      THREAD_PRIO_SET: 'thread_priority_set',
+      THREAD_SCHED_PRIO_SET: 'thread_sched_priority_set',
+    }
+    const ids = Object.entries(types).filter(([, v]) => typeof v === 'number')
+    expect(ids.length).toBeGreaterThan(30)
+    for (const [constant, eid] of ids) {
+      expect(defs.get(eid as number)?.name, constant).toBe(alias[constant] ?? constant.toLowerCase())
+    }
+  })
+
+  it('declares the power-management events Zephyr main emits, at their sizes', () => {
     // Sizes are the packed body only, no header: CTF_EVENT memcpys fields
     // back-to-back with align = 8 throughout, so there is no padding.
     const expected: Array<[number, string, number]> = [
-      [0x147, 'pm_system_suspend_enter', 4],
-      [0x148, 'pm_system_suspend_exit', 5],
-      [0x149, 'pm_state_set_enter', 3],
-      [0x14a, 'pm_state_set_exit', 3],
-      [0x14b, 'pm_device_runtime_get_enter', 4],
-      [0x155, 'pm_device_action_run_enter', 5],
-      [0x156, 'pm_device_action_run_exit', 9],
+      [0x176, 'pm_device_runtime_get_enter', 4],
+      [0x177, 'pm_device_runtime_get_exit', 8],
+      [0x180, 'pm_system_suspend_enter', 4],
+      [0x181, 'pm_system_suspend_exit', 5],
     ]
     for (const [eid, name, size] of expected) {
       const def = defs.get(eid)
@@ -238,10 +248,19 @@ describe('the shipped metadata asset', () => {
     }
   })
 
-  it('identifies the cpu/state/substate tuple the power band keys on', () => {
-    // Field order is load-bearing: decodeFields is byte-exact, and all three
-    // are uint8_t, so a transposition would decode silently and wrongly.
-    expect(defs.get(0x149)?.fields.map((f) => f.name)).toEqual(['cpu', 'state', 'substate_id'])
-    expect(defs.get(0x14a)?.fields.map((f) => f.name)).toEqual(['cpu', 'state', 'substate_id'])
+  it('has none of the events the power band is built on', () => {
+    // The page says so: docs/cpu-power-states.md and the Power tab's empty
+    // state both tell the reader that Zephyr main cannot draw the band. If a
+    // refresh brings these in, upstream has the hooks now, and both should say
+    // so instead.
+    const names = new Set([...defs.values()].map((d) => d.name))
+    for (const name of [
+      'pm_state_set_enter',
+      'pm_state_set_exit',
+      'pm_device_action_run_enter',
+      'pm_device_action_run_exit',
+    ]) {
+      expect(names.has(name), name).toBe(false)
+    }
   })
 })

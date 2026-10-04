@@ -2,12 +2,23 @@
 
 Source mockup: [`cpu-power-mockup.html`](cpu-power-mockup.html)
 
-**Status.** Shipped end to end and verified against a real trace: the guest side,
-the data layer, the CPU lane group in the Timeline, and the Power tab. The mockup
+**Status.** The page side is shipped and was verified against a real trace: the
+data layer, the CPU lane group in the Timeline, and the Power tab. The mockup
 remains the design of record for the visual language, and it changed one decision
 before any code was written (see [Ramp](#the-depth-ramp)). Not built: per-device
 *runtime*-PM lanes, and anything in the dock — both deliberate, see
 [Deliberately not built](#deliberately-not-built).
+
+**The guest side never landed upstream.** The hooks the band and the device walk
+hang off (`pm_state_set_*` and `pm_device_action_run_*`), and the fix to
+`pm_system_suspend_exit`'s `state`, are on the `traces` branch of
+[kartben/zephyr](https://github.com/kartben/zephyr/tree/traces) and nowhere else.
+Upstream Zephyr later added CTF events of its own for `pm_system_suspend` and
+device runtime PM, at different ids, but not those. So an image built from Zephyr
+main, which is every image the page ships today, draws no power band, and the
+Power tab says so. The branch predates upstream's PM events, so it wants rebasing
+onto them first. The page matches PM events by name, not id, so where that branch
+puts them does not matter.
 
 ## Why
 
@@ -27,16 +38,19 @@ falsifiable rather than asserted.
 
 ## What the guest emits
 
-Sixteen CTF events, `0x147`–`0x156`. Two of them are new here — Zephyr had trace
-hooks for device *runtime* PM but none for `pm_device_action_run()` itself, which
-is the one place every device PM transition passes through:
+Sixteen CTF events. On the `traces` branch they sat at `0x147`–`0x156`, which
+Zephyr main has since given to `k_heap` events, so the page looks every one up by
+name rather than by id. Four never reached upstream: `pm_state_set_*`, and
+`pm_device_action_run_*`. Zephyr had trace hooks for device *runtime* PM but none
+for `pm_device_action_run()` itself, which is the one place every device PM
+transition passes through:
 
-| id | event | fields |
+| event | fields | in Zephyr main |
 | --- | --- | --- |
-| `0x147` / `0x148` | `pm_system_suspend_enter` / `_exit` | `i32 ticks` / `+ u8 state` |
-| `0x149` / `0x14A` | `pm_state_set_enter` / `_exit` | `u8 cpu, state, substate_id` |
-| `0x14B`–`0x154` | `pm_device_runtime_*` | `u32 dev`, `i32 ret` |
-| `0x155` / `0x156` | `pm_device_action_run_enter` / `_exit` | `u32 dev; u8 action` / `+ i32 ret` |
+| `pm_system_suspend_enter` / `_exit` | `i32 ticks` / `+ u8 state` | yes, `0x180` / `0x181` |
+| `pm_state_set_enter` / `_exit` | `u8 cpu, state, substate_id` | no |
+| `pm_device_runtime_*` | `u32 dev`, `i32 ret` | yes, `0x176`–`0x17F`, with `dev` named `id` |
+| `pm_device_action_run_enter` / `_exit` | `u32 dev; u8 action` / `+ i32 ret` | no |
 
 ### Why there are no hooks around the walk itself
 
@@ -84,11 +98,14 @@ invisible.
 `pm_system_suspend_exit`'s `state` field was **always** `PM_STATE_ACTIVE` on the
 success path: `pm_system_resume()` clears the per-CPU state pointer before the
 hook reads it, making a successful suspend indistinguishable from one that never
-happened. Fixed in the Zephyr tree by reporting the local already latched a few
-lines above for exactly this class of reason — but a trace viewer does not get to
-assume its guest is new, so `cpuPower.ts` derives "did it actually suspend" from
-whether a `pm_state_set` pair happened inside the round trip, and only falls back
-to the field for the one case it is right about.
+happened. Fixed on the `traces` branch by reporting the local already latched a
+few lines above for exactly this class of reason, but Zephyr main still reports
+`ACTIVE`, and a trace viewer does not get to assume its guest is new anyway. So
+`cpuPower.ts` derives "did it actually suspend" from whether a `pm_state_set` pair
+happened inside the round trip, and only falls back to the field for the one case
+it is right about. A guest without the `pm_state_set` hooks would therefore read
+as declining every time, so the reader gives the tracker nothing at all unless
+the guest's event table declares `pm_state_set_enter`.
 
 ## Making the A53 suspend at all
 
@@ -321,7 +338,8 @@ output rather than by reasoning:
 
 ## Verified
 
-`samples/subsys/pm/latency` on `qemu_cortex_a53`, CTF over semihosting.
+`samples/subsys/pm/latency` on `qemu_cortex_a53`, CTF over semihosting, built from
+the `traces` branch before Zephyr main renumbered its events.
 
 Under Zephyr's own QEMU (`west build -t run`), which proves the events:
 

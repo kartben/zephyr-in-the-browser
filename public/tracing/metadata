@@ -2251,7 +2251,6 @@ event {
 	};
 };
 
-/* Queue */
 event {
 	name = queue_init;
 	id = 0x106;
@@ -2372,17 +2371,8 @@ event {
 };
 
 event {
-	name = queue_insert_blocking;
-	id = 0x114;
-	fields := struct {
-		uint32_t id;
-		uint32_t timeout;
-	};
-};
-
-event {
 	name = queue_insert_exit;
-	id = 0x115;
+	id = 0x114;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2390,7 +2380,7 @@ event {
 
 event {
 	name = queue_append_list_enter;
-	id = 0x116;
+	id = 0x115;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2398,7 +2388,7 @@ event {
 
 event {
 	name = queue_append_list_exit;
-	id = 0x117;
+	id = 0x116;
 	fields := struct {
 		uint32_t id;
 		int32_t ret;
@@ -2407,7 +2397,7 @@ event {
 
 event {
 	name = queue_merge_slist_enter;
-	id = 0x118;
+	id = 0x117;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2415,7 +2405,7 @@ event {
 
 event {
 	name = queue_merge_slist_exit;
-	id = 0x119;
+	id = 0x118;
 	fields := struct {
 		uint32_t id;
 		int32_t ret;
@@ -2424,7 +2414,7 @@ event {
 
 event {
 	name = queue_get_enter;
-	id = 0x11A;
+	id = 0x119;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2433,7 +2423,7 @@ event {
 
 event {
 	name = queue_get_blocking;
-	id = 0x11B;
+	id = 0x11A;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2442,7 +2432,7 @@ event {
 
 event {
 	name = queue_get_exit;
-	id = 0x11C;
+	id = 0x11B;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2452,7 +2442,7 @@ event {
 
 event {
 	name = queue_remove_enter;
-	id = 0x11D;
+	id = 0x11C;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2460,7 +2450,7 @@ event {
 
 event {
 	name = queue_remove_exit;
-	id = 0x11E;
+	id = 0x11D;
 	fields := struct {
 		uint32_t id;
 		uint8_t ret;
@@ -2469,7 +2459,7 @@ event {
 
 event {
 	name = queue_unique_append_enter;
-	id = 0x11F;
+	id = 0x11E;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2477,7 +2467,7 @@ event {
 
 event {
 	name = queue_unique_append_exit;
-	id = 0x120;
+	id = 0x11F;
 	fields := struct {
 		uint32_t id;
 		uint8_t ret;
@@ -2486,7 +2476,7 @@ event {
 
 event {
 	name = queue_peek_head;
-	id = 0x121;
+	id = 0x120;
 	fields := struct {
 		uint32_t id;
 		uint32_t ret;
@@ -2495,18 +2485,16 @@ event {
 
 event {
 	name = queue_peek_tail;
-	id = 0x122;
+	id = 0x121;
 	fields := struct {
 		uint32_t id;
 		uint32_t ret;
 	};
 };
 
-
-/* FIFO */
 event {
 	name = fifo_init_enter;
-	id = 0x123;
+	id = 0x122;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2514,7 +2502,7 @@ event {
 
 event {
 	name = fifo_init_exit;
-	id = 0x124;
+	id = 0x123;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2522,7 +2510,7 @@ event {
 
 event {
 	name = fifo_cancel_wait_enter;
-	id = 0x125;
+	id = 0x124;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2530,7 +2518,7 @@ event {
 
 event {
 	name = fifo_cancel_wait_exit;
-	id = 0x126;
+	id = 0x125;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2538,7 +2526,7 @@ event {
 
 event {
 	name = fifo_put_enter;
-	id = 0x127;
+	id = 0x126;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2547,7 +2535,7 @@ event {
 
 event {
 	name = fifo_put_exit;
-	id = 0x128;
+	id = 0x127;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2556,7 +2544,7 @@ event {
 
 event {
 	name = fifo_alloc_put_enter;
-	id = 0x129;
+	id = 0x128;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2565,7 +2553,7 @@ event {
 
 event {
 	name = fifo_alloc_put_exit;
-	id = 0x12A;
+	id = 0x129;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2575,7 +2563,7 @@ event {
 
 event {
 	name = fifo_put_list_enter;
-	id = 0x12B;
+	id = 0x12A;
 	fields := struct {
 		uint32_t id;
 		uint32_t head;
@@ -2585,7 +2573,7 @@ event {
 
 event {
 	name = fifo_put_list_exit;
-	id = 0x12C;
+	id = 0x12B;
 	fields := struct {
 		uint32_t id;
 		uint32_t head;
@@ -2595,7 +2583,7 @@ event {
 
 event {
 	name = fifo_put_slist_enter;
-	id = 0x12D;
+	id = 0x12C;
 	fields := struct {
 		uint32_t id;
 		uint32_t list;
@@ -2604,7 +2592,7 @@ event {
 
 event {
 	name = fifo_put_slist_exit;
-	id = 0x12E;
+	id = 0x12D;
 	fields := struct {
 		uint32_t id;
 		uint32_t list;
@@ -2613,7 +2601,7 @@ event {
 
 event {
 	name = fifo_get_enter;
-	id = 0x12F;
+	id = 0x12E;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2622,7 +2610,7 @@ event {
 
 event {
 	name = fifo_get_exit;
-	id = 0x130;
+	id = 0x12F;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2632,7 +2620,7 @@ event {
 
 event {
 	name = fifo_peek_head_enter;
-	id = 0x131;
+	id = 0x130;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2640,7 +2628,7 @@ event {
 
 event {
 	name = fifo_peek_head_exit;
-	id = 0x132;
+	id = 0x131;
 	fields := struct {
 		uint32_t id;
 		uint32_t ret;
@@ -2649,7 +2637,7 @@ event {
 
 event {
 	name = fifo_peek_tail_enter;
-	id = 0x133;
+	id = 0x132;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2657,18 +2645,16 @@ event {
 
 event {
 	name = fifo_peek_tail_exit;
-	id = 0x134;
+	id = 0x133;
 	fields := struct {
 		uint32_t id;
 		uint32_t ret;
 	};
 };
 
-
-/* LIFO */
 event {
 	name = lifo_init_enter;
-	id = 0x135;
+	id = 0x134;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2676,7 +2662,7 @@ event {
 
 event {
 	name = lifo_init_exit;
-	id = 0x136;
+	id = 0x135;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2684,7 +2670,7 @@ event {
 
 event {
 	name = lifo_put_enter;
-	id = 0x137;
+	id = 0x136;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2693,7 +2679,7 @@ event {
 
 event {
 	name = lifo_put_exit;
-	id = 0x138;
+	id = 0x137;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2702,7 +2688,7 @@ event {
 
 event {
 	name = lifo_alloc_put_enter;
-	id = 0x139;
+	id = 0x138;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2711,7 +2697,7 @@ event {
 
 event {
 	name = lifo_alloc_put_exit;
-	id = 0x13A;
+	id = 0x139;
 	fields := struct {
 		uint32_t id;
 		uint32_t data;
@@ -2721,7 +2707,7 @@ event {
 
 event {
 	name = lifo_get_enter;
-	id = 0x13B;
+	id = 0x13A;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2730,7 +2716,7 @@ event {
 
 event {
 	name = lifo_get_exit;
-	id = 0x13C;
+	id = 0x13B;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2738,11 +2724,9 @@ event {
 	};
 };
 
-
-/* Stack */
 event {
 	name = stack_init;
-	id = 0x13D;
+	id = 0x13C;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2750,7 +2734,7 @@ event {
 
 event {
 	name = stack_alloc_init_enter;
-	id = 0x13E;
+	id = 0x13D;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2758,7 +2742,7 @@ event {
 
 event {
 	name = stack_alloc_init_exit;
-	id = 0x13F;
+	id = 0x13E;
 	fields := struct {
 		uint32_t id;
 		int32_t ret;
@@ -2767,7 +2751,7 @@ event {
 
 event {
 	name = stack_cleanup_enter;
-	id = 0x140;
+	id = 0x13F;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2775,7 +2759,7 @@ event {
 
 event {
 	name = stack_cleanup_exit;
-	id = 0x141;
+	id = 0x140;
 	fields := struct {
 		uint32_t id;
 		int32_t ret;
@@ -2784,7 +2768,7 @@ event {
 
 event {
 	name = stack_push_enter;
-	id = 0x142;
+	id = 0x141;
 	fields := struct {
 		uint32_t id;
 	};
@@ -2792,7 +2776,7 @@ event {
 
 event {
 	name = stack_push_exit;
-	id = 0x143;
+	id = 0x142;
 	fields := struct {
 		uint32_t id;
 		int32_t ret;
@@ -2801,7 +2785,7 @@ event {
 
 event {
 	name = stack_pop_enter;
-	id = 0x144;
+	id = 0x143;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2810,7 +2794,7 @@ event {
 
 event {
 	name = stack_pop_blocking;
-	id = 0x145;
+	id = 0x144;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2819,7 +2803,7 @@ event {
 
 event {
 	name = stack_pop_exit;
-	id = 0x146;
+	id = 0x145;
 	fields := struct {
 		uint32_t id;
 		uint32_t timeout;
@@ -2827,93 +2811,486 @@ event {
 	};
 };
 
-/* System Power Management */
 event {
-	name = pm_system_suspend_enter;
+	name = heap_init;
+	id = 0x146;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = heap_aligned_alloc_enter;
 	id = 0x147;
 	fields := struct {
-		int32_t ticks;
+		uint32_t id;
+		uint32_t timeout;
 	};
 };
 
 event {
-	name = pm_system_suspend_exit;
+	name = heap_alloc_helper_blocking;
 	id = 0x148;
 	fields := struct {
-		int32_t ticks;
-		uint8_t state;
+		uint32_t id;
+		uint32_t timeout;
 	};
 };
 
 event {
-	name = pm_state_set_enter;
+	name = heap_aligned_alloc_exit;
 	id = 0x149;
 	fields := struct {
-		uint8_t cpu;
-		uint8_t state;
-		uint8_t substate_id;
+		uint32_t id;
+		uint32_t timeout;
+		uint32_t ret;
 	};
 };
 
 event {
-	name = pm_state_set_exit;
+	name = heap_alloc_enter;
 	id = 0x14A;
 	fields := struct {
-		uint8_t cpu;
-		uint8_t state;
-		uint8_t substate_id;
+		uint32_t id;
+		uint32_t timeout;
 	};
 };
 
-/* Device Runtime Power Management */
 event {
-	name = pm_device_runtime_get_enter;
+	name = heap_alloc_exit;
 	id = 0x14B;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
+		uint32_t timeout;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = heap_calloc_enter;
+	id = 0x14C;
+	fields := struct {
+		uint32_t id;
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = heap_calloc_exit;
+	id = 0x14D;
+	fields := struct {
+		uint32_t id;
+		uint32_t timeout;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = heap_free;
+	id = 0x14E;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = heap_realloc_enter;
+	id = 0x14F;
+	fields := struct {
+		uint32_t id;
+		uint32_t ptr;
+		uint32_t bytes;
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = heap_realloc_exit;
+	id = 0x150;
+	fields := struct {
+		uint32_t id;
+		uint32_t ptr;
+		uint32_t bytes;
+		uint32_t timeout;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = heap_sys_k_aligned_alloc_enter;
+	id = 0x151;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = heap_sys_k_aligned_alloc_exit;
+	id = 0x152;
+	fields := struct {
+		uint32_t id;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = heap_sys_k_malloc_enter;
+	id = 0x153;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = heap_sys_k_malloc_exit;
+	id = 0x154;
+	fields := struct {
+		uint32_t id;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = heap_sys_k_calloc_enter;
+	id = 0x155;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = heap_sys_k_calloc_exit;
+	id = 0x156;
+	fields := struct {
+		uint32_t id;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = heap_sys_k_free_enter;
+	id = 0x157;
+	fields := struct {
+		uint32_t id;
+		uint32_t heap_ref;
+	};
+};
+
+event {
+	name = heap_sys_k_free_exit;
+	id = 0x158;
+	fields := struct {
+		uint32_t id;
+		uint32_t heap_ref;
+	};
+};
+
+event {
+	name = heap_sys_k_realloc_enter;
+	id = 0x159;
+	fields := struct {
+		uint32_t id;
+		uint32_t ptr;
+	};
+};
+
+event {
+	name = heap_sys_k_realloc_exit;
+	id = 0x15A;
+	fields := struct {
+		uint32_t id;
+		uint32_t ptr;
+		uint32_t ret;
+	};
+};
+
+event {
+	name = pipe_init;
+	id = 0x15B;
+	fields := struct {
+		uint32_t id;
+		uint32_t buffer;
+		uint32_t size;
+	};
+};
+
+event {
+	name = pipe_reset_enter;
+	id = 0x15C;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = pipe_reset_exit;
+	id = 0x15D;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = pipe_close_enter;
+	id = 0x15E;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = pipe_close_exit;
+	id = 0x15F;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = pipe_write_enter;
+	id = 0x160;
+	fields := struct {
+		uint32_t id;
+		uint32_t data;
+		uint32_t len;
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = pipe_write_blocking;
+	id = 0x161;
+	fields := struct {
+		uint32_t id;
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = pipe_write_exit;
+	id = 0x162;
+	fields := struct {
+		uint32_t id;
+		int32_t ret;
+	};
+};
+
+event {
+	name = pipe_read_enter;
+	id = 0x163;
+	fields := struct {
+		uint32_t id;
+		uint32_t data;
+		uint32_t len;
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = pipe_read_blocking;
+	id = 0x164;
+	fields := struct {
+		uint32_t id;
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = pipe_read_exit;
+	id = 0x165;
+	fields := struct {
+		uint32_t id;
+		int32_t ret;
+	};
+};
+
+event {
+	name = rtio_submit_enter;
+	id = 0x166;
+	fields := struct {
+		uint32_t id;
+		uint32_t wait_count;
+	};
+};
+
+event {
+	name = rtio_submit_exit;
+	id = 0x167;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = rtio_sqe_acquire_enter;
+	id = 0x168;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = rtio_sqe_acquire_exit;
+	id = 0x169;
+	fields := struct {
+		uint32_t id;
+		uint32_t sqe;
+	};
+};
+
+event {
+	name = rtio_sqe_cancel;
+	id = 0x16A;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = rtio_cqe_submit_enter;
+	id = 0x16B;
+	fields := struct {
+		uint32_t id;
+		int32_t result;
+		uint32_t flags;
+	};
+};
+
+event {
+	name = rtio_cqe_submit_exit;
+	id = 0x16C;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = rtio_cqe_acquire_enter;
+	id = 0x16D;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = rtio_cqe_acquire_exit;
+	id = 0x16E;
+	fields := struct {
+		uint32_t id;
+		uint32_t cqe;
+	};
+};
+
+event {
+	name = rtio_cqe_release;
+	id = 0x16F;
+	fields := struct {
+		uint32_t id;
+		uint32_t cqe;
+	};
+};
+
+event {
+	name = rtio_cqe_consume_enter;
+	id = 0x170;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = rtio_cqe_consume_exit;
+	id = 0x171;
+	fields := struct {
+		uint32_t id;
+		uint32_t cqe;
+	};
+};
+
+event {
+	name = rtio_txn_next_enter;
+	id = 0x172;
+	fields := struct {
+		uint32_t id;
+		uint32_t iodev_sqe;
+	};
+};
+
+event {
+	name = rtio_txn_next_exit;
+	id = 0x173;
+	fields := struct {
+		uint32_t id;
+		uint32_t iodev_sqe;
+	};
+};
+
+event {
+	name = rtio_chain_next_enter;
+	id = 0x174;
+	fields := struct {
+		uint32_t id;
+		uint32_t iodev_sqe;
+	};
+};
+
+event {
+	name = rtio_chain_next_exit;
+	id = 0x175;
+	fields := struct {
+		uint32_t id;
+		uint32_t iodev_sqe;
+	};
+};
+
+event {
+	name = pm_device_runtime_get_enter;
+	id = 0x176;
+	fields := struct {
+		uint32_t id;
 	};
 };
 
 event {
 	name = pm_device_runtime_get_exit;
-	id = 0x14C;
+	id = 0x177;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 		int32_t ret;
 	};
 };
 
 event {
 	name = pm_device_runtime_put_enter;
-	id = 0x14D;
+	id = 0x178;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 	};
 };
 
 event {
 	name = pm_device_runtime_put_exit;
-	id = 0x14E;
+	id = 0x179;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 		int32_t ret;
 	};
 };
 
 event {
 	name = pm_device_runtime_put_async_enter;
-	id = 0x14F;
+	id = 0x17A;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 		uint32_t delay;
 	};
 };
 
 event {
 	name = pm_device_runtime_put_async_exit;
-	id = 0x150;
+	id = 0x17B;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 		uint32_t delay;
 		int32_t ret;
 	};
@@ -2921,54 +3298,85 @@ event {
 
 event {
 	name = pm_device_runtime_enable_enter;
-	id = 0x151;
+	id = 0x17C;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 	};
 };
 
 event {
 	name = pm_device_runtime_enable_exit;
-	id = 0x152;
+	id = 0x17D;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 		int32_t ret;
 	};
 };
 
 event {
 	name = pm_device_runtime_disable_enter;
-	id = 0x153;
+	id = 0x17E;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 	};
 };
 
 event {
 	name = pm_device_runtime_disable_exit;
-	id = 0x154;
+	id = 0x17F;
 	fields := struct {
-		uint32_t dev;
+		uint32_t id;
 		int32_t ret;
 	};
 };
 
-/* Device Power Management Actions */
 event {
-	name = pm_device_action_run_enter;
-	id = 0x155;
+	name = pm_system_suspend_enter;
+	id = 0x180;
 	fields := struct {
-		uint32_t dev;
-		uint8_t action;
+		int32_t ticks;
 	};
 };
 
 event {
-	name = pm_device_action_run_exit;
-	id = 0x156;
+	name = pm_system_suspend_exit;
+	id = 0x181;
 	fields := struct {
-		uint32_t dev;
-		uint8_t action;
+		int32_t ticks;
+		uint8_t state;
+	};
+};
+
+event {
+	name = syscall_enter;
+	id = 0x182;
+	fields := struct {
+		uint32_t id;
+		ctf_bounded_string_t name[20];
+	};
+};
+
+event {
+	name = syscall_exit;
+	id = 0x183;
+	fields := struct {
+		uint32_t id;
+	};
+};
+
+event {
+	name = thread_sleep_ticks_enter;
+	id = 0x184;
+	fields := struct {
+		uint32_t timeout;
+	};
+};
+
+event {
+	name = thread_sleep_ticks_exit;
+	id = 0x185;
+	fields := struct {
+		uint32_t timeout;
 		int32_t ret;
 	};
 };

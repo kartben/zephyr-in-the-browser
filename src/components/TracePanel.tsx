@@ -2220,14 +2220,16 @@ function TracePanelBody({
             toolbar={chartToolbar}
           />
         ) : (
-          /* Empty states name the missing CONFIG_*, per the house convention. */
+          /* Empty states name the missing CONFIG_*, per the house convention. No
+             sample to point at: the hooks are not upstream, so none of the
+             shipped images has them (docs/cpu-power-states.md). */
           <div className="px-2 py-6 text-center text-[11px] leading-relaxed text-muted-foreground">
             No CPU power-state events in this trace.
             <br />
-            Needs a guest built with <span className="font-mono text-foreground">CONFIG_PM=y</span>{' '}
-            and a <span className="font-mono text-foreground">power-states</span> node its cpu
-            references — try the <span className="text-foreground">Power states · traced</span>{' '}
-            sample.
+            Needs a guest built with <span className="font-mono text-foreground">CONFIG_PM=y</span>,
+            a <span className="font-mono text-foreground">power-states</span> node its cpu
+            references, and the <span className="font-mono text-foreground">pm_state_set</span>{' '}
+            trace hooks, which upstream Zephyr does not have.
           </div>
         )
       ) : (

@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackDefs } from './metadata'
 import { TraceReader } from './reader'
+import {
+  FIFO_GET_EXIT,
+  FIFO_PUT_EXIT,
+  LIFO_GET_EXIT,
+  LIFO_PUT_EXIT,
+  QUEUE_APPEND_EXIT,
+  QUEUE_GET_BLOCKING,
+  QUEUE_GET_EXIT,
+  QUEUE_PREPEND_EXIT,
+  STACK_POP_BLOCKING,
+  STACK_POP_EXIT,
+  STACK_PUSH_EXIT,
+} from './types'
 import { depthAt, queueAxisMax, queueLabel, reconstructQueues } from './queues'
 
 function encU16(n: number): number[] {
@@ -151,10 +164,10 @@ describe('reconstructQueues', () => {
     // Zephyr dual-layer: fifo_put → queue_append → fifo_put_exit, then get.
     reader.feed(
       Uint8Array.from([
-        ...record(100, 0x128, [...encU32(id), ...encU32(0xaa)]), // fifo_put_exit
-        ...record(110, 0x10c, [...encU32(id)]), // nested queue_append_exit (ignored)
-        ...record(200, 0x130, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // fifo_get_exit ok
-        ...record(210, 0x11c, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // nested queue_get
+        ...record(100, FIFO_PUT_EXIT, [...encU32(id), ...encU32(0xaa)]),
+        ...record(110, QUEUE_APPEND_EXIT, [...encU32(id)]), // nested (ignored)
+        ...record(200, FIFO_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // ok
+        ...record(210, QUEUE_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // nested
       ]),
     )
     const series = reconstructQueues(reader.tr)
@@ -171,8 +184,8 @@ describe('reconstructQueues', () => {
     const id = 0x4000
     reader.feed(
       Uint8Array.from([
-        ...record(100, 0x128, [...encU32(id), ...encU32(1)]),
-        ...record(200, 0x130, [...encU32(id), ...encU32(0), ...encU32(0)]), // timeout / empty
+        ...record(100, FIFO_PUT_EXIT, [...encU32(id), ...encU32(1)]),
+        ...record(200, FIFO_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0)]), // timeout / empty
       ]),
     )
     const [s] = reconstructQueues(reader.tr)
@@ -184,9 +197,9 @@ describe('reconstructQueues', () => {
     const id = 0x5000
     reader.feed(
       Uint8Array.from([
-        ...record(100, 0x10c, [...encU32(id)]), // queue_append_exit
-        ...record(200, 0x110, [...encU32(id)]), // queue_prepend_exit
-        ...record(300, 0x11c, [...encU32(id), ...encU32(0), ...encU32(0x11)]), // get
+        ...record(100, QUEUE_APPEND_EXIT, [...encU32(id)]),
+        ...record(200, QUEUE_PREPEND_EXIT, [...encU32(id)]),
+        ...record(300, QUEUE_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0x11)]),
       ]),
     )
     const [s] = reconstructQueues(reader.tr)
@@ -201,9 +214,9 @@ describe('reconstructQueues', () => {
     const id = 0x6000
     reader.feed(
       Uint8Array.from([
-        ...record(100, 0x138, [...encU32(id), ...encU32(1)]), // lifo_put_exit
-        ...record(110, 0x110, [...encU32(id)]), // nested queue_prepend (ignored)
-        ...record(200, 0x13c, [...encU32(id), ...encU32(0), ...encU32(0x22)]),
+        ...record(100, LIFO_PUT_EXIT, [...encU32(id), ...encU32(1)]),
+        ...record(110, QUEUE_PREPEND_EXIT, [...encU32(id)]), // nested (ignored)
+        ...record(200, LIFO_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0x22)]),
       ]),
     )
     const [s] = reconstructQueues(reader.tr)
@@ -217,9 +230,9 @@ describe('reconstructQueues', () => {
     const id = 0x7000
     reader.feed(
       Uint8Array.from([
-        ...record(100, 0x143, [...encU32(id), ...encI32(0)]), // stack_push_exit
-        ...record(200, 0x143, [...encU32(id), ...encI32(0)]),
-        ...record(300, 0x146, [...encU32(id), ...encU32(0), ...encI32(0)]), // stack_pop_exit
+        ...record(100, STACK_PUSH_EXIT, [...encU32(id), ...encI32(0)]),
+        ...record(200, STACK_PUSH_EXIT, [...encU32(id), ...encI32(0)]),
+        ...record(300, STACK_POP_EXIT, [...encU32(id), ...encU32(0), ...encI32(0)]),
       ]),
     )
     const [s] = reconstructQueues(reader.tr)
@@ -297,10 +310,10 @@ describe('reconstructQueues', () => {
     // that was waiting returns first.
     reader.feed(
       Uint8Array.from([
-        ...getBlocking(100, id, 0x11b), // nested queue_get_blocking, same id
-        ...record(200, 0x130, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // fifo_get_exit ok
-        ...record(201, 0x11c, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // nested queue_get
-        ...record(210, 0x128, [...encU32(id), ...encU32(0xbb)]), // fifo_put_exit
+        ...getBlocking(100, id, QUEUE_GET_BLOCKING), // nested, same id
+        ...record(200, FIFO_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // ok
+        ...record(201, QUEUE_GET_EXIT, [...encU32(id), ...encU32(0), ...encU32(0xbb)]), // nested
+        ...record(210, FIFO_PUT_EXIT, [...encU32(id), ...encU32(0xbb)]),
       ]),
     )
     const [s] = reconstructQueues(reader.tr)
@@ -316,9 +329,9 @@ describe('reconstructQueues', () => {
     const id = 0x7100
     reader.feed(
       Uint8Array.from([
-        ...getBlocking(100, id, 0x145), // stack_pop_blocking
-        ...record(200, 0x146, [...encU32(id), ...encU32(0), ...encI32(0)]), // stack_pop_exit
-        ...record(210, 0x143, [...encU32(id), ...encI32(0)]), // stack_push_exit
+        ...getBlocking(100, id, STACK_POP_BLOCKING),
+        ...record(200, STACK_POP_EXIT, [...encU32(id), ...encU32(0), ...encI32(0)]),
+        ...record(210, STACK_PUSH_EXIT, [...encU32(id), ...encI32(0)]),
       ]),
     )
     const [s] = reconstructQueues(reader.tr)
