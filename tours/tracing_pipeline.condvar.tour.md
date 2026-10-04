@@ -5,22 +5,7 @@ next: tracing_pipeline.inheritance
 ---
 
 Every fourth reading, the aggregator publishes a frame, a summary of the
-readings so far, for two consumer threads. This tour is about how the
-consumers find out: they wait on a condition variable, and the aggregator
-wakes them.
-
-## Two consumers wait for a frame
-
-```tour
-at: main.c:/k_mutex_lock\(&frame_mutex/ | main.c:172
-when: first
-highlight: /while \(published_frame.seq == last_seen\)/ + 2
-threads: aggregator, consumer*
-```
-
-Every fourth reading, the aggregator publishes a frame: a summary of the
-readings so far, written to `published_frame` for two consumer threads. It is
-about to publish the first one.
+readings so far, for two consumer threads.
 
 ```mermaid
 flowchart LR
@@ -36,6 +21,21 @@ flowchart LR
   class agg,cv,c0,c1 focus
   class temp,press,imu,q,bus,st dim
 ```
+
+This tour is about how the consumers find out: they wait on a condition
+variable, and the aggregator wakes them.
+
+## Two consumers wait for a frame
+
+```tour
+at: main.c:/k_mutex_lock\(&frame_mutex/ | main.c:172
+when: first
+highlight: /while \(published_frame.seq == last_seen\)/ + 2
+threads: aggregator, consumer*
+```
+
+The aggregator is about to write the first frame to `published_frame`, where
+the consumers read it.
 
 In the thread list, both consumers are waiting on `frame_cond`, a **condition
 variable**: a place where threads sleep until another thread tells them that

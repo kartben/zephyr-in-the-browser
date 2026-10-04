@@ -139,6 +139,9 @@ export function TourCard({ board, sampleId }: Props) {
       : null
 
   const startedAtStep = startedAt(state, step.index)
+  // The text before the first step goes on the first card a reader sees: step
+  // 1, or the step a `?step=` link entered at, also when they come back to it.
+  const intro = state.doc && step.index === state.startIndex ? state.doc.intro : ''
 
   // The data-tour-* attributes are what the headless playthrough waits on
   // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
@@ -189,6 +192,18 @@ export function TourCard({ board, sampleId }: Props) {
         </div>
 
         <div className="max-h-[min(30rem,64vh)] space-y-2.5 overflow-y-auto px-3 py-2.5">
+          {intro && state.doc && (
+            <div data-tour-intro className="space-y-2 border-b border-border/70 pb-2.5">
+              <p className="text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                <InlineMarkdown text={state.doc.title} />
+              </p>
+              <Markdown
+                body={intro}
+                className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
+              />
+            </div>
+          )}
+
           <h2 className="text-sm font-semibold text-foreground">
             <InlineMarkdown text={step.title} />
           </h2>

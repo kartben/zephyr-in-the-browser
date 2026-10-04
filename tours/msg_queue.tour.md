@@ -25,9 +25,8 @@ objects:
   focus: my_msgq
 ```
 
-The producer is about to send its first message. It sends one every 100 ms:
-two normal ones, then an urgent one, three times over. The consumer reads
-them only once all nine are in.
+The producer is about to send its first message, and sends one every 100 ms
+after that.
 
 `K_MSGQ_DEFINE` set the queue up at build time: ten one-byte slots
 (`sizeof(char)`), drawn here as a strip, and the `struct k_msgq` that keeps

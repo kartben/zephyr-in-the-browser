@@ -4,25 +4,7 @@ sample: samples/subsys/tracing/pipeline
 ---
 
 After each frame, the aggregator writes a summary to a bus it shares with the
-storage thread. This tour is about what happens when the highest-priority
-thread in the app has to wait for the lowest.
-
-## The bus is taken
-
-```tour
-at: main.c:/BUS_LOCK\(\);/ | main.c:186
-when:
-  - k_mutex(bus_mutex).owner as ptr == _k_thread_obj_storage_thread
-  - first
-objects:
-  type: mutex
-  focus: bus_mutex
-```
-
-After publishing a frame, the aggregator writes a summary to a bus it shares
-with the `storage` thread, and `bus_mutex` guards it. The mutex list shows
-who holds it now: `storage`, the lowest-priority thread in the app (its base
-priority is 9), which keeps the bus for 12 ms at a time while it flushes.
+storage thread.
 
 ```mermaid
 flowchart LR
@@ -38,6 +20,25 @@ flowchart LR
   class agg,bus,st focus
   class temp,press,imu,q,cv,c0,c1 dim
 ```
+
+This tour is about what happens when the highest-priority thread in the app
+has to wait for the lowest.
+
+## The bus is taken
+
+```tour
+at: main.c:/BUS_LOCK\(\);/ | main.c:186
+when:
+  - k_mutex(bus_mutex).owner as ptr == _k_thread_obj_storage_thread
+  - first
+objects:
+  type: mutex
+  focus: bus_mutex
+```
+
+`bus_mutex` guards the bus, and the mutex list shows who holds it now:
+`storage`, the lowest-priority thread in the app (its base priority is 9),
+which keeps the bus for 12 ms at a time while it flushes.
 
 The aggregator, at priority 3, is about to call `k_mutex_lock()`. It will
 have to wait.
