@@ -33,3 +33,6 @@ __pycache__/
 
 # failure transcripts and screenshots from tools/smoke-boot.mjs
 smoke-out/
+
+# ...and from tools/tour-playthrough.mjs
+tour-out/

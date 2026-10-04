@@ -740,6 +740,72 @@ Pages** checks the images it is about to deploy. And a pull request that touches
 gives pull requests from forks no repository variables, so for those the deploy
 is the first check).
 
+## Testing a tour end to end
+
+`npm test` proves a tour parses, and `npm run tour:check` that every step
+resolves. Neither proves the guest gets to each step: a step can resolve and
+still never come up, because its line runs before the step's turn comes round,
+or only on a path the sample does not take, or because it waits on a reader
+who has nothing to do. `tools/tour-playthrough.mjs` finds those by playing
+every tour the way a reader would, in headless Chromium on the real emulator:
+
+```sh
+npx playwright install chromium               # once
+node tools/tour-playthrough.mjs               # every tour, on qemu_cortex_a53
+node tools/tour-playthrough.mjs basic_button  # one
+```
+
+For each tour it boots the sample, waits for each step's card in order, and
+clicks **Continue** (or **Got it**). A step gets 30 seconds, counted from the
+card before it. The run fails on a step that never comes or comes out of
+order, on any tour problem (an anchor that did not resolve, say), or on a
+failed `check:` banner, and the failure names the tour, the step and the
+reason. It leaves a screenshot, the terminal and the tour's state in
+`tour-out/`. The emulator and images are the dev server's, from `public/qemu/`
+(in a git worktree, the main checkout's). **Deploy to GitHub Pages** runs it
+after the boot smoke test, whenever a deploy ships an emulator and images.
+
+### The reader's part: `do:` and `ci:`
+
+Some steps are only reached once the reader acts. On the way to a step with
+`await:`, the playthrough types its `do:` lines, as **Run** would. Anything
+else a step needs goes in `ci:`:
+
+```yaml
+at: button_input_cb | main.c:/static void button_input_cb/ | main.c:20
+ci: press sw0
+```
+
+| Action | Does |
+| --- | --- |
+| `press <key>` | holds a **GPIO Keys** button down for 200 ms; `sw0` finds `SW0` or `Browser SW0` |
+| `type <line>` | types one line into the terminal, placeholders filled in as on a Run button |
+| `wait <duration>` | waits before the next action: `500ms`, `2s`, up to 10 s |
+
+The actions run in order, after any `do:` lines: on the your-turn card for a
+step with `await:`, and for a step without one, once its breakpoint is planted
+and the guest is running. One action can be written inline; several take a
+list. `ci:` is for the playthrough alone. The page parses it, so a misspelt
+action fails `npm test`, and never acts on it.
+
+### Hooks for the harness
+
+Opened with `?test=1`, the page puts up `window.__zitbTest`
+(`src/lib/testHooks.ts`): `pressKey(label)`, `typeLines(lines)`, and
+`tourState()`, the tour as plain data. Without `?test=1` it does not exist.
+The cards carry what the harness waits on:
+
+| Attribute | On |
+| --- | --- |
+| `data-tour-step="<n>"` | a step card or a your-turn card; steps count from 1, as on the card |
+| `data-tour-paused` | a step card with the guest paused under it |
+| `data-tour-waiting` | the your-turn card |
+| `data-tour-complete` | the completion card |
+
+A sample's second tour, `tours/<app>.<slug>.tour.md`, is opened with
+`?tour=<id>`. A page that does not take that parameter yet opens the app's
+default tour instead, and the playthrough skips the second one with a warning.
+
 ## What it costs the firmware
 
 Nothing at all — not "nothing that matters". There is no macro, no table, no
@@ -768,6 +834,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Engine | `src/tours/store.ts` |
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
+| Playthrough | `tools/tour-playthrough.mjs`, `src/lib/testHooks.ts` |
 | Gallery badge | `src/tours/guided.ts` |
 | UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx`, `tour/WaitingCard.tsx`, `tour/CompletionCard.tsx` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |
