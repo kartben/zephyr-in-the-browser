@@ -73,6 +73,38 @@ describe('resolveAnchor', () => {
     })
   })
 
+  it('searches only a named function for a scoped pattern', () => {
+    // The same line in two functions: a() on lines 22-26, b() on lines 30-36.
+    const text = Array.from({ length: 40 }, () => '')
+    text[21] = 'static void a(void)'
+    text[22] = '{'
+    text[24] = '\tBUS_UNLOCK();'
+    text[25] = '}'
+    text[29] = 'static void b(void)'
+    text[30] = '{'
+    text[34] = '\tBUS_UNLOCK();'
+    text[35] = '}'
+    const ctx = { ...context, sources: new Map([['main.c', text]]) }
+    // Line 25 is a()'s; the nearest row at or after it is line 28.
+    expect(resolveAnchor('main.c:/BUS_UNLOCK/', ctx)).toMatchObject({
+      ok: true,
+      anchor: { via: 'pattern', addr: 0x8004, line: 28 },
+    })
+    // Line 35 is b()'s; the nearest row at or after it is line 38.
+    expect(resolveAnchor('main.c:b/BUS_UNLOCK/', ctx)).toMatchObject({
+      ok: true,
+      anchor: { via: 'pattern', addr: 0x8020, line: 38 },
+    })
+    expect(resolveAnchor('main.c:c/BUS_UNLOCK/', ctx)).toEqual({
+      ok: false,
+      error: '`main.c:c/BUS_UNLOCK/`: `main.c` defines no `c()`',
+    })
+    expect(resolveAnchor('main.c:a/nothing/', ctx)).toEqual({
+      ok: false,
+      error: '`main.c:a/nothing/`: no line in `a()` matches',
+    })
+  })
+
   it('explains itself when it cannot resolve', () => {
     expect(resolveAnchor('nope', context)).toEqual({
       ok: false,
@@ -125,6 +157,11 @@ describe('resolveAnchor', () => {
 })
 
 describe('patternFile', () => {
+  it('treats a scoped pattern as a pattern', () => {
+    expect(patternFile('main.c:storage_entry/BUS_UNLOCK/ | main.c:283')).toBe('main.c')
+    expect(sourceSpelling('main.c:storage_entry/BUS_UNLOCK/')).toEqual({ kind: 'pattern', file: 'main.c' })
+  })
+
   it('names the file a pattern anchor needs the text of', () => {
     expect(patternFile('main.c:/toggle/')).toBe('main.c')
     expect(patternFile('main.c:32')).toBeNull()

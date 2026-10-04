@@ -92,6 +92,7 @@ lands (none is, today); the lists are `IMPLEMENTED_KEYS` and `RESERVED_KEYS` in
 | Spelling | Means |
 | --- | --- |
 | `main.c:/toggle_dt/` | the first line of `main.c` matching the pattern |
+| `main.c:blink/toggle_dt/` | the first line matching it inside `blink()` |
 | `main.c:31` | line 31 of `main.c` |
 | `gpio_pin_configure` | that function, past its prologue |
 | `main+0x1c` | that function, at an offset |
@@ -103,7 +104,15 @@ is a fact about a moment in somebody else's git history; `/toggle_dt/` still
 means what it meant. (CodeTour learnt the same lesson and grew the same
 feature.)
 
-All five are resolved against the ELF the page already fetched to boot the
+A pattern stops at the first line that matches it, and a sample can have the
+same line in two functions: the sensor pipeline calls `BUS_UNLOCK();` in the
+aggregator and in the storage thread. Name the function between the file and
+the pattern, `main.c:storage_entry/BUS_UNLOCK/`, and only the body of
+`storage_entry()` is searched. That stays right when upstream reorders the
+file, where a longer pattern made to match once might not, and it tells the
+next author which thread the step stops in.
+
+All six are resolved against the ELF the page already fetched to boot the
 guest: `.symtab` for symbols, `.debug_line` for source lines. Zephyr builds
 with debug info, so the mapping is simply *there* — nothing is generated and
 nothing is prepared. That also means a tour can break in code it does not own:
@@ -1078,7 +1087,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | The tours | `tours/*.tour.md` |
 | Tour ids and links | `src/tours/tourId.ts`, `src/tours/catalog.ts`, `src/lib/selectionParams.ts` |
 | File format | `src/tours/parse.ts` |
-| Anchors | `src/tours/anchors.ts`, `src/debug/dwarfLines.ts` |
+| Anchors | `src/tours/anchors.ts`, `src/tours/cfunction.ts`, `src/debug/dwarfLines.ts` |
 | Checking them against images | `src/tours/check.ts`, `src/tours/images.test.ts` |
 | Shipped sources | `src/tours/sources.ts` |
 | Expressions | `src/tours/expr.ts` |
