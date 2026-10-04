@@ -24,6 +24,8 @@
  * actually drives a memory-reading bridge, where such a sample exists.
  *
  * One case per qemu-system-* artifact, since each is a separate QEMU build.
+ * The Magic Wand pair then goes past booting: it replays gestures into the
+ * page's ADXL345 and waits for the guest's model to name them.
  *
  *   npx playwright install chromium     # once
  *   node tools/smoke-boot.mjs           # the whole matrix
@@ -47,7 +49,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * The matrix: one board per emulator artifact, and wherever the board has one,
- * a sample that makes the page read guest memory rather than only print.
+ * a sample that makes the page read guest memory rather than only print. Then
+ * the Magic Wand and its traced twin, end to end through a guest-side model.
  *
  * `expect` is matched against the terminal as it scrolls, so it has to be a
  * line the guest really emits rather than a summary of one.
@@ -116,8 +119,6 @@ const CASES = [
       { replay: 'wing', expect: /WING:/ },
       { replay: 'slope', expect: /SLOPE:/ },
     ],
-    // Named runs only, until a published image release carries the sample.
-    default: false,
   },
 ]
 // The traced twin: synchronous CTF over semihosting slows the guest down, and
@@ -136,8 +137,7 @@ const POLL_MS = 50
 function usage() {
   console.log(
     `Usage: node tools/smoke-boot.mjs [case...] [options]\n\n` +
-      `Cases: ${CASES.map((c) => c.id).join(', ')} ` +
-      `(default: all but ${CASES.filter((c) => c.default === false).map((c) => c.id).join(', ')})\n\n` +
+      `Cases: ${CASES.map((c) => c.id).join(', ')} (default: all)\n\n` +
       `  --board <id>     ad-hoc case: board from src/boards.ts\n` +
       `  --app <id>       ad-hoc case: sample id (default: the board's)\n` +
       `  --expect <re>    ad-hoc case: guest output to wait for\n` +
@@ -201,7 +201,7 @@ function selectCases(opts) {
       },
     ]
   }
-  if (!opts.cases.length) return CASES.filter((c) => c.default !== false)
+  if (!opts.cases.length) return CASES
   return opts.cases.map((id) => {
     const found = CASES.find((c) => c.id === id)
     if (!found) throw new Error(`no case "${id}" (have: ${CASES.map((c) => c.id).join(', ')})`)
