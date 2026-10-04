@@ -20,6 +20,24 @@ const fake = vi.hoisted(() => ({
   threads: [] as Array<{ name: string; addr: number }>,
   tour: null as unknown,
   steps: [] as unknown[],
+  seededFor: '',
+  chips: [] as unknown[],
+  replays: [] as unknown[][],
+  playing: [] as Array<string | null>,
+}))
+
+vi.mock('@/lib/dockStore', () => ({
+  getState: () => ({ seededFor: fake.seededFor }),
+}))
+
+vi.mock('@/virtio', () => ({
+  i2cModel: { chips: () => fake.chips },
+}))
+
+vi.mock('@/lib/followStore', () => ({
+  startReplay: (...args: unknown[]) => fake.replays.push(args),
+  // What the card would show on each poll: playing, then done.
+  replayingClip: () => fake.playing.shift() ?? null,
 }))
 
 vi.mock('@/hostGpio', () => ({
@@ -72,6 +90,10 @@ beforeEach(() => {
   fake.typed = []
   fake.prompts = 0
   fake.threads = []
+  fake.seededFor = ''
+  fake.chips = []
+  fake.replays = []
+  fake.playing = []
 })
 
 afterEach(() => {
@@ -91,7 +113,12 @@ describe('installTestHooks', () => {
     for (const search of ['?test=1', '?test', '?board=qemu_cortex_a53&app=blinky&test=1']) {
       const target: Pick<Window, '__zitbTest'> = {}
       expect(installTestHooks(search, target)).toBe(true)
-      expect(Object.keys(target.__zitbTest!).sort()).toEqual(['pressKey', 'tourState', 'typeLines'])
+      expect(Object.keys(target.__zitbTest!).sort()).toEqual([
+        'pressKey',
+        'replayGesture',
+        'tourState',
+        'typeLines',
+      ])
     }
   })
 
@@ -139,6 +166,40 @@ describe('pressKey', () => {
   it('says so on a guest with no GPIO bridge', async () => {
     fake.gpio = false
     expect(errorOf(await hooks().pressKey('sw0'))).toContain('no GPIO bridge')
+  })
+})
+
+describe('replayGesture', () => {
+  const accel = { address: 0x53, decl: { shellLabel: 'adxl345', channels: [] }, setChannel: () => {} }
+
+  it('replays the clip into the part the sample drives, and waits for it to end', async () => {
+    fake.seededFor = 'qemu_cortex_a53:magic_wand'
+    fake.chips = [{ address: 0x50, name: 'eeprom' }, accel]
+    fake.playing = ['ring', 'ring']
+    expect(await hooks().replayGesture('ring')).toEqual({ ok: true })
+    expect(fake.replays).toHaveLength(1)
+    const [chip, set, clip] = fake.replays[0]!
+    expect(chip).toBe(accel)
+    expect((set as { target: string }).target).toBe('adxl345')
+    expect(clip).toBe('ring')
+    expect(fake.playing).toEqual([])
+  })
+
+  it('says so for a sample with nothing to replay', async () => {
+    fake.seededFor = 'qemu_cortex_a53:blinky'
+    expect(errorOf(await hooks().replayGesture('ring'))).toContain('no recordings')
+  })
+
+  it('names the clips when the id matches none', async () => {
+    fake.seededFor = 'qemu_cortex_a53:magic_wand'
+    fake.chips = [accel]
+    expect(errorOf(await hooks().replayGesture('loop'))).toContain('wing, ring, slope')
+    expect(fake.replays).toEqual([])
+  })
+
+  it('says so when the part is not on the bus', async () => {
+    fake.seededFor = 'qemu_cortex_a53:magic_wand_trace'
+    expect(errorOf(await hooks().replayGesture('wing'))).toContain('no adxl345 on the bus')
   })
 })
 

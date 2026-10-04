@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from 'react'
+import { sampleForSeed } from '@/boards'
 import { CheckControl, SelectControl, SliderControl } from '@/components/controls/ControlRow'
 import { RegisterMapButton } from '@/components/RegisterMap'
+import { getState as getDockState, subscribe as subscribeDock } from '@/lib/dockStore'
 import {
   groupDrivesChannel,
   isFollowingGroup,
+  replayingClip,
   setFollowGroup,
+  startReplay,
+  stopReplay,
   subscribe as subscribeFollows,
 } from '@/lib/followStore'
+import { cn } from '@/lib/utils'
 import {
   SOURCE_GROUPS,
   orientationNeedsPermission,
@@ -15,6 +21,7 @@ import {
   type LiveSourceGroup,
 } from '@/virtio/devices/sensors/liveSource'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
+import { RECORDING_SETS, type RecordingSet } from '@/virtio/devices/sensors/recordings'
 
 /**
  * The generic control surface for a simulated I2C sensor.
@@ -26,7 +33,9 @@ import type { SensorChip } from '@/virtio/devices/sensors/model'
  * physical tilt, not three decisions. A collapsed **Registers** control opens
  * the fine-grained map (names + bitfields from the JSON/TS register file).
  * Adding a sensor is therefore a declaration, not another panel: this body
- * draws whatever the declaration lists.
+ * draws whatever the declaration lists. The one addition from outside it: when
+ * the running sample brings recorded motion for this part (the Magic Wand's
+ * gestures), a row of buttons replays it.
  */
 
 /** ~20 Hz is plenty for a slider readout; the guest still reads live values. */
@@ -71,9 +80,21 @@ function useChip(chip: SensorChip) {
   }, [chip])
 }
 
+/**
+ * The recorded motion the running sample offers for this chip, if any: the
+ * Magic Wand's gestures on the ADXL345, and nothing on any other boot.
+ */
+function useRecordingSet(chip: SensorChip): RecordingSet | null {
+  const seededFor = useSyncExternalStore(subscribeDock, () => getDockState().seededFor, () => '')
+  const recordings = sampleForSeed(seededFor)?.recordings
+  const set = recordings ? RECORDING_SETS[recordings] : undefined
+  return set && set.target === chip.decl.shellLabel ? set : null
+}
+
 export function SensorBody({ chip }: { chip: SensorChip }) {
   useChip(chip)
   const [motionError, setMotionError] = useState<string | null>(null)
+  const recordings = useRecordingSet(chip)
 
   // The source groups this chip can follow, in channel order, deduplicated.
   const groups: LiveSourceGroup[] = []
@@ -83,16 +104,19 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
     if (!groups.includes(group)) groups.push(group)
   }
 
-  // Re-render when any follow toggles; the snapshot is a cheap value token.
+  // Re-render when any follow toggles or a replay starts or ends; the
+  // snapshot is a cheap value token.
   useSyncExternalStore(
     subscribeFollows,
     useCallback(
-      () => groups.filter((group) => isFollowingGroup(chip, group)).join(','),
+      () =>
+        `${groups.filter((group) => isFollowingGroup(chip, group)).join(',')}|${replayingClip(chip) ?? ''}`,
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [chip],
     ),
     () => '',
   )
+  const playing = replayingClip(chip)
 
   // On iOS Safari the permission prompt must be requested synchronously from
   // this same click, so it happens here rather than after setFollowGroup —
@@ -163,6 +187,34 @@ export function SensorBody({ chip }: { chip: SensorChip }) {
 
       {motionError && (
         <p className="pt-1 text-[11px] leading-relaxed text-destructive">{motionError}</p>
+      )}
+
+      {recordings && groups.includes('orientation') && (
+        <div className="space-y-1 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Replay</span>
+            {recordings.clips.map((clip) => (
+              <button
+                key={clip.id}
+                type="button"
+                aria-pressed={playing === clip.id}
+                title={`${recordings.credit} (${recordings.source})`}
+                onClick={() =>
+                  playing === clip.id ? stopReplay(chip) : startReplay(chip, recordings, clip.id)
+                }
+                className={cn(
+                  'rounded-md border px-1.5 py-0.5 text-[11px]',
+                  playing === clip.id
+                    ? 'border-primary/60 bg-primary/10 text-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {clip.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">{recordings.hint}</p>
+        </div>
       )}
 
       {fieldAttrs.map((attr) => (

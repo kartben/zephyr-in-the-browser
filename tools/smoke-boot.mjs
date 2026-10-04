@@ -29,6 +29,7 @@
  *   node tools/smoke-boot.mjs           # the whole matrix
  *   node tools/smoke-boot.mjs aarch64   # named cases only
  *   node tools/smoke-boot.mjs --board qemu_cortex_m3 --app blinky --dump
+ *   node tools/smoke-boot.mjs magic-wand  # replays gestures, expects their names
  *
  * Runs against the dev server rather than `dist/`: the artifacts under
  * public/qemu/ are the same files either way, and vite.config.ts already sets
@@ -98,16 +99,45 @@ const CASES = [
     // TCI, and the ESP32 boot ROM before Zephyr even starts.
     bootMs: 300_000,
   },
+  {
+    id: 'magic-wand',
+    binary: 'qemu-system-aarch64',
+    board: 'qemu_cortex_a53',
+    app: 'magic_wand',
+    expect: /Magic Wand ready/,
+    expectWhy: 'the sample saying it is listening',
+    // Each step replays a recorded gesture into the page's ADXL345, as the
+    // card's button does, and waits for the guest's TensorFlow Lite Micro model
+    // to name it: sensor card, virtio-i2c, the stock driver and the model, end
+    // to end.
+    hooks: true,
+    steps: [
+      { replay: 'ring', expect: /RING:/ },
+      { replay: 'wing', expect: /WING:/ },
+      { replay: 'slope', expect: /SLOPE:/ },
+    ],
+    // Named runs only, until a published image release carries the sample.
+    default: false,
+  },
 ]
+// The traced twin: synchronous CTF over semihosting slows the guest down, and
+// its replay has to stay in step all the same.
+CASES.push({
+  ...CASES.find((c) => c.id === 'magic-wand'),
+  id: 'magic-wand-trace',
+  app: 'magic_wand_trace',
+})
 
 const DEFAULT_BOOT_MS = 180_000
 const DEFAULT_BRIDGE_MS = 90_000
+const STEP_MS = 60_000
 const POLL_MS = 50
 
 function usage() {
   console.log(
     `Usage: node tools/smoke-boot.mjs [case...] [options]\n\n` +
-      `Cases: ${CASES.map((c) => c.id).join(', ')} (default: all)\n\n` +
+      `Cases: ${CASES.map((c) => c.id).join(', ')} ` +
+      `(default: all but ${CASES.filter((c) => c.default === false).map((c) => c.id).join(', ')})\n\n` +
       `  --board <id>     ad-hoc case: board from src/boards.ts\n` +
       `  --app <id>       ad-hoc case: sample id (default: the board's)\n` +
       `  --expect <re>    ad-hoc case: guest output to wait for\n` +
@@ -171,7 +201,7 @@ function selectCases(opts) {
       },
     ]
   }
-  if (!opts.cases.length) return CASES
+  if (!opts.cases.length) return CASES.filter((c) => c.default !== false)
   return opts.cases.map((id) => {
     const found = CASES.find((c) => c.id === id)
     if (!found) throw new Error(`no case "${id}" (have: ${CASES.map((c) => c.id).join(', ')})`)
@@ -277,6 +307,11 @@ function mergeRows(transcript, sample) {
   return [...transcript, ...rows]
 }
 
+/** How many times `re` matches the transcript so far. */
+function countMatches(transcript, re) {
+  return (transcript.join('\n').match(new RegExp(re.source, 'g')) ?? []).length
+}
+
 /**
  * What the page needs off the Emscripten Module, checked on the live instance.
  *
@@ -302,7 +337,7 @@ async function runCase(browser, testCase, opts) {
   const bootMs = opts.bootMs ?? testCase.bootMs ?? DEFAULT_BOOT_MS
   const url =
     `http://127.0.0.1:${opts.port}/?board=${testCase.board}&app=${testCase.app}` +
-    `&backend=qemu&profile=1`
+    `&backend=qemu&profile=1${testCase.hooks ? '&test=1' : ''}`
 
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   const page = await context.newPage()
@@ -337,10 +372,7 @@ async function runCase(browser, testCase, opts) {
       return result
     }
 
-    const start = Date.now()
-    let matched = false
-    let sawModule = false
-    while (Date.now() - start < bootMs) {
+    const screen = async () => {
       const sample = await page.evaluate(() => {
         const rows = document.querySelector('.xterm-rows')
         return {
@@ -349,6 +381,14 @@ async function runCase(browser, testCase, opts) {
         }
       })
       result.transcript = mergeRows(result.transcript, sample.rows)
+      return sample
+    }
+
+    const start = Date.now()
+    let matched = false
+    let sawModule = false
+    while (Date.now() - start < bootMs) {
+      const sample = await screen()
       sawModule ||= sample.module
       /*
        * Against the screen as well as the transcript. The transcript is the
@@ -425,6 +465,32 @@ async function runCase(browser, testCase, opts) {
         result.failure =
           `${field} stayed at 0 for ${(DEFAULT_BRIDGE_MS / 1000).toFixed(0)}s after boot: ` +
           'the guest is running but the page is not seeing its bus traffic'
+        return result
+      }
+    }
+
+    for (const step of testCase.steps ?? []) {
+      const before = countMatches(result.transcript, step.expect)
+      const replayed = await page.evaluate(
+        (id) =>
+          window.__zitbTest?.replayGesture(id) ?? { ok: false, error: 'the page has no test hooks' },
+        step.replay,
+      )
+      if (!replayed.ok) {
+        result.failure = `could not replay ${step.replay}: ${replayed.error}`
+        return result
+      }
+      const deadline = Date.now() + STEP_MS
+      let named = false
+      // Counted in the transcript: an earlier gesture's name can still be on
+      // screen, so the screen alone cannot say a new one was printed.
+      while (!named && Date.now() < deadline) {
+        await screen()
+        named = countMatches(result.transcript, step.expect) > before
+        if (!named) await sleep(POLL_MS)
+      }
+      if (!named) {
+        result.failure = `after replaying ${step.replay}, ${step.expect} never appeared`
         return result
       }
     }

@@ -10,13 +10,19 @@
  * the calls its own controls make, and a summary of the tour it can poll.
  *
  * Installed only when the URL asks (`?test=1`). A reader's page has no
- * `window.__zitbTest`. Nothing here touches guest memory: a key press and a
- * typed line are what the reader's own hands do.
+ * `window.__zitbTest`. Nothing here touches guest memory: a key press, a typed
+ * line and a replayed gesture are what the reader's own hands do.
  */
 
+import { sampleForSeed } from '@/boards'
 import * as debug from '@/debug/control'
 import { available as gpioAvailable, getButtons, setPressed, type Pin } from '@/hostGpio'
+import { getState as getDockState } from '@/lib/dockStore'
+import { replayingClip, startReplay } from '@/lib/followStore'
 import * as terminal from '@/lib/terminalInput'
+import { i2cModel } from '@/virtio'
+import { isSensorChip, type SensorChip } from '@/virtio/devices/sensors/model'
+import { RECORDING_SETS } from '@/virtio/devices/sensors/recordings'
 import type { CiAction } from '@/tours/parse'
 import { isCommandLine, resolvePlaceholders } from '@/tours/snippets'
 import { getSnapshot as getTourState, getSteps } from '@/tours/store'
@@ -30,6 +36,13 @@ const PRESS_HOLD_MS = 200
 
 /** How long typing waits for the shell's prompt before it types anyway. */
 const PROMPT_TIMEOUT_MS = 3000
+
+/**
+ * The longest a replayed gesture may take. A clip plays at the guest's reads,
+ * or on a timer when the guest stops reading, so it always ends; this only
+ * bounds a stuck page.
+ */
+const REPLAY_TIMEOUT_MS = 60_000
 
 export type TestResult = { ok: true } | { ok: false; error: string }
 
@@ -79,6 +92,11 @@ export interface TestHooks {
   pressKey(label: string, holdMs?: number): Promise<TestResult>
   /** Type shell lines into the terminal, as a tour card's Run button would. */
   typeLines(lines: readonly string[]): Promise<TestResult>
+  /**
+   * Replay one of the running sample's recorded clips (`ring`), as its button
+   * on the sensor card does. Resolves once the clip has played out.
+   */
+  replayGesture(id: string): Promise<TestResult>
   tourState(): TourStateSummary
 }
 
@@ -140,6 +158,28 @@ async function typeLines(lines: readonly string[]): Promise<TestResult> {
   return typed ? { ok: true } : { ok: false, error: 'the terminal went away while typing' }
 }
 
+async function replayGesture(id: string): Promise<TestResult> {
+  const recordings = sampleForSeed(getDockState().seededFor)?.recordings
+  if (!recordings) return { ok: false, error: 'this sample has no recordings to replay' }
+  const set = RECORDING_SETS[recordings]
+  if (!set.clips.some((clip) => clip.id === id)) {
+    const have = set.clips.map((clip) => clip.id).join(', ')
+    return { ok: false, error: `no clip “${id}” (clips: ${have})` }
+  }
+  const chip = i2cModel
+    .chips()
+    .find((c): c is SensorChip => isSensorChip(c) && c.decl.shellLabel === set.target)
+  if (!chip) return { ok: false, error: `no ${set.target} on the bus to replay into` }
+
+  startReplay(chip, set, id)
+  const deadline = Date.now() + REPLAY_TIMEOUT_MS
+  while (replayingClip(chip) === id) {
+    if (Date.now() > deadline) return { ok: false, error: `the ${id} clip never finished` }
+    await sleep(50)
+  }
+  return { ok: true }
+}
+
 function tourState(): TourStateSummary {
   const state = getTourState()
   const runtime = getSteps()
@@ -173,7 +213,7 @@ function tourState(): TourStateSummary {
   }
 }
 
-const hooks: TestHooks = { pressKey, typeLines, tourState }
+const hooks: TestHooks = { pressKey, typeLines, replayGesture, tourState }
 
 /** Whether a query string asks for the hooks: `?test`, `?test=1`, not `?test=0`. */
 export function wantsTestHooks(search: string): boolean {

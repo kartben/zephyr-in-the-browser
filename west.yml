@@ -12,6 +12,11 @@
 # or SHA here when a build needs to be reproducible; the CI cache keys off this
 # file, so changing the revision naturally invalidates it.
 manifest:
+  # zephyr/west.yml filters out its `optional` group. This filter is applied
+  # after the imported one, so +optional brings that group back, and the
+  # allowlist below keeps it to tflite-micro.
+  group-filter: [+optional]
+
   self:
     path: zephyr-in-the-browser
 
@@ -37,4 +42,5 @@ manifest:
           - mbedtls
           - picolibc
           - segger
+          - tflite-micro # magic_wand (TensorFlow Lite Micro), from zephyr's optional group
           - zcbor

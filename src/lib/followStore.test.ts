@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LiveSourceKind } from '@/virtio/devices/sensors/model'
 import type { SensorChip } from '@/virtio/devices/sensors/model'
+import type { RecordingSet } from '@/virtio/devices/sensors/recordings'
+import type { ReplayOptions, ReplayTarget } from '@/virtio/devices/sensors/replay'
 import * as follow from './followStore'
 
 /** A chip with the ADXL shape: three channels riding one orientation source. */
@@ -11,10 +13,10 @@ function fakeAccel(address: number) {
     name: `accel@${address.toString(16)}`,
     decl: {
       channels: [
-        { key: 'ax', label: 'Accel X', source: 'orientation-x' as LiveSourceKind },
-        { key: 'ay', label: 'Accel Y', source: 'orientation-y' as LiveSourceKind },
-        { key: 'az', label: 'Accel Z', source: 'orientation-z' as LiveSourceKind },
-        { key: 'plain', label: 'No source' },
+        { key: 'ax', label: 'Accel X', reg: 0x32, source: 'orientation-x' as LiveSourceKind },
+        { key: 'ay', label: 'Accel Y', reg: 0x34, source: 'orientation-y' as LiveSourceKind },
+        { key: 'az', label: 'Accel Z', reg: 0x36, source: 'orientation-z' as LiveSourceKind },
+        { key: 'plain', label: 'No source', reg: 0x10 },
       ],
     },
     setChannel: (key: string, value: number) => {
@@ -28,11 +30,38 @@ let startedKinds: LiveSourceKind[] = []
 let orientationStarts = 0
 let orientationStops: Array<ReturnType<typeof vi.fn>> = []
 
+interface StartedReplay {
+  clip: string
+  target: ReplayTarget
+  opts: ReplayOptions
+  stop: ReturnType<typeof vi.fn>
+}
+let replays: StartedReplay[] = []
+
+const SET: RecordingSet = {
+  target: 'adxl345',
+  rateHz: 25,
+  rest: [0, 0, 1],
+  hint: '',
+  credit: '',
+  source: '',
+  clips: [
+    { id: 'wing', label: 'Wing', samples: [[0, 0, 1]] },
+    { id: 'ring', label: 'Ring', samples: [[0, 0, 1]] },
+  ],
+}
+
 beforeEach(() => {
   follow.pruneFollows([])
   startedKinds = []
   orientationStarts = 0
   orientationStops = []
+  replays = []
+  follow.setReplayStarter((_chip, clip, target, opts) => {
+    const stop = vi.fn()
+    replays.push({ clip: clip.id, target, opts, stop })
+    return { stop }
+  })
   follow.setLiveSourceStarter((kind, push) => {
     startedKinds.push(kind)
     push(4.2)
@@ -113,5 +142,88 @@ describe('followStore (grouped)', () => {
     follow.setFollowGroup(chip, 'orientation', false)
     expect(fn).toHaveBeenCalledTimes(2)
     off()
+  })
+})
+
+describe('followStore (replay)', () => {
+  it('replays into the tilt axes, at the lowest of their registers', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.startReplay(chip, SET, 'ring')
+    expect(follow.replayingClip(chip)).toBe('ring')
+    expect(replays).toHaveLength(1)
+    expect(replays[0]!.target).toEqual({ channels: ['ax', 'ay', 'az'], dataReg: 0x32 })
+    expect(replays[0]!.opts.periodMs).toBe(40)
+  })
+
+  it('locks the tilt sliders while it plays', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.startReplay(chip, SET, 'wing')
+    expect(follow.groupDrivesChannel(chip, 'orientation', 'ax')).toBe(true)
+    expect(follow.groupDrivesChannel(chip, 'orientation', 'plain')).toBe(false)
+    replays[0]!.opts.onDone!()
+    expect(follow.replayingClip(chip)).toBeNull()
+    expect(follow.groupDrivesChannel(chip, 'orientation', 'ax')).toBe(false)
+  })
+
+  it('pauses tilt follow for the clip and hands it back after', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.setFollowGroup(chip, 'orientation', true)
+    follow.startReplay(chip, SET, 'wing')
+    expect(follow.isFollowingGroup(chip, 'orientation')).toBe(false)
+    expect(orientationStops[0]).toHaveBeenCalledTimes(1)
+
+    replays[0]!.opts.onDone!()
+    expect(follow.isFollowingGroup(chip, 'orientation')).toBe(true)
+    expect(orientationStarts).toBe(2)
+  })
+
+  it('keeps that promise when one clip is pressed over another', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.setFollowGroup(chip, 'orientation', true)
+    follow.startReplay(chip, SET, 'wing')
+    follow.startReplay(chip, SET, 'ring')
+    expect(replays[0]!.stop).toHaveBeenCalledTimes(1)
+    // The first clip's late onDone must not end the second.
+    replays[0]!.opts.onDone!()
+    expect(follow.replayingClip(chip)).toBe('ring')
+    replays[1]!.opts.onDone!()
+    expect(follow.isFollowingGroup(chip, 'orientation')).toBe(true)
+  })
+
+  it('stops early on request, restoring follow', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.setFollowGroup(chip, 'orientation', true)
+    follow.startReplay(chip, SET, 'ring')
+    follow.stopReplay(chip)
+    expect(replays[0]!.stop).toHaveBeenCalledTimes(1)
+    expect(follow.replayingClip(chip)).toBeNull()
+    expect(follow.isFollowingGroup(chip, 'orientation')).toBe(true)
+  })
+
+  it('gives way when tilt follow is turned on mid-clip', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.startReplay(chip, SET, 'ring')
+    follow.setFollowGroup(chip, 'orientation', true)
+    expect(replays[0]!.stop).toHaveBeenCalledTimes(1)
+    expect(follow.replayingClip(chip)).toBeNull()
+    expect(follow.isFollowingGroup(chip, 'orientation')).toBe(true)
+  })
+
+  it('stops replays for chips that left the bus', () => {
+    const a = fakeAccel(0x53)
+    const b = fakeAccel(0x1d)
+    follow.startReplay(a.chip, SET, 'ring')
+    follow.startReplay(b.chip, SET, 'wing')
+    follow.pruneFollows([a.chip])
+    expect(follow.replayingClip(a.chip)).toBe('ring')
+    expect(follow.replayingClip(b.chip)).toBeNull()
+    expect(replays[1]!.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores an unknown clip', () => {
+    const { chip } = fakeAccel(0x53)
+    follow.startReplay(chip, SET, 'loop')
+    expect(replays).toHaveLength(0)
+    expect(follow.replayingClip(chip)).toBeNull()
   })
 })
