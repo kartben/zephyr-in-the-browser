@@ -157,6 +157,21 @@ export interface TourStep {
   registers: string[]
   /** Show the kernel thread list at this stop. */
   threads: boolean
+  /**
+   * The reader's part, when reaching this step is up to them: press a button,
+   * type a command. One line of Markdown, shown on a "Your turn" card while the
+   * guest runs on towards the step.
+   */
+  await: string | null
+  /** Shell lines for the reader to type, shown on that same card. */
+  do: string[]
+}
+
+/** How a tour ends: a last `##` section with no ```tour block under it. */
+export interface TourOutro {
+  title: string
+  /** Markdown, rendered like a step body. */
+  body: string
 }
 
 export interface TourDoc {
@@ -173,6 +188,10 @@ export interface TourDoc {
    */
   showSource: boolean
   steps: TourStep[]
+  /** Shown once every step has had its turn, with a way on to `next`. */
+  outro: TourOutro | null
+  /** Tour to offer after this one (`next:` in front matter), by tour id. */
+  next: string | null
   /** Authoring errors, in file order. Rendered in dev, ignored in production. */
   problems: string[]
 }
@@ -300,6 +319,8 @@ export const IMPLEMENTED_KEYS = [
   'objects',
   'registers',
   'threads',
+  'await',
+  'do',
 ] as const
 
 /**
@@ -307,7 +328,7 @@ export const IMPLEMENTED_KEYS = [
  * lands, so a tour written against it already parses; the change that
  * implements one moves it to IMPLEMENTED_KEYS.
  */
-export const RESERVED_KEYS = ['await', 'do', 'check', 'pass', 'fail', 'retry'] as const
+export const RESERVED_KEYS = ['check', 'pass', 'fail', 'retry'] as const
 
 const KNOWN_KEYS: ReadonlySet<string> = new Set([...IMPLEMENTED_KEYS, ...RESERVED_KEYS])
 
@@ -599,6 +620,20 @@ function parseList(value: Directive | undefined): string[] {
   return []
 }
 
+/**
+ * Parse `do:`, the shell lines a your-turn card offers, in order.
+ *
+ * A scalar is one line rather than a comma-separated list as elsewhere: in a
+ * shell command a comma is ordinary text.
+ */
+function parseDo(value: Directive | undefined, where: string, problems: string[]): string[] {
+  if (value === undefined) return []
+  if (typeof value === 'string') return value === '' ? [] : [value]
+  if (Array.isArray(value)) return value.filter((line) => line !== '')
+  problems.push(`${where}: \`do:\` takes shell lines, not a block of \`key: value\``)
+  return []
+}
+
 function buildStep(
   index: number,
   title: string,
@@ -662,6 +697,13 @@ function buildStep(
     )
   }
 
+  // `do:` lines are only ever shown on the your-turn card, which `await:` puts up.
+  const awaitText = asScalar(parsed.values.get('await'))
+  const doLines = parseDo(parsed.values.get('do'), where, problems)
+  if (doLines.length > 0 && awaitText === null) {
+    problems.push(`${where}: \`do:\` needs an \`await:\` to say what the lines are for`)
+  }
+
   return {
     index,
     title,
@@ -680,6 +722,8 @@ function buildStep(
     objects: walkable ? objects : null,
     registers: parseList(parsed.values.get('registers')),
     threads: walkable && threads,
+    await: awaitText,
+    do: doLines,
   }
 }
 
@@ -735,39 +779,31 @@ export function parseTour(text: string): TourDoc {
   }
 
   const intro: string[] = []
-  const steps: TourStep[] = []
-  let title: string | null = null
-  let directives: string[] | null = null
-  let body: string[] = []
+  /*
+   * Every `##` section is collected before any is built. A section with no
+   * ```tour block is the outro when it comes last and a mistake anywhere else,
+   * and which one it is is only known at the end of the file.
+   */
+  const sections: Array<{ title: string; directives: string[] | null; body: string[] }> = []
+  let section: (typeof sections)[number] | null = null
   let fence: string | null = null
   let inTourBlock = false
-
-  const flush = () => {
-    if (title === null) return
-    const step = buildStep(steps.length, title, (directives ?? []).join('\n'), body.join('\n'), problems)
-    if (step) {
-      steps.push(step)
-      problems.push(...snippetProblems(`step ${step.index + 1} (“${step.title}”)`, step.body))
-    }
-    title = null
-    directives = null
-    body = []
-  }
 
   for (; at < lines.length; at++) {
     const line = lines[at]!
     const fenced = FENCE.exec(line)
+    const prose = section ? section.body : intro
 
     if (fence !== null) {
       // Inside a fence: only its matching closer means anything.
       if (fenced && fenced[1] === fence) {
         if (inTourBlock) inTourBlock = false
-        else body.push(line)
+        else prose.push(line)
         fence = null
       } else if (inTourBlock) {
-        directives = [...(directives ?? []), line]
+        section!.directives!.push(line)
       } else {
-        body.push(line)
+        prose.push(line)
       }
       continue
     }
@@ -777,24 +813,52 @@ export function parseTour(text: string): TourDoc {
       // The stage directions, but only before the step's prose starts — a
       // ```tour block further down is a tour talking about tours.
       inTourBlock =
-        fenced[2] === 'tour' && title !== null && directives === null && body.join('').trim() === ''
-      if (inTourBlock) directives = []
-      else body.push(line)
+        fenced[2] === 'tour' &&
+        section !== null &&
+        section.directives === null &&
+        section.body.join('').trim() === ''
+      if (inTourBlock) section!.directives = []
+      else prose.push(line)
       continue
     }
 
     const heading = /^##\s+(.*\S)\s*$/.exec(line)
     if (heading) {
-      flush()
-      title = heading[1]!
+      section = { title: heading[1]!, directives: null, body: [] }
+      sections.push(section)
       continue
     }
-    if (title === null) intro.push(line)
-    else body.push(line)
+    prose.push(line)
   }
-  flush()
+
+  const last = sections[sections.length - 1]
+  const outro = last && last.directives === null ? sections.pop()! : null
+  const steps: TourStep[] = []
+  for (const { title, directives, body } of sections) {
+    const step = buildStep(steps.length, title, (directives ?? []).join('\n'), body.join('\n'), problems)
+    if (step) {
+      steps.push(step)
+      const where = `step ${step.index + 1} (“${step.title}”)`
+      problems.push(...snippetProblems(where, step.body))
+      // `do:` lines render as the same runnable snippet on the your-turn card.
+      for (const problem of parsePlaceholders(step.do.join('\n')).problems) {
+        problems.push(`${where}: \`do:\` ${problem}`)
+      }
+    }
+  }
 
   if (fence !== null) problems.push('unclosed code fence')
+
+  // A tour id is an app id today; once a sample can host several tours it
+  // gains a `.slug`, so a dot is allowed. A path or a title is not.
+  let next = asScalar(front.get('next'))
+  if (next !== null && !/^[\w][\w.-]*$/.test(next)) {
+    problems.push(`front matter: \`next: ${next}\` is not a tour id (an app id, like \`basic_button\`)`)
+    next = null
+  }
+  if (next !== null && outro === null) {
+    problems.push('front matter: `next:` needs an outro, a last `##` section with no ```tour block')
+  }
 
   return {
     title: asScalar(front.get('tour')) ?? asScalar(front.get('title')) ?? 'Guided tour',
@@ -803,6 +867,8 @@ export function parseTour(text: string): TourDoc {
     // `source: no` hides guest source / DTS excerpts on the card (tool tours).
     showSource: asBool(front.get('source'), true),
     steps,
+    outro: outro && { title: outro.title, body: outro.body.join('\n').trim() },
+    next,
     problems,
   }
 }

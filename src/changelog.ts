@@ -25,6 +25,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Tours hand you tasks, end on a recap, and chain onward."
+      },
+      {
+        "tag": "Added",
         "text": "Tours can open a Trace tab or a Debug section."
       },
       {

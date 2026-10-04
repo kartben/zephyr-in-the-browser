@@ -24,7 +24,9 @@ rest of the section is the prose.
 
 Front-matter keys: `tour` (title), `sample` (Zephyr sample path), and optional
 `source: no` to hide guest source / DTS excerpts on the card (breakpoints from
-`at:` still plant; use this for page-orientation tours).
+`at:` still plant; use this for page-orientation tours). Optional `next` names
+the tour to offer at the end; see
+[Ending a tour](#ending-a-tour-outro-and-next).
 
 ````markdown
 ---
@@ -70,9 +72,9 @@ reads the same way.
 
 Every key in the block must be one the parser knows. A misspelt `wacth:` fails
 `npm run test` instead of leaving a card quietly short of its values. Keys for
-directives still on their way (`await`, `do`, `check`, `pass`, `fail`,
-`retry`) are accepted and ignored until they land; the lists are
-`IMPLEMENTED_KEYS` and `RESERVED_KEYS` in `src/tours/parse.ts`.
+directives still on their way (`check`, `pass`, `fail`, `retry`) are accepted
+and ignored until they land; the lists are `IMPLEMENTED_KEYS` and
+`RESERVED_KEYS` in `src/tours/parse.ts`.
 
 ## Where a step breaks — `at:`
 
@@ -429,6 +431,79 @@ prompts and output included, so those stay ordinary code blocks and nothing
 pasted from a transcript becomes runnable by accident. Markdown outside a tour
 card never runs either. On the mock backend Run types into the demo shell, so a
 tour's snippets can be tried on a bare checkout.
+## The learner's turn (`await:` and `do:`)
+
+Some steps cannot be reached by pressing Continue. The guest only gets there
+once the reader does something: presses SW0, types a shell command. `await:`
+says what, in one line of Markdown:
+
+```yaml
+at: button_input_cb | main.c:/static void button_input_cb/ | main.c:20
+await: Press **SW0** in **GPIO Keys**.
+```
+
+When the card before is dismissed and this is the step the tour now waits on,
+a compact **Your turn** card shows that line. It pauses nothing: the guest
+runs, the reader acts, and the step's own card replaces it when the guest gets
+there. A first step with `await:` shows its card from the start, and **Leave
+the tour** works from it as from any card.
+
+The your-turn card also opens what the step points at, its `panel:` and
+`look:`. A step that says "watch the queue fill" wants the Queues tab open
+while the queue fills, not once it has. On a build without Trace it carries the
+same one-line note as the step card.
+
+`do:` adds shell lines for the reader to type, in order. They show under the
+`await:` line as one block with a Copy button:
+
+```yaml
+at: cmd_kernel_uptime
+await: Ask the kernel how long it has been running.
+do:
+  - kernel uptime
+```
+
+A single line can be written inline (`do: kernel uptime`), and unlike other
+inline values it is never split on commas. `do:` without `await:` is an
+authoring error, because the lines only ever appear on the your-turn card.
+
+## Ending a tour (outro and `next:`)
+
+A last `##` section with no ` ```tour ` block is the tour's **outro**: the
+closing words, not another stop. Anywhere else, a section without a block is
+still an authoring error.
+
+```markdown
+## What you saw
+
+Blinky's whole loop is one call to toggle a pin and one to sleep.
+```
+
+Once every step has had its turn, a **completion card** shows the outro and
+**Run it again**, which restarts the sample and the tour with it. Leaving the
+tour early still ends it quietly: the completion card is for readers who got
+to the end. A tour with no outro ends as before, with no card at all.
+
+`next:` in the front matter names the tour to offer after this one, by tour id
+(today, the app id):
+
+```markdown
+---
+tour: "Blinky: find your way around"
+sample: samples/basic/blinky
+next: basic_button
+---
+```
+
+The completion card then has a **Next** button with that tour's title. It
+switches app on the same board, the way the app picker does, and the next tour
+starts with the new sample. A reader on a traced twin (`blinky_trace`) lands on
+the next app's traced twin when the board has one. A board that does not offer
+the next app gets no button.
+
+`next:` needs an outro to put its button on. The tests fail when it names a
+tour that does not exist, the tour itself, or an app no board offers alongside
+this one.
 
 ## How it runs
 
@@ -475,7 +550,9 @@ the tour never starts.
 `npm run dev` lands on the mock backend, which has no machine to break in. It
 walks the steps on a timer instead — real prose, real panel reveals, real
 outline — and every card that would have read the target says so rather than
-inventing a number. Enough to write and read a tour on a bare checkout.
+inventing a number. Enough to write and read a tour on a bare checkout. A step
+with `await:` gets a beat of its own for its your-turn card first, and a tour
+with an outro ends on its completion card.
 
 A dev-only Vite plugin serves `tours/*.tour.md` at the same URLs a real image
 build would. Source excerpts come from your Zephyr workspace when there is one
@@ -508,6 +585,6 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
 | Gallery badge | `src/tours/guided.ts` |
-| UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx` |
+| UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx`, `tour/WaitingCard.tsx`, `tour/CompletionCard.tsx` |
 | Debugger underneath | `src/hostGdb.ts`, `src/debug/` — see [debug-gdb-plan.md](debug-gdb-plan.md) |
 | Packaging | `tools/build-zephyr-image.sh`, the `tours()` plugin in `vite.config.ts` |

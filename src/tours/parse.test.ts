@@ -175,6 +175,109 @@ describe('parseTour', () => {
     expect(parseTour('<!doctype html>\n<html></html>').steps).toEqual([])
     expect(parseTour('').steps).toEqual([])
   })
+
+  it('keeps a fenced block in the intro out of the first step', () => {
+    const doc = parseTour(
+      ['Intro.', '', '```c', 'int x;', '```', '', '## Step', '', '```tour', 'at: main', '```', '', 'Prose.'].join('\n'),
+    )
+    expect(doc.problems).toEqual([])
+    expect(doc.intro).toContain('int x;')
+    expect(doc.steps[0]!.at).toBe('main')
+    expect(doc.steps[0]!.body).toBe('Prose.')
+  })
+})
+
+describe('outro and next', () => {
+  const tour = (front: string, sections: string) =>
+    parseTour(`---\ntour: T\nsample: samples/basic/blinky\n${front}---\n\n${sections}`)
+  const STEP = '## Step\n\n```tour\nat: main\n```\n\nProse.\n\n'
+
+  it('reads a last section with no tour block as the outro, not a step', () => {
+    const doc = tour('', `${STEP}## What you saw\n\nA *ring* of slots.\n\nThat is all.\n`)
+    expect(doc.problems).toEqual([])
+    expect(doc.steps.map((s) => s.title)).toEqual(['Step'])
+    expect(doc.outro).toEqual({ title: 'What you saw', body: 'A *ring* of slots.\n\nThat is all.' })
+  })
+
+  it('still reports a section with no tour block anywhere but last', () => {
+    const doc = tour('', `## Forgot the block\n\nProse.\n\n${STEP}## The end\n\nBye.\n`)
+    expect(doc.steps.map((s) => s.title)).toEqual(['Step'])
+    expect(doc.outro?.title).toBe('The end')
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('Forgot the block')
+    expect(doc.problems[0]).toContain('no `at:`')
+  })
+
+  it('has no outro when the last section is a step, which is every tour so far', () => {
+    const doc = tour('', STEP)
+    expect(doc.outro).toBeNull()
+    expect(doc.next).toBeNull()
+  })
+
+  it('reads `next:` from the front matter', () => {
+    const doc = tour('next: msgq_lab\n', `${STEP}## Done\n\nOn to part two.\n`)
+    expect(doc.problems).toEqual([])
+    expect(doc.next).toBe('msgq_lab')
+  })
+
+  it('reports a `next:` that is not a tour id', () => {
+    const doc = tour('next: samples/kernel/msg_queue\n', `${STEP}## Done\n\nBye.\n`)
+    expect(doc.next).toBeNull()
+    expect(doc.problems[0]).toContain('not a tour id')
+  })
+
+  it('reports a `next:` with no outro to offer it on', () => {
+    const doc = tour('next: msgq_lab\n', STEP)
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('needs an outro')
+  })
+})
+
+describe('await and do', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('reads the task and the shell lines that go with it', () => {
+    const doc = step(
+      'await: Stop the consumer, then watch the queue fill.\ndo:\n  - msgq consumer suspend\n  - msgq stat',
+    )
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.await).toBe('Stop the consumer, then watch the queue fill.')
+    expect(doc.steps[0]!.do).toEqual(['msgq consumer suspend', 'msgq stat'])
+  })
+
+  it('takes a single `do:` line whole, commas and all', () => {
+    const doc = step('await: Print the stack use.\ndo: kernel thread stacks, then read')
+    expect(doc.steps[0]!.do).toEqual(['kernel thread stacks, then read'])
+  })
+
+  it('is absent unless the step asks', () => {
+    expect(step('panel: gpio').steps[0]!.await).toBeNull()
+    expect(step('panel: gpio').steps[0]!.do).toEqual([])
+  })
+
+  it('is implemented now, not merely reserved', () => {
+    expect(IMPLEMENTED_KEYS).toEqual(expect.arrayContaining(['await', 'do']))
+    expect(RESERVED_KEYS).not.toEqual(expect.arrayContaining(['await']))
+    expect(RESERVED_KEYS).not.toEqual(expect.arrayContaining(['do']))
+  })
+
+  it('reports `do:` lines with no `await:` to explain them', () => {
+    const doc = step('do: msgq purge')
+    expect(doc.problems[0]).toContain('needs an `await:`')
+  })
+
+  it('reports a `do:` block that is not a list', () => {
+    const doc = step('await: Go.\ndo:\n  first: msgq purge')
+    expect(doc.steps[0]!.do).toEqual([])
+    expect(doc.problems[0]).toContain('`do:` takes shell lines')
+  })
+
+  it('checks placeholders in `do:` lines like a shell block', () => {
+    expect(step('await: Go.\ndo: kernel thread suspend ${thread:consumer}').problems).toEqual([])
+    const doc = step('await: Go.\ndo: kernel thread suspend ${thred:consumer}')
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('`do:`')
+  })
 })
 
 describe('shell snippets', () => {
@@ -349,9 +452,6 @@ describe('directive keys', () => {
     // Tours written against directives still in review must parse today.
     const doc = step(
       [
-        'await: Stop the consumer, then watch the queue fill.',
-        'do:',
-        '  - msgq consumer suspend',
         'check: used == 8',
         'pass: Full.',
         'fail: Not yet.',

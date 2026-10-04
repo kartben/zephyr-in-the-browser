@@ -18,6 +18,8 @@
  * the source excerpt and any `at:` pattern that needs the text to search.
  */
 
+import type { Board } from '@/boards'
+
 const MODULES = import.meta.glob('/tours/*.tour.md', {
   query: '?raw',
   import: 'default',
@@ -43,6 +45,20 @@ export function tourIds(): string[] {
 /** True when this sample has a tour — no list to keep in step with anything. */
 export function hasTour(sampleId: string): boolean {
   return MODULES[`/tours/${baseSampleId(sampleId)}.tour.md`] !== undefined
+}
+
+/**
+ * The app a tour's `next:` runs as on this board, or null when the board does
+ * not offer it.
+ *
+ * A tour id is an app id. A reader on a traced twin stays on one when the
+ * board has it: the tour they just finished may have pointed them at Trace,
+ * and they chose the build that has it.
+ */
+export function nextSampleId(board: Board, sampleId: string, tourId: string): string | null {
+  const offered = (id: string) => board.samples.some((s) => s.id === id)
+  if (sampleId.endsWith('_trace') && offered(`${tourId}_trace`)) return `${tourId}_trace`
+  return offered(tourId) ? tourId : null
 }
 
 /** The tour's Markdown, or null when the sample has none. */

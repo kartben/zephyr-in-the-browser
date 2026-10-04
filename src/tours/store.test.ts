@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /*
  * The engine's job is to decide which stop belongs to which step and what
@@ -90,7 +90,18 @@ vi.mock('@/lib/dockReveal', () => ({
   revealDockRow: (key: string) => revealed.push(key),
 }))
 
-const { arm, getSnapshot, getSteps, loadFor, next, reset, skip } = await import('@/tours/store')
+const {
+  arm,
+  dismissCompletion,
+  getSnapshot,
+  getSteps,
+  loadFor,
+  next,
+  reset,
+  revisit,
+  skip,
+  startDemo,
+} = await import('@/tours/store')
 
 /** Two steps on the same address, plus one of its own. */
 const TOUR = `---
@@ -388,5 +399,184 @@ Prose.
     expect(getSnapshot().finished).toBe(true)
     expect(getSnapshot().current).toBeNull()
     expect(paused).toBe(false)
+  })
+})
+
+/** Ends on an outro and chains on; its second step waits on the reader. */
+const LIFECYCLE = `---
+tour: Lifecycle
+sample: samples/basic/button
+next: blinky
+---
+
+## Main waits
+
+\`\`\`tour
+at: 0x8000
+\`\`\`
+
+Prose.
+
+## A press arrives
+
+\`\`\`tour
+at: 0x9000
+panel: keys
+await: Press **SW0** in the dock.
+do:
+  - kernel uptime
+\`\`\`
+
+Prose.
+
+## What you saw
+
+The press went through the input subsystem.
+`
+
+async function loadLifecycle(body = LIFECYCLE) {
+  reset()
+  tourText.body = body
+  await loadFor(`tour-${url++}`)
+  await arm()
+}
+
+describe("the reader's turn", () => {
+  beforeEach(() => loadLifecycle())
+
+  it('says what to do once the card before it goes, and gives way when the step fires', async () => {
+    expect(getSnapshot().waiting).toBeNull() // step 1 asks nothing of the reader
+    await stopAt(0x8000)
+    next()
+    await settle()
+    expect(getSnapshot().current).toBeNull()
+    expect(getSnapshot().waiting).toEqual({
+      index: 1,
+      text: 'Press **SW0** in the dock.',
+      do: ['kernel uptime'],
+      notes: [],
+    })
+    // The reader can only do it with the guest running, and where they are to
+    // do it is open before the step fires, not after.
+    expect(paused).toBe(false)
+    expect(breakpoints.has(0x9000)).toBe(true)
+    expect(revealed).toEqual(['keys'])
+
+    await stopAt(0x9000)
+    expect(getSnapshot().waiting).toBeNull()
+    expect(getSnapshot().current?.step.title).toBe('A press arrives')
+  })
+
+  it('asks from the start when the very first step waits on the reader', async () => {
+    await loadLifecycle(LIFECYCLE.replace('at: 0x8000\n', 'at: 0x8000\nawait: Watch the terminal.\n'))
+    expect(getSnapshot().waiting).toEqual({ index: 0, text: 'Watch the terminal.', do: [], notes: [] })
+  })
+
+  it('comes back after reading an earlier step again', async () => {
+    await stopAt(0x8000)
+    next()
+    await settle()
+    revisit(0)
+    expect(getSnapshot().current?.step.index).toBe(0)
+    next()
+    await settle()
+    expect(getSnapshot().waiting?.index).toBe(1)
+  })
+})
+
+describe('ending', () => {
+  beforeEach(() => loadLifecycle())
+
+  async function walk() {
+    await stopAt(0x8000)
+    next()
+    await settle()
+    await stopAt(0x9000)
+    next()
+    await settle()
+  }
+
+  it('is complete once every step has had its turn', async () => {
+    await walk()
+    expect(getSnapshot()).toMatchObject({
+      finished: true,
+      completed: true,
+      current: null,
+      waiting: null,
+    })
+    expect(getSnapshot().doc?.outro?.title).toBe('What you saw')
+    expect(breakpoints.size).toBe(0)
+  })
+
+  it('is not complete when the reader leaves, even from the your-turn card', async () => {
+    await stopAt(0x8000)
+    next()
+    await settle()
+    expect(getSnapshot().waiting).not.toBeNull()
+    skip()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: false, waiting: null })
+    expect(breakpoints.size).toBe(0)
+  })
+
+  it('closes the completion card and leaves the rest alone', async () => {
+    await walk()
+    dismissCompletion()
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: false, armed: false })
+  })
+})
+
+describe('the mock replay', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** What the reader would see after each beat of the replay. */
+  async function beats(count: number, between?: () => void): Promise<string[]> {
+    const seen: string[] = []
+    for (let i = 0; i < count; i++) {
+      await vi.advanceTimersByTimeAsync(3200)
+      const s = getSnapshot()
+      seen.push(
+        s.current
+          ? s.current.step.title
+          : s.waiting
+            ? `your turn: ${s.waiting.index + 1}`
+            : s.completed
+              ? 'complete'
+              : 'nothing',
+      )
+      if (i === 0) between?.()
+    }
+    return seen
+  }
+
+  async function replay(body: string) {
+    reset()
+    tourText.body = body
+    vi.useFakeTimers()
+    const ac = new AbortController()
+    startDemo(`tour-${url++}`, ac.signal)
+    await vi.advanceTimersByTimeAsync(0) // the tour loads
+    return ac
+  }
+
+  it('gives a waiting step a beat of its own, then ends on the outro', async () => {
+    const ac = await replay(LIFECYCLE)
+    expect(await beats(5)).toEqual([
+      'Main waits',
+      'your turn: 2',
+      'A press arrives',
+      'complete',
+      'complete',
+    ])
+    ac.abort()
+  })
+
+  it('stops when the reader leaves, and never calls that complete', async () => {
+    const ac = await replay(LIFECYCLE)
+    expect(await beats(4, skip)).toEqual(['Main waits', 'nothing', 'nothing', 'nothing'])
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: false })
+    ac.abort()
   })
 })
