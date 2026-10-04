@@ -33,6 +33,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Tours can draw diagrams, like the sensor pipeline map."
+      },
+      {
+        "tag": "Added",
         "text": "Several tours per sample, and links straight to a tour step."
       },
       {

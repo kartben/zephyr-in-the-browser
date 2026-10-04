@@ -3,14 +3,16 @@
  *
  * Every node here is a React element built from a parsed tree — no HTML string
  * is ever produced from author markup, so there is nothing to sanitise and
- * markup inside a body is text by construction. Fenced C blocks are the one
- * exception: highlight.js emits escaped HTML spans for tokens. See
- * src/tours/markdown.ts for the grammar.
+ * markup inside a body is text by construction. Fenced C blocks are one
+ * exception: highlight.js emits escaped HTML spans for tokens. A ```mermaid
+ * block is the other: Mermaid draws it as an SVG string, sanitising its own
+ * labels (tour/TourDiagram.tsx). See src/tours/markdown.ts for the grammar.
  */
 
 import { isRunnableShell, parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/tours/markdown'
 import { highlightCode, isCLanguage } from '@/lib/highlight'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
+import { TourDiagram } from '@/components/tour/TourDiagram'
 
 function Spans({ spans }: { spans: InlineSpan[] }) {
   return (
@@ -96,6 +98,7 @@ function Block({ block, runnable, paused }: { block: MarkdownBlock } & RunOption
         </ul>
       )
     case 'codeblock':
+      if (block.language === 'mermaid') return <TourDiagram source={block.text} />
       if (runnable && isRunnableShell(block.language)) {
         return <ShellSnippet lines={block.text.split('\n')} paused={paused} />
       }

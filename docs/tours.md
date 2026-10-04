@@ -635,6 +635,48 @@ prompts and output included, so those stay ordinary code blocks and nothing
 pasted from a transcript becomes runnable by accident. Markdown outside a tour
 card never runs either. On the mock backend Run types into the demo shell, so a
 tour's snippets can be tried on a bare checkout.
+
+### Diagrams: ` ```mermaid `
+
+A fenced `mermaid` block in a step's prose is drawn as a diagram, where it
+stands in the prose. It is for the map a reader needs before the stops make
+sense: which threads there are, and which kernel objects connect them. What
+the guest is doing at a stop is better shown live, with `threads:`, `objects:`
+and Trace.
+
+````markdown
+Three sensors pass readings to the aggregator through `sensor_q`.
+
+```mermaid
+flowchart LR
+  temp([sensor_temp]) --> q[(sensor_q)]
+  press([sensor_press]) --> q
+  q --> agg([aggregator])
+  agg --> cv{{frame_cond}}
+  class temp,press,q,agg focus
+  class cv dim
+```
+````
+
+Two classes come with the page, styled for light and dark: `focus`, what the
+step is about, and `dim`, the rest, which stays in view but quiet. An edge that
+touches a `dim` node is dimmed with it, so there is no `linkStyle` to count.
+Any other class needs its own `classDef`, in fixed colours. `npm test` parses
+every diagram in `tours/`, and fails on one Mermaid cannot parse or on a class
+nothing defines.
+
+Mermaid is large, about 200 KB gzipped to draw a flowchart, so the page imports
+it the first time a card has a diagram, and never otherwise. The diagram takes
+the page's colour tokens and monospace font, and is drawn again when the system
+switches between light and dark. A diagram that cannot be drawn shows its
+source, with Mermaid's error under it.
+
+GitHub draws the same block, so a tour read as an article there keeps its map,
+in Mermaid's default colours and without `focus` and `dim`.
+
+One map per tour is plenty, on the step that introduces the app: a card is
+narrow, and a diagram pushes the step's values further down. The sensor
+pipeline tours share one map and each picks out its own part of it.
 ## The learner's turn (`await:` and `do:`)
 
 Some steps cannot be reached by pressing Continue. The guest only gets there
@@ -1046,6 +1088,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Engine | `src/tours/store.ts` |
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
+| Diagrams | `src/tours/diagram.ts`, `tour/TourDiagram.tsx`, `src/tours/diagrams.test.ts` |
 | Playthrough | `tools/tour-playthrough.mjs`, `src/lib/testHooks.ts` |
 | Gallery badge and tour list | `src/tours/guided.ts` |
 | UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx`, `tour/WaitingCard.tsx`, `tour/CompletionCard.tsx`, `tour/TourLink.tsx` |
