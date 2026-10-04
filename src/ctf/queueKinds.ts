@@ -194,6 +194,24 @@ export function classifyQueueEvent(
 }
 
 /**
+ * A receiver about to wait on an empty queue: `msgq_get_blocking`, and
+ * `queue_get_blocking` (which a FIFO or LIFO get emits under its own `id`), or
+ * `stack_pop_blocking`. Returns the object's id, or null for any other event.
+ *
+ * The kernel gives the next item straight to a receiver that waits, so the
+ * queue never holds it; reconstructQueues() needs to know who is waiting.
+ */
+export function classifyReceiverBlocking(
+  name: string,
+  fields: Record<string, string | number>,
+): number | null {
+  if (name !== 'msgq_get_blocking' && name !== 'queue_get_blocking' && name !== 'stack_pop_blocking') {
+    return null
+  }
+  return num(fields, 'id')
+}
+
+/**
  * Scan the trace for object kinds. FIFO/LIFO win over nested queue_* for the
  * same address; msgq and bare queue are assigned from their own prefixes.
  */

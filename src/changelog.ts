@@ -110,6 +110,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "An ELF without a devicetree shows the board's buses."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Trace queue depth no longer counts hand-offs to waiting threads."
       }
     ]
   },

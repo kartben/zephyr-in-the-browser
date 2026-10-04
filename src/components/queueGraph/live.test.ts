@@ -52,6 +52,7 @@ function queues(): QueueSeries[] {
       cap: 1_000_000,
       capSource: 'object-core',
       peak: 1,
+      handoffs: [],
     },
     {
       id: 0x2000,
@@ -65,6 +66,7 @@ function queues(): QueueSeries[] {
       cap: 32,
       capSource: 'object-core',
       peak: 1,
+      handoffs: [],
     },
   ]
 }
