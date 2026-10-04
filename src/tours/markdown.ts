@@ -120,15 +120,78 @@ function parseInline(text: string): InlineSpan[] {
 }
 
 /**
+ * Drop HTML comments, which GitHub hides and the card should too.
+ *
+ * A comment in a tour is a note to the next author (a gap in the engine, a line
+ * number to re-check), and the card is the one place it must not show. Inside a
+ * fenced block or a `code` span it is what the prose is quoting, so it stays.
+ * One that never closes stays as well: a forgotten `-->` should show on the
+ * card, not swallow the rest of the step. A line that held nothing but comment
+ * goes altogether, so a note between two lines of a paragraph does not split it.
+ */
+function stripComments(body: string): string {
+  if (!body.includes('<!--')) return body
+  const lines = body.split('\n')
+  const out: string[] = []
+  let fenced = false
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i]
+    if (line.trimStart().startsWith('```')) {
+      fenced = !fenced
+      out.push(line)
+      continue
+    }
+    if (fenced) {
+      out.push(line)
+      continue
+    }
+
+    let kept = ''
+    let dropped = false
+    let col = 0
+    for (;;) {
+      const open = line.indexOf('<!--', col)
+      if (open < 0) break
+      // A `code` span opening first may be the one quoting the comment. A lone
+      // backtick is only a character, as it is to parseInline.
+      const tick = line.indexOf('`', col)
+      if (tick >= 0 && tick < open) {
+        const close = line.indexOf('`', tick + 1)
+        const past = close >= 0 ? close + 1 : tick + 1
+        kept += line.slice(col, past)
+        col = past
+        continue
+      }
+      // The comment ends at the first `-->`, which may be lines further on.
+      let last = i
+      let end = line.indexOf('-->', open + 4)
+      while (end < 0 && last + 1 < lines.length) end = lines[++last].indexOf('-->')
+      if (end < 0) break
+      kept += line.slice(col, open)
+      dropped = true
+      i = last
+      line = lines[i]
+      col = end + 3
+    }
+    kept += line.slice(col)
+    if (dropped && kept.trim() === '') continue
+    out.push(kept)
+  }
+  return out.join('\n')
+}
+
+/**
  * Parse an annotation body into blocks.
  *
  * Deliberately line-oriented: blank lines separate paragraphs, ``` fences a
  * code block, and a run of `- ` lines is a list. Anything a sample author
  * reaches for beyond that is a sign the annotation is too long for a popup.
+ * HTML comments are notes for authors and are dropped before any of it.
  */
 export function parseMarkdown(body: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = []
-  const lines = body.split('\n')
+  const lines = stripComments(body).split('\n')
   let i = 0
 
   while (i < lines.length) {

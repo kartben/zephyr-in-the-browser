@@ -107,3 +107,41 @@ describe('isRunnableShell', () => {
     }
   })
 })
+
+describe('comments', () => {
+  it('drops HTML comments the way GitHub hides them, but not quoted ones', () => {
+    // An author's note to the next author belongs in the file, not on the card.
+    // A comment written as code is the subject of the prose, so it stays, and
+    // one that never closes stays too rather than eating the rest of the step.
+    const body = [
+      'The ring is full. <!-- engine-gap: check the count -->',
+      '<!-- a note',
+      '   over two lines -->',
+      'Nothing else gets in.',
+      '',
+      'Write `<!-- this -->` to hide a line.',
+      '',
+      '```html',
+      '<!-- shown -->',
+      '```',
+      '',
+      'Tail <!-- never closed',
+    ].join('\n')
+    expect(parseMarkdown(body)).toEqual([
+      {
+        kind: 'paragraph',
+        spans: [{ kind: 'text', text: 'The ring is full. Nothing else gets in.' }],
+      },
+      {
+        kind: 'paragraph',
+        spans: [
+          { kind: 'text', text: 'Write ' },
+          { kind: 'code', text: '<!-- this -->' },
+          { kind: 'text', text: ' to hide a line.' },
+        ],
+      },
+      { kind: 'codeblock', language: 'html', text: '<!-- shown -->' },
+      { kind: 'paragraph', spans: [{ kind: 'text', text: 'Tail <!-- never closed' }] },
+    ])
+  })
+})
