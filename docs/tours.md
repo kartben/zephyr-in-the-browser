@@ -868,6 +868,17 @@ reliably rather than occasionally.
 The tour needs the gdbstub. If it never attaches, the sample runs normally and
 the tour never starts.
 
+**Reading a step again.** The dots in a card's header are the tour's outline.
+A step already shown can be opened again from there, to see its prose and the
+values it read when it fired. That never touches the guest. The card does not
+say paused, because the guest is not stopped on that step, and its button
+reads **Back**. Back puts up the card it covered, exactly as it was: a paused
+card is still paused, and its Continue resumes the guest as usual. Opened over
+the your-turn card, or over no card at all, it simply closes. Reading a step
+again plants nothing, resumes nothing and never finishes the tour. While it is
+up the tour waits, as it does under any step card: a hit that comes meanwhile
+is let go without being counted.
+
 ## Trying it without building anything
 
 `npm run dev` lands on the mock backend, which has no machine to break in. It

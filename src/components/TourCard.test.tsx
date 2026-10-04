@@ -145,3 +145,19 @@ describe('TourCard links', () => {
     expect(text(render({ waiting, startIndex: 2 }))).toContain('Started at step 3')
   })
 })
+
+describe('TourCard on a step read again', () => {
+  const text = (html: string) => html.replace(/<[^>]+>/g, ' ')
+
+  it('offers Back, not what the step offered when it fired', () => {
+    // Step 2 failed a check it retries when it fired, and is read again over step 3.
+    const fired = { ...card(1), check: { rows: [], outcome: 'failed' as const, retrying: true } }
+    const html = render({
+      current: { ...fired, paused: false, revisit: { back: card(2) } },
+      seen: new Set([0, 1, 2]),
+    })
+    expect(text(html)).toMatch(/\sBack\s/)
+    expect(text(html)).not.toMatch(/Try again|Continue|Got it/)
+    expect(html).not.toContain('data-tour-paused')
+  })
+})

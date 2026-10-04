@@ -142,6 +142,13 @@ export interface TourCard {
   source: string | null
   /** Whose code that is, for the card's crumb. Null on an image with no index. */
   provenance: Provenance | null
+  /**
+   * Set on a step the reader opened again from the outline. `back` is the card
+   * it covers, where the tour really is, and closing this one puts it back: a
+   * paused card with its Continue, or a card the guest runs on under. Null when
+   * no step card was up, so closing it leaves the your-turn card, if any.
+   */
+  revisit?: { back: TourCard | null }
 }
 
 /** What the reader is asked to do before the step the tour is waiting on. */
@@ -867,7 +874,8 @@ gdb.subscribe(onDebugChange)
 async function showPending(): Promise<void> {
   const runtime = pendingFire
   pendingFire = null
-  if (!runtime || !state.enabled || state.current !== null) return
+  // A step read again from the outline is not in the way; see the publish below.
+  if (!runtime || !state.enabled || (state.current !== null && !state.current.revisit)) return
 
   const card = await buildCard(runtime)
   runtime.card = card
@@ -898,7 +906,17 @@ async function showPending(): Promise<void> {
 
   const seen = new Set(state.seen)
   seen.add(runtime.step.index)
-  publish({ current: card, waiting: null, seen, armed: steps.some((s) => s.planted) })
+  // The reader can open a step again after the filter kept this stop, or while
+  // the card was being read. The guest is stopped for this card either way, so
+  // it goes behind that one for Back to return to. Dropped, it would leave the
+  // guest stopped with nothing on screen to continue it.
+  const shown = state.current
+  publish({
+    current: shown?.revisit ? { ...shown, revisit: { back: card } } : card,
+    waiting: null,
+    seen,
+    armed: steps.some((s) => s.planted),
+  })
 
   // `stop: no` is a note the reader can read while the guest carries on — the
   // card stays, the machine does not. Plant the next step before letting go, or
@@ -1112,9 +1130,18 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
  * every remaining breakpoint so the guest free-runs instead of trapping on a
  * leftover stop, and say the tour is complete: that is what puts up its outro.
  * A retry still failing is a turn not yet over.
+ *
+ * Closing a step read again from the outline does none of that. It puts back
+ * the card it covered and leaves the machine and the breakpoints alone: the
+ * guest was stopped for that card, not for this one, and only that card's
+ * Continue lets it go.
  */
 export function next(): void {
   const card = state.current
+  if (card?.revisit) {
+    publish({ current: card.revisit.back })
+    return
+  }
   publish({ current: null })
   void (async () => {
     const finished = steps.every(
@@ -1132,13 +1159,25 @@ export function next(): void {
   })()
 }
 
-/** Read a step again, without touching the machine. */
+/**
+ * Read a step again, without touching the machine.
+ *
+ * The card on screen is covered, not replaced, so closing this one takes the
+ * reader back to it (see next()). Reading another step from here keeps the
+ * same way back, and picking the step the tour is on just goes back to it.
+ */
 export function revisit(index: number): void {
   const runtime = steps[index]
   if (!runtime?.card) return
+  const shown = state.current
+  const back = shown?.revisit ? shown.revisit.back : shown
+  if (back?.step.index === index) {
+    publish({ current: back })
+    return
+  }
   // Never claims a pause: the machine has moved on since, and saying otherwise
   // would be a straight lie about what the reader is looking at.
-  publish({ current: { ...runtime.card, paused: false } })
+  publish({ current: { ...runtime.card, paused: false, revisit: { back } } })
 }
 
 /** Leave the tour: drop the breakpoints, resume, say nothing more. */

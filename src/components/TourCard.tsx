@@ -281,8 +281,9 @@ export function TourCard({ board, sampleId }: Props) {
         </div>
 
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+          {/* A step read again only goes back to the card it covers: see next(). */}
           <Button size="sm" onClick={next} className="h-7 px-3 text-xs">
-            {check?.retrying ? 'Try again' : paused ? 'Continue' : 'Got it'}
+            {card.revisit ? 'Back' : check?.retrying ? 'Try again' : paused ? 'Continue' : 'Got it'}
           </Button>
           {paused && state.live && (
             <Button

@@ -28,6 +28,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Call stacks no longer show data pointers as callers."
       },
       {
+        "tag": "Fixed",
+        "text": "Rereading an earlier tour step no longer strands the paused guest."
+      },
+      {
         "tag": "Added",
         "text": "Tour steps can stop on the guest's state, not just hit counts."
       },
