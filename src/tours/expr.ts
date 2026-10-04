@@ -34,7 +34,7 @@ export interface TourTarget {
   register(name: string): number | null
   /** Guest memory, or null when the read faulted. */
   read(addr: number, length: number): Promise<Uint8Array | null>
-  /** `function+0x1c` for an address, when symbols allow. */
+  /** `function+0x1c` or `object+0x10` for an address, when symbols allow. */
   label(addr: number): string | null
 }
 
@@ -259,6 +259,16 @@ function renderInt(bytes: Uint8Array, format: string): EvalResult['text'] {
   return unsigned < 10n ? `${value}` : `${value} · 0x${unsigned.toString(16)}`
 }
 
+/**
+ * An address and what it falls inside, `0x40a1f7c0 · z_interrupt_stacks+0x7c0`,
+ * or the bare address when nothing owns it. Both on one line, as `renderInt`
+ * does with decimal and hex: the card shows `text`, and a name kept only in
+ * `detail` never reaches the reader.
+ */
+function symbolised(value: number, label: string | null): string {
+  return label ? `${hex(value)} · ${label}` : hex(value)
+}
+
 function renderBytes(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -296,7 +306,8 @@ export async function evalWatch(
   const fail = (why: string): EvalResult => ({ text: why, detail: hex(addr), ok: false, addr })
 
   if (format === 'addr') {
-    return { text: hex(addr), detail: target.label(addr), ok: true, addr }
+    const label = target.label(addr)
+    return { text: symbolised(addr, label), detail: label, ok: true, addr }
   }
   if (format === 'code') {
     return { text: target.label(addr) ?? hex(addr), detail: hex(addr), ok: true, addr }
@@ -323,7 +334,8 @@ export async function evalWatch(
     const bytes = await target.read(addr, width)
     if (!bytes || bytes.length < width) return fail('unreadable')
     const value = Number(leToBigInt(bytes, width))
-    return { text: hex(value), detail: target.label(value) ?? `at ${hex(addr)}`, ok: true, addr }
+    const label = target.label(value)
+    return { text: symbolised(value, label), detail: label ?? `at ${hex(addr)}`, ok: true, addr }
   }
   if (format === 'bool') {
     const bytes = await target.read(addr, 1)

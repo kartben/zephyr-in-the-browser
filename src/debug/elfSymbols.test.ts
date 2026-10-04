@@ -3,6 +3,7 @@ import {
   buildSymbolIndex,
   filterSymbols,
   formatSymbol,
+  resolveDataSymbol,
   resolveSymbol,
 } from '@/debug/elfSymbols'
 
@@ -101,6 +102,26 @@ describe('elfSymbols', () => {
     expect(formatSymbol(resolveSymbol(index, 0x40010014))).toBe('shell_process+0x14')
     expect(resolveSymbol(index, 0x40011010)?.name).toBe('main')
     expect(resolveSymbol(index, 0x40012000)).toBeNull()
+  })
+
+  it('resolves addresses inside data objects to object+offset', () => {
+    const STT_OBJECT = 1
+    const elf = fakeElf([
+      { name: 'main', addr: 0x40011000, size: 0x40 },
+      { name: 'z_interrupt_stacks', addr: 0x40100000, size: 0x2000, type: STT_OBJECT },
+      // What real images carry with no size: absolute constants, empty structs.
+      { name: 'CONFIG_SRAM_BASE_ADDRESS', addr: 0x40100000, size: 0, type: STT_OBJECT },
+      { name: 'sem_lock', addr: 0x40102000, size: 0, type: STT_OBJECT },
+    ])
+    const index = buildSymbolIndex(elf)!
+    // A stack pointer in the interrupt stack, the case that showed a bare hex.
+    expect(formatSymbol(resolveDataSymbol(index, 0x40101f80))).toBe('z_interrupt_stacks+0x1f80')
+    // An object with no size occupies nothing, so it never names an address.
+    expect(formatSymbol(resolveDataSymbol(index, 0x40100000))).toBe('z_interrupt_stacks')
+    expect(resolveDataSymbol(index, 0x40102000)).toBeNull()
+    expect(resolveDataSymbol(index, 0x40011010)).toBeNull()
+    // Functions-only stays functions-only: PC labels and the unwinder rely on it.
+    expect(resolveSymbol(index, 0x40101f80)).toBeNull()
   })
 
   it('filters picker suggestions', () => {

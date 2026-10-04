@@ -251,6 +251,29 @@ export function resolveSymbol(index: SymbolIndex | null, addr: number): Resolved
   return { name: best.name, addr: best.addr, offset }
 }
 
+/**
+ * The data object an address falls inside, so a pointer that is not code can
+ * be named too: a stack pointer reads as `z_interrupt_stacks+0x7c0`.
+ *
+ * Separate from {@link resolveSymbol} on purpose, because PC labels and the
+ * stack unwinder call that one and must keep getting functions only. Stricter
+ * as well: only an object with a size names an address. A function with no
+ * size reaches to the next symbol, but an object with none is nearly always a
+ * number dressed as a symbol (`CONFIG_SRAM_BASE_ADDRESS`, a `___*_OFFSET`) or
+ * an empty struct sharing its address with the variable that really lives
+ * there, and naming an address after either would mislead.
+ */
+export function resolveDataSymbol(index: SymbolIndex | null, addr: number): ResolvedSymbol | null {
+  if (!index || !Number.isFinite(addr)) return null
+  let best: ElfSymbol | null = null
+  for (const s of index.objects.values()) {
+    if (s.size === 0 || addr < s.addr || addr >= s.addr + s.size) continue
+    // Should two overlap (an alias, say), the tightest is the most specific.
+    if (!best || s.size < best.size) best = s
+  }
+  return best ? { name: best.name, addr: best.addr, offset: addr - best.addr } : null
+}
+
 /** `foo` or `foo+0x14` — compact for chips and lists. */
 export function formatSymbol(res: ResolvedSymbol | null): string | null {
   if (!res) return null
