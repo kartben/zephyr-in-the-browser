@@ -81,6 +81,12 @@ onto the window to boot it instead: anything built for that board works, not
 just Zephyr. Dropped ELFs assume tracing may be enabled, so **Trace** opens by
 default.
 
+**QEMU Cortex-A53 SMP** is the same machine with four cores, and the cores are
+real: each one is a Web Worker running the emulator's JIT, so its
+**Parallel Speedup** app measures close to 4x on a fixed workload. It is a
+separate board because SMP needs the non-secure machine, which is a different
+`-machine` line rather than an extra device.
+
 On Cortex-A53 every sample ships **with and without tracing** (gallery rows
 marked **traced**). The packaged apps are listed in
 [`tools/samples.manifest`](tools/samples.manifest); the build script expands

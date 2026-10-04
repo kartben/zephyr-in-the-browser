@@ -36,6 +36,7 @@ the list matters for a given workload:
 | 12 | Closed Panels menu still subscribed to live stats/trace | `PanelsMenu.tsx` | Low–Medium | Very low | Low |
 | 13 | Dock / hex / net panels re-render broad trees under load — **partially fixed** | React dock + panels | Medium | Medium | Low |
 | 14 | Mic capture uses main-thread `ScriptProcessorNode` | `src/hostMic.ts` | Medium, mic only | Medium | Low |
+| 16 | **SMP works, and the cores are real**: 3.8x on four vCPUs, shipped as its own board | `src/boards.ts`, shield | High, CPU-bound guests | Done | Low |
 
 ## I²C throughput: what is left
 
@@ -697,6 +698,69 @@ manual resampling into the shared heap. Same argument as item 9: an
 already dominated by the guest's 100 ms block reads, so this is glitch
 robustness rather than end-to-end latency.
 
+## 16. SMP works, and the cores are real
+
+**Measured 2026-09-22, and it retracts an earlier finding.** This file and the
+LVGL notes used to say `-smp 2` hung the wasm emulator outright. It does not.
+That test paired the *secure* machine with a non-SMP guest, which cannot work
+for a reason that has nothing to do with WebAssembly: with `secure=on` QEMU
+starts the boot CPU at EL3 and disables its own PSCI conduit, expecting
+firmware to provide one, so no secondary can be turned on. Zephyr's
+`qemu_cortex_a53/qemu_cortex_a53/smp` variant sets `CONFIG_ARMV8_A_NS` for
+exactly that reason.
+
+On the non-secure machine, MTTCG is live: each vCPU is its own Web Worker
+running the JIT, and they execute in parallel. Fixed integer workload, split N
+ways with one worker pinned per CPU, in the browser pane on the deployed
+build:
+
+| threads | wall ms | speedup |
+|---|---|---|
+| 1 | 270 | 1.00x |
+| 2 | 130 | 2.07x |
+| 3 | 90 | 3.00x |
+| 4 | 70 | 3.85x |
+
+Steady state after a few rounds; the first two or three rounds run three to
+five times slower while the JIT translates the loop, which is worth knowing
+before reading any single measurement off this page. Native QEMU on the same
+ELF gives 100 ms for the single-threaded pass, so four emulated cores in a
+browser tab come within a third of one native core.
+
+This is now shipped as the **QEMU Cortex-A53 SMP** board with the
+`smp_bench` app (`zephyr-module/apps/smp_bench`). Four cores rather than
+Zephyr's stock two: upstream `arm64/qemu/qemu-virt-a53.dtsi` declares `cpu@0`
+and `cpu@1` only, so the extra nodes and the matching
+`CONFIG_MP_MAX_NUM_CPUS` come from the shield's `qemu_cortex_a53_smp.overlay`
+and `.conf`.
+
+Two traps, both of which cost time here:
+
+- **Board-specific files do not match the SMP board target.** Zephyr builds the
+  candidate filename from the board plus its qualifier segments, with a short
+  form that drops the SoC segment: `qemu_cortex_a53/qemu_cortex_a53` shortens
+  to `qemu_cortex_a53`, but `qemu_cortex_a53/qemu_cortex_a53/smp` shortens to
+  `qemu_cortex_a53_smp`. So the shield's board overlay silently did not apply
+  (no bridges, ramfb back to 1024x768), and neither did
+  `samples/modules/lvgl/demos/boards/qemu_cortex_a53.conf`, which is where that
+  sample's 16 KB main stack and 480x272 panel live. Snippets are unaffected:
+  every one under `zephyr-module/snippets/` already lists the SMP spelling.
+- **`CONFIG_MAX_XLAT_TABLES` runs out sooner.** The usual symptom: no banner, no
+  fault, nothing. 32 was enough for LVGL.
+
+**What is still on the table.** The obvious next step is LVGL's parallel
+rendering, which Zephyr supports through `CONFIG_LV_Z_USE_OSAL` (it ships
+`modules/lvgl/lvgl_zephyr_osal.c` for precisely this; `CONFIG_LV_OS_PTHREAD` is
+a dead end, the module excludes `lv_pthread.c` from the build) plus
+`CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT`. **It does not work yet.** With the OSAL on,
+the music player boots and draws, then takes a fatal CPU exception at
+8.5 to 8.9 s, reproducibly, on either CPU, in `main`, at one draw unit as well
+as four and at both panel sizes; raising `CONFIG_MAIN_STACK_SIZE` from 16 KB to
+48 KB moved it by 0.4 s, so it is not a plain stack overflow. The repeatability
+points at a step in the auto-play script rather than a race, and the next
+measurement is a build with `CONFIG_LV_DEMO_MUSIC_AUTO_PLAY=n`. Anything else
+CPU-bound in a guest can take the cores today without waiting for that.
+
 ## Suggested order
 
 1. ~~Item 1(a) (`postMessage` nesting reset)~~: done; 4.14 ms → 1.13 ms, and
@@ -716,3 +780,5 @@ robustness rather than end-to-end latency.
    (and mic) onto `AudioWorklet`.
 8. Item 13 leftovers — hex cell memoization / shared `useDeviceTree` only if a
    profile still shows them after the NetBadge / dock-memo / flash-coalesce pass.
+9. ~~Item 16 (SMP)~~: measured and shipped as its own board. The open half is
+   LVGL parallel rendering, which faults; see that item for where it stops.
