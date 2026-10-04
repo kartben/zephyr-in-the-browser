@@ -100,6 +100,11 @@ describe('tours/', () => {
       if (step.when !== null) {
         expect(whenFires(step.when, 1).invalid, `step ${step.index + 1}: bad \`when\``).toBe(false)
       }
+      // A step that retries holds the tour until it passes, so it has to say
+      // what to try when it does not.
+      if (step.retry) {
+        expect(step.fail, `step ${step.index + 1}: \`retry: yes\` wants a \`fail:\``).not.toBeNull()
+      }
       // A step that neither stops nor repeats fires once and is gone before
       // the reader can act on it — almost always a typo for `stop: no`.
       expect(step.stop || step.repeat || step.when !== null).toBe(true)

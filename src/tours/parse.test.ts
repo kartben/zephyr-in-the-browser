@@ -526,16 +526,9 @@ describe('directive keys', () => {
   })
 
   it('accepts the reserved keys without a word', () => {
-    // Tours written against directives still in review must parse today.
-    const doc = step(
-      [
-        'check: used == 8',
-        'pass: Full.',
-        'fail: Not yet.',
-        'retry: yes',
-      ].join('\n'),
-    )
-    expect(doc.problems).toEqual([])
+    // Tours written against directives still in review must parse today. None
+    // is in review right now; this holds the line for the next one.
+    for (const key of RESERVED_KEYS) expect(step(`${key}: anything`).problems).toEqual([])
   })
 
   it('lists each key once, in one tier only', () => {
@@ -590,6 +583,85 @@ describe('objects view', () => {
     const typo = step(`${queue}\n  view: rings`)
     expect(typo.steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: 'my_msgq' })
     expect(typo.problems[0]).toContain('`objects: view: rings` is not a view')
+  })
+})
+
+describe('check, pass, fail and retry', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('takes one comparison or a list, with what to say and whether to retry', () => {
+    expect(step('check: alarms_lost as u32 == 1').steps[0]!.check.map((c) => c.text)).toEqual([
+      'alarms_lost as u32 == 1',
+    ])
+    const doc = step(
+      [
+        'check:',
+        '  - alarms_lost as u32 == 1',
+        '  - $arg0 == readings',
+        'pass: The alarm got through.',
+        'fail: Another alarm was lost. Try a different policy.',
+        'retry: yes',
+      ].join('\n'),
+    )
+    expect(doc.problems).toEqual([])
+    const [only] = doc.steps
+    expect(only!.check.map((c) => [c.lhs.expr, c.op, c.rhs.expr])).toEqual([
+      ['alarms_lost', '==', '1'],
+      ['$arg0', '==', 'readings'],
+    ])
+    expect(only!.pass).toBe('The alarm got through.')
+    expect(only!.fail).toBe('Another alarm was lost. Try a different policy.')
+    expect(only!.retry).toBe(true)
+  })
+
+  it('checks nothing and moves on by default', () => {
+    const [only] = step('panel: gpio').steps
+    expect(only!.check).toEqual([])
+    expect(only!.pass).toBeNull()
+    expect(only!.fail).toBeNull()
+    expect(only!.retry).toBe(false)
+  })
+
+  it('reports a row that does not parse, and keeps the rows that do', () => {
+    const doc = step('check:\n  - alarms_lost as u32 = 1\n  - alarm_in_isr as u32 == 1')
+    expect(doc.steps[0]!.check.map((c) => c.text)).toEqual(['alarm_in_isr as u32 == 1'])
+    expect(doc.problems).toEqual([
+      'step 1 (“Step”): `check: alarms_lost as u32 = 1` compares with `=`; use `==`',
+    ])
+  })
+
+  it('reads a scalar as one row, so a comma is a mistake rather than two rows', () => {
+    const doc = step('check: a as u8 == 1, b as u8 == 2')
+    expect(doc.steps[0]!.check).toEqual([])
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('write one per row')
+  })
+
+  it('reports an expression or format the guest could never answer', () => {
+    expect(step('check: led + == 1').problems[0]).toContain('expression ends early')
+    expect(step('check: name as string == 0').problems[0]).toContain('not a number')
+    expect(step('check: n as u37 == 0').problems[0]).toContain('`as u37` is not a format')
+  })
+
+  it('refuses a block', () => {
+    const doc = step('check:\n  used: 8')
+    expect(doc.steps[0]!.check).toEqual([])
+    expect(doc.problems[0]).toContain('not a block')
+  })
+
+  it('reports pass, fail and retry on a step with nothing to check', () => {
+    const doc = step('pass: Yes.\nfail: No.\nretry: yes')
+    expect(doc.problems).toEqual([
+      'step 1 (“Step”): `pass:` needs a `check:` to act on',
+      'step 1 (“Step”): `fail:` needs a `check:` to act on',
+      'step 1 (“Step”): `retry:` needs a `check:` to act on',
+    ])
+  })
+
+  it('does not report them again when the check itself is the mistake', () => {
+    const doc = step('check: x as u8 = 1\npass: Yes.')
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('use `==`')
   })
 })
 

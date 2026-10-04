@@ -19,6 +19,8 @@ let stopFilter: ((pc: string) => boolean) | null = null
 const swallowed: string[] = []
 /** The image, for the tests that need a line table; see `msgqLines`. */
 let kernelElf: Uint8Array | null = null
+/** Guest bytes a test has set; anything else reads as its address's low byte. */
+const memory = new Map<number, number>()
 
 const gdbSnapshot = () => ({
   attached: true,
@@ -50,6 +52,7 @@ vi.mock('@/hostGdb', () => ({
     objects: new Map([
       ['led', { name: 'led', addr: 0x2000, size: 8 }],
       ['z_interrupt_stacks', { name: 'z_interrupt_stacks', addr: 0x2000_0000, size: 0x2000 }],
+      ['alarms_lost', { name: 'alarms_lost', addr: 0x3000, size: 4 }],
     ]),
   }),
   setAttachHook: () => {},
@@ -72,7 +75,7 @@ vi.mock('@/debug/control', () => ({
   },
   readMemory: async () => null,
   readMemoryRaw: async (addr: number, length: number) =>
-    new Uint8Array(length).fill(addr & 0xff),
+    Uint8Array.from({ length }, (_, i) => memory.get(addr + i) ?? addr & 0xff),
   resume: () => {
     resumed.push(Date.now())
     paused = false
@@ -196,6 +199,7 @@ beforeEach(async () => {
   resumed.length = 0
   revealed.length = 0
   swallowed.length = 0
+  memory.clear()
   stopFilter = null
   tourText.body = TOUR
   // A fresh id each time: the tour cache is keyed by it, deliberately.
@@ -573,6 +577,203 @@ describe('ending', () => {
   })
 })
 
+/**
+ * The lost-alarm finale in miniature: a step that checks a counter and an
+ * argument, retries until the counter is right, then one more step and an
+ * outro.
+ */
+const CHECKED = `---
+tour: Checks
+sample: samples/kernel/msg_queue
+---
+
+## The alarm goes in
+
+\`\`\`tour
+at: 0x8000
+await: Pick a policy, then press **SW0** again.
+check:
+  - alarms_lost as u32 == 0
+  - $arg0 == led
+pass: The alarm got through.
+fail: Another alarm was lost.
+retry: yes
+\`\`\`
+
+Prose.
+
+## Afterwards
+
+\`\`\`tour
+at: 0x9000
+\`\`\`
+
+Prose.
+
+## What you saw
+
+Prose.
+`
+
+describe('checks', () => {
+  /** `alarms_lost`, as the guest has it at the next stop. */
+  function lost(count: number) {
+    ;[count, 0, 0, 0].forEach((byte, i) => memory.set(0x3000 + i, byte))
+  }
+
+  /**
+   * Load a tour and let it arm once, the way attaching the stub does. (The
+   * other suites arm twice, which plants a second step ahead of the first.)
+   */
+  async function loadChecked(body = CHECKED) {
+    reset()
+    tourText.body = body
+    await loadFor(`tour-${url++}`) // the session is up, so this arms
+    await settle()
+  }
+
+  beforeEach(() => loadChecked())
+
+  it('puts the verdict on the card, with what the guest had for each side read', async () => {
+    lost(2)
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.check).toEqual({
+      rows: [
+        {
+          text: 'alarms_lost as u32 == 0',
+          pass: false,
+          values: [{ expr: 'alarms_lost', text: '2', ok: true }],
+        },
+        {
+          text: '$arg0 == led',
+          pass: true,
+          values: [
+            { expr: '$arg0', text: '8192 · 0x2000', ok: true },
+            { expr: 'led', text: '8192 · 0x2000', ok: true },
+          ],
+        },
+      ],
+      outcome: 'failed',
+      retrying: true,
+    })
+  })
+
+  it('keeps a failing retry step armed, holds the tour on it, and fires it again', async () => {
+    lost(1)
+    await stopAt(0x8000)
+    next()
+    await settle()
+    // The reader is trying again: the guest runs, the same step waits for the
+    // next hit, and the step after it is not planted to jump in first.
+    expect(paused).toBe(false)
+    expect([...breakpoints]).toEqual([0x8000])
+    expect(getSnapshot()).toMatchObject({ finished: false, completed: false, armed: true })
+    expect(getSnapshot().waiting?.text).toBe('Pick a policy, then press **SW0** again.')
+
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.step.title).toBe('The alarm goes in')
+    expect(getSnapshot().current?.check?.outcome).toBe('failed')
+  })
+
+  it('lifts the breakpoint and moves on once the checks pass', async () => {
+    lost(1)
+    await stopAt(0x8000)
+    next()
+    await settle()
+    lost(0)
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.check).toMatchObject({ outcome: 'passed', retrying: false })
+    expect(breakpoints.has(0x8000)).toBe(false)
+    next()
+    await settle()
+    expect([...breakpoints]).toEqual([0x9000])
+    expect(getSnapshot().waiting).toBeNull()
+  })
+
+  it('counts each try from its first hit, so `when: first` means the next one', async () => {
+    await loadChecked(CHECKED.replace('at: 0x8000\n', 'at: 0x8000\nwhen: first\n'))
+    lost(1)
+    await stopAt(0x8000)
+    expect(getSteps()[0]!.hits).toBe(0)
+    next()
+    await settle()
+    await stopAt(0x8000)
+    expect(swallowed).toEqual([])
+    expect(getSnapshot().current?.hits).toBe(1)
+  })
+
+  it('cannot complete the tour while a retry step is failing', async () => {
+    await loadChecked(CHECKED.replace(/## Afterwards[\s\S]*?Prose\.\n\n/, ''))
+    lost(3)
+    await stopAt(0x8000)
+    next()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ finished: false, completed: false })
+    lost(0)
+    await stopAt(0x8000)
+    next()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: true })
+    expect(breakpoints.size).toBe(0)
+  })
+
+  it('shows a failure and moves on when the step does not retry', async () => {
+    await loadChecked(CHECKED.replace('retry: yes\n', ''))
+    lost(1)
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.check).toMatchObject({ outcome: 'failed', retrying: false })
+    next()
+    await settle()
+    expect([...breakpoints]).toEqual([0x9000])
+    await stopAt(0x9000)
+    next()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: true })
+  })
+
+  it('does not pass a check it could not read', async () => {
+    await loadChecked(CHECKED.replace('alarms_lost as u32 == 0', 'nope as u32 == 0'))
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.check?.rows[0]).toEqual({
+      text: 'nope as u32 == 0',
+      pass: null,
+      values: [{ expr: 'nope', text: 'no symbol `nope`', ok: false }],
+    })
+    expect(getSnapshot().current?.check).toMatchObject({ outcome: 'unknown', retrying: true })
+    next()
+    await settle()
+    expect([...breakpoints]).toEqual([0x8000])
+  })
+
+  it('holds a later step planted ahead of time until the retry passes', async () => {
+    // Arming twice plants step 2 alongside step 1, as a `stop: no` step before
+    // a retry can. Its hits during the retry are not its turn.
+    await loadLifecycle(CHECKED)
+    expect(breakpoints.has(0x9000)).toBe(true)
+    lost(1)
+    await stopAt(0x8000)
+    next()
+    await settle()
+    await stopAt(0x9000)
+    expect(swallowed).toEqual(['00009000'])
+    expect(getSnapshot().current).toBeNull()
+    expect(getSteps()[1]!.hits).toBe(0)
+    lost(0)
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.check?.outcome).toBe('passed')
+    next()
+    await settle()
+    await stopAt(0x9000)
+    expect(getSnapshot().current?.step.title).toBe('Afterwards')
+  })
+
+  it('leaves a step with no checks without a verdict', async () => {
+    await loadChecked(LIFECYCLE)
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.check).toBeNull()
+  })
+})
+
 describe('the mock replay', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -617,6 +818,28 @@ describe('the mock replay', () => {
       'complete',
       'complete',
     ])
+    ac.abort()
+  })
+
+  it('shows a check as not checked, and moves on', async () => {
+    const ac = await replay(CHECKED)
+    expect(await beats(4)).toEqual([
+      'your turn: 1',
+      'The alarm goes in',
+      'Afterwards',
+      'complete',
+    ])
+    const check = getSteps()[0]!.card?.check
+    // Nothing was read, so the card claims neither verdict, and a replay on a
+    // timer cannot wait for a pass that will never come.
+    expect(check).toEqual({
+      rows: [
+        { text: 'alarms_lost as u32 == 0', pass: null, values: [] },
+        { text: '$arg0 == led', pass: null, values: [] },
+      ],
+      outcome: 'unknown',
+      retrying: false,
+    })
     ac.abort()
   })
 

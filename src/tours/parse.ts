@@ -45,6 +45,7 @@ import type { DebugSection } from '@/lib/debugUi'
 import { TRACE_TABS, traceTabFromTourName, traceTabTourName, type TraceTab } from '@/lib/traceTabs'
 import { FORMATS, isKnownFormat } from '@/tours/expr'
 import { isRunnableShell, parseMarkdown } from '@/tours/markdown'
+import { parsePredicate, type PredicateSpec } from '@/tours/predicate'
 import { isCommandLine, parsePlaceholders } from '@/tours/snippets'
 import { isShippableSource } from '@/tours/sources'
 
@@ -193,6 +194,20 @@ export interface TourStep {
   do: string[]
   /** What the headless playthrough does to reach this step; never acted on by the page. */
   ci: CiAction[]
+  /**
+   * What must hold in the guest when the step fires (`check:`), every row of
+   * it. The card says whether it did, with the values the guest had when not.
+   */
+  check: PredicateSpec[]
+  /** One line of Markdown for when every check holds. */
+  pass: string | null
+  /** One line of Markdown for when one does not: what to try next. */
+  fail: string | null
+  /**
+   * Keep the breakpoint until the checks pass. A failed step fires again on
+   * the next hit, and the tour cannot finish until it has passed.
+   */
+  retry: boolean
 }
 
 /** How a tour ends: a last `##` section with no ```tour block under it. */
@@ -405,14 +420,18 @@ export const IMPLEMENTED_KEYS = [
   'await',
   'do',
   'ci',
+  'check',
+  'pass',
+  'fail',
+  'retry',
 ] as const
 
 /**
  * Keys a planned directive will use. They are accepted and ignored until it
  * lands, so a tour written against it already parses; the change that
- * implements one moves it to IMPLEMENTED_KEYS.
+ * implements one moves it to IMPLEMENTED_KEYS. Empty while nothing is planned.
  */
-export const RESERVED_KEYS = ['check', 'pass', 'fail', 'retry'] as const
+export const RESERVED_KEYS: readonly string[] = []
 
 const KNOWN_KEYS: ReadonlySet<string> = new Set([...IMPLEMENTED_KEYS, ...RESERVED_KEYS])
 
@@ -728,6 +747,38 @@ function parseHighlightList(
   return out
 }
 
+/**
+ * Parse `check:`, one comparison or a list of them.
+ *
+ *     check: alarms_lost as u32 == 1
+ *     check:
+ *       - alarms_lost as u32 == 1
+ *       - alarm_in_isr as u32 == 1
+ *
+ * A scalar is one row, not a comma-separated list as elsewhere: no comparison
+ * has a comma in it, so a comma is a slip to report rather than split on. A row
+ * that does not parse is reported and dropped, like a bad `watch:` row.
+ */
+function parseChecks(
+  value: Directive | undefined,
+  where: string,
+  problems: string[],
+): PredicateSpec[] {
+  if (value === undefined) return []
+  if (typeof value !== 'string' && !Array.isArray(value)) {
+    problems.push(`${where}: \`check:\` takes a comparison or a list of them, not a block`)
+    return []
+  }
+  const rows = typeof value === 'string' ? [value] : value
+  const checks: PredicateSpec[] = []
+  for (const row of rows.filter((r) => r !== '')) {
+    const parsed = parsePredicate(row)
+    if (parsed.ok) checks.push(parsed.predicate)
+    else problems.push(`${where}: \`check: ${row}\` ${parsed.error}`)
+  }
+  return checks
+}
+
 function parseList(value: Directive | undefined): string[] {
   if (value === undefined) return []
   if (Array.isArray(value)) return value.filter((v) => v !== '')
@@ -876,6 +927,15 @@ function buildStep(
   const highlight = parseHighlightList(parsed.values.get('highlight'), where, 'highlight', problems)
   const dts = parseHighlightList(parsed.values.get('dts'), where, 'dts', problems)
 
+  const check = parseChecks(parsed.values.get('check'), where, problems)
+  // These say what to do with a check's verdict, and without one there is none.
+  if (!parsed.values.has('check')) {
+    for (const key of ['pass', 'fail', 'retry']) {
+      if (!parsed.values.has(key)) continue
+      problems.push(`${where}: \`${key}:\` needs a \`check:\` to act on`)
+    }
+  }
+
   const stop = asBool(parsed.values.get('stop'), true)
   const threads = asBool(parsed.values.get('threads'), false)
   /*
@@ -922,6 +982,10 @@ function buildStep(
     await: awaitText,
     do: doLines,
     ci,
+    check,
+    pass: asScalar(parsed.values.get('pass')),
+    fail: asScalar(parsed.values.get('fail')),
+    retry: asBool(parsed.values.get('retry'), false),
   }
 }
 

@@ -16,6 +16,7 @@ import { Bug, GraduationCap, Pause, Redo2, X } from 'lucide-react'
 import { InlineMarkdown, Markdown } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
+import { CheckResults } from '@/components/tour/CheckResults'
 import { CompletionCard, useTourTitle } from '@/components/tour/CompletionCard'
 import { TourHexdump } from '@/components/tour/TourHexdump'
 import { TourObjects } from '@/components/tour/TourObjects'
@@ -103,7 +104,18 @@ export function TourCard({ board, sampleId }: Props) {
     return null
   }
 
-  const { step, anchor, paused, values, memory, objects, registers, threads, provenance } = card
+  const {
+    step,
+    anchor,
+    paused,
+    values,
+    check,
+    memory,
+    objects,
+    registers,
+    threads,
+    provenance,
+  } = card
   const showSource = state.doc?.showSource !== false
   const total = state.doc?.steps.length ?? 0
   const src =
@@ -191,6 +203,10 @@ export function TourCard({ board, sampleId }: Props) {
 
           {values.length > 0 && <Values values={values} live={state.live} />}
 
+          {check && (
+            <CheckResults check={check} pass={step.pass} fail={step.fail} live={state.live} />
+          )}
+
           {objects && <TourObjects spec={objects} snap={snap} live={state.live} />}
 
           {memory && <TourHexdump memory={memory} />}
@@ -244,7 +260,7 @@ export function TourCard({ board, sampleId }: Props) {
 
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           <Button size="sm" onClick={next} className="h-7 px-3 text-xs">
-            {paused ? 'Continue' : 'Got it'}
+            {check?.retrying ? 'Try again' : paused ? 'Continue' : 'Got it'}
           </Button>
           {paused && state.live && (
             <Button

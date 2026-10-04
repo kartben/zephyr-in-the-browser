@@ -53,6 +53,7 @@ function card(index: number): TourCardState {
     paused: step.stop,
     hits: 1,
     values: [],
+    check: null,
     memory: null,
     objects: null,
     registers: [],
