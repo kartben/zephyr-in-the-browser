@@ -38,6 +38,20 @@ describe('parseDirectives', () => {
     expect(values.get('note')).toBe('a # sign')
   })
 
+  it('keeps a ` #` inside a /pattern/ and still drops the comment after it', () => {
+    // A format string is a fair thing to anchor on, and reading its `#` as the
+    // start of a comment cut the pattern in half: the step silently vanished.
+    const { values } = parseDirectives(
+      [
+        'at: main.c:/"tick #%u/ | main.c:57 # the producer',
+        'highlight:',
+        '  - /x # y/ + 1 # two lines',
+      ].join('\n'),
+    )
+    expect(values.get('at')).toBe('main.c:/"tick #%u/ | main.c:57')
+    expect(values.get('highlight')).toEqual(['/x # y/ + 1'])
+  })
+
   it('reports a line that is not a directive rather than guessing', () => {
     const { problems } = parseDirectives('this is prose\n  stray')
     expect(problems).toHaveLength(2)
@@ -511,6 +525,28 @@ describe('highlight', () => {
     const doc = parseTour('## Step\n\n```tour\nat: main\nhighlight: the top bit\n```\n\nProse.\n')
     expect(doc.steps[0]!.highlight).toEqual([])
     expect(doc.problems[0]).toContain('highlight')
+  })
+
+  it('splits a one-line list between entries, never inside a /pattern/', () => {
+    // A call with several arguments is the usual thing to point at, and its
+    // commas used to split one pattern into two broken entries.
+    const one = parseTour(
+      '## Step\n\n```tour\nat: main\nhighlight: /K_MSGQ_DEFINE\\(readings, sizeof/ + 1\n```\n\nProse.\n',
+    )
+    expect(one.problems).toEqual([])
+    expect(one.steps[0]!.highlight).toEqual([
+      { kind: 'pattern', pattern: 'K_MSGQ_DEFINE\\(readings, sizeof', extra: 1 },
+    ])
+
+    const several = parseTour(
+      '## Step\n\n```tour\nat: main\nhighlight: /put\\(q, a/, 21-22, /get\\(q, b/ + 2\n```\n\nProse.\n',
+    )
+    expect(several.problems).toEqual([])
+    expect(several.steps[0]!.highlight).toEqual([
+      { kind: 'pattern', pattern: 'put\\(q, a', extra: 0 },
+      { kind: 'lines', start: 21, end: 22 },
+      { kind: 'pattern', pattern: 'get\\(q, b', extra: 2 },
+    ])
   })
 })
 

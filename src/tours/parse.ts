@@ -30,7 +30,9 @@
  * The directive block is a strict subset of YAML — plain `key: value` scalars,
  * `- item` lists and one level of nested mapping. Anything this parser accepts,
  * a real YAML parser accepts and reads the same way, which is why the block is
- * worth fencing as its own language rather than inventing punctuation.
+ * worth fencing as its own language rather than inventing punctuation. The one
+ * exception is a ` #` inside a `/pattern/`, which stays in the pattern where
+ * YAML would start a comment (see `maskPatterns`).
  *
  * Authoring mistakes are collected rather than thrown: a tour with one bad
  * anchor should still run its other nine steps, and the ones it dropped are
@@ -271,14 +273,63 @@ export function parseDirectives(text: string): {
 /**
  * Drop a trailing `# comment`.
  *
- * Only outside quotes, and only when the `#` is preceded by whitespace, so
- * `mark: 0..4 # the port pointer` loses its note and `at: main.c:12#2` does not.
+ * Only outside quotes, only when the `#` is preceded by whitespace, and never
+ * inside a `/pattern/`, so `mark: 0..4 # the port pointer` loses its note while
+ * `at: main.c:12#2` and `at: main.c:/"tick #%u/` keep every character.
  */
 function stripComment(value: string): string {
   const quoted = /^(["']).*\1$/.test(value)
   if (quoted) return value.slice(1, -1)
-  const cut = value.search(/\s#/)
+  const cut = maskPatterns(value).search(/\s#/)
   return (cut >= 0 ? value.slice(0, cut) : value).trim()
+}
+
+/**
+ * The value with the inside of every `/pattern/` blanked out, at the same length.
+ *
+ * `#` and `,` mean something to the directive syntax (a comment, the next list
+ * entry) and something else inside a regular expression, where both turn up in
+ * exactly the lines worth pointing at: a `printk("tick #%u")`, a call with two
+ * arguments. Searching the masked copy and slicing the original by the same
+ * index is how the syntax gets to look past them.
+ *
+ * A pattern opens with a `/` at the start of the value or after a space, `:`,
+ * `,` or `|`, which covers every place the vocabulary puts one (`main.c:/x/`,
+ * `highlight: /x/`, `21, /x/`). A `/` that never closes is only a slash, so
+ * `sample: samples/basic/blinky` and the prose in a `note:` read as before.
+ */
+function maskPatterns(value: string): string {
+  let out = ''
+  for (let i = 0; i < value.length; i++) {
+    const opens = value[i] === '/' && (i === 0 || /[\s:,|]/.test(value[i - 1]!))
+    const end = opens ? patternEnd(value, i) : -1
+    if (end < 0) {
+      out += value[i]
+      continue
+    }
+    out += `/${'_'.repeat(end - i - 1)}/`
+    i = end
+  }
+  return out
+}
+
+/**
+ * Where the `/pattern/` opened at `open` closes, or -1 when it does not.
+ *
+ * A pattern may hold a `/` of its own, escaped or not (`/a \/ b/`, `/a / b/`),
+ * so the closer is the first unescaped `/` that ends the value or is followed
+ * by what can follow a pattern: `|` (the next `at:` alternative), `,` (the next
+ * list entry), `+` (a highlight's extra lines) or ` #` (a comment).
+ */
+function patternEnd(value: string, open: number): number {
+  for (let i = open + 1; i < value.length; i++) {
+    if (value[i] === '\\') {
+      i++
+      continue
+    }
+    if (value[i] === '/' && /^(?:\s*(?:[|,+]|$)|\s+#)/.test(value.slice(i + 1))) return i
+  }
+  return -1
 }
 
 function asScalar(value: Directive | undefined): string | null {
@@ -612,9 +663,16 @@ function parseList(value: Directive | undefined): string[] {
   if (value === undefined) return []
   if (Array.isArray(value)) return value.filter((v) => v !== '')
   if (typeof value === 'string') {
-    return value
+    // Split on the commas between entries, not the ones inside a `/pattern/`:
+    // the masked copy has the same length, so its pieces map straight back.
+    let at = 0
+    return maskPatterns(value)
       .split(',')
-      .map((v) => v.trim())
+      .map((masked) => {
+        const entry = value.slice(at, at + masked.length)
+        at += masked.length + 1
+        return entry.trim()
+      })
       .filter((v) => v !== '')
   }
   return []
