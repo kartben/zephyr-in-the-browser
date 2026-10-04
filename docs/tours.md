@@ -782,9 +782,10 @@ this one.
 input subsystem's message queue on the same stock firmware as the button tour.
 A **tour id** is the file name without `.tour.md`, so `basic_button` or
 `basic_button.msgq`. The app is in the name, which keeps finding a sample's
-tours down to listing files. The tests fail when a name is not of that shape,
-names an app no board offers, or is an extra tour with no default tour beside
-it (the image build ships a toured sample's sources off that file).
+tours down to listing files. Each tour lists its own `sources:`, and the image
+build ships them all beside the sample's. The tests fail when a name is not of
+that shape, names an app no board offers, or is an extra tour with no default
+tour beside it: the build ships a sample's sources only when it has one.
 
 The gallery's guided section lists each sample's tours by title under its row,
 and the badge counts them when there is more than one. Picking the row runs the

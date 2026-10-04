@@ -164,11 +164,11 @@ fi
 
 # Ship a toured sample's sources beside its image:
 #
-#   ship_tour_sources <tour.md> <sample> <dir>
+#   ship_tour_sources <sample> <dir> <tour.md>...
 #
 #   <dir>/main.c                  the sample's own src/*.c and src/*.h
-#   <dir>/zephyr/kernel/msg_q.c   each Zephyr tree path the tour's front matter
-#                                 lists under `sources:`
+#   <dir>/zephyr/kernel/msg_q.c   each Zephyr tree path a tour's front matter
+#                                 lists under `sources:`, for every tour given
 #   <dir>/index.json              {"files": [...]}, naming every file above
 #
 # None of it is in the ELF and none of it changes it: the page resolves each
@@ -179,7 +179,8 @@ fi
 # line numbers the page resolves out of `.debug_line` are in *those*
 # coordinates. See src/tours/sources.ts for how the page reads it.
 ship_tour_sources() {
-  local tour="$1" sample="$2" out="$3"
+  local sample="$1" out="$2"
+  shift 2
   rm -rf "$out"
   mkdir -p "$out"
 
@@ -196,20 +197,22 @@ ship_tour_sources() {
 
   # `sources:` read the way src/tours/parse.ts reads it: a `- path` list under
   # the key, or one comma-separated line. A path that is absolute or climbs out
-  # of the tree is refused, as the page refuses it.
-  local path from
-  while IFS= read -r path; do
-    case "$path" in
-      zephyr-module/*) from="$ROOT/$path" ;;
-      *) from="$ZEPHYR_WS/zephyr/$path"; path="zephyr/$path" ;;
-    esac
-    if [ -f "$from" ]; then
-      mkdir -p "$(dirname "$out/$path")"
-      cp "$from" "$out/$path"
-    else
-      echo "    WARNING: $(basename "$tour") lists $from, which is not a file." >&2
-    fi
-  done < <(python3 -c 'import re, sys
+  # of the tree is refused, as the page refuses it. Each of the sample's tours
+  # lists its own, and they all read from the same shipped tree.
+  local tour path from
+  for tour in "$@"; do
+    while IFS= read -r path; do
+      case "$path" in
+        zephyr-module/*) from="$ROOT/$path" ;;
+        *) from="$ZEPHYR_WS/zephyr/$path"; path="zephyr/$path" ;;
+      esac
+      if [ -f "$from" ]; then
+        mkdir -p "$(dirname "$out/$path")"
+        cp "$from" "$out/$path"
+      else
+        echo "    WARNING: $(basename "$tour") lists $from, which is not a file." >&2
+      fi
+    done < <(python3 -c 'import re, sys
 lines = open(sys.argv[1], encoding="utf-8").read().replace("\r\n", "\n").split("\n")
 end = 1
 while end < len(lines) and lines[end].strip() != "---":
@@ -242,6 +245,7 @@ for path in filter(None, found):
               file=sys.stderr)
     else:
         print(path)' "$tour")
+  done
 
   python3 -c 'import json, os, sys
 root = sys.argv[1]
@@ -374,7 +378,13 @@ Path(sys.argv[2]).write_bytes(img)' \
   local tour="$ROOT/tours/$base_id.tour.md"
   if [ "$id" = "$base_id" ] && [ -f "$tour" ]; then
     rm -f "$dest/$base_id.tour.md"
-    ship_tour_sources "$tour" "$sample" "$dest/src/$base_id"
+    # The sample's other tours, tours/<id>.<slug>.tour.md, ship their sources too.
+    local -a tours=("$tour")
+    local extra
+    for extra in "$ROOT/tours/$base_id".*.tour.md; do
+      if [ -f "$extra" ]; then tours+=("$extra"); fi
+    done
+    ship_tour_sources "$sample" "$dest/src/$base_id" "${tours[@]}"
   fi
 
   # The picker in the UI only shows ids it knows about. Traced twins are

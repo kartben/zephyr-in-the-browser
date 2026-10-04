@@ -236,12 +236,15 @@ function tours(): Plugin {
     const files = readdirSync(own).filter(
       (f) => /\.[ch]$/.test(f) && statSync(path.join(own, f)).isFile(),
     )
-    const tour = path.join(root, 'tours', `${app}.tour.md`)
-    if (existsSync(tour)) {
-      for (const source of frontMatterSources(readFileSync(tour, 'utf8'))) {
+    // Every tour of the app lists its own: `<app>.tour.md` and `<app>.<slug>.tour.md`.
+    const tours = readdirSync(path.join(root, 'tours')).filter(
+      (f) => f.startsWith(`${app}.`) && f.endsWith('.tour.md'),
+    )
+    for (const tour of tours) {
+      for (const source of frontMatterSources(readFileSync(path.join(root, 'tours', tour), 'utf8'))) {
         const rel = shippedPath(source)
         const file = locate(app, rel)
-        if (file && existsSync(file)) files.push(rel)
+        if (file && existsSync(file) && !files.includes(rel)) files.push(rel)
       }
     }
     return files.sort()
