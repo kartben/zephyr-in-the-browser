@@ -13,6 +13,7 @@ import {
   type ElfTypedSymbol,
 } from '@/debug/elfSymbols'
 import { elfPointerBytes } from '@/debug/elfSections'
+import { isRing, type MsgqRing, type MsgqRingSnapshot } from '@/debug/kernel/msgqRing'
 import type { MemReader } from '@/debug/kernel/threads'
 
 export interface ObjectCoreField {
@@ -483,6 +484,91 @@ function objectCapacity(
     }
   }
   return value != null && Number.isFinite(value) && value > 0 ? value : null
+}
+
+/** The `k_msgq` members that make up its ring, and how wide each one is. */
+const MSGQ_RING_MEMBERS = [
+  ['msg_size', 'size'],
+  ['max_msgs', 'u32'],
+  ['buffer_start', 'ptr'],
+  ['buffer_end', 'ptr'],
+  ['read_ptr', 'ptr'],
+  ['write_ptr', 'ptr'],
+  ['used_msgs', 'u32'],
+] as const
+
+/** Most of a queue's buffer a card copies out. Plenty for any queue a lesson draws. */
+const MAX_RING_READ = 1024
+
+/**
+ * How many bytes from the start of a `k_msgq` cover its ring members, or null
+ * when DWARF does not name them all.
+ */
+function msgqRingSpan(layout: Record<string, number>, ptrBytes: 4 | 8): number | null {
+  let end = 0
+  for (const [member, kind] of MSGQ_RING_MEMBERS) {
+    const at = layout[member]
+    if (at === undefined) return null
+    end = Math.max(end, at + (kind === 'u32' ? 4 : ptrBytes))
+  }
+  return end
+}
+
+/**
+ * A `k_msgq`'s ring, decoded from the struct's bytes: its geometry, both
+ * pointers and the kernel's count. Null when DWARF does not name every member
+ * or the bytes stop short of them, which is what lets a card fall back to the
+ * plain row.
+ */
+export function decodeMsgqRing(
+  bytes: Uint8Array,
+  meta: Pick<ObjectCoreMeta, 'ptrBytes' | 'layouts'>,
+): MsgqRing | null {
+  const p = meta.ptrBytes
+  const layout = meta.layouts.k_msgq ?? {}
+  const span = msgqRingSpan(layout, p)
+  if (span === null || bytes.length < span) return null
+  return {
+    msgSize: sizeT(bytes, layout.msg_size, p),
+    maxMsgs: u32(bytes, layout.max_msgs),
+    used: u32(bytes, layout.used_msgs),
+    bufferStart: ptr(bytes, layout.buffer_start, p),
+    bufferEnd: ptr(bytes, layout.buffer_end, p),
+    readPtr: ptr(bytes, layout.read_ptr, p),
+    writePtr: ptr(bytes, layout.write_ptr, p),
+  }
+}
+
+/**
+ * Read the message queue at `addr` as a ring: the struct's pointers and the
+ * buffer behind them, one straight after the other, so both come from the same
+ * stop. The buffer read is capped; a slot past the cap just has no bytes.
+ *
+ * Null when DWARF lacks the members, the struct will not read, or what it holds
+ * is not a ring (an uninitialized queue, or an address that is not a queue).
+ */
+export async function readMsgqRing(
+  meta: Pick<ObjectCoreMeta, 'ptrBytes' | 'layouts'>,
+  addr: number,
+  read: (addr: number, length: number) => Promise<Uint8Array | null>,
+): Promise<MsgqRingSnapshot | null> {
+  const span = msgqRingSpan(meta.layouts.k_msgq ?? {}, meta.ptrBytes)
+  if (span === null) return null
+  let struct: Uint8Array | null
+  try {
+    struct = await read(addr, span)
+  } catch {
+    return null
+  }
+  const ring = struct ? decodeMsgqRing(struct, meta) : null
+  if (!ring || !isRing(ring)) return null
+  let bytes: Uint8Array | null
+  try {
+    bytes = await read(ring.bufferStart, Math.min(ring.bufferEnd - ring.bufferStart, MAX_RING_READ))
+  } catch {
+    bytes = null
+  }
+  return { ...ring, bytes }
 }
 
 function bytesHex(bytes: Uint8Array, limit = 32): string {

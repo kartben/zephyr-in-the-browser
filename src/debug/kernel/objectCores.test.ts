@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  decodeMsgqRing,
+  readMsgqRing,
   readObjectCores,
   type ObjectCoreMeta,
 } from '@/debug/kernel/objectCores'
@@ -224,5 +226,122 @@ describe('object core walk', () => {
         { label: 'Collection', value: 'enabled' },
       ],
     })
+  })
+})
+
+describe('message queue ring', () => {
+  /*
+   * k_msgq as DWARF lays it out. The 8-byte one is the released
+   * qemu_cortex_a53 msg_queue image's; the 4-byte one is the same struct on an
+   * ILP32 uniprocessor build, where the spinlock is empty.
+   */
+  const LAYOUTS = {
+    4: { wait_q: 0, lock: 8, msg_size: 8, max_msgs: 12, buffer_start: 16, buffer_end: 20, read_ptr: 24, write_ptr: 28, used_msgs: 32, flags: 36 },
+    8: { wait_q: 0, lock: 16, msg_size: 16, max_msgs: 24, buffer_start: 32, buffer_end: 40, read_ptr: 48, write_ptr: 56, used_msgs: 64, flags: 68 },
+  } as const
+
+  const QUEUE = 0x4000_e160
+  const BUFFER = 0x4006_1670
+
+  function ringMeta(ptrBytes: 4 | 8, layout: Record<string, number> = LAYOUTS[ptrBytes]) {
+    return { ptrBytes, layouts: { k_msgq: layout } }
+  }
+
+  /** A k_msgq struct: `put_front` has just wrapped R to slot 9 of 10. */
+  function queueStruct(ptrBytes: 4 | 8): Uint8Array {
+    const layout = LAYOUTS[ptrBytes]
+    const bytes = new Uint8Array(layout.flags + 4)
+    const view = new DataView(bytes.buffer)
+    const word = (at: number, value: number) =>
+      ptrBytes === 4 ? view.setUint32(at, value, true) : view.setBigUint64(at, BigInt(value), true)
+    word(layout.msg_size, 1)
+    view.setUint32(layout.max_msgs, 10, true)
+    word(layout.buffer_start, BUFFER)
+    word(layout.buffer_end, BUFFER + 10)
+    word(layout.read_ptr, BUFFER + 9)
+    word(layout.write_ptr, BUFFER + 2)
+    view.setUint32(layout.used_msgs, 3, true)
+    return bytes
+  }
+
+  it.each([4, 8] as const)('decodes the ring from a %i-byte-pointer struct', (ptrBytes) => {
+    expect(decodeMsgqRing(queueStruct(ptrBytes), ringMeta(ptrBytes))).toEqual({
+      msgSize: 1,
+      maxMsgs: 10,
+      used: 3,
+      bufferStart: BUFFER,
+      bufferEnd: BUFFER + 10,
+      readPtr: BUFFER + 9,
+      writePtr: BUFFER + 2,
+    })
+  })
+
+  it('reads a 64-bit pointer whole, not its low word', () => {
+    const bytes = queueStruct(8)
+    new DataView(bytes.buffer).setBigUint64(LAYOUTS[8].read_ptr, 0x1_4006_1679n, true)
+    expect(decodeMsgqRing(bytes, ringMeta(8))!.readPtr).toBe(0x1_4006_1679)
+  })
+
+  it.each([4, 8] as const)('reads the struct and then its buffer, %i-byte pointers', async (ptrBytes) => {
+    const mem = new Map<number, Uint8Array>([
+      [QUEUE, queueStruct(ptrBytes)],
+      [BUFFER, new TextEncoder().encode('01\0\0\0\0\0\0\0A')],
+    ])
+    const reads: Array<[number, number]> = []
+    const reader = memoryReader(mem)
+    const snapshot = await readMsgqRing(ringMeta(ptrBytes), QUEUE, (addr, length) => {
+      reads.push([addr, length])
+      return reader(addr, length)
+    })
+    // Just the ring members (through used_msgs), then exactly the buffer.
+    expect(reads).toEqual([
+      [QUEUE, LAYOUTS[ptrBytes].used_msgs + 4],
+      [BUFFER, 10],
+    ])
+    expect(snapshot).toMatchObject({ used: 3, readPtr: BUFFER + 9, writePtr: BUFFER + 2 })
+    expect(new TextDecoder().decode(snapshot!.bytes!)).toBe('01\0\0\0\0\0\0\0A')
+  })
+
+  it('caps the buffer read', async () => {
+    const bytes = queueStruct(4)
+    const view = new DataView(bytes.buffer)
+    view.setUint32(LAYOUTS[4].msg_size, 64, true)
+    view.setUint32(LAYOUTS[4].max_msgs, 32, true)
+    view.setUint32(LAYOUTS[4].buffer_end, BUFFER + 64 * 32, true)
+    view.setUint32(LAYOUTS[4].read_ptr, BUFFER, true)
+    view.setUint32(LAYOUTS[4].write_ptr, BUFFER + 64 * 3, true)
+    const snapshot = await readMsgqRing(ringMeta(4), QUEUE, memoryReader(new Map([[QUEUE, bytes]])))
+    expect(snapshot!.bytes).toHaveLength(1024)
+  })
+
+  it('keeps the ring when only the buffer will not read', async () => {
+    const snapshot = await readMsgqRing(ringMeta(4), QUEUE, async (addr, length) =>
+      addr === QUEUE ? queueStruct(4).subarray(0, length) : null,
+    )
+    expect(snapshot).toMatchObject({ used: 3, bytes: null })
+  })
+
+  it('has no ring when DWARF does not name every member, and reads nothing', async () => {
+    const { read_ptr: _dropped, ...partial } = LAYOUTS[8]
+    const reads: number[] = []
+    const snapshot = await readMsgqRing(ringMeta(8, partial), QUEUE, async (addr) => {
+      reads.push(addr)
+      return null
+    })
+    expect(snapshot).toBeNull()
+    expect(reads).toEqual([])
+    expect(decodeMsgqRing(queueStruct(8), ringMeta(8, partial))).toBeNull()
+  })
+
+  it('has no ring for a struct that is not one, or one that will not read', async () => {
+    // All zeros: a queue k_msgq_init() has not reached, or not a queue at all.
+    const zeros = await readMsgqRing(ringMeta(4), QUEUE, async (_addr, length) => new Uint8Array(length))
+    expect(zeros).toBeNull()
+    const faulted = await readMsgqRing(ringMeta(4), QUEUE, async () => {
+      throw new Error('E14')
+    })
+    expect(faulted).toBeNull()
+    // Too short to hold the members: the decoder will not guess at the rest.
+    expect(decodeMsgqRing(queueStruct(4).subarray(0, 20), ringMeta(4))).toBeNull()
   })
 })
