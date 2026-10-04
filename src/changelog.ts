@@ -69,10 +69,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "CPU power states in Trace Timeline and Power tab."
-      },
-      {
-        "tag": "Added",
         "text": "Help button with keyboard shortcuts and this changelog."
       },
       {

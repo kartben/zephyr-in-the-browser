@@ -17,7 +17,6 @@ via the help dialog (?).
 - **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
 - **Added:** Magic Wand TinyML sample on Cortex-A53, with replayable gestures.
 - **Added:** Simulator and Live board modes, with Debug over the desktop bridge.
-- **Added:** CPU power states in Trace Timeline and Power tab.
 - **Added:** Help button with keyboard shortcuts and this changelog.
 - **Added:** More menu on phones for Parts and Samples.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
