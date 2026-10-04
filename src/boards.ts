@@ -11,32 +11,38 @@
  * `virt` machine (also with virtio-mmio and ramfb).
  */
 
-/** A peripheral bridge with a floating panel in the UI. */
-export type PanelKind =
-  | 'display'
-  | 'gnss'
-  | 'sensor'
-  | 'gpio'
-  | 'keys'
-  | 'buzzer'
-  | 'stepper'
-  | 'audio'
-  | 'perf'
-  | 'net'
-  | 'i2c'
-  | 'spi'
-  | 'oled'
-  | 'auxdisplay'
-  | 'led'
-  | 'pwm'
-  | 'dac'
-  | 'disk'
-  | 'fuel-gauge'
-  | 'can'
-  | 'bluetooth'
-  | 'watchdog'
-  | 'trace'
-  | 'debug'
+/**
+ * A peripheral bridge with a floating panel in the UI. A list as well as a
+ * type, so a tour's `panel:` can be checked against it when the file is parsed.
+ */
+export const PANEL_KINDS = [
+  'display',
+  'gnss',
+  'sensor',
+  'gpio',
+  'keys',
+  'buzzer',
+  'stepper',
+  'audio',
+  'perf',
+  'net',
+  'i2c',
+  'spi',
+  'oled',
+  'auxdisplay',
+  'led',
+  'pwm',
+  'dac',
+  'disk',
+  'fuel-gauge',
+  'can',
+  'bluetooth',
+  'watchdog',
+  'trace',
+  'debug',
+] as const
+
+export type PanelKind = (typeof PANEL_KINDS)[number]
 
 /**
  * Wires QEMU's QMP monitor to a chardev the page can read and write

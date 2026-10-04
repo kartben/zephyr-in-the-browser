@@ -113,6 +113,7 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import { readPowerStates } from '@/dts'
 import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
+import { TRACE_TABS, TRACE_TAB_LABELS, type TraceTab } from '@/lib/traceTabs'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
 import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
@@ -182,8 +183,6 @@ function laneMetricsFor(size: LaneSize): LaneMetrics {
     cpuLaneH: Math.min(24, Math.max(14, laneH)),
   }
 }
-
-type TraceTab = 'schedule' | 'queues' | 'net' | 'power'
 
 type MsgqSwimLane = { id: number; label: string; kind: string; series: QueueSeries }
 
@@ -676,8 +675,6 @@ function resolveMsgqHover(
   if (!msgq) return null
   return { queueId: msgq.queueId, eventIndex: msgq.index, overQueueLane: false }
 }
-
-const TRACE_TABS = ['schedule', 'queues', 'net', 'power'] as const satisfies readonly TraceTab[]
 
 function clampView(tr: Trace, t0: number, t1: number): { t0: number; t1: number } {
   const span = Math.max(MIN_WINDOW_NS, t1 - t0)
@@ -2156,14 +2153,7 @@ function TracePanelBody({
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
       <div className="flex gap-0.5 px-0.5">
-        {(
-          [
-            ['schedule', 'Timeline'],
-            ['queues', 'Queues'],
-            ['net', 'Networking'],
-            ['power', 'Power'],
-          ] as const
-        ).map(([id, label]) => (
+        {TRACE_TABS.map((id) => (
           <button
             key={id}
             type="button"
@@ -2175,7 +2165,7 @@ function TracePanelBody({
             )}
             onClick={() => setTab(id)}
           >
-            {label}
+            {TRACE_TAB_LABELS[id]}
           </button>
         ))}
       </div>
