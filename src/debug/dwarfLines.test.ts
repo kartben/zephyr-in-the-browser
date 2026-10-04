@@ -4,7 +4,11 @@ import {
   bodyStart,
   buildLineIndex,
   locationForAddress,
+  ROW_END_SEQUENCE,
+  ROW_IS_STMT,
   ROW_PROLOGUE_END,
+  statementAddresses,
+  type LineIndex,
 } from '@/debug/dwarfLines'
 
 /* ------------------------------------------------------------------ *
@@ -170,6 +174,25 @@ describe('addressForLine', () => {
     expect(addressForLine(index, 'MAIN.C', 10)?.addr).toBe(0x1000)
     expect(addressForLine(index, 'other.c', 10)).toBeNull()
     expect(addressForLine(index, 'main.c', 99)).toBeNull()
+  })
+})
+
+describe('statementAddresses', () => {
+  it('lists every place a line starts a statement, not only the first', () => {
+    // Line 7 starts statements at 0x10 and 0x18, with a header's line in
+    // between: what a `LOG_*()` expansion or code inlined twice looks like.
+    const index: LineIndex = {
+      addrs: new Float64Array([0x10, 0x14, 0x18, 0x1c, 0x20, 0x30]),
+      lines: new Int32Array([7, 100, 7, 7, 8, 7]),
+      fileIds: new Int32Array([0, 1, 0, 0, 0, 0]),
+      flags: new Uint8Array([ROW_IS_STMT, ROW_IS_STMT, ROW_IS_STMT, 0, ROW_IS_STMT, ROW_END_SEQUENCE]),
+      files: ['/zephyr/samples/app/src/main.c', '/zephyr/include/zephyr/logging/log.h'],
+      baseNames: ['main.c', 'log.h'],
+    }
+    // 0x1c continues a statement and 0x30 ends the sequence; neither is a stop.
+    expect(statementAddresses(index, 'main.c', 7)).toEqual([0x10, 0x18])
+    expect(statementAddresses(index, 'main.c', 8)).toEqual([0x20])
+    expect(statementAddresses(index, 'other.c', 7)).toEqual([])
   })
 })
 
