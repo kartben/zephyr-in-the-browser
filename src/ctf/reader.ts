@@ -174,16 +174,18 @@ export class TraceReader {
    */
   private validateChain(view: DataView, n: number, hsz: number, off: number): SyncVerdict {
     if (off + hsz > n) return 'wait'
-    // Carrying on forward from a timestamp we already trust is self-verifying:
-    // one record settles it, so a stream that loses a few bytes mid-flight is
-    // back to decoding on the very next record. A cold attach has no anchor,
-    // and a step *backwards* might be a counter restart rather than a boundary
-    // — both have to line up several headers instead.
+    // Carrying on forward from a timestamp we already trust adds a check, not a
+    // shortcut: every header still has to line up. One is not enough. Inside a
+    // record the reader cannot size (an event newer than its metadata), a known
+    // id at a later time turns up regularly: seven bytes into a 10 ms
+    // `thread_sleep_ticks_enter`, the next header's timestamp supplies the id
+    // and the sleep argument reads as 167.77 s. Accepted, that record makes the
+    // real ones after it look like a counter restart, and the restart epoch
+    // keeps the bogus time in every later timestamp.
     const anchored = this.prevRaw !== null && Number(view.getBigUint64(off, true)) >= this.prevRaw
-    const need = anchored ? 1 : SYNC_RECORDS
     let prev: number | null = anchored ? this.prevRaw : null
     let cur = off
-    for (let i = 0; i < need; i++) {
+    for (let i = 0; i < SYNC_RECORDS; i++) {
       if (cur + hsz > n) return 'wait'
       const def = this.defs.get(view.getUint16(cur + 8, true))
       if (!def) return 'no'
@@ -192,8 +194,11 @@ export class TraceReader {
       if (prev !== null && (raw < prev || raw - prev > MAX_GAP_NS)) return 'no'
       prev = raw
       // An unprobed net-address event has no settled size yet, so the next
-      // header is not where we could compute it. Stop rather than guess.
-      if (this.netAddressWidth == null && hasNetAddressField(def)) return i >= 1 ? 'yes' : 'wait'
+      // header is not where we could compute it. Stop rather than guess: after
+      // an agreeing header that is a boundary, but as the first header it proves
+      // nothing, and more bytes would not change that, so waiting would stall
+      // the reader at this offset for good.
+      if (this.netAddressWidth == null && hasNetAddressField(def)) return i >= 1 ? 'yes' : 'no'
       cur += hsz + def.size
     }
     return 'yes'
