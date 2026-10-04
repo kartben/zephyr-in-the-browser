@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "tour:check": "vitest run src/tours/images.test.ts",
     "gen:changelog": "node scripts/gen-changelog.mjs",
     "docs:fetch": "node tools/fetch-docs.mjs",
     "vendor:bumble": "tools/vendor-bumble.sh",

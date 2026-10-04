@@ -515,6 +515,27 @@ export function addressForLine(index: LineIndex, file: string, line: number): Li
   return best
 }
 
+/**
+ * Every address where a statement on `file:line` starts, ascending.
+ *
+ * {@link addressForLine} picks the lowest, and one breakpoint is all a tour
+ * plants. When there are several, the line's code lives in more than one place:
+ * it was inlined into more than one caller, or the line holds several
+ * statements (a `for` header, a `LOG_*()` macro expansion), and a pass that
+ * enters through one of the others never reaches the breakpoint.
+ */
+export function statementAddresses(index: LineIndex, file: string, line: number): number[] {
+  const ids = matchingFiles(index, file)
+  const out = new Set<number>()
+  for (let i = 0; i < index.addrs.length; i++) {
+    if (index.flags[i]! & ROW_END_SEQUENCE) continue
+    if (!(index.flags[i]! & ROW_IS_STMT)) continue
+    if (index.lines[i] !== line || !ids.has(index.fileIds[i]!)) continue
+    out.add(index.addrs[i]!)
+  }
+  return [...out].sort((a, b) => a - b)
+}
+
 /** The source location a stop address belongs to. */
 export function locationForAddress(index: LineIndex, addr: number): SourceLocation | null {
   let lo = 0

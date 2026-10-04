@@ -89,7 +89,7 @@ const SYMBOL = /^[A-Za-z_]\w*$/
  * quite different mistakes.
  */
 export function resolveAnchor(at: string, ctx: AnchorContext): AnchorResult {
-  const alternatives = at.split('|').map((part) => part.trim()).filter((part) => part !== '')
+  const alternatives = anchorAlternatives(at)
   if (alternatives.length === 0) return { ok: false, error: '`at:` is empty' }
 
   const errors: string[] = []
@@ -186,14 +186,19 @@ function resolveOne(at: string, ctx: AnchorContext): AnchorResult {
 /** Source location and enclosing function for an address, best effort. */
 function describe(addr: number, ctx: AnchorContext): Pick<ResolvedAnchor, 'file' | 'line' | 'symbol'> {
   const location = ctx.lines ? locationForAddress(ctx.lines, addr) : null
-  const symbol = ctx.symbols?.byAddr.find(
-    (s) => addr >= normalizeAddr(s.addr, ctx.arch) && addr < normalizeAddr(s.addr, ctx.arch) + Math.max(s.size, 1),
-  )
   return {
     file: location?.file ?? null,
     line: location?.line ?? null,
-    symbol: symbol?.name ?? null,
+    symbol: enclosingFunction(addr, ctx),
   }
+}
+
+/** The function an address is inside, when symbols know one. */
+export function enclosingFunction(addr: number, ctx: AnchorContext): string | null {
+  const symbol = ctx.symbols?.byAddr.find(
+    (s) => addr >= normalizeAddr(s.addr, ctx.arch) && addr < normalizeAddr(s.addr, ctx.arch) + Math.max(s.size, 1),
+  )
+  return symbol?.name ?? null
 }
 
 /** The shipped copy of a source file, by basename or path suffix. */
@@ -212,9 +217,30 @@ function findSource(ctx: AnchorContext, file: string): string[] | null {
  * every alternative, since the pattern may not be the first one written.
  */
 export function patternFile(at: string): string | null {
-  for (const alternative of at.split('|')) {
-    const match = FILE_PATTERN.exec(alternative.trim())
+  for (const alternative of anchorAlternatives(at)) {
+    const match = FILE_PATTERN.exec(alternative)
     if (match) return match[1]!.toLowerCase()
   }
+  return null
+}
+
+/** An `at:` split into its `|` alternatives, in the order they are tried. */
+export function anchorAlternatives(at: string): string[] {
+  return at
+    .split('|')
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+}
+
+/**
+ * Whether one alternative names a source file, and how: by pattern or by line
+ * number. Null for a function or an address.
+ */
+export function sourceSpelling(alternative: string): { kind: 'pattern' | 'line'; file: string } | null {
+  const raw = alternative.trim()
+  const pattern = FILE_PATTERN.exec(raw)
+  if (pattern) return { kind: 'pattern', file: pattern[1]!.toLowerCase() }
+  const line = FILE_LINE.exec(raw)
+  if (line) return { kind: 'line', file: line[1]!.toLowerCase() }
   return null
 }

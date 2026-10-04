@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { LineIndex } from '@/debug/dwarfLines'
 import { ROW_IS_STMT, ROW_PROLOGUE_END } from '@/debug/dwarfLines'
 import type { SymbolIndex } from '@/debug/elfSymbols'
-import { patternFile, resolveAnchor } from '@/tours/anchors'
+import { anchorAlternatives, patternFile, resolveAnchor, sourceSpelling } from '@/tours/anchors'
 
 /** Two functions and four rows of main.c, hand-built. */
 function lines(): LineIndex {
@@ -106,6 +106,19 @@ describe('patternFile', () => {
     expect(patternFile('main.c:/toggle/')).toBe('main.c')
     expect(patternFile('main.c:32')).toBeNull()
     expect(patternFile('main')).toBeNull()
+  })
+})
+
+describe('anchorAlternatives and sourceSpelling', () => {
+  it('splits an `at:` the way it is tried', () => {
+    expect(anchorAlternatives(' main.c:/toggle/ | main.c:38 |  ')).toEqual(['main.c:/toggle/', 'main.c:38'])
+  })
+
+  it('says how an alternative names a source file, when it does', () => {
+    expect(sourceSpelling('main.c:/toggle/')).toEqual({ kind: 'pattern', file: 'main.c' })
+    expect(sourceSpelling(' Main.c:38 ')).toEqual({ kind: 'line', file: 'main.c' })
+    expect(sourceSpelling('main')).toBeNull()
+    expect(sourceSpelling('0x8000')).toBeNull()
   })
 })
 

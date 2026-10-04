@@ -179,6 +179,17 @@ export async function evalAddress(expr: string, target: TourTarget): Promise<num
   return new Evaluator(tokens, target).run()
 }
 
+/**
+ * The symbols an expression names, in order, or null when it does not even
+ * tokenize. Registers are not symbols and are left out, so `*$arg0 + led`
+ * gives `['led']`. What src/tours/check.ts looks up in the ELF ahead of time.
+ */
+export function expressionSymbols(expr: string): string[] | null {
+  const tokens = tokenize(expr)
+  if (tokens === null || tokens.length === 0) return null
+  return tokens.flatMap((token) => (token.kind === 'sym' ? [token.text] : []))
+}
+
 /* ------------------------------------------------------------------ *
  * Formats
  * ------------------------------------------------------------------ */

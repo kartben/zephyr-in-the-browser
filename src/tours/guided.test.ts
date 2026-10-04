@@ -17,7 +17,8 @@ import { whenFires } from '@/tours/when'
  * Anchors cannot be *resolved* without a built ELF, which this test does not
  * have. What it can check is everything up to that: the file parses, the page
  * bundle can see it, and the sample each tour claims to be about is the one the
- * gallery will run it against.
+ * gallery will run it against. Resolving them against the images the site
+ * ships is images.test.ts (`npm run tour:check`), which needs those images.
  */
 
 const TOURS_DIR = resolve(process.cwd(), 'tours')

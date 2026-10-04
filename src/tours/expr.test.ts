@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evalAddress, evalWatch, isKnownFormat, type TourTarget } from '@/tours/expr'
+import { evalAddress, evalWatch, expressionSymbols, isKnownFormat, type TourTarget } from '@/tours/expr'
 
 /**
  * A pretend guest: `led` at 0x2000 holding a pointer to a `struct device` at
@@ -116,6 +116,19 @@ describe('evalWatch', () => {
       text: 'unreadable',
     })
     expect(await evalWatch('led', 'u37', target())).toMatchObject({ ok: false })
+  })
+})
+
+describe('expressionSymbols', () => {
+  it('names the symbols an expression reads, leaving registers and numbers out', () => {
+    expect(expressionSymbols('**led')).toEqual(['led'])
+    expect(expressionSymbols('*($arg0 + 2p) - _kernel + 0x10')).toEqual(['_kernel'])
+    expect(expressionSymbols('$pc')).toEqual([])
+  })
+
+  it('gives up on what the evaluator could not tokenize either', () => {
+    expect(expressionSymbols('led & 3')).toBeNull()
+    expect(expressionSymbols('')).toBeNull()
   })
 })
 

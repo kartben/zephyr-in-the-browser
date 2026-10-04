@@ -422,6 +422,49 @@ A dev-only Vite plugin serves `tours/*.tour.md` at the same URLs a real image
 build would. Source excerpts come from your Zephyr workspace when there is one
 (`ZEPHYR_WS`, default `~/zephyrproject`); without it the prose stands alone.
 
+## Keeping tours honest
+
+The samples track Zephyr `main`, so the code a tour points at moves under it,
+and the page cannot tell. A `/pattern/` that stops matching falls back to its
+line number, the line number still resolves, and the card marks whatever is on
+that line now. `npm test` cannot see it either: resolving an anchor needs the
+ELF the tour runs against, and the images are a release asset, not part of the
+repository.
+
+`npm run tour:check` does that half. For every tour, on every board that
+packages its sample (`_trace` twins included), it loads the ELF, the shipped
+sources and the devicetree the page would load, and resolves each step the way
+the page does when the tour arms. These fail:
+
+| Finding | What the learner would get |
+| --- | --- |
+| `unresolved`: no alternative of `at:` resolves | a step that never fires |
+| `drift`: a `/pattern/` no longer matches and a later fallback resolves | a step that stops on a line nobody chose |
+| `highlight`: an entry marks nothing in the file the step stops in | an excerpt that has lost its point, silently |
+| `symbol`: `watch:`, `memory:` or `objects: focus:` names a symbol the ELF lacks | "no symbol" where the value should be (registers are exempt) |
+| `expression`: an expression that does not even tokenize | an error where the value should be |
+
+These warn:
+
+| Finding | Why |
+| --- | --- |
+| `multi-address`: the landed line starts statements in several places | one breakpoint covers the first; a `LOG_*()` line, a loop header and code inlined into several callers all do this, so anchor on a plain statement |
+| `ambiguous`: several functions share the anchor's name | the step stops in the first one |
+| `stale-line`: the line-number fallback lands elsewhere than its pattern | it is what runs on images without sources, the one place nobody looks |
+| `dts`: none of a step's `dts:` entries matches a board's devicetree | that board shows no devicetree; boards spell nodes differently, so list one entry per spelling |
+| `no-image`, `unchecked`: the images predate the tour (no ELF, or no shipped sources, for its sample) | nothing to check yet; fails with `TOUR_STRICT=1` |
+
+The result is a table of tour, board, image, step and status. It is skipped
+when there are no images, so `npm test` on a bare checkout is unaffected, and
+runs as part of `npm test` wherever there are. Point `TOUR_IMAGES_DIR` at
+another directory, or fetch the deployed images first:
+
+```console
+gh release download "$(gh variable get IMAGES_RELEASE)" -p zephyr-images.tar.gz -D /tmp --clobber
+tar xzf /tmp/zephyr-images.tar.gz -C public
+npm run tour:check
+```
+
 ## What it costs the firmware
 
 Nothing at all — not "nothing that matters". There is no macro, no table, no
@@ -443,6 +486,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | The tours | `tours/*.tour.md` |
 | File format | `src/tours/parse.ts` |
 | Anchors | `src/tours/anchors.ts`, `src/debug/dwarfLines.ts` |
+| Checking them against images | `src/tours/check.ts`, `src/tours/images.test.ts` |
 | Expressions | `src/tours/expr.ts` |
 | Hit conditions | `src/tours/when.ts` |
 | Engine | `src/tours/store.ts` |
