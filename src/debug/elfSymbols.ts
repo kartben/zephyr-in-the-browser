@@ -38,6 +38,12 @@ export interface SymbolIndex {
    * the address it is asked about too. Data symbols keep their values.
    */
   arch?: GdbArch | null
+  /**
+   * Where each section that takes up address space starts and ends, ascending:
+   * the fences a function with no size cannot reach across. See
+   * {@link resolveSymbol}.
+   */
+  sectionBounds?: number[]
 }
 
 export interface ResolvedSymbol {
@@ -182,7 +188,50 @@ export function buildSymbolIndex(elf: Uint8Array): SymbolIndex | null {
       objects.set(s.name, { name: s.name, addr: s.addr, size: s.size })
     }
   }
-  return { byAddr, byName, objects, arch }
+  return { byAddr, byName, objects, arch, sectionBounds: sectionBounds(elf) }
+}
+
+/** Start and end of every section that takes up address space, ascending. */
+function sectionBounds(elf: Uint8Array): number[] {
+  const elfclass = elf[4] as 1 | 2
+  const little = elf[5] === 1
+  const dv = new DataView(elf.buffer, elf.byteOffset, elf.byteLength)
+  const u16 = (o: number) => dv.getUint16(o, little)
+  const u32 = (o: number) => dv.getUint32(o, little)
+  const u64 = (o: number) => {
+    const lo = u32(o)
+    const hi = u32(o + 4)
+    return little ? lo + hi * 0x1_0000_0000 : hi + lo * 0x1_0000_0000
+  }
+
+  const eShoff = elfclass === 2 ? u64(40) : u32(32)
+  const eShentsize = elfclass === 2 ? u16(58) : u16(46)
+  const eShnum = elfclass === 2 ? u16(60) : u16(48)
+
+  const bounds = new Set<number>()
+  for (let i = 0; i < eShnum; i++) {
+    const sh = eShoff + i * eShentsize
+    const shFlags = elfclass === 2 ? u64(sh + 8) : u32(sh + 8)
+    const shAddr = elfclass === 2 ? u64(sh + 16) : u32(sh + 12)
+    const shSize = elfclass === 2 ? u64(sh + 32) : u32(sh + 20)
+    if ((shFlags & 0x2) === 0 || shSize === 0) continue // not SHF_ALLOC, or empty
+    bounds.add(shAddr)
+    bounds.add(shAddr + shSize)
+  }
+  return [...bounds].sort((a, b) => a - b)
+}
+
+/** The first bound past `addr`, or Infinity past the last one. */
+function boundAfter(bounds: readonly number[] | undefined, addr: number): number {
+  if (!bounds) return Infinity
+  let lo = 0
+  let hi = bounds.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (bounds[mid]! <= addr) lo = mid + 1
+    else hi = mid
+  }
+  return bounds[lo] ?? Infinity
 }
 
 /**
@@ -298,14 +347,21 @@ export function resolveSymbol(index: SymbolIndex | null, addr: number): Resolved
   }
   if (!best) return null
   const offset = at - best.addr
-  // If size is known, require addr inside the function; otherwise allow up to
-  // the next symbol (or 64 KiB) so zero-size entries still resolve.
+  // A size says where the function ends. Without one (assembly with no `.size`,
+  // or an alias such as picolibc's vfprintf) it runs to the next function, but
+  // never across a section boundary. As the last function in `text`, vfprintf
+  // would otherwise claim the device structs and rodata after it, and a pointer
+  // to one of those on the stack would pass for a return address. A routine in
+  // no section, like ESP32's absolute ROM `__muldf3`, stops at the next section.
   if (best.size > 0) {
     if (offset >= best.size) return null
   } else {
     const idx = list.indexOf(best)
     const next = list[idx + 1]
-    const span = next ? next.addr - best.addr : 0x10000
+    const span = Math.min(
+      next ? next.addr - best.addr : 0x10000,
+      boundAfter(index.sectionBounds, best.addr) - best.addr,
+    )
     if (offset >= span) return null
   }
   return { name: best.name, addr: best.addr, offset }

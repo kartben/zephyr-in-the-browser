@@ -99,11 +99,14 @@ function fakeElf(syms: { name: string; addr: number; size: number; type?: number
 /**
  * Minimal ELF32 little-endian, the shape of the Cortex-M and RISC-V images, with
  * a section index per symbol so absolute (SHN_ABS) ones can be built too. An Arm
- * image unless `machine` says otherwise.
+ * image unless `machine` says otherwise. `sections` become section headers 1, 2
+ * and so on, so a symbol's `shndx` names one as in a real image: each has an
+ * address and a size but no bytes, and is allocated unless `flags` says not.
  */
 function fakeElf32(
   syms: { name: string; value: number; size: number; type: number; shndx: number }[],
   machine = EM_ARM,
+  sections: { addr: number; size: number; flags?: number }[] = [],
 ): Uint8Array {
   let str = '\0'
   const nameOffs = syms.map((s) => {
@@ -125,10 +128,11 @@ function fakeElf32(
     sv.setUint16(o + 14, s.shndx, true) // st_shndx
   })
 
-  // Layout: Ehdr | Shdr[0 null] | Shdr[1 symtab] | Shdr[2 strtab] | symtab | strtab
+  // Layout: Ehdr | Shdr[0 null] | Shdr[sections] | Shdr symtab | Shdr strtab | symtab | strtab
   const shoff = 52
   const shentsize = 40
-  const symoff = shoff + 3 * shentsize
+  const symndx = 1 + sections.length
+  const symoff = shoff + (symndx + 2) * shentsize
   const stroff = symoff + symtab.length
   const buf = new Uint8Array(stroff + strtab.length)
   const out = new DataView(buf.buffer)
@@ -137,17 +141,24 @@ function fakeElf32(
   out.setUint16(18, machine, true) // e_machine
   out.setUint32(32, shoff, true) // e_shoff
   out.setUint16(46, shentsize, true)
-  out.setUint16(48, 3, true) // e_shnum
+  out.setUint16(48, symndx + 2, true) // e_shnum
 
-  const sh1 = shoff + shentsize // symtab
-  out.setUint32(sh1 + 4, 2, true) // SHT_SYMTAB
-  out.setUint32(sh1 + 16, symoff, true)
-  out.setUint32(sh1 + 20, symtab.length, true)
-  out.setUint32(sh1 + 24, 2, true) // link → strtab
-  const sh2 = shoff + 2 * shentsize // strtab
-  out.setUint32(sh2 + 4, 3, true) // SHT_STRTAB
-  out.setUint32(sh2 + 16, stroff, true)
-  out.setUint32(sh2 + 20, strtab.length, true)
+  sections.forEach((s, i) => {
+    const sh = shoff + (i + 1) * shentsize
+    out.setUint32(sh + 4, 1, true) // SHT_PROGBITS
+    out.setUint32(sh + 8, s.flags ?? 0x2, true) // SHF_ALLOC
+    out.setUint32(sh + 12, s.addr, true) // sh_addr
+    out.setUint32(sh + 20, s.size, true) // sh_size
+  })
+  const shSym = shoff + symndx * shentsize
+  out.setUint32(shSym + 4, 2, true) // SHT_SYMTAB
+  out.setUint32(shSym + 16, symoff, true)
+  out.setUint32(shSym + 20, symtab.length, true)
+  out.setUint32(shSym + 24, symndx + 1, true) // link → strtab
+  const shStr = shSym + shentsize
+  out.setUint32(shStr + 4, 3, true) // SHT_STRTAB
+  out.setUint32(shStr + 16, stroff, true)
+  out.setUint32(shStr + 20, strtab.length, true)
 
   buf.set(symtab, symoff)
   buf.set(strtab, stroff)
@@ -298,5 +309,67 @@ describe('elfSymbols', () => {
       EM_XTENSA,
     )
     expect(formatSymbol(resolveSymbol(buildSymbolIndex(elf), 0x400d_0f3f))).toBe('blink+0x3')
+  })
+
+  describe('a function the symtab gives no size', () => {
+    // As in qemu_cortex_m3/basic_button.elf, where picolibc's vfprintf is a
+    // size-0 alias of __l_vfprintf and the last function in `text`.
+    const index = buildSymbolIndex(
+      fakeElf32(
+        [
+          // Hand-written assembly with no `.size`.
+          { name: 'z_arm_pendsv', value: 0xcf5, size: 0, type: STT_FUNC, shndx: 2 },
+          { name: 'z_arm_interrupt_init', value: 0xd5d, size: 32, type: STT_FUNC, shndx: 2 },
+          { name: '__l_vfprintf', value: 0x4251, size: 2498, type: STT_FUNC, shndx: 2 },
+          { name: 'vfprintf', value: 0x4251, size: 0, type: STT_FUNC, shndx: 2 },
+          { name: '__device_dts_ord_8', value: 0x4de0, size: 28, type: STT_OBJECT, shndx: 4 },
+        ],
+        EM_ARM,
+        [
+          { addr: 0x0, size: 0xec }, // rom_start
+          { addr: 0xec, size: 0x4b28 }, // text
+          { addr: 0x4c14, size: 0x98 }, // initlevel
+          { addr: 0x4cac, size: 0x16c }, // device_area
+          { addr: 0x4e18, size: 0x158 }, // sw_isr_table
+          // Debug info: at no address, so its size is not a boundary.
+          { addr: 0, size: 0x4500, flags: 0 },
+        ],
+      ),
+    )!
+
+    it('stops at the end of its section', () => {
+      expect(formatSymbol(resolveSymbol(index, 0x4c10))).toBe('vfprintf+0x9c0')
+      // A struct device pointer, which the call stack read as vfprintf+0xb90
+      // and took for a return address.
+      expect(resolveSymbol(index, 0x4de0)).toBeNull()
+      expect(resolveSymbol(index, 0x4e18)).toBeNull()
+    })
+
+    it('still reaches to the next function inside its section', () => {
+      expect(formatSymbol(resolveSymbol(index, 0xd40))).toBe('z_arm_pendsv+0x4c')
+      expect(formatSymbol(resolveSymbol(index, 0xd5c))).toBe('z_arm_interrupt_init')
+    })
+
+    it('stops where the next section starts when it is in none', () => {
+      // esp32_devkitc_esp32_procpu: libgcc's __muldf3 is an absolute ROM
+      // address, and the next function is in IRAM, past the window and
+      // interrupt vectors.
+      const elf = fakeElf32(
+        [
+          { name: '__muldf3', value: 0x4006_358c, size: 0, type: STT_FUNC, shndx: SHN_ABS },
+          { name: '__esp_platform_app_start', value: 0x4008_0bdc, size: 30, type: STT_FUNC, shndx: 2 },
+        ],
+        EM_XTENSA,
+        [
+          { addr: 0x4008_0000, size: 0x400 }, // .iram0.vectors
+          { addr: 0x4008_0400, size: 0x9900 }, // .iram0.text
+        ],
+      )
+      const rom = buildSymbolIndex(elf)!
+      expect(formatSymbol(resolveSymbol(rom, 0x4006_3600))).toBe('__muldf3+0x74')
+      // _WindowUnderflow4, which read __muldf3+0x1cab4.
+      expect(resolveSymbol(rom, 0x4008_0040)).toBeNull()
+      expect(formatSymbol(resolveSymbol(rom, 0x4008_0bdc))).toBe('__esp_platform_app_start')
+    })
   })
 })

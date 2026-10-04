@@ -24,6 +24,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Kernel object lists need an image from current Zephyr main."
       },
       {
+        "tag": "Fixed",
+        "text": "Call stacks no longer show data pointers as callers."
+      },
+      {
         "tag": "Added",
         "text": "Tour steps can stop on the guest's state, not just hit counts."
       },
