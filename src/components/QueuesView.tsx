@@ -4,7 +4,9 @@
  *
  * Full d3 SVG chart (scales, area/line series, axes). Shares the Trace panel's
  * time window (follow / pan / zoom). Transition dots mark depth changes; hover
- * a dot for a short tip (time, depth, op, thread).
+ * a dot for a short tip (time, depth, op, thread). A hollow ring marks a put
+ * that went straight to a receiver already waiting: the depth does not change,
+ * and its tip names the receiver.
  */
 
 /*
@@ -76,6 +78,7 @@ const LINE_STROKE = 'rgba(147, 197, 253, 0.95)'
 const CAP_STROKE = 'rgba(56, 189, 248, 0.55)'
 const DOT_FILL = 'rgba(147, 197, 253, 0.55)'
 const DOT_STROKE = 'rgba(147, 197, 253, 0.35)'
+const HANDOFF_STROKE = 'rgba(147, 197, 253, 0.8)'
 /** Skip a mark if it lands within this many CSS pixels of the previous drawn one. */
 const MARK_MIN_GAP_PX = 6
 
@@ -83,6 +86,10 @@ type TransitionMark = {
   ts: number
   depth: number
   event: QueueChartEvent | null
+  /** A put that went straight to a receiver already waiting. */
+  handoff: boolean
+  /** That receiver's get, when the trace has it. */
+  receiver: QueueChartEvent | null
 }
 
 type HoverTip = {
@@ -93,6 +100,8 @@ type HoverTip = {
   queue: QueueSeries
   depth: number
   event: QueueChartEvent | null
+  handoff: boolean
+  receiver: QueueChartEvent | null
 }
 
 type RowLayout = {
@@ -125,7 +134,23 @@ function windowPoints(q: QueueSeries, view0: number, view1: number): QueueSample
   return pts
 }
 
-/** Real depth-change samples inside the window (not synthetic edges). */
+/** The chart event for `tr.events[index]`; `events` is in trace order. */
+function chartEventAt(events: QueueChartEvent[], index: number): QueueChartEvent | null {
+  let lo = 0
+  let hi = events.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (events[mid]!.index < index) lo = mid + 1
+    else hi = mid
+  }
+  const ev = events[lo]
+  return ev && ev.index === index ? ev : null
+}
+
+/**
+ * Real depth-change samples inside the window (not synthetic edges), and the
+ * hand-offs there, which change nothing but are still traffic. By time.
+ */
 function transitionMarks(
   q: QueueSeries,
   events: QueueChartEvent[],
@@ -137,9 +162,20 @@ function transitionMarks(
     if (s.ts < view0 || s.ts > view1) continue
     // Exact CTF exit at this sample, else null (still a depth transition).
     const event = nearestQueueChartEvent(events, q.id, s.ts, 0)
-    marks.push({ ts: s.ts, depth: s.depth, event })
+    marks.push({ ts: s.ts, depth: s.depth, event, handoff: false, receiver: null })
   }
-  return marks
+  if (q.handoffs.length === 0) return marks
+  for (const h of q.handoffs) {
+    if (h.ts < view0 || h.ts > view1) continue
+    marks.push({
+      ts: h.ts,
+      depth: depthAt(q.samples, h.ts),
+      event: chartEventAt(events, h.putIndex),
+      handoff: true,
+      receiver: h.getIndex == null ? null : chartEventAt(events, h.getIndex),
+    })
+  }
+  return marks.sort((a, b) => a.ts - b.ts)
 }
 
 function nearestMark(marks: TransitionMark[], ts: number, maxDeltaNs: number): TransitionMark | null {
@@ -444,14 +480,15 @@ function renderChart(
           }
           return drawn
         })(),
-        (m) => String(m.ts),
+        (m) => `${m.ts}${m.handoff ? ':handoff' : ''}`,
       )
       .join('circle')
+      .attr('class', (m) => (m.handoff ? 'handoff' : 'transition'))
       .attr('cx', (m) => xScale(m.ts))
       .attr('cy', (m) => d.yScale(m.depth))
-      .attr('r', 1.6)
-      .attr('fill', DOT_FILL)
-      .attr('stroke', DOT_STROKE)
+      .attr('r', (m) => (m.handoff ? 2.2 : 1.6))
+      .attr('fill', (m) => (m.handoff ? 'none' : DOT_FILL))
+      .attr('stroke', (m) => (m.handoff ? HANDOFF_STROKE : DOT_STROKE))
       .attr('stroke-width', 0.75)
   })
 
@@ -519,6 +556,13 @@ function tipLines(tr: Trace, tip: HoverTip): string[] {
     const who = queueActorLabel(tr, tip.event.actor)
     const fail = tip.event.ok || tip.event.op === 'purge' ? '' : '!'
     lines.push(`${queueChartOpLabel(tip.event.op)}${fail} · ${who}`)
+  }
+  if (tip.handoff) {
+    lines.push(
+      tip.receiver
+        ? `handed straight to ${queueActorLabel(tr, tip.receiver.actor)}`
+        : 'handed straight to a waiting thread',
+    )
   }
   return lines
 }
@@ -654,6 +698,8 @@ export function QueuesView({
         queue: q,
         depth: mark.depth,
         event: mark.event,
+        handoff: mark.handoff,
+        receiver: mark.receiver,
       }
     },
     [],

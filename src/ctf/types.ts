@@ -157,6 +157,13 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['timeout', 'uint32_t'],
     ],
   },
+  0x8e: {
+    name: 'msgq_get_blocking',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+    ],
+  },
   0x8f: {
     name: 'msgq_get_exit',
     fields: [
@@ -200,6 +207,13 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
     ],
   },
   0x115: { name: 'queue_insert_exit', fields: [['id', 'uint32_t']] },
+  0x11b: {
+    name: 'queue_get_blocking',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
+    ],
+  },
   0x11c: {
     name: 'queue_get_exit',
     fields: [
@@ -273,6 +287,13 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
     fields: [
       ['id', 'uint32_t'],
       ['ret', 'int32_t'],
+    ],
+  },
+  0x145: {
+    name: 'stack_pop_blocking',
+    fields: [
+      ['id', 'uint32_t'],
+      ['timeout', 'uint32_t'],
     ],
   },
   0x146: {

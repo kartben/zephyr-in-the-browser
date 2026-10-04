@@ -5,6 +5,16 @@
  * address + ret — not used count. Counting successful puts (+1) and gets (−1)
  * recovers depth when the stream starts empty (or after a msgq purge).
  *
+ * A put that finds a receiver already waiting does not go through the queue:
+ * the kernel gives the item straight to that receiver, and the depth never
+ * changes. Both exits are still in the trace, so counting them would draw a
+ * one-message spike, or a step up that never comes down when the receiver's
+ * exit comes first (k_queue and k_stack trace their put exit after the
+ * reschedule). A receiver says it is about to wait (`*_get_blocking`), so the
+ * replay counts the receivers waiting on each object, and a put that reaches
+ * one is a hand-off: the depth stays where it is, and the series lists the put
+ * in `handoffs`.
+ *
  * FIFO/LIFO nest k_queue with the same `id`; nested queue_* events are ignored
  * when an outer fifo/lifo kind is known for that address.
  */
@@ -12,6 +22,7 @@
 import {
   classifyQueueEvent,
   classifyQueueKinds,
+  classifyReceiverBlocking,
   isNestedQueueEvent,
   type QueueKind,
 } from './queueKinds'
@@ -21,6 +32,16 @@ import type { Trace } from './reader'
 export interface QueueSample {
   ts: number
   depth: number
+}
+
+/** A put that went straight to a receiver already waiting on the object. */
+export interface QueueHandoff {
+  /** The put's exit. */
+  ts: number
+  /** The put's exit, as an index into `tr.events`. */
+  putIndex: number
+  /** The receiver's get exit, as an index into `tr.events`; null until it is seen. */
+  getIndex: number | null
 }
 
 export interface QueueSeries {
@@ -35,6 +56,8 @@ export interface QueueSeries {
   /** Whether the bound came from the kernel object or trace-event inference. */
   capSource: 'object-core' | 'inferred' | null
   peak: number
+  /** Puts the queue never held, because a receiver was already waiting. */
+  handoffs: QueueHandoff[]
 }
 
 type Acc = {
@@ -44,12 +67,27 @@ type Acc = {
   cap: number | null
   peak: number
   samples: QueueSample[]
+  handoffs: QueueHandoff[]
+}
+
+/** Receivers waiting on one object, and hand-offs with one exit still to come. */
+type Waiting = {
+  /** Receivers that said they would wait and have not returned yet. */
+  receivers: number
+  /** Hand-offs whose put exit came first, oldest first. */
+  sent: QueueHandoff[]
+  /**
+   * Waiting receivers that returned with an item before the put that sent it
+   * exited, oldest first. `refill` marks the msgq case below, which is not a
+   * hand-off at all.
+   */
+  received: { getIndex: number; refill: boolean }[]
 }
 
 function ensure(map: Map<number, Acc>, id: number, kind: QueueKind): Acc {
   let q = map.get(id)
   if (!q) {
-    q = { kind, depth: 0, drops: 0, cap: null, peak: 0, samples: [] }
+    q = { kind, depth: 0, drops: 0, cap: null, peak: 0, samples: [], handoffs: [] }
     map.set(id, q)
   } else if ((kind === 'fifo' || kind === 'lifo') && q.kind === 'queue') {
     q.kind = kind
@@ -79,14 +117,28 @@ export function reconstructQueues(
 ): QueueSeries[] {
   const kinds = classifyQueueKinds(tr.events)
   const map = new Map<number, Acc>()
+  const waiting = new Map<number, Waiting>()
 
-  for (const ev of tr.events) {
+  for (let i = 0; i < tr.events.length; i++) {
+    const ev = tr.events[i]!
+    const waitedOn = classifyReceiverBlocking(ev.name, ev.fields)
+    if (waitedOn != null) {
+      let w = waiting.get(waitedOn)
+      if (!w) {
+        w = { receivers: 0, sent: [], received: [] }
+        waiting.set(waitedOn, w)
+      }
+      w.receivers += 1
+      continue
+    }
+
     const classified = classifyQueueEvent(ev.name, ev.fields)
     if (!classified) continue
     if (isNestedQueueEvent(classified, kinds)) continue
 
     const kind = kinds.get(classified.id) ?? classified.kind
     const q = ensure(map, classified.id, kind)
+    const w = waiting.get(classified.id)
 
     if (classified.depthAction === 'purge') {
       if (q.depth !== 0) {
@@ -98,6 +150,22 @@ export function reconstructQueues(
 
     if (classified.depthAction === 'put') {
       if (classified.ok) {
+        const early = w?.received.shift()
+        if (early) {
+          // Its receiver already returned with it: k_queue and k_stack trace a
+          // hand-off's put exit after the receiver has run. A msgq traces it
+          // before, so on a msgq this is a get that made room on a full queue
+          // and moved this blocked sender's message in. Either way the depth
+          // stays where it is.
+          if (!early.refill) q.handoffs.push({ ts: ev.ts, putIndex: i, getIndex: early.getIndex })
+          continue
+        }
+        if (w && w.receivers > w.sent.length) {
+          const handoff: QueueHandoff = { ts: ev.ts, putIndex: i, getIndex: null }
+          w.sent.push(handoff)
+          q.handoffs.push(handoff)
+          continue
+        }
         q.depth += 1
         pushSample(q, ev.ts)
       } else if (classified.kind === 'msgq') {
@@ -110,7 +178,20 @@ export function reconstructQueues(
       continue
     }
 
-    if (classified.depthAction === 'get' && classified.ok) {
+    if (classified.depthAction !== 'get') continue
+    if (w && w.receivers > 0) {
+      // A receiver that waited is back. What it got never sat in the queue.
+      w.receivers -= 1
+      if (classified.ok) {
+        const handoff = w.sent.shift()
+        if (handoff) handoff.getIndex = i
+        else w.received.push({ getIndex: i, refill: kind === 'msgq' })
+      } else if (w.sent.length > w.receivers) {
+        w.sent.length = w.receivers
+      }
+      continue
+    }
+    if (classified.ok) {
       q.depth = Math.max(0, q.depth - 1)
       pushSample(q, ev.ts)
     }
@@ -136,6 +217,7 @@ export function reconstructQueues(
       cap: hasObjectCapacity ? objectCapacity : q.cap,
       capSource: hasObjectCapacity ? 'object-core' : q.cap != null ? 'inferred' : null,
       peak: q.peak,
+      handoffs: q.handoffs,
     })
   }
 
