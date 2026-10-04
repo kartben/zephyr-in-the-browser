@@ -16,9 +16,11 @@ import { Bug, GraduationCap, Pause, Redo2, X } from 'lucide-react'
 import { InlineMarkdown, Markdown } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
+import { CompletionCard, useTourTitle } from '@/components/tour/CompletionCard'
 import { TourHexdump } from '@/components/tour/TourHexdump'
 import { TourObjects } from '@/components/tour/TourObjects'
 import { TourOutline } from '@/components/tour/TourOutline'
+import { WaitingCard } from '@/components/tour/WaitingCard'
 import { Button } from '@/components/ui/button'
 import { sampleSourceAsset, type Board } from '@/boards'
 import * as debug from '@/debug/control'
@@ -79,8 +81,27 @@ export function TourCard({ board, sampleId }: Props) {
     () => resolveHighlightSpecs(card?.step.dts ?? [], dts?.text.split('\n')),
     [card?.step.dts, dts?.text],
   )
+  const nextTitle = useTourTitle(state.doc?.next ?? null)
 
-  if (!card || !state.enabled) return null
+  if (!state.enabled) return null
+  if (!card) {
+    // Between cards: the tour is over, or the reader has something to do.
+    if (state.completed && state.doc?.outro) {
+      return (
+        <CompletionCard
+          board={board}
+          sampleId={sampleId}
+          outro={state.doc.outro}
+          next={state.doc.next}
+          nextTitle={nextTitle}
+        />
+      )
+    }
+    if (state.waiting) {
+      return <WaitingCard waiting={state.waiting} steps={state.doc?.steps ?? []} seen={state.seen} />
+    }
+    return null
+  }
 
   const { step, anchor, paused, values, memory, objects, registers, threads } = card
   const showSource = state.doc?.showSource !== false

@@ -58,6 +58,23 @@ describe('tours/', () => {
     expect(doc.sample).toBe(sample!.zephyrSample)
   })
 
+  it.each(tourFiles())('%s ends somewhere real', (file) => {
+    const id = file.replace('.tour.md', '')
+    const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
+    if (doc.outro) expect(doc.outro.body, 'the outro has no prose').not.toBe('')
+    if (doc.next === null) return
+    // A Next button that goes nowhere is the same silent failure as a broken
+    // anchor, only at the end of the tour instead of the middle.
+    expect(tourIds(), `next: ${doc.next} is not a tour`).toContain(doc.next)
+    expect(doc.next, 'a tour cannot chain to itself').not.toBe(id)
+    // Next stays on the reader's board, so some board has to offer both.
+    const both = BOARDS.some(
+      (board) =>
+        board.samples.some((s) => s.id === id) && board.samples.some((s) => s.id === doc.next),
+    )
+    expect(both, `no board offers both ${id} and ${doc.next}`).toBe(true)
+  })
+
   it.each(tourFiles())('%s has usable stage directions on every step', (file) => {
     const doc = parseTour(readFileSync(resolve(TOURS_DIR, file), 'utf8'))
     for (const step of doc.steps) {

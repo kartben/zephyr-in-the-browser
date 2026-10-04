@@ -11,6 +11,7 @@ import { TourCard } from '@/components/TourCard'
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
 import { registerTerminal } from '@/lib/terminalInput'
+import { setSelector } from '@/lib/selection'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import { seedForSelection } from '@/lib/dockStore'
 import {
@@ -449,6 +450,11 @@ export default function App() {
   }, [])
 
   useEffect(() => registerCommand('restart', handleRestart), [handleRestart])
+  // A tour's Next button switches app the way the app picker does.
+  useEffect(
+    () => setSelector(({ sampleId: id }) => handleSampleChange(id)),
+    [handleSampleChange],
+  )
 
   return (
     <div className="flex h-full flex-col">

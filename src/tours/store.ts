@@ -94,6 +94,18 @@ export interface TourCard {
   lookNotes: string[]
 }
 
+/** What the reader is asked to do before the step the tour is waiting on. */
+export interface TourWaiting {
+  /** The step that fires once they have done it. */
+  index: number
+  /** The step's `await:`, one line of Markdown. */
+  text: string
+  /** The step's `do:` lines. */
+  do: string[]
+  /** Views the step points at that this guest cannot show; see TourCard.lookNotes. */
+  notes: string[]
+}
+
 export interface TourState {
   doc: TourDoc | null
   /** The reader has not turned tours off. */
@@ -103,9 +115,19 @@ export interface TourState {
   /** A real gdb session is driving. False on the mock backend's replay. */
   live: boolean
   current: TourCard | null
+  /**
+   * No card is up, the guest is running, and the step it is running towards
+   * has an `await:`: reaching it is the reader's job, so say what to do.
+   */
+  waiting: TourWaiting | null
   /** Step indexes already shown. */
   seen: Set<number>
   finished: boolean
+  /**
+   * The tour finished because every step had its turn, not because the reader
+   * left it. The completion card is up while this holds; closing it clears it.
+   */
+  completed: boolean
   /**
    * Anchors that did not resolve, and authoring mistakes in the file. A tour
    * whose sixth step points at a line the optimiser folded away should still
@@ -120,8 +142,10 @@ const EMPTY: TourState = {
   armed: false,
   live: false,
   current: null,
+  waiting: null,
   seen: new Set(),
   finished: false,
+  completed: false,
   problems: [],
 }
 
@@ -282,7 +306,14 @@ export async function loadFor(
     hits: 0,
     card: null,
   }))
-  publish({ doc, problems: [...doc.problems], finished: false, seen: new Set() })
+  publish({
+    doc,
+    problems: [...doc.problems],
+    finished: false,
+    completed: false,
+    waiting: null,
+    seen: new Set(),
+  })
   // Plant at the stop that opening the stub produces, before the machine runs
   // on. If the session is already up — a tour loaded after boot — plant now and
   // accept that anything already executed is behind us.
@@ -377,7 +408,13 @@ export async function arm(): Promise<void> {
     console.warn(`[tour] ${problems.length} step(s) could not be armed:\n  ${problems.join('\n  ')}`)
   }
   if (!planted) console.warn('[tour] no step resolved against this build; the tour will not run')
-  publish({ armed: planted, live: true, problems })
+  // A first step that waits on the reader says so from the start.
+  publish({
+    armed: planted,
+    live: true,
+    problems,
+    waiting: state.current === null ? promptNext() : null,
+  })
 }
 
 /**
@@ -403,6 +440,25 @@ async function plantNext(): Promise<boolean> {
     })
   }
   return steps.some((s) => s.planted)
+}
+
+/** The your-turn prompt a step puts up while the tour waits on it, if any. */
+function waitingOf(runtime: StepRuntime | undefined): TourWaiting | null {
+  const text = runtime?.step.await
+  if (!runtime || !text) return null
+  return { index: runtime.step.index, text, do: runtime.step.do, notes: lookNotes(runtime.step) }
+}
+
+/**
+ * The prompt for the step the guest is running towards (planted, not yet
+ * fired), opening what that step points at as well. The reader acts now, and
+ * "watch the queue fill" means the Queues tab while it fills, not once it has.
+ */
+function promptNext(): TourWaiting | null {
+  const runtime = steps.find((s) => s.planted && s.card === null)
+  const waiting = waitingOf(runtime)
+  if (waiting) focusStep(runtime!.step)
+  return waiting
 }
 
 /**
@@ -569,7 +625,7 @@ async function showPending(): Promise<void> {
 
   const seen = new Set(state.seen)
   seen.add(runtime.step.index)
-  publish({ current: card, seen, armed: steps.some((s) => s.planted) })
+  publish({ current: card, waiting: null, seen, armed: steps.some((s) => s.planted) })
 
   // `stop: no` is a note the reader can read while the guest carries on — the
   // card stays, the machine does not. Plant the next step before letting go, or
@@ -702,7 +758,8 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
  * loses the step — reliably, not occasionally.
  *
  * When every step has had its turn, drop every remaining breakpoint so the
- * guest free-runs instead of trapping on a leftover stop.
+ * guest free-runs instead of trapping on a leftover stop, and say the tour is
+ * complete: that is what puts up its outro.
  */
 export function next(): void {
   const card = state.current
@@ -711,12 +768,12 @@ export function next(): void {
     const finished = steps.every((s) => s.card !== null || s.unresolved)
     if (finished) {
       await disarm()
-      publish({ armed: false, finished: true })
+      publish({ armed: false, finished: true, completed: true, waiting: null })
       if (state.live && (card?.paused || gdb.getSnapshot().paused)) debug.resume()
       return
     }
     const planted = await plantNext()
-    publish({ armed: planted, finished: false })
+    publish({ armed: planted, finished: false, waiting: promptNext() })
     if (card?.paused && state.live) debug.resume()
   })()
 }
@@ -733,12 +790,17 @@ export function revisit(index: number): void {
 /** Leave the tour: drop the breakpoints, resume, say nothing more. */
 export function skip(): void {
   const wasStopped = state.current?.paused ?? false
-  publish({ current: null, finished: true })
+  publish({ current: null, waiting: null, finished: true, completed: false })
   void (async () => {
     await disarm()
     publish({ armed: false, finished: true })
     if (state.live && (wasStopped || gdb.getSnapshot().paused)) debug.resume()
   })()
+}
+
+/** Close the completion card. The tour is already over, so nothing else changes. */
+export function dismissCompletion(): void {
+  publish({ completed: false })
 }
 
 /** Drop everything — a new guest is starting. */
@@ -789,14 +851,35 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
     hits: 0,
     card: null,
   }))
-    publish({ doc, live: false, armed: false, problems: [...doc.problems] })
+    publish({
+      doc,
+      live: false,
+      armed: false,
+      problems: [...doc.problems],
+      finished: false,
+      completed: false,
+      waiting: null,
+    })
 
     let index = 0
+    /** The step whose your-turn beat has been shown, so each gets exactly one. */
+    let prompted = -1
     const tick = () => {
-      if (signal.aborted || !state.enabled) return
+      // Leaving the tour ends the replay too, or the next beat puts a card back.
+      if (signal.aborted || !state.enabled || state.finished) return
       const runtime = steps[index]
       if (!runtime) {
-        publish({ current: null, finished: true })
+        publish({ current: null, waiting: null, finished: true, completed: true })
+        return
+      }
+      // A step that waits on the reader gets a beat of its own first, the way
+      // its your-turn card stays up while the reader does what it asks.
+      const waiting = waitingOf(runtime)
+      if (waiting && prompted !== index) {
+        prompted = index
+        focusStep(runtime.step)
+        publish({ current: null, waiting })
+        demoTimer = setTimeout(tick, DEMO_STEP_MS)
         return
       }
       runtime.hits = 1
@@ -804,7 +887,7 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
       focusStep(runtime.step)
       const seen = new Set(state.seen)
       seen.add(index)
-      publish({ current: runtime.card, seen })
+      publish({ current: runtime.card, waiting: null, seen })
       index++
       demoTimer = setTimeout(tick, DEMO_STEP_MS)
     }
