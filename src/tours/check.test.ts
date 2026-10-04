@@ -281,6 +281,31 @@ describe('checkTour', () => {
     ])
   })
 
+  it('fails a member view the image’s DWARF does not describe, and takes no struct for a symbol', () => {
+    const member = (struct: string, name: string) =>
+      struct === 'k_msgq' ? ({ wait_q: 0, used_msgs: 0x20 } as Record<string, number>)[name] ?? null : null
+    const doc = tour(
+      [
+        'at: main',
+        'watch:',
+        '  - k_msgq(counter).used as u32',
+        '  - k_mutex($arg0).owner as ptr',
+        'check: k_msgq(counter).used_msgs as u32 >= k_msgq(counter).max_msgs as u32',
+      ].join('\n'),
+    )
+    expect(checkTour(doc, context({ member })).map((f) => [f.kind, f.message])).toEqual([
+      ['member', '`watch: k_msgq(counter).used`: `struct k_msgq` has no member `used` in this build'],
+      ['member', '`watch: k_mutex($arg0).owner`: `struct k_mutex` has no member `owner` in this build'],
+      [
+        'member',
+        '`check: k_msgq(counter).used_msgs as u32 >= k_msgq(counter).max_msgs as u32`: ' +
+          '`struct k_msgq` has no member `max_msgs` in this build',
+      ],
+    ])
+    // With no DWARF to ask, member views go unchecked rather than failing.
+    expect(checkTour(doc, context())).toEqual([])
+  })
+
   it('fails an expression that does not parse', () => {
     expect(checkTour(tour('at: main\nwatch:\n  - counter & 3 as u32'), context())).toEqual([
       { step: 1, severity: 'fail', kind: 'expression', message: '`watch: counter & 3` is not an expression' },

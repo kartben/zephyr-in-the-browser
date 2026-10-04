@@ -3,6 +3,7 @@ import { join, relative, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { BOARDS, boardAssetDir, type Board, type GuestSample } from '@/boards'
 import { buildLineIndex } from '@/debug/dwarfLines'
+import { dwarfStructMembers } from '@/debug/dwarfMembers'
 import { buildSymbolIndex } from '@/debug/elfSymbols'
 import { archFromElf } from '@/debug/gdb/regs'
 import { checkTour, count, formatReport, reportRows, type ReportRow } from '@/tours/check'
@@ -98,6 +99,7 @@ function check(job: Job): ReportRow[] {
   const elf = new Uint8Array(readFileSync(elfPath))
   const dtsPath = join(dir, `${job.sample.id}.dts`)
   const doc = tourDoc(job.tour)
+  const layouts = new Map<string, Record<string, number>>()
   const findings = checkTour(doc, {
     symbols: buildSymbolIndex(elf),
     lines: buildLineIndex(elf),
@@ -107,6 +109,11 @@ function check(job: Job): ReportRow[] {
     dts: existsSync(dtsPath)
       ? { name: `${job.sample.id}.dts`, lines: readFileSync(dtsPath, 'utf8').split('\n') }
       : null,
+    member(struct, member) {
+      let members = layouts.get(struct)
+      if (!members) layouts.set(struct, (members = dwarfStructMembers(elf, struct)))
+      return Object.hasOwn(members, member) ? members[member]! : null
+    },
     strict: STRICT,
   })
   return reportRows(image, findings, doc.steps.length)

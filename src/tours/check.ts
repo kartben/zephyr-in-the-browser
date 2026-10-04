@@ -26,7 +26,7 @@ import {
   type AnchorContext,
   type ResolvedAnchor,
 } from '@/tours/anchors'
-import { expressionSymbols } from '@/tours/expr'
+import { expressionNames, type ExpressionNames } from '@/tours/expr'
 import { resolveHighlightSpecs, type HighlightSpec, type TourDoc, type TourStep } from '@/tours/parse'
 import { predicateIdentifiers } from '@/tours/predicate'
 
@@ -42,6 +42,12 @@ export interface CheckContext {
   sources: Map<string, string[]> | null
   /** The image's flattened devicetree, for `dts:`, or null when it has none. */
   dts: { name: string; lines: string[] } | null
+  /**
+   * Offset of a struct member in the image's DWARF, or null when it does not
+   * describe one: what a member view (`k_msgq(q).used_msgs`) resolves through.
+   * Absent, member views go unchecked.
+   */
+  member?: (struct: string, member: string) => number | null
   /**
    * Fail, rather than warn, on what this image is missing (sources, a
    * devicetree). A fresh image build ships both, so it can insist.
@@ -66,6 +72,8 @@ export type FindingKind =
   | 'dts'
   /** An expression names a symbol the ELF does not have. */
   | 'symbol'
+  /** A member view names a struct member the image's DWARF does not describe. */
+  | 'member'
   /** An expression does not even tokenize. */
   | 'expression'
   /** The image lacks what a check needs. */
@@ -106,7 +114,7 @@ export function checkTour(doc: TourDoc, ctx: CheckContext): Finding[] {
     const anchor = checkAnchor(step.at, ctx, check)
     if (anchor) checkHighlights(step, anchor, ctx, check)
     checkDts(step, ctx, check)
-    checkExpressions(step, ctx.symbols, check)
+    checkExpressions(step, ctx, check)
     if (check.noSources) noSources++
     if (check.noDts) noDts++
   }
@@ -333,9 +341,10 @@ function lineCount(text: string[]): number {
 /**
  * Every symbol an expression names has to be in the ELF, or the card shows
  * "no symbol" where the value should be, and a `check:` on one can never pass.
- * Registers are not symbols, so `$arg0` passes whatever the guest.
+ * Registers are not symbols, so `$arg0` passes whatever the guest. A member
+ * view's member has to be in the DWARF just the same.
  */
-function checkExpressions(step: TourStep, symbols: SymbolIndex | null, check: StepCheck): void {
+function checkExpressions(step: TourStep, ctx: CheckContext, check: StepCheck): void {
   const written: Array<[label: string, expr: string]> = []
   for (const watch of step.watch) {
     written.push([`watch: ${watch.label === null ? '' : `${watch.label} = `}${watch.expr}`, watch.expr])
@@ -350,23 +359,25 @@ function checkExpressions(step: TourStep, symbols: SymbolIndex | null, check: St
   }
   if (step.objects?.focus) written.push([`objects: focus: ${step.objects.focus}`, step.objects.focus])
 
+  const named: Array<[label: string, names: ExpressionNames]> = []
   for (const [label, expr] of written) {
-    const names = expressionSymbols(expr)
-    if (names === null) {
-      check.add('fail', 'expression', `\`${label}\` is not an expression`)
-      continue
-    }
-    for (const name of new Set(names)) {
-      if (!hasSymbol(symbols, name)) {
+    const names = expressionNames(expr)
+    if (names === null) check.add('fail', 'expression', `\`${label}\` is not an expression`)
+    else named.push([label, names])
+  }
+  // The parser has already refused a predicate that is not an expression.
+  for (const predicate of step.check) named.push([`check: ${predicate.text}`, predicateIdentifiers(predicate)])
+
+  for (const [label, names] of named) {
+    for (const name of names.symbols) {
+      if (!hasSymbol(ctx.symbols, name)) {
         check.add('fail', 'symbol', `\`${label}\`: no symbol \`${name}\` in this build`)
       }
     }
-  }
-  // The parser has already refused a row that is not an expression.
-  for (const predicate of step.check) {
-    for (const name of predicateIdentifiers(predicate).symbols) {
-      if (!hasSymbol(symbols, name)) {
-        check.add('fail', 'symbol', `\`check: ${predicate.text}\`: no symbol \`${name}\` in this build`)
+    if (!ctx.member) continue
+    for (const { struct, member } of names.members) {
+      if (ctx.member(struct, member) === null) {
+        check.add('fail', 'member', `\`${label}\`: \`struct ${struct}\` has no member \`${member}\` in this build`)
       }
     }
   }

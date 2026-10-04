@@ -20,6 +20,7 @@
 
 import {
   FORMATS,
+  addMember,
   evalValue,
   expressionError,
   expressionNames,
@@ -142,18 +143,19 @@ export function parsePredicate(raw: string): PredicateParse {
 }
 
 /**
- * The symbols and registers a predicate names, once each, in the order
- * written: what a build must have for it to ever hold, and what a stop must
- * carry to evaluate it. Bare numbers name nothing.
+ * The symbols, registers and struct members a predicate names, once each, in
+ * the order written: what a build must have for it to ever hold, and what a
+ * stop must carry to evaluate it. Bare numbers name nothing.
  */
 export function predicateIdentifiers(predicate: PredicateSpec): ExpressionNames {
-  const out: ExpressionNames = { symbols: [], registers: [] }
+  const out: ExpressionNames = { symbols: [], registers: [], members: [] }
   for (const side of [predicate.lhs, predicate.rhs]) {
     // A side is a bare number or an expression the parser already accepted.
     const names = side.literal === null ? expressionNames(side.expr) : null
     if (!names) continue
     for (const name of names.symbols) if (!out.symbols.includes(name)) out.symbols.push(name)
     for (const name of names.registers) if (!out.registers.includes(name)) out.registers.push(name)
+    for (const view of names.members) addMember(out.members, view)
   }
   return out
 }

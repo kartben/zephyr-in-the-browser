@@ -17,10 +17,19 @@ let gdbListeners: Array<() => void> = []
 let stopFilter: ((pc: string) => boolean) | null = null
 /** Hits the filter waved through without ever publishing a pause. */
 const swallowed: string[] = []
-/** The image, for the tests that need a line table; see `msgqLines`. */
+/** The image, for the tests that need a line table or DWARF; see `msgqLines`. */
 let kernelElf: Uint8Array | null = null
 /** Guest bytes a test has set; anything else reads as its address's low byte. */
 const memory = new Map<number, number>()
+/** How many times the store walked the DWARF for a struct layout. */
+const dwarf = vi.hoisted(() => ({ walks: 0 }))
+
+vi.mock('@/debug/dwarfMembers', () => ({
+  dwarfStructMembers: (_elf: Uint8Array, name: string) => {
+    dwarf.walks++
+    return name === 'k_msgq' ? { wait_q: 0, used_msgs: 0x20 } : {}
+  },
+}))
 
 const gdbSnapshot = () => ({
   attached: true,
@@ -53,6 +62,7 @@ vi.mock('@/hostGdb', () => ({
       ['led', { name: 'led', addr: 0x2000, size: 8 }],
       ['z_interrupt_stacks', { name: 'z_interrupt_stacks', addr: 0x2000_0000, size: 0x2000 }],
       ['alarms_lost', { name: 'alarms_lost', addr: 0x3000, size: 4 }],
+      ['readings', { name: 'readings', addr: 0x4400, size: 0x48 }],
     ]),
   }),
   setAttachHook: () => {},
@@ -200,6 +210,7 @@ beforeEach(async () => {
   revealed.length = 0
   swallowed.length = 0
   memory.clear()
+  dwarf.walks = 0
   stopFilter = null
   tourText.body = TOUR
   // A fresh id each time: the tour cache is keyed by it, deliberately.
@@ -771,6 +782,44 @@ describe('checks', () => {
     await loadChecked(LIFECYCLE)
     await stopAt(0x8000)
     expect(getSnapshot().current?.check).toBeNull()
+  })
+})
+
+describe('member views', () => {
+  afterEach(() => {
+    kernelElf = null
+  })
+
+  it('reads a struct member at the offset the build’s DWARF gives, walking it once per image', async () => {
+    kernelElf = new Uint8Array(1)
+    reset()
+    tourText.body = `---
+tour: Members
+sample: samples/kernel/msg_queue
+---
+
+## The queue
+
+\`\`\`tour
+at: 0x8000
+watch:
+  - used = k_msgq(readings).used_msgs as u32
+  - again = k_msgq(readings).used_msgs as u32
+  - nope = k_msgq(readings).nope as u32
+\`\`\`
+
+Prose.
+`
+    await loadFor(`tour-${url++}`)
+    await arm()
+    ;[7, 0, 0, 0].forEach((byte, i) => memory.set(0x4420 + i, byte))
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.values.map((v) => v.text)).toEqual([
+      '7',
+      '7',
+      'no member `nope` in `struct k_msgq`',
+    ])
+    expect(dwarf.walks).toBe(1)
   })
 })
 
