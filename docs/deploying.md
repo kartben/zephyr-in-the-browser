@@ -125,6 +125,11 @@ is only kept as a workflow artifact — that is also the mode to combine with a
 The workspace and SDK are cached between runs, so the first run is the slow
 one.
 
+Before publishing, a run resolves every tour's anchors against the images it
+has just built (`npm run tour:check`, strict on a full build; see
+[tours.md](tours.md#keeping-tours-honest)), so a tour that upstream broke stops
+the release instead of shipping with it. The Pages deploy runs the same check.
+
 ## Doing it by hand
 
 `release.sh` is a wrapper; the underlying steps still work on their own, which is

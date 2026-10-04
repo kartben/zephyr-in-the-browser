@@ -82,6 +82,28 @@ jobs:
           path: zephyr-in-the-browser/zephyr-images.tar.gz
           if-no-files-found: error
 
+      # Resolve every tour anchor against the images just built, before any of
+      # them is published: a tour whose pattern stopped matching upstream stops
+      # the release here, not in front of a learner. After the upload, so a
+      # failure still leaves the tarball to reproduce it with TOUR_IMAGES_DIR.
+      # Strict only for a full build; a board/app filter builds a subset, and
+      # the images it skipped are not missing, just not built.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: zephyr-in-the-browser/package-lock.json
+
+      - name: Install page dependencies
+        working-directory: zephyr-in-the-browser
+        run: npm ci
+
+      - name: Check the tours against the new images
+        working-directory: zephyr-in-the-browser
+        env:
+          TOUR_STRICT: ${{ inputs.board == 'all' && inputs.app == 'all' && '1' || '' }}
+        run: npm run tour:check
+
       - name: Publish release and repoint IMAGES_RELEASE
         if: inputs.publish
         working-directory: zephyr-in-the-browser
