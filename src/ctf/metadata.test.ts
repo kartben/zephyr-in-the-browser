@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { decodeFields, fallbackDefs, makeEventDef, parseMetadata } from './metadata'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { decodeFields, fallbackDefs, loadEventDefs, makeEventDef, parseMetadata } from './metadata'
 import { TraceReader } from './reader'
 import * as types from './types'
 
@@ -262,5 +262,58 @@ describe('the shipped metadata asset', () => {
     ]) {
       expect(names.has(name), name).toBe(false)
     }
+  })
+})
+
+describe('loadEventDefs', () => {
+  const TABLE = `
+event {
+	name = thread_switched_in;
+	id = 0x11;
+	fields := struct {
+		uint32_t thread_id;
+		ctf_bounded_string_t name[20];
+	};
+};
+`
+  const serve = (routes: Record<string, () => Response>) =>
+    vi.fn(async (url: string) => routes[url]?.() ?? new Response('', { status: 404 }))
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('takes the first table that parses', async () => {
+    const fetch = serve({
+      '/image.tsdl': () => new Response(TABLE),
+      '/tracing/metadata': () => new Response(''),
+    })
+    vi.stubGlobal('fetch', fetch)
+    const defs = await loadEventDefs(['/image.tsdl', '/tracing/metadata'])
+    expect([...defs.keys()]).toEqual([0x11])
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves past a missing table and past the index.html a dev server sends instead', async () => {
+    vi.stubGlobal(
+      'fetch',
+      serve({
+        '/spa.tsdl': () => new Response('<!doctype html><html><body></body></html>'),
+        '/tracing/metadata': () => new Response(TABLE),
+      }),
+    )
+    expect([...(await loadEventDefs(['/gone.tsdl', '/tracing/metadata'])).keys()]).toEqual([0x11])
+    expect([...(await loadEventDefs(['/spa.tsdl', '/tracing/metadata'])).keys()]).toEqual([0x11])
+  })
+
+  it('falls back to the built-in events when nothing can be fetched', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('offline')
+      }),
+    )
+    const defs = await loadEventDefs(['/image.tsdl', '/tracing/metadata'])
+    expect(defs.size).toBe(Object.keys(types.FALLBACK_EVENTS).length)
   })
 })

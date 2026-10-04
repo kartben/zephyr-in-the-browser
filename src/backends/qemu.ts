@@ -40,6 +40,7 @@ import {
   sampleAsset,
   sampleDtsAsset,
   sampleFlashAsset,
+  sampleTsdlAsset,
 } from '@/boards'
 import { JSPI_UNSUPPORTED_MESSAGE, supportsJspi } from './jspi'
 import type { PtyBackend, Slave, StartOptions } from './types'
@@ -404,8 +405,10 @@ export function createQemuBackend(): PtyBackend {
       else detachHostNet()
       if (board.peripherals?.hostInput) attachHostInput(instance)
       else detachHostInput()
-      if (board.peripherals?.hostTrace) attachHostTrace(instance)
-      else detachHostTrace()
+      // A dropped ELF brings no event table, so it decodes with the page's own.
+      if (board.peripherals?.hostTrace) {
+        attachHostTrace(instance, custom ? null : url(sampleTsdlAsset(board, sampleId)))
+      } else detachHostTrace()
       // Gated on the sample rather than the board: a disk is per-sample, since
       // only the sample that declares one has an image to follow.
       if (sample.blankFiles?.length) attachHostDisk(instance)
