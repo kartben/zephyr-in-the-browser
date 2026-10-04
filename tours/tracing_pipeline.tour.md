@@ -8,6 +8,21 @@ This sample is a small sensor application. Three sensor threads take readings
 at their own pace and hand them to an aggregator thread, which summarises them
 for two consumer threads. A storage thread shares a bus with the aggregator.
 
+```mermaid
+flowchart LR
+  temp([sensor_temp]) --> q[("sensor_q<br/><small>k_msgq</small>")]
+  press([sensor_press]) --> q
+  imu([sensor_imu]) --> q
+  q --> agg([aggregator])
+  agg --> cv{{"frame_cond<br/><small>k_condvar</small>"}}
+  cv --> c0([consumer0])
+  cv --> c1([consumer1])
+  agg --- bus[/"bus_mutex<br/><small>k_mutex</small>"/]
+  bus --- st([storage])
+  class temp,press,imu,q,agg focus
+  class cv,c0,c1,bus,st dim
+```
+
 This tour follows one reading from a sensor to the aggregator. The two threads
 never share a variable: a message queue carries the reading from one to the
 other.
@@ -24,25 +39,9 @@ objects:
   view: list
 ```
 
-This app is a small sensor pipeline. Three sensor threads take readings and
-pass them to an aggregator thread through `sensor_q`, a **message queue**.
-`K_MSGQ_DEFINE` set it up at build time: room for 16 messages of 12 bytes, one
+The readings travel through `sensor_q`, a **message queue**. `K_MSGQ_DEFINE`
+set it up at build time: room for 16 messages of 12 bytes, one
 `struct sensor_reading` each.
-
-```mermaid
-flowchart LR
-  temp([sensor_temp]) --> q[("sensor_q<br/><small>k_msgq</small>")]
-  press([sensor_press]) --> q
-  imu([sensor_imu]) --> q
-  q --> agg([aggregator])
-  agg --> cv{{"frame_cond<br/><small>k_condvar</small>"}}
-  cv --> c0([consumer0])
-  cv --> c1([consumer1])
-  agg --- bus[/"bus_mutex<br/><small>k_mutex</small>"/]
-  bus --- st([storage])
-  class temp,press,imu,q,agg focus
-  class cv,c0,c1,bus,st dim
-```
 
 The aggregator is about to call `k_msgq_get()`, and no sensor has run yet, so
 the queue is empty. With `K_FOREVER`, the call waits as long as it takes: the

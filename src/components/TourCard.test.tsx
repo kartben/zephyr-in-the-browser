@@ -146,6 +146,40 @@ describe('TourCard links', () => {
   })
 })
 
+describe('TourCard intro', () => {
+  const withIntro = parseTour(
+    [
+      '---\ntour: Sensor pipeline\nsample: samples/subsys/tracing/pipeline\n---\n',
+      'Three sensors feed an aggregator.\n',
+      '## Waits\n\n```tour\nat: main\n```\n\nFirst stop.\n',
+      '## Sends\n\n```tour\nat: main.c:42\n```\n\nSecond stop.\n',
+    ].join('\n'),
+  )
+  const cardOf = (index: number): TourCardState => ({ ...card(0), step: withIntro.steps[index]! })
+
+  it('opens the first card with the tour title and the text before step 1', () => {
+    const html = render({ doc: withIntro, current: cardOf(0), seen: new Set([0]) })
+    expect(html).toContain('data-tour-intro')
+    expect(html).toContain('Sensor pipeline')
+    expect(html).toContain('Three sensors feed an aggregator.')
+    expect(html.indexOf('Three sensors')).toBeLessThan(html.indexOf('First stop.'))
+  })
+
+  it('leaves it off the cards after', () => {
+    const html = render({ doc: withIntro, current: cardOf(1), seen: new Set([0, 1]) })
+    expect(html).not.toContain('data-tour-intro')
+  })
+
+  it('puts it on the step a `?step=` link entered at', () => {
+    const html = render({ doc: withIntro, current: cardOf(1), startIndex: 1, seen: new Set([1]) })
+    expect(html).toContain('Three sensors feed an aggregator.')
+  })
+
+  it('shows nothing extra for a tour with no intro', () => {
+    expect(render({ current: card(0), seen: new Set([0]) })).not.toContain('data-tour-intro')
+  })
+})
+
 describe('TourCard on a step read again', () => {
   const text = (html: string) => html.replace(/<[^>]+>/g, ' ')
 

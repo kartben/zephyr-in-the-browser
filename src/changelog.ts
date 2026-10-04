@@ -81,6 +81,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
+        "text": "Tours open with their intro; cards show only relevant threads."
+      },
+      {
+        "tag": "Improved",
         "text": "Device dock says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed."
       },
       {

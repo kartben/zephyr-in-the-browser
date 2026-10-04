@@ -60,6 +60,13 @@ The pin the source would not tell you is right there in the second argument
 register…
 ````
 
+The text between the front matter and the first `##` is the tour's
+**introduction**: what the sample does, and what this tour is about. It goes
+on the first card a reader sees, under the tour's title and above that step's
+own prose, so the step can start at its stop instead of setting the scene. That
+is step 1, or the step a [`?step=` link](#several-tours-per-sample-and-links-into-one)
+starts at.
+
 Dropping the file in is the whole wiring. Tours are picked up by an
 `import.meta.glob`, so the gallery badge, the loader and the tests all discover
 them from the directory — there is no list to keep in step. `npm run test`
@@ -660,11 +667,11 @@ tour's snippets can be tried on a bare checkout.
 
 ### Diagrams: ` ```mermaid `
 
-A fenced `mermaid` block in a step's prose is drawn as a diagram, where it
-stands in the prose. It is for the map a reader needs before the stops make
-sense: which threads there are, and which kernel objects connect them. What
-the guest is doing at a stop is better shown live, with `threads:`, `objects:`
-and Trace.
+A fenced `mermaid` block in a tour's prose, a step's or the introduction's, is
+drawn as a diagram, where it stands in the prose. It is for the map a reader
+needs before the stops make sense: which threads there are, and which kernel
+objects connect them. What the guest is doing at a stop is better shown live,
+with `threads:`, `objects:` and Trace.
 
 ````markdown
 Three sensors pass readings to the aggregator through `sensor_q`.
@@ -696,9 +703,11 @@ source, with Mermaid's error under it.
 GitHub draws the same block, so a tour read as an article there keeps its map,
 in Mermaid's default colours and without `focus` and `dim`.
 
-One map per tour is plenty, on the step that introduces the app: a card is
-narrow, and a diagram pushes the step's values further down. The sensor
-pipeline tours share one map and each picks out its own part of it.
+One map per tour is plenty, in the introduction: it is on the first card, a
+card is narrow, and a diagram in a later step pushes that step's values further
+down. The sensor pipeline tours share one map and each picks out its own part
+of it.
+
 ## The learner's turn (`await:` and `do:`)
 
 Some steps cannot be reached by pressing Continue. The guest only gets there
