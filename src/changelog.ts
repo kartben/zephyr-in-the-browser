@@ -37,7 +37,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Guided tours get their own gallery section, plus a Button tour."
+        "text": "Guided tours get their own gallery section, plus Button and message queue tours."
       },
       {
         "tag": "Added",
