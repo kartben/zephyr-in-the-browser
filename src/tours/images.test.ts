@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { BOARDS, boardAssetDir, type Board, type GuestSample } from '@/boards'
 import { buildLineIndex } from '@/debug/dwarfLines'
@@ -72,14 +72,18 @@ function tourDoc(tour: string): TourDoc {
 }
 
 /**
- * The sample's shipped sources by lowercase basename, split as the page splits
- * them, or null when the image ships none.
+ * The sample's shipped sources by lowercase path under `src/<app>/`, split as
+ * the page splits them, or null when the image ships none. A tour's `sources:`
+ * ship beside the sample's own files under `zephyr/<path>`, so this walks down;
+ * `index.json` is the build's list of them, not a source.
  */
 function readSources(dir: string): Map<string, string[]> | null {
   if (!existsSync(dir)) return null
   const out = new Map<string, string[]>()
-  for (const name of readdirSync(dir)) {
-    out.set(name.toLowerCase(), readFileSync(join(dir, name), 'utf8').split('\n'))
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || entry.name === 'index.json') continue
+    const path = join(entry.parentPath, entry.name)
+    out.set(relative(dir, path).split(sep).join('/').toLowerCase(), readFileSync(path, 'utf8').split('\n'))
   }
   return out
 }

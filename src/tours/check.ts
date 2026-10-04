@@ -35,9 +35,10 @@ export interface CheckContext {
   lines: LineIndex | null
   arch: GdbArch | null
   /**
-   * The sample's shipped sources by lowercase basename, split into lines, or
-   * null when the image ships none at all: a tarball built before the tour
-   * existed, whose pattern anchors fall back to line numbers by design.
+   * The sample's shipped sources by their lowercase path under `src/<app>/`
+   * (`main.c`, `zephyr/kernel/msg_q.c` for a tour's `sources:`), split into
+   * lines, or null when the image ships none at all: a tarball built before the
+   * tour existed, whose pattern anchors fall back to line numbers by design.
    */
   sources: Map<string, string[]> | null
   /** The image's flattened devicetree, for `dts:`, or null when it has none. */
@@ -280,7 +281,7 @@ function checkHighlights(step: TourStep, anchor: ResolvedAnchor, ctx: CheckConte
     return
   }
   const name = baseName(anchor.file)
-  const text = ctx.sources.get(name.toLowerCase())
+  const text = shippedText(ctx.sources, anchor.file)
   if (!text) {
     check.add(
       'fail',
@@ -404,6 +405,23 @@ function where(anchor: ResolvedAnchor): string {
 
 function baseName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
+}
+
+/**
+ * The shipped copy of the file a stop landed in. DWARF names it by the path on
+ * whatever machine built the image, so the shipped path that is the longest
+ * tail of it wins, the same rule the page uses (src/tours/sources.ts):
+ * `/workdir/zephyr/kernel/msg_q.c` finds `zephyr/kernel/msg_q.c`, and a
+ * sample's `main.c` is found at the top.
+ */
+function shippedText(sources: Map<string, string[]>, file: string): string[] | undefined {
+  const path = file.toLowerCase()
+  let best: { length: number; lines: string[] } | undefined
+  for (const [shipped, lines] of sources) {
+    if (path !== shipped && !path.endsWith(`/${shipped}`)) continue
+    if (!best || shipped.length > best.length) best = { length: shipped.length, lines }
+  }
+  return best?.lines
 }
 
 function hex(addr: number): string {
