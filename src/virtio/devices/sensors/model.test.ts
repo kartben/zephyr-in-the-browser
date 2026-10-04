@@ -215,6 +215,51 @@ describe('ADXL345', () => {
     expect(decodeAxis(d[4], d[5])).toBeCloseTo(G, 1)
   })
 
+  /** Decode one axis the way adi,adxl345 does at its default ±8 g, 10-bit. */
+  function decodeAsDriver(lo: number, hi: number): number {
+    let sample = (hi << 8) | lo
+    if (sample & (1 << 9)) sample |= 0xfc00
+    const signed = (sample << 16) >> 16
+    return (signed * Math.trunc(9806650 / 64)) / 1e6
+  }
+
+  function readXyz(chip: SensorChip): number[] {
+    chip.write(Uint8Array.of(0x32))
+    return Array.from(chip.read(6))
+  }
+
+  it('encodes at the range the driver writes to DATA_FORMAT', () => {
+    const chip = createAdxl345()
+    // adxl345_init: devicetree range (default ±8 g) into DATA_FORMAT, FULL_RES clear.
+    chip.write(Uint8Array.of(0x31, 0x02))
+    chip.setChannel('accel_x', 1.5)
+    chip.setChannel('accel_y', -35)
+    chip.setChannel('accel_z', G)
+    const d = readXyz(chip)
+    // 64 LSB/g: one count is ~0.153 m/s².
+    expect(Math.abs(decodeAsDriver(d[0], d[1]) - 1.5)).toBeLessThan(0.08)
+    expect(Math.abs(decodeAsDriver(d[2], d[3]) + 35)).toBeLessThan(0.08)
+    expect(Math.abs(decodeAsDriver(d[4], d[5]) - G)).toBeLessThan(0.08)
+  })
+
+  it('saturates at the end of the selected range', () => {
+    const chip = createAdxl345()
+    chip.write(Uint8Array.of(0x31, 0x02))
+    chip.setChannel('accel_x', 200)
+    chip.setChannel('accel_y', -200)
+    const d = readXyz(chip)
+    expect(((d[1] << 8) | d[0]) << 16 >> 16).toBe(511)
+    expect(((d[3] << 8) | d[2]) << 16 >> 16).toBe(-512)
+  })
+
+  it('keeps 256 LSB/g in full-resolution mode and widens the field', () => {
+    const chip = createAdxl345()
+    chip.write(Uint8Array.of(0x31, 0x0b)) // FULL_RES, ±16 g
+    chip.setChannel('accel_x', 50)
+    const d = readXyz(chip)
+    expect(decodeAxis(d[0], d[1])).toBeCloseTo(50, 1)
+  })
+
   it('declares a browser tilt source on every axis', () => {
     const chip = createAdxl345()
     expect(chip.decl.channels.map((c) => c.source)).toEqual([

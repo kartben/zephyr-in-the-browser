@@ -122,6 +122,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "Trace queue depth no longer counts hand-offs to waiting threads."
+      },
+      {
+        "tag": "Fixed",
+        "text": "The guest reads the ADXL345 at its real scale, not four times too high."
       }
     ]
   },

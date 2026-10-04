@@ -10,32 +10,41 @@
  * Register model, matching the datasheet and Zephyr's stock `adi,adxl345`:
  *
  * - DEVID (0x00) is a fixed 0xE5 the driver reads to confirm the part.
- * - POWER_CTL (0x2D) and DATA_FORMAT (0x31) are written by the driver at init;
- *   we store them so a read-back matches, but they do not change the encoding.
- * - Each axis is a 16-bit little-endian signed count at 0x32/0x34/0x36. The
- *   sensitivity is the ADXL345's fixed full-resolution 256 LSB/g.
- *
- * Caveat: the exact sensitivity/format is a driver contract, and this models the
- * canonical 256 LSB/g full-resolution behaviour. A rebuilt guest image is what
- * confirms `adi,adxl345` reads it as expected; the unit test here only pins the
- * page-side round trip.
+ * - POWER_CTL (0x2D) is stored so a read-back matches.
+ * - DATA_FORMAT (0x31) sets the encoding, as on the part. The driver writes its
+ *   devicetree `range` there at init (default ±8 g) and leaves FULL_RES clear,
+ *   then decodes at that range's 10-bit scale: 64 LSB/g at ±8 g. FULL_RES
+ *   would keep 256 LSB/g at any range and widen the field instead.
+ * - Each axis is a 16-bit little-endian signed count at 0x32/0x34/0x36,
+ *   right-justified and sign-extended, saturating at the end of the range.
  */
 
 import adxl345Map from './maps/adxl345.json'
 import { registersFromJson, type RegisterMapJson } from '../registers'
-import { createSensorChip, type SensorChip, type SensorDecl } from './model'
+import { STANDARD_GRAVITY as G } from './helpers'
+import { createSensorChip, type CodecCtx, type SensorChip, type SensorDecl } from './model'
 
+const REG_DATA_FORMAT = 0x31
 const REG_DATAX = 0x32
 const REG_DATAY = 0x34
 const REG_DATAZ = 0x36
 
-/** Full-resolution sensitivity: 256 LSB per g. */
+const FULL_RES = 1 << 3
+/** Sensitivity at ±2 g, and in full-resolution mode at any range. */
 const LSB_PER_G = 256
-const G = 9.80665
 
-/** m/s² -> a signed 16-bit little-endian count, clamped to the 13-bit field. */
-function encodeAxis(ms2: number): number {
-  const counts = Math.min(4095, Math.max(-4096, Math.round((ms2 / G) * LSB_PER_G)))
+/**
+ * m/s² -> the signed count DATA_FORMAT asks for. 10-bit mode scales with the
+ * range (256 LSB/g at ±2 g down to 32 at ±16 g) and holds -512..511;
+ * FULL_RES keeps 256 LSB/g and grows the field by a bit per range step.
+ */
+function encodeAxis(ms2: number, ctx: CodecCtx): number {
+  const format = ctx.reg(REG_DATA_FORMAT)
+  const range = format & 0x03
+  const fullRes = (format & FULL_RES) !== 0
+  const lsbPerG = fullRes ? LSB_PER_G : LSB_PER_G >> range
+  const limit = fullRes ? 512 << range : 512
+  const counts = Math.min(limit - 1, Math.max(-limit, Math.round((ms2 / G) * lsbPerG)))
   return counts & 0xffff
 }
 
