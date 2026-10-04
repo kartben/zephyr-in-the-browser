@@ -114,7 +114,7 @@ describe('queueFlowEvents', () => {
         // The put finishes before ISR exit in record order, but both records
         // have the same clock value.
         ...record(240, 0x8c, [...encU32(q), ...encU32(0), ...encI32(0)]),
-        ...record(240, 0x143, [...encU32(stack), ...encI32(0)]),
+        ...record(240, 0x142, [...encU32(stack), ...encI32(0)]),
         ...record(240, 0x1c, []),
         // A later record at that same clock value is back in thread context.
         ...record(240, 0x8a, [...encU32(q), ...encU32(0)]),
@@ -272,7 +272,7 @@ describe('queueFlowEvents', () => {
         ...record(100, 0x11, [...encU32(main), ...encName('main')]),
         ...record(150, 0x10, [...encU32(main), ...encName('main')]),
         ...record(150, 0x11, [...encU32(worker), ...encName('worker')]),
-        ...record(200, 0x128, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
+        ...record(200, 0x127, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
       ]),
     )
     const flow = queueFlowEvents(reader.tr)
@@ -293,7 +293,7 @@ describe('queueFlowEvents', () => {
         ...record(100, 0x11, [...encU32(main), ...encName('main')]),
         // Dropped switched_out — only switched_in for rx, then put.
         ...record(200, 0x11, [...encU32(rx), ...encName('rx_q')]),
-        ...record(250, 0x128, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
+        ...record(250, 0x127, [...encU32(q), ...encU32(0x40)]), // fifo_put_exit
       ]),
     )
     const flow = queueFlowEvents(reader.tr)
@@ -339,9 +339,9 @@ describe('queueFlowEvents', () => {
       Uint8Array.from([
         ...record(0, 0x13, [...encU32(thr), ...encName('producer')]),
         ...record(100, 0x11, [...encU32(thr), ...encName('producer')]),
-        ...record(200, 0x138, [...encU32(q), ...encU32(1)]), // lifo_put_exit
+        ...record(200, 0x137, [...encU32(q), ...encU32(1)]), // lifo_put_exit
         ...record(210, 0x110, [...encU32(q)]), // nested queue_prepend_exit
-        ...record(300, 0x13c, [...encU32(q), ...encU32(0), ...encU32(0x55)]), // lifo_get
+        ...record(300, 0x13b, [...encU32(q), ...encU32(0), ...encU32(0x55)]), // lifo_get
       ]),
     )
     const flow = queueFlowEvents(reader.tr)
@@ -359,9 +359,9 @@ describe('queueFlowEvents', () => {
       Uint8Array.from([
         ...record(0, 0x13, [...encU32(thr), ...encName('blink')]),
         ...record(100, 0x11, [...encU32(thr), ...encName('blink')]),
-        ...record(200, 0x128, [...encU32(q), ...encU32(1)]),
+        ...record(200, 0x127, [...encU32(q), ...encU32(1)]),
         ...record(205, 0x10c, [...encU32(q)]),
-        ...record(300, 0x130, [...encU32(q), ...encU32(0), ...encU32(0x10)]),
+        ...record(300, 0x12f, [...encU32(q), ...encU32(0), ...encU32(0x10)]),
       ]),
     )
     const flow = queueFlowEvents(reader.tr)

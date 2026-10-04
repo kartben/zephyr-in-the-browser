@@ -7,6 +7,7 @@ import {
   ISR_ENTER,
   ISR_EXIT,
   ISR_EXIT_TO_SCHEDULER,
+  PM_STATE_SET_ENTER,
   THREAD_INFO,
   THREAD_PRIO_SET,
   THREAD_SCHED_PRIO_SET,
@@ -150,6 +151,14 @@ export class TraceReader {
   private running: number | null = null
   private provisional: number[] = []
   private pm = new CpuPowerTracker(this.tr.cpuPower)
+  /**
+   * Whether this guest emits the events the CPU power band is built on. Upstream
+   * Zephyr traces `pm_system_suspend_*` but not `pm_state_set_*`, and on its own
+   * the suspend exit reports every successful suspend as ACTIVE (pm.c clears the
+   * state before tracing it), so the Power tab would read every suspend as
+   * declined. Such a guest gets no power data rather than wrong data.
+   */
+  private readonly power: boolean
 
   /**
    * @param live - the byte source can start mid-record (desktop bridge, probe).
@@ -159,6 +168,7 @@ export class TraceReader {
     this.defs = defs
     this.hasTs = hasTs
     this.synced = !live || !hasTs
+    this.power = [...defs.values()].some((def) => def.name === PM_STATE_SET_ENTER)
   }
 
   /**
@@ -371,7 +381,8 @@ export class TraceReader {
       }
     }
 
-    this.pm.event(ts, eid, fields)
+    // By name: Zephyr renumbers trace events, and its ids for these have moved.
+    if (this.power) this.pm.event(ts, name, fields)
 
     this.stateMachine(ts, name, fields, tid)
   }

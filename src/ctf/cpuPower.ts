@@ -1,8 +1,8 @@
 /**
  * CPU power state over time, reconstructed from the PM CTF events.
  *
- * The spine is `pm_state_set_enter` / `pm_state_set_exit` (0x149 / 0x14A) and
- * nothing else. Those two bracket the SoC code that parks the CPU with no
+ * The spine is `pm_state_set_enter` / `pm_state_set_exit` and nothing else.
+ * Those two bracket the SoC code that parks the CPU with no
  * statements in between, so the timestamp delta *is* the residency — the guest
  * never measures or reports it, and the kernel's own CONFIG_PM_STATS is both
  * coarser (it collapses substates) and wrong on the IRQ-unlocked resume path.
@@ -209,8 +209,9 @@ export class CpuPowerTracker {
     this.open = out.open
   }
 
-  event(ts: number, eid: number, fields: Record<string, string | number>): void {
-    switch (eid) {
+  /** One decoded event, by its metadata name; any other name is ignored. */
+  event(ts: number, name: string, fields: Record<string, string | number>): void {
+    switch (name) {
       case PM_STATE_SET_ENTER:
         this.stateEnter(ts, fields)
         break

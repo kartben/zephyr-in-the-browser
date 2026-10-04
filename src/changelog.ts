@@ -134,6 +134,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "The guest reads the ADXL345 at its real scale, not four times too high."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Trace no longer jumps ahead in time, drops events or shows phantom queues."
       }
     ]
   },

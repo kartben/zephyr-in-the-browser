@@ -141,14 +141,22 @@ export function parseMetadata(text: string): Map<number, EventDef> {
   return defs
 }
 
-export async function loadEventDefs(metadataUrl: string): Promise<Map<number, EventDef>> {
-  try {
-    const res = await fetch(metadataUrl)
-    if (!res.ok) return fallbackDefs()
-    const text = await res.text()
-    const defs = parseMetadata(text)
-    return defs.size > 0 ? defs : fallbackDefs()
-  } catch {
-    return fallbackDefs()
+/**
+ * The event layouts from the first of `urls` that serves TSDL, else the built-in
+ * fallback. A missing file is not always a 404: a dev server can answer with
+ * the app's own index.html, which parses to no events, so that counts as
+ * missing too.
+ */
+export async function loadEventDefs(urls: readonly string[]): Promise<Map<number, EventDef>> {
+  for (const url of urls) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const defs = parseMetadata(await res.text())
+      if (defs.size > 0) return defs
+    } catch {
+      /* try the next one */
+    }
   }
+  return fallbackDefs()
 }

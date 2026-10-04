@@ -38,6 +38,18 @@ is the one place every device PM transition passes through:
 | `0x14B`–`0x154` | `pm_device_runtime_*` | `u32 dev`, `i32 ret` |
 | `0x155` / `0x156` | `pm_device_action_run_enter` / `_exit` | `u32 dev; u8 action` / `+ i32 ret` |
 
+**Upstream Zephyr took a different shape.** Its main branch, which the packaged
+images are built from, traces `pm_device_runtime_*` and `pm_system_suspend_*` at
+`0x176`–`0x181`, and has no `pm_state_set_*` or `pm_device_action_run_*` events;
+`0x147`–`0x156` are heap events there. So the page reads these events by name,
+at whatever ids the guest's metadata gives them, and only from a guest whose
+metadata declares `pm_state_set_enter`. Without that spine there is no band to
+draw, and the suspend events alone would mislead: upstream's
+`pm_system_suspend_exit` reports ACTIVE after a real suspend (see
+[Two things not to trust](#two-things-not-to-trust)), so every decision would
+read as declined. Images built from upstream main show no power data until
+Zephyr traces `pm_state_set`.
+
 ### Why there are no hooks around the walk itself
 
 A first cut also bracketed `pm_suspend_devices()` and `pm_resume_devices()`, four

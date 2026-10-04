@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { decodeFields, fallbackDefs, makeEventDef, parseMetadata } from './metadata'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { decodeFields, fallbackDefs, loadEventDefs, makeEventDef, parseMetadata } from './metadata'
 import { TraceReader } from './reader'
 import { FALLBACK_EVENTS } from './types'
 
@@ -28,6 +28,31 @@ function encStr(s: string, width: number): number[] {
 
 function record(ts: number, eid: number, body: number[]): Uint8Array {
   return Uint8Array.from([...encU64(ts), ...encU16(eid), ...body])
+}
+
+/**
+ * The built-in events plus the two the CPU power band needs and upstream Zephyr
+ * does not trace, at the ids the guest the band was built against declares.
+ */
+function bandDefs() {
+  const defs = fallbackDefs()
+  defs.set(
+    0x149,
+    makeEventDef(0x149, 'pm_state_set_enter', [
+      ['cpu', 'uint8_t'],
+      ['state', 'uint8_t'],
+      ['substate_id', 'uint8_t'],
+    ]),
+  )
+  defs.set(
+    0x156,
+    makeEventDef(0x156, 'pm_device_action_run_exit', [
+      ['dev', 'uint32_t'],
+      ['action', 'uint8_t'],
+      ['ret', 'int32_t'],
+    ]),
+  )
+  return defs
 }
 
 describe('parseMetadata bounded strings', () => {
@@ -130,7 +155,7 @@ describe('address[46] decode does not desync following events', () => {
       ...record(2000, 0x156, [...encU32(0x4001_0a80), 0, ...encU32(0xffff_ffa8)]),
       ...record(3000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
-    const reader = new TraceReader(fallbackDefs())
+    const reader = new TraceReader(bandDefs())
     expect(reader.feed(bytes)).toBe(3)
     expect(reader.desync).toBe(false)
     expect(reader.tr.events[0]?.name).toBe('pm_state_set_enter')
@@ -150,10 +175,8 @@ describe('address[46] decode does not desync following events', () => {
       ...record(3000, 0x10, [...encU32(0x1000), ...encStr('main', 20)]),
       ...record(4000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
-    // fallbackDefs() minus the PM entries — what shipped before this landed.
-    const stale = fallbackDefs()
-    stale.delete(0x149)
-    const reader = new TraceReader(stale)
+    // The built-in events do not declare 0x149, like defs older than the guest.
+    const reader = new TraceReader(fallbackDefs())
     // The PM record itself is unrecoverable (no size to skip it by), but the
     // reader slides forward byte by byte and lands back on the real header of
     // the thread switch that follows it — those events still decode. Nothing
@@ -191,12 +214,14 @@ describe('address[46] decode does not desync following events', () => {
 
 /*
  * public/tracing/metadata is a verbatim copy of Zephyr's
- * subsys/tracing/ctf/tsdl/metadata, and it is the file the running page fetches.
- * When Zephyr gains events and this copy is not refreshed, the reader desyncs on
- * the first new record and the entire Trace panel stops — so "did someone forget
- * to re-copy it" is worth failing a build over rather than discovering live.
- * FALLBACK_EVENTS matters for the same reason: it is what decodes the stream
- * until the fetch resolves.
+ * subsys/tracing/ctf/tsdl/metadata, the fallback for image releases that do not
+ * ship their own (tools/build-zephyr-image.sh). When it is older than the guest,
+ * the reader meets ids it cannot size, slides through them a byte at a time, and
+ * now and then resyncs on a false boundary whose bogus timestamp then shifts
+ * every later event. The images emit such events for every printed character
+ * and every sleep, so "did someone copy an old file" is worth failing a build
+ * over. FALLBACK_EVENTS matters for the same reason: it is what decodes the
+ * stream when no metadata loads.
  */
 describe('the shipped metadata asset', () => {
   const defs = parseMetadata(
@@ -219,17 +244,16 @@ describe('the shipped metadata asset', () => {
     }
   })
 
-  it('covers the power-management events, at the sizes the guest emits', () => {
+  it('declares the events the current images emit between scheduler events', () => {
     // Sizes are the packed body only, no header: CTF_EVENT memcpys fields
     // back-to-back with align = 8 throughout, so there is no padding.
     const expected: Array<[number, string, number]> = [
-      [0x147, 'pm_system_suspend_enter', 4],
-      [0x148, 'pm_system_suspend_exit', 5],
-      [0x149, 'pm_state_set_enter', 3],
-      [0x14a, 'pm_state_set_exit', 3],
-      [0x14b, 'pm_device_runtime_get_enter', 4],
-      [0x155, 'pm_device_action_run_enter', 5],
-      [0x156, 'pm_device_action_run_exit', 9],
+      [0x180, 'pm_system_suspend_enter', 4],
+      [0x181, 'pm_system_suspend_exit', 5],
+      [0x182, 'syscall_enter', 24],
+      [0x183, 'syscall_exit', 4],
+      [0x184, 'thread_sleep_ticks_enter', 4],
+      [0x185, 'thread_sleep_ticks_exit', 8],
     ]
     for (const [eid, name, size] of expected) {
       const def = defs.get(eid)
@@ -238,10 +262,91 @@ describe('the shipped metadata asset', () => {
     }
   })
 
-  it('identifies the cpu/state/substate tuple the power band keys on', () => {
-    // Field order is load-bearing: decodeFields is byte-exact, and all three
-    // are uint8_t, so a transposition would decode silently and wrongly.
-    expect(defs.get(0x149)?.fields.map((f) => f.name)).toEqual(['cpu', 'state', 'substate_id'])
-    expect(defs.get(0x14a)?.fields.map((f) => f.name)).toEqual(['cpu', 'state', 'substate_id'])
+  it('decodes a printed character and a sleep without losing its place', () => {
+    // What tracing_pipeline's storage thread writes around one console
+    // character and a k_msleep(), numbered as its v4.5.0-rc1 image numbers them.
+    const storage = 0x4001_c000
+    const bytes = Uint8Array.from([
+      ...record(5_980_000_000, 0x11, [...encU32(storage), ...encStr('storage', 20)]),
+      ...record(5_980_100_000, 0x182, [...encU32(0x82), ...encStr('uart_poll_out', 20)]),
+      ...record(5_980_200_000, 0x183, [...encU32(0x82)]),
+      ...record(5_989_000_000, 0x184, [...encU32(10_000)]),
+      ...record(5_989_100_000, 0x10, [...encU32(storage), ...encStr('storage', 20)]),
+      ...record(6_000_000_000, 0x185, [...encU32(10_000), ...encU32(0)]),
+      ...record(6_000_100_000, 0x11, [...encU32(storage), ...encStr('storage', 20)]),
+    ])
+    const reader = new TraceReader(defs)
+    expect(reader.feed(bytes)).toBe(7)
+    expect(reader.desync).toBe(false)
+    expect(reader.tr.events.map((e) => e.name)).toEqual([
+      'thread_switched_in',
+      'syscall_enter',
+      'syscall_exit',
+      'thread_sleep_ticks_enter',
+      'thread_switched_out',
+      'thread_sleep_ticks_exit',
+      'thread_switched_in',
+    ])
+    expect(reader.tr.events[1]?.fields.name).toBe('uart_poll_out')
+    expect(reader.tr.t1).toBe(6_000_100_000)
+  })
+})
+
+describe('loadEventDefs', () => {
+  const tsdl = `
+event {
+	name = thread_switched_in;
+	id = 0x11;
+	fields := struct {
+		uint32_t thread_id;
+		ctf_bounded_string_t name[20];
+	};
+};
+`
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** Answers fetch() from a table; anything not in it is a 404. */
+  function serve(answers: Record<string, () => Response>) {
+    const fetch = vi.fn(async (url: string) => {
+      const answer = answers[url]
+      return answer ? answer() : new Response('', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetch)
+    return fetch
+  }
+
+  it('reads the first URL that serves TSDL', async () => {
+    const fetch = serve({ '/b': () => new Response(tsdl) })
+    const defs = await loadEventDefs(['/a', '/b'])
+    expect(defs.get(0x11)?.name).toBe('thread_switched_in')
+    expect(defs.size).toBe(1)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops at the first one', async () => {
+    const fetch = serve({ '/a': () => new Response(tsdl), '/b': () => new Response(tsdl) })
+    await loadEventDefs(['/a', '/b'])
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes over a page served in place of a missing file', async () => {
+    // A dev server's SPA fallback answers 200 with the app's index.html.
+    serve({
+      '/a': () => new Response('<!doctype html><html><body></body></html>'),
+      '/b': () => new Response(tsdl),
+    })
+    expect((await loadEventDefs(['/a', '/b'])).size).toBe(1)
+  })
+
+  it('falls back to the built-in events when none serves any', async () => {
+    serve({
+      '/a': () => {
+        throw new TypeError('Failed to fetch')
+      },
+    })
+    const defs = await loadEventDefs(['/a', '/b'])
+    expect([...defs.keys()]).toEqual([...fallbackDefs().keys()])
   })
 })

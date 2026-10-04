@@ -71,6 +71,8 @@ public/qemu/
     qemu_riscv32/
       hello_world.elf
       ...                     # same virtio-backed set as A53, minus tracing
+    tracing/
+      metadata                CTF event layouts of the Zephyr that built them
 ```
 
 Each image may carry a `<app>.dts` sibling — the flattened devicetree its build
@@ -78,6 +80,12 @@ used, copied verbatim by `tools/build-zephyr-image.sh`. The app parses it to
 ground the peripheral panels (which chips have drivers, which pins are wired)
 and to show the tree in the devicetree viewer. It is optional: an image without
 one boots identically, with the UI falling back to its static tables.
+
+`tracing/metadata` is Zephyr's `subsys/tracing/ctf/tsdl/metadata` from the same
+workspace, also copied by `tools/build-zephyr-image.sh`. The Trace panel decodes
+the guests' CTF with it: Zephyr adds and renumbers trace events, and only the
+copy from the Zephyr that built the images is sure to match them. Image releases
+from before it shipped fall back to the page's own `public/tracing/metadata`.
 
 Emscripten names each generated JS loader after its binary. The selected board
 loads that matching JS/Wasm pair, and the app's `locateFile` hook prefixes its

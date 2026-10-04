@@ -217,6 +217,63 @@ describe('TraceReader', () => {
   })
 })
 
+describe('CPU power events', () => {
+  const stateSet = (eid: number, name: string) =>
+    makeEventDef(eid, name, [
+      ['cpu', 'uint8_t'],
+      ['state', 'uint8_t'],
+      ['substate_id', 'uint8_t'],
+    ])
+  const STANDBY = 3
+
+  it('reads them by name, at whatever ids the guest metadata gives them', () => {
+    const defs = fallbackDefs()
+    defs.set(0x1f0, stateSet(0x1f0, 'pm_state_set_enter'))
+    defs.set(0x1f1, stateSet(0x1f1, 'pm_state_set_exit'))
+    const reader = new TraceReader(defs)
+    reader.feed(
+      Uint8Array.from([
+        ...record(1000, 0x1f0, [0, STANDBY, 0]),
+        ...record(5000, 0x1f1, [0, STANDBY, 0]),
+        ...record(6000, 0x11, [...encU32(0x1000), ...encName('main')]),
+      ]),
+    )
+    expect(reader.tr.cpuPower.segs.get(0)).toEqual([[1000, 5000, STANDBY, 0]])
+  })
+
+  it('ignores them from a guest that does not trace pm_state_set', () => {
+    // Upstream Zephyr's numbering: system suspend at 0x180/0x181, and a heap
+    // event at 0x149, where the guest the band was built against had
+    // pm_state_set_enter. Its suspend exit reports ACTIVE after a real suspend.
+    const defs = fallbackDefs()
+    defs.set(
+      0x149,
+      makeEventDef(0x149, 'heap_aligned_alloc_exit', [
+        ['h', 'uint32_t'],
+        ['timeout', 'uint32_t'],
+        ['ret', 'uint32_t'],
+      ]),
+    )
+    const reader = new TraceReader(defs)
+    reader.feed(
+      Uint8Array.from([
+        ...record(1000, 0x180, [...encU32(110)]),
+        ...record(1100, 0x149, [...encU32(0x4000_1000), ...encU32(0), ...encU32(0x4000_2000)]),
+        ...record(5000, 0x181, [...encU32(110), 0]),
+        ...record(6000, 0x11, [...encU32(0x1000), ...encName('main')]),
+      ]),
+    )
+    expect(reader.tr.events.map((e) => e.name)).toEqual([
+      'pm_system_suspend_enter',
+      'heap_aligned_alloc_exit',
+      'pm_system_suspend_exit',
+      'thread_switched_in',
+    ])
+    expect(reader.tr.cpuPower.decisions).toEqual([])
+    expect(reader.tr.cpuPower.segs.size).toBe(0)
+  })
+})
+
 describe('time-axis helpers', () => {
   it('fmtTime picks ns / µs / ms / s like the Python viewer', () => {
     expect(fmtTime(500)).toBe('500ns')

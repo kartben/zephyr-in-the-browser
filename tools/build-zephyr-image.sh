@@ -436,6 +436,13 @@ run_pool() {
 
 run_pool
 
+# The CTF event layouts of the Zephyr that built these images, for the Trace
+# panel (src/hostTrace.ts reads this copy first). Zephyr adds and renumbers
+# trace events, and these images follow its main branch, so the copy bundled
+# with the page drifts from what a new image emits; this one cannot.
+mkdir -p "$ROOT/public/qemu/zephyr/tracing"
+cp "$ZEPHYR_WS/zephyr/subsys/tracing/ctf/tsdl/metadata" "$ROOT/public/qemu/zephyr/tracing/metadata"
+
 log "Done"
 for board_dir in $(echo "$SELECTED" | cut -d: -f1 | tr '/' '_' | sort -u); do
   echo "  public/qemu/zephyr/$board_dir/"

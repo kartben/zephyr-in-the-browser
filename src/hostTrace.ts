@@ -15,7 +15,17 @@ import { fallbackDefs, loadEventDefs, TraceReader, type Trace } from '@/ctf'
 import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
 const TRACE_PATHS = ['./tracing.bin', '/tracing.bin', 'tracing.bin']
-const METADATA_URL = `${import.meta.env.BASE_URL}tracing/metadata`
+/**
+ * CTF event layouts, the images' own copy first. tools/build-zephyr-image.sh
+ * ships the metadata of the Zephyr that built the images beside them, and only
+ * that copy is sure to match: the images follow Zephyr's main branch, and Zephyr
+ * adds and renumbers trace events. The page's copy covers image releases from
+ * before it was shipped, and the desktop bridge.
+ */
+const METADATA_URLS = [
+  `${import.meta.env.BASE_URL}qemu/zephyr/tracing/metadata`,
+  `${import.meta.env.BASE_URL}tracing/metadata`,
+]
 const POLL_ID = 'trace'
 const POLL_MS = 250
 /** Queue synoptics opt into this cadence only while their tab is mounted. */
@@ -211,7 +221,7 @@ function readNewBytes(fs: EmscriptenFS, filePath: string): Uint8Array | null {
 
 async function ensureDefs() {
   if (!defsReady) {
-    defsReady = loadEventDefs(METADATA_URL).then((d) => {
+    defsReady = loadEventDefs(METADATA_URLS).then((d) => {
       defs = d
     })
   }
