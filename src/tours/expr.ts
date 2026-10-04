@@ -20,6 +20,12 @@
  * 64-bit guest, and the same tour runs on all three boards, so the unit that
  * makes an offset portable has to exist in the language.
  *
+ * Counting pointers stops working past the first field whose size is not one,
+ * and Kconfig moves fields about as well. For those there is the member view,
+ * `k_msgq(readings).used_msgs`: the address of a member of the struct at an
+ * address, with the offset looked up in the DWARF the build already carries.
+ * It is the one form that reads type information, and only an offset.
+ *
  * Pure and DOM-free: the target is an interface, so the evaluator is testable
  * without a debugger and reusable by the demo target the mock backend runs.
  */
@@ -36,6 +42,18 @@ export interface TourTarget {
   read(addr: number, length: number): Promise<Uint8Array | null>
   /** `function+0x1c` or `object+0x10` for an address, when symbols allow. */
   label(addr: number): string | null
+  /**
+   * Byte offset of `member` in `struct name`, from the build's DWARF, or null
+   * when the build does not describe one. Optional: without it, a member view
+   * says it cannot be read rather than guessing.
+   */
+  member?(struct: string, member: string): number | null
+}
+
+/** One `struct(expr).member` view in an expression. */
+export interface MemberView {
+  struct: string
+  member: string
 }
 
 export interface EvalResult {
@@ -61,7 +79,7 @@ export interface EvalResult {
 
 type Token =
   | { kind: 'num'; value: number; pointerScaled?: boolean }
-  | { kind: 'sym' | 'reg' | 'op'; text: string }
+  | { kind: 'sym' | 'reg' | 'op' | 'member'; text: string }
 
 function tokenize(src: string): Token[] | null {
   const tokens: Token[] = []
@@ -75,6 +93,15 @@ function tokenize(src: string): Token[] | null {
     if ('*+-()'.includes(c)) {
       tokens.push({ kind: 'op', text: c })
       i++
+      continue
+    }
+    if (c === '.') {
+      // `.used_msgs` after a member view's `)`. A dot inside a symbol name
+      // (`buf.0`, a compiler-made static) is part of the symbol, below.
+      const m = /^\.([A-Za-z_][A-Za-z0-9_]*)/.exec(src.slice(i))
+      if (!m) return null
+      tokens.push({ kind: 'member', text: m[1]! })
+      i += m[0].length
       continue
     }
     if (c === '$') {
@@ -111,6 +138,7 @@ type Expr =
   | { kind: 'sym' | 'reg'; name: string }
   | { kind: 'load'; addr: Expr }
   | { kind: 'add' | 'sub'; lhs: Expr; rhs: Expr }
+  | { kind: 'member'; struct: string; base: Expr; member: string }
 
 /**
  * Recursive descent over the tokens. The whole grammar:
@@ -118,6 +146,11 @@ type Expr =
  *     sum     := unary (('+' | '-') unary)*
  *     unary   := '*' unary | primary
  *     primary := number | $register | symbol | '(' sum ')'
+ *              | struct '(' sum ')' '.' member
+ *
+ * The last is a member view: where `member` lives in the `struct` at the
+ * address in the parentheses. One member per view, since the offset table
+ * does not say what type a member is; a member of a member is a view of a view.
  *
  * Parsing is kept apart from evaluating so that a tour can be checked with no
  * guest at all: a typo in an expression is a mistake the parser reports, not a
@@ -164,15 +197,49 @@ class Parser {
     if (token.kind === 'num') {
       return { kind: 'num', value: token.value, pointerScaled: token.pointerScaled === true }
     }
-    if (token.kind === 'reg' || token.kind === 'sym') return { kind: token.kind, name: token.text }
+    if (token.kind === 'sym') {
+      const open = this.peek()
+      if (open?.kind === 'op' && open.text === '(') return this.view(token.text)
+      return { kind: 'sym', name: token.text }
+    }
+    if (token.kind === 'reg') return { kind: 'reg', name: token.text }
+    if (token.kind === 'member') {
+      throw new Error(`\`.${token.text}\` needs a struct to be a member of, like \`k_msgq(q).${token.text}\``)
+    }
     if (token.text === '(') {
       const expr = this.sum()
-      const close = this.peek()
-      if (close?.kind !== 'op' || close.text !== ')') throw new Error('missing `)`')
-      this.at++
+      this.close()
+      if (this.peek()?.kind === 'member') {
+        throw new Error('a member needs its struct named, like `k_msgq(q).used_msgs`')
+      }
       return expr
     }
     throw new Error(`unexpected \`${token.text}\``)
+  }
+
+  private close(): void {
+    const close = this.peek()
+    if (close?.kind !== 'op' || close.text !== ')') throw new Error('missing `)`')
+    this.at++
+  }
+
+  /** `k_msgq(expr).member`, from the struct name on: the `(` is next. */
+  private view(struct: string): Expr {
+    this.at++
+    const base = this.sum()
+    this.close()
+    const member = this.peek()
+    if (member?.kind !== 'member') {
+      throw new Error(`\`${struct}(…)\` needs a member, like \`${struct}(…).name\``)
+    }
+    this.at++
+    const after = this.peek()
+    if (after?.kind === 'member') {
+      throw new Error(
+        `a view reads one member: wrap \`${struct}(…).${member.text}\` in a view of its struct for \`.${after.text}\``,
+      )
+    }
+    return { kind: 'member', struct, base, member: member.text }
   }
 }
 
@@ -209,6 +276,11 @@ async function evaluate(expr: Expr, target: TourTarget): Promise<number> {
       const rhs = await evaluate(expr.rhs, target)
       return expr.kind === 'add' ? lhs + rhs : lhs - rhs
     }
+    case 'member': {
+      const offset = target.member?.(expr.struct, expr.member) ?? null
+      if (offset === null) throw new Error(`no member \`${expr.member}\` in \`struct ${expr.struct}\``)
+      return (await evaluate(expr.base, target)) + offset
+    }
   }
 }
 
@@ -232,10 +304,14 @@ export function expressionError(expr: string): string | null {
   }
 }
 
-/** Symbols and registers (without the `$`) an expression names, once each. */
+/**
+ * Symbols, registers (without the `$`) and member views an expression names,
+ * once each. A member view's struct is a type, not a symbol.
+ */
 export interface ExpressionNames {
   symbols: string[]
   registers: string[]
+  members: MemberView[]
 }
 
 function collectNames(expr: Expr, names: ExpressionNames): void {
@@ -254,16 +330,25 @@ function collectNames(expr: Expr, names: ExpressionNames): void {
       collectNames(expr.lhs, names)
       collectNames(expr.rhs, names)
       return
+    case 'member':
+      addMember(names.members, { struct: expr.struct, member: expr.member })
+      collectNames(expr.base, names)
+      return
     case 'num':
       return
   }
 }
 
+/** Add a member view to a list unless it is already there. */
+export function addMember(list: MemberView[], view: MemberView): void {
+  if (!list.some((m) => m.struct === view.struct && m.member === view.member)) list.push(view)
+}
+
 /**
  * What an expression names, in the order written, without running it: the
- * symbols a build must have for it to resolve, and the registers it reads at a
- * stop. Null when it does not parse, since nothing it names can be trusted;
- * expressionError says why.
+ * symbols and struct members a build must have for it to resolve, and the
+ * registers it reads at a stop. Null when it does not parse, since nothing it
+ * names can be trusted; expressionError says why.
  */
 export function expressionNames(expr: string): ExpressionNames | null {
   let parsed: Expr
@@ -272,19 +357,9 @@ export function expressionNames(expr: string): ExpressionNames | null {
   } catch {
     return null
   }
-  const names: ExpressionNames = { symbols: [], registers: [] }
+  const names: ExpressionNames = { symbols: [], registers: [], members: [] }
   collectNames(parsed, names)
   return names
-}
-
-/**
- * The symbols an expression names, in order, or null when it is not an
- * expression at all. Registers are not symbols and are left out, so
- * `*$arg0 + led` gives `['led']`. What src/tours/check.ts looks up in the ELF
- * ahead of time.
- */
-export function expressionSymbols(expr: string): string[] | null {
-  return expressionNames(expr)?.symbols ?? null
 }
 
 /* ------------------------------------------------------------------ *

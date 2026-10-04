@@ -298,11 +298,24 @@ and the format says how to read what is there.**
 | `**$arg0` | …twice |
 | `$pc`, `$sp`, `$x0`, `$a0` | a register |
 | `$arg0`…`$arg3` | the ABI's argument registers, whichever this guest uses |
+| `k_msgq(readings).used_msgs` | a struct member, at the offset the build's DWARF gives |
 | `0x40001000` | a literal |
 | `(…)` | grouping |
 
 `1p` exists because a struct's second field does not start at the same offset on
 a 32- and a 64-bit guest, and the same tour runs on all three boards.
+
+Counting pointers stops working past the first field whose size is not one, and
+Kconfig moves fields about anyway. A **member view** names the field instead:
+`k_msgq(readings).used_msgs` is where `used_msgs` lives in the `struct k_msgq`
+at `readings`, at the offset the build's own DWARF gives. That is 64 bytes in
+on Cortex-A53, and 32 or 36 on a 32-bit board depending on its configuration.
+The address in the parentheses is any expression (`k_msgq($arg0).used_msgs`,
+`k_msgq(*p).max_msgs`). Use the struct's own name (`k_msgq` for
+`struct k_msgq`, not a typedef) and its own members, not ones inside an
+anonymous union. One member per view: a member of a member is a view of a view,
+`_thread_base(k_thread($arg0).base).pended_on`. A member the build does not
+describe reads as "no member", like a symbol it lacks.
 
 `$arg0`…`$arg3` are only trustworthy at a function's first line — break on
 `z_impl_k_mutex_lock` and the mutex is right there; break ten lines in and the
@@ -327,9 +340,10 @@ inside, so `$sp as addr` at an interrupt reads
 `0x40a1f7c0 · z_interrupt_stacks+0x7c0`, and a `ptr` holding a callback names
 the function.
 
-The default is `u32`. Nothing here needs type information, which is exactly why
-it works against a build nobody prepared: `*$arg0 as string` walks device →
-name without knowing what either struct looks like.
+The default is `u32`. Nothing here but the member view needs type information,
+and that only takes an offset from the DWARF every Zephyr build carries, which
+is exactly why it works against a build nobody prepared: `*$arg0 as string`
+walks device → name without knowing what either struct looks like.
 
 `dec` is for the half of an ABI's arguments that are not addresses at all — a
 stack size, a pin number, a bitmask. `$arg2 as u32` on one of those goes looking
@@ -776,6 +790,7 @@ the page does when the tour arms. These fail:
 | `drift`: a `/pattern/` no longer matches and a later fallback resolves | a step that stops on a line nobody chose |
 | `highlight`: an entry marks nothing in the file the step stops in | an excerpt that has lost its point, silently |
 | `symbol`: `watch:`, `memory:`, `objects: focus:` or `check:` names a symbol the ELF lacks | "no symbol" where the value should be, or a check that can never pass (registers are exempt) |
+| `member`: a member view names a member the DWARF does not describe | "no member" where the value should be |
 | `expression`: an expression that does not parse | an error where the value should be |
 
 These warn:

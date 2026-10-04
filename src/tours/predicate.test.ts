@@ -224,6 +224,7 @@ describe('predicateIdentifiers', () => {
     expect(predicateIdentifiers(parsed('$sp - stack_top as u32 >= $arg1 + stack_top'))).toEqual({
       symbols: ['stack_top'],
       registers: ['sp', 'arg1'],
+      members: [],
     })
   })
 
@@ -231,7 +232,19 @@ describe('predicateIdentifiers', () => {
     expect(predicateIdentifiers(parsed('alarms_lost as u32 == 1'))).toEqual({
       symbols: ['alarms_lost'],
       registers: [],
+      members: [],
     })
-    expect(predicateIdentifiers(parsed('1 == 1'))).toEqual({ symbols: [], registers: [] })
+    expect(predicateIdentifiers(parsed('1 == 1'))).toEqual({ symbols: [], registers: [], members: [] })
+  })
+
+  it('lists the struct members a member view needs, apart from the symbols', () => {
+    expect(predicateIdentifiers(parsed('k_msgq(readings).used_msgs as u32 >= k_msgq(readings).max_msgs as u32'))).toEqual({
+      symbols: ['readings'],
+      registers: [],
+      members: [
+        { struct: 'k_msgq', member: 'used_msgs' },
+        { struct: 'k_msgq', member: 'max_msgs' },
+      ],
+    })
   })
 })

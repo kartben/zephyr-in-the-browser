@@ -18,6 +18,7 @@
  */
 
 import { buildLineIndex, type LineIndex } from '@/debug/dwarfLines'
+import { dwarfStructMembers } from '@/debug/dwarfMembers'
 import { registerValues } from '@/debug/registerModel'
 import { formatSymbol, resolveDataSymbol, resolveSymbol } from '@/debug/elfSymbols'
 import type { MsgqRingSnapshot } from '@/debug/kernel/msgqRing'
@@ -227,6 +228,9 @@ let state: TourState = { ...EMPTY, enabled: readEnabled() }
 let steps: StepRuntime[] = []
 let lineIndex: LineIndex | null = null
 let lineIndexFor: Uint8Array | null = null
+/** Member offsets by struct name, for `k_msgq(q).used_msgs`; see layout(). */
+let layouts = new Map<string, Record<string, number>>()
+let layoutsFor: Uint8Array | null = null
 let demoTimer: ReturnType<typeof setTimeout> | undefined
 let armWatchdog: ReturnType<typeof setTimeout> | undefined
 /**
@@ -296,6 +300,37 @@ function lines(): LineIndex | null {
   return lineIndex
 }
 
+/**
+ * Member offsets of `struct name` in the running image, read from its DWARF
+ * once and kept for as long as the image is.
+ *
+ * Misses are kept too: a struct the build does not describe costs a walk of
+ * the whole of `.debug_info`, tens of milliseconds on a large image.
+ */
+function layout(name: string): Record<string, number> {
+  const elf = gdb.getKernelElf()
+  if (!elf) return {}
+  if (layoutsFor !== elf) {
+    layoutsFor = elf
+    layouts = new Map()
+  }
+  let members = layouts.get(name)
+  if (!members) {
+    try {
+      members = dwarfStructMembers(elf, name)
+    } catch {
+      members = {}
+    }
+    layouts.set(name, members)
+  }
+  return members
+}
+
+function memberOffset(struct: string, member: string): number | null {
+  const members = layout(struct)
+  return Object.hasOwn(members, member) ? members[member]! : null
+}
+
 function liveTarget(): TourTarget {
   const snap = gdb.getSnapshot()
   const index = gdb.getSymbolIndex()
@@ -321,6 +356,7 @@ function liveTarget(): TourTarget {
       // while a function with none would claim whatever follows it.
       return formatSymbol(resolveDataSymbol(index, addr) ?? resolveSymbol(index, addr))
     },
+    member: memberOffset,
   }
 }
 
@@ -1023,6 +1059,8 @@ export function reset(): void {
   shipped = Promise.resolve(null)
   lineIndex = null
   lineIndexFor = null
+  layouts = new Map()
+  layoutsFor = null
   wasPaused = false
   handledEpoch = -1
   ownedBreakpoints.clear()

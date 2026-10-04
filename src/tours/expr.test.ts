@@ -5,7 +5,6 @@ import {
   evalWatch,
   expressionError,
   expressionNames,
-  expressionSymbols,
   isKnownFormat,
   isNumberFormat,
   type TourTarget,
@@ -132,17 +131,62 @@ describe('evalWatch', () => {
   })
 })
 
-describe('expressionSymbols', () => {
-  it('names the symbols an expression reads, leaving registers and numbers out', () => {
-    expect(expressionSymbols('**led')).toEqual(['led'])
-    expect(expressionSymbols('*($arg0 + 2p) - _kernel + 0x10')).toEqual(['_kernel'])
-    expect(expressionSymbols('$pc')).toEqual([])
+describe('member views', () => {
+  /**
+   * `struct k_msgq` as the DWARF of two builds lays it out: `used_msgs` moves
+   * with the pointer width, and Kconfig moves it again on the same board.
+   */
+  const LAYOUTS: Record<4 | 8, Record<string, number>> = {
+    4: { wait_q: 0, lock: 8, msg_size: 8, max_msgs: 12, buffer_start: 16, used_msgs: 32 },
+    8: { wait_q: 0, lock: 16, msg_size: 16, max_msgs: 24, buffer_start: 32, used_msgs: 64 },
+  }
+
+  function typed(pointerBytes: 4 | 8): TourTarget {
+    const base = target(pointerBytes)
+    return {
+      ...base,
+      symbol: (name) => (name === 'readings' ? 0x5000 : base.symbol(name)),
+      member: (struct, member) => (struct === 'k_msgq' ? (LAYOUTS[pointerBytes][member] ?? null) : null),
+    }
+  }
+
+  it('names a member by the offset the build says it has', async () => {
+    expect(await evalAddress('k_msgq(readings).used_msgs', typed(4))).toBe(0x5020)
+    expect(await evalAddress('k_msgq(readings).used_msgs', typed(8))).toBe(0x5040)
   })
 
-  it('gives up on what the evaluator could not parse either', () => {
-    expect(expressionSymbols('led & 3')).toBeNull()
-    expect(expressionSymbols('')).toBeNull()
-    expect(expressionSymbols('led +')).toBeNull()
+  it('takes any expression for the struct address', async () => {
+    // `*led` is 0x3000; the view does not care how the address was reached.
+    expect(await evalAddress('k_msgq(*led).max_msgs', typed(4))).toBe(0x300c)
+    expect(await evalAddress('k_msgq(readings + 0).wait_q', typed(8))).toBe(0x5000)
+  })
+
+  it('composes with the rest of the language', async () => {
+    const t = typed(4)
+    expect(await evalAddress('k_msgq(readings).buffer_start + 4', t)).toBe(0x5014)
+    expect(await evalAddress('k_msgq(k_msgq(readings).wait_q).used_msgs', t)).toBe(0x5020)
+  })
+
+  it('refuses a member the build does not describe, or a view without one', async () => {
+    await expect(evalAddress('k_msgq(readings).nope', typed(4))).rejects.toThrow(
+      'no member `nope` in `struct k_msgq`',
+    )
+    await expect(evalAddress('k_mutex(readings).owner', typed(4))).rejects.toThrow('no member')
+    await expect(evalAddress('k_msgq(readings)', typed(4))).rejects.toThrow('needs a member')
+    await expect(evalAddress('k_msgq(readings).wait_q.waitq', typed(4))).rejects.toThrow('one member')
+    await expect(evalAddress('(readings).used_msgs', typed(4))).rejects.toThrow('struct named')
+  })
+
+  it('cannot be read on a target with no type information', async () => {
+    await expect(evalAddress('k_msgq(led).used_msgs', target())).rejects.toThrow('no member')
+  })
+
+  it('reads through `as`, like any other place', async () => {
+    const t = typed(4)
+    const memory = new Map([[0x5020, 7]])
+    t.read = async (addr, length) =>
+      memory.has(addr) ? new Uint8Array([memory.get(addr)!, 0, 0, 0]).slice(0, length) : null
+    expect(await evalWatch('k_msgq(readings).used_msgs', 'u32', t)).toMatchObject({ text: '7', ok: true })
   })
 })
 
@@ -212,6 +256,15 @@ describe('expressionError', () => {
     // Whether `nope` exists is a fact about a build, not about the grammar.
     expect(expressionError('nope + $nothing')).toBeNull()
   })
+
+  it('checks a member view’s shape, and leaves the member to the build', () => {
+    expect(expressionError('k_msgq(*$arg0).used_msgs + 1p')).toBeNull()
+    expect(expressionError('k_msgq(readings).no_such_member')).toBeNull()
+    expect(expressionError('k_msgq(readings)')).toContain('needs a member')
+    expect(expressionError('k_msgq(readings).wait_q.waitq')).toContain('one member')
+    expect(expressionError('(readings).used_msgs')).toContain('struct named')
+    expect(expressionError('.used_msgs')).toContain('needs a struct')
+  })
 })
 
 describe('expressionNames', () => {
@@ -219,11 +272,23 @@ describe('expressionNames', () => {
     expect(expressionNames('*(led + 1p) - $PC + led + _kernel')).toEqual({
       symbols: ['led', '_kernel'],
       registers: ['pc'],
+      members: [],
+    })
+  })
+
+  it('lists member views apart from symbols, the outer one first', () => {
+    expect(expressionNames('outer(inner(*readings).a).b + inner(q).a')).toEqual({
+      symbols: ['readings', 'q'],
+      registers: [],
+      members: [
+        { struct: 'outer', member: 'b' },
+        { struct: 'inner', member: 'a' },
+      ],
     })
   })
 
   it('names nothing for a number, and gives up on what does not parse', () => {
-    expect(expressionNames('0x40 + 2p')).toEqual({ symbols: [], registers: [] })
+    expect(expressionNames('0x40 + 2p')).toEqual({ symbols: [], registers: [], members: [] })
     expect(expressionNames('led +')).toBeNull()
   })
 })
