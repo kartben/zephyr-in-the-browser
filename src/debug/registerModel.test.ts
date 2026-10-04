@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { organizeRegisters } from '@/debug/registerModel'
+import { organizeRegisters, registerValues } from '@/debug/registerModel'
+
+describe('registerValues: $arg0..$arg3', () => {
+  const args = (dump: string) => [0, 1, 2, 3].map((i) => registerValues(dump).get(`arg${i}`))
+
+  it('reads the first four argument registers of each ABI', () => {
+    expect(args('X00=0000000000000010 X01=0000000000000004 X02=00000000000a0000 X03=0000000000000000')).toEqual(
+      [0x10, 4, 0xa0000, 0],
+    )
+    expect(args('R00=00000010 R01=00000004 R02=000a0000 R03=00000000')).toEqual([0x10, 4, 0xa0000, 0])
+    expect(args('a0=80006894 a1=00000004 a2=000a0000 a3=00000000')).toEqual([0x80006894, 4, 0xa0000, 0])
+  })
+
+  it('starts at a2 on Xtensa, past the return address and stack pointer', () => {
+    // As src/debug/gdb/regs.ts decodes a stop in gpio_esp32_config(dev, 2, flags).
+    const dump = [
+      'pc=40081767',
+      'a00=800d1234 a01=3ffb1e40 a02=3f400df8 a03=00000002 a04=000a0000 a05=00000000',
+      'a06=00000000 a07=00000000 a08=00000000 a09=00000000 a10=00000000 a11=00000000',
+      'a12=00000000 a13=00000000 a14=00000000 a15=00000000',
+      'ps=00060120 windowbase=00000002 windowstart=00000005',
+    ].join('\n')
+    expect(args(dump)).toEqual([0x3f400df8, 2, 0xa0000, 0])
+  })
+})
 
 describe('organizeRegisters', () => {
   it('splits Cortex-M dump into featured / general / status', () => {
