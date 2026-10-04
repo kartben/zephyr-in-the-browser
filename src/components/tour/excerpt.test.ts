@@ -39,6 +39,24 @@ describe('excerptWindow', () => {
     expect(e.end - e.start + 1).toBeLessThanOrEqual(MAX_LINES)
   })
 
+  it('shows the stop and a far highlight as two windows rather than dropping the stop', () => {
+    // A step that stops deep in a long function and points at the definition
+    // near the top: one capped window from the top lost the line it stopped on.
+    const far = excerptWindow(200, 120, [{ start: 10, end: 12 }])
+    expect(far.runs).toEqual([
+      { start: 10 - CONTEXT, end: 12 + CONTEXT },
+      { start: 120 - CONTEXT, end: 120 + CONTEXT },
+    ])
+    expect(lines(far)).toEqual([10, 11, 12])
+
+    // A runaway highlight around a stop near its end still shows the stop.
+    const runaway = excerptWindow(1000, 300, [{ start: 1, end: 400 }])
+    expect(runaway.runs).toHaveLength(1)
+    expect(runaway.start).toBeLessThanOrEqual(300)
+    expect(runaway.end).toBeGreaterThanOrEqual(300 + CONTEXT)
+    expect(runaway.end - runaway.start + 1).toBeLessThanOrEqual(MAX_LINES)
+  })
+
   it('clamps to the file and ignores a backwards range', () => {
     const e = excerptWindow(8, 2, [{ start: 6, end: 3 }])
     expect(e.start).toBe(1)
