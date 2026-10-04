@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fallbackDefs, makeEventDef } from './metadata'
+import { fallbackDefs, makeEventDef, parseMetadata } from './metadata'
 import {
   TraceReader,
   laneOrder,
@@ -311,5 +313,91 @@ describe('time-axis helpers', () => {
     expect(threadRunningAt(reader.tr, 150)).toBe(main)
     // Demote must clear main so Map-order scan cannot pin edges on it.
     expect(stateAt(reader.tr, main, 250)[0]).not.toBe('run')
+  })
+})
+
+describe('events whose ids moved', () => {
+  const shipped = () =>
+    parseMetadata(readFileSync(resolve(process.cwd(), 'public/tracing/metadata'), 'utf8'))
+
+  /**
+   * The pm_state_set hooks are not upstream, so a guest that has them declares
+   * them in its own table, at ids of its tree's choosing.
+   */
+  const POWER_HOOKS = `
+event {
+	name = pm_state_set_enter;
+	id = 0x186;
+	fields := struct {
+		uint8_t cpu;
+		uint8_t state;
+		uint8_t substate_id;
+	};
+};
+event {
+	name = pm_state_set_exit;
+	id = 0x187;
+	fields := struct {
+		uint8_t cpu;
+		uint8_t state;
+		uint8_t substate_id;
+	};
+};
+`
+
+  it('puts a thread to sleep on thread_sleep_ticks_enter, the one sleep hook main emits', () => {
+    // k_sleep(), k_msleep() and k_usleep() all reach k_sleep_ticks() now, so a
+    // guest from Zephyr main never sends k_sleep_enter. Missing this one paints
+    // every sleeping thread as ready.
+    const reader = new TraceReader(fallbackDefs())
+    const a = 0x1000
+    reader.feed(
+      Uint8Array.from([
+        ...record(1000, 0x11, [...encU32(a), ...encName('philosopher 0')]),
+        ...record(2000, 0x184, [...encU32(25)]),
+        ...record(2100, 0x10, [...encU32(a), ...encName('philosopher 0')]),
+        ...record(5000, 0x11, [...encU32(a), ...encName('philosopher 0')]),
+      ]),
+    )
+    expect(reader.desync).toBe(false)
+    expect(stateAt(reader.tr, a, 3000)).toEqual(['slp', 'sleep 25'])
+  })
+
+  it('lights the power band from a guest table that puts the PM events anywhere', () => {
+    const reader = new TraceReader(parseMetadata(POWER_HOOKS))
+    reader.feed(Uint8Array.from([...record(1000, 0x186, [0, 3, 0]), ...record(2000, 0x187, [0, 3, 0])]))
+    expect(reader.tr.cpuPower.segs.get(0)).toEqual([[1000, 2000, 3, 0]])
+  })
+
+  it('keeps no power data for a guest without the pm_state_set hooks', () => {
+    // Zephyr main traces pm_system_suspend, but its exit reports ACTIVE for
+    // every successful suspend, so on its own it would record each one as the
+    // policy declining.
+    const reader = new TraceReader(shipped())
+    reader.feed(
+      Uint8Array.from([...record(1000, 0x180, encU32(110)), ...record(2000, 0x181, [...encU32(110), 0])]),
+    )
+    expect(reader.tr.events.map((e) => e.name)).toEqual(['pm_system_suspend_enter', 'pm_system_suspend_exit'])
+    expect(reader.tr.cpuPower.decisions).toEqual([])
+  })
+
+  it('does not take the heap events at the old PM ids for power management', () => {
+    // 0x147 to 0x156 were the PM events before Zephyr renumbered; they are
+    // k_heap and k_malloc now, and fire constantly on an LVGL guest. A guest
+    // with the power hooks has both, and only the names tell them apart.
+    const defs = shipped()
+    for (const [eid, def] of parseMetadata(POWER_HOOKS)) defs.set(eid, def)
+    const bytes: number[] = []
+    let ts = 1000
+    for (let eid = 0x147; eid <= 0x156; eid++) {
+      const def = defs.get(eid)!
+      expect(def.name).toMatch(/^heap_/)
+      bytes.push(...record((ts += 100), eid, Array.from({ length: def.size }, () => 0)))
+    }
+    const reader = new TraceReader(defs)
+    expect(reader.feed(Uint8Array.from(bytes))).toBe(0x156 - 0x147 + 1)
+    expect(reader.tr.cpuPower.segs.size).toBe(0)
+    expect(reader.tr.cpuPower.decisions).toEqual([])
+    expect(reader.tr.cpuPower.dropped.activeEnter).toBe(0)
   })
 })

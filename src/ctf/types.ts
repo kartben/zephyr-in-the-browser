@@ -2,10 +2,13 @@
  * Zephyr CTF event layouts: the minimal scheduling set used when the TSDL
  * metadata file cannot be fetched, mirroring scripts/tracing/trace_viewer.py.
  *
- * The event ids below are a complete mirror of that upstream id space, not
- * only the subset this app currently decodes — several have no consumer here
- * and are kept deliberately, so the enumeration stays diffable against Zephyr
- * whenever the tracing subsystem adds, renames, or renumbers an event.
+ * Every id and name below is Zephyr's own, looked up by event name in
+ * public/tracing/metadata (Zephyr main at v4.5.0-rc1-170-g8f62a4ab82b5), never
+ * shifted by an offset. CTF ids are positional, and Zephyr renumbers them as
+ * events come and go: dropping queue_insert_blocking moved every queue, FIFO,
+ * LIFO and stack id down by one, and the PM events moved further still. Several
+ * have no consumer here and are kept deliberately, so the enumeration stays
+ * diffable against Zephyr; metadata.test.ts holds every one to the shipped table.
  */
 
 export type FieldType =
@@ -52,13 +55,20 @@ export const ISR_EXIT_TO_SCHEDULER = 0x1d
 export const IDLE = 0x1e
 export const THREAD_SCHED_PRIO_SET = 0xe9
 
-/** Power management (Zephyr TSDL 0x147–0x156). */
-export const PM_SYSTEM_SUSPEND_ENTER = 0x147
-export const PM_SYSTEM_SUSPEND_EXIT = 0x148
-export const PM_STATE_SET_ENTER = 0x149
-export const PM_STATE_SET_EXIT = 0x14a
-export const PM_DEVICE_ACTION_RUN_ENTER = 0x155
-export const PM_DEVICE_ACTION_RUN_EXIT = 0x156
+/**
+ * Power management events, by TSDL *name*, not id: cpuPower.ts matches them the
+ * way reader.ts matches the scheduler events. Their ids are not stable enough to
+ * hardcode. Zephyr moved pm_system_suspend from 0x147 to 0x180, and the
+ * pm_state_set and pm_device_action_run pairs the power band is built on are not
+ * in upstream Zephyr at all (docs/cpu-power-states.md): a guest built with them
+ * declares them in its own table, at whatever ids that tree gave them.
+ */
+export const PM_SYSTEM_SUSPEND_ENTER = 'pm_system_suspend_enter'
+export const PM_SYSTEM_SUSPEND_EXIT = 'pm_system_suspend_exit'
+export const PM_STATE_SET_ENTER = 'pm_state_set_enter'
+export const PM_STATE_SET_EXIT = 'pm_state_set_exit'
+export const PM_DEVICE_ACTION_RUN_ENTER = 'pm_device_action_run_enter'
+export const PM_DEVICE_ACTION_RUN_EXIT = 'pm_device_action_run_exit'
 
 /**
  * `enum pm_state` (include/zephyr/pm/state.h), indexed by the `state` field the
@@ -84,21 +94,25 @@ export const MSGQ_GET_EXIT = 0x8f
 export const MSGQ_PURGE = 0x91
 export const MSGQ_PUT_FRONT_EXIT = 0x93
 
-/** Queue / FIFO / LIFO exit ids used by fallback decode (prefer name matching). */
+/** Queue / FIFO / LIFO / stack ids used by fallback decode (prefer name matching). */
 export const QUEUE_APPEND_EXIT = 0x10c
 export const QUEUE_ALLOC_APPEND_EXIT = 0x10e
 export const QUEUE_PREPEND_EXIT = 0x110
 export const QUEUE_ALLOC_PREPEND_EXIT = 0x112
-export const QUEUE_INSERT_EXIT = 0x115
-export const QUEUE_GET_EXIT = 0x11c
-export const QUEUE_REMOVE_EXIT = 0x11e
-export const QUEUE_UNIQUE_APPEND_EXIT = 0x120
-export const FIFO_PUT_EXIT = 0x128
-export const FIFO_ALLOC_PUT_EXIT = 0x12a
-export const FIFO_GET_EXIT = 0x130
-export const LIFO_PUT_EXIT = 0x138
-export const LIFO_ALLOC_PUT_EXIT = 0x13a
-export const LIFO_GET_EXIT = 0x13c
+export const QUEUE_INSERT_EXIT = 0x114
+export const QUEUE_GET_BLOCKING = 0x11a
+export const QUEUE_GET_EXIT = 0x11b
+export const QUEUE_REMOVE_EXIT = 0x11d
+export const QUEUE_UNIQUE_APPEND_EXIT = 0x11f
+export const FIFO_PUT_EXIT = 0x127
+export const FIFO_ALLOC_PUT_EXIT = 0x129
+export const FIFO_GET_EXIT = 0x12f
+export const LIFO_PUT_EXIT = 0x137
+export const LIFO_ALLOC_PUT_EXIT = 0x139
+export const LIFO_GET_EXIT = 0x13b
+export const STACK_PUSH_EXIT = 0x142
+export const STACK_POP_BLOCKING = 0x144
+export const STACK_POP_EXIT = 0x145
 
 export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[] }> = {
   0x10: { name: 'thread_switched_out', fields: [['thread_id', 'uint32_t'], ['name', 'str20']] },
@@ -127,9 +141,19 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
   0x1c: { name: 'isr_exit', fields: [] },
   0x1d: { name: 'isr_exit_to_scheduler', fields: [] },
   0x1e: { name: 'idle', fields: [] },
-  0x7f: { name: 'thread_sleep_enter', fields: [['timeout', 'uint32_t']] },
+  // What k_sleep() emitted until Zephyr folded it into k_sleep_ticks(): older
+  // guests still send it, so it stays beside its replacement.
+  0x7f: { name: 'k_sleep_enter', fields: [['timeout', 'uint32_t']] },
   0x80: {
-    name: 'thread_sleep_exit',
+    name: 'k_sleep_exit',
+    fields: [
+      ['timeout', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x184: { name: 'thread_sleep_ticks_enter', fields: [['timeout', 'uint32_t']] },
+  0x185: {
+    name: 'thread_sleep_ticks_exit',
     fields: [
       ['timeout', 'uint32_t'],
       ['ret', 'int32_t'],
@@ -206,15 +230,15 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
-  0x115: { name: 'queue_insert_exit', fields: [['id', 'uint32_t']] },
-  0x11b: {
+  0x114: { name: 'queue_insert_exit', fields: [['id', 'uint32_t']] },
+  0x11a: {
     name: 'queue_get_blocking',
     fields: [
       ['id', 'uint32_t'],
       ['timeout', 'uint32_t'],
     ],
   },
-  0x11c: {
+  0x11b: {
     name: 'queue_get_exit',
     fields: [
       ['id', 'uint32_t'],
@@ -222,28 +246,28 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'uint32_t'],
     ],
   },
-  0x11e: {
+  0x11d: {
     name: 'queue_remove_exit',
     fields: [
       ['id', 'uint32_t'],
       ['ret', 'uint8_t'],
     ],
   },
-  0x120: {
+  0x11f: {
     name: 'queue_unique_append_exit',
     fields: [
       ['id', 'uint32_t'],
       ['ret', 'uint8_t'],
     ],
   },
-  0x128: {
+  0x127: {
     name: 'fifo_put_exit',
     fields: [
       ['id', 'uint32_t'],
       ['data', 'uint32_t'],
     ],
   },
-  0x12a: {
+  0x129: {
     name: 'fifo_alloc_put_exit',
     fields: [
       ['id', 'uint32_t'],
@@ -251,7 +275,7 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
-  0x130: {
+  0x12f: {
     name: 'fifo_get_exit',
     fields: [
       ['id', 'uint32_t'],
@@ -259,14 +283,14 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'uint32_t'],
     ],
   },
-  0x138: {
+  0x137: {
     name: 'lifo_put_exit',
     fields: [
       ['id', 'uint32_t'],
       ['data', 'uint32_t'],
     ],
   },
-  0x13a: {
+  0x139: {
     name: 'lifo_alloc_put_exit',
     fields: [
       ['id', 'uint32_t'],
@@ -274,7 +298,7 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
-  0x13c: {
+  0x13b: {
     name: 'lifo_get_exit',
     fields: [
       ['id', 'uint32_t'],
@@ -282,21 +306,21 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'uint32_t'],
     ],
   },
-  0x143: {
+  0x142: {
     name: 'stack_push_exit',
     fields: [
       ['id', 'uint32_t'],
       ['ret', 'int32_t'],
     ],
   },
-  0x145: {
+  0x144: {
     name: 'stack_pop_blocking',
     fields: [
       ['id', 'uint32_t'],
       ['timeout', 'uint32_t'],
     ],
   },
-  0x146: {
+  0x145: {
     name: 'stack_pop_exit',
     fields: [
       ['id', 'uint32_t'],
@@ -304,90 +328,61 @@ export const FALLBACK_EVENTS: Record<number, { name: string; fields: FieldDecl[]
       ['ret', 'int32_t'],
     ],
   },
-  0x147: { name: 'pm_system_suspend_enter', fields: [['ticks', 'int32_t']] },
-  0x148: {
+  // Device runtime PM. Upstream calls the device pointer `id`, as every other
+  // kernel object event does.
+  0x176: { name: 'pm_device_runtime_get_enter', fields: [['id', 'uint32_t']] },
+  0x177: {
+    name: 'pm_device_runtime_get_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x178: { name: 'pm_device_runtime_put_enter', fields: [['id', 'uint32_t']] },
+  0x179: {
+    name: 'pm_device_runtime_put_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x17a: {
+    name: 'pm_device_runtime_put_async_enter',
+    fields: [
+      ['id', 'uint32_t'],
+      ['delay', 'uint32_t'],
+    ],
+  },
+  0x17b: {
+    name: 'pm_device_runtime_put_async_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['delay', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x17c: { name: 'pm_device_runtime_enable_enter', fields: [['id', 'uint32_t']] },
+  0x17d: {
+    name: 'pm_device_runtime_enable_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x17e: { name: 'pm_device_runtime_disable_enter', fields: [['id', 'uint32_t']] },
+  0x17f: {
+    name: 'pm_device_runtime_disable_exit',
+    fields: [
+      ['id', 'uint32_t'],
+      ['ret', 'int32_t'],
+    ],
+  },
+  0x180: { name: 'pm_system_suspend_enter', fields: [['ticks', 'int32_t']] },
+  0x181: {
     name: 'pm_system_suspend_exit',
     fields: [
       ['ticks', 'int32_t'],
       ['state', 'uint8_t'],
-    ],
-  },
-  0x149: {
-    name: 'pm_state_set_enter',
-    fields: [
-      ['cpu', 'uint8_t'],
-      ['state', 'uint8_t'],
-      ['substate_id', 'uint8_t'],
-    ],
-  },
-  0x14a: {
-    name: 'pm_state_set_exit',
-    fields: [
-      ['cpu', 'uint8_t'],
-      ['state', 'uint8_t'],
-      ['substate_id', 'uint8_t'],
-    ],
-  },
-  0x14b: { name: 'pm_device_runtime_get_enter', fields: [['dev', 'uint32_t']] },
-  0x14c: {
-    name: 'pm_device_runtime_get_exit',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['ret', 'int32_t'],
-    ],
-  },
-  0x14d: { name: 'pm_device_runtime_put_enter', fields: [['dev', 'uint32_t']] },
-  0x14e: {
-    name: 'pm_device_runtime_put_exit',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['ret', 'int32_t'],
-    ],
-  },
-  0x14f: {
-    name: 'pm_device_runtime_put_async_enter',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['delay', 'uint32_t'],
-    ],
-  },
-  0x150: {
-    name: 'pm_device_runtime_put_async_exit',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['delay', 'uint32_t'],
-      ['ret', 'int32_t'],
-    ],
-  },
-  0x151: { name: 'pm_device_runtime_enable_enter', fields: [['dev', 'uint32_t']] },
-  0x152: {
-    name: 'pm_device_runtime_enable_exit',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['ret', 'int32_t'],
-    ],
-  },
-  0x153: { name: 'pm_device_runtime_disable_enter', fields: [['dev', 'uint32_t']] },
-  0x154: {
-    name: 'pm_device_runtime_disable_exit',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['ret', 'int32_t'],
-    ],
-  },
-  0x155: {
-    name: 'pm_device_action_run_enter',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['action', 'uint8_t'],
-    ],
-  },
-  0x156: {
-    name: 'pm_device_action_run_exit',
-    fields: [
-      ['dev', 'uint32_t'],
-      ['action', 'uint8_t'],
-      ['ret', 'int32_t'],
     ],
   },
 }

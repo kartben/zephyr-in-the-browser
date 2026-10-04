@@ -7,6 +7,7 @@ import {
   ISR_ENTER,
   ISR_EXIT,
   ISR_EXIT_TO_SCHEDULER,
+  PM_STATE_SET_ENTER,
   THREAD_INFO,
   THREAD_PRIO_SET,
   THREAD_SCHED_PRIO_SET,
@@ -57,6 +58,10 @@ export interface Trace {
 }
 
 const SLEEP_ENTERS = new Set([
+  // The only sleep hook Zephyr main has left: k_sleep(), k_msleep() and
+  // k_usleep() are inline wrappers around k_sleep_ticks() now. The rest are what
+  // older guests emit.
+  'thread_sleep_ticks_enter',
   'k_sleep_enter',
   'thread_sleep_enter',
   'thread_msleep_enter',
@@ -150,6 +155,13 @@ export class TraceReader {
   private running: number | null = null
   private provisional: number[] = []
   private pm = new CpuPowerTracker(this.tr.cpuPower)
+  /**
+   * Whether the guest emits the pair the CPU power band is built on. Zephyr main
+   * traces only `pm_system_suspend_*`, whose exit reports ACTIVE for every
+   * successful suspend, so on its own it would record each one as the policy
+   * declining. Such a guest gets no power data rather than wrong data.
+   */
+  private readonly power: boolean
 
   /**
    * @param live - the byte source can start mid-record (desktop bridge, probe).
@@ -159,6 +171,7 @@ export class TraceReader {
     this.defs = defs
     this.hasTs = hasTs
     this.synced = !live || !hasTs
+    this.power = [...defs.values()].some((def) => def.name === PM_STATE_SET_ENTER)
   }
 
   /**
@@ -371,7 +384,7 @@ export class TraceReader {
       }
     }
 
-    this.pm.event(ts, eid, fields)
+    if (this.power) this.pm.event(ts, name, fields)
 
     this.stateMachine(ts, name, fields, tid)
   }

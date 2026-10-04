@@ -1,12 +1,20 @@
 /**
  * CPU power state over time, reconstructed from the PM CTF events.
  *
- * The spine is `pm_state_set_enter` / `pm_state_set_exit` (0x149 / 0x14A) and
- * nothing else. Those two bracket the SoC code that parks the CPU with no
- * statements in between, so the timestamp delta *is* the residency — the guest
- * never measures or reports it, and the kernel's own CONFIG_PM_STATS is both
- * coarser (it collapses substates) and wrong on the IRQ-unlocked resume path.
- * They are also the only perfectly balanced pair in the PM event set.
+ * The spine is `pm_state_set_enter` / `pm_state_set_exit` and nothing else.
+ * Those two bracket the SoC code that parks the CPU with no statements in
+ * between, so the timestamp delta *is* the residency. The guest never measures
+ * or reports it, and the kernel's own CONFIG_PM_STATS is both coarser (it
+ * collapses substates) and wrong on the IRQ-unlocked resume path. They are also
+ * the only perfectly balanced pair in the PM event set.
+ *
+ * That pair, and `pm_device_action_run_*`, are not in upstream Zephyr: they come
+ * from a Zephyr change that has not landed (docs/cpu-power-states.md). A guest
+ * built from Zephyr main emits only `pm_system_suspend_*`, and the reader feeds
+ * this tracker nothing at all unless the guest's event table declares
+ * `pm_state_set_enter`, so its trace shows no power band. Every event is matched
+ * by name, not id, so a guest whose table does declare the hooks, at whatever
+ * ids, lights the band up.
  *
  * `pm_system_suspend_enter` / `_exit` are kept separately, as *decisions* rather
  * than segments. They carry what the policy was working with — the tick budget
@@ -55,10 +63,12 @@ export type PmSeg = [start: number, end: number, state: number, substateId: numb
  * subsys/pm/pm.c calls pm_system_resume() — which clears the per-CPU state
  * pointer — before the exit hook reads it, so the event reports PM_STATE_ACTIVE
  * for every successful suspend, indistinguishable from the paths that genuinely
- * stayed awake. Fixed upstream by reporting the latched local instead, but any
- * guest built before that still has it, and a trace viewer does not get to assume
- * its guest is new. The field is believed only when nothing was entered, which is
- * the one case it is right about.
+ * stayed awake. Zephyr main still reports it that way: the fix, reporting the
+ * latched local instead, rides with the unmerged `pm_state_set` hooks. The field
+ * is believed only when nothing was entered, which is the one case it is right
+ * about on a guest that has those hooks. On one without them nothing is ever
+ * entered and every round trip would read as declined, which is why the reader
+ * gives such a guest no power data at all.
  */
 export interface PmDecision {
   ts: number
@@ -209,8 +219,9 @@ export class CpuPowerTracker {
     this.open = out.open
   }
 
-  event(ts: number, eid: number, fields: Record<string, string | number>): void {
-    switch (eid) {
+  /** `name` is the event's TSDL name: the ids differ from one Zephyr to the next. */
+  event(ts: number, name: string, fields: Record<string, string | number>): void {
+    switch (name) {
       case PM_STATE_SET_ENTER:
         this.stateEnter(ts, fields)
         break
