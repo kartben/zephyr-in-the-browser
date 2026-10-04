@@ -166,7 +166,8 @@ describe('parseTour', () => {
     })
 
     expect(second!.at).toBe('main.c:/toggle/')
-    expect(second!.when).toBe('hits % 40 == 0')
+    expect(first!.when).toEqual({ state: [], hits: [] })
+    expect(second!.when).toEqual({ state: [], hits: ['hits % 40 == 0'] })
     expect(second!.repeat).toBe(true)
     expect(second!.stop).toBe(false)
     expect(first!.threads).toBe(true)
@@ -430,6 +431,71 @@ describe('objects', () => {
     expect(doc.steps[0]!.objects).toBeNull()
     expect(doc.steps[0]!.threads).toBe(false)
     expect(doc.problems[0]).toContain('stop: no')
+  })
+})
+
+describe('when', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+
+  it('reads a hit condition as it always has', () => {
+    const doc = step('when: hits == 3')
+    expect(doc.steps[0]!.when).toEqual({ state: [], hits: ['hits == 3'] })
+    expect(doc.problems).toEqual([])
+  })
+
+  it('reads a state predicate on its own', () => {
+    const doc = step('when: k_msgq(readings).used_msgs as u32 == 7')
+    const when = doc.steps[0]!.when
+    expect(when.hits).toEqual([])
+    expect(when.state).toHaveLength(1)
+    expect(when.state[0]).toMatchObject({
+      text: 'k_msgq(readings).used_msgs as u32 == 7',
+      lhs: { expr: 'k_msgq(readings).used_msgs', format: 'u32' },
+      op: '==',
+      rhs: { literal: 7n },
+    })
+    expect(doc.problems).toEqual([])
+  })
+
+  it('sorts a list into predicates and hit conditions, keeping the order of each', () => {
+    const doc = step('when:\n  - $arg0 == readings\n  - _kernel as u32 == 0\n  - hits == 3')
+    const when = doc.steps[0]!.when
+    expect(when.hits).toEqual(['hits == 3'])
+    expect(when.state.map((p) => p.text)).toEqual(['$arg0 == readings', '_kernel as u32 == 0'])
+    expect(doc.problems).toEqual([])
+  })
+
+  it('reports an item that is neither, and drops it', () => {
+    const doc = step('when:\n  - the moon is full\n  - hits == 2')
+    expect(doc.steps[0]!.when).toEqual({ state: [], hits: ['hits == 2'] })
+    expect(doc.problems).toHaveLength(1)
+    expect(doc.problems[0]).toContain('`when: the moon is full` has no comparison')
+  })
+
+  it('reports a predicate the parser refuses, the way `check:` does', () => {
+    const doc = step('when: k_msgq(readings) as u32 == 7')
+    expect(doc.steps[0]!.when.state).toEqual([])
+    expect(doc.problems[0]).toContain('`when: k_msgq(readings) as u32 == 7`')
+    expect(doc.problems[0]).toContain('needs a member')
+  })
+
+  it('reads `hits` against a number as the hit count, and says so when it is malformed', () => {
+    // Otherwise a typo would quietly become a comparison of two addresses.
+    const doc = step('when: hits >= three')
+    expect(doc.steps[0]!.when).toEqual({ state: [], hits: [] })
+    expect(doc.problems[0]).toContain('is not a hit condition')
+  })
+
+  it('reads a guest variable called `hits` when it has a format', () => {
+    const when = step('when: hits as u32 == 3').steps[0]!.when
+    expect(when.hits).toEqual([])
+    expect(when.state[0]).toMatchObject({ lhs: { expr: 'hits', format: 'u32' } })
+  })
+
+  it('refuses a block', () => {
+    const doc = step('when:\n  hits: 3')
+    expect(doc.steps[0]!.when).toEqual({ state: [], hits: [] })
+    expect(doc.problems[0]).toContain('not a block')
   })
 })
 

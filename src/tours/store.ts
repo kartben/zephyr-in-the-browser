@@ -30,7 +30,7 @@ import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
 import { focusStep, lookNotes } from '@/tours/look'
 import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
-import { evalPredicate } from '@/tours/predicate'
+import { evalPredicate, predicateIdentifiers } from '@/tours/predicate'
 import {
   parseSourceIndex,
   provenance,
@@ -39,7 +39,7 @@ import {
   type Provenance,
   type SourceIndex,
 } from '@/tours/sources'
-import { whenFires } from '@/tours/when'
+import { hitsFire, stateHolds } from '@/tours/when'
 
 const ENABLED_KEY = 'zephyr-tours-enabled'
 
@@ -331,33 +331,55 @@ function memberOffset(struct: string, member: string): number | null {
   return Object.hasOwn(members, member) ? members[member]! : null
 }
 
-function liveTarget(): TourTarget {
-  const snap = gdb.getSnapshot()
+/**
+ * Where a symbol lives in the running image. Data first: a tour that says
+ * `led` means the variable, and a function of the same name would be a
+ * surprising thing to read bytes out of.
+ */
+function symbolAddress(name: string): number | null {
   const index = gdb.getSymbolIndex()
-  const regs = registerValues(snap.registers)
+  const object = index?.objects.get(name)
+  if (object) return object.addr
+  const fn = index?.byName.find((s) => s.name === name)
+  return fn ? normalizeAddr(fn.addr, gdb.getSnapshot().regArch) : null
+}
+
+/** The running image, seen through one stop's registers and memory. */
+function targetOver(
+  registers: string | null,
+  read: (addr: number, length: number) => Promise<Uint8Array | null>,
+): TourTarget {
+  const regs = registerValues(registers)
   return {
-    pointerBytes: snap.regArch === 'aarch64' ? 8 : 4,
-    symbol(name) {
-      // Data first: a tour that says `led` means the variable, and a function
-      // of the same name would be a surprising thing to read bytes out of.
-      const object = index?.objects.get(name)
-      if (object) return object.addr
-      const fn = index?.byName.find((s) => s.name === name)
-      return fn ? normalizeAddr(fn.addr, snap.regArch) : null
-    },
+    pointerBytes: gdb.getSnapshot().regArch === 'aarch64' ? 8 : 4,
+    symbol: symbolAddress,
     register(name) {
       return regs.get(name) ?? null
     },
     async read(addr, length) {
-      return debug.readMemoryRaw(addr >>> 0, length)
+      return read(addr >>> 0, length)
     },
     label(addr) {
       // Data first here too: an object with a size says exactly where it ends,
       // while a function with none would claim whatever follows it.
+      const index = gdb.getSymbolIndex()
       return formatSymbol(resolveDataSymbol(index, addr) ?? resolveSymbol(index, addr))
     },
     member: memberOffset,
   }
+}
+
+/** The stop the debugger has published, for building its card. */
+function liveTarget(): TourTarget {
+  return targetOver(gdb.getSnapshot().registers, (addr, length) => debug.readMemoryRaw(addr, length))
+}
+
+/**
+ * A stop the filter is still deciding about. Nothing is published yet, so the
+ * registers and memory come from the stop rather than from the snapshot.
+ */
+function stopTarget(stop: gdb.StopContext): TourTarget {
+  return targetOver(stop.registers, stop.read)
 }
 
 /* ------------------------------------------------------------------ *
@@ -495,6 +517,12 @@ export async function arm(): Promise<void> {
       runtime.unresolved = true
       continue
     }
+    const unreadable = unreadableWhen(runtime.step)
+    if (unreadable !== null) {
+      problems.push(`step ${runtime.step.index + 1}: ${unreadable}`)
+      runtime.unresolved = true
+      continue
+    }
     runtime.anchor = result.anchor
   }
 
@@ -529,6 +557,30 @@ export async function arm(): Promise<void> {
  */
 function retrying(runtime: StepRuntime): boolean {
   return runtime.step.retry && runtime.card !== null && !runtime.passed
+}
+
+/**
+ * Why a step's `when:` can never hold on this build, or null if it can.
+ *
+ * Symbols and struct members are facts about the image: a predicate that names
+ * one the image lacks is false on every hit, and a step that never fires holds
+ * up every step after it. So it is checked once, here, and skipped like an
+ * anchor that did not resolve. Looking a layout up also caches it, so the
+ * first hit does not pay for the DWARF walk with the guest frozen.
+ */
+function unreadableWhen(step: TourStep): string | null {
+  for (const predicate of step.when.state) {
+    const { symbols, members } = predicateIdentifiers(predicate)
+    for (const name of symbols) {
+      if (symbolAddress(name) === null) return `\`when:\` names \`${name}\`, which this build does not have`
+    }
+    for (const { struct, member } of members) {
+      if (memberOffset(struct, member) === null) {
+        return `\`when:\` reads \`${struct}(…).${member}\`, which this build's DWARF does not describe`
+      }
+    }
+  }
+  return null
 }
 
 /**
@@ -676,9 +728,14 @@ const ownedBreakpoints = new Set<number>()
  * would be unusable, and `when:` would be a promise the implementation could
  * not keep.
  *
- * Returning true means "not this one, let it go".
+ * State predicates add the reads they make, and nothing for a step without
+ * any. They run first, against the stop's own registers and memory, and a hit
+ * where one is false is not counted: `hits == 3` after `$arg0 == readings` is
+ * the third put to `readings`.
+ *
+ * Resolving to true means "not this one, let it go".
  */
-function claimStop(stop: gdb.StopContext): boolean {
+async function claimStop(stop: gdb.StopContext): Promise<boolean> {
   if (!state.enabled) return false
   const pc = normalizeAddr(Number.parseInt(stop.pc, 16), gdb.getSnapshot().regArch)
   if (!Number.isFinite(pc)) return false
@@ -704,19 +761,26 @@ function claimStop(stop: gdb.StopContext): boolean {
   const eligible = holding ? here.filter((s) => s.step.index <= holding.step.index) : here
   if (eligible.length === 0) return true
 
-  const firing: StepRuntime[] = []
+  // The only awaits, and only for steps that have predicates.
+  const run = steps
+  let target: TourTarget | null = null
+  const counted: StepRuntime[] = []
   for (const candidate of eligible) {
-    candidate.hits++
-    const verdict = whenFires(candidate.step.when, candidate.hits)
-    if (verdict.invalid) {
-      publish({
-        problems: [
-          ...state.problems,
-          `step ${candidate.step.index + 1}: \`when: ${candidate.step.when}\` is not a hit condition`,
-        ],
-      })
+    if (candidate.step.when.state.length > 0) {
+      target ??= stopTarget(stop)
+      if (!(await stateHolds(candidate.step.when, target))) continue
     }
-    if (verdict.fires) firing.push(candidate)
+    counted.push(candidate)
+  }
+  // The page may have moved on while the guest answered: a new guest, the
+  // reader leaving the tour, or a card reopened from the outline. Whatever
+  // this hit was for is not waiting any more.
+  if (steps !== run || state.finished || state.current !== null) return true
+
+  const firing: StepRuntime[] = []
+  for (const candidate of counted) {
+    candidate.hits++
+    if (hitsFire(candidate.step.when, candidate.hits)) firing.push(candidate)
   }
 
   const runtime = firing.find((s) => s.card === null) ?? firing[0]

@@ -91,4 +91,33 @@ describe('tours over a stub that re-traps on continue', () => {
     await vi.waitFor(() => expect(getSnapshot().current?.step.index).toBe(1))
     expect(getSteps()[1]!.hits).toBe(1)
   })
+
+  it('a pass where a `when:` predicate is false is not counted, and never pauses', async () => {
+    // r0 is `$arg0` on this stub's Cortex-M register file; 0x3100 is a counter.
+    await start(
+      tour(`at: 0x${LOCK.toString(16)}\nwhen:\n  - $arg0 == 0x3000\n  - 0x3100 as u32 >= 2\n  - hits == 2`),
+    )
+    const paused: boolean[] = []
+    const unsubscribe = hostGdb.subscribe(() => paused.push(hostGdb.getSnapshot().paused))
+    for (const [r0, counter] of [
+      [0x1111, 5], // another caller
+      [0x3000, 1], // the right caller, too early
+      [0x3000, 2], // counted: hit 1
+      [0x1111, 9],
+    ] as const) {
+      server.registers.set(0, r0)
+      server.load(0x3100, [counter, 0, 0, 0])
+      await pass(LOCK)
+    }
+    expect(getSteps()[0]!.hits).toBe(1)
+    expect(getSnapshot().current).toBeNull()
+    expect(paused).not.toContain(true)
+    expect(server.running).toBe(true)
+
+    server.registers.set(0, 0x3000)
+    server.load(0x3100, [3, 0, 0, 0])
+    await pass(LOCK)
+    await vi.waitFor(() => expect(getSnapshot().current?.hits).toBe(2))
+    unsubscribe()
+  })
 })

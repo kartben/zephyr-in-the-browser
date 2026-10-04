@@ -22,6 +22,12 @@ const swallowed: string[] = []
 let kernelElf: Uint8Array | null = null
 /** Guest bytes a test has set; anything else reads as its address's low byte. */
 const memory = new Map<number, number>()
+/** Guest memory as a stop's own `read` sees it, by exact address. */
+const stopMemory = new Map<number, Uint8Array>()
+/** Addresses the filter read at a stop, before anything was published. */
+const filterReads: number[] = []
+/** While set, a stop's reads wait on it: the guest taking its time to answer. */
+let readGate: Promise<void> | null = null
 /** How many times the store walked the DWARF for a struct layout. */
 const dwarf = vi.hoisted(() => ({ walks: 0 }))
 
@@ -64,6 +70,7 @@ vi.mock('@/hostGdb', () => ({
       ['z_interrupt_stacks', { name: 'z_interrupt_stacks', addr: 0x2000_0000, size: 0x2000 }],
       ['alarms_lost', { name: 'alarms_lost', addr: 0x3000, size: 4 }],
       ['readings', { name: 'readings', addr: 0x4400, size: 0x48 }],
+      ['counter', { name: 'counter', addr: 0x4500, size: 4 }],
     ]),
   }),
   setAttachHook: () => {},
@@ -190,7 +197,15 @@ async function settle() {
  */
 async function stopAt(addr: number, registers = 'PC=00008000\nX00=00002000') {
   const hex = addr.toString(16).padStart(8, '0')
-  const reject = await stopFilter?.({ pc: hex, registers, read: async () => null })
+  const reject = await stopFilter?.({
+    pc: hex,
+    registers,
+    async read(at, length) {
+      filterReads.push(at)
+      if (readGate) await readGate
+      return stopMemory.get(at)?.slice(0, length) ?? null
+    },
+  })
   if (reject) {
     swallowed.push(hex)
     return
@@ -212,6 +227,9 @@ beforeEach(async () => {
   revealed.length = 0
   swallowed.length = 0
   memory.clear()
+  stopMemory.clear()
+  filterReads.length = 0
+  readGate = null
   dwarf.walks = 0
   stopFilter = null
   tourText.body = TOUR
@@ -268,6 +286,13 @@ describe('stops', () => {
     expect(breakpoints.has(0x8000)).toBe(true)
     expect(getSteps()[0]!.planted).toBe(false)
     expect(getSteps()[1]!.planted).toBe(true)
+  })
+
+  it('reads nothing at the stop for a step without state predicates', async () => {
+    // Hit conditions cost what they always did: the registers, and no memory.
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.step.index).toBe(0)
+    expect(filterReads).toEqual([])
   })
 
   it('slips past hits no step asked for, without ever pausing', async () => {
@@ -822,6 +847,163 @@ Prose.
       'no member `nope` in `struct k_msgq`',
     ])
     expect(dwarf.walks).toBe(1)
+  })
+})
+
+/**
+ * A step on a hot address, picked out by what the target looks like: Part B's
+ * priority step, where any producer in the system can call the same put.
+ */
+const CONDITIONAL = `---
+tour: Conditional
+sample: samples/kernel/msg_queue
+---
+
+## The third put to readings
+
+\`\`\`tour
+at: 0x8000
+when:
+  - $arg0 == readings
+  - hits == 3
+watch:
+  - used = counter as u32
+\`\`\`
+
+Prose.
+
+## Somewhere else
+
+\`\`\`tour
+at: 0x9000
+\`\`\`
+
+Prose.
+`
+
+/** The stop's registers with x0, which is `$arg0` on AArch64, set to `value`. */
+const withArg0 = (value: number) => `PC=00008000\nX00=${value.toString(16).padStart(16, '0')}`
+
+async function loadConditional(body = CONDITIONAL) {
+  reset()
+  tourText.body = body
+  await loadFor(`tour-${url++}`)
+  await arm()
+}
+
+describe('state predicates in `when:`', () => {
+  beforeEach(() => loadConditional())
+
+  afterEach(() => {
+    kernelElf = null
+  })
+
+  it('does not count a hit where a predicate is false, and never pauses for it', async () => {
+    await stopAt(0x8000, withArg0(0x4800)) // a put to some other queue
+    expect(getSteps()[0]!.hits).toBe(0)
+    await stopAt(0x8000, withArg0(0x4400)) // the first put to readings
+    await stopAt(0x8000, withArg0(0x4800))
+    await stopAt(0x8000, withArg0(0x4400)) // the second
+    expect(getSteps()[0]!.hits).toBe(2)
+    expect(swallowed).toHaveLength(4)
+    expect(getSnapshot().current).toBeNull()
+    expect(paused).toBe(false)
+    expect(resumed).toHaveLength(0)
+
+    await stopAt(0x8000, withArg0(0x4400)) // the third: this one
+    const card = getSnapshot().current
+    expect(card?.step.title).toBe('The third put to readings')
+    expect(card?.hits).toBe(3)
+    expect(paused).toBe(true)
+  })
+
+  it('reads target memory through the stop, before anything is published', async () => {
+    await loadConditional(
+      CONDITIONAL.replace('$arg0 == readings', 'counter as u32 == 5').replace('hits == 3', 'first'),
+    )
+    stopMemory.set(0x4500, new Uint8Array([4, 0, 0, 0]))
+    await stopAt(0x8000)
+    expect(filterReads).toEqual([0x4500])
+    expect(getSnapshot().current).toBeNull()
+
+    stopMemory.set(0x4500, new Uint8Array([5, 0, 0, 0]))
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.hits).toBe(1)
+  })
+
+  it('skips a step whose predicate names what the build does not have', async () => {
+    await loadConditional(CONDITIONAL.replace('$arg0 == readings', '$arg0 == writings'))
+    expect(getSteps()[0]!.unresolved).toBe(true)
+    expect(getSnapshot().problems).toEqual([
+      'step 1: `when:` names `writings`, which this build does not have',
+    ])
+    // The tour goes on without it, rather than waiting for a hit that can
+    // never count.
+    expect(getSteps().map((s) => s.planted)).toEqual([false, true])
+  })
+
+  it('reads a member view through the build’s DWARF, looked up once', async () => {
+    kernelElf = new Uint8Array(1)
+    await loadConditional(
+      CONDITIONAL.replace('$arg0 == readings', 'k_msgq(readings).used_msgs as u32 == 7').replace(
+        'hits == 3',
+        'first',
+      ),
+    )
+    // Looked up at arm, while the guest is frozen anyway, not on the first hit.
+    expect(dwarf.walks).toBe(1)
+    stopMemory.set(0x4420, new Uint8Array([6, 0, 0, 0]))
+    await stopAt(0x8000)
+    stopMemory.set(0x4420, new Uint8Array([7, 0, 0, 0]))
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.step.index).toBe(0)
+    expect(filterReads).toEqual([0x4420, 0x4420])
+    expect(dwarf.walks).toBe(1)
+  })
+
+  it('skips a step whose member view the build does not describe', async () => {
+    kernelElf = new Uint8Array(1)
+    await loadConditional(CONDITIONAL.replace('$arg0 == readings', 'k_msgq(readings).used as u32 == 7'))
+    expect(getSteps()[0]!.unresolved).toBe(true)
+    expect(getSnapshot().problems[0]).toContain('`k_msgq(…).used`')
+  })
+
+  it('lets a hit go when the reader leaves while its predicates are being read', async () => {
+    await loadConditional(
+      CONDITIONAL.replace('$arg0 == readings', 'counter as u32 == 5').replace('hits == 3', 'first'),
+    )
+    stopMemory.set(0x4500, new Uint8Array([5, 0, 0, 0]))
+    let answer!: () => void
+    readGate = new Promise((resolve) => {
+      answer = resolve
+    })
+    const stop = stopAt(0x8000)
+    await settle()
+    skip()
+    answer()
+    await stop
+    // The predicate held, but nobody is waiting for the step any more.
+    expect(swallowed).toEqual(['00008000'])
+    expect(getSteps()[0]!.hits).toBe(0)
+    expect(getSnapshot().current).toBeNull()
+  })
+
+  it('lets a hit go when a new guest starts while its predicates are being read', async () => {
+    let answer!: () => void
+    readGate = new Promise((resolve) => {
+      answer = resolve
+    })
+    await loadConditional(
+      CONDITIONAL.replace('$arg0 == readings', 'counter as u32 == 5').replace('hits == 3', 'first'),
+    )
+    stopMemory.set(0x4500, new Uint8Array([5, 0, 0, 0]))
+    const stop = stopAt(0x8000) // hostGdb asked before the reset unhooked the filter
+    await settle()
+    reset()
+    answer()
+    await stop
+    expect(swallowed).toEqual(['00008000'])
+    expect(getSnapshot().current).toBeNull()
   })
 })
 

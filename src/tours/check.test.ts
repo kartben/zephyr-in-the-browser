@@ -281,6 +281,24 @@ describe('checkTour', () => {
     ])
   })
 
+  it('holds a `when:` predicate to the same, since the page skips a step it can never fire', () => {
+    const member = (struct: string, name: string) => (struct === 'k_msgq' && name === 'used_msgs' ? 0x20 : null)
+    const doc = tour(
+      [
+        'at: main',
+        'when:',
+        '  - $arg0 == counter',
+        '  - missing as u32 == 1',
+        '  - k_msgq(counter).nope as u32 == 0',
+        '  - hits == 2',
+      ].join('\n'),
+    )
+    expect(checkTour(doc, context({ member })).map((f) => [f.kind, f.message])).toEqual([
+      ['symbol', '`when: missing as u32 == 1`: no symbol `missing` in this build'],
+      ['member', '`when: k_msgq(counter).nope as u32 == 0`: `struct k_msgq` has no member `nope` in this build'],
+    ])
+  })
+
   it('fails a member view the image’s DWARF does not describe, and takes no struct for a symbol', () => {
     const member = (struct: string, name: string) =>
       struct === 'k_msgq' ? ({ wait_q: 0, used_msgs: 0x20 } as Record<string, number>)[name] ?? null : null

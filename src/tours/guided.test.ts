@@ -7,7 +7,6 @@ import { isKnownFormat } from '@/tours/expr'
 import { patternFile } from '@/tours/anchors'
 import { parseTour } from '@/tours/parse'
 import { tourIds } from '@/tours/catalog'
-import { whenFires } from '@/tours/when'
 
 /**
  * The tours in `tours/` are shipped content, and a broken one fails quietly at
@@ -97,17 +96,17 @@ describe('tours/', () => {
       for (const watch of step.watch) {
         expect(isKnownFormat(watch.format)).toBe(true)
       }
-      if (step.when !== null) {
-        expect(whenFires(step.when, 1).invalid, `step ${step.index + 1}: bad \`when\``).toBe(false)
-      }
       // A step that retries holds the tour until it passes, so it has to say
       // what to try when it does not.
       if (step.retry) {
         expect(step.fail, `step ${step.index + 1}: \`retry: yes\` wants a \`fail:\``).not.toBeNull()
       }
+      // A `when:` item that is neither a hit condition nor a state predicate
+      // is a parse problem, which the authoring-errors test fails on.
+      const conditioned = step.when.hits.length > 0 || step.when.state.length > 0
       // A step that neither stops nor repeats fires once and is gone before
       // the reader can act on it — almost always a typo for `stop: no`.
-      expect(step.stop || step.repeat || step.when !== null).toBe(true)
+      expect(step.stop || step.repeat || conditioned).toBe(true)
     }
   })
 
