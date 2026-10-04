@@ -1,6 +1,7 @@
 ---
 tour: "Message queues, part 1: the ring"
 sample: samples/kernel/msg_queue
+next: msgq_lab
 sources:
   - kernel/msg_q.c
 ---

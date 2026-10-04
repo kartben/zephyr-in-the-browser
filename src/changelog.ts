@@ -45,6 +45,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Message Queue Lab sample and tour, driven from the shell."
+      },
+      {
+        "tag": "Added",
         "text": "ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep."
       },
       {
