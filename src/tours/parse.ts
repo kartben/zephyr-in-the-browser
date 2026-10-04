@@ -102,6 +102,12 @@ export interface ObjectsSpec {
   types: string[]
   /** Address expression for the one object this step is about. */
   focus: string | null
+  /**
+   * `ring` draws the focused message queue as its ring buffer: every slot, the
+   * messages in read order, and where the read and write pointers sit. Absent
+   * for the plain rows.
+   */
+  view?: 'ring'
 }
 
 /**
@@ -485,6 +491,10 @@ function parseMemory(value: Directive | undefined, problems: string[]): MemorySp
  *     objects:                     …and which one the step is about
  *       type: mutex
  *       focus: $arg0
+ *     objects:                     one message queue, drawn as its ring
+ *       type: msgq
+ *       focus: my_msgq
+ *       view: ring
  *
  * Type names are the ones a person would write (`mutex`, `semaphores`), not the
  * four-letter codes the kernel stamps into each `k_obj_type`, though those work
@@ -507,7 +517,39 @@ function parseObjects(value: Directive | undefined, problems: string[]): Objects
     }
     if (!types.includes(code)) types.push(code)
   }
-  return { types, focus: map.focus?.trim() || null }
+  const focus = map.focus?.trim() || null
+  const view = parseObjectsView(map.view, types, focus, problems)
+  return { types, focus, ...(view ? { view } : {}) }
+}
+
+/**
+ * `view:` under `objects:`. `ring` draws the focused message queue as its ring
+ * buffer, and a step about one queue gets it without asking: the slots, and
+ * where the read and write pointers sit on them, are what a queue *is*, and
+ * three numbers in a row do not show that. `view: list` keeps the plain row.
+ *
+ * Only a step about one queue can have a ring, and that has to be decidable
+ * here, before anything has been read: hence `type: msgq` and a `focus:`.
+ */
+function parseObjectsView(
+  raw: string | undefined,
+  types: string[],
+  focus: string | null,
+  problems: string[],
+): 'ring' | null {
+  const oneQueue = focus !== null && types.length === 1 && types[0] === 'MSGQ'
+  const view = raw?.trim().toLowerCase()
+  if (!view) return oneQueue ? 'ring' : null
+  if (view === 'list') return null
+  if (view !== 'ring') {
+    problems.push(`\`objects: view: ${raw!.trim()}\` is not a view (list, ring)`)
+    return null
+  }
+  if (!oneQueue) {
+    problems.push('`objects: view: ring` draws one message queue: it needs `type: msgq` and a `focus:`')
+    return null
+  }
+  return 'ring'
 }
 
 function isPanelKind(name: string): name is PanelKind {

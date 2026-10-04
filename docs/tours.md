@@ -445,6 +445,41 @@ Type names are the ones a person would write; Zephyr's four-letter codes
 (`MUTX`, `SEM4`) work too, and an unrecognised one fails the test rather than
 rendering as an empty list. Clicking a row opens Debug → Objects.
 
+#### A message queue as a ring: `view: ring`
+
+A step about one message queue draws it as the ring buffer it is:
+
+```yaml
+at: main.c:/urgent_data\+\+/ | main.c:37
+objects:
+  type: msgq
+  focus: my_msgq
+  view: ring
+```
+
+Every slot of the queue's buffer is on the card. A slot holding a message is
+shaded and numbered in the order it will be read (1 is next), with the
+message's first bytes in hex, and the character too when messages are one byte
+long. **R** sits over the slot `read_ptr` points at and **W** over the one
+`write_ptr` points at, so `k_msgq_put_front()` stepping R back round to the
+last slot is something the reader sees rather than works out. When R and W
+share a slot, the kernel's `used_msgs` is what tells a full queue from an empty
+one. Under the strip, "3 of 10 used, 1 byte per message" says what the plain
+row would have.
+
+The ring is the default whenever a block names `type: msgq` and a `focus:`;
+`view: list` keeps the plain row. Asking for a ring without both is an
+authoring error, since there is no one queue to draw.
+
+Unlike the rest of `objects:`, the ring is read at the stop, the queue's struct
+and then its buffer, the same way `memory:` reads its bytes: where R and W sit
+*at this step* is the lesson, and the object walk lands a beat too late to say.
+So a step read again from the outline shows the ring as it was, and **Step**
+on the card does not move it. The image's DWARF has to name the queue's
+members, and the queue has to fit on a card (64 slots); otherwise the card
+keeps the plain row. At most 1024 bytes of a buffer are read, and a slot past
+that is drawn without its bytes.
+
 ### `registers:` and `threads:`
 
 ```yaml

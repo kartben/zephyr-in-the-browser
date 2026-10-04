@@ -258,6 +258,15 @@ export function getWaitObjects(): WaitObject[] {
 }
 
 /**
+ * Object-core metadata from the image: pointer width and the DWARF layouts of
+ * the kernel object structs. Null when the image has no object cores. A tour
+ * card uses it to read a message queue's ring while the machine is halted.
+ */
+export function getObjectCoreMeta(): ObjectCoreMeta | null {
+  return objectCoreMeta
+}
+
+/**
  * `struct device *` → name, for the pointers the PM device events carry.
  *
  * Read straight out of the image, so unlike everything else here it needs no gdb
