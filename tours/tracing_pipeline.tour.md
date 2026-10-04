@@ -1,6 +1,7 @@
 ---
 tour: "Sensor pipeline, part 1: passing readings"
 sample: samples/subsys/tracing/pipeline
+next: tracing_pipeline.condvar
 ---
 
 This sample is a small sensor application. Three sensor threads take readings
