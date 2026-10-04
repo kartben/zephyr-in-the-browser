@@ -81,7 +81,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Blinky tour shows the Simulator, terminal, and dock first."
+        "text": "Blinky tours: a page tour that chains on, and one through the code."
       },
       {
         "tag": "Improved",

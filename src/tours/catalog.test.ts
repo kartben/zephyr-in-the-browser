@@ -63,7 +63,7 @@ describe('toursForApp', () => {
   })
 
   it('reads tours/ itself when given no list', () => {
-    expect(toursForApp('blinky')).toEqual(['blinky'])
+    expect(toursForApp('blinky')).toEqual(['blinky', 'blinky.code'])
     expect(toursForApp('shell')).toEqual([])
     expect(hasTour('philosophers_trace')).toBe(true)
     expect(hasTour('shell')).toBe(false)
