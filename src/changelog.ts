@@ -20,6 +20,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
+        "tag": "Changed",
+        "text": "Kernel object lists need an image from current Zephyr main."
+      },
+      {
         "tag": "Added",
         "text": "Tour steps can stop on the guest's state, not just hit counts."
       },

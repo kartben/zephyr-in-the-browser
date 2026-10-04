@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Changed:** Kernel object lists need an image from current Zephyr main.
 - **Added:** Tour steps can stop on the guest's state, not just hit counts.
 - **Added:** Several tours per sample, and links straight to a tour step.
 - **Added:** Tours check the guest's state and let you try again.

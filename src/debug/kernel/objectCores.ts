@@ -1,15 +1,23 @@
 /**
  * Zephyr CONFIG_OBJ_CORE live-object discovery.
  *
- * The ELF provides the object-core descriptor bounds and DWARF member offsets;
- * stopped guest memory provides the live z_obj_type_list and each type's object
- * list. This deliberately walks the live lists rather than only the iterable
- * sections so dynamically initialized objects are included.
+ * The ELF provides the section bounds and DWARF member offsets; stopped guest
+ * memory provides the live state. Object types are built at link time in an
+ * iterable section (`_k_obj_type_list_*`), each with the ranges of its
+ * statically defined objects, and the kernel links them into z_obj_type_list
+ * at boot. Objects initialized at run time are referenced from a fixed table,
+ * `registry` in kernel/obj_core.c, so dynamically initialized objects are
+ * included.
+ *
+ * This is how Zephyr main lays object cores out since 2026-09-29. Images from
+ * before that, which linked objects into per-type lists, are not read.
  */
 
-import { dwarfStructMembers } from '@/debug/dwarfMembers'
+import { dwarfStruct, type DwarfStruct } from '@/debug/dwarfMembers'
 import {
-  buildElfDataSymbols,
+  dataSymbolsByName,
+  elfDataSymbolList,
+  readElfVirtual,
   type ElfTypedSymbol,
 } from '@/debug/elfSymbols'
 import { elfPointerBytes } from '@/debug/elfSections'
@@ -42,7 +50,7 @@ export interface ZephyrKernelObject {
   size: number | null
   /** Maximum entries/permits/blocks when the object type has a fixed bound. */
   capacity: number | null
-  /** True when the object address lies in the type descriptor's static range. */
+  /** True for a permanent object, walked from one of its type's static ranges. */
   staticObject: boolean
   fields: ObjectCoreField[]
   stats: ObjectCoreStats | null
@@ -64,29 +72,66 @@ export interface ObjectCoreSnapshot {
   truncated: boolean
 }
 
-interface ObjectDescriptor {
-  typeAddr: number
-  objectsStart: number
-  objectsEnd: number
-  coreOffset: number
-  objectSize: number
-  typeId: number
-  statsDesc: number
-}
-
 type Layouts = Record<string, Record<string, number>>
 
 export interface ObjectCoreMeta {
   ptrBytes: 4 | 8
   typeListAddr: number
-  descriptorStart: number
-  descriptorEnd: number
-  descriptorSize: number
+  /** The `_k_obj_type_list_*` section as linked: every type defined at build time. */
+  staticTypes: ObjectTypeInfo[]
+  /** kernel/obj_core.c's `registry`; zero slots when the image has none. */
+  registryAddr: number
+  registrySlots: number
   statsEnabled: boolean
+  /** DWARF layouts of struct k_obj_type, k_obj_range, k_obj_core and obj_core_slot. */
   typeMembers: Record<string, number>
+  typeSize: number
+  rangeMembers: Record<string, number>
+  rangeSize: number
+  /** Entries in k_obj_type.statics (K_OBJ_TYPE_MAX_RANGES). */
+  maxRanges: number
   coreMembers: Record<string, number>
+  slotMembers: Record<string, number>
+  slotSize: number
   layouts: Layouts
+  /** DWARF byte size of each kernel object struct. */
+  structSizes: Record<string, number>
   symbols: ElfTypedSymbol[]
+}
+
+/** One permanent object range of a type (struct k_obj_range). */
+interface ObjectRange {
+  start: number
+  end: number
+  stride: number
+  /** The elements are pointers to the objects. */
+  indirect: boolean
+}
+
+/** A struct k_obj_type, decoded. */
+interface ObjectTypeInfo {
+  addr: number
+  /** Next type in z_obj_type_list, 0 at the end. */
+  next: number
+  id: number
+  coreOffset: number
+  ranges: ObjectRange[]
+  /** Registrations refused because the registry was full. */
+  dropped: number
+  statsDesc: number
+}
+
+/**
+ * What parsing needs from an image. parseObjectCoreMeta() reads it from the
+ * ELF; tests describe a small one instead.
+ */
+export interface ObjectCoreImage {
+  ptrBytes: 4 | 8
+  /** Data and linker symbols in symbol-table order, statics with their file. */
+  symbols: readonly ElfTypedSymbol[]
+  struct(name: string): DwarfStruct | null
+  /** Link-time bytes at an address; null for .bss and unmapped addresses. */
+  readStatic(addr: number, length: number): Uint8Array | null
 }
 
 const TYPE_NAMES: Record<string, string> = {
@@ -102,6 +147,7 @@ const TYPE_NAMES: Record<string, string> = {
   MSGQ: 'Message queues',
   MUTX: 'Mutexes',
   PIPE: 'Pipes',
+  QUEU: 'Queues',
   SEM4: 'Semaphores',
   STCK: 'Stacks',
   THRD: 'Threads',
@@ -138,6 +184,8 @@ const TYPE_ALIASES: Record<string, string> = {
   mutexes: 'MUTX',
   pipe: 'PIPE',
   pipes: 'PIPE',
+  queue: 'QUEU',
+  queues: 'QUEU',
   sem: 'SEM4',
   semaphore: 'SEM4',
   semaphores: 'SEM4',
@@ -176,6 +224,7 @@ const STRUCT_FOR_CODE: Record<string, string> = {
   MSGQ: 'k_msgq',
   MUTX: 'k_mutex',
   PIPE: 'k_pipe',
+  QUEU: 'k_queue',
   SEM4: 'k_sem',
   STCK: 'k_stack',
   THRD: 'k_thread',
@@ -194,75 +243,148 @@ const MAX_OBJECTS = 512
 const MAX_OBJECTS_PER_TYPE = 256
 const MAX_OBJECT_READ = 512
 const MAX_STATS_READ = 512
-
-function align(value: number, by: number): number {
-  return Math.ceil(value / by) * by
-}
-
-function getOffset(
-  members: Record<string, number>,
-  name: string,
-  fallback: number,
-): number {
-  return members[name] ?? fallback
-}
+/** Registry slots read per stop: 16 KiB of slot table on a 64-bit guest. */
+const MAX_REGISTRY_SLOTS = 1024
+/**
+ * Bytes per memory read for tables. QEMU's gdbstub answers at most 2 KiB per
+ * `m` packet, and the default 128-slot registry is exactly that on a 64-bit
+ * guest.
+ */
+const READ_CHUNK = 1024
 
 function validMetaSymbol(symbol?: ElfTypedSymbol): symbol is ElfTypedSymbol {
   return Boolean(symbol && symbol.addr > 0)
 }
 
+/** A struct's DWARF layout, when it has a size and every member the walk reads. */
+function structWith(
+  image: ObjectCoreImage,
+  name: string,
+  members: string[],
+): { size: number; members: Record<string, number> } | null {
+  const struct = image.struct(name)
+  if (!struct?.size) return null
+  return members.every((member) => Object.hasOwn(struct.members, member))
+    ? { size: struct.size, members: struct.members }
+    : null
+}
+
 /** Parse the host-only metadata needed before any RSP reads are attempted. */
 export function parseObjectCoreMeta(elf: Uint8Array): ObjectCoreMeta | null {
-  const symbols = buildElfDataSymbols(elf)
-  const typeList = symbols.get('z_obj_type_list')
-  const descStart = symbols.get('_k_obj_core_desc_list_start')
-  const descEnd = symbols.get('_k_obj_core_desc_list_end')
-  if (!validMetaSymbol(typeList) || !validMetaSymbol(descStart) || !validMetaSymbol(descEnd)) {
-    return null
-  }
+  return objectCoreMetaFromImage({
+    ptrBytes: elfPointerBytes(elf),
+    symbols: elfDataSymbolList(elf),
+    struct: (name) => dwarfStruct(elf, name),
+    readStatic: (addr, length) => readElfVirtual(elf, addr, length),
+  })
+}
 
-  const ptrBytes = elfPointerBytes(elf)
-  const coreMembers = dwarfStructMembers(elf, 'k_obj_core')
-  const typeMembers = dwarfStructMembers(elf, 'k_obj_type')
-  const descriptorSymbol = [...symbols.values()].find(
-    (symbol) =>
-      symbol.name.startsWith('_obj_core_desc_') &&
-      symbol.addr >= descStart.addr &&
-      symbol.addr < descEnd.addr &&
-      symbol.size > 0,
-  )
-  const baseDescriptorSize = align(ptrBytes * 5 + 4, ptrBytes)
-  const statsDescriptorSize = baseDescriptorSize + ptrBytes * 3
-  const statsEnabled =
-    Object.hasOwn(coreMembers, 'stats') || descriptorSymbol?.size === statsDescriptorSize
-  // k_obj_core_desc has six base fields. The uint32 type_id is followed by
-  // pointer alignment when the optional stats fields are present.
-  const descriptorSize =
-    descriptorSymbol?.size || (statsEnabled ? statsDescriptorSize : baseDescriptorSize)
-  if (
-    descEnd.addr <= descStart.addr ||
-    descriptorSize <= 0 ||
-    (descEnd.addr - descStart.addr) % descriptorSize !== 0
-  ) {
+/** {@link parseObjectCoreMeta} over an image description. */
+export function objectCoreMetaFromImage(image: ObjectCoreImage): ObjectCoreMeta | null {
+  const byName = dataSymbolsByName(image.symbols)
+  const typeList = byName.get('z_obj_type_list')
+  const sectionStart = byName.get('_k_obj_type_list_start')
+  const sectionEnd = byName.get('_k_obj_type_list_end')
+  if (!validMetaSymbol(typeList) || !validMetaSymbol(sectionStart) || !validMetaSymbol(sectionEnd)) {
     return null
   }
+  // The walk reads these structs through the build's DWARF, which the
+  // packaged images always carry.
+  const typeStruct = structWith(image, 'k_obj_type', [
+    'node',
+    'id',
+    'obj_core_offset',
+    'statics',
+    'dropped',
+  ])
+  const rangeStruct = structWith(image, 'k_obj_range', ['start', 'end', 'stride', 'indirect'])
+  const coreStruct = structWith(image, 'k_obj_core', ['type'])
+  const slotStruct = structWith(image, 'obj_core_slot', ['core', 'type'])
+  if (!typeStruct || !rangeStruct || !coreStruct) return null
+  const sectionSize = sectionEnd.addr - sectionStart.addr
+  if (sectionSize < 0 || sectionSize % typeStruct.size !== 0) return null
+
+  // A `static` array: fs.c has a `registry` too, so prefer obj_core.c's.
+  const registries = image.symbols.filter(
+    (s) => s.name === 'registry' && s.type === 1 && s.size > 0,
+  )
+  const registry =
+    registries.find((s) => s.file === 'obj_core.c') ??
+    (registries.length === 1 ? registries[0] : undefined)
 
   const layouts: Layouts = {}
-  for (const name of LAYOUT_NAMES) layouts[name] = dwarfStructMembers(elf, name)
+  const structSizes: Record<string, number> = {}
+  for (const name of LAYOUT_NAMES) {
+    const struct = image.struct(name)
+    layouts[name] = struct?.members ?? {}
+    if (struct?.size) structSizes[name] = struct.size
+  }
 
-  return {
-    ptrBytes,
+  const meta: ObjectCoreMeta = {
+    ptrBytes: image.ptrBytes,
     typeListAddr: typeList.addr,
-    descriptorStart: descStart.addr,
-    descriptorEnd: descEnd.addr,
-    descriptorSize,
-    statsEnabled,
-    typeMembers,
-    coreMembers,
+    staticTypes: [],
+    registryAddr: registry && slotStruct ? registry.addr : 0,
+    registrySlots: registry && slotStruct ? Math.floor(registry.size / slotStruct.size) : 0,
+    statsEnabled:
+      Object.hasOwn(coreStruct.members, 'stats') &&
+      Object.hasOwn(typeStruct.members, 'stats_desc'),
+    typeMembers: typeStruct.members,
+    typeSize: typeStruct.size,
+    rangeMembers: rangeStruct.members,
+    rangeSize: rangeStruct.size,
+    // statics[K_OBJ_TYPE_MAX_RANGES] ends where `dropped` begins.
+    maxRanges: Math.floor(
+      (typeStruct.members.dropped - typeStruct.members.statics) / rangeStruct.size,
+    ),
+    coreMembers: coreStruct.members,
+    slotMembers: slotStruct?.members ?? {},
+    slotSize: slotStruct?.size ?? 0,
     layouts,
-    symbols: [...symbols.values()]
+    structSizes,
+    symbols: image.symbols
       .filter((s) => s.type === 1 && s.size > 0)
       .sort((a, b) => a.size - b.size || a.addr - b.addr),
+  }
+
+  // The types are fully initialized at build time, so the image says what
+  // they are before the kernel has linked any of them.
+  const section = image.readStatic(sectionStart.addr, sectionSize)
+  for (let at = 0; section && at + meta.typeSize <= section.length; at += meta.typeSize) {
+    meta.staticTypes.push(
+      typeInfoAt(section.subarray(at, at + meta.typeSize), sectionStart.addr + at, meta),
+    )
+  }
+  return meta
+}
+
+/** Decode one struct k_obj_type from its bytes. */
+function typeInfoAt(bytes: Uint8Array, addr: number, meta: ObjectCoreMeta): ObjectTypeInfo {
+  const p = meta.ptrBytes
+  const t = meta.typeMembers
+  const r = meta.rangeMembers
+  const ranges: ObjectRange[] = []
+  for (let i = 0; i < meta.maxRanges; i++) {
+    const at = t.statics + i * meta.rangeSize
+    const stride = sizeT(bytes, at + r.stride, p)
+    // A zero stride ends the list, as it does in the kernel's own walk.
+    if (stride === 0) break
+    ranges.push({
+      start: ptr(bytes, at + r.start, p),
+      end: ptr(bytes, at + r.end, p),
+      stride,
+      indirect: (bytes[at + r.indirect] ?? 0) !== 0,
+    })
+  }
+  const next = ptr(bytes, t.node, p)
+  return {
+    addr,
+    next: next ? next - t.node : 0,
+    id: u32(bytes, t.id),
+    coreOffset: sizeT(bytes, t.obj_core_offset, p),
+    ranges,
+    dropped: u32(bytes, t.dropped),
+    statsDesc: meta.statsEnabled ? ptr(bytes, t.stats_desc, p) : 0,
   }
 }
 
@@ -307,29 +429,10 @@ function typeName(code: string): string {
   return TYPE_NAMES[code] ?? `Type ${code}`
 }
 
-function descriptorAt(
-  bytes: Uint8Array,
-  at: number,
-  meta: ObjectCoreMeta,
-): ObjectDescriptor {
-  const p = meta.ptrBytes
-  const typeIdAt = p * 5
-  const statsDescAt = align(typeIdAt + 4, p)
-  return {
-    typeAddr: ptr(bytes, at, p),
-    objectsStart: ptr(bytes, at + p, p),
-    objectsEnd: ptr(bytes, at + p * 2, p),
-    coreOffset: sizeT(bytes, at + p * 3, p),
-    objectSize: sizeT(bytes, at + p * 4, p),
-    typeId: u32(bytes, at + typeIdAt),
-    statsDesc: meta.statsEnabled ? ptr(bytes, at + statsDescAt, p) : 0,
-  }
-}
-
 function usefulObjectSymbol(name: string): boolean {
   if (!name || name.startsWith('$') || name.startsWith('.')) return false
   if (name.startsWith('_k_') && name.includes('_list_')) return false
-  if (name.startsWith('_obj_core_desc_') || name.startsWith('obj_type_')) return false
+  if (name.startsWith('obj_type_')) return false
   return true
 }
 
@@ -623,8 +726,7 @@ async function readStats(
 ): Promise<ObjectCoreStats | null> {
   if (!meta.statsEnabled || !statsDescAddr) return null
   const p = meta.ptrBytes
-  const statsAt = getOffset(meta.coreMembers, 'stats', p * 2)
-  const statsAddr = ptr(coreBytes, statsAt, p)
+  const statsAddr = ptr(coreBytes, meta.coreMembers.stats, p)
   if (!statsAddr) return null
 
   try {
@@ -645,48 +747,48 @@ async function readStats(
   }
 }
 
-/** Walk every registered object type and its live object-core list. */
+/** Read a table that may be bigger than one gdbstub packet allows. */
+async function readChunked(read: MemReader, addr: number, length: number): Promise<Uint8Array> {
+  if (length <= READ_CHUNK) return read(addr, length)
+  const out = new Uint8Array(length)
+  for (let at = 0; at < length; at += READ_CHUNK) {
+    out.set(await read(addr + at, Math.min(READ_CHUNK, length - at)), at)
+  }
+  return out
+}
+
+/**
+ * Walk every object type and its objects: the type's permanent ranges, then the
+ * registry entries that point at it. This is the order
+ * k_obj_type_walk_unlocked() visits them in, with its checks: an object counts
+ * only while its core still carries the type, which is how the kernel tells a
+ * live object from reused storage.
+ */
 export async function readObjectCores(
   meta: ObjectCoreMeta,
   read: MemReader,
 ): Promise<ObjectCoreSnapshot> {
   const p = meta.ptrBytes
-  const descriptorBytes = await read(
-    meta.descriptorStart,
-    meta.descriptorEnd - meta.descriptorStart,
-  )
-  const descriptorList: ObjectDescriptor[] = []
-  const descriptors = new Map<number, ObjectDescriptor>()
-  for (let at = 0; at + meta.descriptorSize <= descriptorBytes.length; at += meta.descriptorSize) {
-    const desc = descriptorAt(descriptorBytes, at, meta)
-    if (desc.typeAddr) {
-      descriptorList.push(desc)
-      descriptors.set(desc.typeAddr, desc)
-    }
-  }
-
-  const nodeOff = getOffset(meta.typeMembers, 'node', 0)
-  const listOff = getOffset(meta.typeMembers, 'list', p)
-  const idOff = getOffset(meta.typeMembers, 'id', p * 3)
-  const coreOffOff = getOffset(meta.typeMembers, 'obj_core_offset', align(idOff + 4, p))
-  const statsDescOff = meta.statsEnabled
-    ? getOffset(meta.typeMembers, 'stats_desc', coreOffOff + p)
-    : -1
-  const typeReadSize = Math.max(
-    nodeOff + p,
-    listOff + p * 2,
-    idOff + 4,
-    coreOffOff + p,
-    statsDescOff + (meta.statsEnabled ? p : 0),
-  )
-
-  const listHead = ptr(await read(meta.typeListAddr, p), 0, p)
+  const tagAt = meta.coreMembers.type
+  const coreReadSize = (meta.statsEnabled ? Math.max(tagAt, meta.coreMembers.stats) : tagAt) + p
   const types: ZephyrObjectType[] = []
   const seenTypes = new Set<number>()
-  let typeAddr = listHead
   let totalObjects = 0
   let statsCount = 0
   let truncated = false
+
+  const slotCount = Math.min(meta.registrySlots, MAX_REGISTRY_SLOTS)
+  if (meta.registrySlots > slotCount) truncated = true
+  const slotBytes =
+    slotCount > 0
+      ? await readChunked(read, meta.registryAddr, slotCount * meta.slotSize)
+      : new Uint8Array(0)
+  const slots: { core: number; type: number }[] = []
+  for (let i = 0; i < slotCount; i++) {
+    const at = i * meta.slotSize
+    const core = ptr(slotBytes, at + meta.slotMembers.core, p)
+    if (core) slots.push({ core, type: ptr(slotBytes, at + meta.slotMembers.type, p) })
+  }
 
   const decodeObject = async ({
     typeAddr,
@@ -695,10 +797,10 @@ export async function readObjectCores(
     objectAddr,
     coreAddr,
     objectSize,
-    descriptor,
+    staticObject,
     coreBytes,
     statsDescAddr,
-    descriptorOnly,
+    beforeInit,
   }: {
     typeAddr: number
     id: number
@@ -706,10 +808,10 @@ export async function readObjectCores(
     objectAddr: number
     coreAddr: number
     objectSize: number | null
-    descriptor: ObjectDescriptor | undefined
+    staticObject: boolean
     coreBytes: Uint8Array | null
     statsDescAddr: number
-    descriptorOnly: boolean
+    beforeInit: boolean
   }): Promise<ZephyrKernelObject> => {
     const named = symbolForObject(meta.symbols, objectAddr, objectSize)
     const fallbackName = `${code.toLowerCase().replace(/_+$/, '')}@${objectAddr.toString(16)}`
@@ -721,8 +823,8 @@ export async function readObjectCores(
     let capacity: number | null = null
     // MSGQ and SEM4 bounds are part of their static initializers. Other
     // object bodies (notably k_stack base/top) may not be initialized yet at
-    // the boot-stop descriptor pass, so defer their decoded fields.
-    if (!descriptorOnly || code === 'MSGQ' || code === 'SEM4') {
+    // the boot stop, so defer their decoded fields.
+    if (!beforeInit || code === 'MSGQ' || code === 'SEM4') {
       try {
         const objectBytes = await read(objectAddr, readSize)
         fields = objectFields(code, objectBytes, meta)
@@ -747,140 +849,121 @@ export async function readObjectCores(
       name: named?.name ?? fallbackName,
       size: objectSize ?? named?.symbol.size ?? null,
       capacity,
-      staticObject: Boolean(
-        descriptor &&
-          objectAddr >= descriptor.objectsStart &&
-          objectAddr < descriptor.objectsEnd,
-      ),
+      staticObject,
       fields,
       stats,
     }
   }
 
+  /** One type and its objects; `live` once the kernel has linked the type. */
+  const walkType = async (info: ObjectTypeInfo, live: boolean) => {
+    const code = typeCode(info.id)
+    const objectSize = typeObjectSize(info, code, meta)
+    const group: ZephyrObjectType = {
+      addr: info.addr,
+      id: info.id,
+      code,
+      name: typeName(code),
+      objectSize,
+      objects: [],
+    }
+    types.push(group)
+    // A full registry refused objects that no walk can report.
+    if (info.dropped > 0) truncated = true
+    const full = () =>
+      group.objects.length >= MAX_OBJECTS_PER_TYPE || totalObjects >= MAX_OBJECTS
+
+    // Permanent objects, walked in place.
+    for (const range of info.ranges) {
+      for (const objectAddr of await rangeObjects(range, read, p)) {
+        if (full()) {
+          truncated = true
+          break
+        }
+        const coreAddr = objectAddr + info.coreOffset
+        let coreBytes: Uint8Array | null = null
+        if (live) {
+          coreBytes = await read(coreAddr, coreReadSize)
+          // An element that was never initialized does not carry the type.
+          if (ptr(coreBytes, tagAt, p) !== info.addr) continue
+        }
+        group.objects.push(
+          await decodeObject({
+            typeAddr: info.addr,
+            id: info.id,
+            code,
+            objectAddr,
+            coreAddr,
+            objectSize,
+            staticObject: true,
+            coreBytes,
+            statsDescAddr: live ? info.statsDesc : 0,
+            beforeInit: !live,
+          }),
+        )
+        totalObjects++
+      }
+    }
+
+    // Objects initialized at run time, from the registry.
+    for (const slot of slots) {
+      if (slot.type !== info.addr || slot.core < info.coreOffset) continue
+      if (group.objects.some((object) => object.coreAddr === slot.core)) continue
+      if (full()) {
+        truncated = true
+        break
+      }
+      let coreBytes: Uint8Array
+      try {
+        coreBytes = await read(slot.core, coreReadSize)
+      } catch {
+        continue
+      }
+      // Storage reused by something else no longer carries the type: stale.
+      if (ptr(coreBytes, tagAt, p) !== info.addr) continue
+      group.objects.push(
+        await decodeObject({
+          typeAddr: info.addr,
+          id: info.id,
+          code,
+          objectAddr: slot.core - info.coreOffset,
+          coreAddr: slot.core,
+          objectSize,
+          staticObject: false,
+          coreBytes,
+          statsDescAddr: info.statsDesc,
+          beforeInit: false,
+        }),
+      )
+      totalObjects++
+    }
+  }
+
+  const head = ptr(await read(meta.typeListAddr, p), 0, p)
+  let typeAddr = head ? head - meta.typeMembers.node : 0
   while (typeAddr && types.length < MAX_TYPES && totalObjects < MAX_OBJECTS) {
     if (seenTypes.has(typeAddr)) {
       truncated = true
       break
     }
     seenTypes.add(typeAddr)
-
-    const typeBytes = await read(typeAddr, typeReadSize)
-    const nextType = ptr(typeBytes, nodeOff, p)
-    const id = u32(typeBytes, idOff)
-    const code = typeCode(id)
-    const coreOffset = sizeT(typeBytes, coreOffOff, p)
-    const statsDescAddr =
-      meta.statsEnabled && statsDescOff >= 0 ? ptr(typeBytes, statsDescOff, p) : 0
-    const descriptor = descriptors.get(typeAddr)
-    const objectSize =
-      descriptor && descriptor.objectSize > 0 ? descriptor.objectSize : null
-    const group: ZephyrObjectType = {
-      addr: typeAddr,
-      id,
-      code,
-      name: typeName(code),
-      objectSize,
-      objects: [],
-    }
-
-    let coreAddr = ptr(typeBytes, listOff, p)
-    const seenCores = new Set<number>()
-    while (
-      coreAddr &&
-      group.objects.length < MAX_OBJECTS_PER_TYPE &&
-      totalObjects < MAX_OBJECTS
-    ) {
-      if (seenCores.has(coreAddr)) {
-        truncated = true
-        break
-      }
-      seenCores.add(coreAddr)
-
-      const coreReadSize = meta.statsEnabled ? p * 3 : p * 2
-      const coreBytes = await read(coreAddr, coreReadSize)
-      const nextCore = ptr(coreBytes, getOffset(meta.coreMembers, 'node', 0), p)
-      const linkedType = ptr(coreBytes, getOffset(meta.coreMembers, 'type', p), p)
-      if (linkedType !== typeAddr || coreOffset > coreAddr) {
-        truncated = true
-        break
-      }
-      const objectAddr = coreAddr - coreOffset
-      group.objects.push(
-        await decodeObject({
-          typeAddr,
-          id,
-          code,
-          objectAddr,
-          coreAddr,
-          objectSize,
-          descriptor,
-          coreBytes,
-          statsDescAddr,
-          descriptorOnly: false,
-        }),
-      )
-      totalObjects++
-      coreAddr = nextCore
-    }
-    if (coreAddr) truncated = true
-    types.push(group)
-    typeAddr = nextType
+    const info = typeInfoAt(await read(typeAddr, meta.typeSize), typeAddr, meta)
+    await walkType(info, true)
+    typeAddr = info.next
   }
   if (typeAddr) truncated = true
 
-  // The descriptor section exists before z_obj_core_init_all() links the live
-  // lists. Seed static objects from its address ranges so the initial GDB stop
-  // can provide names and fixed bounds before application code starts.
-  for (const descriptor of descriptorList) {
-    if (
-      descriptor.objectSize <= 0 ||
-      descriptor.objectsEnd <= descriptor.objectsStart
-    ) {
-      continue
+  // Until obj_core_init_all() links the types, the list is empty and only the
+  // image knows them, and their static objects' cores are not initialized
+  // yet either. Seed those objects from the ranges so the initial GDB stop can
+  // provide names and fixed bounds before application code starts.
+  for (const info of meta.staticTypes) {
+    if (seenTypes.has(info.addr)) continue
+    if (types.length >= MAX_TYPES) {
+      truncated = true
+      break
     }
-    const code = typeCode(descriptor.typeId)
-    let group = types.find((candidate) => candidate.addr === descriptor.typeAddr)
-    if (!group) {
-      if (types.length >= MAX_TYPES) {
-        truncated = true
-        break
-      }
-      group = {
-        addr: descriptor.typeAddr,
-        id: descriptor.typeId,
-        code,
-        name: typeName(code),
-        objectSize: descriptor.objectSize,
-        objects: [],
-      }
-      types.push(group)
-    }
-    for (
-      let objectAddr = descriptor.objectsStart;
-      objectAddr < descriptor.objectsEnd;
-      objectAddr += descriptor.objectSize
-    ) {
-      if (group.objects.some((object) => object.addr === objectAddr)) continue
-      if (group.objects.length >= MAX_OBJECTS_PER_TYPE || totalObjects >= MAX_OBJECTS) {
-        truncated = true
-        break
-      }
-      group.objects.push(
-        await decodeObject({
-          typeAddr: descriptor.typeAddr,
-          id: descriptor.typeId,
-          code,
-          objectAddr,
-          coreAddr: objectAddr + descriptor.coreOffset,
-          objectSize: descriptor.objectSize,
-          descriptor,
-          coreBytes: null,
-          statsDescAddr: 0,
-          descriptorOnly: true,
-        }),
-      )
-      totalObjects++
-    }
+    await walkType(info, false)
   }
 
   return {
@@ -889,6 +972,38 @@ export async function readObjectCores(
     statsCount,
     truncated,
   }
+}
+
+/** The object addresses in one permanent range: its elements, or what they point to. */
+async function rangeObjects(range: ObjectRange, read: MemReader, p: 4 | 8): Promise<number[]> {
+  if (range.end <= range.start) return []
+  // The kernel steps `elem < end`, so a partial last element still counts.
+  const count = Math.min(Math.ceil((range.end - range.start) / range.stride), MAX_OBJECTS)
+  if (!range.indirect) {
+    return Array.from({ length: count }, (_, i) => range.start + i * range.stride)
+  }
+  const table = await readChunked(read, range.start, count * range.stride)
+  const out: number[] = []
+  for (let i = 0; i < count; i++) {
+    const addr = ptr(table, i * range.stride, p)
+    if (addr) out.push(addr)
+  }
+  return out
+}
+
+/**
+ * sizeof() the type's objects: DWARF knows the kernel's own structs. For any
+ * other type, the first direct range steps over the objects themselves.
+ */
+function typeObjectSize(
+  info: ObjectTypeInfo,
+  code: string,
+  meta: ObjectCoreMeta,
+): number | null {
+  const struct = STRUCT_FOR_CODE[code]
+  const size = struct ? meta.structSizes[struct] : undefined
+  if (size) return size
+  return info.ranges.find((range) => !range.indirect)?.stride ?? null
 }
 
 /** Object-core inventory as wait-object inputs for the Threads status line. */

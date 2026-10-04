@@ -5,7 +5,7 @@
 #
 # Images stay unstripped so the in-page debugger can resolve
 # CONFIG_DEBUG_THREAD_INFO plus CONFIG_OBJ_CORE symbols (_kernel,
-# z_obj_type_list, the object-core descriptor bounds, …). Drop-in custom ELFs
+# z_obj_type_list, the object-core section bounds, …). Drop-in custom ELFs
 # should likewise keep symbols for the Threads and Kernel Objects tabs.
 #
 #   tools/build-zephyr-image.sh [board|all] [app|all]

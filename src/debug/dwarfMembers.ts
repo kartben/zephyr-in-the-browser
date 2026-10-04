@@ -1,5 +1,5 @@
 /**
- * Minimal DWARF reader: member byte-offsets for one named struct.
+ * Minimal DWARF reader: member byte-offsets (and the size) for one named struct.
  *
  * Host-only helper for `k_thread.stack_info` when the guest ELF was built with
  * CONFIG_THREAD_STACK_INFO (DWARF present). Returns {} when .debug_info is
@@ -177,15 +177,31 @@ function parseAbbrevs(abbrevData: Uint8Array, abbrevOffset: number): Map<number,
   return abbrevs
 }
 
+/** A struct as DWARF describes it: member byte offsets, and its size. */
+export interface DwarfStruct {
+  /** DW_AT_byte_size, or null when the DIE does not record one. */
+  size: number | null
+  members: Record<string, number>
+}
+
 /**
  * Return member name → byte offset for the first DW_TAG_structure_type matching
  * `structName`. Empty when DWARF is missing or the walk fails.
  */
 export function dwarfStructMembers(elf: Uint8Array, structName: string): Record<string, number> {
+  return dwarfStruct(elf, structName)?.members ?? {}
+}
+
+/**
+ * The first DW_TAG_structure_type matching `structName` that has members, with
+ * its byte size. Null when DWARF is missing, the walk fails, or no struct of
+ * that name has members.
+ */
+export function dwarfStruct(elf: Uint8Array, structName: string): DwarfStruct | null {
   const info = findSection(elf, '.debug_info')
   const abbrevSec = findSection(elf, '.debug_abbrev')
   const strSec = findSection(elf, '.debug_str')
-  if (!info || !abbrevSec) return {}
+  if (!info || !abbrevSec) return null
 
   const little = elf[5] === 1
   const infoData = elf.subarray(info.offset, info.offset + info.size)
@@ -287,11 +303,15 @@ export function dwarfStructMembers(elf: Uint8Array, structName: string): Record<
       if (!abbr) break
 
       let dieName: string | null = null
+      let byteSize: number | null = null
       for (const attr of abbr.attrs) {
         if (attr.name === 0x03) {
           const s = readStr(attr.form, at)
           if (s !== null) dieName = s
           else skipForm(infoData, at, attr.form, addrSize, little)
+        } else if (attr.name === 0x0b) {
+          // DW_AT_byte_size: a constant, in the same forms as a member offset.
+          byteSize = readMemberLoc(attr.form, at, attr.implicit)
         } else {
           skipForm(infoData, at, attr.form, addrSize, little)
         }
@@ -308,7 +328,7 @@ export function dwarfStructMembers(elf: Uint8Array, structName: string): Record<
             continue
           }
           const cabbr = abbrevs.get(ccode)
-          if (!cabbr) return members
+          if (!cabbr) return { size: byteSize, members }
           let cname: string | null = null
           let cloc: number | null = null
           for (const attr of cabbr.attrs) {
@@ -327,10 +347,10 @@ export function dwarfStructMembers(elf: Uint8Array, structName: string): Record<
           }
           if (cabbr.children) depth++
         }
-        if (Object.keys(members).length > 0) return members
+        if (Object.keys(members).length > 0) return { size: byteSize, members }
       }
     }
     cu = cuEnd
   }
-  return {}
+  return null
 }

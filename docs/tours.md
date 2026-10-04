@@ -506,8 +506,8 @@ objects:                # …and which one the step is about
   focus: $arg0
 ```
 
-`CONFIG_OBJ_CORE` links every mutex, semaphore, message queue, mailbox, slab and
-thread onto a per-type list, so this needs no addresses and no offsets: the
+`CONFIG_OBJ_CORE` keeps every mutex, semaphore, message queue, mailbox, slab and
+thread in a per-type inventory, so this needs no addresses and no offsets: the
 object cores say what exists, and the build's own DWARF says how to read each
 one. A `mutex` row shows its owner, lock depth and the owner's base priority; a
 `sem` row shows count and limit; a `msgq` row shows used and capacity.

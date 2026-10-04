@@ -13,6 +13,8 @@ export interface ElfSymbol {
 /** Defined ELF symbol with its raw STT_* type. */
 export interface ElfTypedSymbol extends ElfSymbol {
   type: number
+  /** Source file of a local (`static`) symbol, from the STT_FILE entry before it. */
+  file?: string
 }
 
 export interface SymbolIndex {
@@ -37,8 +39,10 @@ export interface ResolvedSymbol {
 
 const STT_OBJECT = 1
 const STT_FUNC = 2
+const STT_FILE = 4
 const STT_GNU_IFUNC = 10
 const SHN_ABS = 0xfff1
+const STB_LOCAL = 0
 
 function parseSymtab(data: Uint8Array): ElfTypedSymbol[] | null {
   if (data.length < 64 || data[0] !== 0x7f || data[1] !== 0x45) return null
@@ -72,6 +76,13 @@ function parseSymtab(data: Uint8Array): ElfTypedSymbol[] | null {
     const strSize = elfclass === 2 ? u64(strSh + 32) : u32(strSh + 20)
     const strtab = data.subarray(strOff, strOff + strSize)
     const ent = elfclass === 2 ? 24 : 16
+    const nameAt = (off: number) => {
+      let end = off
+      while (end < strtab.length && strtab[end] !== 0) end++
+      return decoder.decode(strtab.subarray(off, end))
+    }
+    // Locals follow the STT_FILE entry of the file that defined them.
+    let file: string | undefined
 
     for (let j = 0; j < shSize; j += ent) {
       const eo = shOffset + j
@@ -94,6 +105,10 @@ function parseSymtab(data: Uint8Array): ElfTypedSymbol[] | null {
         shndx = u16(eo + 14)
       }
       const type = info & 0xf
+      if (type === STT_FILE) {
+        file = nameAt(nameOff).split('/').pop() || undefined
+        continue
+      }
       if (
         type !== STT_OBJECT &&
         type !== STT_FUNC &&
@@ -112,11 +127,10 @@ function parseSymtab(data: Uint8Array): ElfTypedSymbol[] | null {
         continue
       }
 
-      let end = nameOff
-      while (end < strtab.length && strtab[end] !== 0) end++
-      const name = decoder.decode(strtab.subarray(nameOff, end))
+      const name = nameAt(nameOff)
       if (!name || !isUsefulSymbol(name)) continue
-      out.push({ name, addr: value, size: size || 0, type })
+      const local = info >> 4 === STB_LOCAL
+      out.push({ name, addr: value, size: size || 0, type, ...(local && file ? { file } : {}) })
     }
   }
   return out
@@ -219,9 +233,23 @@ export function readElfCString(elf: Uint8Array, addr: number, max = 64): string 
  * includes STT_NOTYPE section bounds such as `_k_obj_core_desc_list_start`.
  */
 export function buildElfDataSymbols(elf: Uint8Array): Map<string, ElfTypedSymbol> {
+  return dataSymbolsByName(elfDataSymbolList(elf))
+}
+
+/**
+ * The same symbols as {@link buildElfDataSymbols}, in symbol-table order and
+ * with every duplicate kept. A name like `registry` can be a `static` in
+ * several files, and only each one's {@link ElfTypedSymbol.file} tells them
+ * apart.
+ */
+export function elfDataSymbolList(elf: Uint8Array): ElfTypedSymbol[] {
+  return (parseSymtab(elf) ?? []).filter((s) => s.type === STT_OBJECT || s.type === 0)
+}
+
+/** Index data symbols by name: the first wins, unless only a later one has a size. */
+export function dataSymbolsByName(symbols: readonly ElfTypedSymbol[]): Map<string, ElfTypedSymbol> {
   const out = new Map<string, ElfTypedSymbol>()
-  for (const s of parseSymtab(elf) ?? []) {
-    if (s.type !== STT_OBJECT && s.type !== 0) continue
+  for (const s of symbols) {
     const old = out.get(s.name)
     if (!old || (old.size === 0 && s.size > 0)) out.set(s.name, s)
   }
