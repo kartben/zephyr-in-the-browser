@@ -58,6 +58,8 @@ export class FakeRspServer {
   running: boolean
   noAck = false
   pc: number
+  /** Register values `g` reports besides the pc, by index (r0 is 0). Unset ones read 0. */
+  readonly registers = new Map<number, number>()
   readonly swBreakpoints = new Set<number>()
   readonly hwBreakpoints = new Set<number>()
 
@@ -103,6 +105,11 @@ export class FakeRspServer {
     let hex = ''
     for (let i = 0; i < text.length; i++) hex += text.charCodeAt(i).toString(16).padStart(2, '0')
     this.reply(`O${hex}`)
+  }
+
+  /** Put bytes in target memory, the way the firmware would have. */
+  load(addr: number, bytes: ArrayLike<number>) {
+    for (let i = 0; i < bytes.length; i++) this.memory.set(addr + i, bytes[i]! & 0xff)
   }
 
   /** The running target hits a breakpoint (or is stopped by firmware fault). */
@@ -268,7 +275,7 @@ export class FakeRspServer {
     const pcIndex = this.arch === 'arm' ? 15 : 32
     let out = ''
     for (let i = 0; i < regs; i++) {
-      const value = i === pcIndex ? this.pc : 0
+      const value = i === pcIndex ? this.pc : (this.registers.get(i) ?? 0)
       const bytes = new Uint8Array(4)
       new DataView(bytes.buffer).setUint32(0, value >>> 0, true)
       out += bytesToHex(bytes)

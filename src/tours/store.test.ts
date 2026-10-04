@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROW_IS_STMT, ROW_PROLOGUE_END, type LineIndex } from '@/debug/dwarfLines'
+import type { StopFilter } from '@/hostGdb'
 
 /*
  * The engine's job is to decide which stop belongs to which step and what
@@ -14,7 +15,7 @@ const breakpoints = new Set<number>()
 const resumed: number[] = []
 let gdbListeners: Array<() => void> = []
 /** The store's stop filter, as hostGdb would hold it. */
-let stopFilter: ((pc: string) => boolean) | null = null
+let stopFilter: StopFilter | null = null
 /** Hits the filter waved through without ever publishing a pause. */
 const swallowed: string[] = []
 /** The image, for the tests that need a line table or DWARF; see `msgqLines`. */
@@ -66,7 +67,7 @@ vi.mock('@/hostGdb', () => ({
     ]),
   }),
   setAttachHook: () => {},
-  setStopFilter: (fn: ((pc: string) => boolean) | null) => {
+  setStopFilter: (fn: StopFilter | null) => {
     stopFilter = fn
   },
   sessionActive: () => true,
@@ -182,14 +183,15 @@ async function settle() {
 }
 
 /**
- * Deliver a stop at `addr`, the way hostGdb would: read the PC, offer it to the
- * filter, and only publish a pause for the stops the filter keeps. A rejected
- * one is continued without the guest ever appearing stopped, which is the whole
- * reason `when:` can sit on a hot breakpoint.
+ * Deliver a stop at `addr`, the way hostGdb would: read the registers, offer
+ * the stop to the filter, and only publish a pause for the stops the filter
+ * keeps. A rejected one is continued without the guest ever appearing stopped,
+ * which is the whole reason `when:` can sit on a hot breakpoint.
  */
-async function stopAt(addr: number) {
+async function stopAt(addr: number, registers = 'PC=00008000\nX00=00002000') {
   const hex = addr.toString(16).padStart(8, '0')
-  if (stopFilter?.(hex)) {
+  const reject = await stopFilter?.({ pc: hex, registers, read: async () => null })
+  if (reject) {
     swallowed.push(hex)
     return
   }
