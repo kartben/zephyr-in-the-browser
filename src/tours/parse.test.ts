@@ -598,3 +598,49 @@ describe('dts', () => {
     }
   })
 })
+
+describe('sources', () => {
+  const tour = (front: string) =>
+    parseTour(
+      [
+        '---',
+        'tour: Kernel stops',
+        'sample: samples/kernel/msg_queue',
+        front,
+        '---',
+        '',
+        '## Step',
+        '',
+        '```tour',
+        'at: z_impl_k_msgq_put',
+        '```',
+        '',
+        'Prose.',
+        '',
+      ].join('\n'),
+    )
+
+  it('reads the Zephyr files a tour wants shipped, as a list or on one line', () => {
+    const listed = tour('sources:\n  - kernel/msg_q.c\n  - zephyr-module/drivers/qemu_host_gpio.c')
+    expect(listed.sources).toEqual(['kernel/msg_q.c', 'zephyr-module/drivers/qemu_host_gpio.c'])
+    expect(listed.problems).toEqual([])
+    expect(tour('sources: kernel/msg_q.c, kernel/sched.c').sources).toEqual([
+      'kernel/msg_q.c',
+      'kernel/sched.c',
+    ])
+  })
+
+  it('is empty when the tour asks for nothing beyond the sample', () => {
+    expect(tour('').sources).toEqual([])
+    expect(parseTour(TOUR).sources).toEqual([])
+  })
+
+  it('refuses a path that would reach outside the Zephyr tree, and says so', () => {
+    const doc = tour('sources:\n  - /etc/passwd\n  - ../outside.c\n  - kernel/../../x.c\n  - kernel/msg_q.c')
+    expect(doc.sources).toEqual(['kernel/msg_q.c'])
+    expect(doc.problems).toHaveLength(3)
+    expect(doc.problems[0]).toContain('`sources: /etc/passwd`')
+    expect(doc.problems[1]).toContain('`sources: ../outside.c`')
+    expect(doc.problems[2]).toContain('`sources: kernel/../../x.c`')
+  })
+})

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ROW_IS_STMT, ROW_PROLOGUE_END, type LineIndex } from '@/debug/dwarfLines'
 
 /*
  * The engine's job is to decide which stop belongs to which step and what
@@ -16,6 +17,8 @@ let gdbListeners: Array<() => void> = []
 let stopFilter: ((pc: string) => boolean) | null = null
 /** Hits the filter waved through without ever publishing a pause. */
 const swallowed: string[] = []
+/** The image, for the tests that need a line table; see `msgqLines`. */
+let kernelElf: Uint8Array | null = null
 
 const gdbSnapshot = () => ({
   attached: true,
@@ -34,10 +37,16 @@ vi.mock('@/hostGdb', () => ({
     }
   },
   getSnapshot: () => gdbSnapshot(),
-  getKernelElf: () => null,
+  getKernelElf: () => kernelElf,
   getSymbolIndex: () => ({
-    byAddr: [{ name: 'main', addr: 0x8000, size: 0x40 }],
-    byName: [{ name: 'main', addr: 0x8000, size: 0x40 }],
+    byAddr: [
+      { name: 'main', addr: 0x8000, size: 0x40 },
+      { name: 'z_impl_k_msgq_put', addr: 0x10000, size: 0x20 },
+    ],
+    byName: [
+      { name: 'main', addr: 0x8000, size: 0x40 },
+      { name: 'z_impl_k_msgq_put', addr: 0x10000, size: 0x20 },
+    ],
     objects: new Map([
       ['led', { name: 'led', addr: 0x2000, size: 8 }],
       ['z_interrupt_stacks', { name: 'z_interrupt_stacks', addr: 0x2000_0000, size: 0x2000 }],
@@ -91,6 +100,16 @@ const revealed: string[] = []
 vi.mock('@/lib/dockReveal', () => ({
   revealPanelKind: (kind: string) => revealed.push(kind),
   revealDockRow: (key: string) => revealed.push(key),
+}))
+
+/*
+ * The real line-table lookups, over a hand-built table: parsing one out of an
+ * ELF is dwarfLines.test.ts's business. Only reached once a test sets
+ * `kernelElf`, so the tours above never see it.
+ */
+vi.mock('@/debug/dwarfLines', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/debug/dwarfLines')>()),
+  buildLineIndex: () => msgqLines(),
 }))
 
 const {
@@ -606,5 +625,136 @@ describe('the mock replay', () => {
     expect(await beats(4, skip)).toEqual(['Main waits', 'nothing', 'nothing', 'nothing'])
     expect(getSnapshot()).toMatchObject({ finished: true, completed: false })
     ac.abort()
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Stops outside the sample
+ * ------------------------------------------------------------------ */
+
+/** Where the build machine kept the kernel, as DWARF recorded it. */
+const MSGQ_DWARF = '/workdir/zephyr/kernel/msg_q.c'
+
+/** Three rows of kernel/msg_q.c: z_impl_k_msgq_put, and the hand-off inside it. */
+function msgqLines(): LineIndex {
+  const rows = [
+    { addr: 0x10000, line: 252, flags: ROW_IS_STMT },
+    { addr: 0x10004, line: 253, flags: ROW_IS_STMT | ROW_PROLOGUE_END },
+    { addr: 0x10010, line: 172, flags: ROW_IS_STMT },
+  ]
+  return {
+    addrs: new Float64Array(rows.map((r) => r.addr)),
+    lines: new Int32Array(rows.map((r) => r.line)),
+    fileIds: new Int32Array(rows.map(() => 0)),
+    flags: new Uint8Array(rows.map((r) => r.flags)),
+    files: [MSGQ_DWARF],
+    baseNames: ['msg_q.c'],
+  }
+}
+
+/** Enough of msg_q.c for the anchor and the highlight to land where they do upstream. */
+const MSGQ_C = Array.from({ length: 260 }, (_, i) => `/* line ${i + 1} */`)
+MSGQ_C[168] = '\t\t\tpending_thread = z_unpend_first_thread_locked(&msgq->wait_q);'
+MSGQ_C[170] = "\t\t\t\t/* copy into the receiver's buffer */"
+MSGQ_C[171] = '\t\t\t\t(void)memcpy(pending_thread->base.swap_data, data,'
+MSGQ_C[250] = 'int z_impl_k_msgq_put(struct k_msgq *msgq, const void *data, k_timeout_t timeout)'
+
+const MSGQ_TOUR = `---
+tour: Message queues
+sample: samples/kernel/msg_queue
+sources:
+  - kernel/msg_q.c
+---
+
+## The hand-off
+
+\`\`\`tour
+at: msg_q.c:/copy into the receiver's buffer/ | z_impl_k_msgq_put
+highlight: /pending_thread = z_unpend_first_thread_locked/ + 8
+\`\`\`
+
+Prose.
+`
+
+const SHIPPED = '/qemu/zephyr/qemu_cortex_a53/src/msg_queue/'
+
+describe('stops outside the sample', () => {
+  const fetched: string[] = []
+
+  /** Answer like the dev server: unknown paths get index.html and a 200. */
+  function serve(files: Record<string, string>) {
+    fetched.length = 0
+    vi.stubGlobal('fetch', async (url: string) => {
+      fetched.push(url)
+      const body = files[url.slice(SHIPPED.length)]
+      if (body === undefined) {
+        return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
+      }
+      const type = url.endsWith('.json') ? 'application/json' : 'text/plain'
+      return new Response(body, { headers: { 'content-type': type } })
+    })
+  }
+
+  async function loadMsgq() {
+    reset()
+    kernelElf = new Uint8Array(1)
+    tourText.body = MSGQ_TOUR
+    await loadFor(`tour-${url++}`, (file) => `${SHIPPED}${file}`)
+    await arm()
+  }
+
+  afterEach(() => {
+    kernelElf = null
+    vi.unstubAllGlobals()
+  })
+
+  it('resolves a pattern in a kernel file through the image’s index', async () => {
+    serve({
+      'index.json': JSON.stringify({ files: ['main.c', 'zephyr/kernel/msg_q.c'] }),
+      'zephyr/kernel/msg_q.c': MSGQ_C.join('\n'),
+    })
+    await loadMsgq()
+
+    expect(getSnapshot().problems).toEqual([])
+    expect(getSteps()[0]!.anchor).toMatchObject({
+      via: 'pattern',
+      addr: 0x10010,
+      file: MSGQ_DWARF,
+      line: 172,
+    })
+    expect(fetched).toContain(`${SHIPPED}zephyr/kernel/msg_q.c`)
+
+    await stopAt(0x10010)
+    const card = getSnapshot().current
+    expect(card?.source).toBe('zephyr/kernel/msg_q.c')
+    expect(card?.provenance).toEqual({ origin: 'Zephyr kernel', path: 'kernel/msg_q.c' })
+    expect(card?.highlight).toEqual([{ start: 169, end: 177 }])
+  })
+
+  it('on an image with no index, falls back as it always has', async () => {
+    // Shipped before there was an index: the sample's own files, and no kernel.
+    serve({ 'main.c': 'int main(void) { return 0; }' })
+    await loadMsgq()
+
+    // The pattern cannot be searched, so the next alternative wins.
+    expect(getSteps()[0]!.anchor).toMatchObject({ via: 'symbol', addr: 0x10004, line: 253 })
+    expect(fetched).not.toContain(`${SHIPPED}zephyr/kernel/msg_q.c`)
+
+    await stopAt(0x10004)
+    const card = getSnapshot().current
+    // The basename guess the card has always made, which finds nothing here.
+    expect(card?.source).toBe('msg_q.c')
+    expect(card?.provenance).toBeNull()
+    expect(card?.highlight).toEqual([])
+  })
+
+  it('shows no excerpt for a kernel file the image did not ship', async () => {
+    serve({ 'index.json': JSON.stringify({ files: ['main.c'] }) })
+    await loadMsgq()
+
+    expect(getSteps()[0]!.anchor).toMatchObject({ via: 'symbol', addr: 0x10004 })
+    await stopAt(0x10004)
+    expect(getSnapshot().current?.source).toBeNull()
+    expect(getSnapshot().current?.provenance).toBeNull()
   })
 })

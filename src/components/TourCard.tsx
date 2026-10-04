@@ -103,18 +103,18 @@ export function TourCard({ board, sampleId }: Props) {
     return null
   }
 
-  const { step, anchor, paused, values, memory, objects, registers, threads } = card
+  const { step, anchor, paused, values, memory, objects, registers, threads, provenance } = card
   const showSource = state.doc?.showSource !== false
   const total = state.doc?.steps.length ?? 0
   const src =
-    showSource && anchor?.file
-      ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, baseName(anchor.file))}`
+    showSource && card.source
+      ? `${import.meta.env.BASE_URL}qemu/${sampleSourceAsset(board, sampleId, card.source)}`
       : null
 
   const where =
     showSource && anchor
       ? anchor.file && anchor.line
-        ? `${baseName(anchor.file)}:${anchor.line}`
+        ? `${provenance?.path ?? baseName(anchor.file)}:${anchor.line}`
         : (anchor.symbol ?? `0x${anchor.addr.toString(16)}`)
       : null
 
@@ -158,6 +158,10 @@ export function TourCard({ board, sampleId }: Props) {
           {where && (
             <p className="flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
               <Bug className="size-3 shrink-0" aria-hidden />
+              {/* Whose code this is: a stop in the kernel should not read as the sample's. */}
+              {provenance && anchor?.file && anchor.line && (
+                <span className="shrink-0 text-muted-foreground/70">{provenance.origin} ·</span>
+              )}
               <span className="truncate">{where}</span>
               {anchor?.symbol && anchor.file && (
                 <span className="truncate text-muted-foreground/70">in {anchor.symbol}()</span>

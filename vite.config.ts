@@ -5,6 +5,7 @@ import path from 'node:path'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin } from 'vite'
+import { frontMatterSources, isShippableSource, shippedPath } from './src/tours/sources'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const QEMU_ASSET_DIR = path.join(root, 'public', 'qemu')
@@ -184,10 +185,17 @@ function appVersion(): Plugin {
  * hand (ZEPHYR_WS, default ~/zephyrproject) the excerpts and pattern anchors
  * work in dev too; when it is not, the tour still reads.
  *
+ * It answers with the layout tools/build-zephyr-image.sh ships: the sample's
+ * own files, the Zephyr files its tour lists under `sources:` at
+ * `zephyr/<path>`, and an `index.json` naming them (src/tours/sources.ts).
+ * The workspace is whatever is checked out there, so its line numbers can
+ * drift from an image built at another revision.
+ *
  * Dev only. A deployment has real images, and this must never mask them.
  */
 function tours(): Plugin {
   const zephyrWs = process.env.ZEPHYR_WS ?? path.join(os.homedir(), 'zephyrproject')
+  const zephyrTree = path.join(zephyrWs, 'zephyr')
 
   /** app id → Zephyr sample path, straight out of the packaging manifest. */
   const sampleForApp = (app: string): string | null => {
@@ -201,26 +209,72 @@ function tours(): Plugin {
     return null
   }
 
+  /** Where an app's own sources are: the Zephyr tree, or this repo's module. */
+  const sampleSrc = (sample: string): string =>
+    sample.startsWith('zephyr-module/')
+      ? path.join(root, sample, 'src')
+      : path.join(zephyrTree, sample, 'src')
+
+  /** The file on this machine behind `src/<app>/<rel>`, if the layout has one. */
+  const locate = (app: string, rel: string): string | null => {
+    if (!isShippableSource(rel)) return null
+    const [top, ...rest] = rel.split('/')
+    if (rest.length > 0) {
+      if (top === 'zephyr') return path.join(zephyrTree, ...rest)
+      if (top === 'zephyr-module') return path.join(root, rel)
+      return null
+    }
+    const sample = sampleForApp(app)
+    return sample ? path.join(sampleSrc(sample), rel) : null
+  }
+
+  /** What the image build would write to `src/<app>/index.json`. */
+  const index = (app: string): string[] | null => {
+    const sample = sampleForApp(app)
+    const own = sample ? sampleSrc(sample) : null
+    if (!own || !existsSync(own)) return null
+    const files = readdirSync(own).filter(
+      (f) => /\.[ch]$/.test(f) && statSync(path.join(own, f)).isFile(),
+    )
+    const tour = path.join(root, 'tours', `${app}.tour.md`)
+    if (existsSync(tour)) {
+      for (const source of frontMatterSources(readFileSync(tour, 'utf8'))) {
+        const rel = shippedPath(source)
+        const file = locate(app, rel)
+        if (file && existsSync(file)) files.push(rel)
+      }
+    }
+    return files.sort()
+  }
+
   return {
     name: 'zephyr-tours',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        // `/qemu/zephyr/<board>/src/<app>/<file>` — board is irrelevant here,
-        // since a sample's sources do not vary by machine.
-        const url = (req.url ?? '').split('?')[0]
-        const source = /\/qemu\/zephyr\/[^/]+\/src\/([^/]+)\/([^/]+)$/.exec(url)
+        // `/qemu/zephyr/<board>/src/<app>/<path>`. The board is irrelevant
+        // here, since a sample's sources do not vary by machine.
+        let url: string
+        try {
+          url = decodeURIComponent((req.url ?? '').split('?')[0]!)
+        } catch {
+          return next()
+        }
+        const source = /\/qemu\/zephyr\/[^/]+\/src\/([^/]+)\/(.+)$/.exec(url)
         if (!source) return next()
         // A real build's artifacts win: only answer for what it has not shipped.
         if (existsSync(path.join(QEMU_ASSET_DIR, url.split('/qemu/')[1] ?? ''))) return next()
 
-        const sample = sampleForApp(source[1]!)
-        if (!sample) return next()
-        const base = sample.startsWith('zephyr-module/')
-          ? path.join(root, sample)
-          : path.join(zephyrWs, 'zephyr', sample)
-        const file = path.join(base, 'src', source[2]!)
-        if (!existsSync(file)) return next()
+        const app = source[1]!
+        const rel = source[2]!
+        if (rel === 'index.json') {
+          const files = index(app)
+          if (!files) return next()
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          return res.end(`${JSON.stringify({ files }, null, 2)}\n`)
+        }
+        const file = locate(app, rel)
+        if (!file || !existsSync(file) || !statSync(file).isFile()) return next()
 
         res.setHeader('Content-Type', 'text/plain; charset=utf-8')
         res.end(readFileSync(file))

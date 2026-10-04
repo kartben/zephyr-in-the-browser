@@ -27,6 +27,14 @@ import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
 import { focusStep, lookNotes } from '@/tours/look'
 import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
+import {
+  parseSourceIndex,
+  provenance,
+  shippedFileNamed,
+  shippedPathFor,
+  type Provenance,
+  type SourceIndex,
+} from '@/tours/sources'
 import { whenFires } from '@/tours/when'
 
 const ENABLED_KEY = 'zephyr-tours-enabled'
@@ -92,6 +100,14 @@ export interface TourCard {
   highlight: TourHighlight[]
   /** Why a view the step points at is not on screen, such as Trace on an untraced build. */
   lookNotes: string[]
+  /**
+   * The stop's file as the image shipped it, under `src/<app>/`: `main.c`, or
+   * `zephyr/kernel/msg_q.c` for one the tour's `sources:` asked for. Null
+   * when the image did not ship it, so there is no excerpt to show.
+   */
+  source: string | null
+  /** Whose code that is, for the card's crumb. Null on an image with no index. */
+  provenance: Provenance | null
 }
 
 /** What the reader is asked to do before the step the tour is waiting on. */
@@ -180,10 +196,19 @@ let armWatchdog: ReturnType<typeof setTimeout> | undefined
  * Hits are counted once, in the filter; this carries the verdict across.
  */
 let pendingFire: StepRuntime | null = null
-/** Shipped sources by basename, fetched for pattern anchors. */
+/**
+ * Shipped sources by their path under `src/<app>/`, lowercased, fetched for
+ * pattern anchors and highlights.
+ */
 let sources = new Map<string, string[]>()
 /** How to reach a shipped source file — the board and sample live in App. */
 let sourceUrl: ((file: string) => string) | null = null
+/**
+ * The image's list of what it shipped beside the sample. Resolves to null for
+ * an image built before there was one: those shipped only the sample's own
+ * files, and each is found by its basename.
+ */
+let shipped: Promise<SourceIndex | null> = Promise.resolve(null)
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -288,10 +313,11 @@ export async function fetchTour(sampleId: string): Promise<TourDoc | null> {
 /**
  * Point the store at the running sample's tour. Safe to call when absent.
  *
- * `sourceFor` maps a file's basename to the URL its shipped copy lives at; a
- * tour that anchors by pattern needs the text to search, and only the caller
- * knows which board's assets are in play. Those come from the image build,
- * so they can be absent where the tour itself never is.
+ * `sourceFor` maps a path under the sample's shipped sources (`main.c`,
+ * `zephyr/kernel/msg_q.c`, `index.json`) to its URL; a tour that anchors by
+ * pattern needs the text to search, and only the caller knows which board's
+ * assets are in play. Those come from the image build, so they can be absent
+ * where the tour itself never is.
  */
 export async function loadFor(
   sampleId: string,
@@ -300,6 +326,9 @@ export async function loadFor(
   sourceUrl = sourceFor ?? null
   const doc = await fetchTour(sampleId)
   if (!doc) return
+  // Started now, awaited when arming: a fetch must not hold up the attach
+  // hook below, which has to be in place before the stub opens.
+  shipped = sourceFor ? fetchIndex(sourceFor('index.json')) : Promise.resolve(null)
   steps = doc.steps.map((step) => ({
     step,
     anchor: null,
@@ -464,6 +493,21 @@ function promptNext(): TourWaiting | null {
 }
 
 /**
+ * Read the image's `src/<app>/index.json`. Null when there is none, which is
+ * every image built before the build wrote one.
+ */
+async function fetchIndex(url: string): Promise<SourceIndex | null> {
+  try {
+    const res = await fetch(url)
+    // The dev server answers an unknown path with index.html and a 200.
+    if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) return null
+    return parseSourceIndex(await res.json())
+  } catch {
+    return null
+  }
+}
+
+/**
  * Fetch the sources any `at: file.c:/pattern/` step needs to search.
  *
  * Only files a pattern names: an anchor by line or symbol never reads the
@@ -471,24 +515,36 @@ function promptNext(): TourWaiting | null {
  */
 async function loadPatternSources(): Promise<void> {
   if (!sourceUrl) return
+  const index = await shipped
   const wanted = new Set<string>()
   for (const runtime of steps) {
     const file = patternFile(runtime.step.at)
-    if (file && !sources.has(file)) wanted.add(file)
+    if (!file) continue
+    // The index finds `msg_q.c` under zephyr/kernel/. Without one, only the
+    // sample's own files were shipped, each at its basename.
+    const path = index ? shippedFileNamed(file, index) : file
+    if (path && !sources.has(path.toLowerCase())) wanted.add(path)
   }
-  await Promise.all(
-    [...wanted].map(async (file) => {
-      try {
-        const res = await fetch(sourceUrl!(file))
-        if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) return
-        const text = await res.text()
-        if (text.trimStart().startsWith('<')) return
-        sources.set(file, text.split('\n'))
-      } catch {
-        // A tour whose sources were not shipped falls back to saying so.
-      }
-    }),
-  )
+  await Promise.all([...wanted].map(loadSource))
+}
+
+/**
+ * One shipped file's lines, fetched once. Undefined when it is not there: a
+ * tour whose sources were not shipped falls back to saying so.
+ */
+async function loadSource(path: string): Promise<string[] | undefined> {
+  const key = path.toLowerCase()
+  if (sources.has(key) || !sourceUrl) return sources.get(key)
+  try {
+    const res = await fetch(sourceUrl(path))
+    if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) return undefined
+    const text = await res.text()
+    if (text.trimStart().startsWith('<')) return undefined
+    sources.set(key, text.split('\n'))
+  } catch {
+    // Absence reads the same as a network failure.
+  }
+  return sources.get(key)
 }
 
 /** Drop every planted breakpoint — leaving the tour, or turning tours off. */
@@ -666,9 +722,21 @@ async function evalMark(
  * nothing is dropped rather than guessed at: a highlight over the wrong lines
  * is worse than none.
  */
-function resolveHighlights(step: TourStep, file: string | null): TourHighlight[] {
-  const text = file ? sources.get(file.slice(file.lastIndexOf('/') + 1).toLowerCase()) : undefined
+async function resolveHighlights(step: TourStep, path: string | null): Promise<TourHighlight[]> {
+  // Line numbers need no text, so only fetch it for a pattern.
+  const text =
+    path && step.highlight.some((spec) => spec.kind === 'pattern') ? await loadSource(path) : undefined
   return resolveHighlightSpecs(step.highlight, text)
+}
+
+/**
+ * Where a stop's file was shipped, under `src/<app>/`. The image's index
+ * knows; an image without one shipped only the sample's own files, so the
+ * basename is the only guess there is, and the card has always made it.
+ */
+function shippedFile(file: string | null, index: SourceIndex | null): string | null {
+  if (file === null) return null
+  return index ? shippedPathFor(file, index) : file.slice(file.lastIndexOf('/') + 1)
 }
 
 async function buildCard(runtime: StepRuntime): Promise<TourCard> {
@@ -734,6 +802,9 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     }
   })
 
+  const index = await shipped
+  const source = shippedFile(runtime.anchor?.file ?? null, index)
+
   return {
     step,
     anchor: runtime.anchor,
@@ -744,8 +815,10 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     objects,
     registers,
     threads: step.threads,
-    highlight: resolveHighlights(step, runtime.anchor?.file ?? null),
+    highlight: await resolveHighlights(step, source),
     lookNotes: lookNotes(step),
+    source,
+    provenance: index && source ? provenance(source) : null,
   }
 }
 
@@ -818,6 +891,7 @@ export function reset(): void {
   steps = []
   sources = new Map()
   sourceUrl = null
+  shipped = Promise.resolve(null)
   lineIndex = null
   lineIndexFor = null
   wasPaused = false
@@ -931,7 +1005,9 @@ function demoCard(runtime: StepRuntime): TourCard {
     objects: step.objects ? { types: step.objects.types, focus: null } : null,
     registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: 'n/a' })),
     threads: step.threads,
-    highlight: resolveHighlights(step, null),
+    highlight: resolveHighlightSpecs(step.highlight, undefined),
     lookNotes: lookNotes(step),
+    source: null,
+    provenance: null,
   }
 }

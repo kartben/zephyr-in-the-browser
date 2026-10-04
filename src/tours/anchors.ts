@@ -44,7 +44,11 @@ export interface AnchorContext {
   symbols: SymbolIndex | null
   lines: LineIndex | null
   arch: GdbArch | null
-  /** Shipped sources by basename, split into lines — for pattern anchors. */
+  /**
+   * Shipped sources split into lines, for pattern anchors: keyed by their
+   * lowercased path under `src/<app>/` (`zephyr/kernel/msg_q.c`), which for an
+   * image without an index is just the basename.
+   */
   sources?: Map<string, string[]>
 }
 

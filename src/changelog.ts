@@ -33,6 +33,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Tours show Zephyr kernel code at stops inside the kernel."
+      },
+      {
+        "tag": "Added",
         "text": "Tours can open a Trace tab or a Debug section."
       },
       {
