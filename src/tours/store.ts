@@ -599,6 +599,14 @@ function retrying(runtime: StepRuntime): boolean {
 }
 
 /**
+ * The step the guest is running towards: planted, and yet to fire or, for a
+ * `retry:` step, to pass. There is only ever one; see plantNext.
+ */
+function waitedOn(runtime: StepRuntime): boolean {
+  return runtime.planted && (runtime.card === null || retrying(runtime))
+}
+
+/**
  * Why a step's `when:` can never hold on this build, or null if it can.
  *
  * Symbols and struct members are facts about the image: a predicate that names
@@ -623,25 +631,31 @@ function unreadableWhen(step: TourStep): string | null {
 }
 
 /**
- * Plant the next step that still wants a breakpoint, if it has none.
+ * Plant the next step that still wants a breakpoint, unless the tour is
+ * already waiting on one.
  *
- * A `retry:` step that has not passed comes first and holds the line: nothing
- * after it goes in until it passes, so the next hit the reader causes is a new
- * try at it, not a later step jumping in.
+ * While a planted step has yet to fire, nothing else goes in. A `stop: no`
+ * step plants the next one before it lets the guest go, so Got it on its card,
+ * which calls this again, must not plant the one after that as well: the two
+ * would race, and the later one could fire first. A `retry:` step that has not
+ * passed holds the line the same way, so the next hit the reader causes is a
+ * new try at it. A `repeat:` step that has fired keeps its breakpoint without
+ * holding anything up.
  *
  * Awaited before any resume, always: `main()` and the line after it are
  * microseconds apart on a JIT guest, so planting after letting go would lose
  * the step every time.
  */
 async function plantNext(): Promise<boolean> {
+  if (steps.some(waitedOn)) return true
   const runtime = steps.find(
     (s) =>
       !s.unresolved &&
       s.anchor !== null &&
-      (retrying(s) || (!s.planted && (s.card === null || s.step.repeat))),
+      !s.planted &&
+      (s.card === null || s.step.repeat || retrying(s)),
   )
   if (!runtime?.anchor) return steps.some((s) => s.planted)
-  if (runtime.planted) return true
   runtime.planted = await debug.addBreakpoint(runtime.anchor.addr)
   if (runtime.planted) ownedBreakpoints.add(runtime.anchor.addr)
   if (!runtime.planted) {
@@ -669,7 +683,7 @@ function waitingOf(runtime: StepRuntime | undefined): TourWaiting | null {
  * fills, not once it has. A retry asks for the same thing again.
  */
 function promptNext(): TourWaiting | null {
-  const runtime = steps.find((s) => s.planted && (s.card === null || retrying(s)))
+  const runtime = steps.find(waitedOn)
   const waiting = waitingOf(runtime)
   if (waiting) focusStep(runtime!.step)
   return waiting
@@ -794,17 +808,11 @@ async function claimStop(stop: gdb.StopContext): Promise<boolean> {
   // waiting to happen rather than quietly used up.
   if (state.current !== null) return true
 
-  // A `retry:` step that has not passed holds the tour on it. A later step
-  // whose breakpoint went in early is not its turn yet: let it go, uncounted.
-  const holding = steps.find(retrying)
-  const eligible = holding ? here.filter((s) => s.step.index <= holding.step.index) : here
-  if (eligible.length === 0) return true
-
   // The only awaits, and only for steps that have predicates.
   const run = steps
   let target: TourTarget | null = null
   const counted: StepRuntime[] = []
-  for (const candidate of eligible) {
+  for (const candidate of here) {
     if (candidate.step.when.state.length > 0) {
       target ??= stopTarget(stop)
       if (!(await stateHolds(candidate.step.when, target))) continue

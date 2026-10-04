@@ -184,6 +184,42 @@ at: 0x9000
 Prose.
 `
 
+/**
+ * Blinky's shape: a note the guest runs on under, then two stops round its
+ * loop. Every step has an address of its own, so the breakpoints that are in
+ * say which steps are planted.
+ */
+const RUN_ON = `---
+tour: Run on
+sample: samples/basic/blinky
+---
+
+## Configure the pin
+
+\`\`\`tour
+at: 0x8000
+stop: no
+\`\`\`
+
+Prose.
+
+## Toggle it
+
+\`\`\`tour
+at: 0x9000
+\`\`\`
+
+Prose.
+
+## Sleep
+
+\`\`\`tour
+at: 0xa000
+\`\`\`
+
+Prose.
+`
+
 /** Let the plant-then-resume chain in next() finish. */
 async function settle() {
   await new Promise((r) => setTimeout(r, 0))
@@ -217,7 +253,27 @@ async function stopAt(addr: number, registers = 'PC=00008000\nX00=00002000') {
   await new Promise((r) => setTimeout(r, 0))
 }
 
+/** The guest runs over `addr`, and only stops there if a breakpoint is in. */
+async function pass(addr: number) {
+  if (breakpoints.has(addr)) await stopAt(addr)
+}
+
+/** Indexes of the steps whose breakpoint is in. */
+function planted(): number[] {
+  return getSteps()
+    .filter((s) => s.planted)
+    .map((s) => s.step.index)
+}
+
 let url = 0
+
+/** Load a tour and let it arm once, the way attaching the stub does. */
+async function loadOnce(body: string) {
+  reset()
+  tourText.body = body
+  await loadFor(`tour-${url++}`) // the session is up, so this arms
+  await settle()
+}
 
 beforeEach(async () => {
   reset()
@@ -244,6 +300,9 @@ describe('arming', () => {
     // but a breakpoint is a trap on every pass, so only the first goes in.
     expect(getSteps().every((s) => s.anchor !== null)).toBe(true)
     expect([...breakpoints]).toEqual([0x8000])
+    // Armed twice (loadFor, then arm), as a second attach would: step 2 shares
+    // the address, but it is not its turn.
+    expect(planted()).toEqual([0])
     expect(getSnapshot().armed).toBe(true)
     expect(getSnapshot().problems).toEqual([])
   })
@@ -252,10 +311,62 @@ describe('arming', () => {
     await stopAt(0x8000) // step 1
     next()
     await settle()
-    // Step 2 shares step 1's address, so that one stays; the resume must not
-    // have happened before the plant, or the guest outruns the tour.
+    // Step 1's breakpoint came out as it fired, and went back in for step 2,
+    // which shares the address. The resume must not have happened before the
+    // plant, or the guest outruns the tour.
     expect(breakpoints.has(0x8000)).toBe(true)
     expect(resumed).toHaveLength(1)
+  })
+})
+
+describe('one breakpoint at a time', () => {
+  beforeEach(() => loadOnce(RUN_ON))
+
+  it('plants nothing more on Got it, since a `stop: no` step plants the next itself', async () => {
+    await pass(0x8000)
+    // The card stays up, and the guest runs on towards step 2, planted first.
+    expect(getSnapshot().current?.step.index).toBe(0)
+    expect(planted()).toEqual([1])
+    next() // Got it
+    await settle()
+    expect(planted()).toEqual([1])
+    expect([...breakpoints]).toEqual([0x9000])
+    // The guest goes by step 3's line first. Not its turn, so no stop there.
+    await pass(0xa000)
+    expect(getSnapshot().current).toBeNull()
+    await pass(0x9000)
+    expect(getSnapshot().current?.step.index).toBe(1)
+  })
+
+  it('plants nothing new when the reader closes a step read again', async () => {
+    await loadOnce(RUN_ON.replace('stop: no\n', ''))
+    await pass(0x8000)
+    next() // Continue: step 2 goes in, and the guest runs towards it
+    await settle()
+    revisit(0)
+    next() // closes the step read again
+    await settle()
+    expect(planted()).toEqual([1])
+    expect([...breakpoints]).toEqual([0x9000])
+    expect(resumed).toHaveLength(1) // the guest was running already
+  })
+
+  it('keeps a repeating step planted, and plants nothing past the next when it comes round', async () => {
+    await loadOnce(RUN_ON.replace('stop: no\n', 'repeat: yes\n'))
+    await pass(0x8000)
+    next()
+    await settle()
+    // It keeps its breakpoint beside step 2's, and comes round again first.
+    expect(planted()).toEqual([0, 1])
+    await pass(0x8000)
+    expect(getSnapshot().current?.step.index).toBe(0)
+    next()
+    await settle()
+    expect(planted()).toEqual([0, 1])
+    await pass(0xa000)
+    expect(getSnapshot().current).toBeNull()
+    await pass(0x9000)
+    expect(getSnapshot().current?.step.index).toBe(1)
   })
 })
 
@@ -279,13 +390,16 @@ describe('stops', () => {
   })
 
   it('lifts the breakpoint only when no other step still wants the address', async () => {
-    await stopAt(0x8000)
+    // Step 1 repeats on the line step 2 stops at, so when step 2 fires, the
+    // breakpoint stays in for step 1.
+    await loadOnce(RUN_ON.replace('stop: no\n', 'repeat: yes\n').replace('0x9000', '0x8000'))
+    await pass(0x8000)
     next()
     await settle()
-    // Step 2 shares the address and repeats, so the breakpoint stays.
+    await pass(0x8000)
+    expect(getSnapshot().current?.step.index).toBe(1)
+    expect(planted()).toEqual([0])
     expect(breakpoints.has(0x8000)).toBe(true)
-    expect(getSteps()[0]!.planted).toBe(false)
-    expect(getSteps()[1]!.planted).toBe(true)
   })
 
   it('reads nothing at the stop for a step without state predicates', async () => {
@@ -299,7 +413,7 @@ describe('stops', () => {
     await stopAt(0x8000)
     next() // step 1 fires and is done
     await settle()
-    await stopAt(0x8000) // hit 2 — step 2 wants every fourth
+    await stopAt(0x8000) // step 2's first hit, and it wants every fourth
     expect(getSnapshot().current).toBeNull()
     // The rejected hit never reached the expensive path: no pause published,
     // no thread walk, and the store did not have to resume anything.
@@ -309,20 +423,31 @@ describe('stops', () => {
   })
 
   it('does not spend a step\'s hits while another card is up', async () => {
-    await stopAt(0x8000) // step 1 fires, card up, machine stopped
-    await stopAt(0x8000) // could not happen while stopped, but must be safe
-    expect(swallowed).toEqual(['00008000'])
-    expect(getSteps()[1]!.hits).toBe(1) // not counted a second time
+    await stopAt(0x8000) // step 1
+    next()
+    await settle()
+    await stopAt(0x8000)
+    await stopAt(0x8000)
+    await stopAt(0x8000)
+    await stopAt(0x8000) // step 2, on its fourth hit
+    // Its card is up (`stop: no`), and the guest runs on towards step 3.
+    expect(getSnapshot().current?.step.index).toBe(1)
+    swallowed.length = 0
+    await stopAt(0x9000)
+    expect(swallowed).toEqual(['00009000'])
+    expect(getSteps()[2]!.hits).toBe(0) // still to come, not used up
   })
 
   it('fires the repeating step on its hit and runs on when `stop: no`', async () => {
     await stopAt(0x8000)
     next()
     await settle()
+    // Step 2 counts from here, once it is planted, not from step 1's stop.
+    await stopAt(0x8000)
     await stopAt(0x8000)
     await stopAt(0x8000)
     await stopAt(0x8000) // hit 4
-    expect(swallowed).toHaveLength(2) // hits 2 and 3 cost nothing
+    expect(swallowed).toHaveLength(3) // hits 1 to 3 cost nothing
     const card = getSnapshot().current
     expect(card?.step.title).toBe('Every fourth pass')
     expect(card?.paused).toBe(false)
@@ -413,7 +538,8 @@ describe('leaving', () => {
     await settle()
     await stopAt(0x8000)
     await stopAt(0x8000)
-    await stopAt(0x8000) // step 2 (repeat, stop: no) — leaves its BP planted
+    await stopAt(0x8000)
+    await stopAt(0x8000) // step 2 (repeat, stop: no) keeps its BP planted
     next()
     await settle()
     await stopAt(0x9000) // step 3
@@ -478,7 +604,9 @@ Prose.
   })
 
   it('Leave the tour awaits disarm before resume so a leftover BP cannot re-trap', async () => {
-    await stopAt(0x8000)
+    // A repeating step keeps its breakpoint while its card is up.
+    await loadOnce(RUN_ON.replace('stop: no\n', 'repeat: yes\n'))
+    await pass(0x8000)
     expect(breakpoints.size).toBeGreaterThan(0)
     expect(paused).toBe(true)
     skip()
@@ -653,24 +781,28 @@ Prose.
 Prose.
 `
 
+/** The same finale, after a note the guest runs on under. */
+const NOTED = CHECKED.replace(
+  '## The alarm goes in',
+  `## A note first
+
+\`\`\`tour
+at: 0x7000
+stop: no
+\`\`\`
+
+Prose.
+
+## The alarm goes in`,
+)
+
 describe('checks', () => {
   /** `alarms_lost`, as the guest has it at the next stop. */
   function lost(count: number) {
     ;[count, 0, 0, 0].forEach((byte, i) => memory.set(0x3000 + i, byte))
   }
 
-  /**
-   * Load a tour and let it arm once, the way attaching the stub does. (The
-   * other suites arm twice, which plants a second step ahead of the first.)
-   */
-  async function loadChecked(body = CHECKED) {
-    reset()
-    tourText.body = body
-    await loadFor(`tour-${url++}`) // the session is up, so this arms
-    await settle()
-  }
-
-  beforeEach(() => loadChecked())
+  beforeEach(() => loadOnce(CHECKED))
 
   it('puts the verdict on the card, with what the guest had for each side read', async () => {
     lost(2)
@@ -729,7 +861,7 @@ describe('checks', () => {
   })
 
   it('counts each try from its first hit, so `when: first` means the next one', async () => {
-    await loadChecked(CHECKED.replace('at: 0x8000\n', 'at: 0x8000\nwhen: first\n'))
+    await loadOnce(CHECKED.replace('at: 0x8000\n', 'at: 0x8000\nwhen: first\n'))
     lost(1)
     await stopAt(0x8000)
     expect(getSteps()[0]!.hits).toBe(0)
@@ -741,7 +873,7 @@ describe('checks', () => {
   })
 
   it('cannot complete the tour while a retry step is failing', async () => {
-    await loadChecked(CHECKED.replace(/## Afterwards[\s\S]*?Prose\.\n\n/, ''))
+    await loadOnce(CHECKED.replace(/## Afterwards[\s\S]*?Prose\.\n\n/, ''))
     lost(3)
     await stopAt(0x8000)
     next()
@@ -756,7 +888,7 @@ describe('checks', () => {
   })
 
   it('shows a failure and moves on when the step does not retry', async () => {
-    await loadChecked(CHECKED.replace('retry: yes\n', ''))
+    await loadOnce(CHECKED.replace('retry: yes\n', ''))
     lost(1)
     await stopAt(0x8000)
     expect(getSnapshot().current?.check).toMatchObject({ outcome: 'failed', retrying: false })
@@ -770,7 +902,7 @@ describe('checks', () => {
   })
 
   it('does not pass a check it could not read', async () => {
-    await loadChecked(CHECKED.replace('alarms_lost as u32 == 0', 'nope as u32 == 0'))
+    await loadOnce(CHECKED.replace('alarms_lost as u32 == 0', 'nope as u32 == 0'))
     await stopAt(0x8000)
     expect(getSnapshot().current?.check?.rows[0]).toEqual({
       text: 'nope as u32 == 0',
@@ -783,30 +915,30 @@ describe('checks', () => {
     expect([...breakpoints]).toEqual([0x8000])
   })
 
-  it('holds a later step planted ahead of time until the retry passes', async () => {
-    // Arming twice plants step 2 alongside step 1, as a `stop: no` step before
-    // a retry can. Its hits during the retry are not its turn.
-    await loadLifecycle(CHECKED)
-    expect(breakpoints.has(0x9000)).toBe(true)
-    lost(1)
-    await stopAt(0x8000)
-    next()
+  it('holds the line from a `stop: no` note before it until it passes', async () => {
+    await loadOnce(NOTED)
+    await pass(0x7000) // the note: the retry step goes in, and the guest runs on
+    next() // Got it
     await settle()
-    await stopAt(0x9000)
-    expect(swallowed).toEqual(['00009000'])
-    expect(getSnapshot().current).toBeNull()
-    expect(getSteps()[1]!.hits).toBe(0)
+    lost(1)
+    await pass(0x8000) // a try that fails
+    next() // Try again
+    await settle()
+    // Nothing after the retry step is in, so the guest goes by that line freely.
+    expect([...breakpoints]).toEqual([0x8000])
+    await pass(0x9000)
+    expect(swallowed).toEqual([])
     lost(0)
-    await stopAt(0x8000)
+    await pass(0x8000)
     expect(getSnapshot().current?.check?.outcome).toBe('passed')
     next()
     await settle()
-    await stopAt(0x9000)
+    await pass(0x9000)
     expect(getSnapshot().current?.step.title).toBe('Afterwards')
   })
 
   it('leaves a step with no checks without a verdict', async () => {
-    await loadChecked(LIFECYCLE)
+    await loadOnce(LIFECYCLE)
     await stopAt(0x8000)
     expect(getSnapshot().current?.check).toBeNull()
   })
