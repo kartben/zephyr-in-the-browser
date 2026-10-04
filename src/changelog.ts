@@ -37,6 +37,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Fixed",
+        "text": "Cortex-M Debug names the right function, and picker breakpoints hit."
+      },
+      {
+        "tag": "Fixed",
         "text": "Tour cards keep the stop line in view and name data pointers."
       },
       {

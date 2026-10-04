@@ -13,6 +13,8 @@ const STT_NOTYPE = 0
 const STT_OBJECT = 1
 const STT_FUNC = 2
 const SHN_ABS = 0xfff1
+const EM_ARM = 40
+const EM_XTENSA = 94
 
 /** Minimal ELF64 little-endian with one SHT_SYMTAB FUNC symbol. */
 function fakeElf(syms: { name: string; addr: number; size: number; type?: number }[]): Uint8Array {
@@ -96,10 +98,12 @@ function fakeElf(syms: { name: string; addr: number; size: number; type?: number
 
 /**
  * Minimal ELF32 little-endian, the shape of the Cortex-M and RISC-V images, with
- * a section index per symbol so absolute (SHN_ABS) ones can be built too.
+ * a section index per symbol so absolute (SHN_ABS) ones can be built too. An Arm
+ * image unless `machine` says otherwise.
  */
 function fakeElf32(
   syms: { name: string; value: number; size: number; type: number; shndx: number }[],
+  machine = EM_ARM,
 ): Uint8Array {
   let str = '\0'
   const nameOffs = syms.map((s) => {
@@ -130,7 +134,7 @@ function fakeElf32(
   const out = new DataView(buf.buffer)
   buf.set([0x7f, 0x45, 0x4c, 0x46, 1, 1, 1]) // magic, ELFCLASS32, LSB, version
   out.setUint16(16, 2, true) // ET_EXEC
-  out.setUint16(18, 40, true) // EM_ARM
+  out.setUint16(18, machine, true) // e_machine
   out.setUint32(32, shoff, true) // e_shoff
   out.setUint16(46, shentsize, true)
   out.setUint16(48, 3, true) // e_shnum
@@ -249,5 +253,50 @@ describe('elfSymbols', () => {
     ])
     // The by-name index still keeps the first definition.
     expect(buildElfDataSymbols(elf).get('registry')?.addr).toBe(0x40001000)
+  })
+
+  describe('on Cortex-M, where every function symbol carries the Thumb bit', () => {
+    // As in qemu_cortex_m3/basic_button.elf, where `nm` puts main at 0x270 and
+    // the symtab says 0x271.
+    const index = buildSymbolIndex(
+      fakeElf32([
+        { name: 'button_input_cb', value: 0x1e5, size: 0x8c, type: STT_FUNC, shndx: 2 },
+        { name: 'main', value: 0x271, size: 0x20, type: STT_FUNC, shndx: 2 },
+        { name: 'free_list_add', value: 0x291, size: 0x5c, type: STT_FUNC, shndx: 2 },
+        // A bool in .bss: data has no Thumb bit, so odd is just where it is.
+        { name: 'z_sys_post_kernel', value: 0x2000_081d, size: 1, type: STT_OBJECT, shndx: 3 },
+      ]),
+    )!
+
+    it('names a function from an even PC at its entry', () => {
+      // Compared raw, these were the last bytes of button_input_cb and main.
+      expect(resolveSymbol(index, 0x270)).toEqual({ name: 'main', addr: 0x270, offset: 0 })
+      expect(formatSymbol(resolveSymbol(index, 0x290))).toBe('free_list_add')
+    })
+
+    it('gives an even PC inside a function its exact offset', () => {
+      expect(formatSymbol(resolveSymbol(index, 0x274))).toBe('main+0x4')
+      expect(formatSymbol(resolveSymbol(index, 0x28e))).toBe('main+0x1e')
+    })
+
+    it('resolves an odd function pointer to the start of its function', () => {
+      // A callback in a struct, as the Mem pane finds one: offset 0, and an
+      // even start to report as its base.
+      expect(resolveSymbol(index, 0x271)).toEqual({ name: 'main', addr: 0x270, offset: 0 })
+    })
+
+    it('lists functions at their first instruction, and leaves data alone', () => {
+      expect(index.byName.find((s) => s.name === 'main')?.addr).toBe(0x270)
+      expect(index.objects.get('z_sys_post_kernel')?.addr).toBe(0x2000_081d)
+    })
+  })
+
+  it('takes nothing off an odd PC where there is no Thumb bit', () => {
+    // Xtensa's 3-byte instructions leave PCs at odd addresses.
+    const elf = fakeElf32(
+      [{ name: 'blink', value: 0x400d_0f3c, size: 0x40, type: STT_FUNC, shndx: 2 }],
+      EM_XTENSA,
+    )
+    expect(formatSymbol(resolveSymbol(buildSymbolIndex(elf), 0x400d_0f3f))).toBe('blink+0x3')
   })
 })

@@ -4,6 +4,8 @@
  * .symtab.
  */
 
+import { archFromElf, codeAddr, type GdbArch } from '@/debug/gdb/regs'
+
 export interface ElfSymbol {
   name: string
   addr: number
@@ -28,10 +30,19 @@ export interface SymbolIndex {
    * `led+8` needs them, and nothing else does.
    */
   objects: Map<string, ElfSymbol>
+  /**
+   * The machine the image is for, from its ELF header, when this page has a
+   * decoder for it. On 'arm' (Cortex-M) the symtab sets bit 0 of every
+   * function's value to say Thumb, and that bit is not part of the address. The
+   * function lists above leave it off, and {@link resolveSymbol} takes it off
+   * the address it is asked about too. Data symbols keep their values.
+   */
+  arch?: GdbArch | null
 }
 
 export interface ResolvedSymbol {
   name: string
+  /** Where the function starts: on Cortex-M, without the Thumb bit. */
   addr: number
   /** Bytes past the symbol start. */
   offset: number
@@ -155,7 +166,12 @@ function isUsefulSymbol(name: string): boolean {
 export function buildSymbolIndex(elf: Uint8Array): SymbolIndex | null {
   const syms = parseSymtab(elf)
   if (!syms || syms.length === 0) return null
-  const functions = syms.filter((s) => s.type === STT_FUNC || s.type === STT_GNU_IFUNC)
+  const arch = archFromElf(elf)
+  // Each function at the address of its first instruction, which on Cortex-M
+  // is not the symtab's value: `main` at 0x270 is listed as 0x271.
+  const functions = syms
+    .filter((s) => s.type === STT_FUNC || s.type === STT_GNU_IFUNC)
+    .map((s) => (arch ? { ...s, addr: codeAddr(arch, s.addr) } : s))
   const byAddr = [...functions].sort((a, b) => a.addr - b.addr || a.name.localeCompare(b.name))
   const byName = [...functions].sort((a, b) => a.name.localeCompare(b.name) || a.addr - b.addr)
   const objects = new Map<string, ElfSymbol>()
@@ -166,7 +182,7 @@ export function buildSymbolIndex(elf: Uint8Array): SymbolIndex | null {
       objects.set(s.name, { name: s.name, addr: s.addr, size: s.size })
     }
   }
-  return { byAddr, byName, objects }
+  return { byAddr, byName, objects, arch }
 }
 
 /**
@@ -256,9 +272,16 @@ export function dataSymbolsByName(symbols: readonly ElfTypedSymbol[]): Map<strin
   return out
 }
 
-/** Nearest enclosing function symbol for an address. */
+/**
+ * Nearest enclosing function symbol for an address.
+ *
+ * The Thumb bit comes off `addr` as it came off the function list, so the even
+ * PC gdb reports and the odd function pointer Cortex-M keeps in memory both
+ * resolve to the instruction they point at.
+ */
 export function resolveSymbol(index: SymbolIndex | null, addr: number): ResolvedSymbol | null {
   if (!index || !Number.isFinite(addr)) return null
+  const at = index.arch ? codeAddr(index.arch, addr) : addr
   const list = index.byAddr
   let lo = 0
   let hi = list.length - 1
@@ -266,7 +289,7 @@ export function resolveSymbol(index: SymbolIndex | null, addr: number): Resolved
   while (lo <= hi) {
     const mid = (lo + hi) >> 1
     const s = list[mid]!
-    if (s.addr <= addr) {
+    if (s.addr <= at) {
       best = s
       lo = mid + 1
     } else {
@@ -274,7 +297,7 @@ export function resolveSymbol(index: SymbolIndex | null, addr: number): Resolved
     }
   }
   if (!best) return null
-  const offset = addr - best.addr
+  const offset = at - best.addr
   // If size is known, require addr inside the function; otherwise allow up to
   // the next symbol (or 64 KiB) so zero-size entries still resolve.
   if (best.size > 0) {

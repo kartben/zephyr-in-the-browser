@@ -9,6 +9,7 @@ via the help dialog (?).
 - **Added:** Tour steps can stop on the guest's state, not just hit counts.
 - **Added:** Several tours per sample, and links straight to a tour step.
 - **Added:** Tours check the guest's state and let you try again.
+- **Fixed:** Cortex-M Debug names the right function, and picker breakpoints hit.
 - **Fixed:** Tour cards keep the stop line in view and name data pointers.
 - **Added:** Tour cards can type shell commands into the terminal.
 - **Added:** Tours hand you tasks, end on a recap, and chain onward.
