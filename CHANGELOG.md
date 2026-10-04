@@ -9,7 +9,7 @@ via the help dialog (?).
 - **Added:** Tours stop on guest state, show kernel code and open Trace or Debug views.
 - **Added:** Tours draw a message queue as a ring, with read and write pointers.
 - **Added:** Several tours per sample, and links straight to a tour step.
-- **Added:** Guided tours get their own gallery section, plus Button and message queue tours.
+- **Added:** Guided tours get their own gallery section, plus Button, message queue and sensor pipeline tours.
 - **Added:** ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep.
 - **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
 - **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
