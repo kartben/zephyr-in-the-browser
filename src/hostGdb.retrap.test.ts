@@ -33,8 +33,8 @@ async function settle() {
  * (re-trapping on the same breakpoint forever) fails the test instead of
  * hanging it.
  */
-function rejectAll(seen: string[]): (pc: string) => boolean {
-  return (pc) => {
+function rejectAll(seen: string[]): hostGdb.StopFilter {
+  return ({ pc }) => {
     seen.push(pc)
     return seen.length < 5
   }
@@ -73,7 +73,7 @@ describe('continuing from a breakpoint', () => {
     const server = await attached()
     await hostGdb.addBreakpoint(BP)
     const seen: string[] = []
-    hostGdb.setStopFilter((pc) => {
+    hostGdb.setStopFilter(({ pc }) => {
       seen.push(pc)
       return false
     })
@@ -94,7 +94,7 @@ describe('continuing from a breakpoint', () => {
     const server = await attached()
     await hostGdb.addBreakpoint(BP)
     const seen: string[] = []
-    hostGdb.setStopFilter((pc) => {
+    hostGdb.setStopFilter(({ pc }) => {
       seen.push(pc)
       return false
     })

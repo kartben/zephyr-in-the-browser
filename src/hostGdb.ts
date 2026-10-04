@@ -21,6 +21,7 @@ import {
   NO_FRAME_REGS,
   type FrameRegs,
   type GdbArch,
+  type RegView,
 } from '@/debug/gdb/regs'
 import {
   unwindStack,
@@ -138,9 +139,29 @@ const EMPTY: GdbState = {
   stackTruncated: false,
 }
 
+/**
+ * A stop as a stop filter sees it: before anything has been published, so
+ * before anyone knows the machine stopped at all.
+ */
+export interface StopContext {
+  /** Stop PC, as hex. */
+  pc: string
+  /** The register file as `NAME=value` lines, the same text as `GdbState.registers`. */
+  registers: string
+  /**
+   * Guest memory at this stop, or null when the read faults. It goes to the
+   * stub directly, because readMemoryRaw() refuses until a pause is published
+   * and a rejected stop never publishes one.
+   */
+  read(addr: number, length: number): Promise<Uint8Array | null>
+}
+
+/** Returns, or resolves to, true for "not this one, let it go". */
+export type StopFilter = (stop: StopContext) => boolean | Promise<boolean>
+
 let kernelElf: Uint8Array | null = null
 let attachHook: (() => Promise<void>) | null = null
-let stopFilter: ((pc: string) => boolean) | null = null
+let stopFilter: StopFilter | null = null
 let mod: Record<string, unknown> | null = null
 let ch: ChardevExports | null = null
 let client: RspClient | null = null
@@ -241,14 +262,15 @@ export function setAttachHook(fn: (() => Promise<void>) | null) {
  * conditioned on `hits % 10 == 0` rejects nine hits out of ten, and on a hot
  * breakpoint the rejected ones are the whole cost of the feature.
  *
- * The filter sees only the PC — one round-trip to get it — and returns true to
- * say "not this one". The machine is then let go without ever having looked
- * paused.
+ * The filter sees the PC and the register file, which one round-trip fetches,
+ * and can read memory if its verdict depends on target state. It returns true
+ * to say "not this one", and the machine is then let go without ever having
+ * looked paused.
  *
- * @param fn Called with the stop PC as hex. Must not block: the guest is
- *           frozen until it answers.
+ * @param fn Called with the stop. May be async, but every read it makes is
+ *           time the guest spends frozen, on every stop it vets.
  */
-export function setStopFilter(fn: ((pc: string) => boolean) | null) {
+export function setStopFilter(fn: StopFilter | null) {
   stopFilter = fn
 }
 
@@ -671,19 +693,26 @@ async function openSession(
       // reads below. Reading the registers is what the full refresh would
       // have started with anyway, so a kept stop pays nothing extra.
       if (stopFilter) {
-        let pc: string | null = null
+        let view: RegView | null = null
         try {
-          pc = decodeGPacket(arch, await next.readRegisters()).pc
+          view = decodeGPacket(arch, await next.readRegisters())
         } catch {
-          pc = null
+          view = null
         }
-        stopPc = pcAddr(pc)
-        if (pc !== null && stopFilter(pc)) {
-          await clearTempBreakpoint()
-          // The breakpoint that trapped is still in: a plain continue would
-          // trap on it again and hand the filter the same hit twice.
-          await continueFrom(next)
-          return
+        stopPc = pcAddr(view?.pc ?? null)
+        if (view?.pc != null) {
+          const pauses = pauseRequests
+          const reject = await vetStop(stopFilter, next, view.pc, view.dump)
+          // Pause was pressed while the filter was still reading: the stop is
+          // the reader's now, and pause() is already publishing it.
+          if (pauseRequests !== pauses) return
+          if (reject) {
+            await clearTempBreakpoint()
+            // The breakpoint that trapped is still in: a plain continue would
+            // trap on it again and hand the filter the same hit twice.
+            await continueFrom(next)
+            return
+          }
         }
       }
       publish({ paused: true, registersLoading: true })
@@ -733,6 +762,36 @@ async function openSession(
     client = null
     opts.onFail?.()
     publish({ attached: false, paused: false })
+    return false
+  }
+}
+
+/**
+ * Put one stop to the filter, with memory reads that go straight to the stub.
+ *
+ * A filter that throws keeps the stop. A pause nobody asked for is a nuisance;
+ * a guest left frozen with nothing on screen to say so is worse.
+ */
+async function vetStop(
+  filter: StopFilter,
+  c: RspClient,
+  pc: string,
+  registers: string,
+): Promise<boolean> {
+  try {
+    return await filter({
+      pc,
+      registers,
+      async read(addr, length) {
+        try {
+          return await c.readMemory(addr, length)
+        } catch {
+          return null
+        }
+      },
+    })
+  } catch (err) {
+    console.warn('[gdb] stop filter failed; keeping the stop', err)
     return false
   }
 }
@@ -829,12 +888,19 @@ export function detach() {
  * cascade, and the two interleaved on a pipe that answers one packet at a time.
  */
 let pausePending: Promise<void> | null = null
+/**
+ * Bumped by every Pause that gets as far as halting. A stop filter can be
+ * reading memory for a while, and a stop it rejects must not be let go from
+ * under a Pause that landed meanwhile.
+ */
+let pauseRequests = 0
 
 export async function pause(): Promise<void> {
   const c = client
   if (!c || !state.attached) return
   if (state.paused) return
   if (pausePending) return pausePending
+  pauseRequests++
   pausePending = (async () => {
     try {
       // A continue that is still stepping off a breakpoint owns the pipe;

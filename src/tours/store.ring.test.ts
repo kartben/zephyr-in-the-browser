@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ObjectCoreMeta } from '@/debug/kernel/objectCores'
+import type { StopFilter } from '@/hostGdb'
 
 /*
  * `objects:` with a ring view is the one part of an objects card read at the
@@ -33,7 +34,7 @@ const reads: Array<[number, number]> = []
 let paused = false
 let pc = '00008000'
 let gdbListeners: Array<() => void> = []
-let stopFilter: ((pc: string) => boolean) | null = null
+let stopFilter: StopFilter | null = null
 
 vi.mock('@/hostGdb', () => ({
   subscribe: (fn: () => void) => {
@@ -58,7 +59,7 @@ vi.mock('@/hostGdb', () => ({
   }),
   getObjectCoreMeta: () => meta,
   setAttachHook: () => {},
-  setStopFilter: (fn: ((pc: string) => boolean) | null) => {
+  setStopFilter: (fn: StopFilter | null) => {
     stopFilter = fn
   },
   sessionActive: () => true,
@@ -139,7 +140,8 @@ function queueAfterPutFront(): Uint8Array {
 
 async function stopAt(addr: number) {
   const hex = addr.toString(16).padStart(8, '0')
-  if (stopFilter?.(hex)) return
+  // No step here has a state predicate, so the stop's own registers and memory go unread.
+  if (await stopFilter?.({ pc: hex, registers: '', read: async () => null })) return
   paused = true
   pc = hex
   for (const fn of gdbListeners) fn()

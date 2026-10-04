@@ -678,9 +678,9 @@ const ownedBreakpoints = new Set<number>()
  *
  * Returning true means "not this one, let it go".
  */
-function claimStop(pcHex: string): boolean {
+function claimStop(stop: gdb.StopContext): boolean {
   if (!state.enabled) return false
-  const pc = normalizeAddr(Number.parseInt(pcHex, 16), gdb.getSnapshot().regArch)
+  const pc = normalizeAddr(Number.parseInt(stop.pc, 16), gdb.getSnapshot().regArch)
   if (!Number.isFinite(pc)) return false
 
   /*
