@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildElfDataSymbols,
   buildSymbolIndex,
+  elfDataSymbolList,
   filterSymbols,
   formatSymbol,
   resolveDataSymbol,
@@ -230,5 +231,23 @@ describe('elfSymbols', () => {
       'CONFIG_DT_HAS_TI_STELLARIS_GPIO_ENABLED',
       '__tdata_align',
     ])
+  })
+
+  it('tells same-named statics apart by the file that defines them', () => {
+    // st_info: STT_FILE = 4 and STT_OBJECT = 1 bind local; 0x11 is a global object.
+    const elf = fakeElf([
+      { name: 'fs.c', addr: 0, size: 0, type: 4 },
+      { name: 'registry', addr: 0x40001000, size: 64, type: 1 },
+      { name: 'kernel/obj_core.c', addr: 0, size: 0, type: 4 },
+      { name: 'registry', addr: 0x40002000, size: 2048, type: 1 },
+      { name: 'z_obj_type_list', addr: 0x40003000, size: 16, type: 0x11 },
+    ])
+    expect(elfDataSymbolList(elf)).toEqual([
+      { name: 'registry', addr: 0x40001000, size: 64, type: 1, file: 'fs.c' },
+      { name: 'registry', addr: 0x40002000, size: 2048, type: 1, file: 'obj_core.c' },
+      { name: 'z_obj_type_list', addr: 0x40003000, size: 16, type: 1 },
+    ])
+    // The by-name index still keeps the first definition.
+    expect(buildElfDataSymbols(elf).get('registry')?.addr).toBe(0x40001000)
   })
 })

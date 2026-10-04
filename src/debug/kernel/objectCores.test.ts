@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { DwarfStruct } from '@/debug/dwarfMembers'
+import type { ElfTypedSymbol } from '@/debug/elfSymbols'
 import {
   decodeMsgqRing,
+  objectCoreMetaFromImage,
   readMsgqRing,
   readObjectCores,
-  type ObjectCoreMeta,
+  type ObjectCoreImage,
 } from '@/debug/kernel/objectCores'
 
 function memoryReader(chunks: Map<number, Uint8Array>) {
@@ -19,213 +22,388 @@ function memoryReader(chunks: Map<number, Uint8Array>) {
   }
 }
 
-function put32(bytes: Uint8Array, at: number, value: number) {
-  new DataView(bytes.buffer).setUint32(at, value, true)
+const MUTX = 0x4d555458
+const MSGQ = 0x4d534751
+const SEM4 = 0x53454d34
+const THRD = 0x54485244
+
+/**
+ * DWARF layouts as a qemu_cortex_a53 build of Zephyr main has them. k_thread
+ * and k_msgq are trimmed to the members the walk reads.
+ */
+const A53_STRUCTS: Record<string, DwarfStruct> = {
+  k_obj_type: {
+    size: 152,
+    members: {
+      node: 0,
+      id: 8,
+      obj_core_offset: 16,
+      statics: 24,
+      dropped: 120,
+      skipped: 124,
+      stats_desc: 128,
+      stats_offset: 136,
+      stats_size: 144,
+    },
+  },
+  k_obj_range: { size: 32, members: { start: 0, end: 8, stride: 16, indirect: 24 } },
+  k_obj_core: { size: 16, members: { type: 0, stats: 8 } },
+  obj_core_slot: { size: 16, members: { core: 0, type: 8 } },
+  k_mutex: {
+    size: 56,
+    members: { wait_q: 0, owner: 16, lock_count: 24, held_node: 32, obj_core: 40 },
+  },
+  k_msgq: { size: 48, members: { msg_size: 0, max_msgs: 8, used_msgs: 12, obj_core: 32 } },
+  k_thread: { size: 64, members: { obj_core: 32 } },
+  k_cycle_stats: { size: 16, members: { total: 0, track_usage: 8 } },
 }
 
-describe('object core walk', () => {
-  it('seeds static objects from descriptors before live lists are initialized', async () => {
-    const meta: ObjectCoreMeta = {
-      ptrBytes: 4,
-      typeListAddr: 0x0800,
-      descriptorStart: 0x1000,
-      descriptorEnd: 0x1018,
-      descriptorSize: 24,
-      statsEnabled: false,
-      typeMembers: { node: 0, list: 4, id: 12, obj_core_offset: 16 },
-      coreMembers: { node: 0, type: 4 },
-      layouts: {
-        k_msgq: { msg_size: 0, max_msgs: 8, used_msgs: 12, obj_core: 16 },
-        k_mem_slab_info: {},
-        sys_mem_blocks_info: {},
-        k_cycle_stats: {},
-      },
-      symbols: [{ name: 'boot_queue', addr: 0x3000, size: 32, type: 1 }],
-    }
-    const mem = new Map<number, Uint8Array>()
-    mem.set(0x0800, new Uint8Array(4)) // z_obj_type_list not linked yet
+/** A flat little-endian guest address space. */
+function flatGuest() {
+  const bytes = new Uint8Array(0xa000)
+  const view = new DataView(bytes.buffer)
+  return {
+    u32: (addr: number, value: number) => view.setUint32(addr, value, true),
+    u64: (addr: number, value: number) => view.setBigUint64(addr, BigInt(value), true),
+    slice: (addr: number, length: number) => bytes.slice(addr, addr + length),
+  }
+}
+type Guest = ReturnType<typeof flatGuest>
 
-    const desc = new Uint8Array(24)
-    for (const [at, value] of [
-      [0, 0x2000],
-      [4, 0x3000],
-      [8, 0x3020],
-      [12, 16],
-      [16, 32],
-      [20, 0x4d534751],
-    ]) {
-      put32(desc, at, value)
-    }
-    mem.set(0x1000, desc)
+/** Reads the way QEMU's gdbstub answers them: E22 past 2 KiB, an error where unmapped. */
+function gdbstubReader(guest: Guest, unmapped: [number, number] = [0, 0]) {
+  return async (addr: number, length: number) => {
+    if (length > 2048) throw new Error('memory read error: E22')
+    if (addr >= unmapped[0] && addr < unmapped[1]) throw new Error('memory read error: E14')
+    return guest.slice(addr, length)
+  }
+}
 
-    const msgq = new Uint8Array(32)
-    put32(msgq, 0, 4)
-    put32(msgq, 8, 8)
-    put32(msgq, 12, 0)
-    mem.set(0x3000, msgq)
+/** A struct k_obj_type in the A53 layout. */
+function putType(
+  guest: Guest,
+  addr: number,
+  type: {
+    next?: number
+    id: number
+    coreOffset: number
+    ranges?: [start: number, end: number, stride: number][]
+    dropped?: number
+    statsDesc?: number
+  },
+) {
+  guest.u64(addr, type.next ?? 0)
+  guest.u32(addr + 8, type.id)
+  guest.u64(addr + 16, type.coreOffset)
+  for (const [i, [start, end, stride]] of (type.ranges ?? []).entries()) {
+    guest.u64(addr + 24 + i * 32, start)
+    guest.u64(addr + 32 + i * 32, end)
+    guest.u64(addr + 40 + i * 32, stride)
+  }
+  guest.u32(addr + 120, type.dropped ?? 0)
+  guest.u64(addr + 128, type.statsDesc ?? 0)
+}
 
-    const snapshot = await readObjectCores(meta, memoryReader(mem))
-    expect(snapshot).toMatchObject({ objectCount: 1, truncated: false })
-    expect(snapshot.types[0]).toMatchObject({
-      code: 'MSGQ',
-      objectSize: 32,
-      objects: [
+type FixtureSymbol = Pick<ElfTypedSymbol, 'name' | 'addr'> & Partial<ElfTypedSymbol>
+
+function a53Image(symbols: FixtureSymbol[], statics: Guest): ObjectCoreImage {
+  return {
+    ptrBytes: 8,
+    symbols: symbols.map((s) => ({ size: 0, type: s.size ? 1 : 0, ...s })),
+    struct: (name) => A53_STRUCTS[name] ?? null,
+    readStatic: statics.slice,
+  }
+}
+
+/**
+ * The symbols of a registry-layout image: types in 0x2000..0x2130, the 160-slot
+ * registry at 0x4000, and a same-named `registry` static of fs.c's in front.
+ */
+const REGISTRY_SYMBOLS: FixtureSymbol[] = [
+  { name: 'z_obj_type_list', addr: 0x1000, size: 16 },
+  { name: '_k_obj_type_list_start', addr: 0x2000 },
+  { name: '_k_obj_type_list_end', addr: 0x2130 },
+  { name: 'obj_type_mutex', addr: 0x2000, size: 152, file: 'mutex.c' },
+  { name: 'obj_type_thread', addr: 0x2098, size: 152, file: 'thread.c' },
+  { name: 'registry', addr: 0x0400, size: 64, file: 'fs.c' },
+  { name: 'registry', addr: 0x4000, size: 160 * 16, file: 'obj_core.c' },
+]
+
+describe('object core metadata', () => {
+  it('reads the build-time types, and the registry that is kernel/obj_core.c\'s', () => {
+    const image = flatGuest()
+    putType(image, 0x2000, { id: MUTX, coreOffset: 40, ranges: [[0x3000, 0x3070, 56]] })
+    putType(image, 0x2098, { id: THRD, coreOffset: 32, statsDesc: 0x8000 })
+
+    const meta = objectCoreMetaFromImage(a53Image(REGISTRY_SYMBOLS, image))
+    expect(meta).toMatchObject({
+      typeListAddr: 0x1000,
+      statsEnabled: true,
+      typeSize: 152,
+      maxRanges: 3,
+      registryAddr: 0x4000,
+      registrySlots: 160,
+      staticTypes: [
         {
-          name: 'boot_queue',
-          addr: 0x3000,
-          capacity: 8,
-          staticObject: true,
+          addr: 0x2000,
+          id: MUTX,
+          coreOffset: 40,
+          ranges: [{ start: 0x3000, end: 0x3070, stride: 56, indirect: false }],
+        },
+        { addr: 0x2098, id: THRD, coreOffset: 32, ranges: [], statsDesc: 0x8000 },
+      ],
+    })
+  })
+
+  it('reads a 32-bit image', () => {
+    const image = flatGuest()
+    image.u32(0x1004, SEM4) // id
+    image.u32(0x1008, 16) // obj_core_offset
+    image.u32(0x100c, 0x3000) // statics[0].start
+    image.u32(0x1010, 0x3030) // statics[0].end
+    image.u32(0x1014, 24) // statics[0].stride
+
+    // DWARF layouts as a qemu_cortex_m3 build of Zephyr main has them.
+    const structs: Record<string, DwarfStruct> = {
+      k_obj_type: {
+        size: 80,
+        members: {
+          node: 0,
+          id: 4,
+          obj_core_offset: 8,
+          statics: 12,
+          dropped: 60,
+          skipped: 64,
+          stats_desc: 68,
+          stats_offset: 72,
+          stats_size: 76,
+        },
+      },
+      k_obj_range: { size: 16, members: { start: 0, end: 4, stride: 8, indirect: 12 } },
+      k_obj_core: { size: 8, members: { type: 0, stats: 4 } },
+      obj_core_slot: { size: 8, members: { core: 0, type: 4 } },
+      k_sem: { size: 24, members: { wait_q: 0, count: 8, limit: 12, obj_core: 16 } },
+    }
+    const meta = objectCoreMetaFromImage({
+      ptrBytes: 4,
+      symbols: [
+        { name: 'z_obj_type_list', addr: 0x0800, size: 8, type: 1 },
+        { name: '_k_obj_type_list_start', addr: 0x1000, size: 0, type: 0 },
+        { name: '_k_obj_type_list_end', addr: 0x1050, size: 0, type: 0 },
+        { name: 'registry', addr: 0x2000, size: 1024, type: 1, file: 'obj_core.c' },
+      ],
+      struct: (name) => structs[name] ?? null,
+      readStatic: image.slice,
+    })
+    expect(meta).toMatchObject({
+      statsEnabled: true,
+      typeSize: 80,
+      maxRanges: 3,
+      registrySlots: 128,
+      structSizes: { k_sem: 24 },
+      staticTypes: [
+        {
+          addr: 0x1000,
+          id: SEM4,
+          coreOffset: 16,
+          ranges: [{ start: 0x3000, end: 0x3030, stride: 24, indirect: false }],
         },
       ],
     })
   })
 
-  it('uses descriptors for a typed live object inventory', async () => {
-    const meta: ObjectCoreMeta = {
-      ptrBytes: 4,
-      typeListAddr: 0x0800,
-      descriptorStart: 0x1000,
-      descriptorEnd: 0x1018,
-      descriptorSize: 24,
-      statsEnabled: false,
-      typeMembers: { node: 0, list: 4, id: 12, obj_core_offset: 16 },
-      coreMembers: { node: 0, type: 4 },
-      layouts: {
-        k_sem: { count: 0, limit: 4, obj_core: 8 },
-        k_mem_slab_info: {},
-        sys_mem_blocks_info: {},
-        k_cycle_stats: {},
-      },
-      symbols: [{ name: 'uart_sem', addr: 0x3000, size: 16, type: 1 }],
-    }
-    const mem = new Map<number, Uint8Array>()
-
-    const list = new Uint8Array(4)
-    put32(list, 0, 0x2000)
-    mem.set(0x0800, list)
-
-    // k_obj_core_desc: type, static start/end, core offset, object size, SEM4.
-    const desc = new Uint8Array(24)
-    for (const [at, value] of [
-      [0, 0x2000],
-      [4, 0x3000],
-      [8, 0x3010],
-      [12, 8],
-      [16, 16],
-      [20, 0x53454d34],
-    ]) {
-      put32(desc, at, value)
-    }
-    mem.set(0x1000, desc)
-
-    // k_obj_type: next type, object-list head/tail, id, obj_core_offset.
-    const type = new Uint8Array(20)
-    put32(type, 4, 0x3008)
-    put32(type, 8, 0x3008)
-    put32(type, 12, 0x53454d34)
-    put32(type, 16, 8)
-    mem.set(0x2000, type)
-
-    const sem = new Uint8Array(16)
-    put32(sem, 0, 2)
-    put32(sem, 4, 5)
-    put32(sem, 12, 0x2000) // obj_core.type
-    mem.set(0x3000, sem)
-
-    const snapshot = await readObjectCores(meta, memoryReader(mem))
-    expect(snapshot).toMatchObject({ objectCount: 1, statsCount: 0, truncated: false })
-    expect(snapshot.types[0]).toMatchObject({
-      code: 'SEM4',
-      name: 'Semaphores',
-      objectSize: 16,
+  it('finds no inventory in an image from older Zephyr, or one without DWARF', () => {
+    // Before 2026-09-29: per-type object lists and a descriptor section.
+    const older = objectCoreMetaFromImage({
+      ptrBytes: 8,
+      symbols: [
+        { name: 'z_obj_type_list', addr: 0x1000, size: 16, type: 1 },
+        { name: '_k_obj_core_desc_list_start', addr: 0x2000, size: 0, type: 0 },
+        { name: '_k_obj_core_desc_list_end', addr: 0x2090, size: 0, type: 0 },
+      ],
+      struct: (name) =>
+        name === 'k_obj_type'
+          ? { size: 48, members: { node: 0, list: 8, id: 24, obj_core_offset: 32, stats_desc: 40 } }
+          : null,
+      readStatic: () => null,
     })
-    expect(snapshot.types[0]!.objects[0]).toMatchObject({
-      name: 'uart_sem',
-      addr: 0x3000,
-      coreAddr: 0x3008,
-      capacity: 5,
-      staticObject: true,
-      fields: [
-        { label: 'Count', value: '2' },
-        { label: 'Limit', value: '5' },
+    expect(older).toBeNull()
+
+    const stripped = { ...a53Image(REGISTRY_SYMBOLS, flatGuest()), struct: () => null }
+    expect(objectCoreMetaFromImage(stripped)).toBeNull()
+  })
+})
+
+describe('object core walk', () => {
+  it('walks permanent ranges, then the registry entries that are still live', async () => {
+    const guest = flatGuest()
+    guest.u64(0x1000, 0x2000) // z_obj_type_list.head
+    putType(guest, 0x2000, {
+      next: 0x2098,
+      id: MUTX,
+      coreOffset: 40,
+      ranges: [[0x3000, 0x3070, 56]],
+    })
+    putType(guest, 0x2098, { id: THRD, coreOffset: 32, statsDesc: 0x8000 })
+
+    // K_MUTEX_DEFINE section: static_lock, then an element never initialized.
+    guest.u64(0x3010, 0x6040) // owner: threads[1]
+    guest.u32(0x3018, 1)
+    guest.u64(0x3028, 0x2000) // obj_core.type
+
+    // Mutexes and threads initialized at run time.
+    guest.u64(0x5028, 0x2000) // fork_objs[0], unlocked
+    guest.u64(0x5048, 0x6000) // fork_objs[1].owner: threads[0]
+    guest.u32(0x5050, 1)
+    guest.u64(0x5060, 0x2000)
+    guest.u64(0x6020, 0x2098) // threads[0]
+    guest.u64(0x6028, 0x8100) // obj_core.stats
+    guest.u64(0x6060, 0x2098) // threads[1]
+    guest.u64(0x7028, 0xdead0000) // reused storage: no longer a mutex
+
+    const slots: [core: number, type: number][] = [
+      [0x5028, 0x2000],
+      [0x6020, 0x2098],
+      [0, 0],
+      [0x7028, 0x2000], // stale
+      [0x5060, 0x2000],
+      [0x9028, 0x2000], // unreadable
+    ]
+    for (const [i, [core, type]] of slots.entries()) {
+      guest.u64(0x4000 + i * 16, core)
+      guest.u64(0x4008 + i * 16, type)
+    }
+    // Past the first 2 KiB of the table, where one unchunked read would fail.
+    guest.u64(0x4000 + 150 * 16, 0x6060)
+    guest.u64(0x4008 + 150 * 16, 0x2098)
+
+    guest.u64(0x8000, 16) // k_obj_core_stats_desc.raw_size
+    guest.u64(0x8008, 48) // query_size
+    guest.u64(0x8100, 987654) // k_cycle_stats.total
+    guest.u32(0x8108, 1) // track_usage
+
+    const meta = objectCoreMetaFromImage(
+      a53Image(
+        [
+          ...REGISTRY_SYMBOLS,
+          { name: 'static_lock', addr: 0x3000, size: 56 },
+          { name: 'fork_objs', addr: 0x5000, size: 3 * 56 },
+          { name: 'threads', addr: 0x6000, size: 2 * 64 },
+        ],
+        guest,
+      ),
+    )!
+    const snapshot = await readObjectCores(meta, gdbstubReader(guest, [0x9000, 0xa000]))
+
+    expect(snapshot).toMatchObject({ objectCount: 5, statsCount: 1, truncated: false })
+    expect(snapshot.types.map((type) => [type.code, type.objectSize])).toEqual([
+      ['MUTX', 56],
+      ['THRD', 64],
+    ])
+    expect(snapshot.types[0]!.objects).toMatchObject([
+      {
+        name: 'static_lock',
+        addr: 0x3000,
+        coreAddr: 0x3028,
+        staticObject: true,
+        fields: [
+          { label: 'Owner', value: '0x6040', addr: 0x6040 },
+          { label: 'Lock depth', value: '1' },
+        ],
+      },
+      {
+        name: 'fork_objs',
+        addr: 0x5000,
+        staticObject: false,
+        fields: [
+          { label: 'Owner', value: 'none' },
+          { label: 'Lock depth', value: '0' },
+        ],
+      },
+      { name: 'fork_objs[1]', addr: 0x5038, size: 56, fields: [{ value: '0x6000' }, { value: '1' }] },
+    ])
+    expect(snapshot.types[1]!.objects).toMatchObject([
+      {
+        name: 'threads',
+        addr: 0x6000,
+        stats: {
+          addr: 0x8100,
+          rawSize: 16,
+          querySize: 48,
+          fields: [
+            { label: 'Total cycles', value: '987,654' },
+            { label: 'Collection', value: 'enabled' },
+          ],
+        },
+      },
+      { name: 'threads[1]', addr: 0x6040, stats: null },
+    ])
+  })
+
+  it('seeds permanent objects from the image before the kernel links the types', async () => {
+    // At the first stop the type list is empty, and on an XIP board the RAM
+    // copy of the type section is not even initialized yet: the image has it.
+    const image = flatGuest()
+    putType(image, 0x2000, { id: MSGQ, coreOffset: 32, ranges: [[0x3000, 0x3060, 48]] })
+    const guest = flatGuest()
+    guest.u64(0x3000, 4) // boot_queue.msg_size
+    guest.u32(0x3008, 8) // max_msgs
+    guest.u64(0x3030, 16) // alarm_queue.msg_size
+    guest.u32(0x3038, 2)
+
+    const meta = objectCoreMetaFromImage(
+      a53Image(
+        [
+          { name: 'z_obj_type_list', addr: 0x1000, size: 16 },
+          { name: '_k_obj_type_list_start', addr: 0x2000 },
+          { name: '_k_obj_type_list_end', addr: 0x2098 },
+          { name: 'registry', addr: 0x4000, size: 128 * 16, file: 'obj_core.c' },
+          { name: 'boot_queue', addr: 0x3000, size: 48 },
+          { name: 'alarm_queue', addr: 0x3030, size: 48 },
+        ],
+        image,
+      ),
+    )!
+    const snapshot = await readObjectCores(meta, gdbstubReader(guest))
+
+    expect(snapshot).toMatchObject({ objectCount: 2, truncated: false })
+    expect(snapshot.types[0]).toMatchObject({
+      code: 'MSGQ',
+      name: 'Message queues',
+      objects: [
+        { name: 'boot_queue', staticObject: true, capacity: 8, stats: null },
+        {
+          name: 'alarm_queue',
+          staticObject: true,
+          capacity: 2,
+          fields: [
+            { label: 'Message size', value: '16' },
+            { label: 'Used messages', value: '0' },
+            { label: 'Capacity', value: '2' },
+          ],
+        },
       ],
     })
   })
 
-  it('reads raw object-core statistics when enabled', async () => {
-    const meta: ObjectCoreMeta = {
-      ptrBytes: 4,
-      typeListAddr: 0x0800,
-      descriptorStart: 0x1000,
-      descriptorEnd: 0x1024,
-      descriptorSize: 36,
-      statsEnabled: true,
-      typeMembers: {
-        node: 0,
-        list: 4,
-        id: 12,
-        obj_core_offset: 16,
-        stats_desc: 20,
-      },
-      coreMembers: { node: 0, type: 4, stats: 8 },
-      layouts: {
-        k_thread: { obj_core: 16 },
-        k_mem_slab_info: {},
-        sys_mem_blocks_info: {},
-        k_cycle_stats: { total: 0, track_usage: 8 },
-      },
-      symbols: [{ name: 'worker_thread', addr: 0x3000, size: 28, type: 1 }],
-    }
-    const mem = new Map<number, Uint8Array>()
-    const list = new Uint8Array(4)
-    put32(list, 0, 0x2000)
-    mem.set(0x0800, list)
+  it('says the inventory is incomplete once the registry has dropped objects', async () => {
+    const guest = flatGuest()
+    guest.u64(0x1000, 0x2000)
+    putType(guest, 0x2000, { id: MUTX, coreOffset: 40, dropped: 3 })
 
-    const desc = new Uint8Array(36)
-    for (const [at, value] of [
-      [0, 0x2000],
-      [12, 16],
-      [16, 28],
-      [20, 0x54485244],
-      [24, 0x4000],
-    ]) {
-      put32(desc, at, value)
-    }
-    mem.set(0x1000, desc)
-
-    const type = new Uint8Array(24)
-    put32(type, 4, 0x3010)
-    put32(type, 8, 0x3010)
-    put32(type, 12, 0x54485244)
-    put32(type, 16, 16)
-    put32(type, 20, 0x4000)
-    mem.set(0x2000, type)
-
-    const thread = new Uint8Array(28)
-    put32(thread, 20, 0x2000)
-    put32(thread, 24, 0x5000)
-    mem.set(0x3000, thread)
-
-    const statsDesc = new Uint8Array(8)
-    put32(statsDesc, 0, 12)
-    put32(statsDesc, 4, 24)
-    mem.set(0x4000, statsDesc)
-    const stats = new Uint8Array(12)
-    new DataView(stats.buffer).setBigUint64(0, 123456n, true)
-    stats[8] = 1
-    mem.set(0x5000, stats)
-
-    const snapshot = await readObjectCores(meta, memoryReader(mem))
-    expect(snapshot.statsCount).toBe(1)
-    expect(snapshot.types[0]!.objects[0]!.stats).toMatchObject({
-      addr: 0x5000,
-      rawSize: 12,
-      querySize: 24,
-      fields: [
-        { label: 'Total cycles', value: '123,456' },
-        { label: 'Collection', value: 'enabled' },
-      ],
-    })
+    const meta = objectCoreMetaFromImage(
+      a53Image(
+        [
+          { name: 'z_obj_type_list', addr: 0x1000, size: 16 },
+          { name: '_k_obj_type_list_start', addr: 0x2000 },
+          { name: '_k_obj_type_list_end', addr: 0x2098 },
+          { name: 'registry', addr: 0x4000, size: 128 * 16, file: 'obj_core.c' },
+        ],
+        guest,
+      ),
+    )!
+    const snapshot = await readObjectCores(meta, gdbstubReader(guest))
+    expect(snapshot).toMatchObject({ objectCount: 0, truncated: true })
   })
 })
 
