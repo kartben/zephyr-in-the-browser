@@ -239,6 +239,23 @@ describe('checkTour', () => {
     ])
   })
 
+  it('finds the stop file among sources shipped under zephyr/, by its longest path', () => {
+    const doc = tour('at: 0x800c\nhighlight: /LOG_LEVEL/')
+    const logH = ['/* log.h */', '#define LOG_LEVEL 3']
+    const findings = checkTour(
+      doc,
+      context({
+        sources: new Map([
+          ['main.c', SOURCE.split('\n')],
+          // A same-named header elsewhere in the tree must not stand in for it.
+          ['zephyr/include/other/log.h', ['nothing here']],
+          ['zephyr/include/zephyr/logging/log.h', logH],
+        ]),
+      }),
+    )
+    expect(findings.filter((f) => f.kind === 'highlight')).toEqual([])
+  })
+
   it('fails an expression naming a symbol the ELF lacks, and lets registers through', () => {
     const doc = tour(
       [
