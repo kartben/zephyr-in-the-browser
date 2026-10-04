@@ -90,17 +90,22 @@ describe('TraceReader net address width', () => {
       ...record(2000, 0x3b, [...encU32(3), ...encStr('192.0.2.1', 20), ...encU32(16), ...encU16(5001)]),
       ...record(3000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
       ...record(4000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
+      ...record(5000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
+      ...record(6000, 0x11, [...encU32(0x1000), ...encStr('main', 20)]),
     ])
     // The mis-sized bind eats into the 3000 switch (that record is genuinely
     // gone — its bytes were consumed as part of the oversized body), but the
-    // reader slides forward and re-locks onto the 4000 switch right after it
-    // instead of staying desynced for the rest of the session.
-    expect(reader.feed(bytes)).toBe(3)
+    // reader slides forward and re-locks onto the 4000 switch right after it,
+    // once the headers after it agree, instead of staying desynced for the
+    // rest of the session.
+    expect(reader.feed(bytes)).toBe(5)
     expect(reader.desync).toBe(false)
     expect(reader.tr.events.map((e) => [e.name, e.ts])).toEqual([
       ['thread_switched_in', 1000],
       ['socket_bind_enter', 2000],
       ['thread_switched_in', 4000],
+      ['thread_switched_in', 5000],
+      ['thread_switched_in', 6000],
     ])
   })
 

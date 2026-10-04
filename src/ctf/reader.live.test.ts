@@ -139,3 +139,53 @@ describe('TraceReader, live byte source', () => {
     expect(file.desync).toBe(false)
   })
 })
+
+/*
+ * A file the guest writes from byte 0 is aligned, but an event newer than the
+ * page's metadata is a record the reader cannot size. It slides through it a
+ * byte at a time, hunting for the next boundary the way a live attach does, so
+ * the same guards have to hold.
+ */
+describe('TraceReader, events newer than its metadata', () => {
+  const STORAGE = 0x4001_c000
+
+  it('does not take the inside of one for a boundary that shifts the clock', () => {
+    // tracing_pipeline's storage thread around a k_msleep(10). Seven bytes into
+    // the sleep record, the u64 reads 167.77 s, and when the next timestamp's
+    // second byte is 0x11 the id slot reads thread_switched_in.
+    const defs = realDefs()
+    defs.delete(0x184) // thread_sleep_ticks_enter, missing from older metadata
+    const bytes = [
+      ...record(5_980_000_000, 0x11, [...encU32(STORAGE), ...encName('storage')]),
+      ...record(5_989_000_000, 0x184, [...encU32(10_000)]),
+    ]
+    const first = 357 * 2 ** 24 + 0x1100
+    const after = Array.from({ length: 6 }, (_, i) => first + i * 1_000_000)
+    for (const [i, ts] of after.entries()) {
+      bytes.push(...record(ts, i % 2 === 0 ? 0x10 : 0x11, [...encU32(STORAGE), ...encName('storage')]))
+    }
+    const reader = new TraceReader(defs)
+    reader.feed(Uint8Array.from(bytes))
+    expect(reader.tr.events.map((e) => e.ts)).toEqual([5_980_000_000, ...after])
+  })
+
+  it('does not stall on a socket event id met while hunting', () => {
+    // Four bytes into the next header, its timestamp reads as 0x3b,
+    // socket_bind_enter, whose address width nothing has probed yet. No amount
+    // of further data settles that, so waiting there would wait for good.
+    const defs = realDefs()
+    defs.delete(0x185) // thread_sleep_ticks_exit, missing from older metadata
+    const bytes = [
+      ...record(2_000_000_000, 0x10, [...encU32(MAIN), ...encName('main')]),
+      ...record(21_000_000_000, 0x185, [...encU32(10_000), ...encU32(0)]),
+    ]
+    const first = 5 * 2 ** 32 + 0x3b * 2 ** 16
+    const after = Array.from({ length: 6 }, (_, i) => first + i * 1_000_000)
+    for (const [i, ts] of after.entries()) {
+      bytes.push(...record(ts, i % 2 === 0 ? 0x11 : 0x10, [...encU32(MAIN), ...encName('main')]))
+    }
+    const reader = new TraceReader(defs)
+    reader.feed(Uint8Array.from(bytes))
+    expect(reader.tr.events.map((e) => e.ts)).toEqual([2_000_000_000, ...after])
+  })
+})
