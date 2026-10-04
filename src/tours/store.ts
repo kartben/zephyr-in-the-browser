@@ -29,6 +29,7 @@ import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
 import { loadTourSource } from '@/tours/catalog'
 import { focusStep, lookNotes } from '@/tours/look'
 import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
+import { evalPredicate } from '@/tours/predicate'
 import {
   parseSourceIndex,
   provenance,
@@ -52,6 +53,29 @@ export interface TourValue {
   text: string
   detail: string | null
   ok: boolean
+}
+
+/** One `check:` row, evaluated when the step fired. */
+export interface TourCheckRow {
+  /** The comparison as written. */
+  text: string
+  /** It held, it did not, or (null) a side could not be read. */
+  pass: boolean | null
+  /** The sides that are not bare numbers, as the guest had them, or why it could not say. */
+  values: Array<{ expr: string; text: string; ok: boolean }>
+}
+
+/** A step's `check:` rows and the verdict on them. */
+export interface TourCheck {
+  rows: TourCheckRow[]
+  /**
+   * `passed` when every row held, `failed` when one did not, and `unknown` when
+   * none failed but one could not be read, which on the mock backend's replay
+   * is every row. Only `passed` is a pass.
+   */
+  outcome: 'passed' | 'failed' | 'unknown'
+  /** The step keeps its breakpoint and fires again: it retries and has not passed. */
+  retrying: boolean
 }
 
 /** The window a step's `memory:` block asked for, once read. */
@@ -99,6 +123,8 @@ export interface TourCard {
   /** Which time through this was. */
   hits: number
   values: TourValue[]
+  /** The step's `check:` rows and the verdict on them, or null when it checks nothing. */
+  check: TourCheck | null
   memory: TourMemory | null
   objects: TourObjects | null
   registers: Array<{ name: string; value: string }>
@@ -182,6 +208,11 @@ export interface StepRuntime {
   hits: number
   /** Card as it was when the step fired, for reading it again later. */
   card: TourCard | null
+  /**
+   * The step's checks have held at least once. A `retry:` step is not done
+   * until they have, and it stays done after.
+   */
+  passed: boolean
 }
 
 function readEnabled(): boolean {
@@ -343,6 +374,7 @@ export async function loadFor(
     planted: false,
     hits: 0,
     card: null,
+    passed: false,
   }))
   publish({
     doc,
@@ -456,7 +488,19 @@ export async function arm(): Promise<void> {
 }
 
 /**
+ * A `retry:` step that has fired and not passed. It keeps its breakpoint, and
+ * the tour waits on it instead of moving past.
+ */
+function retrying(runtime: StepRuntime): boolean {
+  return runtime.step.retry && runtime.card !== null && !runtime.passed
+}
+
+/**
  * Plant the next step that still wants a breakpoint, if it has none.
+ *
+ * A `retry:` step that has not passed comes first and holds the line: nothing
+ * after it goes in until it passes, so the next hit the reader causes is a new
+ * try at it, not a later step jumping in.
  *
  * Awaited before any resume, always: `main()` and the line after it are
  * microseconds apart on a JIT guest, so planting after letting go would lose
@@ -464,9 +508,13 @@ export async function arm(): Promise<void> {
  */
 async function plantNext(): Promise<boolean> {
   const runtime = steps.find(
-    (s) => !s.unresolved && s.anchor !== null && !s.planted && (s.card === null || s.step.repeat),
+    (s) =>
+      !s.unresolved &&
+      s.anchor !== null &&
+      (retrying(s) || (!s.planted && (s.card === null || s.step.repeat))),
   )
   if (!runtime?.anchor) return steps.some((s) => s.planted)
+  if (runtime.planted) return true
   runtime.planted = await debug.addBreakpoint(runtime.anchor.addr)
   if (runtime.planted) ownedBreakpoints.add(runtime.anchor.addr)
   if (!runtime.planted) {
@@ -488,12 +536,13 @@ function waitingOf(runtime: StepRuntime | undefined): TourWaiting | null {
 }
 
 /**
- * The prompt for the step the guest is running towards (planted, not yet
- * fired), opening what that step points at as well. The reader acts now, and
- * "watch the queue fill" means the Queues tab while it fills, not once it has.
+ * The prompt for the step the guest is running towards (planted, and either
+ * not yet fired or retrying), opening what that step points at as well. The
+ * reader acts now, and "watch the queue fill" means the Queues tab while it
+ * fills, not once it has. A retry asks for the same thing again.
  */
 function promptNext(): TourWaiting | null {
-  const runtime = steps.find((s) => s.planted && s.card === null)
+  const runtime = steps.find((s) => s.planted && (s.card === null || retrying(s)))
   const waiting = waitingOf(runtime)
   if (waiting) focusStep(runtime!.step)
   return waiting
@@ -613,8 +662,14 @@ function claimStop(pcHex: string): boolean {
   // waiting to happen rather than quietly used up.
   if (state.current !== null) return true
 
+  // A `retry:` step that has not passed holds the tour on it. A later step
+  // whose breakpoint went in early is not its turn yet: let it go, uncounted.
+  const holding = steps.find(retrying)
+  const eligible = holding ? here.filter((s) => s.step.index <= holding.step.index) : here
+  if (eligible.length === 0) return true
+
   const firing: StepRuntime[] = []
-  for (const candidate of here) {
+  for (const candidate of eligible) {
     candidate.hits++
     const verdict = whenFires(candidate.step.when, candidate.hits)
     if (verdict.invalid) {
@@ -669,8 +724,13 @@ async function showPending(): Promise<void> {
 
   const card = await buildCard(runtime)
   runtime.card = card
+  if (card.check?.outcome === 'passed') runtime.passed = true
+  // A retry keeps its breakpoint for the reader's next try, and counts that
+  // try's hits from zero so a `when:` applies to each try the same way.
+  const again = retrying(runtime)
+  if (again) runtime.hits = 0
 
-  if (!runtime.step.repeat && runtime.anchor) {
+  if (!runtime.step.repeat && !again && runtime.anchor) {
     const addr = runtime.anchor.addr
     runtime.planted = false
     // The address may still belong to another step; only lift the breakpoint
@@ -763,6 +823,45 @@ function shippedFile(file: string | null, index: SourceIndex | null): string | n
   return index ? shippedPathFor(file, index) : file.slice(file.lastIndexOf('/') + 1)
 }
 
+/** Only `passed` is a pass: a row that could not be read is not one that held. */
+function checkOutcome(rows: TourCheckRow[]): TourCheck['outcome'] {
+  if (rows.some((row) => row.pass === false)) return 'failed'
+  return rows.every((row) => row.pass === true) ? 'passed' : 'unknown'
+}
+
+/**
+ * Evaluate a step's `check:` rows against the stopped guest. Only ever reads.
+ *
+ * Each row keeps the sides that were read, with what the guest had, since that
+ * is what a reader whose check failed needs to see. Bare numbers are left out:
+ * they are already in the row as written.
+ */
+async function evalChecks(runtime: StepRuntime, target: TourTarget): Promise<TourCheck | null> {
+  const { step } = runtime
+  if (step.check.length === 0) return null
+  const rows: TourCheckRow[] = []
+  for (const predicate of step.check) {
+    const result = await evalPredicate(predicate, target)
+    const sides = [
+      { operand: predicate.lhs, read: result.lhs },
+      { operand: predicate.rhs, read: result.rhs },
+    ]
+    rows.push({
+      text: predicate.text,
+      pass: result.error === null ? result.pass : null,
+      values: sides
+        .filter(({ operand }) => operand.literal === null)
+        .map(({ operand, read }) => ({
+          expr: operand.expr,
+          text: read.text,
+          ok: read.value !== null,
+        })),
+    })
+  }
+  const outcome = checkOutcome(rows)
+  return { rows, outcome, retrying: step.retry && outcome !== 'passed' && !runtime.passed }
+}
+
 async function buildCard(runtime: StepRuntime): Promise<TourCard> {
   const { step } = runtime
   const target = liveTarget()
@@ -780,6 +879,8 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
       ok: result.ok,
     })
   }
+
+  const check = await evalChecks(runtime, target)
 
   let memory: TourMemory | null = null
   if (step.memory) {
@@ -837,6 +938,7 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
     paused: step.stop,
     hits: runtime.hits,
     values,
+    check,
     memory,
     objects,
     registers,
@@ -859,15 +961,16 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
  * it are microseconds apart on a JIT guest, so a plant that races the resume
  * loses the step — reliably, not occasionally.
  *
- * When every step has had its turn, drop every remaining breakpoint so the
- * guest free-runs instead of trapping on a leftover stop, and say the tour is
- * complete: that is what puts up its outro.
+ * When every step has had its turn, and every `retry:` step has passed, drop
+ * every remaining breakpoint so the guest free-runs instead of trapping on a
+ * leftover stop, and say the tour is complete: that is what puts up its outro.
+ * A retry still failing is a turn not yet over.
  */
 export function next(): void {
   const card = state.current
   publish({ current: null })
   void (async () => {
-    const finished = steps.every((s) => s.card !== null || s.unresolved)
+    const finished = steps.every((s) => s.unresolved || (s.card !== null && !retrying(s)))
     if (finished) {
       await disarm()
       publish({ armed: false, finished: true, completed: true, waiting: null })
@@ -953,6 +1056,7 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
     planted: false,
     hits: 0,
     card: null,
+    passed: false,
   }))
     publish({
       doc,
@@ -1018,6 +1122,15 @@ function demoCard(runtime: StepRuntime): TourCard {
       detail: null,
       ok: false,
     })),
+    // Nothing was read, so nothing passed or failed: the card says Not checked.
+    check:
+      step.check.length > 0
+        ? {
+            rows: step.check.map((p) => ({ text: p.text, pass: null, values: [] })),
+            outcome: 'unknown',
+            retrying: false,
+          }
+        : null,
     memory: step.memory
       ? {
           addr: null,

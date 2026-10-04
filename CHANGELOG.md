@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Tours check the guest's state and let you try again.
 - **Fixed:** Tour cards keep the stop line in view and name data pointers.
 - **Added:** Tour cards can type shell commands into the terminal.
 - **Added:** Tours hand you tasks, end on a recap, and chain onward.

@@ -28,6 +28,7 @@ import {
 } from '@/tours/anchors'
 import { expressionSymbols } from '@/tours/expr'
 import { resolveHighlightSpecs, type HighlightSpec, type TourDoc, type TourStep } from '@/tours/parse'
+import { predicateIdentifiers } from '@/tours/predicate'
 
 export interface CheckContext {
   symbols: SymbolIndex | null
@@ -331,8 +332,8 @@ function lineCount(text: string[]): number {
 
 /**
  * Every symbol an expression names has to be in the ELF, or the card shows
- * "no symbol" where the value should be. Registers are not symbols, so `$arg0`
- * passes whatever the guest.
+ * "no symbol" where the value should be, and a `check:` on one can never pass.
+ * Registers are not symbols, so `$arg0` passes whatever the guest.
  */
 function checkExpressions(step: TourStep, symbols: SymbolIndex | null, check: StepCheck): void {
   const written: Array<[label: string, expr: string]> = []
@@ -358,6 +359,14 @@ function checkExpressions(step: TourStep, symbols: SymbolIndex | null, check: St
     for (const name of new Set(names)) {
       if (!hasSymbol(symbols, name)) {
         check.add('fail', 'symbol', `\`${label}\`: no symbol \`${name}\` in this build`)
+      }
+    }
+  }
+  // The parser has already refused a row that is not an expression.
+  for (const predicate of step.check) {
+    for (const name of predicateIdentifiers(predicate).symbols) {
+      if (!hasSymbol(symbols, name)) {
+        check.add('fail', 'symbol', `\`check: ${predicate.text}\`: no symbol \`${name}\` in this build`)
       }
     }
   }

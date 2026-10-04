@@ -264,6 +264,23 @@ describe('checkTour', () => {
     ])
   })
 
+  it('fails a check naming a symbol the ELF lacks, since it could never pass', () => {
+    const doc = tour(
+      [
+        'at: main',
+        'check:',
+        '  - counter as u32 == 1',
+        '  - $arg0 == missing',
+        '  - absent as u8 >= absent + 1',
+        'pass: Yes.',
+      ].join('\n'),
+    )
+    expect(checkTour(doc, context()).map((f) => [f.kind, f.message])).toEqual([
+      ['symbol', '`check: $arg0 == missing`: no symbol `missing` in this build'],
+      ['symbol', '`check: absent as u8 >= absent + 1`: no symbol `absent` in this build'],
+    ])
+  })
+
   it('fails an expression that does not parse', () => {
     expect(checkTour(tour('at: main\nwatch:\n  - counter & 3 as u32'), context())).toEqual([
       { step: 1, severity: 'fail', kind: 'expression', message: '`watch: counter & 3` is not an expression' },

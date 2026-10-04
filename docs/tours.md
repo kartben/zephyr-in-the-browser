@@ -80,10 +80,10 @@ next author, and the card hides them the way GitHub does. Inside inline code or
 a fenced block a comment is what the prose is quoting, so it shows.
 
 Every key in the block must be one the parser knows. A misspelt `wacth:` fails
-`npm run test` instead of leaving a card quietly short of its values. Keys for
-directives still on their way (`check`, `pass`, `fail`, `retry`) are accepted
-and ignored until they land; the lists are `IMPLEMENTED_KEYS` and
-`RESERVED_KEYS` in `src/tours/parse.ts`.
+`npm run test` instead of leaving a card quietly short of its values. A key for
+a directive still on its way can be reserved, accepted and ignored until it
+lands (none is, today); the lists are `IMPLEMENTED_KEYS` and `RESERVED_KEYS` in
+`src/tours/parse.ts`.
 
 ## Where a step breaks — `at:`
 
@@ -596,6 +596,70 @@ A single line can be written inline (`do: kernel uptime`), and unlike other
 inline values it is never split on commas. `do:` without `await:` is an
 authoring error, because the lines only ever appear on the your-turn card.
 
+## Checking the guest (`check:`, `pass:`, `fail:` and `retry:`)
+
+A step can say what should be true when it fires, and the card says whether it
+was. That is how a challenge tells the reader their fix worked, and how prose
+can state a fact about the guest safely: the engine checks it.
+
+```yaml
+at: main.c:/alarm_in_isr = / | raise_alarm
+await: Pick a policy, then press **SW0** again while the queue is full.
+do:
+  - msgq policy drop-oldest
+check:
+  - alarms_lost as u32 == 1
+  - alarm_in_isr as u32 == 1
+pass: The alarm got through. Dropping the oldest reading made room at the front.
+fail: Another alarm was lost. Try a different policy, then press SW0 again.
+retry: yes
+```
+
+Each `check:` row is one comparison, `<expr> [as fmt] <op> <expr> [as fmt]`,
+with `==`, `!=`, `<`, `<=`, `>` or `>=`. A list means all of them.
+
+| Side | Is |
+| --- | --- |
+| `alarms_lost as u32` | what is there, read exactly as the `watch:` row `alarms_lost as u32` reads it |
+| `readings`, `$arg0` | the number the expression is: where a symbol lives, what a register holds |
+| `1`, `0x10`, `-1`, `true` | that number |
+
+So `$arg0 == readings` asks whether the function was called with that queue,
+and `alarms_lost as u32 == 1` reads a counter. The expressions are the ones
+`watch:` uses. Any format that comes to one number works (the integers, `bool`,
+`char`, `ptr`, `addr`, `code`, `dec`); `string` and `bytes:N` do not. Values
+compare as whole numbers, so the format's sign matters: `ticks as i32 < 0`
+holds when the counter is -1, and `ticks as u32` reads the same bytes as
+4294967295.
+
+The verdict goes on the card under the step's values:
+
+- **Passed** when every row holds, with the `pass:` line.
+- **Not yet** when one does not. It lists the rows that did not hold, each with
+  what the guest had (`alarms_lost is 2`), then the `fail:` line.
+- **Not checked** when a side could not be read: a symbol this build does not
+  have, a pointer that is still null. The row says why, and neither line is
+  shown. A check that could not be made has not passed.
+
+Checks are read while the machine is halted, like `watch:`, so they work on a
+`stop: no` step too. They only read guest memory, never write it.
+
+With `retry: yes` a step that has not passed keeps its breakpoint. Continue
+becomes **Try again**: the guest runs, the step's your-turn card comes back if
+it has an `await:`, and the next hit is checked afresh (a `when:` counts each
+try's hits from zero). Nothing after the step fires until it passes, and the
+tour cannot complete before then, so the outro waits for the pass. **Leave the
+tour** still works. Without `retry:`, the card shows the verdict and the tour
+moves on.
+
+Every row is checked when the tour is parsed, expressions included, so a
+malformed one fails `npm run test` instead of becoming a check nobody can pass.
+`pass:`, `fail:` and `retry:` without a `check:` are errors too, and a shipped
+tour's `retry:` step needs a `fail:` line that says what to try.
+
+The banner carries `data-tour-check="pass"`, `"fail"` or `"unread"`, for
+scripts that walk a tour headlessly.
+
 ## Ending a tour (outro and `next:`)
 
 A last `##` section with no ` ```tour ` block is the tour's **outro**: the
@@ -681,7 +745,9 @@ walks the steps on a timer instead — real prose, real panel reveals, real
 outline — and every card that would have read the target says so rather than
 inventing a number. Enough to write and read a tour on a bare checkout. A step
 with `await:` gets a beat of its own for its your-turn card first, and a tour
-with an outro ends on its completion card.
+with an outro ends on its completion card. A step with `check:` lists its rows
+under **Not checked**: there is nothing to read, so it neither passes nor
+fails, and the replay moves on rather than wait for a pass that cannot come.
 
 A dev-only Vite plugin serves a toured sample's sources, the files its tour
 lists under `sources:` and their `index.json` at the same URLs a real image
@@ -709,7 +775,7 @@ the page does when the tour arms. These fail:
 | `unresolved`: no alternative of `at:` resolves | a step that never fires |
 | `drift`: a `/pattern/` no longer matches and a later fallback resolves | a step that stops on a line nobody chose |
 | `highlight`: an entry marks nothing in the file the step stops in | an excerpt that has lost its point, silently |
-| `symbol`: `watch:`, `memory:` or `objects: focus:` names a symbol the ELF lacks | "no symbol" where the value should be (registers are exempt) |
+| `symbol`: `watch:`, `memory:`, `objects: focus:` or `check:` names a symbol the ELF lacks | "no symbol" where the value should be, or a check that can never pass (registers are exempt) |
 | `expression`: an expression that does not parse | an error where the value should be |
 
 These warn:
@@ -831,6 +897,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Shipped sources | `src/tours/sources.ts` |
 | Expressions | `src/tours/expr.ts` |
 | Hit conditions | `src/tours/when.ts` |
+| `check:` rows | `src/tours/predicate.ts`, `tour/CheckResults.tsx` |
 | Engine | `src/tours/store.ts` |
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
