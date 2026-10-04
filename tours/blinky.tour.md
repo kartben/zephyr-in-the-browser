@@ -1,49 +1,75 @@
 ---
-tour: Blinky: find your way around
+tour: "Blinky: find your way around"
 sample: samples/basic/blinky
 source: no
+next: basic_button
 ---
 
-Blinky is a short guided sample. These stops introduce the page: the
-**Simulator**, the **terminal**, and the **device dock**.
+Blinky blinks an LED once a second, forever. These stops show you around the
+page while it runs: the **terminal**, the **device dock**, **Debug**, and
+where to pick another sample.
 
 ## The terminal is the guest console
 
 ```tour
-at: main.c:/gpio_pin_configure_dt/ | main.c:32
+at: main.c:/gpio_pin_configure_dt/
 when: first
 stop: no
-panel: gpio
 ```
 
-You are in the **Simulator**. The **terminal** is the guest's serial console.
-Boot lines and sample output land here.
+You are in the **Simulator**: Zephyr runs on an emulated board, right in your
+browser. The **terminal** is the guest's serial console. Boot messages and the
+sample's output land there.
 
-Pick the board and app in the top bar to choose what runs.
+The board and the app in the top bar choose what runs.
 
 ## Watch the LED in the device dock
 
 ```tour
-at: main.c:/gpio_pin_toggle_dt/ | main.c:38
+at: main.c:/gpio_pin_toggle_dt/
 when: first
 panel: led
 ```
 
-The **device dock** lists peripherals for this board. Blinky drives an LED:
-open that row and watch it toggle as the sample runs.
+The guest is paused just before Blinky flips its LED.
 
-Other samples show up in other rows (sensors, network, and more).
+The **device dock** lists this board's peripherals, and the LED has a row of
+its own. Press **Continue** and watch it change.
+
+## Debug shows where the guest is
+
+```tour
+at: main.c:/k_msleep/
+when: first
+look: debug.threads
+```
+
+Every stop in a tour is a breakpoint. **Debug**, under Instruments at the top
+of the device dock, shows where the guest is paused: the call stack, the CPU
+registers, memory, and the threads.
+
+Blinky's code runs in one thread, `main`. It is about to sleep for a second,
+and `idle` runs while it does.
 
 ## Browse samples when you are ready
 
 ```tour
-at: main.c:/k_msleep/ | main.c:45
+at: main.c:/gpio_pin_toggle_dt/
 when: first
 stop: no
-panel: led
 ```
 
-Open the app picker (it currently says **Blinky**) to browse samples. Ones
-marked **guided** carry a tour like this one.
+Open the app picker in the top bar, which says **Blinky** now, to try another
+sample. The ones with a tour like this one are listed first, under
+**Guided tours**.
 
-Continue to let the guest keep running on its own. The LED keeps blinking.
+## What you saw
+
+That is the page: the terminal for output, the device dock for peripherals,
+and Debug for the guest's state. Blinky keeps blinking.
+
+Blinky has a second tour, **Blinky, explained**, listed under Blinky in the
+app picker. It follows the LED's pin from devicetree into the GPIO driver.
+
+Or go on to the Button sample, which reads a key you press in the device
+dock.

@@ -20,7 +20,7 @@ via the help dialog (?).
 - **Added:** Help button with keyboard shortcuts and this changelog.
 - **Added:** More menu on phones for Parts and Samples.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
-- **Improved:** Blinky tour shows the Simulator, terminal, and dock first.
+- **Improved:** Blinky tours: a page tour that chains on, and one through the code.
 - **Improved:** Tours open with their intro; cards show only relevant threads.
 - **Improved:** Device dock says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
