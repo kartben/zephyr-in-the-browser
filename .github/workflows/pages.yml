@@ -207,6 +207,16 @@ jobs:
         timeout-minutes: 30
         run: node tools/smoke-boot.mjs
 
+      # Booting is not the same as teaching. A tour can break on a guest that
+      # boots fine: a step whose line is never reached, one that waits on a
+      # reader with nothing to do, a card that does not render. So play every
+      # tour on the A53 the way a reader would, Continue after Continue. It
+      # takes seconds; the timeout is for a wedged runner, as above.
+      - name: Tour playthrough
+        if: env.EMULATOR_TAG != '' && env.IMAGES_TAG != ''
+        timeout-minutes: 15
+        run: node tools/tour-playthrough.mjs
+
       # A boot that fails only on the runner is the hard kind to chase, so keep
       # what the page looked like when it gave up.
       - name: Upload boot smoke failures
@@ -215,6 +225,14 @@ jobs:
         with:
           name: boot-smoke-failures
           path: smoke-out/
+          if-no-files-found: ignore
+
+      - name: Upload tour playthrough failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tour-playthrough-failures
+          path: tour-out/
           if-no-files-found: ignore
 
       - uses: actions/configure-pages@v5

@@ -46,6 +46,7 @@ at: button_input_cb | main.c:/static void button_input_cb/ | main.c:20
 when: first
 highlight: /static void button_input_cb/ + 14
 panel: led
+ci: press sw0
 ```
 
 You are in `button_input_cb`. `evt->value` tells you pressed or released.
