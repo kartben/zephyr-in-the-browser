@@ -83,14 +83,19 @@ export function registerValues(dump: string | null | undefined): Map<string, num
   /*
    * `$arg0`…`$arg3`, so a tour can break on a kernel function and read what it
    * was called with without knowing which ABI it is looking at. Each of these
-   * three calling conventions passes the first four arguments in registers;
-   * only their names differ. Valid at a function's entry line — once the body
+   * four calling conventions passes the first four arguments in registers;
+   * only their names differ. Valid at a function's entry line: once the body
    * has run, the compiler owns them again.
+   *
+   * Xtensa's windowed ABI names its registers a0..a15 too, like RISC-V, but a
+   * callee past its `entry` finds the return address in a0, the stack pointer
+   * in a1 and its arguments from a2 on. Only the Xtensa dump has a windowbase.
    */
   const argBase = values.has('a0') ? 'a' : values.has('x0') ? 'x' : values.has('r0') ? 'r' : null
+  const argFirst = argBase === 'a' && values.has('windowbase') ? 2 : 0
   if (argBase) {
     for (let i = 0; i < 4; i++) {
-      const value = values.get(`${argBase}${i}`)
+      const value = values.get(`${argBase}${argFirst + i}`)
       if (value !== undefined) put(`arg${i}`, value)
     }
   }
