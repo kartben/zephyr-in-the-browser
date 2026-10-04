@@ -54,7 +54,8 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
   const title = target ? (nextTitle ?? getSample(board, target).label) : null
 
   return (
-    <div className="pointer-events-auto w-full max-w-[34rem]">
+    // data-tour-complete: the headless playthrough's sign that the tour ended.
+    <div className="pointer-events-auto w-full max-w-[34rem]" data-tour-complete="">
       <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />

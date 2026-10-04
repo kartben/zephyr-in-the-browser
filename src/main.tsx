@@ -6,10 +6,13 @@ import { claimStashed } from './guestImage'
 import { claimStashed as claimStashedLiveElf } from './liveImage'
 import { claimCustomImageTree, clearStashedDts } from './devicetree'
 import { resolveModeConfig } from './lib/modeStore'
+import { installTestHooks } from './lib/testHooks'
 import { installProfile } from './display/profile'
 import './index.css'
 
 installProfile()
+// `?test=1` only: the tour playthrough's handle on the page (tools/tour-playthrough.mjs).
+installTestHooks()
 
 /*
  * A user-supplied guest image (and optional zephyr.dts) lives in IndexedDB for

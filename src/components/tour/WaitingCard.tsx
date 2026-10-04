@@ -24,7 +24,12 @@ interface Props {
 export function WaitingCard({ waiting, steps, seen }: Props) {
   const total = steps.length
   return (
-    <div className="pointer-events-auto w-full max-w-[34rem]">
+    // data-tour-*: the step this card waits on, for the headless playthrough.
+    <div
+      className="pointer-events-auto w-full max-w-[34rem]"
+      data-tour-step={waiting.index + 1}
+      data-tour-waiting=""
+    >
       <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />

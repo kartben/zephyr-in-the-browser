@@ -118,8 +118,14 @@ export function TourCard({ board, sampleId }: Props) {
         : (anchor.symbol ?? `0x${anchor.addr.toString(16)}`)
       : null
 
+  // The data-tour-* attributes are what the headless playthrough waits on
+  // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
   return (
-    <div className="pointer-events-auto w-full max-w-[34rem]">
+    <div
+      className="pointer-events-auto w-full max-w-[34rem]"
+      data-tour-step={step.index + 1}
+      data-tour-paused={paused ? '' : undefined}
+    >
       <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
