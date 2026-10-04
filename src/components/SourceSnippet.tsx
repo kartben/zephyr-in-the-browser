@@ -103,7 +103,14 @@ export function SourceSnippet({
   // the top of the tree.
   if (line == null && ranges.length === 0) return null
 
-  const { start, end, marked } = excerptWindow(lines.length, line, ranges)
+  const { runs, marked } = excerptWindow(lines.length, line, ranges)
+  // Line numbers to draw, with a null for the fold between two runs: the stop
+  // and the highlight were too far apart to share one window.
+  const shown = runs.flatMap((run, k) => [
+    ...(k > 0 ? [null] : []),
+    ...Array.from({ length: run.end - run.start + 1 }, (_, i) => run.start + i),
+  ])
+  if (shown.length === 0) return null
 
   return (
     <div className="overflow-x-auto rounded border border-border bg-muted/40">
@@ -113,8 +120,21 @@ export function SourceSnippet({
         </p>
       )}
       <pre className="hljs w-max min-w-full py-1 font-mono text-[11px] leading-relaxed">
-        {Array.from({ length: end - start + 1 }, (_, i) => {
-          const n = start + i
+        {shown.map((n, i) => {
+          if (n === null) {
+            const from = shown[i - 1]! + 1
+            const to = shown[i + 1]! - 1
+            return (
+              <div
+                key={`fold-${from}`}
+                className="flex select-none px-1 text-muted-foreground/60"
+                title={`Lines ${from} to ${to} are not shown`}
+              >
+                <span className="sticky left-0 w-10 shrink-0 bg-muted/40 pr-2 text-right">⋯</span>
+                <span className="italic">{to - from + 1} lines</span>
+              </div>
+            )
+          }
           const isAnchor = line != null && n === line
           const isMarked = marked(n)
           return (
