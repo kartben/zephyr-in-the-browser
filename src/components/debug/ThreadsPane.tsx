@@ -5,16 +5,20 @@ import { formatStackSize, describeThreadStatus } from '@/debug/kernel/threads'
 import * as debug from '@/debug/control'
 import * as debugUi from '@/lib/debugUi'
 import { pulseElement } from '@/lib/dockReveal'
+import { threadNameFilter, unmatchedThreadNames } from '@/tours/threadFilter'
 
 export function ThreadsPane({
   snap,
   onPeek,
   onStack,
+  only = [],
 }: {
   snap: debug.DebugSnapshot
   onPeek: (addrHex: string, length?: number) => void
   /** Open the Stack tab unwound for this thread (TCB address). */
   onStack?: (tcbAddr: number) => void
+  /** A tour step's `threads:` names: list only these. Empty lists every thread. */
+  only?: readonly string[]
 }) {
   const focus = useSyncExternalStore(debugUi.subscribe, debugUi.getSnapshot, debugUi.getSnapshot)
   const listRef = useRef<HTMLUListElement>(null)
@@ -61,7 +65,12 @@ export function ThreadsPane({
   }
 
   // Prefer priority order when the debug walk has prio (matches Trace Gantt).
-  const threads = [...snap.threads].sort((a, b) => {
+  const wanted = threadNameFilter(only)
+  const missing = unmatchedThreadNames(
+    only,
+    snap.threads.map((t) => t.name),
+  )
+  const threads = snap.threads.filter((t) => wanted(t.name)).sort((a, b) => {
     const aKnown = a.prio != null
     const bKnown = b.prio != null
     if (aKnown && bKnown && a.prio !== b.prio) return a.prio! - b.prio!
@@ -76,7 +85,11 @@ export function ThreadsPane({
       {threads.some((thread) => thread.objectCore) && (
         <div className="flex items-center justify-between px-1 text-[9px] uppercase tracking-wide text-foreground/40">
           <span>Live from the kernel</span>
-          <span className="font-mono tabular-nums">{threads.length} threads</span>
+          <span className="font-mono tabular-nums">
+            {threads.length === snap.threads.length
+              ? `${threads.length} threads`
+              : `${threads.length} of ${snap.threads.length} threads`}
+          </span>
         </div>
       )}
       <ul ref={listRef} className="max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5">
@@ -203,6 +216,11 @@ export function ThreadsPane({
           )
         })}
       </ul>
+      {missing.length > 0 && (
+        <p className="px-1 text-[10.5px] text-foreground/50">
+          No thread here is named {missing.map((name) => `“${name}”`).join(', ')}.
+        </p>
+      )}
     </div>
   )
 }

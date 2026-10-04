@@ -15,7 +15,7 @@ wakes them.
 at: main.c:/k_mutex_lock\(&frame_mutex/ | main.c:172
 when: first
 highlight: /while \(published_frame.seq == last_seen\)/ + 2
-threads: yes
+threads: aggregator, consumer*
 ```
 
 Every fourth reading, the aggregator publishes a frame: a summary of the
@@ -49,7 +49,7 @@ when: first
 highlight: /k_condvar_broadcast/
 watch:
   - published_frame.seq = frame(published_frame).seq as u32
-threads: yes
+threads: aggregator, consumer*
 ```
 
 The aggregator wrote frame 1 to `published_frame` and called

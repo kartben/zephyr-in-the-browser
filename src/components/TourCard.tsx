@@ -254,7 +254,11 @@ export function TourCard({ board, sampleId }: Props) {
 
           {threads && (
             <div className="rounded border border-border bg-muted/30 p-1">
-              <ThreadsPane snap={snap} onPeek={() => debugUi.focusDebug('memory')} />
+              <ThreadsPane
+                snap={snap}
+                only={step.threadNames}
+                onPeek={() => debugUi.focusDebug('memory')}
+              />
             </div>
           )}
 

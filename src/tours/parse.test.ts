@@ -439,6 +439,24 @@ describe('objects', () => {
     expect(step('panel: gpio').steps[0]!.objects).toBeNull()
   })
 
+  it('reads `threads:` as a switch or as the names of the threads to list', () => {
+    expect(step('threads: yes').steps[0]).toMatchObject({ threads: true, threadNames: [] })
+    expect(step('threads: no').steps[0]).toMatchObject({ threads: false, threadNames: [] })
+    expect(step('threads: aggregator, consumer*').steps[0]).toMatchObject({
+      threads: true,
+      threadNames: ['aggregator', 'consumer*'],
+    })
+    expect(step('threads:\n  - storage\n  - Philosopher 4').steps[0]).toMatchObject({
+      threads: true,
+      threadNames: ['storage', 'Philosopher 4'],
+    })
+    // Dropped with the list on a step that lets the machine run on.
+    expect(step('stop: no\nthreads: aggregator').steps[0]).toMatchObject({
+      threads: false,
+      threadNames: [],
+    })
+  })
+
   it('refuses a walk on a step that lets the machine run on', () => {
     // The walk needs the guest halted for dozens of round-trips; `stop: no` has
     // let it go long before then, so the card would hold a spinner for ever.

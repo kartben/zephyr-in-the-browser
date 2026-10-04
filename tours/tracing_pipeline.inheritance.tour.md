@@ -50,7 +50,7 @@ when:
   - _thread_base(k_thread(_k_thread_obj_aggregator_thread).base).pended_on as ptr == bus_mutex
   - first
 highlight: /"store_begin"/ + 2
-threads: yes
+threads: storage, aggregator, consumer*
 ```
 
 `storage` has finished its flush and is about to unlock the bus. The thread
@@ -67,7 +67,7 @@ aggregator waits for it.
 at: main.c:/"bus_write"/ | main.c:187
 when: first
 highlight: /BUS_LOCK\(\);/
-threads: yes
+threads: storage, aggregator
 ```
 
 `storage` unlocked the bus and dropped back to priority 9, and the
