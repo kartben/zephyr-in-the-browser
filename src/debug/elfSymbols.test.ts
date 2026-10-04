@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildElfDataSymbols,
   buildSymbolIndex,
   filterSymbols,
   formatSymbol,
   resolveSymbol,
 } from '@/debug/elfSymbols'
+
+const STT_NOTYPE = 0
+const STT_OBJECT = 1
+const STT_FUNC = 2
+const SHN_ABS = 0xfff1
 
 /** Minimal ELF64 little-endian with one SHT_SYMTAB FUNC symbol. */
 function fakeElf(syms: { name: string; addr: number; size: number; type?: number }[]): Uint8Array {
@@ -86,6 +92,62 @@ function fakeElf(syms: { name: string; addr: number; size: number; type?: number
   return buf
 }
 
+/**
+ * Minimal ELF32 little-endian, the shape of the Cortex-M and RISC-V images, with
+ * a section index per symbol so absolute (SHN_ABS) ones can be built too.
+ */
+function fakeElf32(
+  syms: { name: string; value: number; size: number; type: number; shndx: number }[],
+): Uint8Array {
+  let str = '\0'
+  const nameOffs = syms.map((s) => {
+    const off = str.length
+    str += s.name + '\0'
+    return off
+  })
+  const strtab = new TextEncoder().encode(str)
+
+  const symEnt = 16
+  const symtab = new Uint8Array((1 + syms.length) * symEnt) // null + syms
+  const sv = new DataView(symtab.buffer)
+  syms.forEach((s, i) => {
+    const o = (i + 1) * symEnt
+    sv.setUint32(o, nameOffs[i]!, true) // st_name
+    sv.setUint32(o + 4, s.value, true) // st_value
+    sv.setUint32(o + 8, s.size, true) // st_size
+    symtab[o + 12] = 0x10 | s.type // st_info: STB_GLOBAL
+    sv.setUint16(o + 14, s.shndx, true) // st_shndx
+  })
+
+  // Layout: Ehdr | Shdr[0 null] | Shdr[1 symtab] | Shdr[2 strtab] | symtab | strtab
+  const shoff = 52
+  const shentsize = 40
+  const symoff = shoff + 3 * shentsize
+  const stroff = symoff + symtab.length
+  const buf = new Uint8Array(stroff + strtab.length)
+  const out = new DataView(buf.buffer)
+  buf.set([0x7f, 0x45, 0x4c, 0x46, 1, 1, 1]) // magic, ELFCLASS32, LSB, version
+  out.setUint16(16, 2, true) // ET_EXEC
+  out.setUint16(18, 40, true) // EM_ARM
+  out.setUint32(32, shoff, true) // e_shoff
+  out.setUint16(46, shentsize, true)
+  out.setUint16(48, 3, true) // e_shnum
+
+  const sh1 = shoff + shentsize // symtab
+  out.setUint32(sh1 + 4, 2, true) // SHT_SYMTAB
+  out.setUint32(sh1 + 16, symoff, true)
+  out.setUint32(sh1 + 20, symtab.length, true)
+  out.setUint32(sh1 + 24, 2, true) // link → strtab
+  const sh2 = shoff + 2 * shentsize // strtab
+  out.setUint32(sh2 + 4, 3, true) // SHT_STRTAB
+  out.setUint32(sh2 + 16, stroff, true)
+  out.setUint32(sh2 + 20, strtab.length, true)
+
+  buf.set(symtab, symoff)
+  buf.set(strtab, stroff)
+  return buf
+}
+
 describe('elfSymbols', () => {
   it('resolves addresses to function+offset', () => {
     const elf = fakeElf([
@@ -115,6 +177,37 @@ describe('elfSymbols', () => {
     expect(filterSymbols(index, 'shell').map((s) => s.name)).toEqual([
       'shell_execute',
       'shell_process',
+    ])
+  })
+
+  it('drops the absolute vfscanf at 0 that picolibc leaves on Cortex-M', () => {
+    const elf = fakeElf32([
+      // As in qemu_cortex_m3/dhcp.elf: with the Thumb bit dropped it would
+      // span 0..0xe38, and a tour stop in main() would read "in vfscanf()".
+      { name: 'vfscanf', value: 0x1, size: 3640, type: STT_FUNC, shndx: SHN_ABS },
+      { name: 'main', value: 0xb4d, size: 116, type: STT_FUNC, shndx: 2 },
+      // An ESP32-C3 ROM routine: absolute too, but real code.
+      { name: 'memcpy', value: 0x4000_0358, size: 412, type: STT_FUNC, shndx: SHN_ABS },
+      // Absolute data at 1: a Kconfig `y` and a linker-script value.
+      {
+        name: 'CONFIG_DT_HAS_TI_STELLARIS_GPIO_ENABLED',
+        value: 1,
+        size: 0,
+        type: STT_OBJECT,
+        shndx: SHN_ABS,
+      },
+      { name: '__tdata_align', value: 1, size: 0, type: STT_NOTYPE, shndx: SHN_ABS },
+    ])
+    const index = buildSymbolIndex(elf)!
+    expect(index.byAddr.map((s) => s.name)).toEqual(['main', 'memcpy'])
+    expect(filterSymbols(index, 'vfscanf')).toEqual([])
+    expect(resolveSymbol(index, 0x40)).toBeNull()
+    expect(formatSymbol(resolveSymbol(index, 0x4000_0360))).toBe('memcpy+0x8')
+
+    expect(index.objects.get('CONFIG_DT_HAS_TI_STELLARIS_GPIO_ENABLED')?.addr).toBe(1)
+    expect([...buildElfDataSymbols(elf).keys()]).toEqual([
+      'CONFIG_DT_HAS_TI_STELLARIS_GPIO_ENABLED',
+      '__tdata_align',
     ])
   })
 })

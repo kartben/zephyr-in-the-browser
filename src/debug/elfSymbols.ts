@@ -38,6 +38,7 @@ export interface ResolvedSymbol {
 const STT_OBJECT = 1
 const STT_FUNC = 2
 const STT_GNU_IFUNC = 10
+const SHN_ABS = 0xfff1
 
 function parseSymtab(data: Uint8Array): ElfTypedSymbol[] | null {
   if (data.length < 64 || data[0] !== 0x7f || data[1] !== 0x45) return null
@@ -102,6 +103,14 @@ function parseSymtab(data: Uint8Array): ElfTypedSymbol[] | null {
         continue
       }
       if (shndx === 0 || value === 0) continue // UND / null
+      // An absolute function is code only where it names a real address, as
+      // the ESP32 ROM routines do. Picolibc leaves one at 0, `vfscanf`, which
+      // the check above drops everywhere but Cortex-M: there the Thumb bit
+      // makes it 1, and it would label the start of flash and sit in the
+      // breakpoint picker. Absolute data (CONFIG_*, generated offsets) stays.
+      if (shndx === SHN_ABS && value === 1 && (type === STT_FUNC || type === STT_GNU_IFUNC)) {
+        continue
+      }
 
       let end = nameOff
       while (end < strtab.length && strtab[end] !== 0) end++
