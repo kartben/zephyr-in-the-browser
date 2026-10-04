@@ -12,11 +12,18 @@
  * Rendered from the live snapshot rather than from bytes copied into the card,
  * the same as `threads:`: the object walk lands a beat after the registers, so
  * anything sampled while the card was being built would be a stop behind.
+ *
+ * The one exception is a focused message queue drawn as its ring. That is read
+ * by the store at the stop itself, pointers and buffer together, because where
+ * R and W sit at this step is the lesson (see readRing in tours/store.ts).
  */
 
 import { Boxes } from 'lucide-react'
+import { MsgqRing } from '@/components/tour/MsgqRing'
 import * as debugUi from '@/lib/debugUi'
 import type * as debug from '@/debug/control'
+import type { ZephyrKernelObject } from '@/debug/kernel/objectCores'
+import { MAX_RING_SLOTS } from '@/debug/kernel/msgqRing'
 import type { TourObjects as TourObjectsSpec } from '@/tours/store'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +39,22 @@ const MAX_ROWS = 8
 function nameThread(snap: debug.DebugSnapshot, addr: number | undefined): string | null {
   if (addr === undefined) return null
   return snap.threads.find((thread) => thread.addr === addr)?.name || null
+}
+
+function ObjectName({ obj, focused }: { obj: ZephyrKernelObject; focused: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => debugUi.focusDebugObject(obj.addr)}
+      title={`Find ${obj.name} in Debug → Objects`}
+      className={cn(
+        'min-w-0 shrink-0 basis-1/3 truncate text-left font-mono text-[11px] hover:text-primary',
+        focused ? 'text-foreground' : 'text-muted-foreground',
+      )}
+    >
+      {obj.name}
+    </button>
+  )
 }
 
 function Note({ children }: { children: React.ReactNode }) {
@@ -84,6 +107,25 @@ export function TourObjects({
             <ul>
               {shown.map((obj) => {
                 const focused = spec.focus !== null && spec.focus === obj.addr
+                // The focused queue as its ring. The caption under the strip
+                // says what the row's fields would, so the row gives way to it.
+                const ring =
+                  focused && type.code === 'MSGQ' && spec.ring && spec.ring.maxMsgs <= MAX_RING_SLOTS
+                    ? spec.ring
+                    : null
+                if (ring) {
+                  return (
+                    <li
+                      key={obj.coreAddr}
+                      className="space-y-1 border-t border-border/40 bg-primary/15 px-2 py-1.5"
+                    >
+                      <ObjectName obj={obj} focused />
+                      <div className="rounded border border-border/60 bg-card px-2 py-1.5">
+                        <MsgqRing ring={ring} name={obj.name} />
+                      </div>
+                    </li>
+                  )
+                }
                 return (
                   <li
                     key={obj.coreAddr}
@@ -92,17 +134,7 @@ export function TourObjects({
                       focused && 'bg-primary/15',
                     )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => debugUi.focusDebugObject(obj.addr)}
-                      title={`Find ${obj.name} in Debug → Objects`}
-                      className={cn(
-                        'min-w-0 shrink-0 basis-1/3 truncate text-left font-mono text-[11px] hover:text-primary',
-                        focused ? 'text-foreground' : 'text-muted-foreground',
-                      )}
-                    >
-                      {obj.name}
-                    </button>
+                    <ObjectName obj={obj} focused={focused} />
                     <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-end gap-x-2.5 gap-y-0.5">
                       {obj.fields.length === 0 ? (
                         <span className="font-mono text-[10.5px] text-muted-foreground/60">

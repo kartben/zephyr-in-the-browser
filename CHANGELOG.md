@@ -9,6 +9,7 @@ via the help dialog (?).
 - **Added:** Tour cards can type shell commands into the terminal.
 - **Added:** Tours hand you tasks, end on a recap, and chain onward.
 - **Added:** Tours can open a Trace tab or a Debug section.
+- **Added:** Tours draw a message queue as a ring, with read and write pointers.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** Resuming from a breakpoint no longer stops on it again.
 - **Fixed:** An ELF without a devicetree shows the board's buses.

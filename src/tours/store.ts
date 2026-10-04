@@ -20,6 +20,8 @@
 import { buildLineIndex, type LineIndex } from '@/debug/dwarfLines'
 import { registerValues } from '@/debug/registerModel'
 import { formatSymbol, resolveDataSymbol, resolveSymbol } from '@/debug/elfSymbols'
+import type { MsgqRingSnapshot } from '@/debug/kernel/msgqRing'
+import { readMsgqRing } from '@/debug/kernel/objectCores'
 import * as debug from '@/debug/control'
 import * as gdb from '@/hostGdb'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
@@ -67,6 +69,11 @@ export interface TourObjects {
   types: string[]
   /** The one object this step is about, once its expression was evaluated. */
   focus: number | null
+  /**
+   * The focused message queue as a ring (`view: ring`), read while the machine
+   * was stopped. The exception to "only the question is stored": see readRing.
+   */
+  ring: MsgqRingSnapshot | null
 }
 
 /** A run of source lines to light up, inclusive, in the anchor's file. */
@@ -659,6 +666,23 @@ async function evalMark(
 }
 
 /**
+ * Read the focused message queue's ring now, while the machine is halted.
+ *
+ * Everything else in `objects:` comes from the debugger's walk as the card
+ * renders. A ring drawn that way would open on the previous stop's pointers,
+ * because the walk lands a beat after the card, and on a revisit it would put
+ * the current pointers under an earlier step's prose. Where R and W sit *at this
+ * stop* is the lesson, so they are read here with the buffer behind them, the
+ * same rule `memory:` follows. Null when the image has no object cores or the
+ * focus is not a queue: the card keeps the plain row.
+ */
+async function readRing(addr: number, target: TourTarget): Promise<MsgqRingSnapshot | null> {
+  const meta = gdb.getObjectCoreMeta()
+  if (!meta) return null
+  return readMsgqRing(meta, addr, (at, length) => target.read(at, length))
+}
+
+/**
  * Turn a step's `highlight:` entries into line ranges.
  *
  * Patterns are searched in the same shipped source the excerpt is drawn from,
@@ -717,11 +741,13 @@ async function buildCard(runtime: StepRuntime): Promise<TourCard> {
 
   let objects: TourObjects | null = null
   if (step.objects) {
-    const focus = step.objects.focus
+    const spec = step.objects
+    // A focus that will not evaluate costs the highlight, not the list.
+    const focus = spec.focus === null ? null : await evalAddress(spec.focus, target).catch(() => null)
     objects = {
-      types: step.objects.types,
-      // A focus that will not evaluate costs the highlight, not the list.
-      focus: focus === null ? null : await evalAddress(focus, target).catch(() => null),
+      types: spec.types,
+      focus,
+      ring: spec.view === 'ring' && focus !== null ? await readRing(focus, target) : null,
     }
   }
 
@@ -928,7 +954,7 @@ function demoCard(runtime: StepRuntime): TourCard {
           error: null,
         }
       : null,
-    objects: step.objects ? { types: step.objects.types, focus: null } : null,
+    objects: step.objects ? { types: step.objects.types, focus: null, ring: null } : null,
     registers: step.registers.map((name) => ({ name: name.toUpperCase(), value: 'n/a' })),
     threads: step.threads,
     highlight: resolveHighlights(step, null),

@@ -36,6 +36,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Tours can open a Trace tab or a Debug section."
       },
       {
+        "tag": "Added",
+        "text": "Tours draw a message queue as a ring, with read and write pointers."
+      },
+      {
         "tag": "Changed",
         "text": "Retired the old gateway and probe packages; use the desktop bridge."
       },

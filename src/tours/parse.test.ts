@@ -487,6 +487,49 @@ describe('directive keys', () => {
   })
 })
 
+describe('objects view', () => {
+  const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
+  const queue = 'objects:\n  type: msgq\n  focus: my_msgq'
+
+  it('draws a focused message queue as its ring', () => {
+    const doc = step(`${queue}\n  view: ring`)
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: 'my_msgq', view: 'ring' })
+  })
+
+  it('draws the ring for a step about one queue without being asked', () => {
+    expect(step(queue).steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: 'my_msgq', view: 'ring' })
+  })
+
+  it('keeps the plain row with `view: list`', () => {
+    const doc = step(`${queue}\n  view: list`)
+    expect(doc.problems).toEqual([])
+    expect(doc.steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: 'my_msgq' })
+  })
+
+  it('leaves every other `objects:` as rows', () => {
+    expect(step('objects: msgq').steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: null })
+    expect(step('objects:\n  type: msgq, sem\n  focus: my_msgq').steps[0]!.objects).toEqual({
+      types: ['MSGQ', 'SEM4'],
+      focus: 'my_msgq',
+    })
+  })
+
+  it('reports a ring it could not draw, and a view it does not know', () => {
+    // No focus: there is no one queue to draw.
+    const unfocused = step('objects:\n  type: msgq\n  view: ring')
+    expect(unfocused.steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: null })
+    expect(unfocused.problems[0]).toContain('view: ring')
+    // A mutex has no ring.
+    const mutex = step('objects:\n  type: mutex\n  focus: $arg0\n  view: ring')
+    expect(mutex.steps[0]!.objects).toEqual({ types: ['MUTX'], focus: '$arg0' })
+    expect(mutex.problems[0]).toContain('type: msgq')
+    const typo = step(`${queue}\n  view: rings`)
+    expect(typo.steps[0]!.objects).toEqual({ types: ['MSGQ'], focus: 'my_msgq' })
+    expect(typo.problems[0]).toContain('`objects: view: rings` is not a view')
+  })
+})
+
 describe('highlight', () => {
   it('reads a line, a range and a pattern', () => {
     expect(parseHighlight('21')).toEqual({ kind: 'lines', start: 21, end: 21 })
