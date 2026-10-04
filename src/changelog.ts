@@ -20,20 +20,16 @@ export const CHANGELOG: ChangelogRelease[] = [
     "date": null,
     "items": [
       {
-        "tag": "Changed",
-        "text": "Kernel object lists need an image from current Zephyr main."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Call stacks no longer show data pointers as callers."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Rereading an earlier tour step no longer strands the paused guest."
+        "tag": "Added",
+        "text": "Tours run shell commands, give you tasks, check your work and chain onward."
       },
       {
         "tag": "Added",
-        "text": "Tour steps can stop on the guest's state, not just hit counts."
+        "text": "Tours stop on guest state, show kernel code and open Trace or Debug views."
+      },
+      {
+        "tag": "Added",
+        "text": "Tours draw a message queue as a ring, with read and write pointers."
       },
       {
         "tag": "Added",
@@ -41,35 +37,55 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Tours check the guest's state and let you try again."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Cortex-M Debug names the right function, and picker breakpoints hit."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Tour cards keep the stop line in view and name data pointers."
+        "text": "Guided tours get their own gallery section, plus a Button tour."
       },
       {
         "tag": "Added",
-        "text": "Tour cards can type shell commands into the terminal."
+        "text": "ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep."
       },
       {
         "tag": "Added",
-        "text": "Tours hand you tasks, end on a recap, and chain onward."
+        "text": "ESP32 DevKitC board (Xtensa), with blinky, button and a shell."
       },
       {
         "tag": "Added",
-        "text": "Tours show Zephyr kernel code at stops inside the kernel."
+        "text": "Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown."
       },
       {
         "tag": "Added",
-        "text": "Tours can open a Trace tab or a Debug section."
+        "text": "Simulator and Live board modes, with Debug over the desktop bridge."
       },
       {
         "tag": "Added",
-        "text": "Tours draw a message queue as a ring, with read and write pointers."
+        "text": "CPU power states in Trace Timeline and Power tab."
+      },
+      {
+        "tag": "Added",
+        "text": "Help button with keyboard shortcuts and this changelog."
+      },
+      {
+        "tag": "Added",
+        "text": "More menu on phones for Parts and Samples."
+      },
+      {
+        "tag": "Improved",
+        "text": "Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download."
+      },
+      {
+        "tag": "Improved",
+        "text": "Blinky tour shows the Simulator, terminal, and dock first."
+      },
+      {
+        "tag": "Improved",
+        "text": "Device dock says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed."
+      },
+      {
+        "tag": "Changed",
+        "text": "Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI)."
+      },
+      {
+        "tag": "Changed",
+        "text": "Kernel object lists need an image from current Zephyr main."
       },
       {
         "tag": "Changed",
@@ -81,103 +97,19 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Fixed",
+        "text": "Debug names the right functions and callers, and Cortex-M breakpoints hit."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Tour cards keep the stop line in view and name data pointers."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Rereading an earlier tour step no longer strands the paused guest."
+      },
+      {
+        "tag": "Fixed",
         "text": "An ELF without a devicetree shows the board's buses."
-      },
-      {
-        "tag": "Improved",
-        "text": "Demo dock lists only peripherals you can open."
-      },
-      {
-        "tag": "Improved",
-        "text": "Dock crumbs say I²C/SPI, not virtio bus names."
-      },
-      {
-        "tag": "Added",
-        "text": "More menu on phones for Parts and Samples."
-      },
-      {
-        "tag": "Improved",
-        "text": "Blinky tour shows the Simulator, terminal, and dock first."
-      },
-      {
-        "tag": "Added",
-        "text": "Sample gallery pins guided tours in their own section."
-      },
-      {
-        "tag": "Improved",
-        "text": "Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download."
-      },
-      {
-        "tag": "Changed",
-        "text": "Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI)."
-      },
-      {
-        "tag": "Added",
-        "text": "ESP32-C3 DevKitC board, booting from emulated SPI flash."
-      },
-      {
-        "tag": "Added",
-        "text": "Blinky and Button samples on the ESP32-C3, with a live GPIO panel."
-      },
-      {
-        "tag": "Added",
-        "text": "I²C sensors, displays and EEPROM on the ESP32-C3."
-      },
-      {
-        "tag": "Added",
-        "text": "SPI flash and LittleFS on the ESP32-C3."
-      },
-      {
-        "tag": "Added",
-        "text": "CAN on the ESP32-C3's own TWAI controller."
-      },
-      {
-        "tag": "Added",
-        "text": "ESP32-C3 light and deep sleep, with a power card in the dock."
-      },
-      {
-        "tag": "Added",
-        "text": "Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown."
-      },
-      {
-        "tag": "Added",
-        "text": "ESP32 DevKitC board (Xtensa), with blinky, button and a shell."
-      },
-      {
-        "tag": "Added",
-        "text": "Button tour for gpio-keys and input events."
-      },
-      {
-        "tag": "Added",
-        "text": "Help button in the top bar for shortcuts and changelog."
-      },
-      {
-        "tag": "Improved",
-        "text": "Collapsed device dock leaves an edge tab to reopen it."
-      },
-      {
-        "tag": "Added",
-        "text": "In-app changelog tab in the keyboard help dialog."
-      },
-      {
-        "tag": "Added",
-        "text": "Open Settings shortcut (Ctrl+, / ⌘,)."
-      },
-      {
-        "tag": "Added",
-        "text": "Live board attach card in the Debug panel."
-      },
-      {
-        "tag": "Added",
-        "text": "Mode switch between Simulator and Live board."
-      },
-      {
-        "tag": "Added",
-        "text": "CPU power states in Trace Timeline and Power tab."
-      },
-      {
-        "tag": "Improved",
-        "text": "Live board Debug over the desktop bridge."
       }
     ]
   },
