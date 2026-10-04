@@ -22,6 +22,21 @@ Every fourth reading, the aggregator publishes a frame: a summary of the
 readings so far, written to `published_frame` for two consumer threads. It is
 about to publish the first one.
 
+```mermaid
+flowchart LR
+  temp([sensor_temp]) --> q[("sensor_q<br/><small>k_msgq</small>")]
+  press([sensor_press]) --> q
+  imu([sensor_imu]) --> q
+  q --> agg([aggregator])
+  agg --> cv{{"frame_cond<br/><small>k_condvar</small>"}}
+  cv --> c0([consumer0])
+  cv --> c1([consumer1])
+  agg --- bus[/"bus_mutex<br/><small>k_mutex</small>"/]
+  bus --- st([storage])
+  class agg,cv,c0,c1 focus
+  class temp,press,imu,q,bus,st dim
+```
+
 In the thread list, both consumers are waiting on `frame_cond`, a **condition
 variable**: a place where threads sleep until another thread tells them that
 some shared data has changed. Here, that data is `published_frame`.
