@@ -10,6 +10,7 @@ import { ShortcutsHelpDialog } from '@/components/ShortcutsHelpDialog'
 import { TourCard } from '@/components/TourCard'
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
+import { registerTerminal } from '@/lib/terminalInput'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import { seedForSelection } from '@/lib/dockStore'
 import {
@@ -135,9 +136,11 @@ export default function App() {
   const backendRef = useRef<PtyBackend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const handleSession = useCallback(({ slave }: TerminalSession) => {
+  const handleSession = useCallback(({ xterm, slave }: TerminalSession) => {
     const ac = new AbortController()
     abortRef.current = ac
+    // What a tour card's Run button types into.
+    registerTerminal(xterm)
 
     setHardRestart(false)
     setStatus({ status: 'loading' })
@@ -217,6 +220,7 @@ export default function App() {
   const handleTeardown = useCallback(() => {
     abortRef.current?.abort(new DOMException('terminal unmounted', 'AbortError'))
     abortRef.current = null
+    registerTerminal(null)
     resetTour()
   }, [])
 
