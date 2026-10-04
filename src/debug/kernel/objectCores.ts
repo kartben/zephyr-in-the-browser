@@ -75,6 +75,15 @@ interface ObjectDescriptor {
 
 type Layouts = Record<string, Record<string, number>>
 
+/** Member offsets the Mem pane lays over a kernel object's bytes. */
+export interface KernelLayouts {
+  ptrBytes: 4 | 8
+  /** Struct name (`k_sem`, `_thread_base`) to member name to byte offset. */
+  structs: Readonly<Record<string, Readonly<Record<string, number>>>>
+  /** `k_obj_core`'s own members: node, type, stats. */
+  core: Readonly<Record<string, number>>
+}
+
 export interface ObjectCoreMeta {
   ptrBytes: 4 | 8
   typeListAddr: number
@@ -181,11 +190,25 @@ const STRUCT_FOR_CODE: Record<string, string> = {
   TIMR: 'k_timer',
 }
 
+/**
+ * The C type behind an object-core code: `SEM4` is `k_sem`. The code is what
+ * the kernel stamps into each `k_obj_type`; the struct is what anyone reading
+ * the source, the docs or DWARF knows the thing by.
+ */
+export function structForCode(code: string): string | null {
+  return STRUCT_FOR_CODE[code] ?? null
+}
+
 const LAYOUT_NAMES = [
   ...new Set(Object.values(STRUCT_FOR_CODE)),
   'k_mem_slab_info',
   'sys_mem_blocks_info',
   'k_cycle_stats',
+  // The Mem pane names a k_thread's members, and the ones that matter (its
+  // wait-queue node, what it is pended on, its saved registers) live in here.
+  '_thread_base',
+  '_callee_saved',
+  '_thread_entry',
 ] as const
 
 const MAX_TYPES = 64
@@ -339,7 +362,11 @@ function symbolForObject(
 ): { name: string; symbol: ElfTypedSymbol } | null {
   for (const s of symbols) {
     if (s.addr !== addr || !usefulObjectSymbol(s.name)) continue
-    return { name: s.name, symbol: s }
+    // The first element of an array of objects is `fork_objs[0]`, not
+    // `fork_objs`: listed beside fork_objs[1], the bare name reads as the
+    // whole array.
+    const array = objectSize && s.size > objectSize && s.size % objectSize === 0
+    return { name: array ? `${s.name}[0]` : s.name, symbol: s }
   }
   let best: ElfTypedSymbol | null = null
   for (const s of symbols) {

@@ -19,6 +19,19 @@ export type DebugSection =
   | 'threads'
   | 'objects'
 
+/**
+ * Where a cross-tab jump came from, so the tab it lands on can offer the way
+ * back. Mem keeps its own Back and Forward; a hop between Threads and Objects
+ * had none, and losing your place is what makes following a link feel risky.
+ */
+export interface FocusOrigin {
+  /** What the back chip says: `shell_uart`. */
+  label: string
+  section: DebugSection
+  threadAddr?: number
+  objectAddr?: number
+}
+
 export interface DebugUiState {
   /** Bumped on every focus request so subscribers re-render even for the same tab. */
   nonce: number
@@ -29,6 +42,8 @@ export interface DebugUiState {
   threadName: string | null
   /** Kernel object address to highlight in the Objects tab. */
   objectAddr: number | null
+  /** The jump's origin, when it came from another inspect tab. */
+  from: FocusOrigin | null
 }
 
 let state: DebugUiState = {
@@ -37,6 +52,7 @@ let state: DebugUiState = {
   threadAddr: null,
   threadName: null,
   objectAddr: null,
+  from: null,
 }
 const listeners = new Set<() => void>()
 
@@ -63,6 +79,7 @@ export function focusDebug(section: DebugSection = 'breakpoints'): void {
     threadAddr: null,
     threadName: null,
     objectAddr: null,
+    from: null,
   }
   notify()
   revealDockRow(STAGE_DEBUG_KEY)
@@ -73,7 +90,11 @@ export function focusDebug(section: DebugSection = 'breakpoints'): void {
  * Pauses the target when needed so the Threads tab is available.
  * `addr` is the Zephyr TCB pointer (same as CTF `thread_id`).
  */
-export function focusDebugThread(addr: number, name?: string | null): void {
+export function focusDebugThread(
+  addr: number,
+  name?: string | null,
+  from: FocusOrigin | null = null,
+): void {
   setHidden(STAGE_DEBUG_KEY, false)
   setExpanded(STAGE_DEBUG_KEY, true)
   if (!debug.getSnapshot().paused) debug.pause()
@@ -83,6 +104,7 @@ export function focusDebugThread(addr: number, name?: string | null): void {
     threadAddr: addr,
     threadName: name ?? null,
     objectAddr: null,
+    from,
   }
   notify()
   revealDockRow(STAGE_DEBUG_KEY)
@@ -96,7 +118,7 @@ export function focusDebugThread(addr: number, name?: string | null): void {
  * means showing it where the rest of its kind are listed — not dropping the
  * reader into a hex window at its address and leaving them to recognise it.
  */
-export function focusDebugObject(addr: number): void {
+export function focusDebugObject(addr: number, from: FocusOrigin | null = null): void {
   setHidden(STAGE_DEBUG_KEY, false)
   setExpanded(STAGE_DEBUG_KEY, true)
   if (!debug.getSnapshot().paused) debug.pause()
@@ -106,7 +128,39 @@ export function focusDebugObject(addr: number): void {
     threadAddr: null,
     threadName: null,
     objectAddr: addr,
+    from,
   }
   notify()
   revealDockRow(STAGE_DEBUG_KEY)
+}
+
+/**
+ * A tab was opened by a link from another one (a `tcb 0x…` in Threads opening
+ * Mem): record where from, so the destination can offer the way back. The
+ * caller switches the tab itself.
+ */
+export function arrive(section: DebugSection, from: FocusOrigin): void {
+  state = {
+    nonce: state.nonce + 1,
+    section,
+    threadAddr: null,
+    threadName: null,
+    objectAddr: null,
+    from,
+  }
+  notify()
+}
+
+/** Forget the origin: the user moved on by hand, so there is no "back" to offer. */
+export function clearOrigin(): void {
+  if (!state.from) return
+  state = { ...state, from: null }
+  notify()
+}
+
+/** Go back to where a cross-tab jump started. */
+export function returnTo(origin: FocusOrigin): void {
+  if (origin.threadAddr !== undefined) focusDebugThread(origin.threadAddr)
+  else if (origin.objectAddr !== undefined) focusDebugObject(origin.objectAddr)
+  else focusDebug(origin.section)
 }

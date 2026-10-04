@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { HexView } from '@/components/HexView'
+import { BackChip } from '@/components/debug/BackChip'
+import { MemoryDump } from '@/components/debug/MemoryDump'
+import { buildMemoryNotes } from '@/components/debug/memoryNotes'
 import { compactHex } from '@/debug/hexFormat'
-import { buildAddressMap, formatTarget } from '@/debug/addressMap'
-import { decodeWindowPointers, type PointerRun } from '@/components/debug/memoryPointers'
+import { buildAddressMap } from '@/debug/addressMap'
 import { ptrBytes as archPtrBytes } from '@/debug/gdb/regs'
 import * as debug from '@/debug/control'
+import * as debugUi from '@/lib/debugUi'
 import {
   createDebugMemoryChip,
   type DebugMemoryChip,
@@ -255,26 +257,41 @@ export function MemoryPane({
   )
 
   const ptrBytes = snap.regArch ? archPtrBytes(snap.regArch) : 4
-  const pointers = useMemo(
+
+  // Notes close over `follow`, which records the jump; keep the latest one
+  // behind a ref so the memo does not rebuild on every render.
+  const followRef = useRef<(addr: number) => void>(() => {})
+  followRef.current = (addr: number) => {
+    setAddrText(compactHex(addr.toString(16)))
+    void jumpTo(addr)
+  }
+  const dump = useMemo(
     () =>
       memory
-        ? decodeWindowPointers({
+        ? buildMemoryNotes({
             base: memory.addr,
             bytes: hexToBytes(memory.hex),
             ptrBytes,
             map: addressMap,
+            threads: snap.threads,
+            objects: snap.objects,
+            layouts: debug.kernelLayouts(),
+            follow: (addr) => followRef.current(addr),
           })
-        : [],
-    [memory, ptrBytes, addressMap],
+        : { notes: [], sections: [] },
+    // kernelLayouts only changes with the image, which also flips hasSymbols.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [memory, ptrBytes, addressMap, snap.threads, snap.objects, snap.hasSymbols],
   )
 
-  /** What the window itself is sitting on — shown above the dump. */
-  const here = memory ? addressMap.resolve(memory.addr) : null
+  /** A jump out to Threads or Objects offers the way back to this window. */
+  const memOrigin = (): debugUi.FocusOrigin => ({
+    label: compactHex(viewAddr.current.toString(16)),
+    section: 'memory',
+  })
 
-  const follow = (run: PointerRun) => {
-    setAddrText(compactHex(run.value.toString(16)))
-    void jumpTo(run.value)
-  }
+  /** What the window itself is sitting on, for the inspector's idle line. */
+  const here = memory ? addressMap.resolve(memory.addr) : null
 
   const moveByRows = (rowDelta: number) => {
     if (rowDelta === 0 || !pausedRef.current) return
@@ -286,6 +303,9 @@ export function MemoryPane({
     const el = shellRef.current
     if (!el) return
     const onWheel = (e: globalThis.WheelEvent) => {
+      // Sideways is the dump's own scroll (the notes and ASCII columns sit
+      // right of the hex in a narrow dock); only vertical moves the window.
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
       e.preventDefault()
       e.stopPropagation()
       moveByRows(wheelRowDelta(e.deltaY, e.deltaMode))
@@ -297,6 +317,14 @@ export function MemoryPane({
   }, [chip])
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Keys typed into a byte's editor are the edit's, not the window's.
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+    if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault()
+      if (!busy && snap.paused) stepTrail(e.key === 'ArrowLeft' ? -1 : 1)
+      return
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       moveByRows(1)
@@ -413,6 +441,7 @@ export function MemoryPane({
 
   return (
     <div className="space-y-2 px-1">
+      <BackChip section="memory" />
       <div className="flex gap-1">
         {trail.length > 1 && (
           <>
@@ -421,7 +450,7 @@ export function MemoryPane({
               size="sm"
               className="h-7 w-7 shrink-0 px-0"
               disabled={trailAt === 0 || busy || !snap.paused}
-              title="Back"
+              title="Back (Alt+←)"
               aria-label="Back to the previous address"
               onClick={() => stepTrail(-1)}
             >
@@ -432,7 +461,7 @@ export function MemoryPane({
               size="sm"
               className="h-7 w-7 shrink-0 px-0"
               disabled={trailAt >= trail.length - 1 || busy || !snap.paused}
-              title="Forward"
+              title="Forward (Alt+→)"
               aria-label="Forward to the next address"
               onClick={() => stepTrail(1)}
             >
@@ -520,31 +549,24 @@ export function MemoryPane({
           {searching ? `scan ${searchStatus}` : searchStatus}
         </p>
       )}
-      {here && (
-        <p className="flex items-center gap-2 truncate px-0.5 font-mono text-[10px] text-foreground/70">
-          {here.typeCode && (
-            <span className="shrink-0 rounded-sm bg-primary/15 px-1 text-[9px] tracking-wide text-primary/90">
-              {here.typeCode.replace(/_+$/, '')}
-            </span>
-          )}
-          <span className="truncate text-foreground">{formatTarget(here)}</span>
-          {here.size != null && <span className="shrink-0 text-foreground/45">{here.size} B</span>}
-        </p>
-      )}
       {chip ? (
         <div
           ref={shellRef}
           className="overscroll-contain outline-none focus:ring-1 focus:ring-ring"
           tabIndex={0}
           onKeyDown={onKeyDown}
-          aria-label="Memory dump. Scroll or use arrow keys to move. Hold Command to follow a pointer."
+          aria-label="Memory dump. Scroll or use the arrow keys to move, Alt+Left and Alt+Right to go back and forward."
         >
-          <HexView
+          <MemoryDump
             chip={chip}
-            addressBase={chip.baseAddr}
-            dimErased={false}
-            pointers={pointers}
-            onFollowPointer={follow}
+            notes={dump.notes}
+            sections={dump.sections}
+            noteColumn={!addressMap.empty}
+            here={here}
+            ptrBytes={ptrBytes}
+            arch={snap.regArch}
+            onOpenObject={(addr) => debugUi.focusDebugObject(addr, memOrigin())}
+            onOpenThread={(addr) => debugUi.focusDebugThread(addr, null, memOrigin())}
           />
         </div>
       ) : (
