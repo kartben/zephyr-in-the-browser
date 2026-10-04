@@ -5,46 +5,29 @@ via the help dialog (?).
 
 ## Unreleased
 
-- **Changed:** Kernel object lists need an image from current Zephyr main.
-- **Fixed:** Call stacks no longer show data pointers as callers.
-- **Fixed:** Rereading an earlier tour step no longer strands the paused guest.
-- **Added:** Tour steps can stop on the guest's state, not just hit counts.
-- **Added:** Several tours per sample, and links straight to a tour step.
-- **Added:** Tours check the guest's state and let you try again.
-- **Fixed:** Cortex-M Debug names the right function, and picker breakpoints hit.
-- **Fixed:** Tour cards keep the stop line in view and name data pointers.
-- **Added:** Tour cards can type shell commands into the terminal.
-- **Added:** Tours hand you tasks, end on a recap, and chain onward.
-- **Added:** Tours show Zephyr kernel code at stops inside the kernel.
-- **Added:** Tours can open a Trace tab or a Debug section.
+- **Added:** Tours run shell commands, give you tasks, check your work and chain onward.
+- **Added:** Tours stop on guest state, show kernel code and open Trace or Debug views.
 - **Added:** Tours draw a message queue as a ring, with read and write pointers.
+- **Added:** Several tours per sample, and links straight to a tour step.
+- **Added:** Guided tours get their own gallery section, plus a Button tour.
+- **Added:** ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep.
+- **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
+- **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
+- **Added:** Simulator and Live board modes, with Debug over the desktop bridge.
+- **Added:** CPU power states in Trace Timeline and Power tab.
+- **Added:** Help button with keyboard shortcuts and this changelog.
+- **Added:** More menu on phones for Parts and Samples.
+- **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
+- **Improved:** Blinky tour shows the Simulator, terminal, and dock first.
+- **Improved:** Device dock says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
+- **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
+- **Changed:** Kernel object lists need an image from current Zephyr main.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** Resuming from a breakpoint no longer stops on it again.
+- **Fixed:** Debug names the right functions and callers, and Cortex-M breakpoints hit.
+- **Fixed:** Tour cards keep the stop line in view and name data pointers.
+- **Fixed:** Rereading an earlier tour step no longer strands the paused guest.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
-- **Improved:** Demo dock lists only peripherals you can open.
-- **Improved:** Dock crumbs say I²C/SPI, not virtio bus names.
-- **Added:** More menu on phones for Parts and Samples.
-- **Improved:** Blinky tour shows the Simulator, terminal, and dock first.
-- **Added:** Sample gallery pins guided tours in their own section.
-- **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
-- **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
-- **Added:** ESP32-C3 DevKitC board, booting from emulated SPI flash.
-- **Added:** Blinky and Button samples on the ESP32-C3, with a live GPIO panel.
-- **Added:** I²C sensors, displays and EEPROM on the ESP32-C3.
-- **Added:** SPI flash and LittleFS on the ESP32-C3.
-- **Added:** CAN on the ESP32-C3's own TWAI controller.
-- **Added:** ESP32-C3 light and deep sleep, with a power card in the dock.
-- **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
-- **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
-- **Added:** Button tour for gpio-keys and input events.
-- **Added:** Help button in the top bar for shortcuts and changelog.
-- **Improved:** Collapsed device dock leaves an edge tab to reopen it.
-- **Added:** In-app changelog tab in the keyboard help dialog.
-- **Added:** Open Settings shortcut (Ctrl+, / ⌘,).
-- **Added:** Live board attach card in the Debug panel.
-- **Added:** Mode switch between Simulator and Live board.
-- **Added:** CPU power states in Trace Timeline and Power tab.
-- **Improved:** Live board Debug over the desktop bridge.
 
 ## [0.5.0] - 2026-07-31
 
