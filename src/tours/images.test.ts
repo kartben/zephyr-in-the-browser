@@ -15,7 +15,10 @@ import { parseTour, type TourDoc } from '@/tours/parse'
  * guided.test.ts parses the tours but cannot resolve one anchor: that needs the
  * ELF each tour runs against, and the images are a release asset, not part of
  * the repository. So this file is skipped when they are absent, and `npm test`
- * on a bare checkout is unchanged.
+ * on a bare checkout is unchanged. CI fetches them first: build-images.yml
+ * checks the images it is about to publish, pages.yml the ones it is about to
+ * deploy, and a pull request that touches a tour is checked against the
+ * pinned release.
  *
  *   TOUR_IMAGES_DIR  where the images are (default public/qemu/zephyr)
  *   TOUR_STRICT=1    fail, rather than warn, when a tour's image is missing

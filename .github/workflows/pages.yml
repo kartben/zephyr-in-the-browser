@@ -128,6 +128,14 @@ jobs:
           echo "--- public/qemu ---"
           find public/qemu -type f -printf '%10s  %p\n'
 
+      # The tours ship with the page and run against these images, so resolve
+      # every anchor before deploying the pair. Not strict: a tour newer than
+      # the images (no image or no sources for its sample yet) only warns, and
+      # its pattern anchors fall back to line numbers until the next build.
+      - name: Check the tours against the guest images
+        if: env.IMAGES_TAG != ''
+        run: npm run tour:check
+
       # Mirrored sample docs are not committed (see .gitignore); regenerate
       # them here so the deployed site still serves /docs/.
       - name: Fetch sample docs

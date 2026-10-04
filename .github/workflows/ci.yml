@@ -44,6 +44,54 @@ jobs:
       - name: Test
         run: npm test
 
+  tours:
+    # Resolve every tour anchor against the guest images the site deploys
+    # (IMAGES_RELEASE), so a pattern that stopped matching upstream fails the
+    # pull request instead of a learner's lesson. Pull requests only, and only
+    # when they touch the tours or the code that runs them. GitHub passes no
+    # repository variables to a pull request from a fork, so there the job
+    # skips, and pages.yml runs the same check after the merge.
+    if: github.event_name == 'pull_request' && vars.IMAGES_RELEASE != ''
+    runs-on: ubuntu-latest
+    steps:
+      # Two deep: the merge commit GitHub made, and the base it was made on.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Look for tour changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD^1 HEAD | grep -qE '^(tours|src/tours)/'; then
+            echo "tours=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "Nothing under tours/ or src/tours/ changed, so there is nothing to check."
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.tours == 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - if: steps.changes.outputs.tours == 'true'
+        run: npm ci
+
+      - name: Fetch the deployed guest images
+        if: steps.changes.outputs.tours == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          IMAGES_TAG: ${{ vars.IMAGES_RELEASE }}
+        run: |
+          set -euo pipefail
+          gh release download "$IMAGES_TAG" --pattern zephyr-images.tar.gz --dir "$RUNNER_TEMP" --clobber
+          tar xzf "$RUNNER_TEMP/zephyr-images.tar.gz" -C public
+
+      - name: Check the tours against them
+        if: steps.changes.outputs.tours == 'true'
+        run: npm run tour:check
+
   bridge:
     if: >-
       github.event_name != 'pull_request' ||

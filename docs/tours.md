@@ -611,6 +611,13 @@ tar xzf /tmp/zephyr-images.tar.gz -C public
 npm run tour:check
 ```
 
+CI runs it three times. **Build guest images** checks the images it has just
+built before publishing any of them, strict on a full build. **Deploy to GitHub
+Pages** checks the images it is about to deploy. And a pull request that touches
+`tours/` or `src/tours/` is checked against the pinned `IMAGES_RELEASE` (GitHub
+gives pull requests from forks no repository variables, so for those the deploy
+is the first check).
+
 ## What it costs the firmware
 
 Nothing at all — not "nothing that matters". There is no macro, no table, no
