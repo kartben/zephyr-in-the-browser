@@ -197,7 +197,7 @@ give a kernel pattern a fallback, like any other.
 
 | Key | Default | Means |
 | --- | --- | --- |
-| `when:` | every hit | `first`, `hits == 4`, `hits >= 3`, `hits % 10 == 0` |
+| `when:` | every hit | `first`, `hits == 4`, `hits >= 3`, `hits % 10 == 0`, a state predicate, or a list |
 | `repeat:` | `no` | keep the breakpoint after the step has fired |
 | `stop:` | `yes` | `no` shows the card and lets the machine run on |
 
@@ -207,7 +207,8 @@ again. No `SAMPLE_ONCE()` is compiled into the guest, and the sample has no idea
 any of it is happening.
 
 **A rejected hit is not free, only cheap.** It costs one register read, a
-single step off the breakpoint and a continue. The machine never publishes a
+single step off the breakpoint and a continue, plus whatever memory its
+[state predicates](#state-predicates) read. The machine never publishes a
 pause, so nothing else runs: no memory peek, no thread walk, no stack unwind, no
 card. That is a few milliseconds plus
 the stub's poll interval, which is fine at blinky's one-blink-a-second and not
@@ -234,6 +235,63 @@ without executing anything), so the debugger does what gdb does: it steps one
 instruction with the breakpoint still in, then continues. A rejected hit and
 the reader's Continue both go through that, which is what keeps a re-trap from
 counting as a second pass.
+
+### State predicates
+
+A kernel function serves every caller in the system. `z_impl_k_msgq_put` runs
+for the sample's queue, for the input subsystem's, for a timer handler posting
+from an interrupt, and `hits == 3` counts all of them. A state predicate says
+which calls the step is about:
+
+```yaml
+at: z_impl_k_msgq_put
+when:
+  - $arg0 == readings
+  - _kernel as u32 == 0
+  - hits == 3
+```
+
+A predicate is one comparison in the grammar of
+[`check:`](#checking-the-guest-check-pass-fail-and-retry): a side with a format
+is read, the way `watch:` reads it, and a side without one is the number the
+expression is. So `$arg0 == readings` compares the first argument with the
+address of `readings` and reads nothing, and `_kernel as u32 == 0` reads the
+first word of `_kernel`, CPU 0's interrupt nesting count: "not in an ISR".
+
+A list means all of it. Predicates are checked first, and a hit where one is
+false is **not counted**, so `hits == 3` above is the third put to `readings`
+from a thread, however many other puts went by in between. A predicate whose
+side cannot be read at that stop does not hold either. `hits` compared with a
+number is always the hit count; a guest variable that happens to be called
+`hits` needs a format (`hits as u32 == 3`).
+
+A [member view](#watch) reads a struct's field wherever the build put it, which
+is often what a predicate is about:
+
+```yaml
+at: z_impl_k_msgq_put
+when: k_msgq(readings).used_msgs as u32 == 7
+```
+
+The symbols and members a predicate names are facts about the build, so they
+are checked once, when the tour arms, like an anchor. A step whose predicate
+names something this build does not have is skipped and says why, rather than
+waiting for ever on a hit that can never count.
+
+**Each rejected hit pays for its predicates.** The guest is frozen at the stop
+until they answer, and every side with a format is one more round-trip to the
+stub (a pointer chase like `*p as u32` is two). Registers, symbols and numbers
+cost nothing: they are already in hand. Predicates are checked in the order
+written and stop at the first that is false, so lead with the one that turns
+most hits away, and with the free ones before the reads:
+
+- **Cold breakpoint**: anything goes. A few reads on a stop that comes once a
+  second is nothing anyone will notice.
+- **Hot breakpoint**: lead with a register comparison like
+  `$arg0 == readings`, which rejects most callers before anything is read; keep
+  the reads to one or two; and end on `hits == N`, which lifts the breakpoint
+  once the step fires. A `repeat:` step with predicates on a hot address pays
+  its reads on every pass for the rest of the run.
 
 ## What the card shows
 
@@ -790,7 +848,8 @@ the page does when the tour arms. These fail:
 | `drift`: a `/pattern/` no longer matches and a later fallback resolves | a step that stops on a line nobody chose |
 | `highlight`: an entry marks nothing in the file the step stops in | an excerpt that has lost its point, silently |
 | `symbol`: `watch:`, `memory:`, `objects: focus:` or `check:` names a symbol the ELF lacks | "no symbol" where the value should be, or a check that can never pass (registers are exempt) |
-| `member`: a member view names a member the DWARF does not describe | "no member" where the value should be |
+| `symbol`: a `when:` predicate names a symbol the ELF lacks | a step the page skips, since it can never fire |
+| `member`: a member view names a member the DWARF does not describe | "no member" where the value should be, or a skipped step |
 | `expression`: an expression that does not parse | an error where the value should be |
 
 These warn:
@@ -911,7 +970,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Checking them against images | `src/tours/check.ts`, `src/tours/images.test.ts` |
 | Shipped sources | `src/tours/sources.ts` |
 | Expressions | `src/tours/expr.ts` |
-| Hit conditions | `src/tours/when.ts` |
+| Hit conditions and state predicates | `src/tours/when.ts` |
 | `check:` rows | `src/tours/predicate.ts`, `tour/CheckResults.tsx` |
 | Engine | `src/tours/store.ts` |
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |

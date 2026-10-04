@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "Tour steps can stop on the guest's state, not just hit counts."
+      },
+      {
+        "tag": "Added",
         "text": "Tours check the guest's state and let you try again."
       },
       {

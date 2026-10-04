@@ -12,8 +12,8 @@
  * numbers, so a signed format that reads -1 is below 0 and not equal to
  * 0xffffffff.
  *
- * A step's `check:` rows are predicates, and so, later, are the state
- * conditions a `when:` can wait for: the reads and the verdict are the same
+ * A step's `check:` rows are predicates, and so are the state conditions a
+ * `when:` waits for (src/tours/when.ts): the reads and the verdict are the same
  * question asked at a different moment. Pure and DOM-free, like expr.ts, so
  * both are testable without a debugger.
  */

@@ -342,7 +342,9 @@ function lineCount(text: string[]): number {
  * Every symbol an expression names has to be in the ELF, or the card shows
  * "no symbol" where the value should be, and a `check:` on one can never pass.
  * Registers are not symbols, so `$arg0` passes whatever the guest. A member
- * view's member has to be in the DWARF just the same.
+ * view's member has to be in the DWARF just the same. A `when:` predicate is
+ * held to both: one that names something the build lacks can never hold, so
+ * the page skips its step.
  */
 function checkExpressions(step: TourStep, ctx: CheckContext, check: StepCheck): void {
   const written: Array<[label: string, expr: string]> = []
@@ -366,6 +368,7 @@ function checkExpressions(step: TourStep, ctx: CheckContext, check: StepCheck): 
     else named.push([label, names])
   }
   // The parser has already refused a predicate that is not an expression.
+  for (const predicate of step.when.state) named.push([`when: ${predicate.text}`, predicateIdentifiers(predicate)])
   for (const predicate of step.check) named.push([`check: ${predicate.text}`, predicateIdentifiers(predicate)])
 
   for (const [label, names] of named) {

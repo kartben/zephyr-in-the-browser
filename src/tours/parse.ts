@@ -48,6 +48,7 @@ import { isRunnableShell, parseMarkdown } from '@/tours/markdown'
 import { parsePredicate, type PredicateSpec } from '@/tours/predicate'
 import { isCommandLine, parsePlaceholders } from '@/tours/snippets'
 import { isShippableSource } from '@/tours/sources'
+import { parseWhen, type WhenSpec } from '@/tours/when'
 
 /** One row of a step's `watch:` list — `label = expression as format`. */
 export interface WatchSpec {
@@ -152,8 +153,13 @@ export interface TourStep {
   body: string
   /** Raw anchor — `file.c:/pattern/`, `file.c:12`, `symbol`, `symbol+0x10` or `0x40001234`. */
   at: string
-  /** Hit condition, DAP's `hitCondition` spelt out: `hits == 1`, `hits % 4 == 0`. */
-  when: string | null
+  /**
+   * Which hit the step shows on: state predicates a hit must meet to be
+   * counted (`$arg0 == readings`), then hit conditions on the count, DAP's
+   * `hitCondition` spelt out (`hits == 1`, `hits % 4 == 0`). Both empty means
+   * every hit.
+   */
+  when: WhenSpec
   /** Stop the machine on this step. `stop: no` shows the card and runs on. */
   stop: boolean
   /** Keep the breakpoint after the step has fired. */
@@ -881,6 +887,24 @@ function parseCi(value: Directive | undefined, where: string, problems: string[]
   return actions
 }
 
+/**
+ * Parse `when:`, one item or a list of them, all of which must hold.
+ *
+ * A scalar is one item rather than a comma-separated list as elsewhere: the
+ * list form says "all of these" more plainly than a comma inside a condition.
+ */
+function parseWhenItems(value: Directive | undefined, where: string, problems: string[]): WhenSpec {
+  let items: string[] = []
+  if (typeof value === 'string') items = [value]
+  else if (Array.isArray(value)) items = value
+  else if (value !== undefined) {
+    problems.push(`${where}: \`when:\` takes a condition or a list of them, not a block`)
+  }
+  const parsed = parseWhen(items)
+  for (const problem of parsed.problems) problems.push(`${where}: ${problem}`)
+  return parsed.when
+}
+
 function buildStep(
   index: number,
   title: string,
@@ -900,6 +924,7 @@ function buildStep(
     problems.push(`${where}: no \`at:\` — a step has to say where it breaks`)
     return null
   }
+  const when = parseWhenItems(parsed.values.get('when'), where, problems)
 
   const watch: WatchSpec[] = []
   for (const row of parseList(parsed.values.get('watch'))) {
@@ -966,7 +991,7 @@ function buildStep(
     title,
     body: body.trim(),
     at,
-    when: asScalar(parsed.values.get('when')),
+    when,
     stop,
     repeat: asBool(parsed.values.get('repeat'), false),
     panel,
