@@ -29,10 +29,9 @@ Front-matter keys: `tour` (title), `sample` (Zephyr sample path), and optional
 `source: no` to hide guest source / DTS excerpts on the card (breakpoints from
 `at:` still plant; use this for page-orientation tours). Optional `next` names
 the tour to offer at the end; see
-[Ending a tour](#ending-a-tour-outro-and-next).
-`at:` still plant; use this for page-orientation tours). Optional `sources:`
-lists Zephyr files outside the sample whose code the card should be able to
-show; see [Stops outside the sample](#stops-outside-the-sample-sources).
+[Ending a tour](#ending-a-tour-outro-and-next). Optional `sources:` lists
+Zephyr files outside the sample whose code the card should be able to show;
+see [Stops outside the sample](#stops-outside-the-sample-sources).
 
 ````markdown
 ---
