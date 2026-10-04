@@ -54,7 +54,7 @@ aggregator sleeps here, using no CPU, until a reading arrives.
 at: main.c:/k_msgq_put\(&sensor_q/ | main.c:154
 when: first
 highlight: /struct sensor_reading r = \{/ + 4
-threads: yes
+threads: aggregator, sensor*
 ```
 
 A sensor thread has filled in `r`, a reading on its own stack, and is about to

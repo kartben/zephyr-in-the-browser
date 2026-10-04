@@ -575,6 +575,20 @@ Debug → CPU). `threads:` shows the object-core thread list at this stop —
 states, priorities, stack use — using `CONFIG_OBJ_CORE` plus
 `CONFIG_DEBUG_THREAD_INFO`, both on in every packaged image.
 
+A step about two or three threads can name them instead of `yes`, so the
+others do not push the code down the card:
+
+```yaml
+threads: aggregator, consumer*
+```
+
+`*` matches any run of characters. The list header says how many of the
+guest's threads it shows, and a name that matches no thread at the stop is
+listed under it, so a thread upstream renamed shows up as a slip rather than
+quietly going missing. A thread that names itself with `k_thread_name_set()`
+has its `K_THREAD_DEFINE` name until it runs that line: in the sensor pipeline,
+`consumer*` matches `consumer0_thread` before it matches `consumer0`.
+
 Both of these read the debugger's live walk rather than a copy taken when the
 card was built, because the walk lands a beat after the registers do. On a busy
 stop they fill in a moment after the prose.
@@ -1097,6 +1111,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | Panels and looks | `src/tours/look.ts`, `src/lib/dockReveal.ts`, `src/lib/traceTabs.ts` |
 | Shell snippets | `src/tours/snippets.ts`, `tour/ShellSnippet.tsx`, `src/lib/terminalInput.ts` |
 | Diagrams | `src/tours/diagram.ts`, `tour/TourDiagram.tsx`, `src/tours/diagrams.test.ts` |
+| `threads:` names | `src/tours/threadFilter.ts`, `src/components/debug/ThreadsPane.tsx` |
 | Playthrough | `tools/tour-playthrough.mjs`, `src/lib/testHooks.ts` |
 | Gallery badge and tour list | `src/tours/guided.ts` |
 | UI | `src/components/TourCard.tsx`, `tour/TourHexdump.tsx`, `tour/TourOutline.tsx`, `tour/WaitingCard.tsx`, `tour/CompletionCard.tsx`, `tour/TourLink.tsx` |

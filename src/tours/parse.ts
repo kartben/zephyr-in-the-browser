@@ -192,6 +192,12 @@ export interface TourStep {
   /** Show the kernel thread list at this stop. */
   threads: boolean
   /**
+   * The threads the list shows, by name, when the step names them
+   * (`threads: aggregator, consumer*`); empty for every thread. See
+   * threadFilter.ts.
+   */
+  threadNames: string[]
+  /**
    * The reader's part, when reaching this step is up to them: press a button,
    * type a command. One line of Markdown, shown on a "Your turn" card while the
    * guest runs on towards the step.
@@ -786,6 +792,20 @@ function parseChecks(
   return checks
 }
 
+/**
+ * `threads:` is a switch (`yes`, `no`) or the names of the threads to list,
+ * which turn the list on. Names may hold spaces (`Philosopher 4`); commas
+ * separate them.
+ */
+function parseThreads(value: Directive | undefined): { threads: boolean; names: string[] } {
+  if (value === undefined) return { threads: false, names: [] }
+  const word = asScalar(value)?.toLowerCase()
+  if (word === 'yes' || word === 'true' || word === 'on' || word === '1') return { threads: true, names: [] }
+  if (word === 'no' || word === 'false' || word === 'off' || word === '0') return { threads: false, names: [] }
+  const names = parseList(value)
+  return { threads: names.length > 0, names }
+}
+
 function parseList(value: Directive | undefined): string[] {
   if (value === undefined) return []
   if (Array.isArray(value)) return value.filter((v) => v !== '')
@@ -963,7 +983,7 @@ function buildStep(
   }
 
   const stop = asBool(parsed.values.get('stop'), true)
-  const threads = asBool(parsed.values.get('threads'), false)
+  const { threads, names: threadNames } = parseThreads(parsed.values.get('threads'))
   /*
    * `watch:` and `memory:` are read while the machine is still stopped, so they
    * survive `stop: no`. The thread and object walks do not: they are dozens of
@@ -1005,6 +1025,7 @@ function buildStep(
     objects: walkable ? objects : null,
     registers: parseList(parsed.values.get('registers')),
     threads: walkable && threads,
+    threadNames: walkable && threads ? threadNames : [],
     await: awaitText,
     do: doLines,
     ci,
