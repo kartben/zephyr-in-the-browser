@@ -86,7 +86,8 @@ jobs:
         run: |
           set -euo pipefail
           gh release download "$IMAGES_TAG" --pattern zephyr-images.tar.gz --dir "$RUNNER_TEMP" --clobber
-          tar xzf "$RUNNER_TEMP/zephyr-images.tar.gz" -C public
+          # Unpacked as pages.yml does, without the ._ twins of old assets.
+          tar xzf "$RUNNER_TEMP/zephyr-images.tar.gz" -C public --exclude='._*'
 
       - name: Check the tours against them
         if: steps.changes.outputs.tours == 'true'

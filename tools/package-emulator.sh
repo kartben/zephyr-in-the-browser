@@ -69,6 +69,20 @@ deploy_flags() {
   echo "$flags"
 }
 
+# On macOS, bsdtar archives each file's extended attributes (the build output
+# here all carries com.apple.provenance) twice: as an AppleDouble ._ twin and as
+# a LIBARCHIVE.xattr pax header. GNU tar in the deploy warns about every such
+# header and unpacks the twins onto the site. COPYFILE_DISABLE stops the twins
+# and --no-xattrs the headers. GNU tar ignores the first and accepts the second
+# (it rejects --no-mac-metadata), so Linux packs with the same line. Twins
+# already on disk, as GNU tar leaves them after unpacking an old asset, need the
+# ._* exclude: with COPYFILE_DISABLE set, both tars pack them as plain files.
+pack() {
+  local out="$1"
+  shift
+  COPYFILE_DISABLE=1 tar -czf "$out" --no-xattrs --exclude='.DS_Store' --exclude='._*' "$@"
+}
+
 ASSETS=()
 
 # --- emulator ---------------------------------------------------------------
@@ -91,8 +105,7 @@ if want_emulator; then
   # README.md is checked in; zephyr/ ships as its own asset. Everything else
   # under public/qemu/ is emulator build output.
   log "Packaging emulator: $(cd "$SRC" && ls | grep -Ev '^(README\.md|zephyr)$' | tr '\n' ' ')"
-  tar czf "$EMULATOR_OUT" -C "$ROOT/public" \
-    --exclude='qemu/README.md' --exclude='qemu/zephyr' --exclude='.DS_Store' qemu
+  pack "$EMULATOR_OUT" -C "$ROOT/public" --exclude='qemu/README.md' --exclude='qemu/zephyr' qemu
   log "Wrote $EMULATOR_OUT ($(du -h "$EMULATOR_OUT" | cut -f1))"
   ASSETS+=("$EMULATOR_OUT")
 fi
@@ -109,7 +122,7 @@ if want_images; then
   done
 
   log "Packaging guest images: $(cd "$SRC/zephyr" && ls | tr '\n' ' ')"
-  tar czf "$IMAGES_OUT" -C "$ROOT/public" --exclude='.DS_Store' qemu/zephyr
+  pack "$IMAGES_OUT" -C "$ROOT/public" qemu/zephyr
   log "Wrote $IMAGES_OUT ($(du -h "$IMAGES_OUT" | cut -f1))"
   ASSETS+=("$IMAGES_OUT")
 fi
