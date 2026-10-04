@@ -37,7 +37,7 @@ import {
   locationForAddress,
   type LineIndex,
 } from '@/debug/dwarfLines'
-import type { SymbolIndex } from '@/debug/elfSymbols'
+import type { ElfSymbol, SymbolIndex } from '@/debug/elfSymbols'
 import { codeAddr, type GdbArch } from '@/debug/gdb/regs'
 
 export interface AnchorContext {
@@ -193,12 +193,31 @@ function describe(addr: number, ctx: AnchorContext): Pick<ResolvedAnchor, 'file'
   }
 }
 
-/** The function an address is inside, when symbols know one. */
+/**
+ * The function an address is inside, when symbols know one: of those whose
+ * range holds it, the one that starts nearest to it.
+ *
+ * The first that holds it is not enough, because a size can overstate a
+ * function. The ESP32-C3 ROM's `memset` sits in a jump table of 4-byte slots
+ * but keeps picolibc's 220 bytes, so its range runs over `memcpy`, `strcmp`
+ * and the other routines in the slots after it.
+ */
 export function enclosingFunction(addr: number, ctx: AnchorContext): string | null {
-  const symbol = ctx.symbols?.byAddr.find(
-    (s) => addr >= normalizeAddr(s.addr, ctx.arch) && addr < normalizeAddr(s.addr, ctx.arch) + Math.max(s.size, 1),
-  )
-  return symbol?.name ?? null
+  let found: ElfSymbol | null = null
+  let foundStart = -Infinity
+  // byAddr is sorted by start (dropping the Thumb bit keeps that order), so
+  // the scan can stop at the first symbol that starts past the address.
+  for (const s of ctx.symbols?.byAddr ?? []) {
+    const start = normalizeAddr(s.addr, ctx.arch)
+    if (start > addr) break
+    // Only a strictly nearer start replaces it, so where two names share an
+    // address, the first in byAddr wins.
+    if (start > foundStart && addr < start + Math.max(s.size, 1)) {
+      found = s
+      foundStart = start
+    }
+  }
+  return found?.name ?? null
 }
 
 /** The shipped copy of a source file, by basename or path suffix. */

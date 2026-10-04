@@ -99,6 +99,29 @@ describe('resolveAnchor', () => {
       anchor: { addr: 0x8000 },
     })
   })
+
+  it('names the nearest enclosing function, not the first whose size reaches', () => {
+    // The ESP32-C3 ROM's memset keeps picolibc's size in a jump table of
+    // 4-byte slots, so its range runs over memcpy.
+    const memset = { name: 'memset', addr: 0x40000354, size: 220 }
+    const memcpy = { name: 'memcpy', addr: 0x40000358, size: 412 }
+    const rom: SymbolIndex = { byAddr: [memset, memcpy], byName: [memcpy, memset], objects: new Map() }
+    const ctx = { symbols: rom, lines: null, arch: 'riscv32' as const }
+    expect(resolveAnchor('0x40000358', ctx)).toMatchObject({ ok: true, anchor: { symbol: 'memcpy' } })
+    expect(resolveAnchor('0x40000354', ctx)).toMatchObject({ ok: true, anchor: { symbol: 'memset' } })
+  })
+
+  it('measures Thumb functions from their start, not from their odd value', () => {
+    // Picolibc's absolute vfscanf is 0 plus the Thumb bit, and its 3640 bytes
+    // reach over main, which starts at 0xb4c.
+    const vfscanf = { name: 'vfscanf', addr: 0x1, size: 3640 }
+    const main = { name: 'main', addr: 0xb4d, size: 116 }
+    const thumb: SymbolIndex = { byAddr: [vfscanf, main], byName: [main, vfscanf], objects: new Map() }
+    expect(resolveAnchor('0xb4c', { symbols: thumb, lines: null, arch: 'arm' })).toMatchObject({
+      ok: true,
+      anchor: { symbol: 'main' },
+    })
+  })
 })
 
 describe('patternFile', () => {
