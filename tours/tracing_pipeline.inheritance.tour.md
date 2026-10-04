@@ -45,11 +45,11 @@ have to wait.
 ## Storage runs at priority 3
 
 ```tour
-at: main.c:/"store_end"/ | main.c:282
+at: main.c:storage_entry/BUS_UNLOCK/ | main.c:283
 when:
   - _thread_base(k_thread(_k_thread_obj_aggregator_thread).base).pended_on as ptr == bus_mutex
   - first
-highlight: /"store_end"/ + 1
+highlight: /"store_begin"/ + 2
 threads: yes
 ```
 

@@ -1,9 +1,10 @@
 /**
  * `at:` — turning a place in the source into an address to break on.
  *
- * Five spellings, in the order a reader would try them:
+ * Six spellings, in the order a reader would try them:
  *
  *     at: main.c:/toggle_dt/     the first line matching a pattern
+ *     at: main.c:blink/toggle/   the first matching line inside `blink()`
  *     at: main.c:31              a line, resolved through DWARF
  *     at: gpio_pin_configure     a function, past its prologue
  *     at: main+0x1c              a function, at an offset
@@ -26,7 +27,11 @@
  * Each covers the other's failure: the line drifts with upstream, the pattern
  * depends on an artifact somebody else built.
  *
- * All four are looked up in the ELF the page already fetched to boot the guest,
+ * A sample often has the same line in two functions, and the plain pattern
+ * stops in whichever comes first. Naming the function searches only its body,
+ * found in the same text (cfunction.ts).
+ *
+ * All of them are looked up in the ELF the page already fetched to boot the guest,
  * which is why a tour can point at code it does not own: `at: z_impl_k_sleep`
  * breaks inside the kernel, and the sample it is teaching never knows.
  */
@@ -39,6 +44,7 @@ import {
 } from '@/debug/dwarfLines'
 import type { ElfSymbol, SymbolIndex } from '@/debug/elfSymbols'
 import { codeAddr, type GdbArch } from '@/debug/gdb/regs'
+import { functionLines } from '@/tours/cfunction'
 
 export interface AnchorContext {
   symbols: SymbolIndex | null
@@ -81,6 +87,8 @@ export function normalizeAddr(addr: number, arch: GdbArch | null): number {
 
 const ADDRESS = /^0x[0-9a-f]+$/i
 const FILE_PATTERN = /^(\S+\.[A-Za-z]\w*):\/(.+)\/$/
+/** `main.c:storage_entry/BUS_UNLOCK/`: a pattern searched in one function's body. */
+const FILE_SCOPED_PATTERN = /^(\S+\.[A-Za-z]\w*):([A-Za-z_]\w*)\/(.+)\/$/
 const FILE_LINE = /^(\S+\.[A-Za-z]\w*):(\d+)$/
 const SYMBOL_OFFSET = /^([A-Za-z_]\w*)\s*\+\s*(0x[0-9a-f]+|\d+)$/i
 const SYMBOL = /^[A-Za-z_]\w*$/
@@ -113,21 +121,36 @@ function resolveOne(at: string, ctx: AnchorContext): AnchorResult {
     return { ok: true, anchor: { addr, via: 'address', ...describe(addr, ctx) } }
   }
 
-  const pattern = FILE_PATTERN.exec(raw)
+  const pattern = filePattern(raw)
   if (pattern) {
-    const file = pattern[1]!
+    const { file, fn } = pattern
     const source = findSource(ctx, file)
     if (!source) {
       return { ok: false, error: `\`${raw}\`: \`${file}\` was not shipped, so its text cannot be searched` }
     }
     let re: RegExp
     try {
-      re = new RegExp(pattern[2]!)
+      re = new RegExp(pattern.pattern)
     } catch {
       return { ok: false, error: `\`${raw}\`: not a valid pattern` }
     }
-    const hit = source.findIndex((text) => re.test(text))
-    if (hit < 0) return { ok: false, error: `\`${raw}\`: no line matches` }
+    let first = 0
+    let last = source.length - 1
+    if (fn !== null) {
+      const body = functionLines(source, fn)
+      if (!body) return { ok: false, error: `\`${raw}\`: \`${file}\` defines no \`${fn}()\`` }
+      ;({ first, last } = body)
+    }
+    let hit = -1
+    for (let i = first; i <= last; i++) {
+      if (re.test(source[i]!)) {
+        hit = i
+        break
+      }
+    }
+    if (hit < 0) {
+      return { ok: false, error: `\`${raw}\`: no line${fn === null ? '' : ` in \`${fn}()\``} matches` }
+    }
     if (!ctx.lines) {
       return { ok: false, error: `\`${raw}\`: this build carries no DWARF line table` }
     }
@@ -224,6 +247,15 @@ export function enclosingFunction(addr: number, ctx: AnchorContext): string | nu
   return found?.name ?? null
 }
 
+/** A pattern alternative, scoped to a function or not; null for any other spelling. */
+function filePattern(raw: string): { file: string; fn: string | null; pattern: string } | null {
+  const plain = FILE_PATTERN.exec(raw)
+  if (plain) return { file: plain[1]!, fn: null, pattern: plain[2]! }
+  const scoped = FILE_SCOPED_PATTERN.exec(raw)
+  if (scoped) return { file: scoped[1]!, fn: scoped[2]!, pattern: scoped[3]! }
+  return null
+}
+
 /** The shipped copy of a source file, by basename or path suffix. */
 function findSource(ctx: AnchorContext, file: string): string[] | null {
   const want = file.toLowerCase()
@@ -241,8 +273,8 @@ function findSource(ctx: AnchorContext, file: string): string[] | null {
  */
 export function patternFile(at: string): string | null {
   for (const alternative of anchorAlternatives(at)) {
-    const match = FILE_PATTERN.exec(alternative)
-    if (match) return match[1]!.toLowerCase()
+    const match = filePattern(alternative)
+    if (match) return match.file.toLowerCase()
   }
   return null
 }
@@ -261,8 +293,8 @@ export function anchorAlternatives(at: string): string[] {
  */
 export function sourceSpelling(alternative: string): { kind: 'pattern' | 'line'; file: string } | null {
   const raw = alternative.trim()
-  const pattern = FILE_PATTERN.exec(raw)
-  if (pattern) return { kind: 'pattern', file: pattern[1]!.toLowerCase() }
+  const pattern = filePattern(raw)
+  if (pattern) return { kind: 'pattern', file: pattern.file.toLowerCase() }
   const line = FILE_LINE.exec(raw)
   if (line) return { kind: 'line', file: line[1]!.toLowerCase() }
   return null
