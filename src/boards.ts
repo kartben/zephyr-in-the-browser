@@ -109,6 +109,12 @@ export interface GuestSample {
    * allocated in the page, so the size is free of the asset pipeline.
    */
   blankFiles?: Array<{ fsPath: string; bytes: number }>
+  /**
+   * Recorded motion the dock offers to replay into this sample: a set in
+   * src/virtio/devices/sensors/recordings, shown on the card of the part it
+   * drives.
+   */
+  recordings?: 'magic-wand'
 }
 
 /**
@@ -411,6 +417,17 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     zephyrSample: 'zephyr-module/apps/accelerometer_chart',
     // The accelerometer feeds the chart, so surface both input and output.
     primaryPanels: ['sensor', 'display'],
+  },
+  {
+    id: 'magic_wand',
+    label: 'Magic Wand',
+    description: 'TensorFlow Lite Micro recognizes gestures. Replay one on the ADXL345',
+    // Built from the fork in zephyr-module/apps/magic_wand (see
+    // tools/samples.manifest), which fixes the upstream sample for the current
+    // adxl345 driver. Upstream's path here gives the gallery its docs.
+    zephyrSample: 'samples/modules/tflite-micro/magic_wand',
+    primaryPanels: ['sensor'],
+    recordings: 'magic-wand',
   },
   {
     id: 'lsm6dso',
@@ -1066,7 +1083,9 @@ export const BOARDS: Board[] = [
           s.id !== 'tracing' &&
           s.id !== 'tracing_pipeline' &&
           s.id !== 'msg_queue' &&
-          s.id !== 'pm_latency',
+          s.id !== 'pm_latency' &&
+          // Float inference every 40 ms is too much for this board's interpreter.
+          s.id !== 'magic_wand',
       ),
       {
         // virt has no watchdog, so the patched machine carries the SiFive E's
@@ -1335,6 +1354,16 @@ export function getBoard(id: string): Board {
 
 export function getSample(board: Board, sampleId: string): GuestSample {
   return board.samples.find((s) => s.id === sampleId) ?? board.samples[0]
+}
+
+/**
+ * The sample a dock seed (`board:sample`) names, or null for a Live board or a
+ * dropped ELF. Unlike getSample, an unknown id is not swapped for a default.
+ */
+export function sampleForSeed(seed: string): GuestSample | null {
+  const [boardId, sampleId] = seed.split(':')
+  if (!boardId || !sampleId) return null
+  return BOARDS.find((b) => b.id === boardId)?.samples.find((s) => s.id === sampleId) ?? null
 }
 
 /** Panels a sample wants expanded on boot; empty when it is terminal-only. */

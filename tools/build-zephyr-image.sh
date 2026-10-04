@@ -145,6 +145,18 @@ SELECTED="$(echo "$EXPANDED" | awk -F: -v b="$BOARD_FILTER" -v a="$APP_FILTER" \
   exit 1
 }
 
+# magic_wand runs TensorFlow Lite Micro, which Zephyr keeps in its optional
+# group, out of a default workspace. Say how to fetch it rather than failing
+# deep inside Kconfig. CI gets it from west.yml.
+if echo "$SELECTED" | cut -d: -f3 | grep -qx 'zephyr-module/apps/magic_wand' &&
+  [ ! -d "$ZEPHYR_WS/optional/modules/lib/tflite-micro" ]; then
+  echo "magic_wand needs Zephyr's optional tflite-micro module in $ZEPHYR_WS:" >&2
+  echo "  west config manifest.project-filter -- +tflite-micro" >&2
+  echo "  west update tflite-micro" >&2
+  echo "(If you already set a project filter, add +tflite-micro to it.)" >&2
+  exit 1
+fi
+
 # This repo ships an out-of-tree Zephyr module: the qemu,host-{gpio,audio,mic}
 # and virtio drivers with their bindings, plus the browser_bridge shield the
 # module's board_root exposes and the snippets its snippet_root exposes.

@@ -19,6 +19,12 @@ $ tools/build-zephyr-image.sh qemu_cortex_a53  # GNSS + display + hello world
 $ tools/build-zephyr-image.sh qemu_riscv32     # RISC-V virt samples
 ```
 
+The Cortex-A53 Magic Wand sample (`zephyr-module/apps/magic_wand`) needs
+TensorFlow Lite Micro, which Zephyr keeps in its optional group. The script
+checks for it and says how to fetch it:
+`west config manifest.project-filter -- +tflite-micro`, then
+`west update tflite-micro`. CI gets it from the repo's `west.yml`.
+
 Then restart the dev server. The `qemuAssetProbe` plugin in `vite.config.ts`
 scans this directory at config time, and Vite's static middleware also caches
 what it finds here at startup, so a running server will not pick up new files.

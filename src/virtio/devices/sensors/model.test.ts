@@ -133,6 +133,26 @@ describe('createSensorChip', () => {
     expect(chip.getChannel('accel_x')).toBeCloseTo(1.001)
   })
 
+  it('tells read listeners where each read message starts, before its bytes', () => {
+    const chip = createAdxl345()
+    const seen: number[] = []
+    const off = chip.onRead((pointer) => {
+      seen.push(pointer)
+      // A listener may change what this very read returns.
+      chip.setChannel('accel_x', 9.80665 / 4)
+    })
+    chip.write(Uint8Array.of(0x32))
+    chip.startRead()
+    const d = chip.read(2)
+    expect(seen).toEqual([0x32])
+    expect((((d[1]! << 8) | d[0]!) << 16) >> 16).toBe(64)
+
+    off()
+    chip.write(Uint8Array.of(0x00))
+    chip.startRead()
+    expect(seen).toEqual([0x32])
+  })
+
   it('places a second instance at an overridden address', () => {
     const chip = createSensorChip(decl, { address: 0x41, name: 'Demo #2' })
     expect(chip.address).toBe(0x41)

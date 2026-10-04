@@ -9,7 +9,7 @@ out into a floating window; collapsed rows keep a live readout.
 
 | Device | What you see |
 | --- | --- |
-| **Sensors** | Simulated I²C parts (TMP112 and LM75 thermometers, ADXL345 and LSM6DSO motion, LPS22HH pressure, INA219 power, ISL29035 light), each a row of sliders and config bits, read through stock Zephyr drivers. Motion sensors can follow your device's real tilt; the LSM6DSO sample shows `sensor_attr_set` configuring the sampling rate |
+| **Sensors** | Simulated I²C parts (TMP112 and LM75 thermometers, ADXL345 and LSM6DSO motion, LPS22HH pressure, INA219 power, ISL29035 light), each a row of sliders and config bits, read through stock Zephyr drivers. Motion sensors can follow your device's real tilt; the LSM6DSO sample shows `sensor_attr_set` configuring the sampling rate. In the **Magic Wand** sample, TensorFlow Lite Micro recognizes gestures you replay on the ADXL345 card |
 | **RTC** | A PCF8523 real-time clock: live date/time, sync from the browser, and alarm armed/fired state, through Zephyr's stock RTC driver and shell (`rtc get` / `rtc set_alarm`) |
 | **Aux display** | A Grove JHD1313 16×2 character LCD with RGB backlight. Zephyr's stock auxdisplay driver writes "Hello World"; watch it in the dock |
 | **LED matrix** | A Holtek HT16K33 16×8 LED driver. Stock `samples/drivers/ht16k33` walks, blinks and dims the matrix in the dock |
@@ -51,6 +51,15 @@ and builds samples in parallel so you can rebuild many apps at once. Set
 `ZEPHYR_DOCKER=1` to force the container path, or `ZEPHYR_NATIVE=1` to force
 native. The app switches to QEMU automatically once it finds a build. See
 [public/qemu/README.md](public/qemu/README.md) for details.
+
+The Magic Wand sample needs TensorFlow Lite Micro, an optional module a default
+Zephyr workspace leaves out. Fetch it once (add `+tflite-micro` to any project
+filter you already have):
+
+```console
+west config manifest.project-filter -- +tflite-micro
+west update tflite-micro
+```
 
 ### Real network access (optional)
 

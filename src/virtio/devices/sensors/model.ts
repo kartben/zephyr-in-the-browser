@@ -164,6 +164,12 @@ export interface SensorChip extends I2cChip {
   setField(addr: number, field: Pick<FieldDecl, 'lsb' | 'msb'>, value: number): void
   /** Notified whenever a channel or attribute changes. */
   subscribe(fn: () => void): () => void
+  /**
+   * Called as each read message starts, with the register it starts at, before
+   * any of its bytes are made. A recorded replay steps here, so every guest
+   * fetch of the data registers returns the next sample.
+   */
+  onRead(fn: (pointer: number) => void): () => void
 }
 
 export interface SensorChipOptions {
@@ -261,6 +267,7 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
   let readOffset = 0
 
   const listeners = new Set<() => void>()
+  const readListeners = new Set<(pointer: number) => void>()
   // Coalesce notifies that land in the same turn (e.g. three orientation axes
   // from one DeviceOrientationEvent) so React pays for one render, not N.
   // queueMicrotask keeps the model testable without fake timers; the guest
@@ -351,6 +358,7 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
 
     startRead() {
       readOffset = 0
+      for (const fn of readListeners) fn(pointer)
     },
 
     read(length) {
@@ -434,6 +442,11 @@ export function createSensorChip(decl: SensorDecl, opts: SensorChipOptions = {})
     subscribe(fn) {
       listeners.add(fn)
       return () => listeners.delete(fn)
+    },
+
+    onRead(fn) {
+      readListeners.add(fn)
+      return () => readListeners.delete(fn)
     },
   }
 

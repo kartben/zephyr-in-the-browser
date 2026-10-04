@@ -1,0 +1,15 @@
+# Copyright (c) 2026 Benjamin Cabé <benjamin@zephyrproject.org>
+# SPDX-License-Identifier: Apache-2.0
+
+config MAGIC_WAND_INFERENCE_STRIDE
+	int "Samples between inferences"
+	default 1
+	range 1 10
+	help
+	  Run inference every this many accelerometer samples, once the
+	  128-sample window is full. 1 matches upstream: an inference per
+	  sample, at 25 Hz. Raise it if the "Magic Wand ready" line reports an
+	  inference slower than a sample period (40 ms); the gesture predictor's
+	  suppression scales with it.
+
+source "Kconfig.zephyr"
