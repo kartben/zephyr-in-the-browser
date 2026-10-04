@@ -42,7 +42,10 @@ interface Props {
   boardId: string
   onBoardChange: (id: string) => void
   sampleId: string
-  onSampleChange: (id: string) => void
+  /** The tour the running sample runs, if any. */
+  tourId: string | null
+  /** `tour` picks one of the app's tours (null for its default); see SampleGallery. */
+  onSampleChange: (id: string, tour?: string | null) => void
   status: BackendStatus
   detail?: string
   /** True once the backend can only be restarted by reloading the document. */
@@ -67,6 +70,7 @@ export function TopBar({
   boardId,
   onBoardChange,
   sampleId,
+  tourId,
   onSampleChange,
   status,
   detail,
@@ -115,6 +119,7 @@ export function TopBar({
             <SampleGallery
               boardId={boardId}
               sampleId={sampleId}
+              tourId={tourId}
               onSampleChange={onSampleChange}
               customImage={customImage}
               onLoadElf={onLoadElf}

@@ -22,7 +22,7 @@ import { registerCommand } from '@/lib/commands'
 import { cn } from '@/lib/utils'
 import { getBoard, getSample } from '@/boards'
 import type { GuestSample, PanelKind } from '@/boards'
-import { isGuided } from '@/tours/guided'
+import { guidedTours, isGuided, tourTitle } from '@/tours/guided'
 import { loadDocsManifest, sampleDocs } from '@/sampleDocs'
 import type { DocsManifest, SampleDocs } from '@/sampleDocs'
 
@@ -66,7 +66,13 @@ const TRACE_TWIN_PANELS = new Set<PanelKind>(['trace', 'debug'])
 interface Props {
   boardId: string
   sampleId: string
-  onSampleChange: (id: string) => void
+  /** The tour the running sample runs, if any. */
+  tourId: string | null
+  /**
+   * Boot another app. `tour` is set when the reader picked one of the app's
+   * tours rather than the app itself.
+   */
+  onSampleChange: (id: string, tour?: string) => void
   /** Filename of the user-supplied image in use, if any. */
   customImage: string | null
   onLoadElf: (file: File) => void
@@ -176,6 +182,7 @@ export function matchesGroupQuery(group: SampleGroup, query: string): boolean {
 export function SampleGallery({
   boardId,
   sampleId,
+  tourId,
   onSampleChange,
   customImage,
   onLoadElf,
@@ -187,6 +194,7 @@ export function SampleGallery({
   const [query, setQuery] = useState('')
   const [tracing, setTracing] = useState(false)
   const [manifest, setManifest] = useState<DocsManifest | null>(null)
+  const [tourTitles, setTourTitles] = useState<ReadonlyMap<string, string>>(new Map())
   const board = getBoard(boardId)
 
   const groups = useMemo(
@@ -213,6 +221,22 @@ export function SampleGallery({
     }
   }, [open])
 
+  // The guided rows list their tours by title, which lives in each tour's
+  // front matter: read on first open too, not while the page boots.
+  useEffect(() => {
+    if (!open) return
+    let stale = false
+    const ids = groups.flatMap((group) => guidedTours(group.base))
+    void Promise.all(ids.map(async (id) => [id, await tourTitle(id)] as const)).then((loaded) => {
+      if (stale) return
+      const titled = loaded.filter((entry): entry is [string, string] => entry[1] !== null)
+      setTourTitles(new Map(titled))
+    })
+    return () => {
+      stale = true
+    }
+  }, [open, groups])
+
   // Focus search on open; clear the query on close. If the running app is a
   // traced twin, seed the Tracing filter so the list matches what is booted.
   useEffect(() => {
@@ -237,9 +261,11 @@ export function SampleGallery({
   // Section only when both buckets have rows: a lone search hit needs no header.
   const showGuidedSection = guidedCatalog.length > 0 && otherCatalog.length > 0
 
-  const select = (id: string) => {
+  // Picking what already runs closes the dialog and changes nothing.
+  const select = (id: string, tour?: string) => {
     setOpen(false)
-    if (customImage !== null || id !== sampleId) onSampleChange(id)
+    const otherTour = tour !== undefined && tour !== tourId
+    if (customImage !== null || id !== sampleId || otherTour) onSampleChange(id, tour)
   }
 
   return (
@@ -311,6 +337,8 @@ export function SampleGallery({
                     key={group.base.id}
                     group={group}
                     sampleId={sampleId}
+                    tourId={tourId}
+                    tourTitles={tourTitles}
                     customImage={customImage}
                     tracing={tracing}
                     onSelect={select}
@@ -321,6 +349,8 @@ export function SampleGallery({
                     key={group.base.id}
                     group={group}
                     sampleId={sampleId}
+                    tourId={tourId}
+                    tourTitles={tourTitles}
                     customImage={customImage}
                     tracing={tracing}
                     onSelect={select}
@@ -333,6 +363,8 @@ export function SampleGallery({
                   key={group.base.id}
                   group={group}
                   sampleId={sampleId}
+                  tourId={tourId}
+                  tourTitles={tourTitles}
                   customImage={customImage}
                   tracing={tracing}
                   onSelect={select}
@@ -388,19 +420,24 @@ export function SampleGallery({
 function SampleGroupRow({
   group,
   sampleId,
+  tourId,
+  tourTitles,
   customImage,
   tracing,
   onSelect,
 }: {
   group: SampleGroup
   sampleId: string
+  tourId: string | null
+  tourTitles: ReadonlyMap<string, string>
   customImage: string | null
   tracing: boolean
-  onSelect: (id: string) => void
+  onSelect: (id: string, tour?: string) => void
 }) {
   const { base, traced, docs } = group
   const tags = sampleTags(group)
   const guided = isGuided(base)
+  const tours = guidedTours(base)
   const builtinTraced =
     !traced && (base.primaryPanels?.includes('trace') ?? false)
   const activeBase = customImage === null && sampleId === base.id
@@ -437,10 +474,14 @@ function SampleGroupRow({
           {guided && (
             <span
               className="flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-              title="Carries a guided tour: it stops and explains itself as it runs"
+              title={
+                tours.length > 1
+                  ? `Carries ${tours.length} guided tours: each stops and explains the sample as it runs`
+                  : 'Carries a guided tour: it stops and explains itself as it runs'
+              }
             >
               <GraduationCap className="size-2.5" aria-hidden />
-              guided
+              {tours.length > 1 ? `${tours.length} tours` : 'guided'}
             </span>
           )}
           {builtinTraced && (
@@ -463,6 +504,36 @@ function SampleGroupRow({
               </span>
             ))}
           </div>
+        )}
+        {tours.length > 0 && (
+          <ul className="mt-1 min-w-0" aria-label={`Tours of ${docs.title}`}>
+            {tours.map((id) => {
+              const running = active && id === tourId
+              return (
+                <li key={id} className="flex min-w-0">
+                  <button
+                    type="button"
+                    aria-current={running ? 'true' : undefined}
+                    title={running ? 'This tour is running' : 'Boot the app with this tour'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelect(bootId, id)
+                    }}
+                    // Enter and Space belong to this button, not to the row's.
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className={cn(
+                      'flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-4',
+                      'transition-colors hover:bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      running ? 'font-medium text-primary' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <GraduationCap className="size-3 shrink-0" aria-hidden />
+                    <span className="truncate">{tourTitles.get(id) ?? id}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </div>
 

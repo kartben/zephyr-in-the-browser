@@ -30,7 +30,6 @@ import {
   setKernelImage as setHostGdbKernelImage,
 } from '@/hostGdb'
 import { attach as attachVirtio, detach as detachVirtio } from '@/virtio'
-import { hasTour } from '@/tours/catalog'
 import { get as getGuestImage } from '@/guestImage'
 import { get as getDeviceTree, getPhase, loadSampleDts, markAbsent } from '@/devicetree'
 import {
@@ -180,7 +179,7 @@ export function createQemuBackend(): PtyBackend {
       return documentTainted
     },
 
-    async start(slave: Slave, { board, sampleId, onStatus, signal }: StartOptions) {
+    async start(slave: Slave, { board, sampleId, tour, onStatus, signal }: StartOptions) {
       if (documentTainted) {
         throw new Error('QEMU is already instantiated in this tab. Reload to start a new session.')
       }
@@ -288,8 +287,10 @@ export function createQemuBackend(): PtyBackend {
        * planted its first breakpoint at an address the guest was already past,
        * and nothing ever fired. So freeze the CPU at reset and let the attach
        * below start it, once every anchor is resolved and step one is planted.
+       * Only when a tour runs: `?tour=none` asks for a clean run, and an
+       * untoured boot has nothing to wait for.
        */
-      const frozen = hasTour(sampleId)
+      const frozen = tour !== null
       if (frozen) args = [...args, '-S']
 
       /*

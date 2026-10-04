@@ -11,9 +11,14 @@ const { steps } = parseTour(
     .join('\n'),
 )
 
-function render(text: string, lines: string[], notes: string[] = []) {
+function render(text: string, lines: string[], notes: string[] = [], startedAt: number | null = null) {
   const html = renderToStaticMarkup(
-    <WaitingCard waiting={{ index: 1, text, do: lines, notes }} steps={steps} seen={new Set([0])} />,
+    <WaitingCard
+      waiting={{ index: 1, text, do: lines, notes }}
+      steps={steps}
+      seen={new Set([0])}
+      startedAt={startedAt}
+    />,
   )
   // Strip tags so assertions read against the visible text, not the markup.
   return { html, text: html.replace(/<[^>]+>/g, '') }
@@ -45,5 +50,10 @@ describe('WaitingCard', () => {
     const note = 'This view needs the traced build of this sample.'
     expect(render('Watch the queue fill.', [], [note]).text).toContain(note)
     expect(render('Watch the queue fill.', []).text).not.toContain(note)
+  })
+
+  it('says so when a link started the tour at this step', () => {
+    expect(render('Press **SW0**.', [], [], 2).text).toContain('Started at step 2')
+    expect(render('Press **SW0**.', []).text).not.toContain('Started at')
   })
 })

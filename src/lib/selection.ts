@@ -11,6 +11,8 @@
 export interface SampleSelection {
   /** App id on the current board. */
   sampleId: string
+  /** The tour to run there, by tour id. Omitted, the app's default tour runs. */
+  tourId?: string
 }
 
 type Selector = (next: SampleSelection) => void

@@ -84,7 +84,7 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
           {target && title && (
             <Button
               size="sm"
-              onClick={() => selectSample({ sampleId: target })}
+              onClick={() => selectSample({ sampleId: target, tourId: next ?? undefined })}
               title={`Open ${getSample(board, target).label} and start its tour`}
               className="h-7 min-w-0 px-3 text-xs"
             >

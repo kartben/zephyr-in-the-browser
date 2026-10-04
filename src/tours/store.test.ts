@@ -1007,6 +1007,87 @@ describe('state predicates in `when:`', () => {
   })
 })
 
+/** Three stops in a row; this build has nothing called `no_such_function`. */
+const LINEAR = `---
+tour: Linear
+sample: samples/basic/blinky
+---
+
+## One
+
+\`\`\`tour
+at: no_such_function
+\`\`\`
+
+Prose.
+
+## Two
+
+\`\`\`tour
+at: 0x9000
+\`\`\`
+
+Prose.
+
+## Three
+
+\`\`\`tour
+at: 0xa000
+\`\`\`
+
+Prose.
+`
+
+describe('starting part-way, from a `?step=` link', () => {
+  async function loadAt(startIndex: number) {
+    reset()
+    breakpoints.clear()
+    tourText.body = LINEAR
+    const id = `tour-${url++}`
+    // The fake session is already up, so loading arms the tour by itself:
+    // arming it again here would plant one step ahead.
+    await loadFor(id, undefined, { startIndex })
+    await settle()
+    return id
+  }
+
+  it('plants the step the link starts at first, and skips the ones before', async () => {
+    const id = await loadAt(1)
+    expect([...breakpoints]).toEqual([0x9000])
+    expect(getSteps().map((s) => s.skipped)).toEqual([true, false, false])
+    // Skipped is not unresolved: nobody asked this build about step 1's anchor.
+    expect(getSteps()[0]!.unresolved).toBe(false)
+    expect(getSnapshot()).toMatchObject({ tourId: id, startIndex: 1, armed: true, problems: [] })
+  })
+
+  it('finishes once every step from there on has had its turn', async () => {
+    await loadAt(1)
+    await stopAt(0x9000)
+    expect(getSnapshot().current?.step.title).toBe('Two')
+    next()
+    await settle()
+    expect([...breakpoints]).toEqual([0xa000])
+    await stopAt(0xa000)
+    next()
+    await settle()
+    expect(getSnapshot()).toMatchObject({ finished: true, completed: true })
+    expect([...getSnapshot().seen]).toEqual([1, 2])
+  })
+
+  it('still reports what it cannot resolve when the tour starts at the top', async () => {
+    await loadAt(0)
+    expect(getSnapshot().startIndex).toBe(0)
+    expect(getSnapshot().problems).toEqual([expect.stringContaining('step 1')])
+    expect([...breakpoints]).toEqual([0x9000])
+  })
+
+  it('takes the tour from the top when the link names a step past the end', async () => {
+    await loadAt(7)
+    expect(getSnapshot().startIndex).toBe(0)
+    expect(getSteps().some((s) => s.skipped)).toBe(false)
+  })
+})
+
 describe('the mock replay', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -1032,12 +1113,12 @@ describe('the mock replay', () => {
     return seen
   }
 
-  async function replay(body: string) {
+  async function replay(body: string, opts?: { startIndex?: number }) {
     reset()
     tourText.body = body
     vi.useFakeTimers()
     const ac = new AbortController()
-    startDemo(`tour-${url++}`, ac.signal)
+    startDemo(`tour-${url++}`, ac.signal, opts)
     await vi.advanceTimersByTimeAsync(0) // the tour loads
     return ac
   }
@@ -1080,6 +1161,14 @@ describe('the mock replay', () => {
     const ac = await replay(LIFECYCLE)
     expect(await beats(4, skip)).toEqual(['Main waits', 'nothing', 'nothing', 'nothing'])
     expect(getSnapshot()).toMatchObject({ finished: true, completed: false })
+    ac.abort()
+  })
+
+  it('starts where a `?step=` link starts the real tour', async () => {
+    const ac = await replay(LIFECYCLE, { startIndex: 1 })
+    expect(getSnapshot().startIndex).toBe(1)
+    expect(await beats(3)).toEqual(['your turn: 2', 'A press arrives', 'complete'])
+    expect([...getSnapshot().seen]).toEqual([1])
     ac.abort()
   })
 })

@@ -49,6 +49,7 @@ import { parsePredicate, type PredicateSpec } from '@/tours/predicate'
 import { isCommandLine, parsePlaceholders } from '@/tours/snippets'
 import { isShippableSource } from '@/tours/sources'
 import { parseWhen, type WhenSpec } from '@/tours/when'
+import { isTourId } from '@/tours/tourId'
 
 /** One row of a step's `watch:` list — `label = expression as format`. */
 export interface WatchSpec {
@@ -1136,11 +1137,13 @@ export function parseTour(text: string): TourDoc {
 
   if (fence !== null) problems.push('unclosed code fence')
 
-  // A tour id is an app id today; once a sample can host several tours it
-  // gains a `.slug`, so a dot is allowed. A path or a title is not.
+  // A tour id: the app's id for its default tour, `<app>.<slug>` for another
+  // of its tours. A path or a title is not one.
   let next = asScalar(front.get('next'))
-  if (next !== null && !/^[\w][\w.-]*$/.test(next)) {
-    problems.push(`front matter: \`next: ${next}\` is not a tour id (an app id, like \`basic_button\`)`)
+  if (next !== null && !isTourId(next)) {
+    problems.push(
+      `front matter: \`next: ${next}\` is not a tour id (\`basic_button\`, or \`basic_button.msgq\` for another tour of that app)`,
+    )
     next = null
   }
   if (next !== null && outro === null) {

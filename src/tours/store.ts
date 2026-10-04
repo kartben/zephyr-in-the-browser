@@ -158,6 +158,14 @@ export interface TourWaiting {
 
 export interface TourState {
   doc: TourDoc | null
+  /** Which tour `doc` is, by tour id (`blinky`, `basic_button.msgq`). */
+  tourId: string | null
+  /**
+   * The step a `?step=` link started the tour at, as an index; 0 from the top.
+   * The steps before it are skipped: never planted, never shown, and not
+   * problems either.
+   */
+  startIndex: number
   /** The reader has not turned tours off. */
   enabled: boolean
   /** Breakpoints are planted; the tour is waiting for the guest to arrive. */
@@ -188,6 +196,8 @@ export interface TourState {
 
 const EMPTY: TourState = {
   doc: null,
+  tourId: null,
+  startIndex: 0,
   enabled: true,
   armed: false,
   live: false,
@@ -204,6 +214,8 @@ export interface StepRuntime {
   anchor: ResolvedAnchor | null
   /** The anchor did not resolve against this build; the step is skipped. */
   unresolved: boolean
+  /** Before the step a `?step=` link started at: never resolved, never planted. */
+  skipped: boolean
   /** Breakpoint is currently planted. */
   planted: boolean
   hits: number
@@ -387,55 +399,80 @@ function stopTarget(stop: gdb.StopContext): TourTarget {
  * ------------------------------------------------------------------ */
 
 /*
- * Cached by sample id, misses included: a sample with no tour is as cacheable
- * as one with them. Same shape as the .dts cache in src/devicetree.ts.
+ * Cached by tour id, misses included: an id with no tour is as cacheable as
+ * one with them. Same shape as the .dts cache in src/devicetree.ts.
  */
 const cache = new Map<string, TourDoc | null>()
 
 /**
- * Parse a sample's tour. Never throws — a sample with no tour file, and a
- * document with no steps, both read as "no tour here".
+ * Parse a tour, by tour id. Never throws: no such tour file, and a document
+ * with no steps, both read as "no tour here".
  */
-export async function fetchTour(sampleId: string): Promise<TourDoc | null> {
-  const cached = cache.get(sampleId)
+export async function fetchTour(tourId: string): Promise<TourDoc | null> {
+  const cached = cache.get(tourId)
   if (cached !== undefined) return cached
-  const text = await loadTourSource(sampleId)
+  const text = await loadTourSource(tourId)
   const parsed = text === null ? null : parseTour(text)
   const doc = parsed && parsed.steps.length > 0 ? parsed : null
-  cache.set(sampleId, doc)
+  cache.set(tourId, doc)
   return doc
 }
 
 /**
- * Point the store at the running sample's tour. Safe to call when absent.
+ * Where a tour asked to start at step index `asked` really starts. A step past
+ * the last one is a stale link, and running nothing would look like a sample
+ * with no tour, so that one takes the tour from the top instead.
+ */
+function startOf(doc: TourDoc, asked = 0): number {
+  if (asked < doc.steps.length) return Math.max(0, asked)
+  console.warn(`[tour] there is no step ${asked + 1} in this tour; starting at the top`)
+  return 0
+}
+
+function runtimesOf(doc: TourDoc, startIndex: number): StepRuntime[] {
+  return doc.steps.map((step) => ({
+    step,
+    anchor: null,
+    unresolved: false,
+    skipped: step.index < startIndex,
+    planted: false,
+    hits: 0,
+    card: null,
+    passed: false,
+  }))
+}
+
+/**
+ * Point the store at a tour of the running sample, by tour id. Safe to call
+ * when absent.
  *
  * `sourceFor` maps a path under the sample's shipped sources (`main.c`,
  * `zephyr/kernel/msg_q.c`, `index.json`) to its URL; a tour that anchors by
  * pattern needs the text to search, and only the caller knows which board's
  * assets are in play. Those come from the image build, so they can be absent
  * where the tour itself never is.
+ *
+ * `startIndex` is where a `?step=` link enters the tour. The steps before it
+ * are skipped rather than planted: the guest still runs from reset, and the
+ * first breakpoint is that step's.
  */
 export async function loadFor(
-  sampleId: string,
+  tourId: string,
   sourceFor?: (file: string) => string,
+  opts: { startIndex?: number } = {},
 ): Promise<void> {
   sourceUrl = sourceFor ?? null
-  const doc = await fetchTour(sampleId)
+  const doc = await fetchTour(tourId)
   if (!doc) return
   // Started now, awaited when arming: a fetch must not hold up the attach
   // hook below, which has to be in place before the stub opens.
   shipped = sourceFor ? fetchIndex(sourceFor('index.json')) : Promise.resolve(null)
-  steps = doc.steps.map((step) => ({
-    step,
-    anchor: null,
-    unresolved: false,
-    planted: false,
-    hits: 0,
-    card: null,
-    passed: false,
-  }))
+  const startIndex = startOf(doc, opts.startIndex)
+  steps = runtimesOf(doc, startIndex)
   publish({
     doc,
+    tourId,
+    startIndex,
     problems: [...doc.problems],
     finished: false,
     completed: false,
@@ -510,7 +547,9 @@ export async function arm(): Promise<void> {
   const problems = [...(state.doc?.problems ?? [])]
 
   for (const runtime of steps) {
-    if (runtime.anchor) continue
+    // A step a link started past is not resolved, so it is never planted, and
+    // an anchor it could not have used is nobody's problem.
+    if (runtime.anchor || runtime.skipped) continue
     const result = resolveAnchor(runtime.step.at, context)
     if (!result.ok) {
       problems.push(`step ${runtime.step.index + 1}: ${result.error}`)
@@ -1070,7 +1109,9 @@ export function next(): void {
   const card = state.current
   publish({ current: null })
   void (async () => {
-    const finished = steps.every((s) => s.unresolved || (s.card !== null && !retrying(s)))
+    const finished = steps.every(
+      (s) => s.unresolved || s.skipped || (s.card !== null && !retrying(s)),
+    )
     if (finished) {
       await disarm()
       publish({ armed: false, finished: true, completed: true, waiting: null })
@@ -1147,21 +1188,23 @@ const DEMO_STEP_MS = 3200
  * on a timer and every card that would have read the target says so instead of
  * inventing a number — a fabricated `pin = 4` on a page whose whole premise is
  * "this is really running" would be the wrong kind of convincing.
+ *
+ * A `?step=` link's `startIndex` starts the replay where it starts the real
+ * tour, with the steps before it skipped the same way.
  */
-export function startDemo(sampleId: string, signal: AbortSignal): () => void {
-  void fetchTour(sampleId).then((doc) => {
+export function startDemo(
+  tourId: string,
+  signal: AbortSignal,
+  opts: { startIndex?: number } = {},
+): () => void {
+  void fetchTour(tourId).then((doc) => {
     if (!doc || signal.aborted) return
-    steps = doc.steps.map((step) => ({
-    step,
-    anchor: null,
-    unresolved: false,
-    planted: false,
-    hits: 0,
-    card: null,
-    passed: false,
-  }))
+    const startIndex = startOf(doc, opts.startIndex)
+    steps = runtimesOf(doc, startIndex)
     publish({
       doc,
+      tourId,
+      startIndex,
       live: false,
       armed: false,
       problems: [...doc.problems],
@@ -1170,7 +1213,7 @@ export function startDemo(sampleId: string, signal: AbortSignal): () => void {
       waiting: null,
     })
 
-    let index = 0
+    let index = startIndex
     /** The step whose your-turn beat has been shown, so each gets exactly one. */
     let prompted = -1
     const tick = () => {

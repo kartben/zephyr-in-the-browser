@@ -19,6 +19,7 @@
  */
 
 import type { Board } from '@/boards'
+import { appOfTour, NO_TOUR } from '@/tours/tourId'
 
 const MODULES = import.meta.glob('/tours/*.tour.md', {
   query: '?raw',
@@ -37,33 +38,71 @@ export function baseSampleId(sampleId: string): string {
   return sampleId.replace(/_trace$/, '')
 }
 
-/** Every sample id with a tour, from the files themselves. */
+/** Every tour id, from the files themselves: `<app>` and `<app>.<slug>`. */
 export function tourIds(): string[] {
   return Object.keys(MODULES).map(idOf).sort()
 }
 
-/** True when this sample has a tour — no list to keep in step with anything. */
+/**
+ * A sample's tours: its default tour first, then the others in name order.
+ * `ids` is for tests; the page passes nothing and gets the bundled tours.
+ */
+export function toursForApp(sampleId: string, ids: readonly string[] = tourIds()): string[] {
+  const app = baseSampleId(sampleId)
+  const tours = ids.filter((id) => appOfTour(id) === app)
+  return [...tours.filter((id) => id === app), ...tours.filter((id) => id !== app).sort()]
+}
+
+/**
+ * The tour a sample runs when the link names none: `tours/<app>.tour.md`, or
+ * its first other tour when it has no such file.
+ */
+export function defaultTourFor(sampleId: string, ids?: readonly string[]): string | null {
+  return toursForApp(sampleId, ids)[0] ?? null
+}
+
+/** True when this sample has any tour, from the files alone: no list to keep in step. */
 export function hasTour(sampleId: string): boolean {
-  return MODULES[`/tours/${baseSampleId(sampleId)}.tour.md`] !== undefined
+  return defaultTourFor(sampleId) !== null
+}
+
+/**
+ * The tour a boot of this sample runs, given the `?tour=` it was asked for.
+ *
+ * `none` runs none. One of this sample's tours runs that one. Anything else
+ * (nothing asked, a tour that does not exist, another app's) runs the default
+ * tour: a stale or mistyped link still lands on the sample's tour rather than
+ * on a sample that says nothing.
+ */
+export function tourToRun(
+  sampleId: string,
+  asked: string | null,
+  ids?: readonly string[],
+): string | null {
+  if (asked === NO_TOUR) return null
+  const tours = toursForApp(sampleId, ids)
+  if (asked !== null && tours.includes(asked)) return asked
+  return tours[0] ?? null
 }
 
 /**
  * The app a tour's `next:` runs as on this board, or null when the board does
  * not offer it.
  *
- * A tour id is an app id. A reader on a traced twin stays on one when the
+ * A tour id names its app. A reader on a traced twin stays on one when the
  * board has it: the tour they just finished may have pointed them at Trace,
  * and they chose the build that has it.
  */
 export function nextSampleId(board: Board, sampleId: string, tourId: string): string | null {
+  const app = appOfTour(tourId)
   const offered = (id: string) => board.samples.some((s) => s.id === id)
-  if (sampleId.endsWith('_trace') && offered(`${tourId}_trace`)) return `${tourId}_trace`
-  return offered(tourId) ? tourId : null
+  if (sampleId.endsWith('_trace') && offered(`${app}_trace`)) return `${app}_trace`
+  return offered(app) ? app : null
 }
 
-/** The tour's Markdown, or null when the sample has none. */
-export async function loadTourSource(sampleId: string): Promise<string | null> {
-  const load = MODULES[`/tours/${baseSampleId(sampleId)}.tour.md`]
+/** A tour's Markdown, by tour id, or null when there is no such tour. */
+export async function loadTourSource(tourId: string): Promise<string | null> {
+  const load = MODULES[`/tours/${tourId}.tour.md`]
   if (!load) return null
   try {
     return await load()

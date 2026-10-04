@@ -65,10 +65,12 @@ function card(index: number): TourCardState {
   }
 }
 
-/** The card's root element, as rendered: the attributes are what the harness reads. */
-function root(state: Partial<TourState>): string {
+/** The card as rendered, over a store in `state`. */
+function render(state: Partial<TourState>): string {
   tour.state = {
     doc,
+    tourId: 'basic_button',
+    startIndex: 0,
     enabled: true,
     armed: true,
     live: true,
@@ -80,7 +82,12 @@ function root(state: Partial<TourState>): string {
     problems: [],
     ...state,
   } satisfies TourState
-  const html = renderToStaticMarkup(<TourCard board={board} sampleId="basic_button" />)
+  return renderToStaticMarkup(<TourCard board={board} sampleId="basic_button" />)
+}
+
+/** The card's root element, as rendered: the attributes are what the harness reads. */
+function root(state: Partial<TourState>): string {
+  const html = render(state)
   return /^<div[^>]*>/.exec(html)?.[0] ?? html
 }
 
@@ -112,5 +119,29 @@ describe('TourCard data-tour-* attributes', () => {
 
   it('renders nothing between cards', () => {
     expect(root({ armed: true })).toBe('')
+  })
+})
+
+describe('TourCard links', () => {
+  const text = (html: string) => html.replace(/<[^>]+>/g, ' ')
+
+  it('offers a link to the step on screen', () => {
+    expect(render({ current: card(1), seen: new Set([1]) })).toContain(
+      'aria-label="Copy a link to this step"',
+    )
+  })
+
+  it('says where a `?step=` link started the tour, on the first card only', () => {
+    const first = render({ current: card(1), startIndex: 1, seen: new Set([1]) })
+    expect(text(first)).toContain('Started at step 2')
+    const later = render({ current: card(2), startIndex: 1, seen: new Set([1, 2]) })
+    expect(text(later)).not.toContain('Started at')
+    const fromTop = render({ current: card(1), seen: new Set([0, 1]) })
+    expect(text(fromTop)).not.toContain('Started at')
+  })
+
+  it('says it on the your-turn card when that is the first card', () => {
+    const waiting = { index: 2, text: 'Press **SW0**.', do: [], notes: [] }
+    expect(text(render({ waiting, startIndex: 2 }))).toContain('Started at step 3')
   })
 })

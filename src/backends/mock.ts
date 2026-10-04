@@ -67,7 +67,7 @@ export function createMockBackend(): PtyBackend {
     label: 'Mock shell',
     resetRequiresReload: false,
 
-    async start(slave: Slave, { board, sampleId, onStatus, signal }: StartOptions) {
+    async start(slave: Slave, { board, sampleId, tour, onStatus, signal }: StartOptions) {
       teardown()
       onStatus({ status: 'loading', detail: 'starting demo' })
 
@@ -171,9 +171,7 @@ export function createMockBackend(): PtyBackend {
       // is no machine to break in, so the steps advance on a timer and the
       // cards say plainly that their values would have come from the target —
       // enough to read the tour on a bare checkout, honest about what it is.
-      disposers.push(
-        startTourDemo(sampleId, signal),
-      )
+      if (tour) disposers.push(startTourDemo(tour.id, signal, { startIndex: tour.startIndex }))
     },
 
     async reset() {
