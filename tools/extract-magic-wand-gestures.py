@@ -14,8 +14,9 @@ script makes that file reproducible. It needs numpy and ai-edge-litert
 2. Load the model straight out of the guest app
    (zephyr-module/apps/magic_wand/src/magic_wand_model_data.cpp).
 3. Stream each recording through a Python copy of the guest loop: a 128-sample
-   window in milli-g, one inference per sample, a five-prediction average
-   against the 0.8 threshold, and the fork's one-window suppression.
+   window in milli-g, one inference per sample, the average of the last five
+   samples' predictions against the 0.8 threshold, and the fork's one-window
+   suppression.
 4. Each detection of the right class marks a gesture the model saw. Cut the
    window it saw, bend its ends onto the card's resting pose (flat, +1 g on Z)
    so a replay starts and ends where the card sits, add a second of rest, and
@@ -119,12 +120,12 @@ class Guest:
         self.scale = scale
         self.stride = stride
         self.quantise = quantise
-        self.suppression = -(-SUPPRESSION_SAMPLES // stride)
         self.ring = []
         self.count = 0
-        self.history = [[0.0] * HISTORY for _ in range(4)]
-        self.hist_index = 0
-        self.suppress = 0
+        # Like gesture_predictor.cpp: (sample count, scores) of recent inferences.
+        self.history = []
+        # Like gesture_predictor.cpp: no detection before this sample count.
+        self.suppressed_until = 0
 
     def step(self, sample_g):
         """Feed one sample. Returns (gesture or None, averaged scores or None)."""
@@ -141,16 +142,14 @@ class Guest:
         self.it.set_tensor(self.inp, tensor)
         self.it.invoke()
         scores = self.it.get_tensor(self.out)[0]
-        for g in range(4):
-            self.history[g][self.hist_index] = float(scores[g])
-        self.hist_index = (self.hist_index + 1) % HISTORY
-        averages = [sum(h) / HISTORY for h in self.history]
+        # The average of the predictions from the last HISTORY samples.
+        self.history = [(c, s) for c, s in self.history[-(HISTORY - 1):] if self.count - c < HISTORY]
+        self.history.append((self.count, [float(v) for v in scores]))
+        averages = [sum(s[g] for _, s in self.history) / len(self.history) for g in range(4)]
         best = max(range(4), key=lambda g: averages[g])
-        if self.suppress > 0:
-            self.suppress -= 1
-        if best == NO_GESTURE or averages[best] < THRESHOLD or self.suppress > 0:
+        if best == NO_GESTURE or averages[best] < THRESHOLD or self.count < self.suppressed_until:
             return None, averages
-        self.suppress = self.suppression
+        self.suppressed_until = self.count + SUPPRESSION_SAMPLES
         return best, averages
 
 

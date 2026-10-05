@@ -15,11 +15,14 @@
  *
  * Modified for zephyr-in-the-browser from Zephyr's
  * samples/modules/tflite-micro/magic_wand (commit 8f62a4ab82b5): a detection
- * holds off the next one for a whole window instead of 25 inferences.
+ * holds off the next one for a whole window of samples instead of 25
+ * inferences, and the average covers a span of samples, not of inferences.
  */
 
 #ifndef TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_CONSTANTS_H_
 #define TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_CONSTANTS_H_
+
+#include <stdint.h>
 
 /* The expected accelerometer data sample frequency */
 const float kTargetHz = 25;
@@ -38,14 +41,16 @@ constexpr int kNoGesture = 3;
  * predictions.
  */
 constexpr float kDetectionThreshold = 0.8f;
+/* The predictions from this many latest samples are averaged: five inferences
+ * when inference keeps up with the 25 Hz sampler.
+ */
 constexpr int kPredictionHistoryLength = 5;
 
 /* A gesture stays in the model's 128-sample window for about five seconds
- * after it ends, and with 25 the same gesture was reported up to four times.
- * Counted in inferences, which run every CONFIG_MAGIC_WAND_INFERENCE_STRIDE
- * samples.
+ * after it ends, and holding off for 25 inferences reported the same gesture up
+ * to four times. Counted in samples, so it lasts the same however often
+ * inference runs.
  */
-constexpr int kPredictionSuppressionDuration =
-	(128 + CONFIG_MAGIC_WAND_INFERENCE_STRIDE - 1) / CONFIG_MAGIC_WAND_INFERENCE_STRIDE;
+constexpr uint32_t kPredictionSuppressionSamples = 128;
 
 #endif /* TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_CONSTANTS_H_ */
