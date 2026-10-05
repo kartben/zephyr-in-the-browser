@@ -60,7 +60,11 @@ events carry addresses only; the topology names them.
 Zephyr main has no zbus tracing. The events above come from a proposed patch
 that adds `sys_port_trace_zbus_*` hooks (on by default with
 `CONFIG_TRACING_ZBUS`, which follows `CONFIG_ZBUS`), calls them from
-`subsys/zbus/zbus.c`, and records them as CTF events `0x186` to `0x197`.
+`subsys/zbus/zbus.c`, and records them as CTF events `0x186` to `0x197`. It is
+on the `browser-traces` branch of
+[kartben/zephyr](https://github.com/kartben/zephyr/tree/browser-traces), on top
+of Zephyr main, with the PM hooks the Power band reads
+([cpu-power-states.md](cpu-power-states.md)).
 
 Until it lands, the images this site deploys are built from Zephyr main, so on
 them the tab shows the channels and observers with a note, and no activity.
@@ -70,7 +74,7 @@ queue and an async listener's FIFO, under the names zbus gave them.
 To see the activity, build the images from a tree with the patch applied:
 
 ```sh
-# In a scratch west workspace whose zephyr/ has the patch series applied
+# In a scratch west workspace whose zephyr/ is kartben/zephyr browser-traces
 ZEPHYR_WS=<workspace> tools/build-zephyr-image.sh qemu_cortex_a53 zbus
 ```
 
