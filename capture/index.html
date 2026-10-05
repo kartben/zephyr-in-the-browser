@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Train the Magic Wand</title>
+    <meta
+      name="description"
+      content="Record Magic Wand gestures with your phone's motion sensor to help train the Zephyr in the Browser TinyML sample."
+    />
+  </head>
+  <body>
+    <!--
+      Its own small page, not a route in the emulator app: a phone that opens it
+      to record gestures never downloads the emulator. It needs no cross-origin
+      isolation, so no coi-serviceworker either.
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/capture/main.tsx"></script>
+  </body>
+</html>

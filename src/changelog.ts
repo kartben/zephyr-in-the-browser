@@ -69,7 +69,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Magic Wand TinyML sample on Cortex-A53, with replayable gestures."
+        "text": "Magic Wand TinyML sample on Cortex-A53, with replayable gestures and a capture page."
       },
       {
         "tag": "Added",

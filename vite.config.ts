@@ -305,6 +305,16 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.join(root, 'src') },
   },
+  build: {
+    rollupOptions: {
+      // The gesture capture page is its own entry, so a phone that opens it to
+      // record never downloads the emulator app (capture/index.html).
+      input: {
+        main: path.join(root, 'index.html'),
+        capture: path.join(root, 'capture/index.html'),
+      },
+    },
+  },
   server: {
     // The emulator artifacts are large; don't let Vite watch them.
     watch: { ignored: ['**/public/qemu/**'] },
