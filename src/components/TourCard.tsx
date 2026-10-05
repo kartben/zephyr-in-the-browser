@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { sampleSourceAsset, type Board } from '@/boards'
 import * as debug from '@/debug/control'
 import * as dtsStore from '@/devicetree'
+import { stripDtsProvenance } from '@/dts/provenance'
 import * as debugUi from '@/lib/debugUi'
 import { getSnapshot, next, skip, subscribe, type TourValue } from '@/tours/store'
 import { resolveHighlightSpecs } from '@/tours/parse'
@@ -79,9 +80,11 @@ export function TourCard({ board, sampleId }: Props) {
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
   const dts = useSyncExternalStore(dtsStore.subscribe, dtsStore.get, dtsStore.get)
   const card = state.current
+  // The tree as the card shows it, without the build's provenance comments.
+  const dtsLines = useMemo(() => (dts ? stripDtsProvenance(dts.text.split('\n')) : null), [dts])
   const dtsRanges = useMemo(
-    () => resolveHighlightSpecs(card?.step.dts ?? [], dts?.text.split('\n')),
-    [card?.step.dts, dts?.text],
+    () => resolveHighlightSpecs(card?.step.dts ?? [], dtsLines ?? undefined),
+    [card?.step.dts, dtsLines],
   )
   const nextTitle = useTourTitle(state.doc?.next ?? null)
 
@@ -277,9 +280,9 @@ export function TourCard({ board, sampleId }: Props) {
             </div>
           )}
 
-          {showSource && dts && dtsRanges.length > 0 && (
+          {showSource && dts && dtsLines && dtsRanges.length > 0 && (
             <SourceSnippet
-              text={dts.text}
+              text={dtsLines.join('\n')}
               filename={dts.name}
               language="dts"
               ranges={dtsRanges}

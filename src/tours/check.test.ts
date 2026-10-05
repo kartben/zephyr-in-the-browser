@@ -370,6 +370,20 @@ describe('checkTour', () => {
       },
     ])
   })
+
+  it('matches `dts:` against the tree as the card shows it, without provenance comments', () => {
+    const built = [
+      "\t\t/* node '/leds/led_0' defined in board.dts:4 */",
+      '\t\tled0: led_0 {',
+      '\t\t\tgpios = <&gpio0 2 0>; /* in board.dts:5 */',
+      '\t\t};',
+    ]
+    const ctx = context({ dts: { name: 'app.dts', lines: built } })
+    expect(checkTour(tour('at: main\ndts: /led0: led_0/ + 2'), ctx)).toEqual([])
+    expect(checkTour(tour('at: main\ndts: /board\\.dts/'), ctx)).toEqual([
+      expect.objectContaining({ kind: 'dts', severity: 'warn' }),
+    ])
+  })
 })
 
 describe('the report', () => {

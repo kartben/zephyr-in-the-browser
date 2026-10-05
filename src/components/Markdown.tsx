@@ -10,7 +10,7 @@
  */
 
 import { isRunnableShell, parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/tours/markdown'
-import { highlightCode, isCLanguage } from '@/lib/highlight'
+import { grammarFor, highlightCode } from '@/lib/highlight'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
 import { TourDiagram } from '@/components/tour/TourDiagram'
 
@@ -62,13 +62,14 @@ function Spans({ spans }: { spans: InlineSpan[] }) {
 
 function CodeBlockView({ language, text }: { language: string; text: string }) {
   const html = highlightCode(text, language)
+  const grammar = grammarFor(language)
   return (
     <pre
       className="overflow-x-auto rounded border border-border bg-muted/60 p-2 font-mono text-[11px] leading-relaxed text-foreground"
       data-language={language || undefined}
     >
       <code
-        className={isCLanguage(language) ? 'language-c hljs' : undefined}
+        className={grammar ? `language-${grammar} hljs` : undefined}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </pre>

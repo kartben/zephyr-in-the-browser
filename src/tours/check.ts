@@ -27,6 +27,7 @@ import {
   type ResolvedAnchor,
 } from '@/tours/anchors'
 import { expressionNames, type ExpressionNames } from '@/tours/expr'
+import { stripDtsProvenance } from '@/dts/provenance'
 import { resolveHighlightSpecs, type HighlightSpec, type TourDoc, type TourStep } from '@/tours/parse'
 import { predicateIdentifiers } from '@/tours/predicate'
 
@@ -306,7 +307,9 @@ function checkDts(step: TourStep, ctx: CheckContext, check: StepCheck): void {
     check.noDts = true
     return
   }
-  const { name, lines } = ctx.dts
+  const { name } = ctx.dts
+  // Matched as the card shows the tree, without the build's provenance comments.
+  const lines = stripDtsProvenance(ctx.dts.lines)
   if (step.dts.some((spec) => marks(spec, lines))) return
   const written = step.dts.map((spec) => `\`${spellSpec(spec)}\``).join(', ')
   check.add(

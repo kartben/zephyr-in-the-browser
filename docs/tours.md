@@ -501,8 +501,11 @@ highlight: /GPIO_DT_SPEC_GET/
 dts: /led0: led_0/ + 3
 ```
 
-The card shows a second excerpt, labelled with the `.dts` file name. Absence
-(a user ELF with no tree) is silent: the prose still stands.
+The card shows a second excerpt, labelled with the `.dts` file name and
+coloured as devicetree. It leaves out the comments the build adds about where
+each line came from (`/* in <file>:<line> */` after a property, `/* node …
+defined in … */` above a node), so `+ N` counts the lines the reader sees.
+Absence (a user ELF with no tree) is silent: the prose still stands.
 
 ### `objects:`
 
