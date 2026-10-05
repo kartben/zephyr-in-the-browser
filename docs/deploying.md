@@ -111,7 +111,8 @@ gh workflow run build-images.yml -f deploy=true  # ...and make it live now
 The runner gets a west workspace and both guest toolchains from
 [zephyrproject-rtos/action-zephyr-setup](https://github.com/zephyrproject-rtos/action-zephyr-setup),
 driven by the [west.yml](../west.yml) manifest at the repo root — Zephyr's
-revision (currently `main`) and the module allowlist are pinned there.
+revision (currently kartben/zephyr `browser-traces`, Zephyr main plus the
+zbus and PM trace hooks) and the module allowlist are pinned there.
 `tools/build-zephyr-image.sh` prefers a local `west` + `ZEPHYR_WS` (parallel
 native builds). CI sets `ZEPHYR_NATIVE=1` explicitly against the workspace from
 action-zephyr-setup; set `ZEPHYR_DOCKER=1` to force the container path.
