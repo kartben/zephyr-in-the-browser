@@ -8,7 +8,8 @@
  *   1. **Frame-pointer chain** — when the guest was built with frame pointers
  *      (`CONFIG_FRAME_POINTER=y`, which packaged images set), each frame stores
  *      `{caller fp, return address}` at a known place relative to fp. Walking
- *      that chain is exact, so it is tried first.
+ *      that chain is exact, so it is tried first. A frame that has not saved
+ *      its record yet is not on the chain, and its caller comes from LR.
  *   2. **Stack scan** — otherwise, read words up the thread's stack and keep
  *      the ones that land *inside* a function (offset > 0). A return address
  *      always points after a call, never at a function's first instruction, so
@@ -126,6 +127,41 @@ function isReturnAddress(addr: number, resolve: UnwindOptions['resolve']): Resol
   return fn
 }
 
+/**
+ * Where returning from a call leaves the link register as the call set it: a
+ * callee that changes LR reloads it from its frame record before `ret`, so
+ * once a call frame 0 made has returned, LR points back into frame 0. Thumb
+ * returns with `pop {..., pc}` and leaves LR as the last callee set it, so
+ * there LR proves nothing about who called frame 0.
+ */
+const LR_RESTORED_ON_RETURN: ReadonlySet<GdbArch> = new Set(['aarch64', 'riscv32'])
+
+/**
+ * Frame 0's caller, when the frame-pointer chain starts above it.
+ *
+ * Until frame 0 saves its own frame record, fp still points at its caller's,
+ * so the chain's first return address is the caller's caller and the caller
+ * itself is only in LR. That is the case at a function's first instructions,
+ * past a line-table prologue when the compiler moved the save further in
+ * (shrink-wrapping), in a leaf that never saves one, and after the epilogue.
+ * LR returning into another function than frame 0's can only be that caller;
+ * when it is the chain's first return address, the chain already has it. A
+ * recursive call returns into frame 0's own function, and is the one case
+ * this cannot tell from a stale LR.
+ */
+function unsavedCaller(
+  opts: UnwindOptions,
+  frame0: StackFrame | undefined,
+  chainTop: StackFrame,
+): StackFrame | null {
+  if (!LR_RESTORED_ON_RETURN.has(opts.arch) || !frame0?.fn || opts.lr == null) return null
+  const lr = codeAddr(opts.arch, opts.lr)
+  if (lr === chainTop.addr) return null
+  const fn = isReturnAddress(lr, opts.resolve)
+  if (!fn || fn.addr === frame0.fn.addr) return null
+  return makeFrame(lr, 'lr', null, opts.resolve)
+}
+
 /** Follow `{caller fp, return address}` records while they stay sane. */
 async function walkFramePointer(
   opts: UnwindOptions,
@@ -228,7 +264,9 @@ export async function unwindStack(opts: UnwindOptions): Promise<UnwindResult> {
 
   const viaFp = await walkFramePointer(opts, limit - frames.length)
   if (viaFp.length > 0) {
-    frames.push(...viaFp)
+    const caller = unsavedCaller(opts, frames[0], viaFp[0]!)
+    if (caller) frames.push(caller)
+    frames.push(...viaFp.slice(0, limit - frames.length))
     return {
       frames,
       method: 'fp',

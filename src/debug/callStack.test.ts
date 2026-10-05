@@ -114,6 +114,90 @@ describe('unwindStack', () => {
     expect(result.frames[1]!.label).toBe('work+0x40')
   })
 
+  it('takes the caller from LR when frame 0 has not saved its frame record', async () => {
+    // Stopped at leaf's first instruction: fp is still work's, and work's
+    // record holds the return into main. The return into work is in LR.
+    const mem = memory(8)
+    const sp = 0x4000_0000
+    mem.writeWord(sp + 0x40, 0) // chain ends
+    mem.writeWord(sp + 0x48, 0x8_0050) // return into main
+
+    const result = await unwindStack({
+      arch: 'aarch64',
+      pc: 0x8_0200,
+      sp,
+      fp: sp + 0x40,
+      lr: 0x8_0140,
+      read: mem.read,
+      resolve,
+    })
+
+    expect(result.method).toBe('fp')
+    expect(result.frames.map((f) => f.label)).toEqual(['leaf', 'work+0x40', 'main+0x50'])
+    expect(result.frames.map((f) => f.origin)).toEqual(['pc', 'lr', 'fp'])
+  })
+
+  it('does the same on RISC-V, whose records sit below fp', async () => {
+    const mem = memory(4)
+    const sp = 0x8000_1000
+    const fp = sp + 0x20 // work's frame: [fp-8] caller fp, [fp-4] return
+    mem.writeWord(fp - 8, 0) // chain ends
+    mem.writeWord(fp - 4, 0x8_0050) // return into main
+
+    const result = await unwindStack({
+      arch: 'riscv32',
+      pc: 0x8_0204,
+      sp,
+      fp,
+      lr: 0x8_0140,
+      read: mem.read,
+      resolve,
+    })
+
+    expect(result.frames.map((f) => f.label)).toEqual(['leaf+0x4', 'work+0x40', 'main+0x50'])
+    expect(result.frames.map((f) => f.origin)).toEqual(['pc', 'lr', 'fp'])
+  })
+
+  it('leaves LR out once frame 0 has saved its record', async () => {
+    const mem = memory(8)
+    const sp = 0x4000_0000
+    mem.writeWord(sp + 0x20, sp + 0x40) // leaf's record: caller fp
+    mem.writeWord(sp + 0x28, 0x8_0140) // return into work
+    mem.writeWord(sp + 0x40, 0)
+    mem.writeWord(sp + 0x48, 0x8_0050) // return into main
+
+    const unwind = (lr: number) =>
+      unwindStack({ arch: 'aarch64', pc: 0x8_0210, sp, fp: sp + 0x20, lr, read: mem.read, resolve })
+
+    // LR still holds the return the record saved: no second copy of work.
+    expect((await unwind(0x8_0140)).frames.map((f) => f.label)).toEqual([
+      'leaf+0x10',
+      'work+0x40',
+      'main+0x50',
+    ])
+    // A call leaf made has returned, so LR points back into leaf: not a caller.
+    expect((await unwind(0x8_0230)).frames.map((f) => f.origin)).toEqual(['pc', 'fp', 'fp'])
+  })
+
+  it('does not take the caller from LR on Thumb, where a return leaves it stale', async () => {
+    const mem = memory(4)
+    const sp = 0x2000_0000
+    mem.writeWord(sp + 0x20, 0) // r7 record: chain ends
+    mem.writeWord(sp + 0x24, 0x8_0051) // return into main, Thumb bit set
+
+    const result = await unwindStack({
+      arch: 'arm',
+      pc: 0x8_0210,
+      sp,
+      fp: sp + 0x20,
+      lr: 0x8_0141, // into work, but possibly left by a callee that returned
+      read: mem.read,
+      resolve,
+    })
+
+    expect(result.frames.map((f) => f.origin)).toEqual(['pc', 'fp'])
+  })
+
   it('scans the stack for plausible callers, skipping function starts', async () => {
     const mem = memory(8)
     const sp = 0x4000_0000
