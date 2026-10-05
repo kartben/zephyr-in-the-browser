@@ -1,14 +1,13 @@
 /**
  * `.debug_info` as a tree of DIEs, one compilation unit at a time.
  *
- * The other DWARF readers here each walk the section once for one answer (a
- * struct's member offsets, a function's parameter names). Reading a variable
- * needs the tree itself: scopes nest, a concrete function names nothing and
- * points at its abstract origin for that, and a type is a chain of references.
- * So this one parses a unit into DIE objects the first time something asks
- * about it, and keeps it. Only the unit holding the PC, and the units a lookup
- * leads to, are ever parsed: a 5 MB `.debug_info` costs nothing until a hover
- * needs it.
+ * The other DWARF reader here walks the section once for one answer (a
+ * struct's member offsets). Reading a variable needs the tree itself: scopes
+ * nest, a concrete function names nothing and points at its abstract origin
+ * for that, and a type is a chain of references. So this one parses a unit
+ * into DIE objects the first time something asks about it, and keeps it. Only
+ * the unit holding the PC, and the units a lookup leads to, are ever parsed: a
+ * 5 MB `.debug_info` costs nothing until a hover needs it.
  *
  * Handles DWARF 2 to 5, both offset sizes, and the DWARF 5 index forms
  * (strx, addrx, loclistx, rnglistx) with their unit bases, although GCC's

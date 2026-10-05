@@ -121,6 +121,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Fixed",
+        "text": "Debug register tooltips name the current function's arguments."
+      },
+      {
+        "tag": "Fixed",
         "text": "Tour cards keep the stop line in view and name data pointers."
       },
       {

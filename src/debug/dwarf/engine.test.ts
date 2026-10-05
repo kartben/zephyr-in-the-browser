@@ -276,3 +276,129 @@ describe('createInspector on a hand-built unit', () => {
     expect(createInspector({ elf: bare, pc: 0, registers: '', arch: 'arm', symbols: null, read: async () => null })).toBeNull()
   })
 })
+
+/* ------------------------------------------------------------------ *
+ * Parameter names for the register tooltips, in a second unit:
+ *
+ *   static inline int scale(int value, int shift);
+ *   static int clamp(int lo, int v);
+ *   int filter(int *s, int gain) {         // 0x2000..0x2040
+ *     ... scale(*s, gain) ...              // inlined at 0x2010..0x2020
+ *   }
+ *   void report(int, int level);           // 0x2060..0x2070, first one unnamed
+ *
+ * scale is also kept out of line, split in two (0x2040..0x2050 and
+ * 0x2080..0x2090), and names its parameters only through its abstract
+ * origin, as button_input_cb does in the real images; no DIE is left for
+ * `shift`. clamp exists only as clamp.constprop.0 (0x2050..0x2060), made
+ * for lo == 0, and GCC lists the parameter it no longer takes last.
+ * ------------------------------------------------------------------ */
+
+const splitScale = listSection([
+  RLE.start_length, ...u32(0x2040), ...uleb(0x10),
+  RLE.start_length, ...u32(0x2080), ...uleb(0x10),
+  RLE.end_of_list,
+])
+
+const paramsUnit: DieSpec = {
+  tag: TAG.compile_unit,
+  attrs: [
+    [AT.name, FORM.string, 'filter.c'],
+    [AT.low_pc, FORM.addr, 0x2000],
+    [AT.high_pc, FORM.data4, 0x100],
+  ],
+  children: [
+    { id: 'int', tag: TAG.base_type, attrs: [[AT.name, FORM.string, 'int'], [AT.byte_size, FORM.data1, 4], [AT.encoding, FORM.data1, ATE.signed]] },
+    {
+      id: 'scale',
+      tag: TAG.subprogram,
+      attrs: [[AT.name, FORM.string, 'scale'], [AT.inline, FORM.data1, 3]],
+      children: [
+        { id: 'scale.value', tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 'value'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+        { id: 'scale.shift', tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 'shift'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+      ],
+    },
+    {
+      id: 'clamp',
+      tag: TAG.subprogram,
+      attrs: [[AT.name, FORM.string, 'clamp'], [AT.inline, FORM.data1, 1]],
+      children: [
+        { id: 'clamp.lo', tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 'lo'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+        { id: 'clamp.v', tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 'v'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+      ],
+    },
+    {
+      tag: TAG.subprogram,
+      attrs: [[AT.name, FORM.string, 'filter'], [AT.low_pc, FORM.addr, 0x2000], [AT.high_pc, FORM.data4, 0x40]],
+      children: [
+        { tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 's'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+        { tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 'gain'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+        {
+          tag: TAG.inlined_subroutine,
+          attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'scale' }], [AT.low_pc, FORM.addr, 0x2010], [AT.high_pc, FORM.data4, 0x10]],
+          children: [
+            { tag: TAG.formal_parameter, attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'scale.value' }]] },
+            { tag: TAG.formal_parameter, attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'scale.shift' }]] },
+          ],
+        },
+      ],
+    },
+    {
+      tag: TAG.subprogram,
+      attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'scale' }], [AT.ranges, FORM.sec_offset, splitScale.first]],
+      children: [{ tag: TAG.formal_parameter, attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'scale.value' }]] }],
+    },
+    {
+      tag: TAG.subprogram,
+      attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'clamp' }], [AT.low_pc, FORM.addr, 0x2050], [AT.high_pc, FORM.data4, 0x10]],
+      children: [
+        { tag: TAG.formal_parameter, attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'clamp.v' }]] },
+        { tag: TAG.formal_parameter, attrs: [[AT.abstract_origin, FORM.ref4, { ref: 'clamp.lo' }], [AT.const_value, FORM.data1, 0]] },
+      ],
+    },
+    {
+      tag: TAG.subprogram,
+      attrs: [[AT.name, FORM.string, 'report'], [AT.low_pc, FORM.addr, 0x2060], [AT.high_pc, FORM.data4, 0x10]],
+      children: [
+        { tag: TAG.formal_parameter, attrs: [[AT.type, FORM.ref4, { ref: 'int' }]] },
+        { tag: TAG.formal_parameter, attrs: [[AT.name, FORM.string, 'level'], [AT.type, FORM.ref4, { ref: 'int' }]] },
+      ],
+    },
+  ],
+}
+
+describe('DwarfEngine.parameterNames on a hand-built unit', () => {
+  const unit = assembleUnit(paramsUnit)
+  const params = DwarfEngine.forElf(
+    makeElf({ '.debug_info': unit.info, '.debug_abbrev': unit.abbrev, '.debug_rnglists': splitScale.bytes }),
+  )!
+
+  it("lists a function's parameters in order", () => {
+    expect(params.parameterNames(0x2000)).toEqual(['s', 'gain'])
+    expect(params.parameterNames(0x2004)).toEqual(['s', 'gain'])
+  })
+
+  it('keeps the real function inside an inlined call: its arguments are the ones in registers', () => {
+    expect(params.framesAt(0x2014).map((f) => f.name)).toEqual(['scale', 'filter'])
+    expect(params.parameterNames(0x2014)).toEqual(['s', 'gain'])
+  })
+
+  it('names an out-of-line copy through its abstract origin, in either of its ranges', () => {
+    // No DIE was kept for `shift`: only the abstract origin still declares it.
+    expect(params.parameterNames(0x2044)).toEqual(['value', 'shift'])
+    expect(params.parameterNames(0x2084)).toEqual(['value', 'shift'])
+  })
+
+  it("lists a clone's parameters as GDB does, the one it no longer takes last", () => {
+    expect(params.parameterNames(0x2054)).toEqual(['v', 'lo'])
+  })
+
+  it('keeps the place of an unnamed parameter', () => {
+    expect(params.parameterNames(0x2064)).toEqual(['', 'level'])
+  })
+
+  it('has none where there is no function', () => {
+    expect(params.parameterNames(0x2074)).toEqual([])
+    expect(params.parameterNames(0x9000)).toEqual([])
+  })
+})

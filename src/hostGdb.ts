@@ -51,11 +51,7 @@ import {
   type ElfSymbol,
   type SymbolIndex,
 } from '@/debug/elfSymbols'
-import {
-  buildFormalIndex,
-  formalsAt,
-  type FormalIndex,
-} from '@/debug/dwarfFormals'
+import { DwarfEngine } from '@/debug/dwarf/engine'
 import { bytesToHex, hexToBytes } from '@/debug/gdb/rspCodec'
 
 const POLL_MS = 20
@@ -170,7 +166,6 @@ let arch: GdbArch = 'arm'
 let threadInfo: ThreadInfo | null = null
 let objectCoreMeta: ObjectCoreMeta | null = null
 let symbolIndex: SymbolIndex | null = null
-let formalIndex: FormalIndex | null = null
 let stackRegions: StackRegion[] = []
 let waitObjects: WaitObject[] = []
 let deviceNames: ElfDeviceNames | null = null
@@ -202,8 +197,18 @@ async function tryRead(addr: number, length: number): Promise<Uint8Array | null>
   }
 }
 
+/**
+ * Parameter names of the function at the PC, for the register tooltips. The
+ * engine is built on first use and shared with the hover inspector; DWARF it
+ * cannot read costs the names, never the register refresh.
+ */
 function formalsForPc(pcNum: number): string[] {
-  return formalsAt(formalIndex, pcNum)
+  try {
+    const engine = kernelElf ? DwarfEngine.forElf(kernelElf) : null
+    return engine?.parameterNames(pcNum) ?? []
+  } catch {
+    return []
+  }
 }
 
 function notify() {
@@ -528,7 +533,6 @@ export function setKernelImage(elf: Uint8Array | null) {
   threadInfo = elf ? parseThreadInfoFromElf(elf) : null
   objectCoreMeta = elf ? parseObjectCoreMeta(elf) : null
   symbolIndex = elf ? buildSymbolIndex(elf) : null
-  formalIndex = elf ? buildFormalIndex(elf) : null
   stackRegions = elf ? buildStackRegions(elf) : []
   waitObjects = elf ? buildWaitObjects(elf) : []
   deviceNames = elf ? readElfDeviceNames(elf) : null
@@ -559,7 +563,6 @@ export function bind(module: unknown, boardArch: string) {
   const keptInfo = threadInfo
   const keptObjectCoreMeta = objectCoreMeta
   const keptSyms = symbolIndex
-  const keptFormals = formalIndex
   const keptStacks = stackRegions
   const keptWaits = waitObjects
   detach()
@@ -567,7 +570,6 @@ export function bind(module: unknown, boardArch: string) {
   threadInfo = keptInfo
   objectCoreMeta = keptObjectCoreMeta
   symbolIndex = keptSyms
-  formalIndex = keptFormals
   stackRegions = keptStacks
   waitObjects = keptWaits
   mod = module as Record<string, unknown>
@@ -599,7 +601,6 @@ export function bindLive(liveArch: GdbArch | null) {
   const keptInfo = threadInfo
   const keptObjectCoreMeta = objectCoreMeta
   const keptSyms = symbolIndex
-  const keptFormals = formalIndex
   const keptStacks = stackRegions
   const keptWaits = waitObjects
   detach()
@@ -607,7 +608,6 @@ export function bindLive(liveArch: GdbArch | null) {
   threadInfo = keptInfo
   objectCoreMeta = keptObjectCoreMeta
   symbolIndex = keptSyms
-  formalIndex = keptFormals
   stackRegions = keptStacks
   waitObjects = keptWaits
   arch = liveArch ?? 'arm'
@@ -886,7 +886,6 @@ export function detach() {
   threadInfo = null
   objectCoreMeta = null
   symbolIndex = null
-  formalIndex = null
   stackRegions = []
   waitObjects = []
   state = EMPTY
