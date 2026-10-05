@@ -49,6 +49,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "zbus tab in Trace, with channels and observers from the image."
+      },
+      {
+        "tag": "Added",
         "text": "ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep."
       },
       {

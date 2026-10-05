@@ -35,6 +35,7 @@ import {
 import { QueuesView, QUEUES_LABEL_W, QUEUES_TOP_H, QUEUES_BOTTOM_AXIS_H } from '@/components/QueuesView'
 import { NetView, NET_LABEL_W } from '@/components/NetView'
 import { PowerView, POWER_LABEL_W } from '@/components/PowerView'
+import { ZbusView, ZBUS_LABEL_W } from '@/components/ZbusView'
 import {
   Select,
   SelectContent,
@@ -1280,6 +1281,7 @@ function TracePanelBody({
   const queuesSvgRef = useRef<SVGSVGElement>(null)
   const netCanvasRef = useRef<HTMLCanvasElement>(null)
   const powerCanvasRef = useRef<HTMLCanvasElement>(null)
+  const zbusCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
   /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
@@ -1321,7 +1323,12 @@ function TracePanelBody({
     [dtsTree],
   )
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
-  const tab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
+  /** zbus channels and observers from the image; the zbus tab is for images that have some. */
+  const zbusTopology = hostGdb.getZbusTopology()
+  const tabs = TRACE_TABS.filter((id) => id !== 'zbus' || zbusTopology !== null)
+  const storedTab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
+  // A zbus tab left open from another sample falls back to the Timeline.
+  const tab: TraceTab = tabs.includes(storedTab) ? storedTab : 'schedule'
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
 
   useEffect(() => {
@@ -1337,7 +1344,9 @@ function TracePanelBody({
         ? NET_LABEL_W
         : tab === 'power'
           ? POWER_LABEL_W
-          : LABEL_W
+          : tab === 'zbus'
+            ? ZBUS_LABEL_W
+            : LABEL_W
   const yZoom = yZoomByTab[tab] ?? null
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
@@ -2153,7 +2162,7 @@ function TracePanelBody({
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
       <div className="flex gap-0.5 px-0.5">
-        {TRACE_TABS.map((id) => (
+        {tabs.map((id) => (
           <button
             key={id}
             type="button"
@@ -2202,6 +2211,21 @@ function TracePanelBody({
             yZoom={yZoom}
           />
         </div>
+      ) : tab === 'zbus' && view ? (
+        <ZbusView
+          tr={tr}
+          topology={zbusTopology}
+          view0={view.t0}
+          view1={view.t1}
+          follow={follow}
+          eventCount={snap.revision}
+          canvasRef={zbusCanvasRef}
+          canvasProps={canvasHandlers}
+          overlay={boxZoomOverlay}
+          boxZoomArmed={boxZoomArmed}
+          yZoom={yZoom}
+          toolbar={chartToolbar}
+        />
       ) : tab === 'power' && view ? (
         hasPm ? (
           <PowerView

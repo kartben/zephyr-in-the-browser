@@ -126,3 +126,16 @@ export {
   type QueueActor,
   type MsgqMouth,
 } from './queueGraph'
+export {
+  hasZbusEvents,
+  reconstructZbus,
+  zbusErrno,
+  zbusWindowStats,
+  type ZbusActivity,
+  type ZbusAsyncRun,
+  type ZbusCall,
+  type ZbusChanOp,
+  type ZbusNotify,
+  type ZbusWake,
+  type ZbusWindowStats,
+} from './zbus'
