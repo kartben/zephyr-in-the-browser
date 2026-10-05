@@ -17,9 +17,10 @@ nowhere else: rebased onto Zephyr main, beside upstream's own PM events and the
 zbus hooks ([trace-zbus.md](trace-zbus.md)). They were first written on the older
 `traces` branch, which predates upstream's PM events. Upstream Zephyr later added
 CTF events of its own for `pm_system_suspend` and device runtime PM, at different
-ids, but not those. So an image built from Zephyr main, which is every image the
-page ships today, draws no power band, and the Power tab says so. An image built
-from the branch decodes beside images built from main: each image ships the event
+ids, but not those. So an image built from Zephyr main draws no power band, and
+the Power tab says so. The images the page ships are built from the branch since
+images release v105, so `pm_latency`'s traced build draws it. An image built from
+the branch decodes beside images built from main: each image ships the event
 table of its own tree (`<app>.tsdl`), and the page matches PM events by name, not
 id.
 
