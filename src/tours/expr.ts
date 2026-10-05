@@ -43,6 +43,12 @@ export interface TourTarget {
   /** `function+0x1c` or `object+0x10` for an address, when symbols allow. */
   label(addr: number): string | null
   /**
+   * Where the instruction at a code address is. On Cortex-M a function pointer
+   * has bit 0 set to say Thumb, and the function's symbol does not, so this
+   * drops it. Optional: without it, a code address is taken as it is.
+   */
+  codeAddress?(addr: number): number
+  /**
    * Byte offset of `member` in `struct name`, from the build's DWARF, or null
    * when the build does not describe one. Optional: without it, a member view
    * says it cannot be read rather than guessing.
@@ -506,12 +512,15 @@ export async function evalWatch(
     }
   }
   if (format === 'code') {
+    // Without the Thumb bit, `*handler as code == my_handler` holds on
+    // Cortex-M as it does everywhere else.
+    const at = target.codeAddress?.(addr) ?? addr
     return {
-      text: target.label(addr) ?? hex(addr),
-      detail: hex(addr),
+      text: target.label(at) ?? hex(at),
+      detail: hex(at),
       ok: true,
-      addr,
-      value: wholeValue(addr),
+      addr: at,
+      value: wholeValue(at),
     }
   }
   if (format === 'dec') {

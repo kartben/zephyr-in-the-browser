@@ -187,6 +187,19 @@ describe('evalPredicate', () => {
     expect((await evaluate('readings as ptr == ring', target(8))).pass).toBe(true)
   })
 
+  it('compares a Thumb function pointer read `as code` with the function', async () => {
+    // On Cortex-M the pointer has bit 0 set and the symbol does not.
+    const t = {
+      ...target(),
+      symbol: (name: string) => ({ handler: 0x3000, on_event: 0x8100 })[name] ?? null,
+      read: async (addr: number, length: number) =>
+        addr === 0x3000 && length === 4 ? new Uint8Array([0x01, 0x81, 0, 0]) : null,
+      codeAddress: (addr: number) => addr & ~1,
+    }
+    expect((await evaluate('*handler as code == on_event', t)).pass).toBe(true)
+    expect((await evaluate('handler as ptr == on_event', t)).pass).toBe(false)
+  })
+
   it('compares whole numbers, so signedness is the format’s to say', async () => {
     expect(await evaluate('ticks as i32 < 0')).toMatchObject({ pass: true, lhs: { value: -1n } })
     expect((await evaluate('ticks as u32 == 0xffffffff')).pass).toBe(true)
