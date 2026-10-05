@@ -15,11 +15,16 @@
  *
  * Modified for zephyr-in-the-browser from Zephyr's
  * samples/modules/tflite-micro/magic_wand (commit 8f62a4ab82b5):
- * - loop() reads one sample per kTargetHz tick of a kernel timer, and runs
- *   inference every CONFIG_MAGIC_WAND_INFERENCE_STRIDE samples once the window
- *   is full.
+ * - A sampler thread reads one sample per kTargetHz tick of a kernel timer,
+ *   whatever inference is doing. loop() runs inference on the newest window,
+ *   at most every CONFIG_MAGIC_WAND_INFERENCE_STRIDE samples. Reading in
+ *   loop() between inferences, as upstream does, lost a sample per tick
+ *   whenever an inference took longer than a tick, so on a slow host a gesture
+ *   reached the model squeezed into fewer samples and read as another.
  * - After a few inferences it prints one "Magic Wand ready" line with the time
  *   an inference takes, so a reader (or a smoke test) knows it is listening.
+ * - The op resolver also registers RESHAPE, for models retrained with
+ *   tools/train-magic-wand.py.
  */
 
 #include "main_functions.hpp"
@@ -53,10 +58,29 @@ namespace {
 	/* Report the inference time once the code has been translated and warm. */
 	constexpr int kReadyAfterInferences = 8;
 	int inferences;
-	int samples_since_inference = CONFIG_MAGIC_WAND_INFERENCE_STRIDE - 1;
+	/* The sample count the last inference's window ended at. */
+	uint32_t inferred_at;
 } /* namespace */
 
 K_TIMER_DEFINE(sample_timer, NULL, NULL);
+/* Given after each sample; loop() waits on it. */
+K_SEM_DEFINE(sample_ready, 0, 1);
+
+/* One sample per tick. Above the main thread (priority 0), so a sample is never
+ * late for an inference, and cooperative: a read is short, then it waits for
+ * the next tick.
+ */
+static void sample_loop(void *, void *, void *)
+{
+	while (true) {
+		k_timer_status_sync(&sample_timer);
+		if (SampleAccelerometer()) {
+			k_sem_give(&sample_ready);
+		}
+	}
+}
+
+K_THREAD_DEFINE(sampler, 4096, sample_loop, NULL, NULL, NULL, -1, 0, SYS_FOREVER_MS);
 
 /* The name of this function is important for Arduino compatibility. */
 void setup(void)
@@ -78,11 +102,15 @@ void setup(void)
 	 * incur some penalty in code space for op implementations that are not
 	 * needed by this graph.
 	 */
-	static tflite::MicroMutableOpResolver < 5 > micro_op_resolver; /* NOLINT */
+	static tflite::MicroMutableOpResolver < 6 > micro_op_resolver; /* NOLINT */
 	micro_op_resolver.AddConv2D();
 	micro_op_resolver.AddDepthwiseConv2D();
 	micro_op_resolver.AddFullyConnected();
 	micro_op_resolver.AddMaxPool2D();
+	/* Today's TFLite converter keeps the Flatten before the dense layer as a
+	 * RESHAPE (tools/train-magic-wand.py); the 2019 model folded it away.
+	 */
+	micro_op_resolver.AddReshape();
 	micro_op_resolver.AddSoftmax();
 
 	/* Build an interpreter to run the model with. */
@@ -113,34 +141,31 @@ void setup(void)
 	const k_timeout_t period = K_MSEC((int32_t)(1000 / kTargetHz));
 
 	k_timer_start(&sample_timer, period, period);
+	k_thread_start(sampler);
 }
 
 void loop(void)
 {
-	/* One sample per tick. After a slow inference the missed ticks are
-	 * already counted, so the next reads follow back to back.
+	/* Wait for a new sample. After a slow inference several have landed, and
+	 * this one runs on the newest window.
 	 */
-	k_timer_status_sync(&sample_timer);
-
-	/* Attempt to read new data from the accelerometer. */
-	bool got_data =
-		ReadAccelerometer(model_input->data.f, input_length);
-
-	/* If there was no new data, wait until next time. */
-	if (!got_data) {
+	k_sem_take(&sample_ready, K_FOREVER);
+	if (SamplesRead() - inferred_at < CONFIG_MAGIC_WAND_INFERENCE_STRIDE) {
 		return;
 	}
 
-	if (++samples_since_inference < CONFIG_MAGIC_WAND_INFERENCE_STRIDE) {
+	uint32_t sample;
+
+	if (!CopyLatestWindow(model_input->data.f, input_length, &sample)) {
 		return;
 	}
-	samples_since_inference = 0;
+	inferred_at = sample;
 
 	/* Run inference, and report any error */
 	const uint64_t start = k_cycle_get_64();
 	TfLiteStatus invoke_status = interpreter->Invoke();
 	if (invoke_status != kTfLiteOk) {
-		MicroPrintf("Invoke failed on index: %d\n", begin_index);
+		MicroPrintf("Invoke failed at sample %u\n", (unsigned int)sample);
 		return;
 	}
 	if (++inferences == kReadyAfterInferences) {
@@ -149,7 +174,7 @@ void loop(void)
 	}
 
 	/* Analyze the results to obtain a prediction */
-	int gesture_index = PredictGesture(interpreter->output(0)->data.f);
+	int gesture_index = PredictGesture(interpreter->output(0)->data.f, sample);
 
 	/* Produce an output */
 	HandleOutput(gesture_index);

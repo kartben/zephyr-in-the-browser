@@ -22,8 +22,16 @@
 #include <tensorflow/lite/c/c_api_types.h>
 #include <tensorflow/lite/micro/micro_log.h>
 
-extern int begin_index;
+#include <stdint.h>
+
 extern TfLiteStatus SetupAccelerometer();
-extern bool ReadAccelerometer(float *input, int length);
+/* Read one sample into the window. Called on every sample tick. */
+extern bool SampleAccelerometer();
+/* How many samples have been read since boot. */
+extern uint32_t SamplesRead();
+/* Copy the newest full window into input, oldest first, and set *sample to the
+ * count it ends at. False until a whole window has been read.
+ */
+extern bool CopyLatestWindow(float *input, int length, uint32_t *sample);
 
 #endif /* TENSORFLOW_LITE_MICRO_EXAMPLES_MAGIC_WAND_ACCELEROMETER_HANDLER_H_ */

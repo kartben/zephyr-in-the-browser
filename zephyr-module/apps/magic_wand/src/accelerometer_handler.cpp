@@ -17,7 +17,9 @@
  * samples/modules/tflite-micro/magic_wand (commit 8f62a4ab82b5):
  * - One sample per call. The adi,adxl345 driver reads one sample per
  *   sensor_sample_fetch() and returns 0, which upstream took for "no data", so
- *   it never ran inference. The caller paces the calls at kTargetHz.
+ *   it never ran inference. A sampler thread paces the calls at kTargetHz.
+ * - Sampling and inference are apart: the sampler writes the ring, inference
+ *   copies the newest window out of it, under a spinlock.
  * - Samples reach the model in milli-g, the unit it was trained on. Fed the
  *   driver's m/s², it never reports a gesture.
  * - Inference waits for a full window, and the window carries all 128
@@ -37,14 +39,14 @@
 /* m/s² to milli-g. SENSOR_G is standard gravity in micro-m/s². */
 static constexpr double kMilliGPerMs2 = 1000.0 * 1000000.0 / SENSOR_G;
 
-int begin_index = 0;
-const struct device *const sensor = DEVICE_DT_GET_ONE(adi_adxl345);
+static const struct device *const sensor = DEVICE_DT_GET_ONE(adi_adxl345);
 
-float bufx[BUFLEN] = { 0.0f };
-float bufy[BUFLEN] = { 0.0f };
-float bufz[BUFLEN] = { 0.0f };
-
-static int samples_seen;
+static float bufx[BUFLEN];
+static float bufy[BUFLEN];
+static float bufz[BUFLEN];
+static int begin_index;
+static uint32_t samples_read;
+static struct k_spinlock ring_lock;
 
 TfLiteStatus SetupAccelerometer()
 {
@@ -58,10 +60,9 @@ TfLiteStatus SetupAccelerometer()
 	return kTfLiteOk;
 }
 
-bool ReadAccelerometer(float *input, int length)
+bool SampleAccelerometer()
 {
 	struct sensor_value accel[3];
-	const int window = length / kChannelNumber;
 	int rc;
 
 	rc = sensor_sample_fetch(sensor);
@@ -76,30 +77,52 @@ bool ReadAccelerometer(float *input, int length)
 		return false;
 	}
 
-	bufx[begin_index] = (float)(sensor_value_to_double(&accel[0]) * kMilliGPerMs2);
-	bufy[begin_index] = (float)(sensor_value_to_double(&accel[1]) * kMilliGPerMs2);
-	bufz[begin_index] = (float)(sensor_value_to_double(&accel[2]) * kMilliGPerMs2);
+	const float x = (float)(sensor_value_to_double(&accel[0]) * kMilliGPerMs2);
+	const float y = (float)(sensor_value_to_double(&accel[1]) * kMilliGPerMs2);
+	const float z = (float)(sensor_value_to_double(&accel[2]) * kMilliGPerMs2);
+
+	k_spinlock_key_t key = k_spin_lock(&ring_lock);
+	bufx[begin_index] = x;
+	bufy[begin_index] = y;
+	bufz[begin_index] = z;
 	begin_index++;
 	if (begin_index >= BUFLEN) {
 		begin_index = 0;
 	}
+	samples_read++;
+	k_spin_unlock(&ring_lock, key);
+	return true;
+}
 
-	if (samples_seen < window) {
-		samples_seen++;
-	}
-	if (samples_seen < window) {
+uint32_t SamplesRead()
+{
+	k_spinlock_key_t key = k_spin_lock(&ring_lock);
+	const uint32_t count = samples_read;
+
+	k_spin_unlock(&ring_lock, key);
+	return count;
+}
+
+bool CopyLatestWindow(float *input, int length, uint32_t *sample)
+{
+	const int window = length / kChannelNumber;
+	k_spinlock_key_t key = k_spin_lock(&ring_lock);
+
+	if (samples_read < (uint32_t)window) {
+		k_spin_unlock(&ring_lock, key);
 		return false;
 	}
-
-	for (int sample = 0; sample < window; sample++) {
-		int ring_index = begin_index - window + sample;
+	for (int i = 0; i < window; i++) {
+		int ring_index = begin_index - window + i;
 
 		if (ring_index < 0) {
 			ring_index += BUFLEN;
 		}
-		input[3 * sample] = bufx[ring_index];
-		input[3 * sample + 1] = bufy[ring_index];
-		input[3 * sample + 2] = bufz[ring_index];
+		input[3 * i] = bufx[ring_index];
+		input[3 * i + 1] = bufy[ring_index];
+		input[3 * i + 2] = bufz[ring_index];
 	}
+	*sample = samples_read;
+	k_spin_unlock(&ring_lock, key);
 	return true;
 }
