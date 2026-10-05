@@ -130,6 +130,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "The guest reads the ADXL345 at its real scale, not four times too high."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Cortex-A53 samples boot without an \"xlat tables low\" warning."
       }
     ]
   },

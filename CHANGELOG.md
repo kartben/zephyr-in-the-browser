@@ -33,6 +33,7 @@ via the help dialog (?).
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Fixed:** Trace queue depth no longer counts hand-offs to waiting threads.
 - **Fixed:** The guest reads the ADXL345 at its real scale, not four times too high.
+- **Fixed:** Cortex-A53 samples boot without an "xlat tables low" warning.
 
 ## [0.5.0] - 2026-07-31
 
