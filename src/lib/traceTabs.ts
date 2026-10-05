@@ -7,13 +7,14 @@
  */
 
 /** Tab ids, in strip order. dockStore persists the selected one. */
-export const TRACE_TABS = ['schedule', 'queues', 'net', 'power'] as const
+export const TRACE_TABS = ['schedule', 'queues', 'zbus', 'net', 'power'] as const
 
 export type TraceTab = (typeof TRACE_TABS)[number]
 
 export const TRACE_TAB_LABELS: Record<TraceTab, string> = {
   schedule: 'Timeline',
   queues: 'Queues',
+  zbus: 'zbus',
   net: 'Networking',
   power: 'Power',
 }

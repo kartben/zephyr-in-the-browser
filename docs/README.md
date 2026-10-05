@@ -25,6 +25,7 @@ other end of the wire.
 | [riscv32-plan.md](riscv32-plan.md) | `qemu_riscv32` board — plan and current wiring status |
 | [esp32.md](esp32.md) | `esp32c3_devkitc` board: why the emulator comes from a QEMU fork, and why it boots from flash rather than `-kernel` |
 | [trace-networking-plan.md](trace-networking-plan.md) | Trace panel **Networking** tab from Zephyr socket / `net_*` CTF — the socket swimlanes shipped; the connection ribbon and cross-panel linking did not |
+| [trace-zbus.md](trace-zbus.md) | Trace panel **zbus** tab: channels and observers from the ELF, every publish and notification from proposed zbus trace hooks, and how to build images with them |
 | [cpu-power-states.md](cpu-power-states.md) | CPU suspend states in the Trace panel from PM CTF, ranked by the devicetree — the CPU lane group, the Power tab, the sample and the guest overlay; visual language set by [the mockup](cpu-power-mockup.html) |
 
 ## Shipped plans

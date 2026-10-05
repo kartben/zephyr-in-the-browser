@@ -334,7 +334,7 @@ look:
 
 | Target | Opens |
 | --- | --- |
-| `trace.timeline`, `trace.queues`, `trace.net`, `trace.power` | that Trace tab |
+| `trace.timeline`, `trace.queues`, `trace.zbus`, `trace.net`, `trace.power` | that Trace tab (`trace.zbus` only on an image with zbus) |
 | `debug.breakpoints`, `debug.cpu`, `debug.stack`, `debug.memory`, `debug.threads`, `debug.objects` | that Debug section |
 | `dock.<panel>` | a dock row, the same as `panel:` |
 
