@@ -25,8 +25,11 @@ Those checks prove the files are there, not that they work, so when both halves
 are present the workflow also **runs** the emulator:
 [`tools/smoke-boot.mjs`](../tools/smoke-boot.mjs) boots one board per
 `qemu-system-*` artifact in headless Chrome and fails the deploy if a guest
-stays silent or the page can no longer read its memory. A build can be dead
-rather than absent: an Emscripten bump once produced artifacts of the right size
+stays silent or the page can no longer read its memory. A few cases then act
+like a reader: `magic-wand` replays gestures and expects their names, and
+`esp32c3-button` presses the ESP32-C3's key once and expects a press, not just
+a release. A build can be dead rather than absent: an Emscripten bump once
+produced artifacts of the right size
 with the right exports, a clean `npm run typecheck`, a clean test suite, and a
 page that showed nothing at all. Run it locally the same way once `public/qemu/`
 is populated, and pass a case name (`arm`, `aarch64`, `riscv32`, `xtensa`) or

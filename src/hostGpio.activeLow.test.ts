@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * active-low pin those are opposites. Two things follow, and both were wrong
  * before: the pin has to *rest* high, or a guest sampling it before the first
  * press reads a button held down since boot; and pressing has to drive it low.
+ * The resting level also has to reach a device that may not exist yet when the
+ * page first pushes it, which is why the poll pushes it again.
  */
 
 const tree = vi.hoisted(() => ({
@@ -28,10 +30,15 @@ vi.mock('@/devicetree', () => ({
   subscribe: () => () => {},
 }))
 
+/** The MMIO poll hostGpio last registered, so a test can run one beat. */
+const poll = vi.hoisted(() => ({ tick: null as (() => void) | null }))
+
 vi.mock('@/hostPoll', () => ({
   HOST_POLL_MS: 100,
   isRegistered: () => false,
-  register: () => {},
+  register: (_id: string, _periodMs: number, tick: () => void) => {
+    poll.tick = tick
+  },
   unregister: () => {},
 }))
 
@@ -88,6 +95,28 @@ describe('active-low buttons', () => {
     expect(gpio.isPressed(9)).toBe(false)
     // Whatever else it pushed, the device was told the pin sits high.
     expect(seen.at(-1)! & (1 << 9)).toBe(1 << 9)
+  })
+
+  it('pushes the resting level again, for a device that missed the first push', async () => {
+    const gpio = await load([{ id: 9, label: 'User SW1', flags: GPIO_ACTIVE_LOW }])
+    // The ESP32 model drops a word written before QEMU has created the device,
+    // and attach() runs while the machine is still being built.
+    let realized = false
+    let word = 0
+    gpio.attach(
+      {
+        _qemu_host_gpio_set_inputs: (mask: number) => {
+          if (realized) word = mask
+        },
+        _qemu_host_gpio_get_outputs: () => 0,
+      },
+      'mmio',
+    )
+    expect(word).toBe(0)
+
+    realized = true
+    poll.tick!()
+    expect(word & (1 << 9)).toBe(1 << 9)
   })
 
   it('drives the pin low while pressed and high again on release', async () => {
