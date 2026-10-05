@@ -492,16 +492,27 @@ about 1 ms in its event handler, which is what not blocking on a lock buys.
 
 That check missed a third bug: a first press that prints only `released` is
 wrong. The page pushed the resting input word once, at attach, while QEMU was
-still building the machine, and `qemu_host_gpio_set_inputs()` drops a word that
-arrives before the GPIO device is realized. The Cortex-M3's `qemu,host-gpio`
-keeps its word in a file-static, so it never had this problem. On both ESP32
-boards the guest booted with every input low, and gpio-keys, which seeds its
-state from the pin at init, took the active-low key for held. The first press
-then changed nothing, and only its release was reported. Every later press
-worked, so only the first press after a boot shows it. The page now pushes the
-input word on every poll, and `tools/smoke-boot.mjs` presses the C3's key once
-per deploy and expects a press. Keeping a pre-realize word in the model itself,
-and seeding the pins from it at reset, would make the push at attach enough.
+still building the machine, and `qemu_host_gpio_set_inputs()` dropped a word
+that arrived before the GPIO device was realized. The Cortex-M3's
+`qemu,host-gpio` keeps its word in a file-static, so it never had this problem.
+On both ESP32 boards the guest booted with every input low, and gpio-keys, which
+seeds its state from the pin at init, took the active-low key for held. The
+first press then changed nothing, and only its release was reported. Every
+later press worked, so only the first press after a boot shows it. The page now
+pushes the input word on every poll, and `tools/smoke-boot.mjs` presses the
+C3's key once per deploy and expects a press.
+
+The model is fixed too, in `tools/qemu-esp-patches/0020`, the way the
+Cortex-M3's device always worked: the input word is a file-static that
+`qemu_host_gpio_set_inputs()` writes whether or not the device exists yet, and
+reset starts the pins from that word instead of from 0. The push at attach is
+now enough on its own, and a reset the guest asks for (a watchdog bite,
+`sys_reboot()`) comes back with the keys where they are. Checked with the
+per-poll push taken out of the page: on the C3, GPIO_IN (`0x6000403c`) bit 9
+reads 1 as soon as the sample prompts and 0 while the key is held, and the first
+press after boot prints `Button 11 pressed`. The ESP32's GPIO0 (`0x3ff4403c`)
+does the same. Against v101's emulator the same run reads the bit as 0 at boot
+and reports only the release.
 
 The lesson for the next bridge that pushes state *into* the guest rather than
 answering a request from it: a browser callback is not a vCPU thread, and the

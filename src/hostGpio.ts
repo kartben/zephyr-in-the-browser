@@ -538,11 +538,12 @@ export function subscribeOutputs(fn: () => void): () => void {
  *
  * The inputs go out on every beat, not only when they change, because the
  * first push can be lost. attach() runs while QEMU is still building the
- * machine, and the ESP32 GPIO model drops a word written before its device
- * exists. Without the repeat, an active-low key's resting high never arrived:
- * the guest sampled the pin low at boot and took the key for held, so the
- * first press changed nothing and only its release was reported. Both MMIO
- * devices latch the whole word, so repeating an unchanged one is a no-op.
+ * machine, and an ESP32 emulator built without tools/qemu-esp-patches/0020
+ * drops a word written before its GPIO device exists. Without the repeat, an
+ * active-low key's resting high never arrived: the guest sampled the pin low
+ * at boot and took the key for held, so the first press changed nothing and
+ * only its release was reported. Both MMIO devices latch the whole word, so
+ * repeating an unchanged one is a no-op.
  */
 function pollMmio() {
   mmio?.setInputs(inputs)
