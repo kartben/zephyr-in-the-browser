@@ -393,7 +393,9 @@ layout: see [watchdog.md](watchdog.md).
   input reads whatever was last driven onto it. `src/hostGpio.ts` seeds each
   input to its resting level from the devicetree flags, which is where the
   ESP32-C3 button's pull-up effectively comes from. A native build has nobody
-  to do that, so an active-low button there reads as held.
+  to do that, so an active-low button there reads as held. The page pushes
+  that word again on every poll, because the model drops one written before
+  QEMU has created the device (see "The button" below).
 - **`-icount 3` is required.** The C3 has no free-running mode, unlike
   `qemu_riscv32`, which runs free. It rules out the guest-MIPS readout other
   boards use, and it is worth knowing what it does and does not cost, because
@@ -487,6 +489,19 @@ is not ESP32-specific, even though only the ESP32 tripped it.
 Verified in the browser: a press through the device dock reports
 `Button 11 released at ...` with the emulator still running, and costs the page
 about 1 ms in its event handler, which is what not blocking on a lock buys.
+
+That check missed a third bug: a first press that prints only `released` is
+wrong. The page pushed the resting input word once, at attach, while QEMU was
+still building the machine, and `qemu_host_gpio_set_inputs()` drops a word that
+arrives before the GPIO device is realized. The Cortex-M3's `qemu,host-gpio`
+keeps its word in a file-static, so it never had this problem. On both ESP32
+boards the guest booted with every input low, and gpio-keys, which seeds its
+state from the pin at init, took the active-low key for held. The first press
+then changed nothing, and only its release was reported. Every later press
+worked, so only the first press after a boot shows it. The page now pushes the
+input word on every poll, and `tools/smoke-boot.mjs` presses the C3's key once
+per deploy and expects a press. Keeping a pre-realize word in the model itself,
+and seeding the pins from it at reset, would make the push at attach enough.
 
 The lesson for the next bridge that pushes state *into* the guest rather than
 answering a request from it: a browser callback is not a vCPU thread, and the

@@ -25,13 +25,15 @@
  *
  * One case per qemu-system-* artifact, since each is a separate QEMU build.
  * The Magic Wand pair then goes past booting: it replays gestures into the
- * page's ADXL345 and waits for the guest's model to name them.
+ * page's ADXL345 and waits for the guest's model to name them. The ESP32-C3
+ * button case presses a GPIO key once and waits for the guest to report it.
  *
  *   npx playwright install chromium     # once
  *   node tools/smoke-boot.mjs           # the whole matrix
  *   node tools/smoke-boot.mjs aarch64   # named cases only
  *   node tools/smoke-boot.mjs --board qemu_cortex_m3 --app blinky --dump
  *   node tools/smoke-boot.mjs magic-wand  # replays gestures, expects their names
+ *   node tools/smoke-boot.mjs esp32c3-button  # one key press, expects the press
  *
  * Runs against the dev server rather than `dist/`: the artifacts under
  * public/qemu/ are the same files either way, and vite.config.ts already sets
@@ -101,6 +103,24 @@ const CASES = [
     expectWhy: 'the sample’s one line of output',
     // TCI, and the ESP32 boot ROM before Zephyr even starts.
     bootMs: 300_000,
+  },
+  {
+    id: 'esp32c3-button',
+    binary: 'qemu-system-riscv32',
+    board: 'esp32c3_devkitc',
+    app: 'basic_button',
+    expect: /Press the button/,
+    expectWhy: 'the sample asking for a press',
+    // The first press since boot, on an active-low key, has to come out as a
+    // press. The ESP32 GPIO model drops an input word written before QEMU has
+    // created it, and the page used to write one only at attach, so the guest
+    // booted reading the key as held and reported only the release, which the
+    // button tour's `when: first` stop still accepted. Held well past the
+    // 30 ms debounce, in guest time on a slow runner too.
+    hooks: true,
+    // The sample's tour would hold the guest in main() before it asks.
+    query: '&tour=none',
+    steps: [{ press: 'sw1', holdMs: 1500, expect: /Button \d+ pressed/ }],
   },
   {
     id: 'magic-wand',
@@ -337,7 +357,7 @@ async function runCase(browser, testCase, opts) {
   const bootMs = opts.bootMs ?? testCase.bootMs ?? DEFAULT_BOOT_MS
   const url =
     `http://127.0.0.1:${opts.port}/?board=${testCase.board}&app=${testCase.app}` +
-    `&backend=qemu&profile=1${testCase.hooks ? '&test=1' : ''}`
+    `&backend=qemu&profile=1${testCase.hooks ? '&test=1' : ''}${testCase.query ?? ''}`
 
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   const page = await context.newPage()
@@ -471,13 +491,20 @@ async function runCase(browser, testCase, opts) {
 
     for (const step of testCase.steps ?? []) {
       const before = countMatches(result.transcript, step.expect)
-      const replayed = await page.evaluate(
-        (id) =>
-          window.__zitbTest?.replayGesture(id) ?? { ok: false, error: 'the page has no test hooks' },
-        step.replay,
+      // A step is what a reader's hands do: replay a recorded gesture into a
+      // sensor card, or hold a GPIO key down and let it go.
+      const act = step.press ? `press ${step.press}` : `replay ${step.replay}`
+      const acted = step.press ? `pressing ${step.press}` : `replaying ${step.replay}`
+      const done = await page.evaluate(
+        ({ replay, press, holdMs }) => {
+          const hooks = window.__zitbTest
+          if (!hooks) return { ok: false, error: 'the page has no test hooks' }
+          return press ? hooks.pressKey(press, holdMs) : hooks.replayGesture(replay)
+        },
+        { replay: step.replay, press: step.press, holdMs: step.holdMs },
       )
-      if (!replayed.ok) {
-        result.failure = `could not replay ${step.replay}: ${replayed.error}`
+      if (!done.ok) {
+        result.failure = `could not ${act}: ${done.error}`
         return result
       }
       const deadline = Date.now() + STEP_MS
@@ -490,7 +517,7 @@ async function runCase(browser, testCase, opts) {
         if (!named) await sleep(POLL_MS)
       }
       if (!named) {
-        result.failure = `after replaying ${step.replay}, ${step.expect} never appeared`
+        result.failure = `after ${acted}, ${step.expect} never appeared`
         return result
       }
     }

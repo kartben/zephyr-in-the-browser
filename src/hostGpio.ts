@@ -438,11 +438,12 @@ export function attach(mod: unknown, transport: GpioTransport) {
 
   if (mmio) {
     // Push the seeded input state so the guest reads something defined, then
-    // start pulling outputs. The shared 100 ms host poll is imperceptible for
-    // a blinking LED yet costs almost nothing — the read is a single
-    // shared-memory load. When a step/dir stepper is in the tree we poll at
-    // 1 ms so STEP edges are not lost on the MMIO path (virtio notifies on
-    // every write instead).
+    // start polling, which pushes it again on every beat in case this first
+    // push came too early (see pollMmio). The shared 100 ms host poll is
+    // imperceptible for a blinking LED yet costs almost nothing: each beat
+    // writes one word and reads one. When a step/dir stepper is in the tree
+    // we poll at 1 ms so STEP edges are not lost on the MMIO path (virtio
+    // notifies on every write instead).
     mmio.setInputs(inputs)
     pollMmio()
     restartMmioPoller()
@@ -530,7 +531,19 @@ export function subscribeOutputs(fn: () => void): () => void {
   return () => outputListeners.delete(fn)
 }
 
+/**
+ * One beat of the MMIO bridge: publish the input word, then read the outputs.
+ *
+ * The inputs go out on every beat, not only when they change, because the
+ * first push can be lost. attach() runs while QEMU is still building the
+ * machine, and the ESP32 GPIO model drops a word written before its device
+ * exists. Without the repeat, an active-low key's resting high never arrived:
+ * the guest sampled the pin low at boot and took the key for held, so the
+ * first press changed nothing and only its release was reported. Both MMIO
+ * devices latch the whole word, so repeating an unchanged one is a no-op.
+ */
 function pollMmio() {
+  mmio?.setInputs(inputs)
   const next = mmio?.getOutputs() ?? 0
   const masked = next & pinMask(derived.ngpios)
   if (masked === outputs) return
