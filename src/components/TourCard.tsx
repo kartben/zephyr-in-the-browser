@@ -22,6 +22,7 @@ import { TourHexdump } from '@/components/tour/TourHexdump'
 import { TourObjects } from '@/components/tour/TourObjects'
 import { TourOutline } from '@/components/tour/TourOutline'
 import { CopyTourLink, StartedAt, startedAt } from '@/components/tour/TourLink'
+import { TourFrame } from '@/components/tour/TourFrame'
 import { WaitingCard } from '@/components/tour/WaitingCard'
 import { Button } from '@/components/ui/button'
 import { sampleSourceAsset, type Board } from '@/boards'
@@ -149,13 +150,11 @@ export function TourCard({ board, sampleId }: Props) {
   // The data-tour-* attributes are what the headless playthrough waits on
   // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
   return (
-    <div
-      className="pointer-events-auto w-full max-w-[34rem]"
+    <TourFrame
       data-tour-step={step.index + 1}
       data-tour-paused={paused ? '' : undefined}
-    >
-      <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      header={
+        <>
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
             {total > 0 ? `${step.index + 1}/${total}` : step.index + 1}
@@ -192,125 +191,10 @@ export function TourCard({ board, sampleId }: Props) {
               <X className="size-3.5" aria-hidden />
             </button>
           </div>
-        </div>
-
-        <div className="max-h-[min(30rem,64vh)] space-y-2.5 overflow-y-auto px-3 py-2.5">
-          {intro && state.doc && (
-            <div data-tour-intro className="space-y-2 border-b border-border/70 pb-2.5">
-              <p className="text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                <InlineMarkdown text={state.doc.title} />
-              </p>
-              <Markdown
-                body={intro}
-                className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
-              />
-            </div>
-          )}
-
-          <h2 className="text-sm font-semibold text-foreground">
-            <InlineMarkdown text={step.title} />
-          </h2>
-
-          {where && (
-            <p className="flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
-              <Bug className="size-3 shrink-0" aria-hidden />
-              {/* Whose code this is: a stop in the kernel should not read as the sample's. */}
-              {provenance && anchor?.file && anchor.line && (
-                <span className="shrink-0 text-muted-foreground/70">{provenance.origin} ·</span>
-              )}
-              <span className="truncate">{where}</span>
-              {anchor?.symbol && anchor.file && (
-                <span className="truncate text-muted-foreground/70">in {anchor.symbol}()</span>
-              )}
-              {card.hits > 1 && <span className="text-muted-foreground/70">· hit {card.hits}</span>}
-            </p>
-          )}
-
-          {startedAtStep !== null && <StartedAt step={startedAtStep} />}
-
-          <Markdown
-            body={step.body}
-            runnable
-            paused={paused}
-            className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
-          />
-
-          {card.lookNotes.map((note) => (
-            <p key={note} className="text-[11px] text-muted-foreground/80">
-              {note}
-            </p>
-          ))}
-
-          {values.length > 0 && <Values values={values} live={state.live} />}
-
-          {check && (
-            <CheckResults check={check} pass={step.pass} fail={step.fail} live={state.live} />
-          )}
-
-          {objects && <TourObjects spec={objects} snap={snap} live={state.live} />}
-
-          {memory && <TourHexdump memory={memory} />}
-
-          {registers.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {registers.map((reg) => (
-                <button
-                  key={reg.name}
-                  type="button"
-                  onClick={() => debugUi.focusDebug('cpu')}
-                  title="Open the CPU registers"
-                  className="flex items-baseline gap-1.5 rounded border border-border bg-muted/40 px-1.5 py-0.5 hover:border-primary/50"
-                >
-                  <span className="font-mono text-[10px] text-muted-foreground">{reg.name}</span>
-                  <span className="font-mono text-[11px] tabular-nums text-foreground">
-                    {reg.value}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {threads && (
-            <div className="rounded border border-border bg-muted/30 p-1">
-              <ThreadsPane
-                snap={snap}
-                only={step.threadNames}
-                onPeek={() => debugUi.focusDebug('memory')}
-              />
-            </div>
-          )}
-
-          {showSource && dts && dtsLines && dtsRanges.length > 0 && (
-            <SourceSnippet
-              text={dtsLines.join('\n')}
-              filename={dts.name}
-              language="dts"
-              ranges={dtsRanges}
-            />
-          )}
-
-          {src && anchor?.line && (
-            <SourceSnippet
-              src={src}
-              line={anchor.line}
-              ranges={card.highlight}
-              // The guest is stopped: names can be read, as VS Code's debug
-              // hover reads them. Not on a step read again, which shows an
-              // older stop than the one the machine is at.
-              inspectable={state.live && snap.gdb && snap.paused && !card.revisit}
-            />
-          )}
-
-          {state.problems.length > 0 && (
-            <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-600 dark:text-amber-400">
-              {state.problems.map((problem) => (
-                <li key={problem}>{problem}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        </>
+      }
+      footer={
+        <>
           {/* A step read again only goes back to the card it covers: see next(). */}
           <Button size="sm" onClick={next} className="h-7 px-3 text-xs">
             {card.revisit ? 'Back' : check?.retrying ? 'Try again' : paused ? 'Continue' : 'Got it'}
@@ -338,8 +222,123 @@ export function TourCard({ board, sampleId }: Props) {
           >
             Leave the tour
           </button>
+        </>
+      }
+      bodyClassName="space-y-2.5 px-3 py-2.5"
+    >
+      {intro && state.doc && (
+        <div data-tour-intro className="space-y-2 border-b border-border/70 pb-2.5">
+          <p className="text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground/80">
+            <InlineMarkdown text={state.doc.title} />
+          </p>
+          <Markdown
+            body={intro}
+            className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
+          />
         </div>
-      </div>
-    </div>
+      )}
+
+      <h2 className="text-sm font-semibold text-foreground">
+        <InlineMarkdown text={step.title} />
+      </h2>
+
+      {where && (
+        <p className="flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+          <Bug className="size-3 shrink-0" aria-hidden />
+          {/* Whose code this is: a stop in the kernel should not read as the sample's. */}
+          {provenance && anchor?.file && anchor.line && (
+            <span className="shrink-0 text-muted-foreground/70">{provenance.origin} ·</span>
+          )}
+          <span className="truncate">{where}</span>
+          {anchor?.symbol && anchor.file && (
+            <span className="truncate text-muted-foreground/70">in {anchor.symbol}()</span>
+          )}
+          {card.hits > 1 && <span className="text-muted-foreground/70">· hit {card.hits}</span>}
+        </p>
+      )}
+
+      {startedAtStep !== null && <StartedAt step={startedAtStep} />}
+
+      <Markdown
+        body={step.body}
+        runnable
+        paused={paused}
+        className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
+      />
+
+      {card.lookNotes.map((note) => (
+        <p key={note} className="text-[11px] text-muted-foreground/80">
+          {note}
+        </p>
+      ))}
+
+      {values.length > 0 && <Values values={values} live={state.live} />}
+
+      {check && (
+        <CheckResults check={check} pass={step.pass} fail={step.fail} live={state.live} />
+      )}
+
+      {objects && <TourObjects spec={objects} snap={snap} live={state.live} />}
+
+      {memory && <TourHexdump memory={memory} />}
+
+      {registers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {registers.map((reg) => (
+            <button
+              key={reg.name}
+              type="button"
+              onClick={() => debugUi.focusDebug('cpu')}
+              title="Open the CPU registers"
+              className="flex items-baseline gap-1.5 rounded border border-border bg-muted/40 px-1.5 py-0.5 hover:border-primary/50"
+            >
+              <span className="font-mono text-[10px] text-muted-foreground">{reg.name}</span>
+              <span className="font-mono text-[11px] tabular-nums text-foreground">
+                {reg.value}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {threads && (
+        <div className="rounded border border-border bg-muted/30 p-1">
+          <ThreadsPane
+            snap={snap}
+            only={step.threadNames}
+            onPeek={() => debugUi.focusDebug('memory')}
+          />
+        </div>
+      )}
+
+      {showSource && dts && dtsLines && dtsRanges.length > 0 && (
+        <SourceSnippet
+          text={dtsLines.join('\n')}
+          filename={dts.name}
+          language="dts"
+          ranges={dtsRanges}
+        />
+      )}
+
+      {src && anchor?.line && (
+        <SourceSnippet
+          src={src}
+          line={anchor.line}
+          ranges={card.highlight}
+          // The guest is stopped: names can be read, as VS Code's debug
+          // hover reads them. Not on a step read again, which shows an
+          // older stop than the one the machine is at.
+          inspectable={state.live && snap.gdb && snap.paused && !card.revisit}
+        />
+      )}
+
+      {state.problems.length > 0 && (
+        <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-600 dark:text-amber-400">
+          {state.problems.map((problem) => (
+            <li key={problem}>{problem}</li>
+          ))}
+        </ul>
+      )}
+    </TourFrame>
   )
 }

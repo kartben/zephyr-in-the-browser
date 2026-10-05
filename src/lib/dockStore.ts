@@ -17,6 +17,7 @@
 import type { PanelKind } from '@/boards'
 import type { DeviceClass, DockView } from '@/deviceTopology'
 import { clearAllPanelLayouts, migratePanelLayoutKeys } from '@/lib/panelLayout'
+import { setTourLayout } from '@/lib/tourLayout'
 
 const STORAGE_KEY = 'zephyr.dock'
 const VERSION = 1
@@ -351,6 +352,8 @@ export function seedForSelection(selection: string, seed: DockSeed): void {
 /** The Panels menu's "Reset layout": dock state and every saved float box. */
 export function resetLayout(): void {
   clearAllPanelLayouts()
+  // The tour card is up now, not on the next mount: send it home live.
+  setTourLayout(null)
   try {
     localStorage.removeItem(STORAGE_KEY)
   } catch {

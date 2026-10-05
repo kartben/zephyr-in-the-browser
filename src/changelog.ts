@@ -93,7 +93,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Tours open with their intro; cards show only relevant threads."
+        "text": "Tours open with their intro; cards move, resize and show only relevant threads."
       },
       {
         "tag": "Improved",

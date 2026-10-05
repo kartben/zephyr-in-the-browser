@@ -11,6 +11,7 @@
 import { GraduationCap, Hand } from 'lucide-react'
 import { Markdown } from '@/components/Markdown'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
+import { TourFrame } from '@/components/tour/TourFrame'
 import { StartedAt } from '@/components/tour/TourLink'
 import { TourOutline } from '@/components/tour/TourOutline'
 import type { TourStep } from '@/tours/parse'
@@ -28,13 +29,11 @@ export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
   const total = steps.length
   return (
     // data-tour-*: the step this card waits on, for the headless playthrough.
-    <div
-      className="pointer-events-auto w-full max-w-[34rem]"
+    <TourFrame
       data-tour-step={waiting.index + 1}
       data-tour-waiting=""
-    >
-      <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      header={
+        <>
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
             {total > 0 ? `${waiting.index + 1}/${total}` : waiting.index + 1}
@@ -47,24 +46,10 @@ export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
             <Hand className="size-2.5" aria-hidden />
             your turn
           </span>
-        </div>
-
-        <div className="space-y-2 px-3 py-2.5">
-          {startedAt !== null && <StartedAt step={startedAt} />}
-          <Markdown
-            body={waiting.text}
-            className="space-y-2 text-[12.5px] leading-relaxed text-foreground"
-          />
-          {/* The guest is running here, so Run types straight away. */}
-          {waiting.do.length > 0 && <ShellSnippet lines={waiting.do} />}
-          {waiting.notes.map((note) => (
-            <p key={note} className="text-[11px] text-muted-foreground/80">
-              {note}
-            </p>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        </>
+      }
+      footer={
+        <>
           <span className="text-[11px] text-muted-foreground">
             The tour picks up at the next stop.
           </span>
@@ -76,8 +61,22 @@ export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
           >
             Leave the tour
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      bodyClassName="space-y-2 px-3 py-2.5"
+    >
+      {startedAt !== null && <StartedAt step={startedAt} />}
+      <Markdown
+        body={waiting.text}
+        className="space-y-2 text-[12.5px] leading-relaxed text-foreground"
+      />
+      {/* The guest is running here, so Run types straight away. */}
+      {waiting.do.length > 0 && <ShellSnippet lines={waiting.do} />}
+      {waiting.notes.map((note) => (
+        <p key={note} className="text-[11px] text-muted-foreground/80">
+          {note}
+        </p>
+      ))}
+    </TourFrame>
   )
 }
