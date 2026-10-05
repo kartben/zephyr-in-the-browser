@@ -23,6 +23,12 @@ the dispatcher notifies them.
 - **Async listener row.** The hand-off to its work queue, then its callback
   where the work queue ran it, labelled with the work queue's thread.
 
+Hover anything, or tap it on a touch screen, for a two-line tip: what it is,
+then how long it took, how long after the dispatcher it came, or why it failed
+(`-ENOMSG: rejected by the validator`, `-ENOMSG from bar_sub`). Over a name, the
+tip says what that kind of observer does. A read that began while another
+thread was publishing says so: that is a subscriber waiting for the lock.
+
 Above the lanes: channels, publishes, rejected publishes, notifications and
 reads in the visible window, and a legend. The tab shares the Trace window,
 gestures and box zoom with the other tabs, and appears only for an image that
@@ -89,5 +95,5 @@ events decode by name with no change to the page's own table.
   `_zbus_chan_data_<channel>.sem`) and the subscriber's queue already say when
   a channel was held and when a subscriber was told. The tab could draw those
   on stock images.
-- No hover or click details yet, like the other canvas tabs.
+- Clicking does nothing yet: a tip cannot be pinned, or open the call in Debug.
 - Observers added at run time get a row when first told, named by address.
