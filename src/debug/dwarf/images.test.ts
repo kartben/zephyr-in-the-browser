@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { DwarfEngine, type FrameTarget } from '@/debug/dwarf/engine'
+import { dieRanges } from '@/debug/dwarf/ranges'
 import { addressForLine, buildLineIndex } from '@/debug/dwarfLines'
 import { buildSymbolIndex } from '@/debug/elfSymbols'
 
@@ -33,12 +34,14 @@ for (const { board, firstArg, ptr } of BOARDS) {
   describe.skipIf(!existsSync(file))(`basic_button on ${board}`, () => {
     let engine: DwarfEngine
     let pc: number
+    let entry: number
     beforeAll(() => {
       // Read here, not in the describe body: vitest collects a skipped suite's
       // body too, and CI has no images.
       const elf = new Uint8Array(readFileSync(file))
       engine = DwarfEngine.forElf(elf)!
       pc = addressForLine(buildLineIndex(elf)!, 'main.c', 22)!.addr
+      entry = buildSymbolIndex(elf)!.byName.find((s) => s.name === 'button_input_cb')!.addr
     })
 
     it('stops in button_input_cb with its parameters in scope', () => {
@@ -46,6 +49,23 @@ for (const { board, firstArg, ptr } of BOARDS) {
       expect(frame?.name).toBe('button_input_cb')
       expect(engine.resolve('evt', frame!, null)?.kind).toBe('param')
       expect(engine.resolve('user_data', frame!, null)?.kind).toBe('param')
+    })
+
+    it("names button_input_cb's parameters for the register tooltips, from its entry on", () => {
+      // GCC inlined it too, so the out-of-line copy's parameter DIEs carry
+      // no names of their own, only an abstract origin.
+      expect(engine.parameterNames(entry)).toEqual(['evt', 'user_data'])
+      expect(engine.parameterNames(pc)).toEqual(['evt', 'user_data'])
+    })
+
+    it('keeps naming them inside a call inlined into it', () => {
+      // k_cycle_get_32() is inlined into button_input_cb on every board, and
+      // takes no arguments of its own.
+      const inlined = dieRanges(engine.info, engine.framesAt(pc)[0]!.subprogram)
+        .flatMap(([lo, hi]) => Array.from({ length: hi - lo }, (_, i) => lo + i))
+        .find((at) => engine.framesAt(at).some((f) => f.name === 'k_cycle_get_32'))
+      expect(inlined).toBeDefined()
+      expect(engine.parameterNames(inlined!)).toEqual(['evt', 'user_data'])
     })
 
     it('finds evt in the first argument register', async () => {

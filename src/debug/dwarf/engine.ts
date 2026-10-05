@@ -174,6 +174,26 @@ export class DwarfEngine {
     return ranges.length > 0 ? Math.min(...ranges.map(([lo]) => lo)) : null
   }
 
+  /**
+   * The parameter names of the function the PC is in, for the register
+   * tooltips to put on the argument registers.
+   *
+   * That is the real function, not an inlined call inside it: its arguments
+   * are the ones the calling convention passed in registers. They come in the
+   * order GDB lists them, the function's own parameter DIEs first (named
+   * through their abstract origin), then any that only the abstract origin
+   * declares. A GCC clone (`.constprop`, `.isra`) puts the parameters it no
+   * longer takes last. An unnamed parameter is '', so the ones after it keep
+   * their places.
+   */
+  parameterNames(pc: number): string[] {
+    const fn = this.framesAt(pc)[0]?.subprogram
+    if (!fn) return []
+    return this.scopeMembers(fn)
+      .filter((die) => die.tag === TAG.formal_parameter)
+      .map((die) => this.info.name(die) ?? '')
+  }
+
   /* ---------------------------------------------------------------- *
    * What does a name mean?
    * ---------------------------------------------------------------- */
