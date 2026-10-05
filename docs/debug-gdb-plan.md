@@ -107,7 +107,7 @@ No CFI parsing; two passes, and the pane labels which one produced the frames:
 | Pass | When | Confidence |
 | --- | --- | --- |
 | Frame-pointer chain | `CONFIG_FRAME_POINTER=y` (packaged builds set it) | exact |
-| Link register | frame 0's caller before it is spilled | exact |
+| Link register | frame 0's caller before it is spilled: with no chain, or (AArch64, RISC-V) when frame 0 has not saved its record yet | exact |
 | Stack scan | anything else — words that land *inside* a function | plausible |
 
 The scan's one rule is that a return address is never at a function's first
