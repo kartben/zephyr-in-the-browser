@@ -61,6 +61,11 @@ west config manifest.project-filter -- +tflite-micro
 west update tflite-micro
 ```
 
+To help it recognize gestures on more phones, record some on the
+[capture page](https://kartben.github.io/zephyr-in-the-browser/capture/);
+[docs/magic-wand-training.md](docs/magic-wand-training.md) covers training on
+them.
+
 ### Real network access (optional)
 
 By default the guest's LAN is simulated in the page and nothing reaches the

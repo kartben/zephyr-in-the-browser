@@ -17,7 +17,7 @@ via the help dialog (?).
 - **Added:** ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep.
 - **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
 - **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
-- **Added:** Magic Wand TinyML sample on Cortex-A53, with replayable gestures.
+- **Added:** Magic Wand TinyML sample on Cortex-A53, with replayable gestures and a capture page.
 - **Added:** Simulator and Live board modes, with Debug over the desktop bridge.
 - **Added:** Help button with keyboard shortcuts and this changelog.
 - **Added:** More menu on phones for Parts and Samples.
