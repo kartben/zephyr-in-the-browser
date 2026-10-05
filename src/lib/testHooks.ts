@@ -16,6 +16,7 @@
 
 import { sampleForSeed } from '@/boards'
 import * as debug from '@/debug/control'
+import { get as getDeviceTree } from '@/devicetree'
 import { available as gpioAvailable, getButtons, setPressed, type Pin } from '@/hostGpio'
 import { getState as getDockState } from '@/lib/dockStore'
 import { replayingClip, startReplay } from '@/lib/followStore'
@@ -88,7 +89,7 @@ export interface TourStateSummary {
 }
 
 export interface TestHooks {
-  /** A momentary press of a GPIO Keys button, by label (`sw0`). */
+  /** A momentary press of a GPIO Keys button, by label or devicetree alias (`sw0`). */
   pressKey(label: string, holdMs?: number): Promise<TestResult>
   /** Type shell lines into the terminal, as a tour card's Run button would. */
   typeLines(lines: readonly string[]): Promise<TestResult>
@@ -107,19 +108,31 @@ declare global {
 }
 
 /**
- * The GPIO Keys button a label names, or null.
+ * The GPIO Keys button a name picks out, or null.
  *
  * Labels come from the guest's devicetree (`label = "Browser SW0"` on the
  * A53), or are the fallback `SW0` to `SW3`. So a name matches a whole label or
  * its last word, without case, and a whole-label match wins.
+ *
+ * When no label picks out one key, a devicetree alias can: `aliases` maps each
+ * alias to the node it points at, as DtsInsights does. That is how `sw0` finds
+ * the ESP32-C3's only key, which its board labels `User SW1`.
  */
-export function findKey(buttons: readonly Pin[], name: string): Pin | null {
+export function findKey(
+  buttons: readonly Pin[],
+  name: string,
+  aliases: Readonly<Record<string, string>> = {},
+): Pin | null {
   const want = name.trim().toLowerCase()
   const label = (pin: Pin) => pin.label.trim().toLowerCase()
   const exact = buttons.filter((pin) => label(pin) === want)
-  if (exact.length > 0) return exact.length === 1 ? exact[0]! : null
+  if (exact.length === 1) return exact[0]!
   const word = buttons.filter((pin) => label(pin).split(/\s+/).at(-1) === want)
-  return word.length === 1 ? word[0]! : null
+  if (word.length === 1) return word[0]!
+  const path = Object.hasOwn(aliases, want) ? aliases[want] : undefined
+  if (path === undefined) return null
+  const aliased = buttons.filter((pin) => pin.path === path)
+  return aliased.length === 1 ? aliased[0]! : null
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -127,7 +140,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 async function pressKey(label: string, holdMs = PRESS_HOLD_MS): Promise<TestResult> {
   if (!gpioAvailable()) return { ok: false, error: 'this guest has no GPIO bridge to press a key on' }
   const buttons = getButtons()
-  const pin = findKey(buttons, label)
+  const pin = findKey(buttons, label, getDeviceTree()?.insights?.aliases)
   if (!pin) {
     const have = buttons.map((b) => b.label).join(', ') || 'none'
     return { ok: false, error: `no single GPIO key matches “${label}” (keys: ${have})` }

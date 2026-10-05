@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { computeInsights, parseDts } from '@/dts'
 import type { Pin } from '@/hostGpio'
 import type { TestResult } from '@/lib/testHooks'
 import { parseTour } from '@/tours/parse'
@@ -12,6 +13,7 @@ import { parseTour } from '@/tours/parse'
 
 const fake = vi.hoisted(() => ({
   buttons: [] as Pin[],
+  aliases: {} as Record<string, string>,
   gpio: true,
   pressed: [] as Array<[number, boolean]>,
   canType: true,
@@ -44,6 +46,10 @@ vi.mock('@/hostGpio', () => ({
   available: () => fake.gpio,
   getButtons: () => fake.buttons,
   setPressed: (pin: number, pressed: boolean) => fake.pressed.push([pin, pressed]),
+}))
+
+vi.mock('@/devicetree', () => ({
+  get: () => ({ insights: { aliases: fake.aliases } }),
 }))
 
 vi.mock('@/lib/terminalInput', () => ({
@@ -80,10 +86,11 @@ function hooks() {
 
 const errorOf = (result: TestResult) => (result.ok ? null : result.error)
 
-const pin = (id: number, label: string): Pin => ({ id, label, flags: 0 })
+const pin = (id: number, label: string, path?: string): Pin => ({ id, label, flags: 0, path })
 
 beforeEach(() => {
   fake.buttons = [pin(0, 'Browser SW0'), pin(1, 'Browser SW1')]
+  fake.aliases = {}
   fake.gpio = true
   fake.pressed = []
   fake.canType = true
@@ -141,6 +148,58 @@ describe('findKey', () => {
     expect(findKey([pin(0, 'Board SW0'), pin(1, 'Browser SW0')], 'sw0')).toBeNull()
     expect(findKey([pin(0, 'SW0')], 'sw1')).toBeNull()
   })
+
+  it('falls back to the key a devicetree alias points at', () => {
+    // esp32c3_devkitc: `sw0 = &user_button1`, a key labelled User SW1.
+    const keys = [pin(9, 'User SW1', '/gpio_keys/button_1')]
+    const aliases = { sw0: '/gpio_keys/button_1', led0: '/leds/led_0' }
+    expect(findKey(keys, 'sw0', aliases)?.id).toBe(9)
+    expect(findKey(keys, 'SW0', aliases)?.id).toBe(9)
+    expect(findKey(keys, 'sw0')).toBeNull()
+    // An alias for a node that is not a key finds nothing.
+    expect(findKey(keys, 'led0', aliases)).toBeNull()
+  })
+
+  it('takes a label over an alias, and an alias over two labels', () => {
+    // sw0 points at the key labelled SW1, but another key is labelled SW0.
+    const keys = [pin(0, 'SW0', '/keys/button_0'), pin(1, 'SW1', '/keys/button_1')]
+    expect(findKey(keys, 'sw0', { sw0: '/keys/button_1' })?.id).toBe(0)
+    // Two labels end in SW0, and the alias says which key it is.
+    const twins = [pin(0, 'Board SW0', '/keys/button_0'), pin(1, 'Browser SW0', '/keys/button_1')]
+    expect(findKey(twins, 'sw0', { sw0: '/keys/button_1' })?.id).toBe(1)
+  })
+
+  it('finds the ESP32-C3 key from the devicetree the page reads', () => {
+    // Trimmed from the esp32c3_devkitc build of basic_button.
+    const insights = computeInsights(
+      parseDts(`
+        /dts-v1/;
+        / {
+          aliases {
+            sw0 = &user_button1;
+          };
+          soc {
+            gpio0: gpio@60004000 {
+              compatible = "espressif,esp32-gpio";
+              gpio-controller;
+              #gpio-cells = < 0x2 >;
+              ngpios = < 0x1a >;
+            };
+          };
+          gpio_keys {
+            compatible = "gpio-keys";
+            user_button1: button_1 {
+              label = "User SW1";
+              gpios = < &gpio0 0x9 0x11 >;
+              zephyr,code = < 0xb >;
+            };
+          };
+        };
+      `),
+    )
+    const keys = insights.gpioControllers.find((c) => c.bridged)!.buttons
+    expect(findKey(keys, 'sw0', insights.aliases)).toMatchObject({ id: 9, label: 'User SW1' })
+  })
 })
 
 describe('pressKey', () => {
@@ -155,6 +214,19 @@ describe('pressKey', () => {
     expect(fake.pressed).toEqual([
       [1, true],
       [1, false],
+    ])
+  })
+
+  it('presses the key the running devicetree aliases', async () => {
+    fake.buttons = [pin(9, 'User SW1', '/gpio_keys/button_1')]
+    fake.aliases = { sw0: '/gpio_keys/button_1' }
+    vi.useFakeTimers()
+    const done = hooks().pressKey('sw0')
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(done).resolves.toEqual({ ok: true })
+    expect(fake.pressed).toEqual([
+      [9, true],
+      [9, false],
     ])
   })
 

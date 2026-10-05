@@ -78,8 +78,11 @@ describe('computeInsights', () => {
     expect(gpio.controllerLabel).toBe('virtio_gpio0')
     expect(gpio.bridged).toBe(true)
     expect(gpio.ngpios).toBe(8)
-    expect(gpio.leds).toEqual([{ id: 4, label: 'Browser LED0', flags: 0 }])
-    expect(gpio.buttons).toEqual([{ id: 0, label: 'Browser SW0', flags: 0 }])
+    expect(gpio.leds).toEqual([{ id: 4, label: 'Browser LED0', flags: 0, path: '/leds/led_0' }])
+    expect(gpio.buttons).toEqual([{ id: 0, label: 'Browser SW0', flags: 0, path: '/keys/button_0' }])
+    // An alias names a pin by its node, so the playthrough can press `sw0`.
+    expect(insights.aliases.sw0).toBe('/keys/button_0')
+    expect(insights.aliases.led0).toBe('/leds/led_0')
     expect(insights.panels.has('gpio')).toBe(true)
   })
 
@@ -296,7 +299,7 @@ describe('computeInsights', () => {
     expect(gpio.controllerLabel).toBe('host_gpio')
     expect(gpio.compatible).toBe('qemu,host-gpio')
     expect(gpio.bridged).toBe(true)
-    expect(gpio.leds).toEqual([{ id: 4, label: 'Host LED0', flags: 0 }])
+    expect(gpio.leds).toEqual([{ id: 4, label: 'Host LED0', flags: 0, path: '/leds/led_0' }])
     expect(insights.panels.has('net')).toBe(true) // stellaris ethernet
     expect(insights.panels.has('i2c')).toBe(false) // no bus on this machine
   })
@@ -322,8 +325,12 @@ describe('computeInsights', () => {
       ['virtio_gpio0', true, 1],
     ])
     // Each LED lands on the controller its own spec references.
-    expect(insights.gpioControllers[1].leds).toEqual([{ id: 4, label: 'Bridge LED', flags: 0 }])
-    expect(insights.gpioControllers[0].leds).toEqual([{ id: 17, label: 'On-chip LED', flags: 1 }])
+    expect(insights.gpioControllers[1].leds).toEqual([
+      { id: 4, label: 'Bridge LED', flags: 0, path: '/leds/led_0' },
+    ])
+    expect(insights.gpioControllers[0].leds).toEqual([
+      { id: 17, label: 'On-chip LED', flags: 1, path: '/leds/led_1' },
+    ])
   })
 
   it('spots an OLED chosen as the display', () => {

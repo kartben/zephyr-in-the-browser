@@ -90,6 +90,8 @@ export interface DtsPin {
   label: string
   /** Zephyr DT `gpios` flags cell (ACTIVE_LOW, PULL_*, …). */
   flags: number
+  /** The gpio-keys or gpio-leds child, `/gpio_keys/button_1`: what an alias points at. */
+  path: string
 }
 
 /** A gpio-buzzer wired to a controller output. */
@@ -540,6 +542,7 @@ function collectGpioControllers(doc: DtsDocument): GpioController[] {
             id: spec.pin,
             label: stringProp(child, 'label') ?? labelOf(child),
             flags: spec.flags,
+            path: pathOf(child),
           })
         }
       }

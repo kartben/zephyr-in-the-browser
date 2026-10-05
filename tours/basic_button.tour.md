@@ -6,8 +6,8 @@ sample: samples/basic/button
 This is Zephyr's button sample. It waits for a key event, then prints and
 lights an LED.
 
-Watch **GPIO Keys** in the **device dock**. You will press **SW0** after the
-sample starts waiting.
+Watch **GPIO Keys** in the **device dock**. You will press the button after
+the sample starts waiting.
 
 ## The button comes from the board
 
@@ -20,7 +20,7 @@ panel: keys
 ```
 
 An application typically does not reference pin numbers directly. The board's
-**devicetree** describes SW0 as a `gpio-keys` node.
+**devicetree** describes the button as a `gpio-keys` node.
 
 The **input** subsystem turns a press into a key event. This sample never looks
 up the pin.
@@ -39,7 +39,7 @@ return.
 `INPUT_CALLBACK_DEFINE` registered `button_input_cb` at **build** time. The
 **input** subsystem calls it when a key event arrives.
 
-Continue, then press **SW0** in **GPIO Keys**.
+Continue, then press the button in **GPIO Keys**.
 
 ## A press is an input event
 

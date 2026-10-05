@@ -847,9 +847,10 @@ const CI_DURATION = /^(\d+(?:\.\d+)?)\s*(ms|s)$/i
 /**
  * Parse one `ci:` action: `press <key>`, `type <line>` or `wait <duration>`.
  *
- * A key is a GPIO Keys button as the dock labels it, matched without case, so
- * `press sw0` finds SW0. Which keys exist depends on the board, so that part is
- * left to the playthrough, which fails with the keys it did find.
+ * A key is a GPIO Keys button as the dock labels it, matched without case, or
+ * the devicetree alias that points at it, so `press sw0` finds SW0, and the
+ * ESP32-C3's User SW1 too. Which keys exist depends on the board, so that part
+ * is left to the playthrough, which fails with the keys it did find.
  */
 export function parseCiAction(raw: string): { ok: true; action: CiAction } | { ok: false; error: string } {
   const text = raw.trim()
