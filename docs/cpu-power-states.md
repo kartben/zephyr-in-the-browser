@@ -11,15 +11,17 @@ before any code was written (see [Ramp](#the-depth-ramp)). Not built: per-device
 
 **The guest side never landed upstream.** The hooks the band and the device walk
 hang off (`pm_state_set_*` and `pm_device_action_run_*`), and the fix to
-`pm_system_suspend_exit`'s `state`, are on the `traces` branch of
-[kartben/zephyr](https://github.com/kartben/zephyr/tree/traces) and nowhere else.
-Upstream Zephyr later added CTF events of its own for `pm_system_suspend` and
-device runtime PM, at different ids, but not those. So an image built from Zephyr
-main, which is every image the page ships today, draws no power band, and the
-Power tab says so. The branch predates upstream's PM events, so it wants rebasing
-onto them first. An image built from it then decodes beside images built from
-main: each image ships the event table of its own tree (`<app>.tsdl`), and the
-page matches PM events by name, not id.
+`pm_system_suspend_exit`'s `state`, are on the `browser-traces` branch of
+[kartben/zephyr](https://github.com/kartben/zephyr/tree/browser-traces) and
+nowhere else: rebased onto Zephyr main, beside upstream's own PM events and the
+zbus hooks ([trace-zbus.md](trace-zbus.md)). They were first written on the older
+`traces` branch, which predates upstream's PM events. Upstream Zephyr later added
+CTF events of its own for `pm_system_suspend` and device runtime PM, at different
+ids, but not those. So an image built from Zephyr main, which is every image the
+page ships today, draws no power band, and the Power tab says so. An image built
+from the branch decodes beside images built from main: each image ships the event
+table of its own tree (`<app>.tsdl`), and the page matches PM events by name, not
+id.
 
 ## Why
 
@@ -41,7 +43,8 @@ falsifiable rather than asserted.
 
 Sixteen CTF events. On the `traces` branch they sat at `0x147`–`0x156`, which
 Zephyr main has since given to `k_heap` events, so the page looks every one up by
-name rather than by id. Four never reached upstream: `pm_state_set_*`, and
+name rather than by id. On `browser-traces` the four below that upstream lacks sit
+at `0x198`–`0x19B`, after the zbus events. Four never reached upstream: `pm_state_set_*`, and
 `pm_device_action_run_*`. Zephyr had trace hooks for device *runtime* PM but none
 for `pm_device_action_run()` itself, which is the one place every device PM
 transition passes through:
