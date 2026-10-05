@@ -192,6 +192,31 @@ export function createI2cModel(name = 'i2c'): I2cModel {
    */
   let failing = false
 
+  /**
+   * A write that more of its transfer follows (FAIL_NEXT), held back until the
+   * next message says whether it carries on with it.
+   *
+   * Zephyr's i2c_burst_write() sends the register and the data as two write
+   * messages, the second without I2C_MSG_RESTART: on a wire that is one write,
+   * [register][data...]. Virtio has no flag for "no restart", so the two still
+   * arrive as two requests, and handed over one at a time the data's first byte
+   * would land as a register pointer and the rest go nowhere. The ADXL345
+   * driver sets its range that way, so the part stayed at ±2 g while the driver
+   * decoded ±8 g, and every reading came out four times too large.
+   *
+   * So a write that follows a write to the same chip inside one transfer is
+   * joined onto it, and anything else first delivers the held write as it was:
+   * a pointer write before a read reaches the chip just as before.
+   */
+  let held: { address: number; bytes: Uint8Array } | null = null
+
+  const deliverHeld = (): boolean => {
+    if (!held) return true
+    const { address, bytes } = held
+    held = null
+    return writeMessage(address, bytes)
+  }
+
   const notify = () => {
     for (const fn of listeners) fn()
   }
@@ -310,6 +335,12 @@ export function createI2cModel(name = 'i2c'): I2cModel {
       return
     }
 
+    const continues = !isRead && held !== null && held.address === address
+    if (!continues && !deliverHeld()) {
+      answer(false)
+      return
+    }
+
     if (!bus.has(address)) {
       // Nothing at this address. Deliberately not logged: `i2c scan` probes
       // 116 addresses and would bury every real transaction under NAKs.
@@ -325,7 +356,21 @@ export function createI2cModel(name = 'i2c'): I2cModel {
       return
     }
 
-    answer(writeMessage(address, req.out.subarray(OUT_HDR_BYTES)))
+    let bytes = req.out.subarray(OUT_HDR_BYTES)
+    if (continues) {
+      const joined = new Uint8Array(held!.bytes.length + bytes.length)
+      joined.set(held!.bytes, 0)
+      joined.set(bytes, held!.bytes.length)
+      bytes = joined
+      held = null
+    }
+    if (failNext) {
+      // A copy: the request's buffer is the guest's, and is reused.
+      held = { address, bytes: bytes.slice() }
+      answer(true)
+      return
+    }
+    answer(writeMessage(address, bytes))
   }
 
   return {
@@ -337,6 +382,7 @@ export function createI2cModel(name = 'i2c'): I2cModel {
 
     reset() {
       failing = false
+      held = null
     },
 
     attachChip(chip) {

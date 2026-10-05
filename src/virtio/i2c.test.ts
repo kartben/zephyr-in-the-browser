@@ -9,6 +9,7 @@ import { createI2cModel, type I2cModel } from './devices/i2c'
 import { createAt24 } from './devices/chips/at24'
 import { createTmp112 } from './devices/chips/tmp112'
 import { createSsd1306 } from './devices/chips/ssd1306'
+import { createAdxl345 } from './devices/sensors/adxl345'
 import { attach, detach, pollOnce, register } from './transport'
 
 const VIRTIO_ID_I2C_ADAPTER = 34
@@ -149,6 +150,55 @@ describe('virtio-i2c model', () => {
     i2c.attachChip(createAt24({ address: 0x50 }))
     write(0x50, Uint8Array.of(0x80), FLAGS_FAIL_NEXT)
     expect(read(0x50, 3).data).toEqual(Uint8Array.of(0xff, 0xff, 0xff))
+  })
+
+  it('joins a burst write, register then data, into the one write it is on a wire', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+
+    // Zephyr's i2c_burst_write(): the register, then the data without a
+    // restart, as two messages of one transfer.
+    expect(write(0x50, Uint8Array.of(0x10), FLAGS_FAIL_NEXT)).toBe(MSG_OK)
+    expect(write(0x50, Uint8Array.of(0xde, 0xad))).toBe(MSG_OK)
+
+    write(0x50, Uint8Array.of(0x10), FLAGS_FAIL_NEXT)
+    expect(read(0x50, 2).data).toEqual(Uint8Array.of(0xde, 0xad))
+    // The first data byte was not taken for a pointer.
+    write(0x50, Uint8Array.of(0xde), FLAGS_FAIL_NEXT)
+    expect(read(0x50, 1).data).toEqual(Uint8Array.of(0xff))
+    expect(i2c.transactions().filter((t) => t.dir === 'write')[0]).toMatchObject({
+      bytes: Uint8Array.of(0x10, 0xde, 0xad),
+    })
+  })
+
+  it('delivers a held write as it was when the transfer moves to another chip', () => {
+    i2c.attachChip(createAt24({ address: 0x50 }))
+    i2c.attachChip(createAt24({ address: 0x51 }))
+
+    write(0x50, Uint8Array.of(0x20, 0x11), FLAGS_FAIL_NEXT)
+    write(0x51, Uint8Array.of(0x20, 0x22))
+
+    write(0x50, Uint8Array.of(0x20), FLAGS_FAIL_NEXT)
+    expect(read(0x50, 1).data).toEqual(Uint8Array.of(0x11))
+    write(0x51, Uint8Array.of(0x20), FLAGS_FAIL_NEXT)
+    expect(read(0x51, 1).data).toEqual(Uint8Array.of(0x22))
+  })
+
+  it('lets the ADXL345 driver set its range, so a reading decodes at the right scale', () => {
+    i2c.attachChip(createAdxl345({ address: 0x53 }))
+    const chip = i2c.chips()[0] as ReturnType<typeof createAdxl345>
+    chip.setChannel('accel_z', 9.80665)
+
+    // adxl345_set_range(): read DATA_FORMAT, then write it back with ±8 g.
+    write(0x53, Uint8Array.of(0x31), FLAGS_FAIL_NEXT)
+    const format = read(0x53, 1).data[0]!
+    write(0x53, Uint8Array.of(0x31), FLAGS_FAIL_NEXT)
+    write(0x53, Uint8Array.of((format & ~0x03) | 0x02))
+
+    // adxl345_read_sample(): six bytes from DATAX0, decoded at 64 LSB/g.
+    write(0x53, Uint8Array.of(0x32), FLAGS_FAIL_NEXT)
+    const d = read(0x53, 6).data
+    const z = ((d[5]! << 8) | d[4]!) << 16 >> 16
+    expect(z).toBe(64)
   })
 
   it('fails the rest of a transfer after a failed message with FAIL_NEXT', () => {
