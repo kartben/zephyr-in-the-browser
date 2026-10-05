@@ -10,7 +10,7 @@ via the help dialog (?).
 - **Added:** Tours draw a message queue as a ring, with read and write pointers.
 - **Added:** Tours can draw diagrams, like the sensor pipeline map.
 - **Added:** Several tours per sample, and links straight to a tour step.
-- **Added:** Guided tours get their own gallery section, plus Button, message queue and sensor pipeline tours.
+- **Added:** Guided tours get their own gallery section, plus Button, message queue, sensor pipeline and zbus tours.
 - **Added:** Message Queue Lab sample and tour, driven from the shell.
 - **Added:** ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep.
 - **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
