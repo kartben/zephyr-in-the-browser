@@ -142,17 +142,20 @@ function decodeAarch64(bytes: Uint8Array): RegView {
   }
 }
 
+/** x0..x31 by ABI name, which is also their DWARF register order. */
+export const RISCV_ABI_NAMES = [
+  'zero', 'ra', 'sp', 'gp', 'tp', 't0', 't1', 't2',
+  's0', 's1', 'a0', 'a1', 'a2', 'a3', 'a4', 'a5',
+  'a6', 'a7', 's2', 's3', 's4', 's5', 's6', 's7',
+  's8', 's9', 's10', 's11', 't3', 't4', 't5', 't6',
+] as const
+
 function decodeRiscv32(bytes: Uint8Array): RegView {
   // 33 × 4: x0..x31, pc — pc is register 32
   if (bytes.length < 33 * 4) {
     return { pc: null, dump: bytesToDump(bytes), summary: null, frame: NO_FRAME_REGS }
   }
-  const abi = [
-    'zero', 'ra', 'sp', 'gp', 'tp', 't0', 't1', 't2',
-    's0', 's1', 'a0', 'a1', 'a2', 'a3', 'a4', 'a5',
-    'a6', 'a7', 's2', 's3', 's4', 's5', 's6', 's7',
-    's8', 's9', 's10', 's11', 't3', 't4', 't5', 't6',
-  ]
+  const abi = RISCV_ABI_NAMES
   const pc = hex32(u32(bytes, 32 * 4))
   const lines = [`pc=${pc}`]
   for (let i = 1; i < 32; i++) {
