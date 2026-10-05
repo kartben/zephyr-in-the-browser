@@ -16,10 +16,12 @@ only give motion sensor readings to secure pages. That is also why it is a page
 on the site and not a server on your laptop.
 
 A round takes about three minutes: five of each gesture in random order, then
-twenty seconds of free movement and ten seconds of holding still. Each gesture
-take starts with a three-second countdown, then three seconds to draw. After
-each take the page plots what it recorded: **Keep** it, or **Redo** it if the
-move went wrong. Each round asks for a hold:
+twenty seconds of free movement and ten seconds of holding still. Or pick one
+motion (a gesture, free movement or holding still) and record it as many times
+as you like, until **Done**. Each gesture take starts with a three-second
+countdown, then three seconds to draw. After each take the page plots what it
+recorded: **Keep** it, or **Redo** it if the move went wrong. The page asks for
+a hold first:
 
 - **Flat:** screen up, charging port on the left. This matches how the 2019
   board was held, so the current model can use it.
@@ -27,8 +29,10 @@ move went wrong. Each round asks for a hold:
   that works for everyone has to handle this one.
 
 Takes are kept in the browser between rounds. **Export** shares the session as
-one JSON file through the share sheet, or downloads it. Send the file to
-whoever is collecting recordings. The page records motion readings, the
+one JSON file through the share sheet (AirDrop, Files, Drive, mail), or
+downloads it. Send the file to whoever is collecting recordings; for this
+repository, commit it to a branch, which GitHub's **Add file > Upload files**
+can do from a phone. The page records motion readings, the
 browser's user agent, the phone model where the browser reports it (Chromium
 does), and the hand the person chose. Nothing else, and nothing leaves the
 phone until it is exported.

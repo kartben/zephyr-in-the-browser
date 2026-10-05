@@ -3,7 +3,8 @@
  * phone's motion sensor and exported as a training file.
  *
  * A round asks for five of each gesture in random order, then free movement and
- * stillness. Each gesture take records a three second countdown (the phone held
+ * stillness; or the reader picks one motion and records it as many times as
+ * they like. Each gesture take records a three second countdown (the phone held
  * still) and three seconds after the cue, which is more than the model's 5.12 s
  * window needs around a one to two second gesture. Nothing leaves the phone
  * until the reader exports it.
@@ -23,6 +24,7 @@ import {
   newSession,
   planRound,
   saveSession,
+  takeSpec,
   serializeSession,
   sessionFileName,
   type CaptureSession,
@@ -39,6 +41,14 @@ const TITLES: Record<TakeLabel, string> = {
   slope: 'Slope',
   negative: 'Anything but a gesture',
   idle: 'Hold still',
+}
+
+const SHORT_TITLES: Record<TakeLabel, string> = {
+  wing: 'Wing',
+  ring: 'Ring',
+  slope: 'Slope',
+  negative: 'Free movement',
+  idle: 'Still',
 }
 
 const HOW: Record<TakeLabel, string> = {
@@ -148,6 +158,8 @@ export function CaptureApp() {
   const [phase, setPhase] = useState<Phase>({ kind: 'intro' })
   const [session, setSession] = useState<CaptureSession | null>(() => loadSession())
   const [plan, setPlan] = useState<TakeSpec[]>(() => planRound())
+  // One motion, taken again and again until the reader is done, instead of a round.
+  const [single, setSingle] = useState<TakeLabel | null>(null)
   const [hold, setHold] = useState<Hold>('recommended')
   const [motionError, setMotionError] = useState<string | null>(null)
   const [saved, setSaved] = useState(true)
@@ -230,11 +242,25 @@ export function CaptureApp() {
       motionIntervalMs: capture.intervalMs(),
       takes: [...session.takes, take],
     })
-    setPhase(index + 1 < plan.length ? { kind: 'prompt', index: index + 1 } : { kind: 'round-done' })
+    if (single) setPhase({ kind: 'prompt', index: 0 })
+    else setPhase(index + 1 < plan.length ? { kind: 'prompt', index: index + 1 } : { kind: 'round-done' })
   }
 
   const counts = session ? countTakes(session) : null
   const total = session?.takes.length ?? 0
+  const progress = (index: number) =>
+    single ? `take ${(counts?.[single] ?? 0) + 1}` : `${index + 1} / ${plan.length}`
+
+  const beginRound = () => {
+    setSingle(null)
+    setPlan(planRound())
+    setPhase({ kind: 'prompt', index: 0 })
+  }
+  const beginSingle = (label: TakeLabel) => {
+    setSingle(label)
+    setPlan([takeSpec(label)])
+    setPhase({ kind: 'prompt', index: 0 })
+  }
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 px-4 py-5">
@@ -258,29 +284,36 @@ export function CaptureApp() {
           onHold={setHold}
           handedness={session?.contributor.handedness ?? null}
           onHandedness={(handedness) => session && commit({ ...session, contributor: { handedness } })}
-          onBegin={() => setPhase({ kind: 'prompt', index: 0 })}
+          onRound={beginRound}
+          onSingle={beginSingle}
         />
       )}
 
       {phase.kind === 'prompt' && (
-        <Prompt spec={plan[phase.index]!} index={phase.index} of={plan.length} hold={hold} onGo={() => startTake(phase.index)} />
+        <Prompt
+          spec={plan[phase.index]!}
+          progress={progress(phase.index)}
+          hold={hold}
+          onGo={() => startTake(phase.index)}
+          onDone={single ? () => setPhase({ kind: 'setup' }) : undefined}
+        />
       )}
 
       {phase.kind === 'countdown' && (
         <Card>
-          <TakeHeader spec={plan[phase.index]!} index={phase.index} of={plan.length} />
+          <TakeHeader spec={plan[phase.index]!} progress={progress(phase.index)} />
           <p className="text-muted-foreground text-sm">Hold still</p>
           <div className="text-primary py-6 text-center text-7xl font-bold tabular-nums">{phase.left}</div>
         </Card>
       )}
 
       {phase.kind === 'recording' && (
-        <Recording spec={plan[phase.index]!} index={phase.index} of={plan.length} endsAt={phase.endsAt} />
+        <Recording spec={plan[phase.index]!} progress={progress(phase.index)} endsAt={phase.endsAt} />
       )}
 
       {phase.kind === 'review' && (
         <Card>
-          <TakeHeader spec={plan[phase.index]!} index={phase.index} of={plan.length} />
+          <TakeHeader spec={plan[phase.index]!} progress={progress(phase.index)} />
           <TakePlot take={phase.take} />
           <p className="text-muted-foreground text-xs">
             {phase.take.samples.length < 20
@@ -311,14 +344,8 @@ export function CaptureApp() {
             asked you to record.
           </p>
           <div className="flex flex-col gap-2">
-            <Button
-              className="h-11"
-              onClick={() => {
-                setPlan(planRound())
-                setPhase({ kind: 'setup' })
-              }}
-            >
-              Another round
+            <Button className="h-11" onClick={() => setPhase({ kind: 'setup' })}>
+              Another round, or one motion
             </Button>
             <ExportButtons session={session} />
           </div>
@@ -356,7 +383,10 @@ function Intro({
         it work for everyone.
       </p>
       <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-sm">
-        <li>A round takes about three minutes: five of each gesture, then some free movement.</li>
+        <li>
+          A round takes about three minutes: five of each gesture, then some free movement. Or record any one motion as
+          many times as you like.
+        </li>
         <li>
           The page records your phone&apos;s motion sensor readings, your phone model and browser, and nothing else.
         </li>
@@ -388,14 +418,16 @@ function Setup({
   onHold,
   handedness,
   onHandedness,
-  onBegin,
+  onRound,
+  onSingle,
 }: {
   capture: MotionCapture
   hold: Hold
   onHold: (hold: Hold) => void
   handedness: 'right' | 'left' | null
   onHandedness: (handedness: 'right' | 'left') => void
-  onBegin: () => void
+  onRound: () => void
+  onSingle: (label: TakeLabel) => void
 }) {
   const latest = useMotion(capture)
   const [waited, setWaited] = useState(false)
@@ -408,7 +440,7 @@ function Setup({
 
   return (
     <Card>
-      <h2 className="text-sm font-semibold">How to hold the phone this round</h2>
+      <h2 className="text-sm font-semibold">How to hold the phone</h2>
       <div className="grid grid-cols-2 gap-2">
         {(Object.keys(HOLDS) as Hold[]).map((h) => (
           <button
@@ -455,9 +487,25 @@ function Setup({
         ))}
       </div>
 
-      <Button className="h-11" disabled={!capture.ready} onClick={onBegin}>
-        {capture.ready ? 'Begin round' : 'Waiting for the sensor...'}
+      <Button className="h-11" disabled={!capture.ready} onClick={onRound}>
+        {capture.ready ? 'Begin a round' : 'Waiting for the sensor...'}
       </Button>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-muted-foreground text-xs">Or record one motion as many times as you like:</span>
+        <div className="grid grid-cols-3 gap-1.5">
+          {(['wing', 'ring', 'slope', 'negative', 'idle'] as const).map((label) => (
+            <Button
+              key={label}
+              variant="outline"
+              className="h-10"
+              disabled={!capture.ready}
+              onClick={() => onSingle(label)}
+            >
+              {SHORT_TITLES[label]}
+            </Button>
+          ))}
+        </div>
+      </div>
     </Card>
   )
 }
@@ -475,22 +523,33 @@ function HoldPicture() {
   )
 }
 
-function TakeHeader({ spec, index, of }: { spec: TakeSpec; index: number; of: number }) {
+function TakeHeader({ spec, progress }: { spec: TakeSpec; progress: string }) {
   return (
     <div className="flex items-baseline justify-between">
       <h2 className="text-lg font-semibold">{TITLES[spec.label]}</h2>
-      <span className="text-muted-foreground text-xs tabular-nums">
-        {index + 1} / {of}
-      </span>
+      <span className="text-muted-foreground text-xs tabular-nums">{progress}</span>
     </div>
   )
 }
 
-function Prompt({ spec, index, of, hold, onGo }: { spec: TakeSpec; index: number; of: number; hold: Hold; onGo: () => void }) {
+function Prompt({
+  spec,
+  progress,
+  hold,
+  onGo,
+  onDone,
+}: {
+  spec: TakeSpec
+  progress: string
+  hold: Hold
+  onGo: () => void
+  /** One-motion mode: back to the choice of motions. */
+  onDone?: () => void
+}) {
   const gesture = isGesture(spec.label)
   return (
     <Card>
-      <TakeHeader spec={spec} index={index} of={of} />
+      <TakeHeader spec={spec} progress={progress} />
       {gesture && <GestureIcon label={spec.label} />}
       <p className="text-sm">{HOW[spec.label]}</p>
       <p className="text-muted-foreground text-xs">
@@ -501,11 +560,16 @@ function Prompt({ spec, index, of, hold, onGo }: { spec: TakeSpec; index: number
       <Button className="h-14 text-base" onClick={onGo}>
         {gesture ? 'Ready' : 'Start'}
       </Button>
+      {onDone && (
+        <Button variant="outline" className="h-11" onClick={onDone}>
+          Done with {TITLES[spec.label].toLowerCase()}
+        </Button>
+      )}
     </Card>
   )
 }
 
-function Recording({ spec, index, of, endsAt }: { spec: TakeSpec; index: number; of: number; endsAt: number }) {
+function Recording({ spec, progress, endsAt }: { spec: TakeSpec; progress: string; endsAt: number }) {
   const [now, setNow] = useState(() => performance.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(performance.now()), 100)
@@ -515,7 +579,7 @@ function Recording({ spec, index, of, endsAt }: { spec: TakeSpec; index: number;
   const gesture = isGesture(spec.label)
   return (
     <Card>
-      <TakeHeader spec={spec} index={index} of={of} />
+      <TakeHeader spec={spec} progress={progress} />
       <div className="text-primary py-4 text-center text-5xl font-bold">{gesture ? 'Go!' : `${Math.ceil(left / 1000)} s`}</div>
       {gesture && <GestureIcon label={spec.label} />}
       <div className="bg-muted h-2 overflow-hidden rounded">

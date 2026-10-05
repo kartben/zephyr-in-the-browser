@@ -87,6 +87,11 @@ export const GESTURE_MS = 3000
 export const NEGATIVE_MS = 20_000
 export const IDLE_MS = 10_000
 
+export function takeSpec(label: TakeLabel): TakeSpec {
+  const durationMs = label === 'negative' ? NEGATIVE_MS : label === 'idle' ? IDLE_MS : GESTURE_MS
+  return { label, durationMs }
+}
+
 /**
  * One round: `reps` of each gesture in random order, then free movement and
  * stillness. Shuffled so practice and fatigue spread over every gesture rather
@@ -95,17 +100,13 @@ export const IDLE_MS = 10_000
 export function planRound(reps = 5, random: () => number = Math.random): TakeSpec[] {
   const gestures: TakeSpec[] = []
   for (const label of GESTURES) {
-    for (let i = 0; i < reps; i++) gestures.push({ label, durationMs: GESTURE_MS })
+    for (let i = 0; i < reps; i++) gestures.push(takeSpec(label))
   }
   for (let i = gestures.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1))
     ;[gestures[i], gestures[j]] = [gestures[j]!, gestures[i]!]
   }
-  return [
-    ...gestures,
-    { label: 'negative', durationMs: NEGATIVE_MS },
-    { label: 'idle', durationMs: IDLE_MS },
-  ]
+  return [...gestures, takeSpec('negative'), takeSpec('idle')]
 }
 
 export function newSession(device: DeviceInfo, now = new Date(), random: () => number = Math.random): CaptureSession {

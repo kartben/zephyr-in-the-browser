@@ -15,6 +15,7 @@ import {
   saveSession,
   serializeSession,
   sessionFileName,
+  takeSpec,
   type DeviceInfo,
   type Take,
 } from './session'
@@ -73,6 +74,14 @@ describe('planRound', () => {
       .map((t) => t.label)
     const grouped = [...labels].sort()
     expect(labels).not.toEqual(grouped)
+  })
+})
+
+describe('takeSpec', () => {
+  it('gives each kind of take its length', () => {
+    expect(takeSpec('slope')).toEqual({ label: 'slope', durationMs: GESTURE_MS })
+    expect(takeSpec('negative')).toEqual({ label: 'negative', durationMs: NEGATIVE_MS })
+    expect(takeSpec('idle')).toEqual({ label: 'idle', durationMs: IDLE_MS })
   })
 })
 
