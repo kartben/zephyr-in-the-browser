@@ -71,10 +71,18 @@ export function resizeBox(box: PanelBox, edge: ResizeEdge, dx: number, dy: numbe
   return { x, y, w, h }
 }
 
+export type DragResizeOpts = ClampBoxOpts & {
+  /**
+   * The box a gesture starts from while `rect` is still null: a card laid out
+   * by the page until the reader first grabs it, which only then needs a box.
+   */
+  seed?: () => PanelBox | null
+}
+
 export function useDragResize(
   rect: PanelBox | null,
   onChange: (box: PanelBox) => void,
-  opts?: ClampBoxOpts,
+  opts?: DragResizeOpts,
 ) {
   const gesture = useRef<Gesture | null>(null)
   // The window-resize listener is registered once; this ref keeps the freshest
@@ -97,7 +105,7 @@ export function useDragResize(
       // Let clicks on the header controls (undock/collapse/close) through — a
       // drag must never swallow a button press.
       if (event.target instanceof Element && event.target.closest('button')) return
-      const box = latest.current.rect
+      const box = latest.current.rect ?? latest.current.opts?.seed?.() ?? null
       if (!box) return
       event.preventDefault()
       gesture.current = { pointerX: event.clientX, pointerY: event.clientY, box, mode }

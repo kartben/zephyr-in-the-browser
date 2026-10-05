@@ -23,7 +23,7 @@ via the help dialog (?).
 - **Added:** More menu on phones for Parts and Samples.
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
 - **Improved:** Blinky tours: a page tour that chains on, and one through the code.
-- **Improved:** Tours open with their intro; cards show only relevant threads.
+- **Improved:** Tours open with their intro; cards move, resize and show only relevant threads.
 - **Improved:** Device dock says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
 - **Changed:** Kernel object lists need an image from current Zephyr main.

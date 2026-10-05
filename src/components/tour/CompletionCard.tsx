@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, GraduationCap, RotateCcw, X } from 'lucide-react'
 import { InlineMarkdown, Markdown } from '@/components/Markdown'
+import { TourFrame } from '@/components/tour/TourFrame'
 import { Button } from '@/components/ui/button'
 import { getSample, type Board } from '@/boards'
 import { runCommand } from '@/lib/commands'
@@ -55,9 +56,10 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
 
   return (
     // data-tour-complete: the headless playthrough's sign that the tour ended.
-    <div className="pointer-events-auto w-full max-w-[34rem]" data-tour-complete="">
-      <div className="rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur">
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    <TourFrame
+      data-tour-complete=""
+      header={
+        <>
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
           <span className="text-[11px] text-muted-foreground">Tour complete</span>
           <button
@@ -68,19 +70,10 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
           >
             <X className="size-3.5" aria-hidden />
           </button>
-        </div>
-
-        <div className="max-h-[min(30rem,64vh)] space-y-2.5 overflow-y-auto px-3 py-2.5">
-          <h2 className="text-sm font-semibold text-foreground">
-            <InlineMarkdown text={outro.title} />
-          </h2>
-          <Markdown
-            body={outro.body}
-            className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        </>
+      }
+      footer={
+        <>
           {target && title && (
             <Button
               size="sm"
@@ -102,8 +95,17 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
             <RotateCcw className="size-3" aria-hidden />
             Run it again
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      bodyClassName="space-y-2.5 px-3 py-2.5"
+    >
+      <h2 className="text-sm font-semibold text-foreground">
+        <InlineMarkdown text={outro.title} />
+      </h2>
+      <Markdown
+        body={outro.body}
+        className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
+      />
+    </TourFrame>
   )
 }
