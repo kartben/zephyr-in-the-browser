@@ -49,7 +49,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "zbus tab in Trace, with channels and observers from the image."
+        "text": "zbus tab in Trace, and CPU sleep states in the Power tab."
       },
       {
         "tag": "Added",

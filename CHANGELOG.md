@@ -12,7 +12,7 @@ via the help dialog (?).
 - **Added:** Several tours per sample, and links straight to a tour step.
 - **Added:** Guided tours get their own gallery section, plus Button, message queue, sensor pipeline, zbus and state machine tours.
 - **Added:** Message Queue Lab sample and tour, driven from the shell.
-- **Added:** zbus tab in Trace, with channels and observers from the image.
+- **Added:** zbus tab in Trace, and CPU sleep states in the Power tab.
 - **Added:** ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep.
 - **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
 - **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.

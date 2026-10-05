@@ -66,10 +66,11 @@ on the `browser-traces` branch of
 of Zephyr main, with the PM hooks the Power band reads
 ([cpu-power-states.md](cpu-power-states.md)).
 
-Until it lands, the images this site deploys are built from Zephyr main, so on
-them the tab shows the channels and observers with a note, and no activity.
-The traced build still shows part of zbus in **Queues**: a subscriber's message
-queue and an async listener's FIFO, under the names zbus gave them.
+The images this site deploys are built from that branch, since images release
+v105, so the tab shows the activity. An image built from Zephyr main gets the
+channels and observers with a note, and no activity; its traced build still
+shows part of zbus in **Queues**: a subscriber's message queue and an async
+listener's FIFO, under the names zbus gave them.
 
 To see the activity, build the images from a tree with the patch applied:
 
