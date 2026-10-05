@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Train the Magic Wand gesture model from recordings, and compare it with the shipped one.
 
-    tools/train-magic-wand.py [--captures DIR ...] [--rotate none|yaw|tilt]
-                              [--seeds N] [--write]
+    tools/train-magic-wand.py [--captures DIR ...] [--arch temporal|cnn2019]
+                              [--rotate none|yaw|tilt] [--seeds N] [--write]
 
-The guest app (zephyr-module/apps/magic_wand) runs a 20 KB CNN that TensorFlow
-trained in 2019 on ten people waving a SparkFun Edge board. This script trains
-the same network again, so new recordings can go in:
+The guest app (zephyr-module/apps/magic_wand) runs a 21 KB CNN, trained here
+on the recordings TensorFlow made in 2019 of ten people waving a SparkFun Edge
+board. This script trains it again, so new recordings can go in: a network
+that convolves over time with the three axes as channels (--arch temporal, see
+build_model()), or TensorFlow's 2019 network layer for layer (--arch cnn2019).
+It learns from:
 
 - The original recordings, fetched from TensorFlow's dataset at first run
   (one file per person and gesture, 25 Hz, milli-g, gestures separated by
@@ -18,8 +21,9 @@ the same network again, so new recordings can go in:
 Every gesture becomes 128-sample windows placed around it, stretched in time,
 scaled and with noise added, and with --rotate turned the way phones get held:
 `yaw` turns the phone flat on the table (portrait, landscape, port left or
-right), `tilt` also tips it up to 30 degrees. Free movement and stillness in
-any orientation train the "no gesture" class.
+right), `tilt` also tips it up to 30 degrees. Free movement, stillness in any
+orientation and slow turns from one pose to another train the "no gesture"
+class.
 
 Training follows TensorFlow's 2019 person split: six people train, --seeds
 models compete on the two --validate people, and the report scores the two
@@ -28,7 +32,7 @@ shipped model and the new one: window accuracy as held and turned at random,
 gestures streamed through tools/extract-magic-wand-gestures.py's copy of the
 guest loop (the average of the last five samples' predictions, the 0.8
 threshold, the hold-off) as recorded and half a sample later, and false
-detections on free movement.
+detections on free movement and while the phone is turned from pose to pose.
 
 --write replaces zephyr-module/apps/magic_wand/src/magic_wand_model_data.cpp.
 The network keeps the ops the guest registers, so nothing else changes; rerun
@@ -62,6 +66,7 @@ RATE_HZ = 25
 G = 9.80665
 # What the guest registers (main_functions.cpp); anything else would not run.
 GUEST_OPS = {'CONV_2D', 'DEPTHWISE_CONV_2D', 'FULLY_CONNECTED', 'MAX_POOL_2D', 'RESHAPE', 'SOFTMAX'}
+ARCHS = ('temporal', 'cnn2019')
 # TensorFlow's own person split (train/data_split_person.py): seeds compete on
 # the validation people, the report scores the test people, so the shipped
 # model is scored on people it most likely never saw.
@@ -221,19 +226,54 @@ def stillness(rng, n, rotate):
     return out
 
 
+def random_pose(rng):
+    """Where gravity points for a phone held screen up and tipped up to 90
+    degrees any way: picked up, put down, turned to read."""
+    tilt = rng.uniform(0, np.pi / 2)
+    azimuth = rng.uniform(-np.pi, np.pi)
+    return np.array([np.sin(tilt) * np.cos(azimuth), np.sin(tilt) * np.sin(azimuth), np.cos(tilt)])
+
+
+def sweep(rng, a=None, b=None):
+    """A phone turned from pose `a` to pose `b` over one to four seconds."""
+    a = random_pose(rng) if a is None else a
+    b = random_pose(rng) if b is None else b
+    n = int(rng.integers(25, 100))
+    t = np.linspace(0, 1, n)
+    t = t * t * (3 - 2 * t)
+    path = np.outer(1 - t, a) + np.outer(t, b)
+    path /= np.linalg.norm(path, axis=1, keepdims=True)
+    return np.concatenate([np.tile(a, (40, 1)), path, np.tile(b, (40, 1))]) * 1000.0
+
+
+def sweeps(rng, n):
+    """Windows of the phone being turned slowly, which are never a gesture."""
+    out = []
+    for _ in range(n):
+        samples = sweep(rng)
+        start = int(rng.integers(0, len(samples) - WINDOW + 1)) if len(samples) > WINDOW else len(samples) - WINDOW
+        out.append(window_at(samples, start) + rng.normal(0, 10, (WINDOW, 3)))
+    return out
+
+
 def build_set(items, rng, copies, rotate):
     xs, ys = [], []
     for item in items:
         if item['label'] == NEGATIVE:
+            # Half as many copies as a gesture gets, so the synthetic turns
+            # below do not drown out real free movement.
             for w in negative_windows(item, rng, 16):
-                for _ in range(max(1, copies // 4)):
+                for _ in range(max(1, copies // 2)):
                     xs.append(augment(w, rng, rotate))
                     ys.append(NEGATIVE)
         else:
             for _ in range(copies):
                 xs.append(augment(gesture_window(item, rng), rng, rotate))
                 ys.append(item['label'])
-    for w in stillness(rng, len(xs) // 10, rotate):
+    # Turns outnumber stillness: a phone picked up or put down is what a model
+    # trained to recognize gestures held any way most often takes for one.
+    extra = len(xs) // 10
+    for w in stillness(rng, extra, rotate) + sweeps(rng, 3 * extra):
         xs.append(w)
         ys.append(NEGATIVE)
     return np.array(xs, dtype=np.float32)[..., None], np.array(ys)
@@ -241,10 +281,34 @@ def build_set(items, rng, copies, rotate):
 
 # --- model ------------------------------------------------------------------
 
-def build_model():
-    """The 2019 network, layer for layer (tflite-micro's magic_wand train.py)."""
+def build_model(arch='temporal'):
+    """`cnn2019` is the 2019 network, layer for layer (tflite-micro's magic_wand
+    train.py): its first kernel spans the three axes, then pools them away.
+    `temporal` reads the axes as three channels of one signal and convolves
+    over time only, so every kernel sees every axis. A strided first layer and
+    narrow stages keep it to about 51k multiply-accumulates against the 2019
+    network's 62k: in the emulator, a model takes time in proportion to its
+    arithmetic (docs/magic-wand-training.md).
+    """
     import tensorflow as tf
 
+    layers = tf.keras.layers
+    if arch == 'temporal':
+        return tf.keras.Sequential([
+            tf.keras.Input(shape=(WINDOW, 3, 1)),
+            layers.Reshape((WINDOW, 1, 3)),
+            layers.Conv2D(8, (5, 1), strides=(2, 1), padding='same', activation='relu'),
+            layers.MaxPool2D((2, 1)),
+            layers.Conv2D(16, (5, 1), padding='same', activation='relu'),
+            layers.MaxPool2D((2, 1)),
+            layers.Conv2D(16, (5, 1), padding='same', activation='relu'),
+            layers.MaxPool2D((2, 1)),
+            layers.Flatten(),
+            layers.Dropout(0.2),
+            layers.Dense(16, activation='relu'),
+            layers.Dropout(0.2),
+            layers.Dense(4, activation='softmax'),
+        ])
     return tf.keras.Sequential([
         tf.keras.Input(shape=(WINDOW, 3, 1)),
         tf.keras.layers.Conv2D(8, (4, 3), padding='same', activation='relu'),
@@ -262,7 +326,7 @@ def build_model():
 
 def fold_input_scale(model):
     """Make a model trained on g take milli-g, by scaling the first kernel."""
-    first = model.layers[0]
+    first = next(layer for layer in model.layers if layer.get_weights())
     kernel, bias = first.get_weights()
     first.set_weights([kernel * INPUT_SCALE, bias])
 
@@ -340,8 +404,7 @@ def write_model_cpp(model_bytes, note):
  */
 
 /* Written by tools/train-magic-wand.py ({note}).
- * The network is TensorFlow's magic wand model, retrained for
- * zephyr-in-the-browser. Do not edit by hand.
+ * See docs/magic-wand-training.md. Do not edit by hand.
  */
 
 #include "magic_wand_model_data.hpp"
@@ -403,26 +466,45 @@ def validation_score(model_bytes, items, sim, rng):
     gestures = [i for i in items if i['label'] != NEGATIVE]
     turned = [dict(i, samples=i['samples'] @ rotation(rng, 'yaw').T) for i in gestures]
     stream = [tuple(r / 1000.0) for i in items if i['label'] == NEGATIVE for r in i['samples']]
-    right = sum(stream_scores(model_bytes, g, sim, phase=p)['right'] for g, p in ((gestures, 0.0), (gestures, 0.5), (turned, 0.0)))
-    return right - 2 * len(sim.detections(model_bytes, stream, quantise=True))
+    right = sum(
+        stream_scores(model_bytes, g, sim, phase=p)['right']
+        for g, p in ((gestures, 0.0), (gestures, 0.5), (turned, 0.0))
+    )
+    false = len(sim.detections(model_bytes, stream, quantise=True))
+    false += len(sim.detections(model_bytes, sweep_stream(seed=13, n=100), quantise=True))
+    return right - 2 * false
+
+
+def sweep_stream(seed=11, n=200):
+    """The phone turned n times, each turn starting where the last one ended,
+    with a few seconds still between, in g."""
+    rng = np.random.default_rng(seed)
+    pose, rows = random_pose(rng), []
+    for _ in range(n):
+        nxt = random_pose(rng)
+        rows += [tuple(r / 1000.0) for r in sweep(rng, pose, nxt)]
+        pose = nxt
+    return rows
 
 
 def report(name, model_bytes, test_items, rng, sim):
     gestures = [i for i in test_items if i['label'] != NEGATIVE]
     negatives = [i for i in test_items if i['label'] == NEGATIVE]
-    xs = np.array([gesture_window(i, rng, warp=False) for i in gestures], dtype=np.float32)[..., None]
+    raw = [gesture_window(i, rng, warp=False) for i in gestures]
+    xs = np.array(raw, dtype=np.float32)[..., None]
     ys = np.array([i['label'] for i in gestures])
     acc = float(np.mean(predict(model_bytes, xs).argmax(1) == ys)) if len(xs) else float('nan')
-    turned = np.array([x[..., 0] @ rotation(rng, 'yaw').T for x in xs], dtype=np.float32)[..., None]
+    turned = np.array([w @ rotation(rng, 'tilt').T for w in raw], dtype=np.float32)[..., None]
     acc_turned = float(np.mean(predict(model_bytes, turned).argmax(1) == ys)) if len(xs) else float('nan')
     tally = stream_scores(model_bytes, gestures, sim)
     shifted = stream_scores(model_bytes, gestures, sim, phase=0.5)
     false, minutes = false_detections(model_bytes, negatives, sim)
+    turning = len(sim.detections(model_bytes, sweep_stream(), quantise=True))
     print(
         f'  {name:8} windows {acc:6.1%}  turned {acc_turned:6.1%}  '
         f'streamed right {tally["right"]}/{len(gestures)} (wrong {tally["wrong"]}, missed {tally["missed"]})  '
         f'half a sample later {shifted["right"]}/{len(gestures)}  '
-        f'free movement: {false} false in {minutes:.1f} min'
+        f'free movement: {false} false in {minutes:.1f} min  turning the phone 200 times: {turning} false'
     )
 
 
@@ -432,6 +514,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--captures', nargs='*', default=[], help='directories of capture-page files')
     parser.add_argument('--rotate', choices=['none', 'yaw', 'tilt'], default='tilt')
+    parser.add_argument('--arch', choices=ARCHS, default='temporal')
     parser.add_argument('--validate', nargs='*', default=DEFAULT_VALIDATE, help='people the seeds compete on')
     parser.add_argument('--holdout', nargs='*', default=DEFAULT_HOLDOUT, help='people the report scores')
     parser.add_argument('--epochs', type=int, default=40)
@@ -460,7 +543,7 @@ def main():
         order = rng.permutation(len(x))
         x, y = x[order], y[order]
         weights = {k: len(y) / (4 * max(1, np.sum(y == k))) for k in range(4)}
-        model = build_model()
+        model = build_model(args.arch)
         model.compile(optimizer=tf.keras.optimizers.Adam(1e-3), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         model.fit(
             x * INPUT_SCALE, y, epochs=args.epochs, batch_size=64, validation_split=0.1, class_weight=weights, verbose=0,
@@ -469,7 +552,7 @@ def main():
         fold_input_scale(model)
         candidate = to_tflite(model)
         score = validation_score(candidate, valid, sim, np.random.default_rng(7))
-        print(f'seed {seed}: {len(x)} windows, rotate={args.rotate}, validation score {score}')
+        print(f'seed {seed}: {len(x)} windows, {args.arch}, rotate={args.rotate}, validation score {score}')
         if best is None or score > best[0]:
             best = (score, seed, candidate)
     _, seed, trained = best
@@ -482,11 +565,11 @@ def main():
     print(f'  resting flat, screen up: {len(still)} detections')
 
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
-    out = os.path.join(os.path.dirname(CACHE), f'magic_wand_{args.rotate}.tflite')
+    out = os.path.join(os.path.dirname(CACHE), f'magic_wand_{args.arch}_{args.rotate}.tflite')
     open(out, 'wb').write(trained)
     print(f'wrote {os.path.relpath(out, ROOT)} ({len(trained)} bytes)')
     if args.write:
-        note = f'rotate={args.rotate}, {len(train)} recordings, seed {seed}'
+        note = f'{args.arch}, rotate={args.rotate}, {len(train)} recordings, seed {seed}'
         write_model_cpp(trained, note)
         print(f'wrote {os.path.relpath(MODEL_CPP, ROOT)}')
 

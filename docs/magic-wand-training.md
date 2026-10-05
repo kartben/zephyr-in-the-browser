@@ -1,11 +1,12 @@
 # Training the Magic Wand
 
 The Magic Wand sample (`zephyr-module/apps/magic_wand`) recognizes three
-gestures with a 20 KB TensorFlow Lite Micro model: **wing** (a W), **ring** (a
-clockwise circle) and **slope** (an angle: down to the left, then right).
-TensorFlow trained it in 2019 on ten people waving a SparkFun Edge board held
-flat. A phone is held in other ways, so the model needs recordings from phones.
-This page covers recording them, training on them, and shipping the result.
+gestures with a 21 KB TensorFlow Lite Micro model: **wing** (a W), **ring** (a
+clockwise circle) and **slope** (an angle: down to the left, then right). It is
+trained on TensorFlow's 2019 recordings of ten people waving a SparkFun Edge
+board held flat, turned the ways a phone gets held. Recordings from phones are
+what it needs next. This page covers recording them, training on them, and
+shipping the result.
 
 ## Recording gestures
 
@@ -43,7 +44,7 @@ iPhones and Android phones, in both holds.
 
 ## Training
 
-`tools/train-magic-wand.py` trains the same network as 2019, layer for layer:
+`tools/train-magic-wand.py` trains a model for the guest:
 
 ```console
 tools/train-magic-wand.py --captures path/to/captures
@@ -62,13 +63,23 @@ turned the way phones get held:
 | `yaw`            | any angle flat on the table: portrait, landscape, port left or right |
 | `tilt` (default) | yaw, then tipped up to 30 degrees either way                 |
 
-Free movement, idle takes and stillness in any orientation train the "no
-gesture" class.
+Free movement, idle takes, stillness in any orientation and slow turns of the
+phone from one pose to another (screen up, or tipped up to 90 degrees any way)
+train the "no gesture" class. The turns matter most: a model that recognizes
+gestures however the phone is held otherwise also takes picking the phone up
+for one.
+
+`--arch` picks the network. Both use only ops the guest registers:
+
+| `--arch`             | Network                                                     |
+| -------------------- | ----------------------------------------------------------- |
+| `temporal` (default) | Convolves over time with the three axes as channels, so every kernel sees every axis. 51k multiply-accumulates per inference |
+| `cnn2019`            | The 2019 network, layer for layer: its first kernel spans the axes, then pools them away. 62k multiply-accumulates |
 
 It follows TensorFlow's own 2019 person split: six people train, three models
 (`--seeds`) compete on the two `--validate` people, and the report scores the
 two `--holdout` people (TensorFlow's names, or capture session ids), for the
-shipped model and the new one, in three ways:
+shipped model and the new one, in four ways:
 
 - **windows:** held-out gestures classified as recorded, and turned at random.
 - **streamed:** each held-out gesture fed through the guest's own detection
@@ -77,18 +88,48 @@ shipped model and the new one, in three ways:
   resolution the guest reads, counted right, wrong or missed, as recorded and
   sampled half a sample later.
 - **free movement:** false detections in held-out free movement.
+- **turning:** false detections while the phone is turned 200 times, each time
+  from one random pose to the next, with a few seconds still between.
 
 Trained models land in `.zephyr-build/magic-wand-data/`. Compare them before
 shipping one.
 
-What to expect, from the 2019 recordings alone (October 2026, default
-options): on TensorFlow's two test people the shipped model streams 100 of 127
-gestures right, 95 when the same motion is sampled half a sample later, and
-18% of windows once the phone is turned. A `tilt` model streams 114 either way
-and keeps 94% turned, but fires 5 times in 1.9 minutes of held-out free
-movement where the shipped model fires once: turned gestures cover more of
-what random waving looks like. Recordings of free movement from phones are
-what the next model needs most, so every round ends with some.
+## Choosing the network
+
+Measured in October 2026 with default options, on TensorFlow's recordings
+alone. Inference is the "inference takes N ms" line in headless Chromium on a
+four-core machine. The rest runs the guest's detection loop on people the
+models did not train on: 127 gestures streamed at four sampling phases (as
+recorded, and a quarter, half and three quarters of a sample later) and turned
+at random, 1.9 minutes of free movement, and 600 slow turns between poses a
+phone is held in.
+
+| Model                   | Inference   | Gestures right | Turned | False alarms: free movement | False alarms: turns |
+| ----------------------- | ----------- | -------------- | ------ | --------------------------- | ------------------- |
+| TensorFlow's 2019 model | 28 to 33 ms | 95 to 102      | 31     | 1                           | 52                  |
+| `cnn2019`               | the same    | 102 to 104     | 92     | 4                           | 2                   |
+| `temporal` (ships)      | 28 to 29 ms | 122            | 113    | 3                           | 10                  |
+
+`temporal` ships: it recognizes the most gestures, at every sampling phase and
+held any way, and fires on a fifth as many turns as the 2019 model. Trained the
+same way, the 2019 network turns cautious, with almost no false alarms on turns
+but about 20 fewer gestures. Both fire more than the 2019 model in free movement,
+though 1.9 minutes of it is too little to be sure. Free movement recorded on
+phones is what the next model needs most.
+
+What did not help:
+
+- **A wider network.** `temporal` with 16, 24 and 32 filters (285k
+  multiply-accumulates) was no more accurate and took 123 to 134 ms: in the
+  emulator a model takes time in proportion to its arithmetic.
+- **int8.** Quantized weights and activations were no faster in the emulator:
+  33 to 38 ms for the 2019 network, 128 to 169 ms for the wide one.
+- **Taking gravity out.** Turning each window so its mean points along +Z
+  before inference (the guest would do the same) recognized more turned
+  gestures, but fired on 114 of 200 turns between random poses.
+- **Turns between random poses.** Trained on turns between any two poses,
+  half of them upside down, `temporal` fired on more than half of the turns
+  that start or end near screen up, which is how a phone gets picked up.
 
 ## Shipping a model
 
@@ -101,7 +142,11 @@ what the next model needs most, so every round ends with some.
    (`tools/build-zephyr-image.sh qemu_cortex_a53 magic_wand`) and run
    `node tools/smoke-boot.mjs magic-wand magic-wand-trace`.
 4. Publish an images release; the deploy's smoke test replays every gesture
-   again.
+   again. It replays the new clips on the published images, which carry the
+   old model until the release is out, so build the images from the branch
+   (the Build guest images workflow, with publish on and deploy off) and merge
+   it once they are published. Merged first, the merge's own deploy fails its
+   Magic Wand cases until the release.
 
 ## Slow devices
 
@@ -122,10 +167,11 @@ Measured in the browser with inference slowed to about 90 ms: the old loop
 read the sensor at 12.5 Hz and a phone-paced Wing, Ring, Slope came out as
 "SLOPE SLOPE". The sampler keeps reads 40 ms apart, and the guest's detection
 loop, run on exactly what the guest read, recognizes all three whether
-inference runs every sample or every sixth. What still goes wrong is the
-shipped model: depending on where the samples fall, Ring can score just under
-the threshold and read as Slope, at full speed too, which the next model has
-to fix. The replay buttons hid all of this, because they hand out the recorded
+inference runs every sample or every sixth. TensorFlow's 2019 model still
+depended on where the samples fell: Ring could score just under the threshold
+and read as Slope, at full speed too. The `temporal` model gets the same
+gestures right at every sampling phase. The replay buttons hid all of this,
+because they hand out the recorded
 samples exactly as the guest reads them. The "Magic Wand ready: inference takes
 N ms" line in the terminal says how fast this browser is.
 
