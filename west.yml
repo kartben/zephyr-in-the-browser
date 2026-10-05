@@ -6,11 +6,14 @@
 # guest toolchains. Local builds do not need it — tools/build-zephyr-image.sh
 # defaults to the containerized flow against your own workspace (ZEPHYR_WS).
 #
-# Zephyr tracks `main` because the browser_bridge module targets current Zephyr:
-# the in-tree virtio GPIO/I2C/SPI drivers the browser boards use, hwmv2 board
-# names, and the vendored virtio-gpu driver that is still in review. Pin a tag
-# or SHA here when a build needs to be reproducible; the CI cache keys off this
-# file, so changing the revision naturally invalidates it.
+# Zephyr tracks kartben/zephyr `browser-traces`: Zephyr main plus the zbus and
+# PM tracing hooks the Trace tabs read, which upstream does not have yet
+# (docs/trace-zbus.md). Go back to zephyrproject-rtos `main` once they land. It
+# follows main because the browser_bridge module targets current Zephyr: the
+# in-tree virtio GPIO/I2C/SPI drivers the browser boards use, hwmv2 board names,
+# and the vendored virtio-gpu driver that is still in review. Pin a tag or SHA
+# here when a build needs to be reproducible; the CI cache keys off this file,
+# so changing the revision naturally invalidates it.
 manifest:
   # zephyr/west.yml filters out its `optional` group. This filter is applied
   # after the imported one, so +optional brings that group back, and the
@@ -23,11 +26,13 @@ manifest:
   remotes:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
+    - name: kartben
+      url-base: https://github.com/kartben
 
   projects:
     - name: zephyr
-      remote: zephyrproject-rtos
-      revision: main
+      remote: kartben
+      revision: browser-traces
       import:
         # Only what the packaged samples pull in — a full `west update` clones
         # a couple dozen HALs these QEMU builds never touch. If a build fails
