@@ -30,4 +30,22 @@ choice COMPILER_OPTIMIZATIONS
 	default SPEED_OPTIMIZATIONS
 endchoice
 
+# The AArch64 MMU builds its page tables from a fixed pool of 4 KiB tables,
+# CONFIG_MAX_XLAT_TABLES, which Zephyr sizes at 8 on qemu_cortex_a53. Devices
+# are mapped 1:1 there (KERNEL_DIRECT_MAP), so every 2 MiB window holding a
+# mapping costs a table. Read back from the live tables, every image takes 6:
+# the base table, a level 2 table for each of the two gigabytes in use
+# (devices, RAM), and level 3 tables for the GIC, the UART window and the
+# kernel image. The virtio-mmio window at 0x0a000000 (any virtio-* snippet) and
+# the ramfb framebuffer at 0x44000000 (-S ramfb) take one more each.
+#
+# So every image with a virtio device or a framebuffer sits at 7 of 8, where
+# Zephyr logs "xlat tables low: 7 of 8 in use" at boot, and those with both
+# (touch, lvgl_music, accel_chart) use all 8: one more window, or a kernel
+# image past 2 MiB, and the guest panics at boot. 12 tables move the warning
+# to 10 of 12, for 16 KiB of RAM. Userspace builds keep Zephyr's own default,
+# which is larger still.
+config MAX_XLAT_TABLES
+	default 12 if ARM_MMU && !USERSPACE
+
 endif # SHIELD_BROWSER_BRIDGE
