@@ -13,7 +13,9 @@ sample starts waiting.
 
 ```tour
 at: main.c:/Press the button/ | main.c:40
-dts: /button0: button_0/ + 4
+dts:
+  - /button0: button_0/ + 4
+  - /user_button1: button_1/ + 4
 panel: keys
 ```
 
