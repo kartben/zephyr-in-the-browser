@@ -12,9 +12,9 @@
  * — the line the step resolved to came out of that build's own DWARF, so the
  * two agree by construction rather than by a convention someone has to keep.
  *
- * Tokens are coloured with highlight.js (C for sample sources). Devicetree
- * excerpts are escaped plain text. The HTML is escaped by the highlighter
- * before it lands in the DOM.
+ * Tokens are coloured with highlight.js: C for sample sources, devicetree for
+ * the guest's .dts. The HTML is escaped by the highlighter before it lands in
+ * the DOM.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -33,7 +33,7 @@ interface Props {
   ranges?: LineRange[]
   /** Label above the excerpt, e.g. `blinky.dts`. */
   filename?: string
-  /** `c` (default) colours as C; anything else is escaped plain text. */
+  /** `c` (default) or `dts`; any other language is escaped plain text. */
   language?: string
 }
 
@@ -86,7 +86,8 @@ export function SourceSnippet({
     }
   }, [src, text])
 
-  const lines = text != null ? text.split('\n') : fetched
+  // Memoised, so the highlight below runs once per file, not once per render.
+  const lines = useMemo(() => (text != null ? text.split('\n') : fetched), [text, fetched])
 
   // Highlight the whole file once so multi-line comments / strings keep their
   // colours across the excerpt window, then index into the per-line HTML.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  grammarFor,
   highlightC,
   highlightCode,
   isCLanguage,
@@ -43,6 +44,39 @@ describe('highlightCode', () => {
   it('highlights C fences and escapes others', () => {
     expect(highlightCode('return 1;', 'c')).toContain('hljs-keyword')
     expect(highlightCode('a < b', 'console')).toBe('a &lt; b')
+  })
+})
+
+describe('grammarFor', () => {
+  it('maps C and devicetree aliases, and nothing else', () => {
+    expect(grammarFor('h')).toBe('c')
+    expect(grammarFor('dts')).toBe('dts')
+    expect(grammarFor('DTSI')).toBe('dts')
+    expect(grammarFor('overlay')).toBe('dts')
+    expect(grammarFor('console')).toBeNull()
+    expect(grammarFor(undefined)).toBeNull()
+  })
+})
+
+describe('highlightCode as devicetree', () => {
+  const dts = (code: string) => highlightCode(code, 'dts')
+
+  it('colours labels, nodes, properties, references, cells and strings', () => {
+    const html = dts('\tbutton0: button_0 {\n\t\tgpios = < &gpio0 0x0 0x11 >;\n\t\tlabel = "SW0";\n\t};')
+    expect(html).toContain('<span class="hljs-symbol">\tbutton0:</span>')
+    expect(html).toContain('<span class="hljs-title class_">button_0</span>')
+    expect(html).toContain('<span class="hljs-attr">gpios</span>')
+    expect(html).toContain('<span class="hljs-variable">&amp;gpio0</span>')
+    expect(html).toContain('<span class="hljs-number">0x11</span>')
+    expect(html).toContain('<span class="hljs-string">&quot;SW0&quot;</span>')
+  })
+
+  it('reads Zephyr property names as properties, not preprocessor lines', () => {
+    expect(dts('#gpio-cells = < 0x2 >;')).toContain('<span class="hljs-attr">#gpio-cells</span>')
+    expect(dts('#gpio-cells = < 0x2 >;')).not.toContain('hljs-meta')
+    expect(dts('pinctrl-0 = < &uart0_default >;')).toContain('<span class="hljs-attr">pinctrl-0</span>')
+    expect(dts('zephyr,code = < 0xb >;')).toContain('<span class="hljs-attr">zephyr,code</span>')
+    expect(dts('gpio-controller;')).toContain('<span class="hljs-attr">gpio-controller</span>')
   })
 })
 
