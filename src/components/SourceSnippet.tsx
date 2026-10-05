@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useValueHover } from '@/components/debug/ValueHover'
 import { excerptWindow, type LineRange } from '@/components/tour/excerpt'
 import { highlightC, highlightCode, splitHighlightedLines } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
@@ -35,6 +36,11 @@ interface Props {
   filename?: string
   /** `c` (default) or `dts`; any other language is escaped plain text. */
   language?: string
+  /**
+   * The guest is stopped in this code: resting the pointer on a name shows its
+   * value, as VS Code's debug hover does. C only.
+   */
+  inspectable?: boolean
 }
 
 /*
@@ -42,6 +48,8 @@ interface Props {
  * caches. A sample's source does not change under a running guest.
  */
 const cache = new Map<string, string[] | null>()
+
+const EMPTY_HTML = { __html: '' }
 
 async function fetchSource(url: string): Promise<string[] | null> {
   const cached = cache.get(url)
@@ -69,6 +77,7 @@ export function SourceSnippet({
   ranges = [],
   filename,
   language = 'c',
+  inspectable = false,
 }: Props) {
   const [fetched, setFetched] = useState<string[] | null>(null)
 
@@ -88,6 +97,7 @@ export function SourceSnippet({
 
   // Memoised, so the highlight below runs once per file, not once per render.
   const lines = useMemo(() => (text != null ? text.split('\n') : fetched), [text, fetched])
+  const hover = useValueHover(inspectable && language === 'c', lines)
 
   // Highlight the whole file once so multi-line comments / strings keep their
   // colours across the excerpt window, then index into the per-line HTML.
@@ -95,7 +105,10 @@ export function SourceSnippet({
     if (!lines) return null
     const joined = lines.join('\n')
     const html = language === 'c' ? highlightC(joined) : highlightCode(joined, language)
-    return splitHighlightedLines(html)
+    // One stable `{ __html }` per line: React re-applies dangerouslySetInnerHTML
+    // whenever the object is new, which would rebuild every line's text nodes
+    // on each render and drop the range a debug hover has marked in one.
+    return splitHighlightedLines(html).map((line) => ({ __html: line }))
   }, [lines, language])
 
   // No snippet is a supported state — the popup's prose stands on its own.
@@ -120,7 +133,11 @@ export function SourceSnippet({
           {filename}
         </p>
       )}
-      <pre className="hljs w-max min-w-full py-1 font-mono text-[11px] leading-relaxed">
+      <pre
+        className="hljs w-max min-w-full py-1 font-mono text-[11px] leading-relaxed"
+        onPointerMove={hover.onPointerMove}
+        onPointerLeave={hover.onPointerLeave}
+      >
         {shown.map((n, i) => {
           if (n === null) {
             const from = shown[i - 1]! + 1
@@ -141,6 +158,7 @@ export function SourceSnippet({
           return (
             <div
               key={n}
+              data-line={n}
               className={cn(
                 'flex whitespace-pre px-1',
                 // Two marks, deliberately different: the stop is a moment, the
@@ -163,13 +181,12 @@ export function SourceSnippet({
                 {isAnchor ? '▸ ' : '  '}
                 {n}
               </span>
-              <code
-                dangerouslySetInnerHTML={{ __html: highlighted[n - 1] ?? '' }}
-              />
+              <code dangerouslySetInnerHTML={highlighted[n - 1] ?? EMPTY_HTML} />
             </div>
           )
         })}
       </pre>
+      {hover.popup}
     </div>
   )
 }

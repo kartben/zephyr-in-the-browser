@@ -290,7 +290,15 @@ export function TourCard({ board, sampleId }: Props) {
           )}
 
           {src && anchor?.line && (
-            <SourceSnippet src={src} line={anchor.line} ranges={card.highlight} />
+            <SourceSnippet
+              src={src}
+              line={anchor.line}
+              ranges={card.highlight}
+              // The guest is stopped: names can be read, as VS Code's debug
+              // hover reads them. Not on a step read again, which shows an
+              // older stop than the one the machine is at.
+              inspectable={state.live && snap.gdb && snap.paused && !card.revisit}
+            />
           )}
 
           {state.problems.length > 0 && (

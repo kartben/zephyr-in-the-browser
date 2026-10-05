@@ -303,3 +303,8 @@
 .sevenseg-scan {
   animation: sevenseg-scan-pulse 120ms ease-out;
 }
+
+/* The expression a debug hover evaluated (ValueHover), marked as VS Code marks it. */
+::highlight(debug-hover) {
+  background-color: color-mix(in oklch, var(--primary) 28%, transparent);
+}
