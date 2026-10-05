@@ -43,6 +43,7 @@ import {
 import { buildStackRegions, type StackRegion } from '@/debug/elfStacks'
 import { buildWaitObjects, type WaitObject } from '@/debug/elfWaitObjects'
 import { readElfDeviceNames, type ElfDeviceNames } from '@/debug/elfDevices'
+import { readElfZbus, type ZbusTopology } from '@/debug/elfZbus'
 import {
   buildSymbolIndex,
   formatSymbol,
@@ -173,6 +174,8 @@ let formalIndex: FormalIndex | null = null
 let stackRegions: StackRegion[] = []
 let waitObjects: WaitObject[] = []
 let deviceNames: ElfDeviceNames | null = null
+/** Undefined until first asked for: the DWARF walk is only worth it on a zbus image. */
+let zbusTopology: ZbusTopology | null | undefined = undefined
 let state: GdbState = EMPTY
 let pollTimer: ReturnType<typeof setInterval> | null = null
 /** Numeric PC/SP/FP/LR from the last `g` read — input to the unwinder. */
@@ -297,6 +300,16 @@ export function getObjectCoreMeta(): ObjectCoreMeta | null {
  */
 export function getDeviceNames(): ElfDeviceNames | null {
   return deviceNames
+}
+
+/**
+ * The image's zbus channels and observers, for the zbus CTF events, which
+ * carry addresses only. Like the device names, read from .rodata with no gdb
+ * session; null when the image has no zbus. See debug/elfZbus.ts.
+ */
+export function getZbusTopology(): ZbusTopology | null {
+  if (zbusTopology === undefined) zbusTopology = kernelElf ? readElfZbus(kernelElf) : null
+  return zbusTopology
 }
 
 export function sessionActive(): boolean {
@@ -519,6 +532,7 @@ export function setKernelImage(elf: Uint8Array | null) {
   stackRegions = elf ? buildStackRegions(elf) : []
   waitObjects = elf ? buildWaitObjects(elf) : []
   deviceNames = elf ? readElfDeviceNames(elf) : null
+  zbusTopology = undefined
   if (state.available || state.attached) {
     publish({
       threadInfo: threadInfo !== null,
