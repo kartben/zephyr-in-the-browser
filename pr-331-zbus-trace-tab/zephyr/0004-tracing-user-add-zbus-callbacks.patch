@@ -1,0 +1,287 @@
+From b0d05ffc42cf449e520763e2dd67c511c07454d1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Benjamin=20Cabe=CC=81?= <benjamin@zephyrproject.org>
+Date: Mon, 5 Oct 2026 02:26:55 +0200
+Subject: [PATCH 4/4] tracing: user: add zbus callbacks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Let applications using the user tracing format hook zbus events, with a
+weak sys_trace_zbus_*_user() callback per hook, as for the kernel
+objects.
+
+Signed-off-by: Benjamin Cabé <benjamin@zephyrproject.org>
+Assisted-by: Claude:opus-5.5
+Signed-off-by: Benjamin Cabé <benjamin@zephyrproject.org>
+---
+ subsys/tracing/user/tracing_user.c | 149 +++++++++++++++++++++++++++++
+ subsys/tracing/user/tracing_user.h |  89 +++++++++++++++++
+ 2 files changed, 238 insertions(+)
+
+diff --git a/subsys/tracing/user/tracing_user.c b/subsys/tracing/user/tracing_user.c
+index aa4725df9..79dec786d 100644
+--- a/subsys/tracing/user/tracing_user.c
++++ b/subsys/tracing/user/tracing_user.c
+@@ -1365,3 +1365,152 @@ void sys_trace_k_work_submit_to_queue_exit(struct k_work_q *queue, struct k_work
+ {
+ 	sys_trace_k_work_submit_to_queue_exit_user(queue, work, ret);
+ }
++
++/* zbus */
++void __weak sys_trace_zbus_chan_pub_enter_user(const struct zbus_channel *chan, k_timeout_t timeout)
++{
++}
++void sys_trace_zbus_chan_pub_enter(const struct zbus_channel *chan, k_timeout_t timeout)
++{
++	sys_trace_zbus_chan_pub_enter_user(chan, timeout);
++}
++void __weak sys_trace_zbus_chan_pub_exit_user(const struct zbus_channel *chan, k_timeout_t timeout,
++					      int ret)
++{
++}
++void sys_trace_zbus_chan_pub_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret)
++{
++	sys_trace_zbus_chan_pub_exit_user(chan, timeout, ret);
++}
++void __weak sys_trace_zbus_chan_read_enter_user(const struct zbus_channel *chan,
++						k_timeout_t timeout)
++{
++}
++void sys_trace_zbus_chan_read_enter(const struct zbus_channel *chan, k_timeout_t timeout)
++{
++	sys_trace_zbus_chan_read_enter_user(chan, timeout);
++}
++void __weak sys_trace_zbus_chan_read_exit_user(const struct zbus_channel *chan, k_timeout_t timeout,
++					       int ret)
++{
++}
++void sys_trace_zbus_chan_read_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret)
++{
++	sys_trace_zbus_chan_read_exit_user(chan, timeout, ret);
++}
++void __weak sys_trace_zbus_chan_notify_enter_user(const struct zbus_channel *chan,
++						  k_timeout_t timeout)
++{
++}
++void sys_trace_zbus_chan_notify_enter(const struct zbus_channel *chan, k_timeout_t timeout)
++{
++	sys_trace_zbus_chan_notify_enter_user(chan, timeout);
++}
++void __weak sys_trace_zbus_chan_notify_exit_user(const struct zbus_channel *chan,
++						 k_timeout_t timeout, int ret)
++{
++}
++void sys_trace_zbus_chan_notify_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret)
++{
++	sys_trace_zbus_chan_notify_exit_user(chan, timeout, ret);
++}
++void __weak sys_trace_zbus_chan_claim_enter_user(const struct zbus_channel *chan,
++						 k_timeout_t timeout)
++{
++}
++void sys_trace_zbus_chan_claim_enter(const struct zbus_channel *chan, k_timeout_t timeout)
++{
++	sys_trace_zbus_chan_claim_enter_user(chan, timeout);
++}
++void __weak sys_trace_zbus_chan_claim_exit_user(const struct zbus_channel *chan,
++						k_timeout_t timeout, int ret)
++{
++}
++void sys_trace_zbus_chan_claim_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret)
++{
++	sys_trace_zbus_chan_claim_exit_user(chan, timeout, ret);
++}
++void __weak sys_trace_zbus_chan_finish_enter_user(const struct zbus_channel *chan)
++{
++}
++void sys_trace_zbus_chan_finish_enter(const struct zbus_channel *chan)
++{
++	sys_trace_zbus_chan_finish_enter_user(chan);
++}
++void __weak sys_trace_zbus_chan_finish_exit_user(const struct zbus_channel *chan, int ret)
++{
++}
++void sys_trace_zbus_chan_finish_exit(const struct zbus_channel *chan, int ret)
++{
++	sys_trace_zbus_chan_finish_exit_user(chan, ret);
++}
++void __weak sys_trace_zbus_sub_wait_enter_user(const struct zbus_observer *sub, k_timeout_t timeout)
++{
++}
++void sys_trace_zbus_sub_wait_enter(const struct zbus_observer *sub, k_timeout_t timeout)
++{
++	sys_trace_zbus_sub_wait_enter_user(sub, timeout);
++}
++void __weak sys_trace_zbus_sub_wait_exit_user(const struct zbus_observer *sub, k_timeout_t timeout,
++					      const struct zbus_channel *chan, int ret)
++{
++}
++void sys_trace_zbus_sub_wait_exit(const struct zbus_observer *sub, k_timeout_t timeout,
++				  const struct zbus_channel *chan, int ret)
++{
++	sys_trace_zbus_sub_wait_exit_user(sub, timeout, chan, ret);
++}
++void __weak sys_trace_zbus_sub_wait_msg_enter_user(const struct zbus_observer *sub,
++						   k_timeout_t timeout)
++{
++}
++void sys_trace_zbus_sub_wait_msg_enter(const struct zbus_observer *sub, k_timeout_t timeout)
++{
++	sys_trace_zbus_sub_wait_msg_enter_user(sub, timeout);
++}
++void __weak sys_trace_zbus_sub_wait_msg_exit_user(const struct zbus_observer *sub,
++						  k_timeout_t timeout,
++						  const struct zbus_channel *chan, int ret)
++{
++}
++void sys_trace_zbus_sub_wait_msg_exit(const struct zbus_observer *sub, k_timeout_t timeout,
++				      const struct zbus_channel *chan, int ret)
++{
++	sys_trace_zbus_sub_wait_msg_exit_user(sub, timeout, chan, ret);
++}
++void __weak sys_trace_zbus_obs_notify_enter_user(const struct zbus_observer *obs,
++						 const struct zbus_channel *chan)
++{
++}
++void sys_trace_zbus_obs_notify_enter(const struct zbus_observer *obs,
++				     const struct zbus_channel *chan)
++{
++	sys_trace_zbus_obs_notify_enter_user(obs, chan);
++}
++void __weak sys_trace_zbus_obs_notify_exit_user(const struct zbus_observer *obs,
++						const struct zbus_channel *chan, int ret)
++{
++}
++void sys_trace_zbus_obs_notify_exit(const struct zbus_observer *obs,
++				    const struct zbus_channel *chan, int ret)
++{
++	sys_trace_zbus_obs_notify_exit_user(obs, chan, ret);
++}
++void __weak sys_trace_zbus_async_listener_enter_user(
++	const struct zbus_async_listener_work *async_listener, const struct zbus_channel *chan)
++{
++}
++void sys_trace_zbus_async_listener_enter(const struct zbus_async_listener_work *async_listener,
++					 const struct zbus_channel *chan)
++{
++	sys_trace_zbus_async_listener_enter_user(async_listener, chan);
++}
++void __weak sys_trace_zbus_async_listener_exit_user(
++	const struct zbus_async_listener_work *async_listener, const struct zbus_channel *chan)
++{
++}
++void sys_trace_zbus_async_listener_exit(const struct zbus_async_listener_work *async_listener,
++					const struct zbus_channel *chan)
++{
++	sys_trace_zbus_async_listener_exit_user(async_listener, chan);
++}
+diff --git a/subsys/tracing/user/tracing_user.h b/subsys/tracing/user/tracing_user.h
+index b544c0f47..35b899ba9 100644
+--- a/subsys/tracing/user/tracing_user.h
++++ b/subsys/tracing/user/tracing_user.h
+@@ -68,6 +68,9 @@ struct rtio;
+ struct rtio_sqe;
+ struct rtio_cqe;
+ struct rtio_iodev_sqe;
++struct zbus_channel;
++struct zbus_observer;
++struct zbus_async_listener_work;
+ struct gpio_callback;
+ typedef uint8_t gpio_pin_t;
+ typedef uint32_t gpio_flags_t;
+@@ -812,6 +815,92 @@ void sys_trace_k_work_submit_to_queue_exit_user(struct k_work_q *queue, struct k
+ 	sys_trace_k_work_submit_to_queue_enter(queue, work)
+ #define sys_port_trace_k_work_submit_to_queue_exit(queue, work, ret)                               \
+ 	sys_trace_k_work_submit_to_queue_exit(queue, work, ret)
++/* zbus */
++void sys_trace_zbus_chan_pub_enter(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_pub_enter_user(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_pub_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret);
++void sys_trace_zbus_chan_pub_exit_user(const struct zbus_channel *chan, k_timeout_t timeout,
++				       int ret);
++void sys_trace_zbus_chan_read_enter(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_read_enter_user(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_read_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret);
++void sys_trace_zbus_chan_read_exit_user(const struct zbus_channel *chan, k_timeout_t timeout,
++					int ret);
++void sys_trace_zbus_chan_notify_enter(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_notify_enter_user(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_notify_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret);
++void sys_trace_zbus_chan_notify_exit_user(const struct zbus_channel *chan, k_timeout_t timeout,
++					  int ret);
++void sys_trace_zbus_chan_claim_enter(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_claim_enter_user(const struct zbus_channel *chan, k_timeout_t timeout);
++void sys_trace_zbus_chan_claim_exit(const struct zbus_channel *chan, k_timeout_t timeout, int ret);
++void sys_trace_zbus_chan_claim_exit_user(const struct zbus_channel *chan, k_timeout_t timeout,
++					 int ret);
++void sys_trace_zbus_chan_finish_enter(const struct zbus_channel *chan);
++void sys_trace_zbus_chan_finish_enter_user(const struct zbus_channel *chan);
++void sys_trace_zbus_chan_finish_exit(const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_chan_finish_exit_user(const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_sub_wait_enter(const struct zbus_observer *sub, k_timeout_t timeout);
++void sys_trace_zbus_sub_wait_enter_user(const struct zbus_observer *sub, k_timeout_t timeout);
++void sys_trace_zbus_sub_wait_exit(const struct zbus_observer *sub, k_timeout_t timeout,
++				  const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_sub_wait_exit_user(const struct zbus_observer *sub, k_timeout_t timeout,
++				       const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_sub_wait_msg_enter(const struct zbus_observer *sub, k_timeout_t timeout);
++void sys_trace_zbus_sub_wait_msg_enter_user(const struct zbus_observer *sub, k_timeout_t timeout);
++void sys_trace_zbus_sub_wait_msg_exit(const struct zbus_observer *sub, k_timeout_t timeout,
++				      const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_sub_wait_msg_exit_user(const struct zbus_observer *sub, k_timeout_t timeout,
++					   const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_obs_notify_enter(const struct zbus_observer *obs,
++				     const struct zbus_channel *chan);
++void sys_trace_zbus_obs_notify_enter_user(const struct zbus_observer *obs,
++					  const struct zbus_channel *chan);
++void sys_trace_zbus_obs_notify_exit(const struct zbus_observer *obs,
++				    const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_obs_notify_exit_user(const struct zbus_observer *obs,
++					 const struct zbus_channel *chan, int ret);
++void sys_trace_zbus_async_listener_enter(const struct zbus_async_listener_work *async_listener,
++					 const struct zbus_channel *chan);
++void sys_trace_zbus_async_listener_enter_user(const struct zbus_async_listener_work *async_listener,
++					      const struct zbus_channel *chan);
++void sys_trace_zbus_async_listener_exit(const struct zbus_async_listener_work *async_listener,
++					const struct zbus_channel *chan);
++void sys_trace_zbus_async_listener_exit_user(const struct zbus_async_listener_work *async_listener,
++					     const struct zbus_channel *chan);
++
++#define sys_port_trace_zbus_chan_pub_enter(chan, timeout)                                          \
++	sys_trace_zbus_chan_pub_enter(chan, timeout)
++#define sys_port_trace_zbus_chan_pub_exit(chan, timeout, ret)                                      \
++	sys_trace_zbus_chan_pub_exit(chan, timeout, ret)
++#define sys_port_trace_zbus_chan_read_enter(chan, timeout)                                         \
++	sys_trace_zbus_chan_read_enter(chan, timeout)
++#define sys_port_trace_zbus_chan_read_exit(chan, timeout, ret)                                     \
++	sys_trace_zbus_chan_read_exit(chan, timeout, ret)
++#define sys_port_trace_zbus_chan_notify_enter(chan, timeout)                                       \
++	sys_trace_zbus_chan_notify_enter(chan, timeout)
++#define sys_port_trace_zbus_chan_notify_exit(chan, timeout, ret)                                   \
++	sys_trace_zbus_chan_notify_exit(chan, timeout, ret)
++#define sys_port_trace_zbus_chan_claim_enter(chan, timeout)                                        \
++	sys_trace_zbus_chan_claim_enter(chan, timeout)
++#define sys_port_trace_zbus_chan_claim_exit(chan, timeout, ret)                                    \
++	sys_trace_zbus_chan_claim_exit(chan, timeout, ret)
++#define sys_port_trace_zbus_chan_finish_enter(chan)      sys_trace_zbus_chan_finish_enter(chan)
++#define sys_port_trace_zbus_chan_finish_exit(chan, ret)  sys_trace_zbus_chan_finish_exit(chan, ret)
++#define sys_port_trace_zbus_sub_wait_enter(sub, timeout) sys_trace_zbus_sub_wait_enter(sub, timeout)
++#define sys_port_trace_zbus_sub_wait_exit(sub, timeout, chan, ret)                                 \
++	sys_trace_zbus_sub_wait_exit(sub, timeout, chan, ret)
++#define sys_port_trace_zbus_sub_wait_msg_enter(sub, timeout)                                       \
++	sys_trace_zbus_sub_wait_msg_enter(sub, timeout)
++#define sys_port_trace_zbus_sub_wait_msg_exit(sub, timeout, chan, ret)                             \
++	sys_trace_zbus_sub_wait_msg_exit(sub, timeout, chan, ret)
++#define sys_port_trace_zbus_obs_notify_enter(obs, chan) sys_trace_zbus_obs_notify_enter(obs, chan)
++#define sys_port_trace_zbus_obs_notify_exit(obs, chan, ret)                                        \
++	sys_trace_zbus_obs_notify_exit(obs, chan, ret)
++#define sys_port_trace_zbus_async_listener_enter(async_listener, chan)                             \
++	sys_trace_zbus_async_listener_enter(async_listener, chan)
++#define sys_port_trace_zbus_async_listener_exit(async_listener, chan)                              \
++	sys_trace_zbus_async_listener_exit(async_listener, chan)
+ 
+ #ifdef __cplusplus
+ }
+-- 
+2.56.0
+

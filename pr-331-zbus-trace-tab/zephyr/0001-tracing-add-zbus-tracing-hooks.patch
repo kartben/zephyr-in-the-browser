@@ -1,0 +1,272 @@
+From 84f4a18aba06d0a8442e0438c993dc483fb555d2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Benjamin=20Cabe=CC=81?= <benjamin@zephyrproject.org>
+Date: Mon, 5 Oct 2026 02:26:55 +0200
+Subject: [PATCH 1/4] tracing: add zbus tracing hooks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+zbus is how many applications move data between threads, but a trace
+shows none of it: a publish appears only as an anonymous semaphore taken
+and given, a subscriber's notification as a put to a message queue zbus
+created behind the scenes, and a listener callback not at all.
+
+Add canonical no-op hooks for the zbus channel operations (publish,
+read, notify, claim, finish), for a subscriber or message subscriber
+waiting for a notification, for each observer the dispatcher notifies,
+and for async listener callbacks, plus a TRACING_ZBUS option, on by
+default when zbus is used, that gates them like the kernel object types.
+
+Signed-off-by: Benjamin Cabé <benjamin@zephyrproject.org>
+Assisted-by: Claude:opus-5.5
+Signed-off-by: Benjamin Cabé <benjamin@zephyrproject.org>
+---
+ doc/services/tracing/index.rst          |   5 +
+ include/zephyr/tracing/tracing_hooks.h  | 179 ++++++++++++++++++++++++
+ include/zephyr/tracing/tracing_macros.h |   6 +
+ subsys/tracing/Kconfig                  |   9 ++
+ 4 files changed, 199 insertions(+)
+
+diff --git a/doc/services/tracing/index.rst b/doc/services/tracing/index.rst
+index 1f4efafdf..3184bde9a 100644
+--- a/doc/services/tracing/index.rst
++++ b/doc/services/tracing/index.rst
+@@ -828,3 +828,8 @@ Network socket tracing
+ ======================
+ 
+ .. doxygengroup:: subsys_tracing_apis_socket
++
++zbus tracing
++============
++
++.. doxygengroup:: subsys_tracing_apis_zbus
+diff --git a/include/zephyr/tracing/tracing_hooks.h b/include/zephyr/tracing/tracing_hooks.h
+index 0858297d7..2467947d5 100644
+--- a/include/zephyr/tracing/tracing_hooks.h
++++ b/include/zephyr/tracing/tracing_hooks.h
+@@ -3500,6 +3500,185 @@
+ 
+ /** @} */ /* end of subsys_tracing_apis_rtio */
+ 
++/**
++ * @brief zbus Tracing APIs
++ * @defgroup subsys_tracing_apis_zbus zbus Tracing APIs
++ * @ingroup subsys_tracing_apis
++ * @{
++ */
++
++/**
++ * @brief Trace zbus channel publish attempt entry
++ * @param chan Channel object
++ * @param timeout Timeout period
++ */
++#ifndef sys_port_trace_zbus_chan_pub_enter
++#define sys_port_trace_zbus_chan_pub_enter(chan, timeout)
++#endif
++
++/**
++ * @brief Trace zbus channel publish attempt outcome
++ * @param chan Channel object
++ * @param timeout Timeout period
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_chan_pub_exit
++#define sys_port_trace_zbus_chan_pub_exit(chan, timeout, ret)
++#endif
++
++/**
++ * @brief Trace zbus channel read attempt entry
++ * @param chan Channel object
++ * @param timeout Timeout period
++ */
++#ifndef sys_port_trace_zbus_chan_read_enter
++#define sys_port_trace_zbus_chan_read_enter(chan, timeout)
++#endif
++
++/**
++ * @brief Trace zbus channel read attempt outcome
++ * @param chan Channel object
++ * @param timeout Timeout period
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_chan_read_exit
++#define sys_port_trace_zbus_chan_read_exit(chan, timeout, ret)
++#endif
++
++/**
++ * @brief Trace zbus channel notify attempt entry
++ * @param chan Channel object
++ * @param timeout Timeout period
++ */
++#ifndef sys_port_trace_zbus_chan_notify_enter
++#define sys_port_trace_zbus_chan_notify_enter(chan, timeout)
++#endif
++
++/**
++ * @brief Trace zbus channel notify attempt outcome
++ * @param chan Channel object
++ * @param timeout Timeout period
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_chan_notify_exit
++#define sys_port_trace_zbus_chan_notify_exit(chan, timeout, ret)
++#endif
++
++/**
++ * @brief Trace zbus channel claim attempt entry
++ * @param chan Channel object
++ * @param timeout Timeout period
++ */
++#ifndef sys_port_trace_zbus_chan_claim_enter
++#define sys_port_trace_zbus_chan_claim_enter(chan, timeout)
++#endif
++
++/**
++ * @brief Trace zbus channel claim attempt outcome
++ * @param chan Channel object
++ * @param timeout Timeout period
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_chan_claim_exit
++#define sys_port_trace_zbus_chan_claim_exit(chan, timeout, ret)
++#endif
++
++/**
++ * @brief Trace zbus channel finish entry
++ * @param chan Channel object
++ */
++#ifndef sys_port_trace_zbus_chan_finish_enter
++#define sys_port_trace_zbus_chan_finish_enter(chan)
++#endif
++
++/**
++ * @brief Trace zbus channel finish outcome
++ * @param chan Channel object
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_chan_finish_exit
++#define sys_port_trace_zbus_chan_finish_exit(chan, ret)
++#endif
++
++/**
++ * @brief Trace zbus subscriber wait attempt entry
++ * @param sub Subscriber observer object
++ * @param timeout Timeout period
++ */
++#ifndef sys_port_trace_zbus_sub_wait_enter
++#define sys_port_trace_zbus_sub_wait_enter(sub, timeout)
++#endif
++
++/**
++ * @brief Trace zbus subscriber wait attempt outcome
++ * @param sub Subscriber observer object
++ * @param timeout Timeout period
++ * @param chan Channel that notified the subscriber, or NULL when none did
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_sub_wait_exit
++#define sys_port_trace_zbus_sub_wait_exit(sub, timeout, chan, ret)
++#endif
++
++/**
++ * @brief Trace zbus message subscriber wait attempt entry
++ * @param sub Subscriber observer object
++ * @param timeout Timeout period
++ */
++#ifndef sys_port_trace_zbus_sub_wait_msg_enter
++#define sys_port_trace_zbus_sub_wait_msg_enter(sub, timeout)
++#endif
++
++/**
++ * @brief Trace zbus message subscriber wait attempt outcome
++ * @param sub Subscriber observer object
++ * @param timeout Timeout period
++ * @param chan Channel that notified the subscriber, or NULL when none did
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_sub_wait_msg_exit
++#define sys_port_trace_zbus_sub_wait_msg_exit(sub, timeout, chan, ret)
++#endif
++
++/**
++ * @brief Trace the zbus dispatcher starting to notify one observer of a channel
++ * @param obs Observer object
++ * @param chan Channel object
++ */
++#ifndef sys_port_trace_zbus_obs_notify_enter
++#define sys_port_trace_zbus_obs_notify_enter(obs, chan)
++#endif
++
++/**
++ * @brief Trace the zbus dispatcher done notifying one observer of a channel
++ * @param obs Observer object
++ * @param chan Channel object
++ * @param ret Return value
++ */
++#ifndef sys_port_trace_zbus_obs_notify_exit
++#define sys_port_trace_zbus_obs_notify_exit(obs, chan, ret)
++#endif
++
++/**
++ * @brief Trace a zbus async listener callback entry, in its work queue
++ * @param async_listener Async listener work item
++ * @param chan Channel object
++ */
++#ifndef sys_port_trace_zbus_async_listener_enter
++#define sys_port_trace_zbus_async_listener_enter(async_listener, chan)
++#endif
++
++/**
++ * @brief Trace a zbus async listener callback exit
++ * @param async_listener Async listener work item
++ * @param chan Channel object
++ */
++#ifndef sys_port_trace_zbus_async_listener_exit
++#define sys_port_trace_zbus_async_listener_exit(async_listener, chan)
++#endif
++
++/** @} */ /* end of subsys_tracing_apis_zbus */
++
+ /**
+  * @brief Tracing hooks provided only by specific backends
+  * @defgroup subsys_tracing_apis_backend_ext Backend-specific extensions
+diff --git a/include/zephyr/tracing/tracing_macros.h b/include/zephyr/tracing/tracing_macros.h
+index 0bdd46ff9..5a4440948 100644
+--- a/include/zephyr/tracing/tracing_macros.h
++++ b/include/zephyr/tracing/tracing_macros.h
+@@ -195,6 +195,12 @@
+ 	#define sys_port_trace_type_mask_net(trace_call)
+ #endif
+ 
++#if defined(CONFIG_TRACING_ZBUS)
++	#define sys_port_trace_type_mask_zbus(trace_call) trace_call
++#else
++	#define sys_port_trace_type_mask_zbus(trace_call)
++#endif
++
+ /*
+  * We cannot positively enumerate all traced APIs, as applications may trace
+  * arbitrary custom APIs we know nothing about. Therefore we demand that tracing
+diff --git a/subsys/tracing/Kconfig b/subsys/tracing/Kconfig
+index 328896794..67bb796bd 100644
+--- a/subsys/tracing/Kconfig
++++ b/subsys/tracing/Kconfig
+@@ -482,6 +482,15 @@ config TRACING_GPIO
+ 	help
+ 	  Enable tracing GPIO.
+ 
++config TRACING_ZBUS
++	bool "Tracing zbus"
++	depends on ZBUS
++	default y
++	help
++	  Enable tracing zbus: channel publish, read, notify, claim and finish,
++	  each observer the dispatcher notifies, subscribers waiting for a
++	  notification, and async listener callbacks.
++
+ config TRACING_IDLE
+ 	bool "Tracing Idle"
+ 	default y
+-- 
+2.56.0
+
