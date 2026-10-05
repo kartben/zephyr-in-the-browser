@@ -384,6 +384,7 @@ function targetOver(
       const index = gdb.getSymbolIndex()
       return formatSymbol(resolveDataSymbol(index, addr) ?? resolveSymbol(index, addr))
     },
+    codeAddress: (addr) => normalizeAddr(addr, gdb.getSnapshot().regArch),
     member: memberOffset,
   }
 }

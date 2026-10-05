@@ -404,7 +404,7 @@ render the address itself:
 | `ptr` | the pointer there, with the symbol it points at |
 | `bytes:N` | N bytes as an inline hexdump |
 | `addr` | the address itself, symbolised |
-| `code` | the address as `function+offset` |
+| `code` | the address as `function+offset`, without the Thumb bit a Cortex-M function pointer carries |
 | `dec` | the value itself, in decimal and hex |
 
 Symbolised means the hex comes with the variable or function the address falls
@@ -775,6 +775,12 @@ and `alarms_lost as u32 == 1` reads a counter. The expressions are the ones
 compare as whole numbers, so the format's sign matters: `ticks as i32 < 0`
 holds when the counter is -1, and `ticks as u32` reads the same bytes as
 4294967295.
+
+To ask which function a pointer holds, follow it and read the result
+`as code`: `*handler as code == on_event`. On Cortex-M a function pointer has
+bit 0 set to mark Thumb code and the function's symbol does not, so
+`handler as ptr == on_event` never holds there. `code` drops the bit, and the
+row holds on every board.
 
 The verdict goes on the card under the step's values:
 

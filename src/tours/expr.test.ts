@@ -219,6 +219,23 @@ describe('evalValue', () => {
     expect(await evalValue('$pc', 'code', t)).toEqual({ value: 0x8123n, text: 'main+0x23' })
   })
 
+  it('reads a Thumb function pointer `as code` as the function it points at', async () => {
+    // `handler` holds main's address with bit 0 set, as a function pointer on
+    // Cortex-M does; the symbol `main` has it clear.
+    const base = target()
+    const t: TourTarget = {
+      ...base,
+      symbol: (name) => (name === 'handler' ? 0x6000 : base.symbol(name)),
+      read: async (addr, length) =>
+        addr === 0x6000 && length === 4 ? new Uint8Array([0x01, 0x81, 0, 0]) : base.read(addr, length),
+      codeAddress: (addr) => addr & ~1,
+    }
+    expect(await evalValue('*handler', 'code', t)).toEqual({ value: 0x8100n, text: 'main+0x0' })
+    expect(await evalWatch('*handler', 'code', t)).toMatchObject({ addr: 0x8100, detail: '0x8100' })
+    // `ptr` reads the pointer as stored: a data pointer can be odd.
+    expect((await evalValue('handler', 'ptr', t)).value).toBe(0x8101n)
+  })
+
   it('has no number for a string or a hexdump, and says so', async () => {
     expect(await evalValue('**led', 'string', target())).toEqual({
       value: null,
