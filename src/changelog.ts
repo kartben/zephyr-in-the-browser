@@ -117,7 +117,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Fixed",
-        "text": "Debug names the right functions and callers, and Cortex-M breakpoints hit."
+        "text": "Debug names the right functions and callers, even at a function's start, and Cortex-M breakpoints hit."
       },
       {
         "tag": "Fixed",

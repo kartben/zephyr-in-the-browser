@@ -29,7 +29,7 @@ via the help dialog (?).
 - **Changed:** Kernel object lists need an image from current Zephyr main.
 - **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
 - **Fixed:** Resuming from a breakpoint no longer stops on it again.
-- **Fixed:** Debug names the right functions and callers, and Cortex-M breakpoints hit.
+- **Fixed:** Debug names the right functions and callers, even at a function's start, and Cortex-M breakpoints hit.
 - **Fixed:** Tour cards keep the stop line in view and name data pointers.
 - **Fixed:** Rereading an earlier tour step no longer strands the paused guest.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
