@@ -198,6 +198,49 @@ describe('unwindStack', () => {
     expect(result.frames.map((f) => f.origin)).toEqual(['pc', 'fp'])
   })
 
+  it('takes the caller from LR again after the epilogue pops the record', async () => {
+    // leaf's `ldp x29, x30, [sp], #16` has run but its `ret` (or tail call)
+    // has not: fp and LR are back to what they were at leaf's entry.
+    const mem = memory(8)
+    const sp = 0x4000_0000
+    mem.writeWord(sp + 0x40, 0) // chain ends
+    mem.writeWord(sp + 0x48, 0x8_0050) // return into main
+
+    const result = await unwindStack({
+      arch: 'aarch64',
+      pc: 0x8_0224,
+      sp,
+      fp: sp + 0x40,
+      lr: 0x8_0140,
+      read: mem.read,
+      resolve,
+    })
+
+    expect(result.frames.map((f) => f.label)).toEqual(['leaf+0x24', 'work+0x40', 'main+0x50'])
+    expect(result.frames.map((f) => f.origin)).toEqual(['pc', 'lr', 'fp'])
+  })
+
+  it('keeps the frame cap when LR adds a caller', async () => {
+    const mem = memory(8)
+    const sp = 0x4000_0000
+    mem.writeWord(sp + 0x40, 0) // chain ends
+    mem.writeWord(sp + 0x48, 0x8_0050) // return into main
+
+    const result = await unwindStack({
+      arch: 'aarch64',
+      pc: 0x8_0200,
+      sp,
+      fp: sp + 0x40,
+      lr: 0x8_0140,
+      read: mem.read,
+      resolve,
+      maxFrames: 2,
+    })
+
+    expect(result.frames.map((f) => f.label)).toEqual(['leaf', 'work+0x40'])
+    expect(result.truncated).toBe(true)
+  })
+
   it('scans the stack for plausible callers, skipping function starts', async () => {
     const mem = memory(8)
     const sp = 0x4000_0000
