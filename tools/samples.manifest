@@ -134,6 +134,7 @@ qemu_cortex_a53:tracing:samples/subsys/tracing/basic
 qemu_cortex_a53:tracing_pipeline:samples/subsys/tracing/pipeline
 qemu_cortex_a53:msg_queue:samples/kernel/msg_queue
 qemu_cortex_a53:msgq_lab:zephyr-module/apps/msgq_lab::virtio-gpio
+qemu_cortex_a53:zbus:samples/subsys/zbus/hello_world
 qemu_cortex_a53:blinky:samples/basic/blinky::virtio-gpio
 qemu_cortex_a53:basic_button:samples/basic/button::virtio-gpio
 qemu_cortex_a53:buzzer:samples/drivers/buzzer/tone:conf/buzzer.conf:virtio-gpio,gpio-buzzer

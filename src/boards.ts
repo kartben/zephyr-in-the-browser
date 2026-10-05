@@ -718,6 +718,17 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['keys'],
   },
   {
+    // Stock zbus hello_world: three channels, and a listener, a subscriber and
+    // an async listener on one of them. In the `_trace` twin, Trace → Queues
+    // draws the subscriber's msgq and the async listener's FIFO, which zbus
+    // creates behind the scenes.
+    // https://docs.zephyrproject.org/latest/samples/subsys/zbus/hello_world/README.html
+    id: 'zbus',
+    label: 'zbus Hello World',
+    description: 'One channel, three observers: listener, subscriber, async listener',
+    zephyrSample: 'samples/subsys/zbus/hello_world',
+  },
+  {
     // Same sample and same panel as the Cortex-M3 blinky, but led0 is pin 4 of
     // a standard VIRTIO GPIO device rather than a bespoke register block.
     id: 'blinky',
@@ -1088,8 +1099,9 @@ export const BOARDS: Board[] = [
     // tracing demos; zperf is already net-only in the base list. `pm_latency`
     // goes too: the RISC-V virt SoC does not select HAS_PM either, and the
     // cpu-power-states snippet only carries an A53 overlay, so the sample would
-    // build with no state ladder and never suspend. `msgq_lab` is built for
-    // the A53 alone: its tour leans on the traced twin's Queues view.
+    // build with no state ladder and never suspend. `msgq_lab` and `zbus` are
+    // built for the A53 alone: their tours lean on the traced twin's Queues
+    // view.
     samples: [
       ...CORTEX_A53_SAMPLES_BASE.filter(
         (s) =>
@@ -1097,6 +1109,7 @@ export const BOARDS: Board[] = [
           s.id !== 'tracing_pipeline' &&
           s.id !== 'msg_queue' &&
           s.id !== 'msgq_lab' &&
+          s.id !== 'zbus' &&
           s.id !== 'pm_latency' &&
           // Float inference every 40 ms is too much for this board's interpreter.
           s.id !== 'magic_wand',
