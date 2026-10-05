@@ -175,7 +175,9 @@ memory:
   len: 12
   note: the copy this callback reads
 threads: main, subscriber_task_id, sysworkq
-look: trace.queues
+look:
+  - trace.queues
+  - trace.zbus
 ```
 
 The last observer, `baz_async_lis`, is an async listener: a callback, like a
@@ -190,9 +192,13 @@ channel: the lock still reads 0, held by `main`, and this callback never needs
 it. A later publish cannot change what it is reading, either.
 
 `main` is still in its publish, and the subscriber is still waiting for the
-lock. On the traced build, **Trace → Queues** shows what zbus built for these
-observers, under the names it gave them: the subscriber's queue, this
-listener's FIFO, and the pool the message buffers come from.
+lock. On the traced build, **Trace → zbus** draws this moment at its right
+edge: the publish still open on `acc_data_chan`, `foo_lis`'s callback done,
+`bar_sub`'s thread woken and waiting in its read, and this callback running in
+`sysworkq`.
+**Trace → Queues** shows what zbus built for these observers, under the names
+it gave them: the subscriber's queue, this listener's FIFO, and the pool the
+message buffers come from.
 
 ## A validator turns a value away
 
