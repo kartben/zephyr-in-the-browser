@@ -42,6 +42,8 @@ export interface Pin {
   label: string
   /** DT flags when known; 0 = ACTIVE_HIGH with no pull/drive extras. */
   flags: number
+  /** The devicetree node, when a tree says (not the fallback pins). See DtsPin. */
+  path?: string
 }
 
 export type { BuzzerPin, SevenSegDisplay, StepperAxis }

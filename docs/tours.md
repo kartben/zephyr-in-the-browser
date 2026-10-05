@@ -1065,7 +1065,7 @@ ci: press sw0
 
 | Action | Does |
 | --- | --- |
-| `press <key>` | holds a **GPIO Keys** button down for 200 ms; `sw0` finds `SW0` or `Browser SW0` |
+| `press <key>` | holds a **GPIO Keys** button down for 200 ms; `sw0` finds `SW0` or `Browser SW0`, or else the key the `sw0` alias points at (`User SW1` on the ESP32-C3) |
 | `type <line>` | types one line into the terminal, placeholders filled in as on a Run button |
 | `wait <duration>` | waits before the next action: `500ms`, `2s`, up to 10 s |
 
