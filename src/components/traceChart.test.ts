@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  baseYToScreen,
   clampPlotX,
   clampYZoom,
   isIdentityYZoom,
@@ -79,6 +80,12 @@ describe('yZoomFromScreenSelection', () => {
 describe('screenYToBase / panYZoom', () => {
   it('round-trips identity zoom', () => {
     expect(screenYToBase(120, 20, 220, null)).toBeCloseTo(120, 5)
+  })
+
+  it('maps base Y back to the screen under a zoom', () => {
+    const z = { f0: 0.25, f1: 0.5 }
+    expect(baseYToScreen(screenYToBase(150, 20, 220, z), 20, 220, z)).toBeCloseTo(150, 5)
+    expect(baseYToScreen(120, 20, 220, null)).toBe(120)
   })
 
   it('pans without changing span', () => {

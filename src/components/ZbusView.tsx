@@ -15,18 +15,40 @@
  * Channels and observers come from the image (debug/elfZbus.ts), so a channel
  * nobody publishes still has its row, and the observers sit in dispatch order
  * before the first event arrives. Shares the Trace window, gestures and box
- * zoom, like the Networking and Power tabs.
+ * zoom, like the Networking and Power tabs. Hovering anything gives a two-line
+ * tip, worked out from the same placements paint draws (zbusChart.ts).
  */
 
 import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type CanvasHTMLAttributes,
+  type PointerEvent,
   type ReactNode,
   type RefObject,
 } from 'react'
-import { applyYZoomTransform, type YZoom } from '@/components/traceChart'
+import {
+  applyYZoomTransform,
+  baseYToScreen,
+  screenYToBase,
+  type YZoom,
+} from '@/components/traceChart'
+import {
+  AXIS_H,
+  DOT_R,
+  LABEL_W,
+  buildRows,
+  placedBox,
+  placeRows,
+  rowHeight,
+  zbusHitTest,
+  zbusTip,
+  type Placed,
+  type Row,
+  type ZbusXScale,
+} from '@/components/zbusChart'
 import {
   fmtTime,
   hasZbusEvents,
@@ -36,17 +58,13 @@ import {
   zbusErrno,
   zbusWindowStats,
   type Trace,
-  type ZbusActivity,
-  type ZbusCall,
 } from '@/ctf'
 import { type ZbusObserverKind, type ZbusTopology } from '@/debug/elfZbus'
 import { cn } from '@/lib/utils'
 
-const LABEL_W = 156
 const PAD = 8
-const AXIS_H = 28
-const CHAN_H = 32
-const OBS_H = 22
+/** The note an image without the hooks gets above its rows. */
+const NOTE_H = 40
 
 const COL_PUB = 'rgba(52, 211, 153, 0.8)'
 const COL_READ = 'rgba(148, 163, 184, 0.75)'
@@ -73,71 +91,11 @@ const KIND_COLOR: Record<ZbusObserverKind | 'unknown', string> = {
   unknown: 'rgba(148, 163, 184, 0.9)',
 }
 
-type Row =
-  | { kind: 'chan'; chan: number; label: string; detail: string; group: number }
-  | {
-      kind: 'obs'
-      chan: number
-      obs: number
-      label: string
-      obsKind: ZbusObserverKind | null
-      last: boolean
-      group: number
-    }
-
-const hex = (n: number) => `0x${(n >>> 0).toString(16)}`
-
-/** Rows from the image's topology, plus any channel or observer only the trace knows. */
-function buildRows(topo: ZbusTopology | null, activity: ZbusActivity): Row[] {
-  const rows: Row[] = []
-  const channels: number[] = topo ? topo.channels.map((c) => c.addr >>> 0) : []
-  for (const c of activity.calls) if (!channels.includes(c.chan)) channels.push(c.chan)
-
-  channels.forEach((chan, group) => {
-    const info = topo?.channelByAddr32.get(chan)
-    const detail = info
-      ? [
-          info.messageSize !== null ? `${info.messageSize} B` : null,
-          info.validator ? 'validated' : null,
-          `${info.observers.length} obs`,
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      : 'not in the image'
-    rows.push({ kind: 'chan', chan, label: info?.name ?? hex(chan), detail, group })
-
-    const observers: number[] = info ? info.observers.map((o) => o.addr >>> 0) : []
-    // Observers added at run time are not in the image: they show up when told.
-    for (const c of activity.calls) {
-      if (c.chan !== chan) continue
-      for (const n of c.notifies) if (!observers.includes(n.obs)) observers.push(n.obs)
-    }
-    observers.forEach((obs, i) => {
-      const o = topo?.observerByAddr32.get(obs)
-      rows.push({
-        kind: 'obs',
-        chan,
-        obs,
-        label: o?.name ?? hex(obs),
-        obsKind: o?.kind ?? null,
-        last: i === observers.length - 1,
-        group,
-      })
-    })
-  })
-  return rows
-}
-
-function rowHeight(r: Row): number {
-  return r.kind === 'chan' ? CHAN_H : OBS_H
-}
-
 function paint(
   canvas: HTMLCanvasElement,
   tr: Trace,
-  topo: ZbusTopology | null,
-  activity: ZbusActivity,
   rows: Row[],
+  items: Placed[][],
   hasEvents: boolean,
   view0: number,
   view1: number,
@@ -147,7 +105,7 @@ function paint(
   const dpr = window.devicePixelRatio || 1
   const cssW = Math.max(1, canvas.clientWidth)
   const body = rows.reduce((h, r) => h + rowHeight(r), 0)
-  const note = hasEvents ? 0 : 40
+  const note = hasEvents ? 0 : NOTE_H
   const cssH = Math.max(120, AXIS_H + note + body + 8)
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width = Math.floor(cssW * dpr)
@@ -254,20 +212,12 @@ function paint(
     ctx.setLineDash([])
   }
 
-  const callsByChan = new Map<number, ZbusCall[]>()
-  for (const c of activity.calls) {
-    const list = callsByChan.get(c.chan) ?? []
-    list.push(c)
-    callsByChan.set(c.chan, list)
-  }
-
   let y = AXIS_H + note
-  for (const r of rows) {
+  rows.forEach((r, i) => {
     const h = rowHeight(r)
     ctx.fillStyle = r.group % 2 === 0 ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.18)'
     ctx.fillRect(0, y, cssW, h)
     const mid = y + h / 2
-    const calls = callsByChan.get(r.chan) ?? []
     ctx.textBaseline = 'middle'
 
     if (r.kind === 'chan') {
@@ -279,26 +229,26 @@ function paint(
       ctx.fillText(r.detail, 4, mid + 7)
 
       ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-      // A claim holds the channel from claim's return to finish.
-      for (const c of calls) {
-        if (c.op !== 'claim' || c.ret !== 0 || c.t1 === null) continue
-        const fin = calls.find((f) => f.op === 'finish' && f.thread === c.thread && f.t0 >= c.t1!)
-        bar(c.t1, end(fin?.t0 ?? null), y + 4, h - 8, COL_CLAIM, 'claimed')
-      }
-      for (const c of calls) {
-        const who = c.thread !== null ? threadLabel(tr, c.thread) : 'ISR'
+      for (const p of items[i] ?? []) {
+        const it = p.item
+        if (it.kind === 'held') {
+          bar(p.t0, end(p.t1), y + p.top, p.height, COL_CLAIM, 'claimed')
+          continue
+        }
+        if (it.kind !== 'call') continue
+        const c = it.call
         const failed = c.ret !== null && c.ret < 0
         if (c.op === 'pub' || c.op === 'notify') {
+          const who = c.thread !== null ? threadLabel(tr, c.thread) : 'ISR'
           const label = failed
             ? `${who} ${zbusErrno(c.ret!)}`
             : c.op === 'notify'
               ? `${who} · notify`
               : who
-          bar(c.t0, end(c.t1), y + 5, 13, failed ? COL_ERR : COL_PUB, label, failed)
-        } else if (c.op === 'read') {
-          bar(c.t0, end(c.t1), y + h - 9, 6, failed ? COL_ERR : COL_READ)
-        } else if (c.op === 'claim' || c.op === 'finish') {
-          bar(c.t0, end(c.t1), y + h - 9, 6, failed ? COL_ERR : COL_CLAIM)
+          bar(p.t0, end(p.t1), y + p.top, p.height, failed ? COL_ERR : COL_PUB, label, failed)
+        } else {
+          const fill = failed ? COL_ERR : c.op === 'read' ? COL_READ : COL_CLAIM
+          bar(p.t0, end(p.t1), y + p.top, p.height, fill)
         }
       }
     } else {
@@ -315,47 +265,30 @@ function paint(
       ctx.fillText(tag, LABEL_W - ctx.measureText(tag).width - 6, mid)
 
       ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-      const told = calls.flatMap((c) => c.notifies.filter((n) => n.obs === r.obs))
-      for (const n of told) {
-        const failed = n.ret !== null && n.ret < 0
-        // A listener's notification is its callback, so it gets a name.
-        const listener = r.obsKind === 'listener'
-        bar(
-          n.t0,
-          end(n.t1),
-          listener ? mid - 5 : mid - 4,
-          listener ? 10 : 8,
-          failed ? COL_ERR : color,
-          failed ? zbusErrno(n.ret!) : listener ? 'callback' : undefined,
-        )
-      }
-
-      if (r.obsKind === 'subscriber' || r.obsKind === 'msg_subscriber' || r.obsKind === null) {
-        for (const w of activity.wakes) {
-          if (w.obs !== r.obs || w.chan !== r.chan) continue
-          const n = [...told].reverse().find((x) => x.t0 <= w.t)
-          if (n) link(n.t0, w.t, mid)
-          if (w.t >= view0 && w.t <= view1) {
+      for (const p of items[i] ?? []) {
+        const it = p.item
+        if (p.from !== null) link(p.from, p.t0, mid)
+        if (it.kind === 'notify') {
+          const failed = it.notify.ret !== null && it.notify.ret < 0
+          // A listener's notification is its callback, so it gets a name.
+          const label = failed
+            ? zbusErrno(it.notify.ret!)
+            : r.obsKind === 'listener'
+              ? 'callback'
+              : undefined
+          bar(p.t0, end(p.t1), y + p.top, p.height, failed ? COL_ERR : color, label)
+        } else if (it.kind === 'wake') {
+          if (p.t0 >= view0 && p.t0 <= view1) {
             ctx.fillStyle = color
             ctx.beginPath()
-            ctx.arc(X(w.t), mid, 3, 0, Math.PI * 2)
+            ctx.arc(X(p.t0), mid, DOT_R, 0, Math.PI * 2)
             ctx.fill()
           }
-          // The read that follows, by the thread that woke.
-          const read = calls.find((c) => c.op === 'read' && c.thread === w.thread && c.t0 >= w.t)
-          if (read) {
-            link(w.t, read.t0, mid)
-            bar(read.t0, end(read.t1), mid - 5, 10, COL_READ, `${threadLabel(tr, read.thread!)} · read`)
-          }
-        }
-      }
-      if (r.obsKind === 'async_listener' || r.obsKind === null) {
-        for (const run of activity.runs) {
-          if (run.chan !== r.chan || topo?.observerByWork32.get(run.work)?.addr !== r.obs) continue
-          const n = [...told].reverse().find((x) => x.t0 <= run.t0)
-          if (n) link(n.t0, run.t0, mid)
-          const who = run.thread !== null ? threadLabel(tr, run.thread) : 'ISR'
-          bar(run.t0, end(run.t1), mid - 5, 10, color, who)
+        } else if (it.kind === 'read') {
+          bar(p.t0, end(p.t1), y + p.top, p.height, COL_READ, `${threadLabel(tr, it.call.thread!)} · read`)
+        } else if (it.kind === 'run') {
+          const who = it.run.thread !== null ? threadLabel(tr, it.run.thread) : 'ISR'
+          bar(p.t0, end(p.t1), y + p.top, p.height, color, who)
         }
       }
     }
@@ -366,7 +299,7 @@ function paint(
     ctx.lineTo(LABEL_W + plotW, y + h - 0.5)
     ctx.stroke()
     y += h
-  }
+  })
 
   ctx.restore()
   canvas.style.height = `${cssH}px`
@@ -411,26 +344,90 @@ export function ZbusView({
     [tr, eventCount],
   )
   const rows = useMemo(() => buildRows(topology, activity), [topology, activity])
+  const items = useMemo(() => placeRows(rows, activity, topology), [rows, activity, topology])
   const stats = useMemo(() => zbusWindowStats(activity, view0, view1), [activity, view0, view1])
-  const latest = useRef({ activity, rows, hasEvents, yZoom })
-  latest.current = { activity, rows, hasEvents, yZoom }
+  const latest = useRef({ rows, items, hasEvents, yZoom })
+  latest.current = { rows, items, hasEvents, yZoom }
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, tr, topology, activity, rows, hasEvents, view0, view1, follow, yZoom)
-  }, [tr, topology, activity, rows, hasEvents, view0, view1, follow, canvasRef, yZoom])
+    paint(canvas, tr, rows, items, hasEvents, view0, view1, follow, yZoom)
+  }, [tr, rows, items, hasEvents, view0, view1, follow, canvasRef, yZoom])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
       const l = latest.current
-      paint(canvas, tr, topology, l.activity, l.rows, l.hasEvents, view0, view1, follow, l.yZoom)
+      paint(canvas, tr, l.rows, l.items, l.hasEvents, view0, view1, follow, l.yZoom)
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [tr, topology, view0, view1, follow, canvasRef])
+  }, [tr, view0, view1, follow, canvasRef])
+
+  /*
+   * The pointer over the canvas, with the canvas's size then; null while it is
+   * elsewhere or dragging. What it is over is worked out from the current
+   * rows, so the tip follows a live trace and a zoom without the pointer moving.
+   */
+  const [pointer, setPointer] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const pressedAt = useRef<{ x: number; y: number } | null>(null)
+  const pointAt = (e: PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const { clientWidth: w, clientHeight: h } = e.currentTarget
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top, w, h }
+  }
+  const handlers: CanvasHTMLAttributes<HTMLCanvasElement> = {
+    ...canvasProps,
+    onPointerDown: (e) => {
+      canvasProps?.onPointerDown?.(e)
+      pressedAt.current = { x: e.clientX, y: e.clientY }
+      setPointer(null)
+    },
+    onPointerMove: (e) => {
+      canvasProps?.onPointerMove?.(e)
+      // A drag pans the window; the tip comes back when it ends.
+      if (e.buttons === 0 && e.pointerType !== 'touch') setPointer(pointAt(e))
+    },
+    onPointerUp: (e) => {
+      canvasProps?.onPointerUp?.(e)
+      const down = pressedAt.current
+      pressedAt.current = null
+      // A touch screen has no hover: a tap shows the tip instead.
+      const tap = down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6
+      if (e.pointerType !== 'touch' || tap) setPointer(pointAt(e))
+    },
+    onPointerLeave: (e) => {
+      canvasProps?.onPointerLeave?.(e)
+      if (e.pointerType !== 'touch') setPointer(null)
+    },
+  }
+
+  const hover = (() => {
+    if (!pointer) return null
+    const plotW = Math.max(1, pointer.w - LABEL_W - PAD)
+    const span = Math.max(1, view1 - view0)
+    const scale: ZbusXScale = {
+      X: (t) => LABEL_W + ((t - view0) / span) * plotW,
+      plotLeft: LABEL_W,
+      plotRight: LABEL_W + plotW,
+      openEnd: Math.max(view1, tr.t1),
+    }
+    const plotBottom = Math.max(AXIS_H + 1, pointer.h)
+    const y = screenYToBase(pointer.y, AXIS_H, plotBottom, yZoom)
+    const hit = zbusHitTest(rows, items, AXIS_H + (hasEvents ? 0 : NOTE_H), pointer.x, y, scale)
+    if (!hit) return null
+    const tip = zbusTip(tr, topology, activity.calls, rows[hit.row]!, hit.placed)
+    if (!hit.placed) return { tip, box: null }
+    const b = placedBox(hit.placed, hit.rowTop, scale)
+    const top = Math.max(AXIS_H, baseYToScreen(b.y0, AXIS_H, plotBottom, yZoom))
+    const bottom = Math.min(plotBottom, baseYToScreen(b.y1, AXIS_H, plotBottom, yZoom))
+    const left = Math.max(scale.plotLeft, b.x0)
+    const right = Math.min(scale.plotRight, b.x1)
+    const box = right > left && bottom > top ? { left, top, right, bottom, dot: hit.placed.dot } : null
+    return { tip, box }
+  })()
 
   const chip = (color: string, label: string) => (
     <span className="inline-flex items-center gap-1">
@@ -474,9 +471,47 @@ export function ZbusView({
             'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40',
             boxZoomArmed ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing',
           )}
-          {...canvasProps}
+          {...handlers}
         />
         {overlay}
+        {hover?.box && (
+          <div
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute border border-foreground/80',
+              hover.box.dot ? 'rounded-full' : 'rounded-[2px]',
+            )}
+            style={{
+              left: hover.box.left - 1,
+              top: hover.box.top - 1,
+              width: hover.box.right - hover.box.left + 2,
+              height: hover.box.bottom - hover.box.top + 2,
+            }}
+          />
+        )}
+        {hover && pointer && (
+          <div
+            role="tooltip"
+            className="pointer-events-none absolute z-10 select-none whitespace-nowrap rounded border border-border/70 bg-background/95 px-2 py-1 font-mono text-[10px] leading-snug text-foreground shadow-md backdrop-blur-sm"
+            style={{
+              left:
+                pointer.x < LABEL_W
+                  ? LABEL_W + 8
+                  : pointer.x > LABEL_W + 160
+                    ? pointer.x - 10
+                    : pointer.x + 10,
+              top: Math.max(AXIS_H + 4, pointer.y + 8),
+              transform:
+                pointer.x >= LABEL_W && pointer.x > LABEL_W + 160 ? 'translateX(-100%)' : undefined,
+            }}
+          >
+            {hover.tip.map((line, i) => (
+              <div key={i} className={i === 0 ? 'text-foreground' : 'text-muted-foreground'}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
