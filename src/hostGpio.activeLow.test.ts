@@ -82,7 +82,7 @@ describe('active-low buttons', () => {
   it('rests high, so the guest does not see it held from boot', async () => {
     const gpio = await load([{ id: 9, label: 'User SW1', flags: GPIO_ACTIVE_LOW }])
     const { seen, mod } = fakeModule()
-    gpio.attach(mod)
+    gpio.attach(mod, 'mmio')
 
     expect(gpio.isInputHigh(9)).toBe(true)
     expect(gpio.isPressed(9)).toBe(false)
@@ -93,7 +93,7 @@ describe('active-low buttons', () => {
   it('drives the pin low while pressed and high again on release', async () => {
     const gpio = await load([{ id: 9, label: 'User SW1', flags: GPIO_ACTIVE_LOW }])
     const { seen, mod } = fakeModule()
-    gpio.attach(mod)
+    gpio.attach(mod, 'mmio')
 
     gpio.setPressed(9, true)
     expect(gpio.isInputHigh(9)).toBe(false)
@@ -109,7 +109,7 @@ describe('active-low buttons', () => {
   it('leaves an ordinary active-high button alone', async () => {
     const gpio = await load([{ id: 0, label: 'SW0', flags: 0 }])
     const { seen, mod } = fakeModule()
-    gpio.attach(mod)
+    gpio.attach(mod, 'mmio')
 
     expect(gpio.isInputHigh(0)).toBe(false)
     expect(gpio.isPressed(0)).toBe(false)

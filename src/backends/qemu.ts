@@ -381,8 +381,11 @@ export function createQemuBackend(): PtyBackend {
       else detachHostDisplay()
       if (board.peripherals?.gnss) attachHostGnss(instance)
       else detachHostGnss()
-      if (board.peripherals?.hostGpio) attachHostGpio(instance)
-      else detachHostGpio()
+      // A machine with a virtio bus keeps its GPIO there, even when the build
+      // also exports the MMIO pair for another machine (riscv32 does).
+      if (board.peripherals?.hostGpio) {
+        attachHostGpio(instance, board.peripherals.virtio ? 'virtio' : 'mmio')
+      } else detachHostGpio()
       // Also after attachVirtio: the chips it serves are registered on the
       // virtio I2C model, whether or not this machine has a virtio bus.
       if (board.peripherals?.hostI2c) attachHostI2c(instance)

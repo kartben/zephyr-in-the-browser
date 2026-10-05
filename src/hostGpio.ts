@@ -4,19 +4,23 @@
  * Two very different devices land here, one per board, and this module hides
  * the difference so a single panel drives both.
  *
- * - **Cortex-M3 — `qemu,host-gpio`.** A small MMIO register block in QEMU
+ * - **Cortex-M3: `qemu,host-gpio`.** A small MMIO register block in QEMU
  *   (`tools/qemu-patches/0005-*`). A guest read is a single load that never
  *   leaves the guest, and the page reaches the pins through two exported C
  *   functions. Inputs are push, outputs are pull: the guest changes them
  *   whenever it likes, so we poll on an interval. The LM3S6965 machine has no
  *   virtio-mmio bus to move onto, so it keeps this.
  *
- * - **Cortex-A53 — VIRTIO GPIO.** A standard VIRTIO GPIO controller Zephyr's
- *   in-tree `virtio,gpio` driver binds to. The *device model* is
- *   TypeScript — `src/virtio/devices/gpio.ts`, running on the generic bridge —
- *   so nothing is polled at all: an input edge fires the guest's interrupt
- *   synchronously, and a guest-driven output notifies this module the moment
- *   it is written.
+ * - **Cortex-A53 and RISC-V `virt`: VIRTIO GPIO.** A standard VIRTIO GPIO
+ *   controller Zephyr's in-tree `virtio,gpio` driver binds to. The *device
+ *   model* is TypeScript (`src/virtio/devices/gpio.ts`, running on the
+ *   generic bridge), so nothing is polled at all: an input edge fires the
+ *   guest's interrupt synchronously, and a guest-driven output notifies this
+ *   module the moment it is written.
+ *
+ * The board picks between them, not the emulator build. The riscv32 build
+ * exports the MMIO pair for the ESP32-C3's GPIO controller, and the `virt`
+ * machine in the same binary has nothing behind it.
  *
  * Deliberately not part of the PtyBackend seam: the bridge is optional, and a
  * backend with no GPIO device need not know it exists.
@@ -413,17 +417,24 @@ function restartMmioPoller() {
   else registerPoll(POLL_ID, ms, pollMmio)
 }
 
+/** Which device carries the board's GPIO lines. See the comment at the top. */
+export type GpioTransport = 'mmio' | 'virtio'
+
 /**
- * Called by the qemu backend once its module is live. A build with neither
- * device simply binds nothing, which `available()` reports.
+ * Called by the qemu backend once its module is live, with the transport the
+ * board's GPIO controller is on. A build without that device simply binds
+ * nothing, which `available()` reports.
  *
  * The virtio path is not resolved here: the generic bridge binds its devices
  * on its first poll, which can be after this runs, so we watch for the bind
  * instead of latching the panel off.
  */
-export function attach(mod: unknown) {
+export function attach(mod: unknown, transport: GpioTransport) {
   detach()
-  mmio = bindMmio(mod as GpioExports | null)
+  // Only when the board asks for it. Binding whatever the build exports sent
+  // qemu_riscv32's presses to an MMIO device its `virt` machine does not have,
+  // so the virtio guest never saw one.
+  mmio = transport === 'mmio' ? bindMmio(mod as GpioExports | null) : null
 
   if (mmio) {
     // Push the seeded input state so the guest reads something defined, then
