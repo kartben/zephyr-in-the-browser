@@ -1,0 +1,96 @@
+diff --git a/hw/gpio/esp32_gpio.c b/hw/gpio/esp32_gpio.c
+index b11a2a6..ab943da 100644
+--- a/hw/gpio/esp32_gpio.c
++++ b/hw/gpio/esp32_gpio.c
+@@ -228,20 +228,27 @@ static const MemoryRegionOps uart_ops = {
+  * exported functions, the same pair the Cortex-M3's qemu,host-gpio device
+  * exports, so src/hostGpio.ts binds to either without knowing the difference.
+  *
+- * Only one GPIO controller exists per machine, so a file-static pointer is
+- * enough; it is set when the device is realized.
++ * Only one GPIO controller exists per machine, so file-statics are enough: the
++ * device pointer, set when the device is realized, and the input word, which
++ * has to be somewhere before that (see qemu_host_gpio_set_inputs()). The
++ * Cortex-M3's device keeps its word the same way, in host_gpio_in.
+  */
+ #ifdef __EMSCRIPTEN__
+ static Esp32GpioState *esp32_gpio_bridge;
++/* The input word the page last published, one bit per pin. */
++static uint32_t esp32_gpio_bridge_inputs;
+ 
+ EMSCRIPTEN_KEEPALIVE
+ void qemu_host_gpio_set_inputs(uint32_t value)
+ {
+-    Esp32GpioState *s = esp32_gpio_bridge;
+-    if (s == NULL) {
+-        return;
+-    }
+-    /* Record only. Applying the value here would mean touching device state,
++    /* Kept whether or not the device exists yet. The page publishes its
++     * resting word once at attach, while QEMU is still building the machine,
++     * so it can land before this device is realized. Dropping it left every
++     * input low: an active-low key started out held, and the first press
++     * after boot changed nothing. Reset seeds the pins from this word, and the
++     * bridge timer applies every later one.
++     *
++     * Record only. Applying the value here would mean touching device state,
+      * and possibly raising an interrupt, from the browser's main thread: not a
+      * vCPU thread, holding no lock, while cpu_interrupt() asserts bql_locked().
+      *
+@@ -253,7 +260,7 @@ void qemu_host_gpio_set_inputs(uint32_t value)
+      * So this is the same shape as net/can/can_browser.c: the page writes a
+      * value, and a QEMU_CLOCK_VIRTUAL timer picks it up on the other side,
+      * where the BQL is already held. */
+-    qatomic_set(&s->bridge_inputs, value);
++    qatomic_set(&esp32_gpio_bridge_inputs, value);
+ }
+ 
+ EMSCRIPTEN_KEEPALIVE
+@@ -278,7 +285,7 @@ uint32_t qemu_host_gpio_get_outputs(void)
+ static void esp32_gpio_bridge_poll(void *opaque)
+ {
+     Esp32GpioState *s = ESP32_GPIO(opaque);
+-    uint32_t value = qatomic_read(&s->bridge_inputs);
++    uint32_t value = qatomic_read(&esp32_gpio_bridge_inputs);
+ 
+     if (value != s->in) {
+         for (unsigned i = 0; i < ESP32_GPIO_PIN_COUNT; i++) {
+@@ -297,7 +304,18 @@ static void esp32_gpio_reset_hold(Object *obj, ResetType type)
+ 
+     s->out = 0;
+     s->enable = 0;
++#ifdef __EMSCRIPTEN__
++    /* The pins start where the page is driving them, not low. An active-low
++     * key rests high, and a guest that samples it before the first press
++     * (Zephyr's gpio-keys does, at init) takes a low for held. Nothing is
++     * latched, and nothing needs to be: pin[] is cleared below, so no
++     * interrupt is armed. Masked to the pins this SoC brings out, which is
++     * all esp32_gpio_set_input() would accept. */
++    s->in = qatomic_read(&esp32_gpio_bridge_inputs)
++            & MAKE_64BIT_MASK(0, MIN(ESP32_GPIO_GET_CLASS(s)->ngpios, 32));
++#else
+     s->in = 0;
++#endif
+     s->status = 0;
+     memset(s->pin, 0, sizeof(s->pin));
+     qemu_set_irq(s->irq, 0);
+diff --git a/include/hw/gpio/esp32_gpio.h b/include/hw/gpio/esp32_gpio.h
+index 39f4a42..bb63348 100644
+--- a/include/hw/gpio/esp32_gpio.h
++++ b/include/hw/gpio/esp32_gpio.h
+@@ -63,10 +63,11 @@ typedef struct Esp32GpioState {
+     /* Per-pin GPIO_PINn_REG, only the interrupt fields of which are acted on. */
+     uint32_t pin[ESP32_GPIO_PIN_COUNT];
+ 
+-    /* Browser bridge: the page writes `bridge_inputs` from a thread that holds
+-     * no lock, and `bridge_timer` applies it here, where the BQL is held. See
+-     * qemu_host_gpio_set_inputs() in hw/gpio/esp32_gpio.c. */
+-    uint32_t bridge_inputs;
++    /* Browser bridge: the page publishes its input word from a thread that
++     * holds no lock, and `bridge_timer` applies it here, where the BQL is
++     * held. The word is a file-static, not a field, because it can arrive
++     * before this device exists. See qemu_host_gpio_set_inputs() in
++     * hw/gpio/esp32_gpio.c. */
+     QEMUTimer *bridge_timer;
+ } Esp32GpioState;
+ 

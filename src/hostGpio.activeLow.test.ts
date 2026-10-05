@@ -99,8 +99,9 @@ describe('active-low buttons', () => {
 
   it('pushes the resting level again, for a device that missed the first push', async () => {
     const gpio = await load([{ id: 9, label: 'User SW1', flags: GPIO_ACTIVE_LOW }])
-    // The ESP32 model drops a word written before QEMU has created the device,
-    // and attach() runs while the machine is still being built.
+    // An ESP32 emulator built without tools/qemu-esp-patches/0020 drops a word
+    // written before QEMU has created the device, and attach() runs while the
+    // machine is still being built.
     let realized = false
     let word = 0
     gpio.attach(

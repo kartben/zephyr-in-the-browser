@@ -112,11 +112,11 @@ const CASES = [
     expect: /Press the button/,
     expectWhy: 'the sample asking for a press',
     // The first press since boot, on an active-low key, has to come out as a
-    // press. The ESP32 GPIO model drops an input word written before QEMU has
-    // created it, and the page used to write one only at attach, so the guest
-    // booted reading the key as held and reported only the release, which the
-    // button tour's `when: first` stop still accepted. Held well past the
-    // 30 ms debounce, in guest time on a slow runner too.
+    // press. The ESP32 GPIO model used to drop an input word written before
+    // QEMU had created it, and the page used to write one only at attach, so
+    // the guest booted reading the key as held and reported only the release,
+    // which the button tour's `when: first` stop still accepted. Held well past
+    // the 30 ms debounce, in guest time on a slow runner too.
     hooks: true,
     // The sample's tour would hold the guest in main() before it asks.
     query: '&tour=none',
