@@ -245,6 +245,28 @@ describe('TourCard minimised', () => {
   })
 })
 
+describe('TourCard views placed in the prose', () => {
+  const withThreads = (body: string) =>
+    parseTour(
+      `## Sends\n\n\`\`\`tour\nat: main\nthreads: aggregator\n\`\`\`\n\n${body}\n`,
+    )
+  const shown = (d: ReturnType<typeof parseTour>) => ({ ...card(0), step: d.steps[0]!, threads: true })
+
+  it('puts a view where its `{name}` line is', () => {
+    const d = withThreads('About the code.\n\n{threads}\n\nAfter the list.')
+    const html = render({ doc: d, current: shown(d), seen: new Set([0]) })
+    const list = html.indexOf('No thread info')
+    expect(list).toBeGreaterThan(html.indexOf('About the code.'))
+    expect(list).toBeLessThan(html.indexOf('After the list.'))
+  })
+
+  it('keeps the usual order, under all the prose, without one', () => {
+    const d = withThreads('About the code.\n\nAfter the list.')
+    const html = render({ doc: d, current: shown(d), seen: new Set([0]) })
+    expect(html.indexOf('No thread info')).toBeGreaterThan(html.indexOf('After the list.'))
+  })
+})
+
 describe('TourCard on a step read again', () => {
   const text = (html: string) => html.replace(/<[^>]+>/g, ' ')
 
