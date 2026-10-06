@@ -6,7 +6,6 @@ import {
   SYNC_STYLE,
   WAIT_COLOR,
   type QueueGraphEdgeActivity,
-  type QueueGraphEdgeState,
   type QueueGraphPacket,
 } from '@/components/queueGraph/QueueGraphCanvas'
 import {
@@ -109,25 +108,28 @@ function LegendItem({ color, label, dashed = false, thick = false, fill }: Legen
 const IN_ACTIONS: FlowAction[] = ['put', 'push', 'give', 'signal']
 const OUT_ACTIONS: FlowAction[] = ['get', 'pop', 'take', 'wait']
 
-/** One legend entry per colour and line style the graph draws now, and none for the rest. */
-function legendItems(
-  graph: SemanticGraph,
-  edgeState: ReadonlyMap<string, QueueGraphEdgeState> | undefined,
-): LegendEntry[] {
-  // A route drawn as held or waiting no longer shows its action's colour.
-  const present = new Set(
-    graph.edges.filter((edge) => !edgeState?.get(edge.id)).map((edge) => edge.action),
-  )
-  const states = new Set(graph.edges.map((edge) => edgeState?.get(edge.id)))
+/**
+ * One legend entry per colour and line style the graph's routes can be drawn
+ * in, and none for the rest. A route is held or waited on only between a lock
+ * or a wait and the release, so "holds" and "waits" follow the routes that can
+ * be, not the latest event: otherwise they come and go while the guest runs.
+ */
+export function legendItems(graph: SemanticGraph): LegendEntry[] {
+  const present = new Set(graph.edges.map((edge) => edge.action))
   const items: LegendEntry[] = []
   const ins = IN_ACTIONS.filter((action) => present.has(action))
   if (ins.length > 0) items.push({ color: flowActionColor('put'), label: ins.map(flowActionLabel).join(' / ') })
   if (present.has('put-front')) items.push({ color: flowActionColor('put-front'), label: 'put front' })
   const outs = OUT_ACTIONS.filter((action) => present.has(action))
   if (outs.length > 0) items.push({ color: flowActionColor('get'), label: outs.map(flowActionLabel).join(' / ') })
-  if (present.has('lock')) items.push({ color: flowActionColor('lock'), label: 'lock' })
-  if (states.has('holds')) items.push({ color: HOLD_COLOR, label: 'holds', thick: true })
-  if (states.has('waits')) items.push({ color: WAIT_COLOR, label: 'waits', dashed: true })
+  if (present.has('lock')) {
+    items.push({ color: flowActionColor('lock'), label: 'lock' })
+    items.push({ color: HOLD_COLOR, label: 'holds', thick: true })
+  }
+  // A thread waits along a mutex's lock, a semaphore's take or a condvar's wait.
+  if (present.has('lock') || present.has('take') || present.has('wait')) {
+    items.push({ color: WAIT_COLOR, label: 'waits', dashed: true })
+  }
   const kinds = new Set(graph.nodes.map((node) => node.kind))
   if (kinds.has('thread')) items.push({ color: '#60a5fa', fill: '#10203a', label: 'thread' })
   if (kinds.has('isr')) items.push({ color: '#c084fc', fill: '#241338', label: 'ISR' })
@@ -389,7 +391,7 @@ export function QueueGraph({
           {countLabel(live.graph.edges.length, live.flows.length, 'route')}
         </span>
         <span className="flex flex-wrap items-center gap-3">
-          {legendItems(live.graph, syncView?.edgeState).map((item) => (
+          {legendItems(live.graph).map((item) => (
             <LegendItem key={item.label} {...item} />
           ))}
         </span>
