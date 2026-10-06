@@ -58,6 +58,27 @@ describe('ThreadsPane', () => {
     expect(html).not.toContain('No thread here')
   })
 
+  it("dims the last stop's rows while this stop's walk runs, and claims no running thread", () => {
+    const running = { ...thread('aggregator', 3, 0x200), current: true }
+    const html = renderToStaticMarkup(
+      <ThreadsPane snap={{ ...snap, threads: [running], threadsLoading: true }} onPeek={() => {}} />,
+    )
+    expect(html).toContain('Reading the kernel…')
+    expect(html).toContain('aria-busy="true"')
+    expect(html).toContain('opacity-50')
+    expect(html).not.toContain('bg-primary/10')
+  })
+
+  it('shows the running thread once the walk has landed', () => {
+    const running = { ...thread('aggregator', 3, 0x200), current: true }
+    const html = renderToStaticMarkup(
+      <ThreadsPane snap={{ ...snap, threads: [running] }} onPeek={() => {}} />,
+    )
+    expect(html).toContain('Live from the kernel')
+    expect(html).not.toContain('aria-busy')
+    expect(html).toContain('bg-primary/10')
+  })
+
   it('says which names matched no thread', () => {
     const html = renderToStaticMarkup(
       <ThreadsPane snap={snap} only={['aggregator', 'storage']} onPeek={() => {}} />,

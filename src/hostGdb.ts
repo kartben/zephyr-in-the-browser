@@ -337,7 +337,14 @@ function stopPoll() {
 
 async function refreshRegs() {
   if (!client || !state.paused) return
-  publish({ registersLoading: true })
+  // The thread and object lists are the last stop's until their walks below
+  // land, seconds later on a busy guest. Say so now, not when each walk
+  // starts, or the old lists read as this stop's in the meantime.
+  publish({
+    registersLoading: true,
+    threadsLoading: threadInfo !== null,
+    objectsLoading: objectCoreMeta !== null,
+  })
   try {
     const hex = await client.readRegisters()
     const view = decodeGPacket(arch, hex)
