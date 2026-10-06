@@ -14,6 +14,7 @@ import {
   timeTickValues,
   threadRunningAt,
   stateAt,
+  describeState,
   windowStats,
   contextSwitchesIn,
 } from './reader'
@@ -360,7 +361,7 @@ event {
       ]),
     )
     expect(reader.desync).toBe(false)
-    expect(stateAt(reader.tr, a, 3000)).toEqual(['slp', 'sleep 25'])
+    expect(stateAt(reader.tr, a, 3000)).toEqual(['slp', 'sleep 25', null])
   })
 
   it('lights the power band from a guest table that puts the PM events anywhere', () => {
@@ -399,5 +400,178 @@ event {
     expect(reader.tr.cpuPower.segs.size).toBe(0)
     expect(reader.tr.cpuPower.decisions).toEqual([])
     expect(reader.tr.cpuPower.dropped.activeEnter).toBe(0)
+  })
+})
+
+describe('what a blocked thread waits on', () => {
+  // Thread and object addresses from the sensor pipeline on the Cortex-A53.
+  const AGG = 0x40021620
+  const STORAGE = 0x40020000
+  const C0 = 0x40021270
+  const SENSOR = 0x4001f000
+  const BUS = 0x40012268
+  const FRAME_MUTEX = 0x400122a0
+  const FRAME_COND = 0x40012330
+  const SENSOR_Q = 0x400122d8
+  const SEM = 0x40013000
+  const FOREVER = 0xffffd8f0
+  const NAMES = new Map([
+    [BUS, 'bus_mutex'],
+    [FRAME_MUTEX, 'frame_mutex'],
+    [FRAME_COND, 'frame_cond'],
+  ])
+  const nameOf = (_kind: string, address: number) => NAMES.get(address)
+
+  type Ev = [ts: number, name: string, fields?: Record<string, number>]
+
+  const table = () =>
+    parseMetadata(readFileSync(resolve(process.cwd(), 'public/tracing/metadata'), 'utf8'))
+
+  /** Lay `events` out as Zephyr's table says and read them. */
+  function replay(events: Ev[]) {
+    const defs = table()
+    const byName = new Map([...defs.values()].map((def) => [def.name, def]))
+    const bytes = events.flatMap(([ts, name, fields = {}]) => {
+      const def = byName.get(name)
+      if (!def) throw new Error(`${name} is not in the table`)
+      const body = def.fields.flatMap(({ name: field, kind }) => {
+        const value = fields[field] ?? 0
+        if (typeof kind === 'object') return Array.from({ length: kind.str }, () => 0)
+        if (kind === 'int8_t' || kind === 'uint8_t') return [value & 0xff]
+        if (kind === 'uint16_t') return encU16(value)
+        if (kind === 'uint64_t') return encU64(value)
+        return encU32(value)
+      })
+      return [...encU64(ts), ...encU16(def.eid), ...body]
+    })
+    const reader = new TraceReader(defs)
+    expect(reader.feed(Uint8Array.from(bytes))).toBe(events.length)
+    return reader.tr
+  }
+
+  const switchTo = (ts: number, from: number, to: number): Ev[] => [
+    [ts, 'thread_switched_out', { thread_id: from }],
+    [ts, 'thread_switched_in', { thread_id: to }],
+  ]
+
+  /** consumer0 gives up frame_mutex to wait on frame_cond, and the aggregator runs. */
+  const consumerWaits: Ev[] = [
+    [200, 'thread_switched_in', { thread_id: C0 }],
+    [210, 'mutex_lock_enter', { id: FRAME_MUTEX, timeout: FOREVER }],
+    [211, 'mutex_lock_exit', { id: FRAME_MUTEX, timeout: FOREVER, ret: 0 }],
+    [220, 'condvar_wait_enter', { id: FRAME_COND, timeout: FOREVER }],
+    [221, 'mutex_unlock_enter', { id: FRAME_MUTEX }],
+    [222, 'mutex_unlock_exit', { id: FRAME_MUTEX, ret: 0 }],
+    [223, 'thread_sched_pend', { thread_id: C0 }],
+    ...switchTo(224, C0, AGG),
+  ]
+
+  it('names the mutex the aggregator waits on, across the priority it lends', () => {
+    const tr = replay([
+      [100, 'thread_switched_in', { thread_id: STORAGE }],
+      [110, 'mutex_lock_enter', { id: BUS, timeout: FOREVER }],
+      [111, 'mutex_lock_exit', { id: BUS, timeout: FOREVER, ret: 0 }],
+      ...switchTo(120, STORAGE, AGG),
+      [130, 'mutex_lock_enter', { id: BUS, timeout: FOREVER }],
+      [131, 'mutex_lock_blocking', { id: BUS, timeout: FOREVER }],
+      [132, 'thread_sched_priority_set', { thread_id: STORAGE, prio: 3 }],
+      [133, 'thread_sched_pend', { thread_id: AGG }],
+      ...switchTo(134, AGG, STORAGE),
+    ])
+    const [state, reason, object] = stateAt(tr, AGG, 140)
+    expect([state, reason, object]).toEqual(['blk', 'mutex', BUS])
+    expect(describeState(state!, reason, object, nameOf)).toBe('blocked on mutex bus_mutex')
+  })
+
+  it('names the condvar a waiter pends on, then the mutex it takes back', () => {
+    const tr = replay([
+      ...consumerWaits,
+      // The aggregator publishes, and the consumer, woken first, finds the
+      // mutex still taken.
+      [300, 'mutex_lock_enter', { id: FRAME_MUTEX, timeout: FOREVER }],
+      [301, 'mutex_lock_exit', { id: FRAME_MUTEX, timeout: FOREVER, ret: 0 }],
+      [302, 'condvar_broadcast_enter', { id: FRAME_COND }],
+      [303, 'thread_sched_ready', { thread_id: C0 }],
+      [304, 'condvar_broadcast_exit', { id: FRAME_COND, ret: 1 }],
+      ...switchTo(305, AGG, C0),
+      [310, 'mutex_lock_enter', { id: FRAME_MUTEX, timeout: FOREVER }],
+      [311, 'mutex_lock_blocking', { id: FRAME_MUTEX, timeout: FOREVER }],
+      [312, 'thread_sched_pend', { thread_id: C0 }],
+      ...switchTo(313, C0, AGG),
+    ])
+    expect(stateAt(tr, C0, 250)).toEqual(['blk', 'condvar', FRAME_COND])
+    expect(describeState('blk', 'condvar', FRAME_COND, nameOf)).toBe('blocked on condvar frame_cond')
+    expect(stateAt(tr, C0, 320)).toEqual(['blk', 'mutex', FRAME_MUTEX])
+  })
+
+  it('leaves a thread that signals a condvar ready while the woken waiter runs', () => {
+    // k_condvar_signal() logs condvar_signal_blocking in the signaller, just
+    // before it reschedules.
+    const tr = replay([
+      ...consumerWaits,
+      [300, 'condvar_signal_enter', { id: FRAME_COND }],
+      [301, 'thread_sched_ready', { thread_id: C0 }],
+      [302, 'condvar_signal_blocking', { id: FRAME_COND, timeout: FOREVER }],
+      ...switchTo(303, AGG, C0),
+    ])
+    expect(stateAt(tr, AGG, 310)[0]).toBe('rdy')
+  })
+
+  it('does not carry a signal over to the next thing the signaller waits on', () => {
+    const tr = replay([
+      ...consumerWaits,
+      [300, 'condvar_signal_enter', { id: FRAME_COND }],
+      [301, 'thread_sched_ready', { thread_id: C0 }],
+      [302, 'condvar_signal_blocking', { id: FRAME_COND, timeout: FOREVER }],
+      [303, 'condvar_signal_exit', { id: FRAME_COND, ret: 0 }],
+      // A k_poll() wait logs no *_blocking of its own.
+      [310, 'poll_enter', { events_id: 0x40030000 }],
+      [311, 'thread_sched_pend', { thread_id: AGG }],
+      ...switchTo(312, AGG, C0),
+    ])
+    expect(stateAt(tr, AGG, 320)).toEqual(['blk', '', null])
+    expect(describeState('blk', '', null, nameOf)).toBe('blocked')
+  })
+
+  it('leaves a getter that makes room for a waiting writer ready', () => {
+    // k_msgq_get() logs msgq_get_blocking when it frees a slot for a writer
+    // waiting on a full queue, and goes on.
+    const tr = replay([
+      [100, 'thread_switched_in', { thread_id: SENSOR }],
+      [110, 'msgq_put_enter', { id: SENSOR_Q, timeout: FOREVER }],
+      [111, 'msgq_put_blocking', { id: SENSOR_Q, timeout: FOREVER }],
+      [112, 'thread_sched_pend', { thread_id: SENSOR }],
+      ...switchTo(113, SENSOR, AGG),
+      [120, 'msgq_get_enter', { id: SENSOR_Q, timeout: FOREVER }],
+      [121, 'msgq_get_blocking', { id: SENSOR_Q, timeout: FOREVER }],
+      [122, 'thread_sched_ready', { thread_id: SENSOR }],
+      [123, 'msgq_get_exit', { id: SENSOR_Q, timeout: FOREVER, ret: 0 }],
+      ...switchTo(124, AGG, SENSOR),
+    ])
+    expect(stateAt(tr, SENSOR, 115)).toEqual(['blk', 'msgq', SENSOR_Q])
+    expect(stateAt(tr, AGG, 130)[0]).toBe('rdy')
+  })
+
+  it('names the thread a join waits for, which it logs after pending', () => {
+    const tr = replay([
+      [100, 'thread_switched_in', { thread_id: AGG }],
+      [110, 'thread_join_enter', { thread_id: STORAGE, timeout: FOREVER }],
+      [111, 'thread_sched_pend', { thread_id: AGG }],
+      [112, 'thread_join_blocking', { thread_id: STORAGE, timeout: FOREVER }],
+      ...switchTo(113, AGG, STORAGE),
+    ])
+    expect(stateAt(tr, AGG, 120)).toEqual(['blk', 'join', STORAGE])
+  })
+
+  it('blocks a thread that logged *_blocking and switched out, on a guest that logs no pend', () => {
+    // Zephyr before 4.3, read with today's table: its sync ids have not moved.
+    const tr = replay([
+      [100, 'thread_switched_in', { thread_id: AGG }],
+      [110, 'semaphore_take_enter', { id: SEM, timeout: FOREVER }],
+      [111, 'semaphore_take_blocking', { id: SEM, timeout: FOREVER }],
+      ...switchTo(112, AGG, STORAGE),
+    ])
+    expect(stateAt(tr, AGG, 120)).toEqual(['blk', 'sem', SEM])
+    expect(describeState('blk', 'sem', SEM, nameOf)).toBe('blocked on sem 0x40013000')
   })
 })
