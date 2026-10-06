@@ -53,6 +53,7 @@ import {
   cpuPowerLanes,
   decisionsInView,
   depthAt,
+  describeState,
   forEachPmInView,
   fmtTime,
   isrActiveAt,
@@ -1578,8 +1579,11 @@ function TracePanelBody({
   const probeTs = playhead?.ts ?? view?.t1 ?? tr?.t1 ?? 0
   const runningTid = tr ? threadRunningAt(tr, probeTs) : null
   const probeInIsr = tr ? isrActiveAt(tr, probeTs) : false
-  const [st, reason] =
-    tr && lane !== null ? stateAt(tr, lane, probeTs) : ([null, ''] as [ThreadState | null, string])
+  const [st, reason, waitedOn] =
+    tr && lane !== null ? stateAt(tr, lane, probeTs) : ([null, '', null] as ReturnType<typeof stateAt>)
+  // Objects by the names the IPC tab gives them; a joined thread by its own.
+  const nameWaitedOn = (kind: string, address: number) =>
+    kind === 'join' ? tr?.threads.get(address)?.name : ipcMetadata.names.get(address)
   const stats = tr && view ? windowStats(tr, view.t0, view.t1) : null
   const switches = tr && view ? contextSwitchesIn(tr, view.t0, view.t1) : 0
   let cpuBusy = 0
@@ -2526,11 +2530,7 @@ function TracePanelBody({
                   <>
                     {' → '}
                     <span style={{ color: STATE_COLOR[st] }}>
-                      {st === 'blk' && reason
-                        ? `blocked on ${reason}`
-                        : st === 'slp' && reason
-                          ? reason
-                          : STATE_LABEL[st]}
+                      {describeState(st, reason, waitedOn, nameWaitedOn)}
                     </span>
                   </>
                 )}

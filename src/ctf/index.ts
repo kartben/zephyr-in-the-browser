@@ -25,6 +25,7 @@ export {
   renderStateRows,
   forEachStateInView,
   stateAt,
+  describeState,
   isrActiveAt,
   scheduledThreadAt,
   threadRunningAt,

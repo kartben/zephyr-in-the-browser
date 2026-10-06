@@ -8,6 +8,7 @@ import {
   ISR_EXIT,
   ISR_EXIT_TO_SCHEDULER,
   PM_STATE_SET_ENTER,
+  STATE_LABEL,
   THREAD_INFO,
   THREAD_PRIO_SET,
   THREAD_SCHED_PRIO_SET,
@@ -38,8 +39,13 @@ export interface ThreadInfo {
   stackSize: number | null
 }
 
-/** [start, end, state, reason] */
-export type StateSeg = [number, number, ThreadState, string]
+/**
+ * [start, end, state, reason, object]. The reason is a sleep's timeout, or the
+ * kind of kernel object a blocked thread waits on ('mutex', 'condvar', …), and
+ * the object is that one's address, when the trace gives it. CTF carries no
+ * names: {@link describeState} takes them from the caller.
+ */
+export type StateSeg = [number, number, ThreadState, string, number | null]
 
 export interface Trace {
   events: CtfEvent[]
@@ -78,21 +84,65 @@ const READY_EVENTS = new Set([
 const SUSPEND_EVENTS = new Set(['thread_suspend', 'thread_sched_suspend'])
 const ABORT_EVENTS = new Set(['thread_abort', 'thread_sched_abort'])
 const PEND_EVENTS = new Set(['thread_sched_pend', 'thread_pending'])
+/** Logged between a `mutex_lock_blocking` and its pend: the priority lent to the owner. */
+const PRIO_EVENTS = new Set(['thread_priority_set', 'thread_sched_priority_set'])
 
-function blockReason(nm: string, f: Record<string, string | number>): string {
-  if (nm.startsWith('semaphore')) return `sem 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('mutex')) return `mutex 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('msgq')) return `msgq 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('fifo')) return `fifo 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('lifo')) return `lifo 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('stack')) return `stack 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('queue')) return `queue 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('condvar')) return `condvar 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('event_wait')) return `event 0x${Number(f.event_id ?? 0).toString(16)}`
-  if (nm.startsWith('thread_join')) return `join 0x${Number(f.thread_id ?? 0).toString(16)}`
-  if (nm.startsWith('mem_slab')) return `memslab 0x${Number(f.id ?? 0).toString(16)}`
-  if (nm.startsWith('work')) return 'work'
-  return 'blocked'
+/**
+ * What each `*_blocking` event waits on, by name prefix: the kind of object and
+ * the field holding its address. `work_queue_` must come before `work_`.
+ */
+const WAIT_TARGETS: Array<[prefix: string, kind: string, field: string]> = [
+  ['semaphore_', 'sem', 'id'],
+  ['mutex_', 'mutex', 'id'],
+  ['condvar_', 'condvar', 'id'],
+  ['msgq_', 'msgq', 'id'],
+  ['queue_', 'queue', 'id'],
+  ['fifo_', 'fifo', 'id'],
+  ['lifo_', 'lifo', 'id'],
+  ['stack_', 'stack', 'id'],
+  ['mem_slab_', 'memslab', 'id'],
+  ['heap_', 'heap', 'id'],
+  ['pipe_', 'pipe', 'id'],
+  ['mbox_', 'mbox', 'mbox_id'],
+  ['event_', 'event', 'event_id'],
+  ['timer_', 'timer', 'id'],
+  ['thread_join_', 'join', 'thread_id'],
+  ['work_queue_', 'work queue', 'queue_id'],
+  ['work_', 'work', 'work_id'],
+]
+
+interface WaitTarget {
+  kind: string
+  object: number | null
+}
+
+/** The object a `*_blocking` event says its thread waits on. */
+function waitTarget(nm: string, f: Record<string, string | number>): WaitTarget {
+  for (const [prefix, kind, field] of WAIT_TARGETS) {
+    if (!nm.startsWith(prefix)) continue
+    const object = f[field]
+    return { kind, object: typeof object === 'number' ? object : null }
+  }
+  return { kind: '', object: null }
+}
+
+/**
+ * A state as the Timeline says it: "blocked on mutex bus_mutex", "sleep 25",
+ * "ready". `nameOf` names a waited-on object from its kind and address; one it
+ * cannot name shows its address.
+ */
+export function describeState(
+  state: ThreadState,
+  reason: string,
+  object: number | null,
+  nameOf: (kind: string, address: number) => string | undefined = () => undefined,
+): string {
+  if (state === 'blk' && reason) {
+    if (object === null) return `blocked on ${reason}`
+    return `blocked on ${reason} ${nameOf(reason, object) || `0x${object.toString(16)}`}`
+  }
+  if (state === 'slp' && reason) return reason
+  return STATE_LABEL[state]
 }
 
 /**
@@ -150,8 +200,12 @@ export class TraceReader {
   private curTid: number | null = null
   private segStart: number | null = null
   private isrDepth = 0
-  private stCur = new Map<number, [ThreadState, number, string]>()
-  private stHint = new Map<number, [ThreadState, string]>()
+  private stCur = new Map<number, [ThreadState, number, string, number | null]>()
+  private stHint = new Map<number, [ThreadState, string, number | null]>()
+  /** What the running thread just said it will wait on, for the pend that follows. */
+  private nextWait: (WaitTarget & { tid: number }) | null = null
+  /** The condvar each thread waits on, from its `condvar_wait_enter` to its `condvar_wait_exit`. */
+  private condvarWaits = new Map<number, number>()
   private running: number | null = null
   private provisional: number[] = []
   private pm = new CpuPowerTracker(this.tr.cpuPower)
@@ -162,6 +216,22 @@ export class TraceReader {
    * declining. Such a guest gets no power data rather than wrong data.
    */
   private readonly power: boolean
+  /**
+   * Whether the guest has logged a pend, as Zephyr does since 4.3. From then
+   * on a thread is blocked once it pends, and a `*_blocking` event only says on
+   * what. Not every one comes from a thread about to wait: k_condvar_signal()
+   * logs `condvar_signal_blocking` in the thread that signals,
+   * k_queue_insert() logs `queue_queue_insert_blocking` in the one that hands
+   * its item to a waiting getter, and k_msgq_get() logs `msgq_get_blocking`
+   * when it makes room for a waiting writer as well as when it waits itself.
+   * Each goes on running.
+   *
+   * An older guest logs no pend, and none of those events either. There a
+   * thread that logged `*_blocking` and then switched out blocked. Its table
+   * can be today's, whose scheduler and sync ids have not moved, so this is
+   * learned from the stream rather than from the table.
+   */
+  private pends = false
 
   /**
    * @param live - the byte source can start mid-record (desktop bridge, probe).
@@ -230,7 +300,7 @@ export class TraceReader {
     const st = this.stCur.get(tid)
     if (st && ts > st[1]) {
       const segs = this.tr.states.get(tid) ?? []
-      segs.push([st[1], ts, st[0], st[2]])
+      segs.push([st[1], ts, st[0], st[2], st[3]])
       this.tr.states.set(tid, segs)
       const starts = this.tr.stateStarts.get(tid) ?? []
       starts.push(st[1])
@@ -238,9 +308,9 @@ export class TraceReader {
     }
   }
 
-  private stSet(tid: number, ts: number, state: ThreadState, reason = '') {
+  private stSet(tid: number, ts: number, state: ThreadState, reason = '', object: number | null = null) {
     this.stClose(tid, ts)
-    this.stCur.set(tid, [state, ts, reason])
+    this.stCur.set(tid, [state, ts, reason, object])
   }
 
   private closeIsrSpan(ts: number) {
@@ -261,14 +331,14 @@ export class TraceReader {
   private addProvisional() {
     const last = this.tr.t1
     for (const [tid, st] of this.stCur) {
-      const [state, since, reason] = st
+      const [state, since, reason, object] = st
       // Include since == last so a switch on the final event is visible to
       // stateAt/threadRunningAt (open-ended last segment). `last > since`
       // left that run only in stCur and let the previous closed segment
       // falsely extend forever — under async CTF that pinned edges on main.
       if (last >= since && state !== 'dead') {
         const segs = this.tr.states.get(tid) ?? []
-        segs.push([since, last, state, reason])
+        segs.push([since, last, state, reason, object])
         this.tr.states.set(tid, segs)
         const starts = this.tr.stateStarts.get(tid) ?? []
         starts.push(since)
@@ -279,6 +349,12 @@ export class TraceReader {
   }
 
   private stateMachine(ts: number, nm: string, fields: Record<string, string | number>, tid: number | null) {
+    // A `*_blocking` event names the wait of the pend that comes right after
+    // it, with nothing in between but the priority a mutex lends its owner.
+    // Anything else means the thread went on running.
+    const wait = this.nextWait
+    if (!PRIO_EVENTS.has(nm)) this.nextWait = null
+
     if (nm === 'thread_switched_in') {
       // Async CTF / lost events can skip switched_out. Demote the previous
       // runner so we never leave two threads marked `run` (threadRunningAt
@@ -287,7 +363,7 @@ export class TraceReader {
         const prev = this.running
         if (this.stCur.get(prev)?.[0] === 'run') {
           const h = this.stHint.get(prev)
-          if (h) this.stSet(prev, ts, h[0], h[1])
+          if (h) this.stSet(prev, ts, h[0], h[1], h[2])
           else this.stSet(prev, ts, 'rdy')
           this.stHint.delete(prev)
         }
@@ -301,7 +377,7 @@ export class TraceReader {
       const t = tid ?? this.running
       if (t !== null && this.stCur.get(t)?.[0] === 'run') {
         const h = this.stHint.get(t)
-        if (h) this.stSet(t, ts, h[0], h[1])
+        if (h) this.stSet(t, ts, h[0], h[1], h[2])
         else this.stSet(t, ts, 'rdy')
         this.stHint.delete(t)
       }
@@ -309,16 +385,40 @@ export class TraceReader {
     } else if (SLEEP_ENTERS.has(nm)) {
       if (this.running !== null) {
         const to = fields.timeout ?? fields.ms ?? fields.us ?? ''
-        this.stHint.set(this.running, ['slp', `sleep ${to}`])
+        this.stHint.set(this.running, ['slp', `sleep ${to}`, null])
       }
+    } else if (nm === 'condvar_wait_enter') {
+      // A condvar wait logs no `*_blocking`, so its pend learns the condvar here.
+      if (this.running !== null && typeof fields.id === 'number') {
+        this.condvarWaits.set(this.running, fields.id)
+      }
+    } else if (nm === 'condvar_wait_exit') {
+      if (this.running !== null) this.condvarWaits.delete(this.running)
     } else if (nm.endsWith('_blocking')) {
       if (this.running !== null) {
-        this.stHint.set(this.running, ['blk', blockReason(nm, fields)])
+        const target = waitTarget(nm, fields)
+        const cur = this.stCur.get(this.running)
+        if (!this.pends) this.stHint.set(this.running, ['blk', target.kind, target.object])
+        else if (cur?.[0] === 'blk') {
+          // k_thread_join() pends first, and only then says on whom.
+          cur[2] = target.kind
+          cur[3] = target.object
+        } else this.nextWait = { tid: this.running, ...target }
       }
     } else if (PEND_EVENTS.has(nm)) {
+      this.pends = true
       if (tid !== null) {
         const h = this.stHint.get(tid)
-        this.stSet(tid, ts, 'blk', h?.[1] ?? 'blocked')
+        const cv = this.condvarWaits.get(tid)
+        const on: WaitTarget | null =
+          wait?.tid === tid
+            ? wait
+            : h?.[0] === 'blk'
+              ? { kind: h[1], object: h[2] }
+              : cv !== undefined
+                ? { kind: 'condvar', object: cv }
+                : null
+        this.stSet(tid, ts, 'blk', on?.kind ?? '', on?.object ?? null)
       }
     } else if (READY_EVENTS.has(nm)) {
       if (tid !== null) {
@@ -328,7 +428,10 @@ export class TraceReader {
     } else if (SUSPEND_EVENTS.has(nm)) {
       if (tid !== null) this.stSet(tid, ts, 'sus')
     } else if (ABORT_EVENTS.has(nm)) {
-      if (tid !== null) this.stSet(tid, ts, 'dead')
+      if (tid !== null) {
+        this.stSet(tid, ts, 'dead')
+        this.condvarWaits.delete(tid)
+      }
     } else if (nm === 'thread_create') {
       if (tid !== null && !this.stCur.has(tid)) this.stSet(tid, ts, 'rdy')
     }
@@ -711,16 +814,20 @@ function bisectRight(arr: number[], x: number): number {
   return lo
 }
 
-/** State of thread tid at time ts. */
-export function stateAt(tr: Trace, tid: number, ts: number): [ThreadState | null, string] {
+/** State of thread tid at time ts, with its reason and object as in {@link StateSeg}. */
+export function stateAt(
+  tr: Trace,
+  tid: number,
+  ts: number,
+): [ThreadState | null, string, number | null] {
   const starts = tr.stateStarts.get(tid)
   const segs = tr.states.get(tid)
-  if (!starts || !segs || !starts.length) return [null, '']
+  if (!starts || !segs || !starts.length) return [null, '', null]
   const i = bisectRight(starts, ts) - 1
-  if (i < 0) return [null, '']
-  const [s, e, state, reason] = segs[i]!
-  if (s <= ts && (ts < e || i === starts.length - 1)) return [state, reason]
-  return [null, '']
+  if (i < 0) return [null, '', null]
+  const [s, e, state, reason, object] = segs[i]!
+  if (s <= ts && (ts < e || i === starts.length - 1)) return [state, reason, object]
+  return [null, '', null]
 }
 
 /** Whether `ts` falls inside a closed or currently-open ISR span. */
