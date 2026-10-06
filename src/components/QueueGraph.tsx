@@ -163,6 +163,15 @@ export function QueueGraph({
     () => (sync ? liveSyncView(tr, sync) : null),
     [tr, sync, eventCount],
   )
+  // A tour names what to focus on; the node may only appear a little later.
+  useEffect(() => {
+    const name = filter.focusName
+    if (name === null) return
+    const node =
+      live.nodes.find((n) => !isActorNode(n) && n.label === name) ??
+      live.nodes.find((n) => n.label === name)
+    if (node) ipcUi.resolveIpcFocus(node.id)
+  }, [filter.focusName, live.nodes])
   const layoutRequest = useMemo(
     () => ({ key: live.topologyKey, graph: live.graph }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

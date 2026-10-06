@@ -35,6 +35,11 @@ vi.mock('@/lib/debugUi', () => ({
   focusDebug: (section: string) => calls.push(`focusDebug ${section}`),
 }))
 
+vi.mock('@/lib/ipcUi', () => ({
+  focusIpcObject: (name: string) => calls.push(`focusIpcObject ${name}`),
+  clearIpcFilter: () => calls.push('clearIpcFilter'),
+}))
+
 const { NO_TRACE_NOTE, focusLook, focusStep, lookNotes } = await import('@/tours/look')
 
 function step(panel: TourStep['panel'], look: LookSpec[]): Pick<TourStep, 'panel' | 'look'> {
@@ -50,9 +55,23 @@ beforeEach(() => {
 
 describe('focusLook', () => {
   it('opens Trace on the tab the step names', () => {
-    focusLook({ kind: 'trace', tab: 'queues' })
+    focusLook({ kind: 'trace', tab: 'net' })
     // The tab is set before the row expands, so it opens onto it.
-    expect(calls).toEqual(['setTab stage:trace queues', 'revealDockRow stage:trace'])
+    expect(calls).toEqual(['setTab stage:trace net', 'revealDockRow stage:trace'])
+  })
+
+  it('opens the whole IPC graph, whatever the reader had narrowed it to', () => {
+    focusLook({ kind: 'trace', tab: 'queues' })
+    expect(calls).toEqual(['setTab stage:trace queues', 'clearIpcFilter', 'revealDockRow stage:trace'])
+  })
+
+  it('focuses the IPC graph on the object the step names', () => {
+    focusLook({ kind: 'trace', tab: 'queues', focus: 'bus_mutex' })
+    expect(calls).toEqual([
+      'setTab stage:trace queues',
+      'focusIpcObject bus_mutex',
+      'revealDockRow stage:trace',
+    ])
   })
 
   it('hands a Debug section to the Debug row', () => {
