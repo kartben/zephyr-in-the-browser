@@ -40,6 +40,9 @@ const BUTTON_ZOOM_IN = 1.25
 const BUTTON_ZOOM_OUT = 1 / BUTTON_ZOOM_IN
 const MIN_FIT_SCALE_FACTOR = 0.35
 const MAX_SCALE = 4
+/** A press that moves less than this far is a click on what is under it, not a pan. */
+const CLICK_SLOP_PX = 4
+const FOCUS_RING = '#7dd3fc'
 
 type DisplayLayoutNode = LayoutNode & {
   batchMaxDepth?: number
@@ -393,17 +396,35 @@ function NodeView({
   node,
   actionByEdge,
   active,
+  focused,
+  clickable,
 }: {
   node: DisplayLayoutNode
   actionByEdge: Map<string, FlowAction>
   active: boolean
+  focused: boolean
+  clickable: boolean
 }) {
   return (
     <g
+      data-node-id={node.id}
       transform={`translate(${node.x},${node.y})`}
       opacity={active ? 1 : 0.5}
-      style={{ transition: 'opacity 120ms ease' }}
+      style={{ transition: 'opacity 120ms ease', cursor: clickable ? 'pointer' : undefined }}
     >
+      {focused && (
+        <rect
+          x={-6}
+          y={-6}
+          width={node.width + 12}
+          height={node.height + 12}
+          rx={17}
+          fill="none"
+          stroke={FOCUS_RING}
+          strokeWidth={1.5}
+          strokeDasharray="5 4"
+        />
+      )}
       <ActorShape node={node} />
       <MsgqShape node={node} />
       <FifoShape node={node} />
@@ -503,12 +524,21 @@ export function QueueGraphCanvas({
   edgeActivity,
   packets = [],
   ariaLabel = 'Zephyr IPC data-flow topology',
+  focusedNodeId = null,
+  onNodeClick,
+  onClearFocus,
 }: {
   layout: QueueGraphLayout
   nodeState?: ReadonlyMap<string, QueueGraphNodeState>
   edgeActivity?: ReadonlyMap<string, QueueGraphEdgeActivity>
   packets?: QueueGraphPacket[]
   ariaLabel?: string
+  /** Node to ring as the one the graph is focused on. */
+  focusedNodeId?: string | null
+  /** A node was clicked (pressed and released without panning). */
+  onNodeClick?: (nodeId: string) => void
+  /** Escape was pressed in the graph while it is focused on a node. */
+  onClearFocus?: () => void
 }) {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
   const [viewport, setViewport] = useState<GraphViewportSize>({ width: 0, height: 0 })
@@ -518,7 +548,15 @@ export function QueueGraphCanvas({
   const svgRef = useRef<SVGSVGElement>(null)
   const previousViewportRef = useRef<GraphViewportSize | null>(null)
   const previousLayoutRef = useRef(layout)
-  const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    startX: number
+    startY: number
+    /** The node pressed on, if any: a release close by clicks it. */
+    nodeId: string | null
+  } | null>(null)
   const edgeById = useMemo(() => new Map(layout.edges.map((edge) => [edge.id, edge])), [layout])
   const actionByEdge = useMemo(
     () => new Map(layout.edges.map((edge) => [edge.id, edge.action])),
@@ -625,13 +663,21 @@ export function QueueGraphCanvas({
   return (
     <div
       ref={hostRef}
-      className="group relative h-[clamp(16rem,42vh,28rem)] min-h-64 overflow-hidden bg-[#080d18]"
+      // Focusable, though not in the tab order, so Escape reaches the graph
+      // once the reader has clicked into it.
+      tabIndex={-1}
+      className="group relative h-[clamp(16rem,42vh,28rem)] min-h-64 overflow-hidden bg-[#080d18] outline-none"
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || focusedNodeId === null || !onClearFocus) return
+        event.stopPropagation()
+        onClearFocus()
+      }}
     >
       <svg
         ref={svgRef}
         viewBox={`0 0 ${Math.max(1, viewport.width)} ${Math.max(1, viewport.height)}`}
         role="img"
-        aria-label={`${ariaLabel}. Drag to pan and use the mouse wheel to zoom.`}
+        aria-label={`${ariaLabel}. Drag to pan and use the mouse wheel to zoom.${onNodeClick ? ' Click a thread or an object to focus on it.' : ''}`}
         className={cn(
           'block size-full touch-none select-none',
           dragging ? 'cursor-grabbing' : 'cursor-grab',
@@ -639,6 +685,9 @@ export function QueueGraphCanvas({
         onPointerDown={(event) => {
           if (!event.isPrimary || event.button !== 0) return
           window.getSelection()?.removeAllRanges()
+          hostRef.current?.focus({ preventScroll: true })
+          // Read before capturing: from here on every event targets the svg.
+          const pressed = (event.target as Element).closest?.('[data-node-id]')
           try {
             event.currentTarget.setPointerCapture(event.pointerId)
           } catch {
@@ -648,6 +697,9 @@ export function QueueGraphCanvas({
             pointerId: event.pointerId,
             x: event.clientX,
             y: event.clientY,
+            startX: event.clientX,
+            startY: event.clientY,
+            nodeId: pressed?.getAttribute('data-node-id') ?? null,
           }
           setDragging(true)
         }}
@@ -663,9 +715,17 @@ export function QueueGraphCanvas({
           )
         }}
         onPointerUp={(event) => {
-          if (dragRef.current?.pointerId !== event.pointerId) return
+          const drag = dragRef.current
+          if (drag?.pointerId !== event.pointerId) return
           dragRef.current = null
           setDragging(false)
+          if (
+            drag.nodeId &&
+            onNodeClick &&
+            Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < CLICK_SLOP_PX
+          ) {
+            onNodeClick(drag.nodeId)
+          }
           try {
             event.currentTarget.releasePointerCapture(event.pointerId)
           } catch {
@@ -759,6 +819,8 @@ export function QueueGraphCanvas({
                 node={node}
                 actionByEdge={actionByEdge}
                 active={highlightedNodes == null || highlightedNodes.has(node.id)}
+                focused={node.id === focusedNodeId}
+                clickable={onNodeClick != null}
               />
             ))}
           </g>
@@ -797,7 +859,7 @@ export function QueueGraphCanvas({
         </span>
       </div>
       <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-slate-950/70 px-1.5 py-0.5 text-[9px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
-        Wheel to zoom · drag to pan
+        Wheel to zoom · drag to pan{onNodeClick ? ' · click to focus' : ''}
       </span>
     </div>
   )

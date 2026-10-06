@@ -9,13 +9,21 @@ import {
   type QueueFlowOp,
 } from '@/ctf/queueGraph'
 import { queueLabel, type QueueSeries, type Trace } from '@/ctf'
+import { NO_IPC_FILTER, type IpcFilter } from '@/lib/ipcUi'
+import { filterIpcGraph } from './filter'
 import { buildSemanticGraph, type FlowAction, type FlowNodeSpec, type FlowSpec } from './model'
 import type { QueueGraphNodeState } from './QueueGraphCanvas'
 
 export interface LiveQueueGraph {
+  /** What is drawn: the graph after the filter. */
   graph: ReturnType<typeof buildSemanticGraph>
   flow: QueueFlowEvent[]
   topologyKey: string
+  /** Every node and route before the filter, for its chips and counts. */
+  nodes: FlowNodeSpec[]
+  flows: FlowSpec[]
+  /** The filter's focus names a node in the graph. */
+  focused: boolean
 }
 
 export interface QueueDepthEnvelope {
@@ -126,6 +134,7 @@ export function buildLiveQueueGraph(
   tr: Trace,
   queues: QueueSeries[],
   flowEvents?: QueueFlowEvent[],
+  filter: IpcFilter = NO_IPC_FILTER,
 ): LiveQueueGraph {
   const queueById = new Map(queues.map((queue) => [queue.id, queue]))
   const flow = flowEvents ?? queueFlowEvents(tr)
@@ -190,12 +199,13 @@ export function buildLiveQueueGraph(
     })
   }
 
-  const graph = buildSemanticGraph(nodes, flows)
+  const filtered = filterIpcGraph(nodes, flows, filter)
+  const graph = buildSemanticGraph(filtered.nodes, filtered.flows)
   const topologyKey = [
     ...graph.nodes.map((node) => `${node.id}:${node.kind}`),
     ...graph.edges.map(
       (edge) => `${edge.id}:${edge.sourceNodeId}:${edge.targetNodeId}:${edge.action}`,
     ),
   ].join('|')
-  return { graph, flow, topologyKey }
+  return { graph, flow, topologyKey, nodes, flows, focused: filtered.focused }
 }

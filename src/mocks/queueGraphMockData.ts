@@ -73,8 +73,23 @@ const flows: FlowSpec[] = [
   },
 ]
 
-export const queueGraphMock = buildSemanticGraph(nodesForCapacities(false), flows)
-export const queueGraphLargeCapacityMock = buildSemanticGraph(nodesForCapacities(true), flows)
+/** A scenario before it is built into a graph, so the mock page can filter it first. */
+export interface QueueGraphMockSpecs {
+  nodes: FlowNodeSpec[]
+  flows: FlowSpec[]
+}
+
+export const queueGraphMockSpecs: QueueGraphMockSpecs = { nodes: nodesForCapacities(false), flows }
+export const queueGraphLargeCapacityMockSpecs: QueueGraphMockSpecs = {
+  nodes: nodesForCapacities(true),
+  flows,
+}
+
+export const queueGraphMock = buildSemanticGraph(queueGraphMockSpecs.nodes, flows)
+export const queueGraphLargeCapacityMock = buildSemanticGraph(
+  queueGraphLargeCapacityMockSpecs.nodes,
+  flows,
+)
 
 const routingStressNodes: FlowNodeSpec[] = [
   { id: 'thread:main', kind: 'thread', label: 'main', detail: 'priority 0' },
@@ -125,6 +140,11 @@ const routingStressFlows: FlowSpec[] = [
   { id: 'stress:logger-telemetry', actorId: 'thread:logger', objectId: 'object:telemetry-fifo', action: 'put' },
   { id: 'stress:telemetry-read', actorId: 'thread:telemetry', objectId: 'object:telemetry-fifo', action: 'get' },
 ]
+
+export const queueGraphRoutingStressMockSpecs: QueueGraphMockSpecs = {
+  nodes: routingStressNodes,
+  flows: routingStressFlows,
+}
 
 export const queueGraphRoutingStressMock = buildSemanticGraph(
   routingStressNodes,

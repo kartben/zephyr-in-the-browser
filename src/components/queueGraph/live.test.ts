@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyCpuPower } from '@/ctf'
 import type { QueueSeries, Trace } from '@/ctf'
+import { NO_IPC_FILTER } from '@/lib/ipcUi'
 import {
   buildLiveQueueGraph,
   LIVE_ISR_NODE_ID,
@@ -123,6 +124,22 @@ describe('live queue graph adapter', () => {
       targetNodeId: liveObjectNodeId(0x1000),
       action: 'put',
     })
+  })
+
+  it('lays out only what the filter keeps, and still counts everything', () => {
+    const all = buildLiveQueueGraph(trace(), queues())
+    const focused = buildLiveQueueGraph(trace(), queues(), undefined, {
+      ...NO_IPC_FILTER,
+      focus: liveObjectNodeId(0x2000),
+    })
+
+    expect(focused.focused).toBe(true)
+    expect(focused.graph.nodes.map((node) => node.label)).toEqual(['consumer', 'worker', '0x2000'])
+    expect(focused.graph.edges.map((edge) => edge.action)).toEqual(['push', 'pop'])
+    expect(focused.nodes).toEqual(all.nodes)
+    expect(focused.flows).toEqual(all.flows)
+    // A different picture is a different layout.
+    expect(focused.topologyKey).not.toBe(all.topologyKey)
   })
 
   it('uses the supplied publication flow instead of rescanning mutable trace history', () => {

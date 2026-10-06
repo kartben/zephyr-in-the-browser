@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { IpcFilterBar } from '@/components/queueGraph/IpcFilterBar'
 import {
   QueueGraphCanvas,
   type QueueGraphEdgeActivity,
   type QueueGraphPacket,
 } from '@/components/queueGraph/QueueGraphCanvas'
+import { isActorNode } from '@/components/queueGraph/model'
 import { layoutSemanticGraph, type QueueGraphLayout } from '@/components/queueGraph/layout'
 import {
   buildLiveQueueGraph,
@@ -16,6 +18,7 @@ import {
 import { flowActionColor } from '@/components/queueGraph/model'
 import { advanceFlowCursor, type QueueFlowEvent } from '@/ctf/queueGraph'
 import type { QueueSeries, Trace } from '@/ctf'
+import * as ipcUi from '@/lib/ipcUi'
 
 /** Complete inside the queue tab's 200 ms detail publication cadence. */
 const PACKET_MS = 150
@@ -27,6 +30,8 @@ const OCCUPANCY_ENVELOPE_MS = 420
 const OCCUPANCY_CLEANUP_MS = OCCUPANCY_ENVELOPE_MS + 40
 const MAX_PACKETS_PER_BURST = 3
 const MAX_LIVE_PACKETS = 48
+/** Layouts kept by topology, so clearing a filter puts the graph back at once. */
+const LAYOUT_CACHE_SIZE = 8
 
 type EdgeActivityState = {
   count: number
@@ -46,6 +51,15 @@ function groupNewEvents(events: QueueFlowEvent[]): Map<string, QueueFlowEvent[]>
     grouped.set(id, group)
   }
   return grouped
+}
+
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
+}
+
+/** "5 objects", or "2 of 5 objects" while a filter hides some. */
+function countLabel(shown: number, total: number, word: string): string {
+  return shown === total ? plural(total, word) : `${shown} of ${plural(total, word)}`
 }
 
 function LegendItem({ color, label }: { color: string; label: string }) {
@@ -68,11 +82,17 @@ export function QueueGraph({
   flowEvents: QueueFlowEvent[]
   eventCount: number
 }) {
+  const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const live = useMemo(
-    () => buildLiveQueueGraph(tr, queues, flowEvents),
-    [tr, queues, flowEvents, eventCount],
+    () => buildLiveQueueGraph(tr, queues, flowEvents, filter),
+    [tr, queues, flowEvents, eventCount, filter],
   )
-  const graphForLayout = useMemo(() => live.graph, [live.topologyKey])
+  const layoutRequest = useMemo(
+    () => ({ key: live.topologyKey, graph: live.graph }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [live.topologyKey],
+  )
+  const layoutCacheRef = useRef(new Map<string, QueueGraphLayout>())
   const [depthEnvelopes, setDepthEnvelopes] = useState(
     () => new Map<number, DisplayedDepthEnvelope>(),
   )
@@ -103,10 +123,18 @@ export function QueueGraph({
   const occupancySequenceRef = useRef(0)
 
   useEffect(() => {
-    let current = true
     setLayoutError(null)
-    layoutSemanticGraph(graphForLayout)
+    const cache = layoutCacheRef.current
+    const cached = cache.get(layoutRequest.key)
+    if (cached) {
+      setLayout(cached)
+      return
+    }
+    let current = true
+    layoutSemanticGraph(layoutRequest.graph)
       .then((next) => {
+        cache.set(layoutRequest.key, next)
+        if (cache.size > LAYOUT_CACHE_SIZE) cache.delete(cache.keys().next().value!)
         if (current) setLayout(next)
       })
       .catch((reason: unknown) => {
@@ -116,7 +144,7 @@ export function QueueGraph({
     return () => {
       current = false
     }
-  }, [graphForLayout])
+  }, [layoutRequest])
 
   useEffect(() => {
     const depths = new Map(
@@ -258,6 +286,10 @@ export function QueueGraph({
     return activity
   }, [clock])
 
+  const objectCount = live.nodes.filter((node) => !isActorNode(node)).length
+  const shownObjectCount = live.graph.nodes.filter((node) => !isActorNode(node)).length
+  const empty = live.graph.nodes.length === 0
+
   return (
     <section
       data-testid="live-queue-graph"
@@ -265,8 +297,8 @@ export function QueueGraph({
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 bg-slate-900/50 px-3 py-2 text-[10px] text-slate-400">
         <span className="font-medium uppercase tracking-[0.12em] text-slate-300">
-          Live IPC topology · {queues.length} object{queues.length === 1 ? '' : 's'} ·{' '}
-          {live.graph.edges.length} route{live.graph.edges.length === 1 ? '' : 's'}
+          Live IPC topology · {countLabel(shownObjectCount, objectCount, 'object')} ·{' '}
+          {countLabel(live.graph.edges.length, live.flows.length, 'route')}
         </span>
         <span className="flex flex-wrap items-center gap-3">
           <LegendItem color={flowActionColor('put')} label="put / push" />
@@ -276,8 +308,22 @@ export function QueueGraph({
           <LegendItem color="#c084fc" label="ISR" />
         </span>
       </div>
+      <IpcFilterBar nodes={live.nodes} filter={filter} focused={live.focused} />
       <div>
-        {layoutError ? (
+        {empty ? (
+          <div className="grid h-32 place-items-center gap-2 px-6 text-center text-sm text-slate-500">
+            <span>
+              Nothing in the graph matches this filter.{' '}
+              <button
+                type="button"
+                className="text-slate-300 underline underline-offset-2 hover:text-slate-100"
+                onClick={ipcUi.clearIpcFilter}
+              >
+                Clear it
+              </button>
+            </span>
+          </div>
+        ) : layoutError ? (
           <div className="grid h-32 place-items-center px-6 text-sm text-rose-300">
             Could not lay out IPC topology: {layoutError}
           </div>
@@ -287,6 +333,9 @@ export function QueueGraph({
             nodeState={nodeState}
             edgeActivity={edgeActivity}
             packets={packets}
+            focusedNodeId={live.focused ? filter.focus : null}
+            onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}
+            onClearFocus={() => ipcUi.setIpcFocus(null)}
           />
         ) : (
           <div className="grid h-32 place-items-center text-sm text-slate-500">
