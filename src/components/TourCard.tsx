@@ -216,6 +216,7 @@ export function TourCard({ board, sampleId }: Props) {
         <ThreadsPane
           snap={snap}
           only={step.threadNames}
+          compact
           onPeek={() => debugUi.focusDebug('memory')}
         />
       </div>

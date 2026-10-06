@@ -105,7 +105,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Tour cards move, resize and show only relevant threads."
+        "text": "Tour cards move, resize, and list only relevant threads, one per line."
       },
       {
         "tag": "Improved",
