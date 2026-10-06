@@ -35,6 +35,7 @@ import {
   screenYToBase,
   type YZoom,
 } from '@/components/traceChart'
+import { useTraceInk, type TraceInk } from '@/components/traceInk'
 import {
   AXIS_H,
   DOT_R,
@@ -70,9 +71,6 @@ const COL_PUB = 'rgba(52, 211, 153, 0.8)'
 const COL_READ = 'rgba(148, 163, 184, 0.75)'
 const COL_CLAIM = 'rgba(251, 191, 36, 0.35)'
 const COL_ERR = 'rgba(248, 113, 113, 0.95)'
-const COL_LINK = 'rgba(148, 163, 184, 0.55)'
-const COL_TEXT = 'rgba(226, 232, 240, 0.95)'
-const COL_MUTED = 'rgba(148, 163, 184, 0.85)'
 
 /** Short enough to sit beside an observer's name in the gutter. */
 const KIND_TAG: Record<ZbusObserverKind | 'unknown', string> = {
@@ -93,6 +91,7 @@ const KIND_COLOR: Record<ZbusObserverKind | 'unknown', string> = {
 
 function paint(
   canvas: HTMLCanvasElement,
+  ink: TraceInk,
   tr: Trace,
   rows: Row[],
   items: Placed[][],
@@ -121,13 +120,14 @@ function paint(
   const X = (t: number) => LABEL_W + ((t - view0) / span) * plotW
   const clampX = (x: number) => Math.max(LABEL_W, Math.min(LABEL_W + plotW, x))
   const end = (t: number | null) => t ?? Math.max(view1, tr.t1)
+  const muted = ink.label(0.85)
 
   // Axis, as the other Trace tabs draw it.
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'alphabetic'
   const step = niceTimeStep(span, Math.max(3, Math.floor(plotW / 72)))
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
+  ctx.strokeStyle = ink.label(0.45)
+  ctx.fillStyle = ink.label(0.9)
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(LABEL_W, 18)
@@ -145,15 +145,15 @@ function paint(
     ctx.fillText(label, Math.max(LABEL_W, Math.min(LABEL_W + plotW - tw, x - tw / 2)), 12)
   }
   if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
+    ctx.fillStyle = ink.live(0.95)
     ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
   }
 
   if (!hasEvents) {
-    ctx.fillStyle = COL_MUTED
+    ctx.fillStyle = muted
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
     ctx.fillText('No zbus events in this trace. The channels and observers come from the image.', 8, AXIS_H + 16)
-    ctx.fillStyle = 'rgba(100, 116, 139, 0.95)'
+    ctx.fillStyle = ink.dim(0.95)
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif'
     ctx.fillText(
       'Publishes and notifications need the zbus trace hooks (CONFIG_TRACING_ZBUS), which upstream Zephyr does not have yet.',
@@ -203,7 +203,7 @@ function paint(
   /** A dashed hand-off line along a row, from the dispatcher to the reaction. */
   const link = (ta: number, tb: number, y: number) => {
     if (tb < view0 || ta > view1 || tb <= ta) return
-    ctx.strokeStyle = COL_LINK
+    ctx.strokeStyle = ink.label(0.55)
     ctx.setLineDash([3, 3])
     ctx.beginPath()
     ctx.moveTo(clampX(X(ta)), y)
@@ -215,16 +215,16 @@ function paint(
   let y = AXIS_H + note
   rows.forEach((r, i) => {
     const h = rowHeight(r)
-    ctx.fillStyle = r.group % 2 === 0 ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.18)'
+    ctx.fillStyle = ink.shade(r.group % 2 === 0 ? 0.35 : 0.18)
     ctx.fillRect(0, y, cssW, h)
     const mid = y + h / 2
     ctx.textBaseline = 'middle'
 
     if (r.kind === 'chan') {
-      ctx.fillStyle = COL_TEXT
+      ctx.fillStyle = ink.text(0.95)
       ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.fillText(r.label.length > 22 ? `${r.label.slice(0, 21)}…` : r.label, 4, mid - 6)
-      ctx.fillStyle = COL_MUTED
+      ctx.fillStyle = muted
       ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.fillText(r.detail, 4, mid + 7)
 
@@ -254,12 +254,12 @@ function paint(
     } else {
       const color = KIND_COLOR[r.obsKind ?? 'unknown']
       ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-      ctx.fillStyle = COL_MUTED
+      ctx.fillStyle = muted
       ctx.fillText(r.last ? '└' : '├', 6, mid)
       const name = r.label.length > 14 ? `${r.label.slice(0, 13)}…` : r.label
       ctx.fillStyle = color
       ctx.fillText(name, 18, mid)
-      ctx.fillStyle = COL_MUTED
+      ctx.fillStyle = muted
       ctx.font = '8px ui-sans-serif, system-ui, sans-serif'
       const tag = KIND_TAG[r.obsKind ?? 'unknown']
       ctx.fillText(tag, LABEL_W - ctx.measureText(tag).width - 6, mid)
@@ -293,7 +293,7 @@ function paint(
       }
     }
 
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)'
+    ctx.strokeStyle = ink.label(0.16)
     ctx.beginPath()
     ctx.moveTo(LABEL_W, y + h - 0.5)
     ctx.lineTo(LABEL_W + plotW, y + h - 0.5)
@@ -348,23 +348,24 @@ export function ZbusView({
   const stats = useMemo(() => zbusWindowStats(activity, view0, view1), [activity, view0, view1])
   const latest = useRef({ rows, items, hasEvents, yZoom })
   latest.current = { rows, items, hasEvents, yZoom }
+  const ink = useTraceInk()
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, tr, rows, items, hasEvents, view0, view1, follow, yZoom)
-  }, [tr, rows, items, hasEvents, view0, view1, follow, canvasRef, yZoom])
+    paint(canvas, ink, tr, rows, items, hasEvents, view0, view1, follow, yZoom)
+  }, [ink, tr, rows, items, hasEvents, view0, view1, follow, canvasRef, yZoom])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
       const l = latest.current
-      paint(canvas, tr, l.rows, l.items, l.hasEvents, view0, view1, follow, l.yZoom)
+      paint(canvas, ink, tr, l.rows, l.items, l.hasEvents, view0, view1, follow, l.yZoom)
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [tr, view0, view1, follow, canvasRef])
+  }, [ink, tr, view0, view1, follow, canvasRef])
 
   /*
    * The pointer over the canvas, with the canvas's size then; null while it is
@@ -468,7 +469,7 @@ export function ZbusView({
         <canvas
           ref={canvasRef}
           className={cn(
-            'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40',
+            'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40 light:bg-muted/40',
             boxZoomArmed ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing',
           )}
           {...handlers}

@@ -8,6 +8,7 @@
  */
 
 import { fmtAxisTime, timeTickValues } from '@/ctf'
+import type { TraceInk } from '@/components/traceInk'
 
 export type TraceTimeLayout = {
   labelW: number
@@ -57,16 +58,13 @@ export function windowTimeStep(view0: number, view1: number, plotW: number): num
   return timeTickValues(view0, view1, timeTickCount(plotW)).step
 }
 
-const AXIS_STROKE = 'rgba(148, 163, 184, 0.45)'
-const AXIS_FILL = 'rgba(148, 163, 184, 0.9)'
-const AXIS_EDGE = 'rgba(226, 232, 240, 0.95)'
-
 /**
  * Canvas time ruler matching the Queues d3 axis language (fmtAxisTime + denser ticks).
  * Labels are absolute guest CTF ns.
  */
 export function paintCanvasTimeAxis(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   opts: {
     cssW: number
     labelW: number
@@ -92,23 +90,24 @@ export function paintCanvasTimeAxis(
   const plotW = plotWidth(cssW, labelW, pad)
   const { values, step } = timeTickValues(view0, view1, timeTickCount(plotW))
 
-  ctx.fillStyle = AXIS_FILL
+  const axisFill = ink.label(0.9)
+  ctx.fillStyle = axisFill
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'alphabetic'
   /** Right edge the label row must not cross — the LIVE badge sits there. */
   let labelLimit = cssW
   if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
+    ctx.fillStyle = ink.live(0.95)
     const liveX = Math.max(labelW, cssW - 32)
     ctx.fillText('LIVE', liveX, 12)
     labelLimit = liveX - 4
   } else {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.7)'
+    ctx.fillStyle = ink.label(0.7)
     ctx.fillText('t →', 4, 12)
   }
 
-  ctx.strokeStyle = AXIS_STROKE
-  ctx.fillStyle = AXIS_FILL
+  ctx.strokeStyle = ink.label(0.45)
+  ctx.fillStyle = axisFill
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(labelW, baselineY)
@@ -134,7 +133,7 @@ export function paintCanvasTimeAxis(
     lastLabelRight = lx + tw
   }
 
-  ctx.fillStyle = AXIS_EDGE
+  ctx.fillStyle = ink.text(0.95)
   const leftLbl = fmtAxisTime(view0, step)
   const rightLbl = fmtAxisTime(view1, step)
   ctx.fillText(leftLbl, labelW, 26)
@@ -146,9 +145,10 @@ export function paintCanvasTimeAxis(
 /** Dashed vertical playhead across the plot. */
 export function paintPlayhead(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   opts: { x: number; y0: number; y1: number },
 ): void {
-  ctx.strokeStyle = 'rgba(226, 232, 240, 0.55)'
+  ctx.strokeStyle = ink.text(0.55)
   ctx.lineWidth = 1
   ctx.setLineDash([3, 3])
   ctx.beginPath()

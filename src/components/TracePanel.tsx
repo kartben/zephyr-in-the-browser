@@ -112,6 +112,7 @@ import {
   type TraceTimeLayout,
   type YZoom,
 } from '@/components/traceChart'
+import { useTraceInk, type TraceInk } from '@/components/traceInk'
 import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/devicetree'
 import { readPowerStates } from '@/dts'
 import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
@@ -409,6 +410,7 @@ type CpuPaint = {
  */
 function paintCpuPower(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   cpu: CpuPaint,
   geom: TimelineGeom,
   layout: TraceTimeLayout,
@@ -427,7 +429,7 @@ function paintCpuPower(
 ) {
   const { cpuLaneH, cpuTop, cpus } = geom
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
+  ctx.fillStyle = ink.shade(0.45)
   ctx.fillRect(LABEL_W, cpuTop, plotW, cpus.length * cpuLaneH)
 
   cpus.forEach((id, row) => {
@@ -463,7 +465,7 @@ function paintCpuPower(
 
     // Gutter: name left, state at the playhead right — the same two-part idiom
     // the queue gutter uses for live depth.
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+    ctx.fillStyle = ink.label(0.95)
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
@@ -486,7 +488,7 @@ function paintCpuPower(
       const rank = (cpu.dt && dtRankOf(cpu.dt, id, now.state, now.substateId)) ?? now.state
       ctx.fillStyle = pmFill(rank, rankCount, now.state).fill
     } else {
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.55)'
+      ctx.fillStyle = ink.label(0.55)
     }
     ctx.fillText(nowLabel, LABEL_W - PAD, y + cpuLaneH / 2)
     ctx.textAlign = 'left'
@@ -496,19 +498,20 @@ function paintCpuPower(
 /** Small uppercase group title above a lane block. */
 function paintSectionHeader(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   title: string,
   y: number,
   cssW: number,
 ) {
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.65)'
+  ctx.fillStyle = ink.shade(0.65)
   ctx.fillRect(0, y, cssW - PAD, SECTION_HEADER_H)
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)'
+  ctx.strokeStyle = ink.label(0.2)
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(4, y + SECTION_HEADER_H - 0.5)
   ctx.lineTo(cssW - PAD, y + SECTION_HEADER_H - 0.5)
   ctx.stroke()
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.72)'
+  ctx.fillStyle = ink.label(0.72)
   ctx.font = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'middle'
   ctx.fillText(title, 4, y + SECTION_HEADER_H / 2)
@@ -520,9 +523,15 @@ function depthLabel(series: QueueSeries, ts: number): string {
   return series.capSource === 'inferred' ? `${d}/~${series.cap}` : `${d}/${series.cap}`
 }
 
+/** How strongly a mark's or chevron's halo shows, by how focused it is. */
+function haloAlpha(kind: 'idle' | 'hot' | 'selected'): number {
+  return kind === 'selected' ? 0.65 : kind === 'hot' ? 0.5 : 0.28
+}
+
 /** Vertical chevron — tip sits at `(x, y)` on the destination transition. */
 function paintVArrow(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   x: number,
   y: number,
   dir: 'up' | 'down',
@@ -546,12 +555,7 @@ function paintVArrow(
   }
   // Quiet hairline halo by default; stronger only when focused.
   path()
-  ctx.fillStyle =
-    kind === 'selected'
-      ? 'rgba(248, 250, 252, 0.65)'
-      : kind === 'hot'
-        ? 'rgba(248, 250, 252, 0.5)'
-        : 'rgba(248, 250, 252, 0.28)'
+  ctx.fillStyle = ink.halo(haloAlpha(kind))
   ctx.fill()
   path()
   ctx.fillStyle = color
@@ -565,6 +569,7 @@ function paintVArrow(
  */
 function strokeMsgqConnector(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   x: number,
   y0: number,
   y1: number,
@@ -581,7 +586,7 @@ function strokeMsgqConnector(
   const glowA = kind === 'selected' ? 0.5 : kind === 'hot' ? 0.38 : 0.22
 
   ctx.setLineDash(dash)
-  ctx.strokeStyle = `rgba(248, 250, 252, ${glowA})`
+  ctx.strokeStyle = ink.halo(glowA)
   ctx.lineWidth = glow
   ctx.beginPath()
   ctx.moveTo(x, y0)
@@ -600,6 +605,7 @@ function strokeMsgqConnector(
 /** Origin mark with a soft white halo. */
 function paintMsgqMark(
   ctx: CanvasRenderingContext2D,
+  ink: TraceInk,
   x: number,
   y: number,
   r: number,
@@ -609,12 +615,7 @@ function paintMsgqMark(
   const halo = kind === 'idle' ? r + 0.7 : r + 1.2
   ctx.beginPath()
   ctx.arc(x, y, halo, 0, Math.PI * 2)
-  ctx.fillStyle =
-    kind === 'selected'
-      ? 'rgba(248, 250, 252, 0.65)'
-      : kind === 'hot'
-        ? 'rgba(248, 250, 252, 0.5)'
-        : 'rgba(248, 250, 252, 0.28)'
+  ctx.fillStyle = ink.halo(haloAlpha(kind))
   ctx.fill()
   ctx.beginPath()
   ctx.arc(x, y, r, 0, Math.PI * 2)
@@ -767,10 +768,11 @@ type TimelinePaint = {
   cpu?: CpuPaint
   /** What the debugger read, for threads that never logged a priority. */
   priorities: ReadonlyMap<number, number>
+  ink: TraceInk
 }
 
 function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
-  const { tr, view0, view1, follow, selectedLane, playheadTs, metrics, yZoom } = p
+  const { tr, view0, view1, follow, selectedLane, playheadTs, metrics, yZoom, ink } = p
   const { show: showMsgq, events: msgqEvents, lanes: queueLanes, hover } = p.msgq
   const { snapTs, selectedEdge } = p.msgq
   const dpr = window.devicePixelRatio || 1
@@ -802,7 +804,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
     selectedEdge != null ||
     (hover != null && (hover.eventIndex != null || hover.queueId != null))
 
-  paintCanvasTimeAxis(ctx, {
+  paintCanvasTimeAxis(ctx, ink, {
     cssW,
     labelW: LABEL_W,
     pad: PAD,
@@ -820,17 +822,17 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
   applyYZoomTransform(ctx, AXIS_H, cssH, yZoom)
 
   for (const section of geom.sections) {
-    paintSectionHeader(ctx, section.title, section.headerTop, cssW)
+    paintSectionHeader(ctx, ink, section.title, section.headerTop, cssW)
   }
 
   // --- CPU power band ----------------------------------------------------
   if (p.cpu && geom.showCpu) {
     const cpuProbeTs = Math.min(depthProbeTs, tr.t1)
-    paintCpuPower(ctx, p.cpu, geom, layout, cssW, view0, view1, plotW, cpuProbeTs)
+    paintCpuPower(ctx, ink, p.cpu, geom, layout, cssW, view0, view1, plotW, cpuProbeTs)
   }
 
   // --- Thread lanes ------------------------------------------------------
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
+  ctx.fillStyle = ink.shade(0.45)
   ctx.fillRect(LABEL_W, lanesTop, plotW, lanes.length * laneH)
 
   lanes.forEach((tid, row) => {
@@ -838,7 +840,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
     const label = threadLabel(tr, tid)
     const prio = threadPrio(tr, tid, p.priorities)
     const selected = selectedLane === tid
-    ctx.fillStyle = selected ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.95)'
+    ctx.fillStyle = selected ? ink.strong(0.95) : ink.label(0.95)
     ctx.font = `${selected ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
     ctx.textBaseline = 'middle'
     let prioW = 0
@@ -851,7 +853,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
     ctx.fillText(fitLabel(ctx, label, nameMaxW), 4, y + laneH / 2)
     if (prio != null) {
       const prioStr = String(prio)
-      ctx.fillStyle = selected ? 'rgba(148, 163, 184, 0.95)' : 'rgba(100, 116, 139, 0.95)'
+      ctx.fillStyle = selected ? ink.label(0.95) : ink.dim(0.95)
       ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.fillText(prioStr, LABEL_W - prioW - 6, y + laneH / 2)
     }
@@ -874,7 +876,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
 
   if (hasIsr) {
     const y = lanesTop + lanes.length * laneH
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+    ctx.fillStyle = ink.label(0.95)
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.fillText('[ISR]', 4, y + laneH / 2)
@@ -900,7 +902,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
     const ARROW_H = 4.5 * (0.85 + 0.15 * zw)
 
     if (showQueues) {
-      ctx.fillStyle = 'rgba(8, 47, 73, 0.35)'
+      ctx.fillStyle = ink.queueShade(0.35)
       ctx.fillRect(LABEL_W, queueTop, plotW, queueLanes.length * msgqLaneH)
 
       queueLanes.forEach((q, row) => {
@@ -931,7 +933,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
           ctx.fillRect(x0, y + msgqLaneH - innerPad - h, Math.max(1, x1 - x0), h)
         }
 
-        ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 1)' : 'rgba(125, 211, 252, 0.9)'
+        ctx.fillStyle = laneHot ? ink.queueHot(1) : ink.queue(0.9)
         ctx.textBaseline = 'middle'
         const depthStr = depthLabel(q.series, depthProbeTs)
         ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -940,21 +942,21 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
         const dual = msgqLaneH >= 30
         if (dual) {
           ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
-          ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 0.75)' : 'rgba(125, 211, 252, 0.55)'
+          ctx.fillStyle = laneHot ? ink.queueHot(0.75) : ink.queue(0.55)
           ctx.fillText(fitLabel(ctx, q.kind, nameMaxW), 4, y + msgqLaneH / 2 - 7)
           ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
-          ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 1)' : 'rgba(125, 211, 252, 0.9)'
+          ctx.fillStyle = laneHot ? ink.queueHot(1) : ink.queue(0.9)
           ctx.fillText(fitLabel(ctx, q.label, nameMaxW), 4, y + msgqLaneH / 2 + 6)
         } else {
           const laneLabel = q.kind === 'msgq' ? q.label : `${q.kind} ${q.label}`
           ctx.font = `${laneHot ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
           ctx.fillText(fitLabel(ctx, laneLabel, nameMaxW), 4, y + msgqLaneH / 2)
         }
-        ctx.fillStyle = laneHot ? 'rgba(186, 230, 253, 0.95)' : 'rgba(125, 211, 252, 0.7)'
+        ctx.fillStyle = laneHot ? ink.queueHot(0.95) : ink.queue(0.7)
         ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
         ctx.fillText(depthStr, LABEL_W - depthW - 6, y + msgqLaneH / 2)
 
-        ctx.strokeStyle = laneHot ? 'rgba(125, 211, 252, 0.55)' : 'rgba(56, 189, 248, 0.22)'
+        ctx.strokeStyle = laneHot ? ink.queue(0.55) : 'rgba(56, 189, 248, 0.22)'
         ctx.lineWidth = laneHot ? 1.25 : 1
         ctx.beginPath()
         ctx.moveTo(LABEL_W, y + msgqLaneH / 2)
@@ -1020,12 +1022,13 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
         const edgeStart = dir === 'down' ? startY + markR : startY - markR
         const edgeBeforeTip = dir === 'down' ? tipY - arrowH : tipY + arrowH
 
-        strokeMsgqConnector(ctx, x, edgeStart, edgeBeforeTip, color, kind, zw)
-        paintMsgqMark(ctx, x, startY, markR, color, kind)
-        paintVArrow(ctx, x, tipY, dir, color, scale, kind)
+        strokeMsgqConnector(ctx, ink, x, edgeStart, edgeBeforeTip, color, kind, zw)
+        paintMsgqMark(ctx, ink, x, startY, markR, color, kind)
+        paintVArrow(ctx, ink, x, tipY, dir, color, scale, kind)
       } else {
         strokeMsgqConnector(
           ctx,
+          ink,
           x,
           actorY - laneH / 2 + 2,
           actorY + laneH / 2 - 2,
@@ -1033,7 +1036,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
           kind,
           zw,
         )
-        paintMsgqMark(ctx, x, actorY, markR, color, kind)
+        paintMsgqMark(ctx, ink, x, actorY, markR, color, kind)
       }
 
       ctx.globalAlpha = 1
@@ -1046,7 +1049,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
   if (headTs != null) {
     const x = xAt(layout, cssW, headTs)
     if (x >= LABEL_W && x <= LABEL_W + plotW) {
-      paintPlayhead(ctx, {
+      paintPlayhead(ctx, ink, {
         x,
         y0: AXIS_H,
         y1: contentBottom,
@@ -1319,6 +1322,7 @@ function TracePanelBody({
   const powerCanvasRef = useRef<HTMLCanvasElement>(null)
   const zbusCanvasRef = useRef<HTMLCanvasElement>(null)
   const gestureRef = useRef<Gesture | null>(null)
+  const ink = useTraceInk()
   /** Desired live-follow window; zoom while LIVE updates this instead of detaching. */
   const [liveWindowNs, setLiveWindowNs] = useState(DEFAULT_LIVE_WINDOW_NS)
   const [view, setView] = useState<{ t0: number; t1: number } | null>(null)
@@ -1508,6 +1512,7 @@ function TracePanelBody({
           },
           cpu: cpuPaint,
           priorities,
+          ink,
         }
       : null
   const paintArgsRef = useRef(paintArgs)
@@ -2372,7 +2377,7 @@ function TracePanelBody({
               <canvas
                 ref={canvasRef}
                 className={cn(
-                  'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40',
+                  'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40 light:bg-muted/40',
                   boxZoomArmed ? 'cursor-crosshair' : 'cursor-crosshair active:cursor-grabbing',
                 )}
                 {...canvasHandlers}
