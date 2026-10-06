@@ -167,13 +167,6 @@ export function reconstructSync(tr: Trace): SyncState {
     return true
   }
 
-  const ownsContendedMutex = (tid: number): boolean => {
-    for (const o of objects.values()) {
-      if (o.kind === 'mutex' && o.owner === tid && o.waiters.length > 0) return true
-    }
-    return false
-  }
-
   const waitsOnMutexOf = (waiter: number, owner: number): boolean => {
     for (const o of objects.values()) {
       if (o.kind === 'mutex' && o.owner === owner && o.waiters.some((w) => w.threadId === waiter)) {
@@ -206,7 +199,11 @@ export function reconstructSync(tr: Trace): SyncState {
     const restoring =
       actor === target && threadDoing(target).releasing?.startsWith('mutex:') === true
     if (restoring && held) {
-      const back = held.base === null ? !ownsContendedMutex(target) : prio === held.base
+      // A thread created at run time logs no priority of its own, so its
+      // boost has no base: a restore that lowers its priority gives the boost
+      // back. Whether its other mutexes have waiters says nothing, since a
+      // waiter only lends a priority higher than the owner's.
+      const back = held.base === null ? prio > held.priority : prio === held.base
       if (back) inherited.delete(target)
       else inherited.set(target, { priority: prio, base: held.base })
       return

@@ -184,6 +184,49 @@ describe('reconstructSync: mutexes', () => {
     expect(state.inherited.has(STORAGE)).toBe(false)
   })
 
+  it("takes the lent priority back on unlock when the owner's own priority never showed", () => {
+    // Threads created at run time log no priority, so the boost has no base.
+    const events: Ev[] = [
+      [100, 'thread_switched_in', { thread_id: STORAGE }],
+      ...lock(110, BUS),
+      ...switchTo(120, STORAGE, AGG),
+      [131, 'mutex_lock_blocking', { id: BUS, timeout: FOREVER }],
+      prio(132, STORAGE, -2),
+      ...switchTo(134, AGG, STORAGE),
+    ]
+    expect(replay(events).inherited.get(STORAGE)).toEqual({ priority: -2, base: null })
+    const released: Ev[] = [
+      [140, 'mutex_unlock_enter', { id: BUS }],
+      prio(141, STORAGE, -1),
+      [142, 'thread_sched_ready', { thread_id: AGG }],
+    ]
+    expect(replay(events, released).inherited.has(STORAGE)).toBe(false)
+  })
+
+  it('gives the lent priority back even when another mutex the owner holds has a waiter', () => {
+    // Philosopher 4 holds both its forks; philosopher 3 (lower priority) waits
+    // on one and lends nothing, philosopher 5 (higher) waits on the other.
+    const [P3, P4, P5, FORK4, FORK5] = [0x30, 0x40, 0x50, 0x4400, 0x5500]
+    const events: Ev[] = [
+      [100, 'thread_switched_in', { thread_id: P4 }],
+      ...lock(110, FORK4),
+      ...lock(120, FORK5),
+      ...switchTo(130, P4, P3),
+      [131, 'mutex_lock_blocking', { id: FORK4, timeout: FOREVER }],
+      ...switchTo(132, P3, P5),
+      [141, 'mutex_lock_blocking', { id: FORK5, timeout: FOREVER }],
+      prio(142, P4, -2),
+      ...switchTo(143, P5, P4),
+      [150, 'mutex_unlock_enter', { id: FORK5 }],
+      prio(151, P4, -1),
+      [152, 'thread_sched_ready', { thread_id: P5 }],
+      [153, 'mutex_unlock_exit', { id: FORK5, ret: 0 }],
+    ]
+    const state = replay(events)
+    expect(state.inherited.has(P4)).toBe(false)
+    expect(mutex(state, FORK4)).toMatchObject({ owner: P4, waiters: [{ threadId: P3, since: 131 }] })
+  })
+
   it('credits a block that shares its tick with the switch to the thread that blocked', () => {
     const events: Ev[] = [
       [100, 'thread_switched_in', { thread_id: STORAGE }],
