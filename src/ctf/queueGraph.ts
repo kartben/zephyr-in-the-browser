@@ -100,6 +100,22 @@ const WAKE_LOOKBACK_NS = 1_000_000 // 1 ms
 type EnterMark = { ts: number; actor: QueueActor }
 
 /**
+ * ISR nesting at the first retained record: 1 when the log starts inside an
+ * interrupt (a trimmed ring can start anywhere), else 0.
+ */
+export function isrDepthAtStart(tr: Trace): number {
+  const first = tr.events[0]
+  const startedBeforeFirst =
+    first != null &&
+    (tr.isrSpans.some(([start, end]) => start < first.ts && first.ts < end) ||
+      (tr.isrOpenStart != null && tr.isrOpenStart < first.ts))
+  return first != null &&
+    (startedBeforeFirst || (first.name !== 'isr_enter' && isrActiveAt(tr, first.ts)))
+    ? 1
+    : 0
+}
+
+/**
  * Resolve execution context in record order, not from timestamps alone.
  *
  * Multiple CTF records can share one clock tick. In particular, a queue exit
@@ -108,16 +124,7 @@ type EnterMark = { ts: number; actor: QueueActor }
  * precedes the exit boundary.
  */
 function queueActorsByEvent(tr: Trace): Map<number, QueueActor> {
-  const first = tr.events[0]
-  const startedBeforeFirst =
-    first != null &&
-    (tr.isrSpans.some(([start, end]) => start < first.ts && first.ts < end) ||
-      (tr.isrOpenStart != null && tr.isrOpenStart < first.ts))
-  let isrDepth =
-    first != null &&
-    (startedBeforeFirst || (first.name !== 'isr_enter' && isrActiveAt(tr, first.ts)))
-      ? 1
-      : 0
+  let isrDepth = isrDepthAtStart(tr)
   const actors = new Map<number, QueueActor>()
 
   for (let i = 0; i < tr.events.length; i++) {
