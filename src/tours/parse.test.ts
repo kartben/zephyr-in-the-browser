@@ -535,6 +535,18 @@ describe('when', () => {
 describe('look and panel', () => {
   const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
 
+  it('focuses the IPC graph on one object, and no other tab', () => {
+    expect(step('look: trace.ipc.bus_mutex').steps[0]!.look).toEqual([
+      { kind: 'trace', tab: 'queues', focus: 'bus_mutex' },
+    ])
+    expect(step('look: trace.ipc.fork_objs[3]').steps[0]!.look).toEqual([
+      { kind: 'trace', tab: 'queues', focus: 'fork_objs[3]' },
+    ])
+    for (const bad of ['trace.timeline.bus_mutex', 'trace.ipc.', 'trace.ipc.bus mutex', 'trace.ipc.1st']) {
+      expect(step(`look: ${bad}`).problems[0]).toContain(`\`look: ${bad}\` is not a view`)
+    }
+  })
+
   it('takes one target or a list, in the order written', () => {
     expect(step('look: trace.ipc').steps[0]!.look).toEqual([{ kind: 'trace', tab: 'queues' }])
     const doc = step('look:\n  - trace.net\n  - debug.objects\n  - dock.gpio')

@@ -117,6 +117,7 @@ export interface ObjectsSpec {
  * One `look:` target: a view to put in front of the reader when the step fires.
  *
  *     look: trace.ipc             a Trace tab
+ *     look: trace.ipc.bus_mutex   the IPC graph, focused on one object
  *     look: debug.objects         a Debug section
  *     look: dock.gpio             a device dock row, the same as `panel: gpio`
  *
@@ -125,7 +126,12 @@ export interface ObjectsSpec {
  * that is where to look.
  */
 export type LookSpec =
-  | { kind: 'trace'; tab: TraceTab }
+  | {
+      kind: 'trace'
+      tab: TraceTab
+      /** IPC only: the object to focus the graph on, as `trace.ipc.<object>` names it. */
+      focus?: string
+    }
   | { kind: 'debug'; section: DebugSection }
   | { kind: 'dock'; panel: PanelKind }
 
@@ -645,9 +651,13 @@ const DEBUG_SECTIONS: Record<DebugSection, true> = {
 /** Every `look:` spelling, for the problem a bad one reports. */
 const LOOK_TARGETS = [
   ...TRACE_TABS.map((tab) => `trace.${traceTabTourName(tab)}`),
+  `trace.${traceTabTourName('queues')}.<object>`,
   ...Object.keys(DEBUG_SECTIONS).map((section) => `debug.${section}`),
   'dock.<panel>',
 ].join(', ')
+
+/** What `trace.ipc.<object>` can focus on: a symbol, or one element of an array of them. */
+const IPC_FOCUS = /^[A-Za-z_]\w*(\[\d+\])?$/
 
 /** Parse one `look:` target. Returns null for anything that names no view. */
 export function parseLook(raw: string): LookSpec | null {
@@ -656,8 +666,12 @@ export function parseLook(raw: string): LookSpec | null {
   const name = raw.slice(dot + 1)
   switch (raw.slice(0, dot)) {
     case 'trace': {
-      const tab = traceTabFromTourName(name)
-      return tab ? { kind: 'trace', tab } : null
+      const sub = name.indexOf('.')
+      const tab = traceTabFromTourName(sub < 0 ? name : name.slice(0, sub))
+      if (!tab) return null
+      if (sub < 0) return { kind: 'trace', tab }
+      const focus = name.slice(sub + 1)
+      return tab === 'queues' && IPC_FOCUS.test(focus) ? { kind: 'trace', tab, focus } : null
     }
     case 'debug':
       return Object.hasOwn(DEBUG_SECTIONS, name)

@@ -11,6 +11,7 @@ import * as hostTrace from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import { revealDockRow, revealPanelKind } from '@/lib/dockReveal'
 import { STAGE_TRACE_KEY, getState, setTab } from '@/lib/dockStore'
+import * as ipcUi from '@/lib/ipcUi'
 import { getMode } from '@/lib/modeStore'
 import type { LookSpec, TourStep } from '@/tours/parse'
 
@@ -47,6 +48,10 @@ export function focusLook(look: LookSpec): void {
     case 'trace':
       // The tab first, so the row expands onto it rather than switching after.
       setTab(STAGE_TRACE_KEY, look.tab)
+      // The graph shows what the step points at: one object, or all of it, not
+      // whatever the reader last narrowed it to.
+      if (look.focus) ipcUi.focusIpcObject(look.focus)
+      else if (look.tab === 'queues') ipcUi.clearIpcFilter()
       revealDockRow(STAGE_TRACE_KEY)
       return
     case 'debug':

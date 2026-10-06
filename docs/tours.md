@@ -335,12 +335,19 @@ look:
 | Target | Opens |
 | --- | --- |
 | `trace.timeline`, `trace.ipc`, `trace.zbus`, `trace.net`, `trace.power` | that Trace tab (`trace.zbus` only on an image with zbus) |
+| `trace.ipc.<object>` | the IPC tab, its graph focused on that object: a symbol, or `name[i]` for one element of an array |
 | `debug.breakpoints`, `debug.cpu`, `debug.stack`, `debug.memory`, `debug.threads`, `debug.objects` | that Debug section |
 | `dock.<panel>` | a dock row, the same as `panel:` |
 
 Targets open in the order written, after `panel:`. A target or panel kind the
 page does not know fails the test, rather than making a step that opens
 nothing.
+
+A step that says "the aggregator waits on `bus_mutex`" wants that mutex, not the
+whole graph around it, and `look: trace.ipc.bus_mutex` keeps it and the threads
+that use it. The focus waits for the object to show up in the trace, and
+`npm run tour:check` fails a name the ELF lacks. Either way, `trace.ipc` lets go
+of any filter the reader had set, so the graph shows what the step means.
 
 Only the traced build of a sample has Trace: the `· traced` twin in the
 gallery, `<app>_trace`. Both builds read the same tour, so on the plain one a
@@ -994,7 +1001,7 @@ the page does when the tour arms. These fail:
 | `unresolved`: no alternative of `at:` resolves | a step that never fires |
 | `drift`: a `/pattern/` no longer matches and a later fallback resolves | a step that stops on a line nobody chose |
 | `highlight`: an entry marks nothing in the file the step stops in | an excerpt that has lost its point, silently |
-| `symbol`: `watch:`, `memory:`, `objects: focus:` or `check:` names a symbol the ELF lacks | "no symbol" where the value should be, or a check that can never pass (registers are exempt) |
+| `symbol`: `watch:`, `memory:`, `objects: focus:`, `look: trace.ipc.<object>` or `check:` names a symbol the ELF lacks | "no symbol" where the value should be, a check that can never pass, or a graph that never focuses (registers are exempt) |
 | `symbol`: a `when:` predicate names a symbol the ELF lacks | a step the page skips, since it can never fire |
 | `member`: a member view names a member the DWARF does not describe | "no member" where the value should be, or a skipped step |
 | `expression`: an expression that does not parse | an error where the value should be |
