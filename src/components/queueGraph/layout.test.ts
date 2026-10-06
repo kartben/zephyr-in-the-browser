@@ -71,4 +71,35 @@ describe('layoutSemanticGraph', () => {
     expect(layout.edges).toHaveLength(10)
     expect(validateQueueGraphLayout(layout)).toEqual([])
   })
+
+  it('lays every scenario out top to bottom without geometry violations', async () => {
+    const graphs = [
+      queueGraphMock,
+      queueGraphRoutingStressMock,
+      buildSemanticGraph(queueGraphSensorPipelineMockSpecs.nodes, queueGraphSensorPipelineMockSpecs.flows),
+      buildSemanticGraph(queueGraphPhilosophersMockSpecs.nodes, queueGraphPhilosophersMockSpecs.flows),
+    ]
+    for (const graph of graphs) {
+      const layout = await layoutSemanticGraph(graph, 'DOWN')
+      expect(layout.direction).toBe('DOWN')
+      expect(validateQueueGraphLayout(layout)).toEqual([])
+    }
+  })
+
+  it('runs the sensor pipeline downwards, entries on top and exits below', async () => {
+    const { nodes, flows } = queueGraphSensorPipelineMockSpecs
+    const layout = await layoutSemanticGraph(buildSemanticGraph(nodes, flows), 'DOWN')
+    const node = (id: string) => layout.nodes.find((n) => n.id === id)!
+    const y = (id: string) => node(id).y
+
+    expect(y('thread:sensor_temp')).toBeLessThan(y('object:sensor_q'))
+    expect(y('object:sensor_q')).toBeLessThan(y('thread:aggregator'))
+    expect(y('thread:aggregator')).toBeLessThan(y('object:bus_mutex'))
+    expect(y('object:bus_mutex')).toBeLessThan(y('thread:storage'))
+    const queue = node('object:sensor_q')
+    for (const port of queue.ports) {
+      // Tail on the top edge, head on the bottom one.
+      expect(port.y < queue.height / 2).toBe(port.role === 'tail-in')
+    }
+  })
 })

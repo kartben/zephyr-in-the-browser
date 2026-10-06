@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { IpcFilterBar } from '@/components/queueGraph/IpcFilterBar'
 import { QueueGraphCanvas } from '@/components/queueGraph/QueueGraphCanvas'
 import { filterIpcGraph } from '@/components/queueGraph/filter'
 import { validateQueueGraphLayout } from '@/components/queueGraph/geometry'
-import {
-  layoutSemanticGraph,
-  type QueueGraphLayout,
-} from '@/components/queueGraph/layout'
+import type { GraphDirection } from '@/components/queueGraph/layout'
 import { buildSemanticGraph, flowActionColor, type FlowAction } from '@/components/queueGraph/model'
+import { useElementSize, useFittedLayout } from '@/components/queueGraph/useFittedLayout'
 import * as ipcUi from '@/lib/ipcUi'
 import {
   queueGraphLargeCapacityMockSpecs,
@@ -70,30 +68,26 @@ function LegendItem({ action, label }: { action: FlowAction; label: string }) {
 
 export function QueueGraphMock() {
   const [scenario, setScenario] = useState<Scenario>('typical')
-  const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [direction, setDirection] = useState<'auto' | GraphDirection>('auto')
+  const frameRef = useRef<HTMLDivElement>(null)
+  const frameSize = useElementSize(frameRef)
   const specs = SCENARIOS.find((s) => s.id === scenario)!.specs
   const liveState = scenario === 'pipeline' ? queueGraphSensorPipelineMockState : null
   const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const filtered = useMemo(() => filterIpcGraph(specs.nodes, specs.flows, filter), [specs, filter])
-  const graph = useMemo(() => buildSemanticGraph(filtered.nodes, filtered.flows), [filtered])
-
-  useEffect(() => {
-    let current = true
-    // Keep the last layout up while the next one runs, as the live graph does:
-    // unmounting the canvas would drop the keyboard focus Escape needs.
-    setError(null)
-    layoutSemanticGraph(graph)
-      .then((next) => {
-        if (current) setLayout(next)
-      })
-      .catch((reason: unknown) => {
-        if (current) setError(reason instanceof Error ? reason.message : String(reason))
-      })
-    return () => {
-      current = false
-    }
-  }, [graph])
+  const request = useMemo(() => {
+    const graph = buildSemanticGraph(filtered.nodes, filtered.flows)
+    const key = [
+      ...graph.nodes.map((node) => node.id),
+      ...graph.edges.map((edge) => `${edge.id}:${edge.sourceNodeId}:${edge.targetNodeId}`),
+    ].join('|')
+    return { key, graph }
+  }, [filtered])
+  const { layout, error } = useFittedLayout(
+    request,
+    frameSize,
+    direction === 'auto' ? undefined : direction,
+  )
 
   const issues = layout ? validateQueueGraphLayout(layout) : []
 
@@ -113,7 +107,9 @@ export function QueueGraphMock() {
                     : 'rounded-full border border-rose-400/25 bg-rose-400/10 px-2 py-1 text-[10px] text-rose-300'
                 }
               >
-                {layout ? `${issues.length} geometry issues` : 'layout running'}
+                {layout
+                  ? `${issues.length} geometry issues · ${layout.direction === 'DOWN' ? 'top to bottom' : 'left to right'}`
+                  : 'layout running'}
               </span>
             </div>
             <h1 className="text-xl font-semibold tracking-tight">IPC data-flow layout study</h1>
@@ -152,6 +148,32 @@ export function QueueGraphMock() {
               </button>
             ))}
           </div>
+          <div
+            className="flex rounded-lg border border-slate-800 bg-slate-900/70 p-1 text-[11px]"
+            aria-label="Layout direction"
+          >
+            {(
+              [
+                ['auto', 'Fit'],
+                ['RIGHT', 'Left to right'],
+                ['DOWN', 'Top to bottom'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={direction === id}
+                className={
+                  direction === id
+                    ? 'rounded-md bg-slate-700 px-3 py-1.5 text-slate-100'
+                    : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
+                }
+                onClick={() => setDirection(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <section className="overflow-auto rounded-2xl border border-slate-800 bg-[#080d18] shadow-2xl shadow-black/30">
@@ -161,21 +183,23 @@ export function QueueGraphMock() {
             focused={filtered.focused}
             privateCount={filtered.privateCount}
           />
-          {error ? (
-            <div className="p-8 text-sm text-rose-300">{error}</div>
-          ) : layout ? (
-            <QueueGraphCanvas
-              layout={layout}
-              nodeState={liveState?.nodeState}
-              edgeState={liveState?.edgeState}
-              ariaLabel="Synthetic Zephyr data-flow topology"
-              focusedNodeId={filtered.focused ? filter.focus : null}
-              onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}
-              onClearFocus={() => ipcUi.setIpcFocus(null)}
-            />
-          ) : (
-            <div className="grid h-96 place-items-center text-sm text-slate-500">Computing layout…</div>
-          )}
+          <div ref={frameRef} className="h-[clamp(16rem,42vh,28rem)] min-h-64">
+            {error ? (
+              <div className="p-8 text-sm text-rose-300">{error}</div>
+            ) : layout ? (
+              <QueueGraphCanvas
+                layout={layout}
+                nodeState={liveState?.nodeState}
+                edgeState={liveState?.edgeState}
+                ariaLabel="Synthetic Zephyr data-flow topology"
+                focusedNodeId={filtered.focused ? filter.focus : null}
+                onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}
+                onClearFocus={() => ipcUi.setIpcFocus(null)}
+              />
+            ) : (
+              <div className="grid h-full place-items-center text-sm text-slate-500">Computing layout…</div>
+            )}
+          </div>
         </section>
 
         <footer className="flex flex-wrap justify-between gap-3 text-[11px] text-slate-500">

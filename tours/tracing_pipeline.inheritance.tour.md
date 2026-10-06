@@ -65,7 +65,7 @@ aggregator waits for it.
 
 **Trace → IPC** draws the same from the trace: the aggregator's dashed route
 waits on `bus_mutex`, the bold one is `storage` holding it, and `storage`
-reads "priority 3 (inherited, base 9)".
+reads priority 3, inherited, base 9.
 
 ## Back to priority 9
 
