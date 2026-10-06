@@ -9,10 +9,18 @@ import {
   type QueueFlowOp,
 } from '@/ctf/queueGraph'
 import { queueLabel, type QueueSeries, type Trace } from '@/ctf'
+import {
+  syncRouteKey,
+  type SyncKind,
+  type SyncOp,
+  type SyncRoute,
+  type SyncState,
+} from '@/ctf/syncObjects'
 import { NO_IPC_FILTER, type IpcFilter } from '@/lib/ipcUi'
 import { filterIpcGraph } from './filter'
 import { buildSemanticGraph, type FlowAction, type FlowNodeSpec, type FlowSpec } from './model'
-import type { QueueGraphNodeState } from './QueueGraphCanvas'
+import { orientLocks } from './orient'
+import type { QueueGraphEdgeState, QueueGraphNodeState } from './QueueGraphCanvas'
 
 export interface LiveQueueGraph {
   /** What is drawn: the graph after the filter. */
@@ -24,6 +32,15 @@ export interface LiveQueueGraph {
   flows: FlowSpec[]
   /** The filter's focus names a node in the graph. */
   focused: boolean
+  /** Semaphores, mutexes and condvars only one actor uses. */
+  privateCount: number
+}
+
+/** The semaphores, mutexes and condvars of a trace, for the graph. */
+export interface LiveSync {
+  state: SyncState
+  /** Object names by address. */
+  names: ReadonlyMap<number, string>
 }
 
 export interface QueueDepthEnvelope {
@@ -44,6 +61,74 @@ export function liveActorNodeId(actor: Exclude<QueueActor, { kind: 'unknown' }>)
 
 export function liveObjectNodeId(queueId: number): string {
   return `object:${queueId}`
+}
+
+/**
+ * Its own id space: a semaphore on a stack can sit at an address a queue used
+ * before it, and the two are different objects.
+ */
+export function liveSyncNodeId(kind: SyncKind, id: number): string {
+  return `sync:${kind}:${id}`
+}
+
+export function liveSyncEdgeId(route: SyncRoute): string {
+  return `sync:${syncRouteKey(route)}`
+}
+
+function syncLabel(names: ReadonlyMap<number, string>, id: number): string {
+  return names.get(id) ?? `0x${id.toString(16)}`
+}
+
+/** The route a waiter on this kind of object waits along. */
+const WAIT_OP: Record<SyncKind, SyncOp> = { mutex: 'lock', sem: 'take', condvar: 'wait' }
+
+/**
+ * What the graph shows of each semaphore, mutex and condvar now, and of the
+ * threads holding or waiting on them: a mutex's owner, the threads blocked on
+ * each object, and the priority an owner runs at when a waiter lent it its own.
+ */
+export function liveSyncView(
+  tr: Trace,
+  sync: LiveSync,
+): { nodeState: Map<string, QueueGraphNodeState>; edgeState: Map<string, QueueGraphEdgeState> } {
+  const nodeState = new Map<string, QueueGraphNodeState>()
+  const edgeState = new Map<string, QueueGraphEdgeState>()
+  for (const o of sync.state.objects.values()) {
+    nodeState.set(liveSyncNodeId(o.kind, o.id), {
+      label: syncLabel(sync.names, o.id),
+      owner:
+        o.kind !== 'mutex'
+          ? undefined
+          : o.owner === null
+            ? null
+            : o.owner === 'unknown'
+              ? ''
+              : flowThreadLabel(tr, o.owner),
+      lockDepth: o.depth,
+      waiterLabels: o.waiters.map((w) => flowThreadLabel(tr, w.threadId)),
+      mutexLabel: o.mutexId === null ? null : syncLabel(sync.names, o.mutexId),
+    })
+    if (o.kind === 'mutex' && typeof o.owner === 'number') {
+      const actor = { kind: 'thread' as const, threadId: o.owner }
+      edgeState.set(liveSyncEdgeId({ kind: 'mutex', objectId: o.id, actor, op: 'lock' }), 'holds')
+    }
+    for (const w of o.waiters) {
+      const actor = { kind: 'thread' as const, threadId: w.threadId }
+      edgeState.set(
+        liveSyncEdgeId({ kind: o.kind, objectId: o.id, actor, op: WAIT_OP[o.kind] }),
+        'waits',
+      )
+    }
+  }
+  for (const [tid, lent] of sync.state.inherited) {
+    nodeState.set(liveThreadNodeId(tid), {
+      detail:
+        lent.base === null
+          ? `priority ${lent.priority} (inherited)`
+          : `priority ${lent.priority} (inherited, base ${lent.base})`,
+    })
+  }
+  return { nodeState, edgeState }
 }
 
 export function liveEdgeId(event: Pick<QueueFlowEvent, 'actor' | 'queueId' | 'op'>): string {
@@ -135,6 +220,7 @@ export function buildLiveQueueGraph(
   queues: QueueSeries[],
   flowEvents?: QueueFlowEvent[],
   filter: IpcFilter = NO_IPC_FILTER,
+  sync: LiveSync | null = null,
 ): LiveQueueGraph {
   const queueById = new Map(queues.map((queue) => [queue.id, queue]))
   const flow = flowEvents ?? queueFlowEvents(tr)
@@ -155,6 +241,13 @@ export function buildLiveQueueGraph(
   for (const event of valid) {
     const key = queueActorKey(event.actor)
     actors.set(key, { actor: event.actor, label: queueActorLabel(tr, event.actor) })
+  }
+  const syncRoutes = sync?.state.routes ?? []
+  for (const route of syncRoutes) {
+    actors.set(queueActorKey(route.actor), {
+      actor: route.actor,
+      label: queueActorLabel(tr, route.actor),
+    })
   }
   const actorSpecs = [...actors.values()].sort((a, b) => a.label.localeCompare(b.label))
 
@@ -182,6 +275,13 @@ export function buildLiveQueueGraph(
         capacity: fixedCapacity(queue),
       }),
     ),
+    ...[...(sync?.state.objects.values() ?? [])].map(
+      (o): FlowNodeSpec => ({
+        id: liveSyncNodeId(o.kind, o.id),
+        kind: o.kind,
+        label: syncLabel(sync!.names, o.id),
+      }),
+    ),
   ]
 
   const seen = new Set<string>()
@@ -198,8 +298,18 @@ export function buildLiveQueueGraph(
       action: liveFlowAction(queue.kind, event.op),
     })
   }
+  for (const route of syncRoutes) {
+    flows.push({
+      id: liveSyncEdgeId(route),
+      actorId: liveActorNodeId(route.actor),
+      objectId: liveSyncNodeId(route.kind, route.objectId),
+      action: route.op,
+    })
+  }
+  // Sides come from the whole graph, so a filter never turns a mutex around.
+  const oriented = orientLocks(nodes, flows)
 
-  const filtered = filterIpcGraph(nodes, flows, filter)
+  const filtered = filterIpcGraph(nodes, oriented, filter)
   const graph = buildSemanticGraph(filtered.nodes, filtered.flows)
   const topologyKey = [
     ...graph.nodes.map((node) => `${node.id}:${node.kind}`),
@@ -207,5 +317,13 @@ export function buildLiveQueueGraph(
       (edge) => `${edge.id}:${edge.sourceNodeId}:${edge.targetNodeId}:${edge.action}`,
     ),
   ].join('|')
-  return { graph, flow, topologyKey, nodes, flows, focused: filtered.focused }
+  return {
+    graph,
+    flow,
+    topologyKey,
+    nodes,
+    flows: oriented,
+    focused: filtered.focused,
+    privateCount: filtered.privateCount,
+  }
 }

@@ -15,9 +15,16 @@ export interface IpcFilter {
   query: string
   /** Graph node id (`thread:…`, `object:…`) the graph is focused on. */
   focus: string | null
+  /** Show the semaphores, mutexes and condvars only one thread or ISR uses. */
+  showPrivate: boolean
 }
 
-export const NO_IPC_FILTER: IpcFilter = { hiddenKinds: new Set(), query: '', focus: null }
+export const NO_IPC_FILTER: IpcFilter = {
+  hiddenKinds: new Set(),
+  query: '',
+  focus: null,
+  showPrivate: false,
+}
 
 let state: IpcFilter = NO_IPC_FILTER
 const listeners = new Set<() => void>()
@@ -55,6 +62,10 @@ export function setIpcQuery(query: string): void {
   if (state.query !== query) set({ ...state, query })
 }
 
+export function toggleIpcPrivate(): void {
+  set({ ...state, showPrivate: !state.showPrivate })
+}
+
 export function clearIpcFilter(): void {
-  if (isFiltered(state)) set(NO_IPC_FILTER)
+  if (isFiltered(state) || state.showPrivate) set(NO_IPC_FILTER)
 }

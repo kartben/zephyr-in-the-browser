@@ -11,9 +11,9 @@ import {
   type LayoutNode,
   type QueueGraphLayout,
 } from '@/components/queueGraph/layout'
+import type { ElkPoint } from 'elkjs/lib/elk-api'
 import {
   flowActionColor,
-  flowActionLabel,
   isActorNode,
   type FlowAction,
   type PortRole,
@@ -25,6 +25,7 @@ import {
   type GraphCamera,
   type GraphViewportSize,
 } from '@/components/queueGraph/viewport'
+import { STATE_COLOR } from '@/ctf'
 import { cn } from '@/lib/utils'
 
 const OBJECT_FILL = '#101a2b'
@@ -43,11 +44,51 @@ const MAX_SCALE = 4
 /** A press that moves less than this far is a click on what is under it, not a pan. */
 const CLICK_SLOP_PX = 4
 const FOCUS_RING = '#7dd3fc'
+/** A thread blocked on an object: the Timeline's blocked red. */
+export const WAIT_COLOR = STATE_COLOR.blk
+export const HOLD_COLOR = '#e2e8f0'
+
+/**
+ * Semaphores, mutexes and condvars each get a colour of their own, apart from
+ * the grey of queues, the blue of threads and the purple of interrupts, and a
+ * badge: a padlock, a signal lamp, a bell.
+ */
+export const SYNC_STYLE: Record<
+  'sem' | 'mutex' | 'condvar',
+  { stroke: string; fill: string; badge: string; tint: string; name: string }
+> = {
+  mutex: { stroke: '#fbbf24', fill: '#1f1807', badge: '#3a2c0a', tint: '#fde68a', name: 'mutex' },
+  sem: { stroke: '#34d399', fill: '#071f18', badge: '#0c3527', tint: '#a7f3d0', name: 'semaphore' },
+  condvar: { stroke: '#a78bfa', fill: '#16112c', badge: '#271d4a', tint: '#ddd6fe', name: 'condvar' },
+}
+
+/** Room for a name in a sync object's pill, in characters. */
+const SYNC_LABEL_CHARS = 17
+const WAIT_MARKER = 'ipc-arrow-waits'
+const WAIT_MARKER_START = 'ipc-arrow-waits-start'
+const ARROW_ACTIONS = ['put', 'put-front', 'get', 'push', 'pop', 'give', 'take', 'signal', 'wait'] as const
+
+const VERB: Record<FlowAction, string> = {
+  put: 'puts into',
+  'put-front': 'puts at the front of',
+  get: 'gets from',
+  push: 'pushes onto',
+  pop: 'pops from',
+  give: 'gives',
+  take: 'takes',
+  signal: 'signals',
+  wait: 'waits on',
+  lock: 'locks',
+}
 
 type DisplayLayoutNode = LayoutNode & {
   batchMaxDepth?: number
   batchDurationMs?: number
   batchSequence?: number
+  owner?: string | null
+  lockDepth?: number
+  waiterLabels?: string[]
+  mutexLabel?: string | null
 }
 
 function markerId(action: FlowAction): string {
@@ -70,6 +111,10 @@ function portRoleLabel(role: PortRole): string {
       return 'flow in'
     case 'actor-out':
       return 'flow out'
+    case 'object-in':
+      return 'in'
+    case 'object-out':
+      return 'out'
   }
 }
 
@@ -80,7 +125,85 @@ function nodeKindLabel(node: LayoutNode): string {
   if (node.kind === 'fifo') return 'fifo'
   if (node.kind === 'queue') return 'queue'
   if (node.kind === 'lifo') return 'lifo'
+  if (node.kind === 'sem') return 'semaphore'
+  if (node.kind === 'mutex') return 'mutex'
+  if (node.kind === 'condvar') return 'condition variable'
   return 'fixed stack'
+}
+
+function heldText(node: DisplayLayoutNode): string {
+  if (node.owner == null) return 'free'
+  const depth = (node.lockDepth ?? 1) > 1 ? ` ×${node.lockDepth}` : ''
+  return node.owner === '' ? `held since before the trace${depth}` : `held by ${node.owner}${depth}`
+}
+
+/** Everything a node says, in words, for its tooltip and assistive tech. */
+function nodeTitle(node: DisplayLayoutNode): string {
+  const head = `${nodeKindLabel(node)} · ${node.label}`
+  if (isActorNode(node)) return head
+  if (node.kind === 'sem' || node.kind === 'mutex' || node.kind === 'condvar') {
+    const parts = [head]
+    if (node.kind === 'mutex') parts.push(heldText(node))
+    const waiters = node.waiterLabels ?? []
+    parts.push(waiters.length > 0 ? `waiting: ${waiters.join(', ')}` : 'nobody waiting')
+    if (node.mutexLabel) parts.push(`with ${node.mutexLabel}`)
+    return parts.join(' · ')
+  }
+  if (!('depth' in node)) return head
+  return `${head} · depth ${node.depth.toLocaleString('en-US')}${node.capacity == null ? '' : ` of ${node.capacity.toLocaleString('en-US')}`}`
+}
+
+/** A padlock, its body centred on (x, y). */
+function LockGlyph({
+  x,
+  y,
+  color,
+  scale = 1,
+  open = false,
+}: {
+  x: number
+  y: number
+  color: string
+  scale?: number
+  /** The shackle lifted out of the body: a free mutex. */
+  open?: boolean
+}) {
+  return (
+    <g transform={`translate(${x},${y}) scale(${scale})`}>
+      <path
+        d={open ? 'M-3.5 -3V-6a3.5 3.5 0 0 1 7 0V-4.5' : 'M-3.5 -1V-4a3.5 3.5 0 0 1 7 0V-1'}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+      />
+      <rect x={-5.5} y={-1.5} width={11} height={8} rx={1.8} fill={color} />
+    </g>
+  )
+}
+
+/** A signal lamp: a semaphore is the railway's signal before it is the kernel's. */
+function LampGlyph({ x, y, color }: { x: number; y: number; color: string }) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <rect x={-4} y={-7} width={8} height={14} rx={3} fill="none" stroke={color} strokeWidth={1.5} />
+      <circle cx={0} cy={-2.8} r={1.7} fill={color} />
+      <circle cx={0} cy={2.8} r={1.7} fill={color} fillOpacity={0.45} />
+    </g>
+  )
+}
+
+/** A bell: a condvar wakes whoever waits on it. */
+function BellGlyph({ x, y, color }: { x: number; y: number; color: string }) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <path d="M-5.5 3.5h11l-1.6-2.2V-1.5a3.9 3.9 0 0 0-7.8 0v2.8z" fill={color} />
+      <circle cx={0} cy={5.4} r={1.4} fill={color} />
+    </g>
+  )
+}
+
+function fitLabel(label: string): string {
+  return label.length > SYNC_LABEL_CHARS ? `${label.slice(0, SYNC_LABEL_CHARS - 1)}…` : label
 }
 
 function ActorShape({ node }: { node: LayoutNode }) {
@@ -392,6 +515,66 @@ function VerticalStackShape({ node }: { node: DisplayLayoutNode }) {
   )
 }
 
+/**
+ * A pill much smaller than a queue's box: its kind's colour and badge, its
+ * name, and one line of state. Threads waiting on it show as a red count on
+ * its corner; who they are is in the tooltip and on the dashed routes.
+ */
+function SyncShape({ node }: { node: DisplayLayoutNode }) {
+  if (node.kind !== 'sem' && node.kind !== 'mutex' && node.kind !== 'condvar') return null
+  const style = SYNC_STYLE[node.kind]
+  const waiting = node.waiterLabels?.length ?? 0
+  const held = node.kind === 'mutex' && node.owner != null
+  const status =
+    node.kind === 'mutex'
+      ? { text: node.owner === '' ? 'held' : heldText(node), color: held ? style.tint : MUTED }
+      : node.kind === 'condvar' && node.mutexLabel
+        ? { text: `with ${fitLabel(node.mutexLabel)}`, color: MUTED }
+        : { text: style.name, color: MUTED }
+  const cy = node.height / 2
+  return (
+    <>
+      <rect
+        width={node.width}
+        height={node.height}
+        rx={Math.min(node.height / 2, 24)}
+        fill={style.fill}
+        stroke={style.stroke}
+        strokeWidth={1.5}
+      />
+      <circle cx={24} cy={cy} r={13} fill={style.badge} stroke={style.stroke} strokeWidth={1} />
+      {node.kind === 'mutex' ? (
+        <LockGlyph x={24} y={cy - 0.5} color={style.stroke} open={!held} />
+      ) : node.kind === 'sem' ? (
+        <LampGlyph x={24} y={cy} color={style.stroke} />
+      ) : (
+        <BellGlyph x={24} y={cy - 0.5} color={style.stroke} />
+      )}
+      <text x={44} y={cy - 3} fill={TEXT} fontSize={12.5} fontWeight={700}>
+        {fitLabel(node.label)}
+      </text>
+      <text x={44} y={cy + 12} fill={status.color} fontSize={9.5}>
+        {status.text}
+      </text>
+      {waiting > 0 && (
+        <g>
+          <circle cx={node.width - 6} cy={6} r={9} fill={WAIT_COLOR} stroke={PANEL} strokeWidth={2} />
+          <text
+            x={node.width - 6}
+            y={9.5}
+            textAnchor="middle"
+            fill="#fff"
+            fontSize={10}
+            fontWeight={700}
+          >
+            {waiting}
+          </text>
+        </g>
+      )}
+    </>
+  )
+}
+
 function NodeView({
   node,
   actionByEdge,
@@ -429,6 +612,7 @@ function NodeView({
       <MsgqShape node={node} />
       <FifoShape node={node} />
       <VerticalStackShape node={node} />
+      <SyncShape node={node} />
       {node.ports.map((port) => {
         const action = actionByEdge.get(port.edgeId)
         return (
@@ -445,30 +629,53 @@ function NodeView({
           </g>
         )
       })}
-      <title>
-        {nodeKindLabel(node)} · {node.label}
-        {isActorNode(node)
-          ? ''
-          : ` · depth ${node.depth.toLocaleString('en-US')}${node.capacity == null ? '' : ` of ${node.capacity.toLocaleString('en-US')}`}`}
-      </title>
+      <title>{nodeTitle(node)}</title>
     </g>
   )
+}
+
+/** Where the lock mark of a held route goes: a little way along it from the thread. */
+function lockMarkAt(points: ElkPoint[], fromStart: boolean): ElkPoint {
+  const a = fromStart ? points[0]! : points[points.length - 1]!
+  const b = fromStart ? points[1] ?? a : points[points.length - 2] ?? a
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = Math.hypot(dx, dy) || 1
+  const along = Math.min(18, length / 2)
+  return { x: a.x + (dx / length) * along, y: a.y + (dy / length) * along }
 }
 
 function EdgeView({
   edge,
   active,
   activity,
+  state,
+  title,
   onHover,
 }: {
   edge: LayoutEdge
   active: boolean
   activity?: QueueGraphEdgeActivity
+  state?: QueueGraphEdgeState
+  title: string
   onHover: (id: string | null) => void
 }) {
   const path = roundedOrthogonalPath(edge.points)
-  const color = flowActionColor(edge.action)
-  const opacity = active ? (activity?.hot ? 1 : activity?.warm ? 0.82 : 0.58) : 0.12
+  const waits = state === 'waits'
+  const holds = state === 'holds'
+  const objectAtEnd = edge.targetNodeId === edge.objectNodeId
+  const color = waits ? WAIT_COLOR : holds ? HOLD_COLOR : flowActionColor(edge.action)
+  const opacity = active ? (state || activity?.hot ? 1 : activity?.warm ? 0.82 : 0.58) : 0.12
+  // A wait points at what it waits for, whichever way its route runs. A lock
+  // route has no arrow: its users both take the mutex and give it back.
+  const markerEnd = waits
+    ? objectAtEnd
+      ? `url(#${WAIT_MARKER})`
+      : undefined
+    : edge.action === 'lock'
+      ? undefined
+      : `url(#${markerId(edge.action)})`
+  const lockMark = holds ? lockMarkAt(edge.points, objectAtEnd) : null
   return (
     <g
       opacity={opacity}
@@ -476,23 +683,52 @@ function EdgeView({
       onPointerEnter={() => onHover(edge.id)}
       onPointerLeave={() => onHover(null)}
     >
-      <path d={path} fill="none" stroke={PANEL} strokeWidth={8} strokeLinecap="round" />
+      <path d={path} fill="none" stroke={PANEL} strokeWidth={holds ? 10 : 8} strokeLinecap="round" />
       <path
         d={path}
         fill="none"
         stroke={color}
-        strokeWidth={activity?.hot ? 4.2 : active ? 2.8 : 2}
+        strokeWidth={holds ? 4.4 : activity?.hot ? 4.2 : active ? 2.8 : 2}
         strokeLinecap="round"
-        markerEnd={`url(#${markerId(edge.action)})`}
+        strokeDasharray={waits ? '7 5' : undefined}
+        markerEnd={markerEnd}
+        markerStart={waits && !objectAtEnd ? `url(#${WAIT_MARKER_START})` : undefined}
         vectorEffect="non-scaling-stroke"
       />
+      {lockMark && (
+        <g>
+          <circle cx={lockMark.x} cy={lockMark.y} r={8.5} fill={PANEL} stroke={HOLD_COLOR} strokeWidth={1.2} />
+          <LockGlyph x={lockMark.x} y={lockMark.y - 1} color={HOLD_COLOR} scale={0.75} />
+        </g>
+      )}
       <path d={path} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
       <title>
-        {flowActionLabel(edge.action)}
+        {title}
         {activity?.count ? ` · ${activity.count.toLocaleString('en-US')} recent` : ''}
       </title>
     </g>
   )
+}
+
+/**
+ * "sensor_imu puts into sensor_q" for what a route has carried, and "storage
+ * holds bus_mutex" or "aggregator is waiting for bus_mutex" for what holds now.
+ */
+function edgeTitle(
+  edge: LayoutEdge,
+  labelById: ReadonlyMap<string, string>,
+  state: QueueGraphEdgeState | undefined,
+): string {
+  const actorId = edge.objectNodeId === edge.targetNodeId ? edge.sourceNodeId : edge.targetNodeId
+  const verb =
+    state === 'holds'
+      ? 'holds'
+      : state === 'waits'
+        ? edge.action === 'wait'
+          ? 'is waiting on'
+          : 'is waiting for'
+        : VERB[edge.action]
+  return `${labelById.get(actorId) ?? '?'} ${verb} ${labelById.get(edge.objectNodeId) ?? '?'}`
 }
 
 export interface QueueGraphNodeState {
@@ -503,7 +739,18 @@ export interface QueueGraphNodeState {
   batchMaxDepth?: number
   batchDurationMs?: number
   batchSequence?: number
+  /** mutex: who holds it, '' when it was held before the trace began, or null when free. */
+  owner?: string | null
+  /** mutex: how many times the owner holds it. */
+  lockDepth?: number
+  /** semaphore, mutex, condvar: the threads blocked on it now, longest waiting first. */
+  waiterLabels?: string[]
+  /** condvar: the mutex its waiters give up while they wait. */
+  mutexLabel?: string | null
 }
+
+/** A route as it stands now: a mutex held along it, or a thread blocked along it. */
+export type QueueGraphEdgeState = 'holds' | 'waits'
 
 export interface QueueGraphEdgeActivity {
   hot: boolean
@@ -522,6 +769,7 @@ export function QueueGraphCanvas({
   layout,
   nodeState,
   edgeActivity,
+  edgeState,
   packets = [],
   ariaLabel = 'Zephyr IPC data-flow topology',
   focusedNodeId = null,
@@ -531,6 +779,7 @@ export function QueueGraphCanvas({
   layout: QueueGraphLayout
   nodeState?: ReadonlyMap<string, QueueGraphNodeState>
   edgeActivity?: ReadonlyMap<string, QueueGraphEdgeActivity>
+  edgeState?: ReadonlyMap<string, QueueGraphEdgeState>
   packets?: QueueGraphPacket[]
   ariaLabel?: string
   /** Node to ring as the one the graph is focused on. */
@@ -574,6 +823,10 @@ export function QueueGraphCanvas({
         return state ? ({ ...node, ...state } as DisplayLayoutNode) : node
       }),
     [layout.nodes, nodeState],
+  )
+  const labelById = useMemo(
+    () => new Map(displayNodes.map((node) => [node.id, node.label])),
+    [displayNodes],
   )
 
   useLayoutEffect(() => {
@@ -741,7 +994,7 @@ export function QueueGraphCanvas({
           <pattern id="mock-grid" width={24} height={24} patternUnits="userSpaceOnUse">
             <path d="M24 0H0V24" fill="none" stroke="#243044" strokeWidth={0.5} opacity={0.42} />
           </pattern>
-          {(['put', 'put-front', 'get', 'push', 'pop'] as const).map((action) => (
+          {ARROW_ACTIONS.map((action) => (
             <marker
               key={action}
               id={markerId(action)}
@@ -756,6 +1009,21 @@ export function QueueGraphCanvas({
               <path d="M0 0L10 5L0 10Z" fill={flowActionColor(action)} />
             </marker>
           ))}
+          {[WAIT_MARKER, WAIT_MARKER_START].map((id) => (
+            <marker
+              key={id}
+              id={id}
+              viewBox="0 0 10 10"
+              refX={9}
+              refY={5}
+              markerWidth={9}
+              markerHeight={9}
+              markerUnits="userSpaceOnUse"
+              orient={id === WAIT_MARKER ? 'auto' : 'auto-start-reverse'}
+            >
+              <path d="M0 0L10 5L0 10Z" fill={WAIT_COLOR} />
+            </marker>
+          ))}
         </defs>
         <rect width="100%" height="100%" fill={PANEL} />
         <g transform={transform}>
@@ -768,6 +1036,8 @@ export function QueueGraphCanvas({
                 edge={edge}
                 active={hoveredEdge == null || hoveredEdge === edge.id}
                 activity={edgeActivity?.get(edge.id)}
+                state={edgeState?.get(edge.id)}
+                title={edgeTitle(edge, labelById, edgeState?.get(edge.id))}
                 onHover={setHoveredEdge}
               />
             ))}

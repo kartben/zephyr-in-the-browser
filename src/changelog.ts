@@ -57,6 +57,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
+        "text": "Trace IPC shows mutexes, semaphores and condvars, and who holds them."
+      },
+      {
+        "tag": "Added",
         "text": "ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep."
       },
       {
