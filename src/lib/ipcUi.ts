@@ -17,6 +17,12 @@ export interface IpcFilter {
   focus: string | null
   /** Show the semaphores, mutexes and condvars only one thread or ISR uses. */
   showPrivate: boolean
+  /**
+   * An object (or thread) a tour asked to focus on by name, until the graph
+   * has a node of that name to turn it into a focus: the object may not have
+   * shown up in the trace yet.
+   */
+  focusName: string | null
 }
 
 export const NO_IPC_FILTER: IpcFilter = {
@@ -24,6 +30,7 @@ export const NO_IPC_FILTER: IpcFilter = {
   query: '',
   focus: null,
   showPrivate: false,
+  focusName: null,
 }
 
 let state: IpcFilter = NO_IPC_FILTER
@@ -52,6 +59,16 @@ export function setIpcFocus(nodeId: string | null): void {
   if (state.focus !== nodeId) set({ ...state, focus: nodeId })
 }
 
+/** Show the whole graph, focused on the object of this name once it is in it. */
+export function focusIpcObject(name: string): void {
+  set({ ...NO_IPC_FILTER, focusName: name })
+}
+
+/** The graph found the node a tour named: focus on it. */
+export function resolveIpcFocus(nodeId: string): void {
+  set({ ...state, focus: nodeId, focusName: null })
+}
+
 export function toggleIpcKind(kind: string): void {
   const hiddenKinds = new Set(state.hiddenKinds)
   if (!hiddenKinds.delete(kind)) hiddenKinds.add(kind)
@@ -67,5 +84,5 @@ export function toggleIpcPrivate(): void {
 }
 
 export function clearIpcFilter(): void {
-  if (isFiltered(state) || state.showPrivate) set(NO_IPC_FILTER)
+  if (isFiltered(state) || state.showPrivate || state.focusName !== null) set(NO_IPC_FILTER)
 }

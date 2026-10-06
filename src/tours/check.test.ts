@@ -281,6 +281,13 @@ describe('checkTour', () => {
     ])
   })
 
+  it('fails a look that focuses the IPC graph on a symbol the ELF lacks', () => {
+    const doc = tour(['at: main', 'look:', '  - trace.ipc.counter[1]', '  - trace.ipc.absent'].join('\n'))
+    expect(checkTour(doc, context()).map((f) => [f.kind, f.message])).toEqual([
+      ['symbol', '`look: trace.ipc.absent`: no symbol `absent` in this build'],
+    ])
+  })
+
   it('fails a check naming a symbol the ELF lacks, since it could never pass', () => {
     const doc = tour(
       [
