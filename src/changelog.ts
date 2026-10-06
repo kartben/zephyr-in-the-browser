@@ -186,6 +186,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "Trace charts are readable in light mode."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Thread and object lists no longer pass the last stop off as current."
       }
     ]
   },

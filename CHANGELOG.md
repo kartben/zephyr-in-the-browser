@@ -47,6 +47,7 @@ via the help dialog (?).
 - **Fixed:** Cortex-A53 samples boot without an "xlat tables low" warning.
 - **Fixed:** Trace's IPC graph keeps your zoom as new routes appear.
 - **Fixed:** Trace charts are readable in light mode.
+- **Fixed:** Thread and object lists no longer pass the last stop off as current.
 
 ## [0.5.0] - 2026-07-31
 

@@ -99,7 +99,15 @@ export function KernelObjectsPane({
       {groups.length === 0 ? (
         <p className="px-1 py-3 text-center text-[11px] text-foreground/50">No matching objects.</p>
       ) : (
-        <div ref={listRef} className="max-h-[min(30rem,62vh)] space-y-1.5 overflow-auto pr-0.5">
+        <div
+          ref={listRef}
+          aria-busy={snap.objectsLoading || undefined}
+          // Last stop's objects while this stop's walk runs: dimmed until it lands.
+          className={cn(
+            'max-h-[min(30rem,62vh)] space-y-1.5 overflow-auto pr-0.5 transition-opacity',
+            snap.objectsLoading && 'opacity-50',
+          )}
+        >
           {groups.map((type) => (
             <details
               key={type.addr}

@@ -91,8 +91,17 @@ export function TourObjects({
     return <Note>The kernel has none of these yet.</Note>
   }
 
+  // Last stop's objects while this stop's walk runs: dimmed, not passed off as current.
+  const stale = snap.objectsLoading
   return (
-    <div className="overflow-hidden rounded border border-border bg-muted/30">
+    <div
+      aria-busy={stale || undefined}
+      title={stale ? 'Reading the kernel…' : undefined}
+      className={cn(
+        'overflow-hidden rounded border border-border bg-muted/30 transition-opacity',
+        stale && 'opacity-50',
+      )}
+    >
       {groups.map((type) => {
         const shown = type.objects.slice(0, MAX_ROWS)
         return (

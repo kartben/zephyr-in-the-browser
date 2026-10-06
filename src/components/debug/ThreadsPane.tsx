@@ -79,12 +79,15 @@ export function ThreadsPane({
   })
   const objectCoreThreads =
     snap.objects?.types.find((type) => type.code === 'THRD')?.objects ?? []
+  // The rows are the last stop's while this one's walk runs: dim them, and
+  // claim no running thread, rather than show the old state as the new.
+  const stale = snap.threadsLoading
 
   return (
-    <div className="space-y-1.5">
-      {threads.some((thread) => thread.objectCore) && (
+    <div className="space-y-1.5" aria-busy={stale || undefined}>
+      {(stale || threads.some((thread) => thread.objectCore)) && (
         <div className="flex items-center justify-between px-1 text-[9px] uppercase tracking-wide text-foreground/40">
-          <span>Live from the kernel</span>
+          <span>{stale ? 'Reading the kernel…' : 'Live from the kernel'}</span>
           <span className="font-mono tabular-nums">
             {threads.length === snap.threads.length
               ? `${threads.length} threads`
@@ -92,8 +95,15 @@ export function ThreadsPane({
           </span>
         </div>
       )}
-      <ul ref={listRef} className="max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5">
+      <ul
+        ref={listRef}
+        className={cn(
+          'max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5 transition-opacity',
+          stale && 'opacity-50',
+        )}
+      >
         {threads.map((t) => {
+          const current = t.current && !stale
           const status = describeThreadStatus(t)
           const stackAddr = t.stackStart ?? t.sp
           const runtimeStats = objectCoreThreads.find((obj) => obj.addr === t.addr)?.stats
@@ -107,14 +117,14 @@ export function ThreadsPane({
               data-thread-name={t.name}
               className={cn(
                 'rounded-md px-2 py-1.5',
-                t.current ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-muted/50',
+                current ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-muted/50',
               )}
             >
               <div className="flex items-baseline gap-2">
                 <span
                   className={cn(
                     'mt-1.5 size-1.5 shrink-0 rounded-full',
-                    t.current ? 'bg-primary' : 'bg-foreground/35',
+                    current ? 'bg-primary' : 'bg-foreground/35',
                   )}
                   aria-hidden
                 />
