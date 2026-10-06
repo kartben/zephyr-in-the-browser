@@ -67,7 +67,7 @@ describe('dockStore persistence', () => {
     dock.setExpanded('virtio_i2c0:48', true)
     dock.setHidden('net', true)
     dock.setWindowed('virtio_i2c0:50', true)
-    dock.toggleGroup('sensor')
+    dock.setGroupCollapsed('sensor', false)
 
     dock.reloadFromStorage()
     const state = dock.getState()
@@ -77,8 +77,8 @@ describe('dockStore persistence', () => {
     expect(state.devices['virtio_i2c0:48']).toEqual({ expanded: true })
     expect(state.devices['net']).toEqual({ hidden: true })
     expect(state.devices['virtio_i2c0:50']).toEqual({ windowed: true })
-    expect(dock.groupCollapsed('sensor')).toBe(true)
-    expect(dock.groupCollapsed('net')).toBe(false)
+    expect(dock.groupCollapsedIn(dock.getState(), 'sensor', ['sensor'])).toBe(false)
+    expect(dock.groupCollapsedIn(dock.getState(), 'net', ['net'])).toBe(true)
   })
 
   it('discards a stored blob with the wrong version or bad JSON', () => {
@@ -197,6 +197,36 @@ describe('seeding and expansion precedence', () => {
     // …but what the user hid or popped out is about their screen, and stays.
     expect(dock.isHidden('gnss')).toBe(true)
     expect(dock.isWindowed('virtio_i2c0:50')).toBe(true)
+  })
+
+  it('folds class groups unless they hold a primary device', () => {
+    dock.seedForSelection('a53:blinky', { primary: ['led', 'gpio'], expandAll: false })
+    const state = () => dock.getState()
+    expect(dock.groupCollapsedIn(state(), 'led', ['led'])).toBe(false)
+    expect(dock.groupCollapsedIn(state(), 'gpio', [undefined, 'gpio'])).toBe(false)
+    expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor', 'sensor'])).toBe(true)
+    expect(dock.groupCollapsedIn(state(), 'memory', [undefined])).toBe(true)
+
+    dock.setGroupCollapsed('led', true)
+    dock.setGroupCollapsed('sensor', false)
+    expect(dock.groupCollapsedIn(state(), 'led', ['led'])).toBe(true)
+    expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor'])).toBe(false)
+
+    // A new sample speaks for its groups too.
+    dock.seedForSelection('a53:sensors', { primary: ['sensor'], expandAll: false })
+    expect(dock.groupCollapsedIn(state(), 'led', ['led'])).toBe(true)
+    expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor'])).toBe(false)
+  })
+
+  it('foldGroups folds even primary groups; expandAll opens them all', () => {
+    dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false, foldGroups: true })
+    expect(dock.groupCollapsedIn(dock.getState(), 'i2c-bus', ['i2c'])).toBe(true)
+    expect(dock.effectiveExpanded('virtio_i2c0', 'i2c')).toBe(true)
+    dock.reloadFromStorage()
+    expect(dock.getState().seed.foldGroups).toBe(true)
+
+    dock.seedForSelection('custom:blob.elf', { primary: [], expandAll: true })
+    expect(dock.groupCollapsedIn(dock.getState(), 'sensor', ['sensor'])).toBe(false)
   })
 
   it('effectiveExpandedIn is pure over an explicit state', () => {

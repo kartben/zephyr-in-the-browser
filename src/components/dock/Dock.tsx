@@ -31,12 +31,13 @@ import {
   DOCK_MIN_WIDTH,
   effectiveExpandedIn,
   getState,
+  groupCollapsedIn,
   setDrawerOpen,
+  setGroupCollapsed,
   setOpen,
   setView,
   setWidth,
   subscribe,
-  toggleGroup,
 } from '@/lib/dockStore'
 
 const REM = 16
@@ -78,7 +79,12 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
     let collapsedClass: string | null = null
     for (const row of rows) {
       if (row.kind === 'group') {
-        const collapsed = state.groups[row.deviceClass]?.collapsed ?? false
+        const members = inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)
+        const collapsed = groupCollapsedIn(
+          state,
+          row.deviceClass,
+          members.map((n) => n.panelKind),
+        )
         collapsedClass = collapsed ? row.deviceClass : null
         next.push(
           <DockGroupRow
@@ -86,14 +92,9 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
             label={row.label}
             count={row.count}
             collapsed={collapsed}
-            onToggle={() => toggleGroup(row.deviceClass)}
+            onToggle={() => setGroupCollapsed(row.deviceClass, !collapsed)}
             badge={
-              collapsed ? (
-                <GroupBadge
-                  deviceClass={row.deviceClass}
-                  nodes={inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)}
-                />
-              ) : undefined
+              collapsed ? <GroupBadge deviceClass={row.deviceClass} nodes={members} /> : undefined
             }
           />,
         )
@@ -118,7 +119,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
       )
     }
     return next
-  }, [inventory, state.open, state.drawerOpen, state.view, state.devices, state.groups])
+  }, [inventory, state.open, state.drawerOpen, state.view, state.devices, state.groups, state.seed])
 
   // Two different things share one sidebar: a persistent desktop column, and a
   // drawer that covers the stage on a phone and so starts closed every visit.

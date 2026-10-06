@@ -97,7 +97,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Device dock says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed."
+        "text": "Device dock opens folded to the sample's devices, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed."
       },
       {
         "tag": "Changed",
