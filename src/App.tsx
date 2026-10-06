@@ -538,8 +538,9 @@ export default function App() {
                 onTeardown={handleTeardown}
               />
               {/* A tour step may have stopped the machine, so its card sits above
-                  the panels but below the z-50 modals. */}
-              <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center md:inset-x-4 md:top-4">
+                  the panels but below the z-50 modals. The box spans the stage,
+                  so a card can take its full height. */}
+              <div className="pointer-events-none absolute inset-3 z-30 flex flex-col items-end md:inset-4">
                 <TourCard board={getBoard(boardId)} sampleId={sampleId} />
               </div>
             </>

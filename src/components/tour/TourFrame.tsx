@@ -1,7 +1,8 @@
 /**
  * The shell every tour card shares: header, scrolling body, footer, and the
- * window manners. A card starts at its home, centered over the top of the
- * terminal, where it can cover exactly the output a step is about. Dragging the
+ * window manners. A card starts at its home, against the right of the stage,
+ * next to the dock its steps point at and clear of the terminal's left-aligned
+ * output, and grows to the stage's height before its body scrolls. Dragging the
  * header lifts it out to wherever the reader wants it, and every edge and
  * corner resizes it, the way a popped-out device window does (PanelFrame).
  * Double-clicking the header sends it home.
@@ -11,6 +12,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -76,17 +78,44 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
 
   const sized = layout?.sized === true
 
+  // Whether the body has more below what it shows. The scroller's own box
+  // stops changing once it reaches its limit, so watch the content inside it.
+  const scroller = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+  const measureMore = useCallback(() => {
+    const el = scroller.current
+    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4)
+  }, [])
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measureMore)
+    if (scroller.current) observer.observe(scroller.current)
+    if (content.current) observer.observe(content.current)
+    return () => observer.disconnect()
+  }, [measureMore])
+
   return (
     <div
       {...rest}
       ref={frame}
       className={cn(
         'pointer-events-auto relative flex flex-col rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur',
-        layout ? 'fixed' : 'w-full max-w-[34rem]',
+        layout ? 'fixed' : 'max-h-full min-h-0 w-full max-w-[34rem]',
       )}
       style={
         layout
-          ? { left: layout.x, top: layout.y, width: layout.w, ...(sized ? { height: layout.h } : {}) }
+          ? {
+              left: layout.x,
+              top: layout.y,
+              width: layout.w,
+              // Down to the bottom of the window, but never so short that a
+              // card left near the bottom could not hold a step: the clamp
+              // below lifts it instead.
+              ...(sized
+                ? { height: layout.h }
+                : { maxHeight: `max(min(30rem, 64vh), calc(100vh - ${layout.y}px - 12px))` }),
+            }
           : undefined
       }
     >
@@ -107,14 +136,20 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
       </div>
 
       <div
-        className={cn(
-          'overflow-y-auto',
-          sized ? 'min-h-0 flex-1' : 'max-h-[min(30rem,64vh)]',
-          bodyClassName,
-        )}
+        ref={scroller}
+        onScroll={measureMore}
+        className={cn('min-h-0 overflow-y-auto', sized && 'flex-1')}
       >
-        {children}
+        <div ref={content} className={bodyClassName}>
+          {children}
+        </div>
       </div>
+      {/* The body goes on below its edge: say so, rather than leave a cut-off line to hint it. */}
+      {more && (
+        <div aria-hidden className="pointer-events-none relative h-0">
+          <div className="absolute inset-x-0 bottom-0 h-8 bg-linear-to-t from-card to-transparent" />
+        </div>
+      )}
 
       <div className="flex items-center gap-2 border-t border-border px-3 py-2">{footer}</div>
 
