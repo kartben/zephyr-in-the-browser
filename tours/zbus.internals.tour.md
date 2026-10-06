@@ -151,7 +151,10 @@ that buffer, not the channel's message.
 
 On the traced build, **Trace → IPC** shows what zbus built for these
 observers, under the names it gave them: the subscriber's queue, this
-listener's FIFO, and the pool the message buffers come from.
+listener's FIFO, and the pool the message buffers come from. It draws the
+channel's lock too: the semaphore `chan_lock()` took, which has no name of
+its own and shows as its address, with `subscriber_task_id`'s dashed route
+still waiting for it.
 
 ## What you saw
 

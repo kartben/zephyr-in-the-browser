@@ -98,6 +98,7 @@ calls `k_mutex_unlock()`, the kernel gives the mutex to the waiting thread.
 at: z_thread_prio_set
 when: first
 threads: yes
+look: trace.ipc.fork_objs[5]
 ```
 
 Philosopher 5 (priority -2) is now waiting on philosopher 4 (priority -1).
@@ -108,6 +109,10 @@ unlocks the fork. That happens right here: the thread list still shows -1,
 because the change is about to be made.
 
 You didn't have to ask for this. Every `k_mutex` does it.
+
+On the traced build, **Trace → IPC** shows the moment from the trace:
+philosopher 5's dashed route waits on `fork_objs[5]`, and the bold one is
+philosopher 4 holding it.
 
 ## The whole table, mid-meal
 
