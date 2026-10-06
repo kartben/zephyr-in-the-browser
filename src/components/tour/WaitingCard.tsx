@@ -10,6 +10,7 @@
 
 import { GraduationCap, Hand } from 'lucide-react'
 import { Markdown, PROSE } from '@/components/Markdown'
+import { TourTitle } from '@/components/tour/IntroCard'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
 import { TourFrame } from '@/components/tour/TourFrame'
 import { StartedAt } from '@/components/tour/TourLink'
@@ -23,9 +24,19 @@ interface Props {
   seen: Set<number>
   /** The step a link started the tour at, when this is the first card it shows. */
   startedAt?: number | null
+  /** The tour's title, for the header; with `hasIntro` it opens the intro again. */
+  title?: string | null
+  hasIntro?: boolean
 }
 
-export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
+export function WaitingCard({
+  waiting,
+  steps,
+  seen,
+  startedAt = null,
+  title = null,
+  hasIntro = false,
+}: Props) {
   const total = steps.length
   return (
     // data-tour-*: the step this card waits on, for the headless playthrough.
@@ -35,7 +46,8 @@ export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
       header={
         <>
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {title && <TourTitle title={title} hasIntro={hasIntro} />}
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
             {total > 0 ? `${waiting.index + 1}/${total}` : waiting.index + 1}
           </span>
           <TourOutline steps={steps} seen={seen} currentIndex={waiting.index} />

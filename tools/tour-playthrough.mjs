@@ -11,7 +11,8 @@
  *   1. open ?board=<board>&app=<app>&backend=qemu&test=1, which boots the
  *      sample with its tour and installs window.__zitbTest
  *      (src/lib/testHooks.ts);
- *   2. wait for each step's card, [data-tour-step="<n>"], in order;
+ *   2. wait for each step's card, [data-tour-step="<n>"], in order, pressing
+ *      Start on the intro card ([data-tour-intro]) first when the tour has one;
  *   3. on the way to a step that needs the reader, do their part: type the
  *      step's `do:` lines, then run its `ci:` actions (`press sw0`, ...);
  *   4. click Continue (or Got it), allowing 30 s per step;
@@ -295,6 +296,11 @@ async function playStep(page, step, info, opts, reloaded) {
   for (;;) {
     // A reload restarts the tour from step 1, which would read as a step out of order.
     if (reloaded()) throw new TourFailure(`${where}: the page reloaded during the tour`)
+    // A tour with an intro opens on its own card, whose Start comes alive
+    // with the first stop; the step cards are behind it until then.
+    const start = page.locator('[data-tour-intro] [data-tour-start]:not([disabled])')
+    if (await start.count()) await start.click({ timeout: 10_000 })
+
     const card = await page.evaluate(CARD_PROBE)
     const last = await page.evaluate(() => window.__zitbTest.tourState())
     const problems = problemsOf(last)

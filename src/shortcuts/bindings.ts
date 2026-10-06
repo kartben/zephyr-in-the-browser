@@ -84,12 +84,21 @@ export function installShortcutBindings(): () => void {
     }),
 
     onShortcut('tour-continue', () => {
+      // Over the intro card, Continue is its button: never the step behind it,
+      // which the reader has not seen yet.
+      const intro = tours.getSnapshot()
+      if (intro.enabled && intro.intro) {
+        if (!tours.introReady(intro) && intro.intro === 'first') return false
+        tours.closeIntro()
+        return
+      }
       if (!tourActive()) return false
       tours.next()
     }),
     onShortcut('tour-step', () => {
       if (!tourActive()) return false
       const state = tours.getSnapshot()
+      if (state.intro) return false
       if (!state.current?.paused || !state.live) return false
       void debug.step()
     }),

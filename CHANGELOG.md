@@ -25,7 +25,8 @@ via the help dialog (?).
 - **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
 - **Improved:** Larger, higher-contrast tour text in both themes.
 - **Improved:** Blinky tours: a page tour that chains on, and one through the code.
-- **Improved:** Tours open with their intro; cards move, resize and show only relevant threads.
+- **Improved:** Tours open on an intro card listing their stops.
+- **Improved:** Tour cards move, resize and show only relevant threads.
 - **Improved:** Device dock opens folded to the sample's devices, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
 - **Improved:** Tour cards sit beside the dock and use the full height.

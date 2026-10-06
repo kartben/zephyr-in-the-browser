@@ -175,6 +175,13 @@ export interface TourState {
   startIndex: number
   /** The reader has not turned tours off. */
   enabled: boolean
+  /**
+   * The intro card is up, over whatever else is. `first` is the card a tour
+   * with an intro opens on, before its first stop: its button starts the tour.
+   * `again` is the same card opened from a card's header, to read the intro
+   * and the map once more: its button goes back.
+   */
+  intro: 'first' | 'again' | null
   /** Breakpoints are planted; the tour is waiting for the guest to arrive. */
   armed: boolean
   /** A real gdb session is driving. False on the mock backend's replay. */
@@ -206,6 +213,7 @@ const EMPTY: TourState = {
   tourId: null,
   startIndex: 0,
   enabled: true,
+  intro: null,
   armed: false,
   live: false,
   current: null,
@@ -481,6 +489,7 @@ export async function loadFor(
     doc,
     tourId,
     startIndex,
+    intro: doc.intro ? 'first' : null,
     problems: [...doc.problems],
     finished: false,
     completed: false,
@@ -1184,12 +1193,31 @@ export function revisit(index: number): void {
 /** Leave the tour: drop the breakpoints, resume, say nothing more. */
 export function skip(): void {
   const wasStopped = state.current?.paused ?? false
-  publish({ current: null, waiting: null, finished: true, completed: false })
+  publish({ intro: null, current: null, waiting: null, finished: true, completed: false })
   void (async () => {
     await disarm()
     publish({ armed: false, finished: true })
     if (state.live && (wasStopped || gdb.getSnapshot().paused)) debug.resume()
   })()
+}
+
+/**
+ * Whether the intro card's Start has somewhere to go: the first card is up
+ * behind it, or the reader's first turn, or the end. Until then Start would
+ * only swap the intro for an empty stage.
+ */
+export function introReady(s: TourState): boolean {
+  return s.current !== null || s.waiting !== null || s.completed
+}
+
+/** Close the intro card: Start on a tour's first card, Back when read again. */
+export function closeIntro(): void {
+  publish({ intro: null })
+}
+
+/** Open the intro card again, over the card the reader is on. */
+export function openIntro(): void {
+  if (state.doc?.intro) publish({ intro: 'again' })
 }
 
 /** Close the completion card. The tour is already over, so nothing else changes. */
@@ -1227,6 +1255,8 @@ export function reset(): void {
 
 /** Beat between steps when nothing is waiting on the reader. */
 const DEMO_STEP_MS = 3200
+/** How often a replay held by the intro card looks again. */
+const DEMO_HOLD_MS = 300
 
 /**
  * Walk a tour with no machine underneath it.
@@ -1253,6 +1283,7 @@ export function startDemo(
       doc,
       tourId,
       startIndex,
+      intro: doc.intro ? 'first' : null,
       live: false,
       armed: false,
       problems: [...doc.problems],
@@ -1267,6 +1298,12 @@ export function startDemo(
     const tick = () => {
       // Leaving the tour ends the replay too, or the next beat puts a card back.
       if (signal.aborted || !state.enabled || state.finished) return
+      // The intro card holds the replay once there is a card behind it, the
+      // way a real stop waits for Start.
+      if (state.intro && introReady(state)) {
+        demoTimer = setTimeout(tick, DEMO_HOLD_MS)
+        return
+      }
       const runtime = steps[index]
       if (!runtime) {
         publish({ current: null, waiting: null, finished: true, completed: true })

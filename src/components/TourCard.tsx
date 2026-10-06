@@ -18,6 +18,7 @@ import { SourceSnippet } from '@/components/SourceSnippet'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
 import { CheckResults } from '@/components/tour/CheckResults'
 import { CompletionCard, useTourTitle } from '@/components/tour/CompletionCard'
+import { IntroCard, TourTitle } from '@/components/tour/IntroCard'
 import { TourHexdump } from '@/components/tour/TourHexdump'
 import { TourObjects } from '@/components/tour/TourObjects'
 import { TourOutline } from '@/components/tour/TourOutline'
@@ -90,6 +91,9 @@ export function TourCard({ board, sampleId }: Props) {
   const nextTitle = useTourTitle(state.doc?.next ?? null)
 
   if (!state.enabled) return null
+  if (state.intro && state.doc?.intro) {
+    return <IntroCard boardId={board.id} sampleId={sampleId} state={state} />
+  }
   if (!card) {
     // Between cards: the tour is over, or the reader has something to do.
     if (state.completed && state.doc?.outro) {
@@ -110,6 +114,8 @@ export function TourCard({ board, sampleId }: Props) {
           steps={state.doc?.steps ?? []}
           seen={state.seen}
           startedAt={startedAt(state, state.waiting.index)}
+          title={state.doc?.title ?? null}
+          hasIntro={Boolean(state.doc?.intro)}
         />
       )
     }
@@ -143,9 +149,6 @@ export function TourCard({ board, sampleId }: Props) {
       : null
 
   const startedAtStep = startedAt(state, step.index)
-  // The text before the first step goes on the first card a reader sees: step
-  // 1, or the step a `?step=` link entered at, also when they come back to it.
-  const intro = state.doc && step.index === state.startIndex ? state.doc.intro : ''
 
   // The data-tour-* attributes are what the headless playthrough waits on
   // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
@@ -156,7 +159,8 @@ export function TourCard({ board, sampleId }: Props) {
       header={
         <>
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {state.doc && <TourTitle title={state.doc.title} hasIntro={Boolean(state.doc.intro)} />}
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
             {total > 0 ? `${step.index + 1}/${total}` : step.index + 1}
           </span>
           <TourOutline
@@ -226,15 +230,6 @@ export function TourCard({ board, sampleId }: Props) {
       }
       bodyClassName="space-y-2.5 px-3 py-2.5"
     >
-      {intro && state.doc && (
-        <div data-tour-intro className="space-y-2 border-b border-border/70 pb-2.5">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            <InlineMarkdown text={state.doc.title} />
-          </p>
-          <Markdown body={intro} className={PROSE} />
-        </div>
-      )}
-
       <h2 className="text-base font-semibold leading-snug text-foreground">
         <InlineMarkdown text={step.title} />
       </h2>

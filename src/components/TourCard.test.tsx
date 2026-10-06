@@ -21,6 +21,9 @@ vi.mock('@/tours/store', () => ({
   revisit: vi.fn(),
   dismissCompletion: vi.fn(),
   fetchTour: vi.fn(async () => null),
+  openIntro: vi.fn(),
+  closeIntro: vi.fn(),
+  introReady: (s: TourState) => s.current !== null || s.waiting !== null || s.completed,
 }))
 
 vi.mock('@/debug/control', () => ({
@@ -72,6 +75,7 @@ function render(state: Partial<TourState>): string {
     tourId: 'basic_button',
     startIndex: 0,
     enabled: true,
+    intro: null,
     armed: true,
     live: true,
     current: null,
@@ -157,26 +161,57 @@ describe('TourCard intro', () => {
   )
   const cardOf = (index: number): TourCardState => ({ ...card(0), step: withIntro.steps[index]! })
 
-  it('opens the first card with the tour title and the text before step 1', () => {
-    const html = render({ doc: withIntro, current: cardOf(0), seen: new Set([0]) })
+  const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+
+  it('opens on its own card, with the title, the text before step 1 and the stops', () => {
+    const html = render({ doc: withIntro, intro: 'first' })
     expect(html).toContain('data-tour-intro')
-    expect(html).toContain('Sensor pipeline')
-    expect(html).toContain('Three sensors feed an aggregator.')
-    expect(html.indexOf('Three sensors')).toBeLessThan(html.indexOf('First stop.'))
+    expect(text(html)).toContain('Sensor pipeline')
+    expect(text(html)).toContain('Three sensors feed an aggregator.')
+    expect(text(html)).toContain('In this tour, 2 stops')
+    expect(text(html)).toMatch(/1 Waits 2 Sends/)
   })
 
-  it('leaves it off the cards after', () => {
-    const html = render({ doc: withIntro, current: cardOf(1), seen: new Set([0, 1]) })
+  it('waits for the first stop before it offers Start', () => {
+    const html = render({ doc: withIntro, intro: 'first' })
+    expect(html).toMatch(/<button[^>]*data-tour-start[^>]*disabled/)
+    expect(text(html)).toContain('Waiting for the first stop')
+  })
+
+  it('offers Start over the first stop, without showing the step yet', () => {
+    const stopped = { ...cardOf(0), paused: true }
+    const html = render({ doc: withIntro, intro: 'first', current: stopped, seen: new Set([0]) })
+    expect(html).not.toMatch(/<button[^>]*data-tour-start[^>]*disabled/)
+    expect(text(html)).toMatch(/\sStart\s/)
+    expect(text(html)).toContain('The guest is paused at the first stop')
+    expect(html).not.toContain('data-tour-step')
+    expect(html).not.toContain('First stop.')
+  })
+
+  it('starts where a `?step=` link entered', () => {
+    const html = render({ doc: withIntro, intro: 'first', current: cardOf(1), startIndex: 1, seen: new Set([1]) })
+    expect(text(html)).toContain('Start at stop 2')
+    expect(text(html)).toContain('In this tour, 2 stops, from stop 2')
+  })
+
+  it('offers Back when opened again', () => {
+    const html = render({ doc: withIntro, intro: 'again', current: cardOf(1), seen: new Set([0, 1]) })
+    expect(text(html)).toMatch(/\sBack\s/)
+    expect(html).not.toContain('data-tour-start')
+  })
+
+  it('leaves the step cards to the step, with the title in the header to open it again', () => {
+    const html = render({ doc: withIntro, current: cardOf(0), seen: new Set([0]) })
+    expect(html).toContain('data-tour-step="1"')
+    expect(html).not.toContain('Three sensors')
+    expect(html).toContain('read the intro again')
+  })
+
+  it('has no intro card, and no way back to one, for a tour with no intro', () => {
+    const html = render({ intro: 'first', current: card(0), seen: new Set([0]) })
+    expect(html).toContain('data-tour-step="1"')
     expect(html).not.toContain('data-tour-intro')
-  })
-
-  it('puts it on the step a `?step=` link entered at', () => {
-    const html = render({ doc: withIntro, current: cardOf(1), startIndex: 1, seen: new Set([1]) })
-    expect(html).toContain('Three sensors feed an aggregator.')
-  })
-
-  it('shows nothing extra for a tour with no intro', () => {
-    expect(render({ current: card(0), seen: new Set([0]) })).not.toContain('data-tour-intro')
+    expect(html).not.toContain('read the intro again')
   })
 })
 
