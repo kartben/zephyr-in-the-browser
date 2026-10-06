@@ -31,6 +31,7 @@ import {
   subscribe as subscribeDock,
   tabIn,
 } from '@/lib/dockStore'
+import { getDockTargets, subscribe as subscribeTarget } from '@/lib/dockTarget'
 
 type InspectTab = 'cpu' | 'stack' | 'memory' | 'threads' | 'objects'
 
@@ -54,6 +55,11 @@ export function DebugBody() {
 
   const tab = tabIn(dock, STAGE_DEBUG_KEY, INSPECT_TABS, 'cpu') as InspectTab
   const setTab = (id: InspectTab) => setStoredTab(STAGE_DEBUG_KEY, id)
+  // The section a tour card on screen is about keeps a mark, even once the
+  // reader has picked another: see lib/dockTarget.ts.
+  const targets = useSyncExternalStore(subscribeTarget, getDockTargets, getDockTargets)
+  const tabTargeted = (id: InspectTab) =>
+    targets.some((target) => target.key === STAGE_DEBUG_KEY && target.tab === id)
   const [peekAddr, setPeekAddr] = useState<string | null>(null)
   const [stackThread, setStackThread] = useState<number | null>(null)
   const [stepping, setStepping] = useState(false)
@@ -183,6 +189,7 @@ export function DebugBody() {
                     tab === id
                       ? 'bg-secondary text-foreground'
                       : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
+                    tabTargeted(id) && 'dock-tab-target',
                   )}
                   onClick={() => setTab(id)}
                 >

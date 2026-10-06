@@ -9,14 +9,28 @@
 
 import * as hostTrace from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
-import { revealDockRow, revealPanelKind } from '@/lib/dockReveal'
-import { STAGE_TRACE_KEY, getState, setTab } from '@/lib/dockStore'
+import {
+  blinkDockRow,
+  panelKindRow,
+  revealDockRow,
+  revealPanelKind,
+  type RevealOptions,
+} from '@/lib/dockReveal'
+import { STAGE_DEBUG_KEY, STAGE_TRACE_KEY, getState, setTab } from '@/lib/dockStore'
+import { setDockTargets, type DockTarget } from '@/lib/dockTarget'
 import * as ipcUi from '@/lib/ipcUi'
 import { getMode } from '@/lib/modeStore'
 import type { LookSpec, TourStep } from '@/tours/parse'
 
 /** The card's line for a step that points at Trace on a guest without it. */
 export const NO_TRACE_NOTE = 'This view needs the traced build of this sample.'
+
+/**
+ * How long after a card lands the rows it points at blink: long enough for the
+ * reader's eye to have gone to the card, so the blink is a second thing to
+ * notice rather than part of the first.
+ */
+export const BLINK_AFTER_MS = 400
 
 /**
  * Whether the Trace row is in the dock: the guest writes a trace, a live board
@@ -43,7 +57,7 @@ function looksOf(step: Pick<TourStep, 'panel' | 'look'>): LookSpec[] {
 }
 
 /** Open one view: a Trace tab, a Debug section, or a dock row. */
-export function focusLook(look: LookSpec): void {
+export function focusLook(look: LookSpec, opts: RevealOptions = {}): void {
   switch (look.kind) {
     case 'trace':
       // The tab first, so the row expands onto it rather than switching after.
@@ -52,13 +66,13 @@ export function focusLook(look: LookSpec): void {
       // whatever the reader last narrowed it to.
       if (look.focus) ipcUi.focusIpcObject(look.focus)
       else if (look.tab === 'queues') ipcUi.clearIpcFilter()
-      revealDockRow(STAGE_TRACE_KEY)
+      revealDockRow(STAGE_TRACE_KEY, undefined, opts)
       return
     case 'debug':
-      debugUi.focusDebug(look.section)
+      debugUi.focusDebug(look.section, opts)
       return
     case 'dock':
-      revealPanelKind(look.panel)
+      revealPanelKind(look.panel, opts)
       return
   }
 }
@@ -69,16 +83,73 @@ export function focusLook(look: LookSpec): void {
  * A Trace view on a guest without Trace is skipped: there is no row to show,
  * and revealing one would only open the dock onto nothing. The card says why
  * instead (see lookNotes).
+ *
+ * Quietly: this runs just before the step's card lands, and a blink then is
+ * lost under the card's arrival. The card blinks the rows once it is up; see
+ * pointAt.
  */
 export function focusStep(step: Pick<TourStep, 'panel' | 'look'>): void {
   const trace = traceOffered()
   for (const look of looksOf(step)) {
     if (needsTrace(look) && !trace) continue
-    focusLook(look)
+    focusLook(look, { quiet: true })
   }
 }
 
 /** What the card should say about views this guest cannot show. */
 export function lookNotes(step: Pick<TourStep, 'panel' | 'look'>): string[] {
   return looksOf(step).some(needsTrace) && !traceOffered() ? [NO_TRACE_NOTE] : []
+}
+
+/**
+ * The dock rows a step points at, with the tab inside each it names.
+ *
+ * Trace is listed whether or not this guest has it: a row that is not in the
+ * dock has nothing to ring, and one that turns up while the card is still on
+ * screen is ringed when it does. A `panel:` naming a part this board does not
+ * have has no row, so it adds nothing.
+ */
+export function lookTargets(step: Pick<TourStep, 'panel' | 'look'>): DockTarget[] {
+  const targets: DockTarget[] = []
+  const add = (target: DockTarget) => {
+    if (!targets.some((t) => t.key === target.key && t.tab === target.tab)) targets.push(target)
+  }
+  for (const look of looksOf(step)) {
+    switch (look.kind) {
+      case 'trace':
+        add({ key: STAGE_TRACE_KEY, tab: look.tab })
+        break
+      case 'debug':
+        add({ key: STAGE_DEBUG_KEY, tab: look.section })
+        break
+      case 'dock': {
+        const row = panelKindRow(look.panel)
+        if (row) add({ key: row.key })
+        break
+      }
+    }
+  }
+  return targets
+}
+
+/**
+ * Point the dock at what the card on screen is about.
+ *
+ * The rows the step names keep a ring for as long as its card is up, folded
+ * to one line or not, and blink once the card has landed: the card is the
+ * what, the dock is the where, and the ring is how the eye gets from one to
+ * the other. Call it as a card lands, with its step, or with null when no
+ * step's card is up. It returns what undoes it, for when that card goes.
+ */
+export function pointAt(step: Pick<TourStep, 'panel' | 'look'> | null): () => void {
+  const targets = step ? lookTargets(step) : []
+  setDockTargets(targets)
+  if (targets.length === 0) return () => {}
+  const timer = setTimeout(() => {
+    for (const key of new Set(targets.map((target) => target.key))) blinkDockRow(key)
+  }, BLINK_AFTER_MS)
+  return () => {
+    clearTimeout(timer)
+    setDockTargets([])
+  }
 }

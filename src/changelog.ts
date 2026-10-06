@@ -117,7 +117,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Tour cards sit beside the dock and use the full height."
+        "text": "Tour cards sit beside the dock, full height, and outline what they name."
       },
       {
         "tag": "Changed",

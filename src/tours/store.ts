@@ -917,8 +917,9 @@ async function showPending(): Promise<void> {
     }
   }
 
-  // Reveal before the card lands, so the row the step is about is already in
-  // view when the reader's eye goes looking for it.
+  // Open before the card lands, so the row the step is about is already in
+  // view when the reader's eye goes looking for it. Quietly: the blink waits
+  // for the card to be up, and the ring stays as long as it is (see pointAt).
   focusStep(runtime.step)
 
   const seen = new Set(state.seen)
@@ -1228,6 +1229,24 @@ export function skip(): void {
  */
 export function introReady(s: TourState): boolean {
   return s.current !== null || s.waiting !== null || s.completed
+}
+
+/**
+ * The card on screen when it is a step's, with that step: its own card, read
+ * again or not, minimised or not, or the your-turn card that waits on it. Null
+ * under the intro card, on the completion card, between cards and with tours
+ * off. The branches TourCard takes, for the ring the dock keeps round what the
+ * step points at (look.ts pointAt); `card` is how it tells that a different
+ * card has landed.
+ */
+export function cardOnScreen(
+  s: TourState,
+): { card: TourCard | TourWaiting; step: TourStep } | null {
+  if (!s.enabled || (s.intro && s.doc?.intro)) return null
+  if (s.current) return { card: s.current, step: s.current.step }
+  if (s.completed && s.doc?.outro) return null
+  const step = s.waiting && s.doc?.steps[s.waiting.index]
+  return s.waiting && step ? { card: s.waiting, step } : null
 }
 
 /** Close the intro card: Start on a tour's first card, Back when read again. */
