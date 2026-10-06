@@ -11,7 +11,7 @@
  * Sits over the stage, above the device panels and below the modals.
  */
 
-import { Fragment, useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { Bug, ChevronDown, ChevronUp, GraduationCap, Pause, Redo2 } from 'lucide-react'
 import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
@@ -31,7 +31,9 @@ import * as debug from '@/debug/control'
 import * as dtsStore from '@/devicetree'
 import { stripDtsProvenance } from '@/dts/provenance'
 import * as debugUi from '@/lib/debugUi'
+import { pointAt } from '@/tours/look'
 import {
+  cardOnScreen,
   getSnapshot,
   minimise,
   next,
@@ -97,6 +99,14 @@ export function TourCard({ board, sampleId }: Props) {
     [card?.step.dts, dtsLines],
   )
   const nextTitle = useTourTitle(state.doc?.next ?? null)
+
+  // Ring the dock rows the step on screen points at for as long as its card is
+  // up, and blink them once it has landed. A different card, even the same
+  // step's, blinks them again; folding this one to a line does not.
+  const onScreen = cardOnScreen(state)
+  const shownCard = onScreen?.card ?? null
+  const shownStep = onScreen?.step ?? null
+  useEffect(() => pointAt(shownStep), [shownCard, shownStep])
 
   if (!state.enabled) return null
   if (state.intro && state.doc?.intro) {

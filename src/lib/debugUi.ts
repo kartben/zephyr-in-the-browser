@@ -8,7 +8,7 @@ import {
   setExpanded,
   setHidden,
 } from '@/lib/dockStore'
-import { revealDockRow } from '@/lib/dockReveal'
+import { revealDockRow, type RevealOptions } from '@/lib/dockReveal'
 import * as debug from '@/debug/control'
 
 export type DebugSection =
@@ -53,8 +53,14 @@ export function getSnapshot(): DebugUiState {
   return state
 }
 
-/** Open/focus the Debug row on a section (defaults to breakpoints). */
-export function focusDebug(section: DebugSection = 'breakpoints'): void {
+/**
+ * Open/focus the Debug row on a section (defaults to breakpoints). `quiet` is
+ * revealDockRow's: a tour card opening the row, which blinks it once it is up.
+ */
+export function focusDebug(
+  section: DebugSection = 'breakpoints',
+  opts: RevealOptions = {},
+): void {
   setHidden(STAGE_DEBUG_KEY, false)
   setExpanded(STAGE_DEBUG_KEY, true)
   state = {
@@ -65,7 +71,7 @@ export function focusDebug(section: DebugSection = 'breakpoints'): void {
     objectAddr: null,
   }
   notify()
-  revealDockRow(STAGE_DEBUG_KEY)
+  revealDockRow(STAGE_DEBUG_KEY, undefined, opts)
 }
 
 /**

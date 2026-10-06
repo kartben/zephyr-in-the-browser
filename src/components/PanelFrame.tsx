@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+  type ReactNode,
+} from 'react'
 import { ChevronDown, Dock, PictureInPicture2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { isDockTargetRow, subscribe as subscribeTarget } from '@/lib/dockTarget'
 import { cn } from '@/lib/utils'
 import { useDragResize, clampBox, type ResizeEdge } from '@/hooks/useDragResize'
 import {
@@ -130,7 +138,12 @@ export function PanelFrame({
   }, [id, floating, rect])
   useEffect(() => () => savePanelLayout(id, pendingLayout.current), [id])
 
-  const setCollapsedSafe = (next: boolean | ((c: boolean) => boolean)) => {
+  // The tour card on screen is about this panel, popped out of its dock row:
+  // it keeps the row's ring here. See lib/dockTarget.ts.
+  const isTarget = () => isDockTargetRow(id)
+  const targeted = useSyncExternalStore(subscribeTarget, isTarget, isTarget)
+
+  const setCollapsedSafe =(next: boolean | ((c: boolean) => boolean)) => {
     const collapsedNext = typeof next === 'function' ? next(collapsed) : next
     // Expanding after a low drag: push up so the restored body fits.
     if (collapsed && !collapsedNext && rect) {
@@ -165,6 +178,7 @@ export function PanelFrame({
       className={cn(
         'pointer-events-auto overflow-hidden rounded-lg border border-border bg-card shadow-lg',
         floating && 'fixed z-40 flex flex-col',
+        targeted && 'dock-row-target',
       )}
       style={
         floating

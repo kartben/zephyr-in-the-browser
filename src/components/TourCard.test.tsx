@@ -26,6 +26,8 @@ vi.mock('@/tours/store', () => ({
   minimise: vi.fn(),
   restore: vi.fn(),
   introReady: (s: TourState) => s.current !== null || s.waiting !== null || s.completed,
+  // Only read for the dock's ring, which a static render never draws.
+  cardOnScreen: () => null,
 }))
 
 vi.mock('@/debug/control', () => ({

@@ -10,7 +10,7 @@
  * never wrapper elements.
  */
 
-import { memo, type ReactNode } from 'react'
+import { memo, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronRight, Dock as DockIcon, PictureInPicture2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import { DeviceBadge, DeviceBody, deviceIcon } from '@/components/dock/deviceBod
 import { cn } from '@/lib/utils'
 import type { DeviceNode, DockView } from '@/deviceTopology'
 import { setExpanded, setWindowed } from '@/lib/dockStore'
+import { isDockTargetRow, subscribe as subscribeTarget } from '@/lib/dockTarget'
 
 /**
  * Secondary text beside the row's primary name.
@@ -118,9 +119,12 @@ export function DockRowShell({
   const canPopOut = onWindowedChange !== undefined && interactive
   const isWindowed = windowed === true
   const showBody = interactive && !isWindowed && expanded
+  // The tour card on screen is about this row: see lib/dockTarget.ts.
+  const isTarget = () => isDockTargetRow(dockKey)
+  const targeted = useSyncExternalStore(subscribeTarget, isTarget, isTarget)
 
   return (
-    <div data-dock-key={dockKey} className={className}>
+    <div data-dock-key={dockKey} className={cn(className, targeted && 'dock-row-target')}>
       <div className="group flex min-h-7 items-center gap-1 pr-1.5">
         <Guides depth={depth} />
         <button

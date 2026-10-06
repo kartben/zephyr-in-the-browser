@@ -129,6 +129,7 @@ import {
   subscribe as subscribeDock,
   tabIn,
 } from '@/lib/dockStore'
+import { getDockTargets, subscribe as subscribeTarget } from '@/lib/dockTarget'
 
 /** Room for thread name + optional prio / msgq depth in the left gutter. */
 const LABEL_W = 128
@@ -1370,6 +1371,11 @@ function TracePanelBody({
   // A zbus tab left open from another sample falls back to the Timeline.
   const tab: TraceTab = tabs.includes(storedTab) ? storedTab : 'schedule'
   const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
+  // The tab a tour card on screen is about keeps a mark, even once the reader
+  // has picked another: see lib/dockTarget.ts.
+  const targets = useSyncExternalStore(subscribeTarget, getDockTargets, getDockTargets)
+  const tabTargeted = (id: TraceTab) =>
+    targets.some((target) => target.key === STAGE_TRACE_KEY && target.tab === id)
 
   useEffect(() => {
     if (tab !== 'queues') return
@@ -2229,6 +2235,7 @@ function TracePanelBody({
               tab === id
                 ? 'bg-secondary text-foreground'
                 : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
+              tabTargeted(id) && 'dock-tab-target',
             )}
             onClick={() => setTab(id)}
           >

@@ -135,6 +135,7 @@ vi.mock('@/debug/dwarfLines', async (importOriginal) => ({
 
 const {
   arm,
+  cardOnScreen,
   dismissCompletion,
   getSnapshot,
   getSteps,
@@ -702,6 +703,88 @@ describe("the reader's turn", () => {
     next()
     await settle()
     expect(getSnapshot().waiting?.index).toBe(1)
+  })
+})
+
+/*
+ * The dock keeps a ring round what the step on screen points at, so which
+ * card is on screen, and whose step it is, is what decides it.
+ */
+describe('the card on screen', () => {
+  beforeEach(() => loadLifecycle())
+
+  /** The step on screen as its index, or null, and the card it is on. */
+  function onScreen() {
+    const shown = cardOnScreen(getSnapshot())
+    return shown && { index: shown.step.index, panel: shown.step.panel, card: shown.card }
+  }
+
+  it('follows the tour from card to card, and is nothing between them or at the end', async () => {
+    expect(onScreen()).toBeNull() // armed, nothing up yet
+    await stopAt(0x8000)
+    expect(onScreen()).toMatchObject({ index: 0, card: getSnapshot().current })
+
+    // The your-turn card is the next step's: what the reader acts on is open.
+    next()
+    await settle()
+    expect(onScreen()).toMatchObject({ index: 1, panel: 'keys', card: getSnapshot().waiting })
+
+    await stopAt(0x9000)
+    const card = getSnapshot().current
+    expect(onScreen()).toMatchObject({ index: 1, panel: 'keys', card })
+    // A different card for the same step: the rows blink again for it.
+    expect(onScreen()?.card).not.toBe(getSnapshot().waiting)
+
+    next()
+    await settle()
+    expect(getSnapshot().completed).toBe(true)
+    expect(onScreen()).toBeNull() // the completion card points at nothing
+  })
+
+  it('stays on a card folded to one line, as the same card', async () => {
+    await stopAt(0x8000)
+    next()
+    await settle()
+    await stopAt(0x9000)
+    const card = getSnapshot().current
+    minimise()
+    expect(onScreen()).toMatchObject({ index: 1, card })
+    restore()
+    expect(onScreen()?.card).toBe(card)
+  })
+
+  it('is the step read again while it is up, and the card it covered after', async () => {
+    await stopAt(0x8000)
+    next()
+    await settle()
+    await stopAt(0x9000)
+    const card = getSnapshot().current
+    revisit(0)
+    expect(onScreen()).toMatchObject({ index: 0 })
+    next() // Back
+    expect(onScreen()).toMatchObject({ index: 1, card })
+  })
+
+  it('is nothing once the reader leaves', async () => {
+    await stopAt(0x8000)
+    skip()
+    expect(onScreen()).toBeNull()
+  })
+
+  it('is nothing while the intro card covers the step', async () => {
+    await loadLifecycle(LIFECYCLE.replace('---\n\n## Main waits', '---\n\nAn intro.\n\n## Main waits'))
+    await stopAt(0x8000)
+    expect(getSnapshot().current?.step.index).toBe(0)
+    expect(onScreen()).toBeNull()
+    closeIntro() // Start
+    expect(onScreen()).toMatchObject({ index: 0 })
+    openIntro()
+    expect(onScreen()).toBeNull()
+  })
+
+  it('is nothing with tours turned off', async () => {
+    await stopAt(0x8000)
+    expect(cardOnScreen({ ...getSnapshot(), enabled: false })).toBeNull()
   })
 })
 
