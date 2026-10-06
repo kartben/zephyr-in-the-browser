@@ -142,7 +142,7 @@ export function StackPane({
                   {frame.slot != null && (
                     <button
                       type="button"
-                      className="text-primary/80 underline-offset-2 hover:underline"
+                      className="text-primary-text/80 underline-offset-2 hover:underline"
                       title={`Peek the stack slot at 0x${frame.slot.toString(16)}`}
                       onClick={() => onPeek(frame.slot!.toString(16))}
                     >

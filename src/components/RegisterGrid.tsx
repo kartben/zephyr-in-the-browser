@@ -156,7 +156,7 @@ function FeaturedReg({
       <div
         className={cn(
           'text-[9px] font-medium uppercase tracking-wider',
-          isPc ? 'text-primary' : 'text-muted-foreground',
+          isPc ? 'text-primary-text' : 'text-muted-foreground',
         )}
       >
         {reg.name}

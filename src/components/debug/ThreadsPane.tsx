@@ -158,7 +158,7 @@ export function ThreadsPane({
                           {status.detailAddr != null ? (
                             <button
                               type="button"
-                              className="font-mono text-primary underline-offset-2 hover:underline"
+                              className="font-mono text-primary-text underline-offset-2 hover:underline"
                               title={`Peek wait object at 0x${status.detailAddr.toString(16)}`}
                               onClick={() => onPeek(status.detailAddr!.toString(16))}
                             >
@@ -186,7 +186,7 @@ export function ThreadsPane({
                     {stackAddr != null && (
                       <button
                         type="button"
-                        className="text-primary/90 underline-offset-2 hover:underline"
+                        className="text-primary-text/90 underline-offset-2 hover:underline"
                         title={
                           t.stackStart != null
                             ? `Peek stack at 0x${t.stackStart.toString(16)}`
@@ -208,7 +208,7 @@ export function ThreadsPane({
                     {onStack && (t.current || t.sp != null) && (
                       <button
                         type="button"
-                        className="text-primary/90 underline-offset-2 hover:underline"
+                        className="text-primary-text/90 underline-offset-2 hover:underline"
                         title={
                           t.current
                             ? 'Call stack for the running context'

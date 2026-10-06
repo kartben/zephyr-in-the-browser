@@ -299,7 +299,7 @@ function ViewButton({
       onClick={onClick}
       className={cn(
         'flex items-center gap-1 px-1.5 py-0.5 text-[10px]',
-        active ? 'bg-primary/15 font-semibold text-primary' : 'text-muted-foreground hover:text-foreground',
+        active ? 'bg-primary/15 font-semibold text-primary-text' : 'text-muted-foreground hover:text-foreground',
       )}
     >
       {children}

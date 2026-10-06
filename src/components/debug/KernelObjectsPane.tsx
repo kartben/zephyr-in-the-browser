@@ -115,7 +115,7 @@ export function KernelObjectsPane({
               className="group rounded-md border border-border/70 bg-background/45"
             >
               <summary className="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 hover:bg-muted/35">
-                <span className="font-mono text-[9px] font-semibold tracking-wide text-primary/80">
+                <span className="font-mono text-[9px] font-semibold tracking-wide text-primary-text/80">
                   {type.code}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
@@ -151,7 +151,7 @@ export function KernelObjectsPane({
                       <div className="flex min-w-0 items-baseline gap-2">
                         <button
                           type="button"
-                          className="min-w-0 flex-1 truncate text-left text-[11px] font-medium hover:text-primary"
+                          className="min-w-0 flex-1 truncate text-left text-[11px] font-medium hover:text-primary-text"
                           title={`Peek ${obj.typeName.toLowerCase()} at 0x${obj.addr.toString(16)}`}
                           onClick={() => onPeek(obj.addr.toString(16), obj.size ?? undefined)}
                         >
@@ -177,14 +177,14 @@ export function KernelObjectsPane({
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[9px] tabular-nums text-foreground/45">
                         <button
                           type="button"
-                          className="hover:text-primary"
+                          className="hover:text-primary-text"
                           onClick={() => onPeek(obj.addr.toString(16), obj.size ?? undefined)}
                         >
                           obj {compactHex(obj.addr.toString(16))}
                         </button>
                         <button
                           type="button"
-                          className="hover:text-primary"
+                          className="hover:text-primary-text"
                           onClick={() => onPeek(obj.coreAddr.toString(16))}
                         >
                           core +0x{(obj.coreAddr - obj.addr).toString(16)}
@@ -193,7 +193,7 @@ export function KernelObjectsPane({
                         {thread && onThread && (
                           <button
                             type="button"
-                            className="text-primary/90 hover:underline"
+                            className="text-primary-text/90 hover:underline"
                             onClick={() => onThread(thread.addr)}
                           >
                             Threads
@@ -225,7 +225,7 @@ export function KernelObjectsPane({
                                 {field.addr ? (
                                   <button
                                     type="button"
-                                    className="hover:text-primary hover:underline"
+                                    className="hover:text-primary-text hover:underline"
                                     onClick={() => onPeek(field.addr!.toString(16))}
                                   >
                                     {field.value}

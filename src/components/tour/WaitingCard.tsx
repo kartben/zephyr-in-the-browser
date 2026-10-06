@@ -52,7 +52,7 @@ export function WaitingCard({
           </span>
           <TourOutline steps={steps} seen={seen} currentIndex={waiting.index} />
           <span
-            className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary"
+            className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary-text"
             title="The guest keeps running while you do this"
           >
             <Hand className="size-2.5" aria-hidden />

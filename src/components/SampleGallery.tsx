@@ -473,7 +473,7 @@ function SampleGroupRow({
           <span className="truncate text-sm font-medium leading-5">{docs.title}</span>
           {guided && (
             <span
-              className="flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+              className="flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-text"
               title={
                 tours.length > 1
                   ? `Carries ${tours.length} guided tours: each stops and explains the sample as it runs`
@@ -524,7 +524,7 @@ function SampleGroupRow({
                     className={cn(
                       'flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-4',
                       'transition-colors hover:bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      running ? 'font-medium text-primary' : 'text-muted-foreground hover:text-foreground',
+                      running ? 'font-medium text-primary-text' : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
                     <GraduationCap className="size-3 shrink-0" aria-hidden />

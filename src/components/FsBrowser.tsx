@@ -68,7 +68,7 @@ export function FsBrowserButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-[10px] text-primary underline-offset-2 hover:underline"
+        className="text-[10px] text-primary-text underline-offset-2 hover:underline"
         title={title}
       >
         Filesystem

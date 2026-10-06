@@ -67,7 +67,7 @@ function ModeButton({
       className={cn(
         'flex items-center gap-1.5 px-2 py-1.5 text-xs',
         active
-          ? 'bg-primary/15 font-semibold text-primary'
+          ? 'bg-primary/15 font-semibold text-primary-text'
           : 'text-muted-foreground hover:text-foreground',
       )}
     >

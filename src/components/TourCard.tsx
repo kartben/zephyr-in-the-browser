@@ -168,7 +168,7 @@ export function TourCard({ board, sampleId }: Props) {
         : 'Got it'
   const pausedPill = paused && (
     <span
-      className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary"
+      className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary-text"
       title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
     >
       <Pause className="size-2.5" aria-hidden />

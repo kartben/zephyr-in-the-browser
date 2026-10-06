@@ -219,7 +219,7 @@ function PartCard({ part }: { part: PartIdentity }) {
 
   return (
     <article className="flex items-start gap-2.5 rounded-md px-2.5 py-2.5 hover:bg-secondary/50">
-      <div className="mt-0.5 rounded border border-border bg-secondary/60 p-1.5 text-primary">
+      <div className="mt-0.5 rounded border border-border bg-secondary/60 p-1.5 text-primary-text">
         <Icon className="size-3.5" aria-hidden />
       </div>
       <div className="min-w-0 flex-1 space-y-1.5">

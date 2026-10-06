@@ -115,7 +115,7 @@ export function SettingsMenu() {
                 <p>
                   Full notes in{' '}
                   <a
-                    className="underline decoration-dotted underline-offset-2 hover:text-primary"
+                    className="underline decoration-dotted underline-offset-2 hover:text-primary-text"
                     href="https://github.com/kartben/zephyr-in-the-browser/blob/main/docs/bridge.md"
                     target="_blank"
                     rel="noreferrer"

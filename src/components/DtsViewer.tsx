@@ -153,7 +153,7 @@ function NodeRow({ node, depth }: { node: DtsNode; depth: number }) {
           )}
         />
         {node.labels.map((label) => (
-          <span key={label} className="text-primary">
+          <span key={label} className="text-primary-text">
             {label}:
           </span>
         ))}
@@ -219,7 +219,7 @@ function HighlightedValue({ raw }: { raw: string }) {
             {part}
           </span>
         ) : part.startsWith('&') ? (
-          <span key={i} className="text-primary">
+          <span key={i} className="text-primary-text">
             {part}
           </span>
         ) : /^(0x[0-9a-fA-F]+|\d+)$/.test(part) ? (

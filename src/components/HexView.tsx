@@ -349,7 +349,7 @@ export function HexView({
           {!follow && (
             <button
               type="button"
-              className="text-primary underline-offset-2 hover:underline"
+              className="text-primary-text underline-offset-2 hover:underline"
               onClick={() => setFollow(true)}
             >
               follow pointer
@@ -524,7 +524,7 @@ function PointerChip({ run, onFollow }: { run: PointerRun; onFollow?: () => void
       type="button"
       onClick={onFollow}
       title={runTitle(run)}
-      className="flex max-w-[22ch] items-center gap-1 text-primary underline-offset-2 hover:underline"
+      className="flex max-w-[22ch] items-center gap-1 text-primary-text underline-offset-2 hover:underline"
     >
       {run.target.typeCode && (
         <span className="rounded-sm bg-primary/15 px-1 text-[9px] tracking-wide">

@@ -55,7 +55,7 @@ function Spans({ spans }: { spans: InlineSpan[] }) {
                 href={span.href}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="text-primary underline underline-offset-2 hover:no-underline"
+                className="text-primary-text underline underline-offset-2 hover:no-underline"
               >
                 {span.text}
               </a>

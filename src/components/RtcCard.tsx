@@ -189,7 +189,7 @@ export function RtcBody({ chip }: { chip: RtcChip }) {
         )}
         {alarm?.pending && (
           <span
-            className="rounded border border-primary/40 bg-primary/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-primary"
+            className="rounded border border-primary/40 bg-primary/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-primary-text"
             data-testid="rtc-alarm-fired"
           >
             alarm
@@ -217,7 +217,7 @@ export function RtcBody({ chip }: { chip: RtcChip }) {
             chip.syncFromBrowser()
             setDraft(toDatetimeLocalValue(chip.getTime()))
           }}
-          className="text-[10px] text-primary underline-offset-2 hover:underline"
+          className="text-[10px] text-primary-text underline-offset-2 hover:underline"
         >
           Sync from browser
         </button>
@@ -329,7 +329,7 @@ export function RtcBody({ chip }: { chip: RtcChip }) {
             data-testid="rtc-arm-alarm"
             onClick={armAlarm}
             disabled={draftMask === 0}
-            className="text-[10px] text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline"
+            className="text-[10px] text-primary-text underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline"
           >
             Arm
           </button>

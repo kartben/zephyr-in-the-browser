@@ -37,7 +37,8 @@ const COLOR_CSS: Record<keyof DiagramColors, string> = {
   focusText: 'var(--foreground)',
   dimFill: 'var(--muted)',
   dimStroke: 'var(--border)',
-  dimText: 'color-mix(in oklch, var(--muted-foreground) 70%, var(--background))',
+  // Dimmed by its fill and outline; the label itself stays readable (5.8:1).
+  dimText: 'var(--muted-foreground)',
   line: 'var(--primary)',
   dimLine: 'var(--border)',
 }

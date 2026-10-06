@@ -171,7 +171,7 @@ export function SourceSnippet({
                 className={cn(
                   'sticky left-0 w-10 shrink-0 select-none bg-muted/40 pr-2 text-right tabular-nums',
                   isAnchor
-                    ? 'text-primary'
+                    ? 'text-primary-text'
                     : isMarked
                       ? 'text-amber-800 dark:text-amber-400'
                       : 'text-muted-foreground',

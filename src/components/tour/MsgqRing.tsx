@@ -128,7 +128,7 @@ export function MsgqRing({ ring, name }: { ring: MsgqRingSnapshot; name?: string
                 {slot.isRead && (
                   <span
                     title="read_ptr: the next message out"
-                    className="rounded-sm bg-primary px-[3px] py-px text-primary-foreground"
+                    className="rounded-sm bg-primary-solid px-[3px] py-px text-primary-foreground"
                   >
                     R
                   </span>
@@ -155,7 +155,7 @@ export function MsgqRing({ ring, name }: { ring: MsgqRingSnapshot; name?: string
               >
                 {slot.occupied && (
                   <>
-                    <span className="absolute right-0.5 top-px text-[8px] leading-none text-primary">
+                    <span className="absolute right-0.5 top-px text-[8px] leading-none text-primary-text">
                       {slot.order}
                     </span>
                     <SlotFace bytes={bytes} msgSize={ring.msgSize} fit={fit} />
