@@ -166,6 +166,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "Trace's IPC graph keeps your zoom as new routes appear."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Trace charts are readable in light mode."
       }
     ]
   },

@@ -47,6 +47,50 @@
   }
 }
 
+/*
+ * Trace chart inks, read by src/components/traceInk.ts. The charts are painted
+ * on a canvas, where a colour is a string rather than a class, so each ink is
+ * bare RGB channels and the chart adds the alpha it draws with. Dark is the
+ * slate the charts were first drawn in; light runs the same scale the other
+ * way, so what was the brightest text is now the darkest.
+ */
+:root {
+  --trace-strong: 248 250 252;
+  --trace-text: 226 232 240;
+  --trace-soft: 203 213 225;
+  --trace-label: 148 163 184;
+  --trace-dim: 100 116 139;
+  --trace-shade: 15 23 42;
+  --trace-backdrop: 2 6 23;
+  --trace-halo: 248 250 252;
+  --trace-live: 34 197 94;
+  --trace-queue: 125 211 252;
+  --trace-queue-hot: 186 230 253;
+  --trace-queue-shade: 8 47 73;
+  --trace-depth: 147 197 253;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --trace-strong: 15 23 42;
+    --trace-text: 30 41 59;
+    --trace-soft: 51 65 85;
+    --trace-label: 71 85 105;
+    --trace-dim: 100 116 139;
+    --trace-shade: 203 213 225;
+    --trace-backdrop: 226 232 240;
+    --trace-halo: 15 23 42;
+    --trace-live: 22 163 74;
+    --trace-queue: 3 105 161;
+    --trace-queue-hot: 7 89 133;
+    --trace-queue-shade: 186 230 253;
+    --trace-depth: 37 99 235;
+  }
+}
+
+/* For the few surfaces whose dark colour is a utility class rather than a token. */
+@custom-variant light (@media (prefers-color-scheme: light));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

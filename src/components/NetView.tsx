@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { cn } from '@/lib/utils'
 import { applyYZoomTransform, type YZoom } from '@/components/traceChart'
+import { useTraceInk, type TraceInk } from '@/components/traceInk'
 import {
   formatByteCount,
   fmtTime,
@@ -39,6 +40,7 @@ const COL_LISTEN = 'rgba(167, 139, 250, 0.55)'
 
 function paint(
   canvas: HTMLCanvasElement,
+  ink: TraceInk,
   _tr: Trace,
   sockets: SocketSeries[],
   net: NetCoreSeries[],
@@ -64,15 +66,15 @@ function paint(
   const plotW = Math.max(1, cssW - LABEL_W - PAD)
   const span = Math.max(1, view1 - view0)
 
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+  ctx.fillStyle = ink.label(0.95)
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'alphabetic'
   ctx.fillText('t', 4, 12)
 
   const step = niceTimeStep(span, Math.max(3, Math.floor(plotW / 72)))
   const firstTick = Math.ceil(view0 / step) * step
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
+  ctx.strokeStyle = ink.label(0.45)
+  ctx.fillStyle = ink.label(0.9)
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(LABEL_W, 18)
@@ -93,21 +95,21 @@ function paint(
     ctx.fillText(label, lx, 12)
   }
 
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
+  ctx.fillStyle = ink.text(0.95)
   const leftLbl = fmtTime(view0)
   const rightLbl = fmtTime(view1)
   ctx.fillText(leftLbl, LABEL_W, 26)
   ctx.fillText(rightLbl, LABEL_W + plotW - ctx.measureText(rightLbl).width, 26)
   if (follow) {
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.95)'
+    ctx.fillStyle = ink.live(0.95)
     ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
   }
 
   if (sockets.length === 0) {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
+    ctx.fillStyle = ink.label(0.8)
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
     ctx.fillText('No socket CTF events in this window yet.', LABEL_W, AXIS_H + 28)
-    ctx.fillStyle = 'rgba(100, 116, 139, 0.9)'
+    ctx.fillStyle = ink.dim(0.9)
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif'
     ctx.fillText(
       'Needs CONFIG_TRACING_NET_SOCKETS (on by default for net samples like zperf).',
@@ -139,16 +141,16 @@ function paint(
     const y0 = AXIS_H + row * ROW_H
     const mid = y0 + ROW_H / 2
 
-    ctx.fillStyle = row % 2 === 0 ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.2)'
+    ctx.fillStyle = ink.shade(row % 2 === 0 ? 0.35 : 0.2)
     ctx.fillRect(0, y0, cssW, ROW_H)
 
     const label = socketLabel(s)
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.95)'
+    ctx.fillStyle = ink.text(0.95)
     ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     const line1 = label.length > 22 ? `${label.slice(0, 21)}…` : label
     ctx.fillText(line1, 4, mid - 6)
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.85)'
+    ctx.fillStyle = ink.label(0.85)
     ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.fillText(
       `↑${formatByteCount(s.txBytes)} ↓${formatByteCount(s.rxBytes)}`,
@@ -180,12 +182,12 @@ function paint(
         ctx.fillStyle = COL_LISTEN
         ctx.fillRect(x - 1, mid - 8, 2, 16)
       } else if (sample.op === 'connect' || sample.op === 'bind' || sample.op === 'init') {
-        ctx.fillStyle = sample.ok ? 'rgba(226, 232, 240, 0.7)' : COL_ERR
+        ctx.fillStyle = sample.ok ? ink.text(0.7) : COL_ERR
         ctx.beginPath()
         ctx.arc(x, mid, 2.2, 0, Math.PI * 2)
         ctx.fill()
       } else if (sample.op === 'close') {
-        ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)'
+        ctx.strokeStyle = ink.label(0.7)
         ctx.beginPath()
         ctx.moveTo(x, mid - 8)
         ctx.lineTo(x, mid + 8)
@@ -193,7 +195,7 @@ function paint(
       }
     }
 
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)'
+    ctx.strokeStyle = ink.label(0.2)
     ctx.beginPath()
     ctx.moveTo(LABEL_W, y0 + ROW_H - 0.5)
     ctx.lineTo(LABEL_W + plotW, y0 + ROW_H - 0.5)
@@ -202,9 +204,9 @@ function paint(
 
   if (showStrip) {
     const y0 = AXIS_H + sockets.length * ROW_H
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
+    ctx.fillStyle = ink.shade(0.45)
     ctx.fillRect(0, y0, cssW, STRIP_H)
-    ctx.fillStyle = 'rgba(100, 116, 139, 0.95)'
+    ctx.fillStyle = ink.dim(0.95)
     ctx.font = '9px ui-sans-serif, system-ui, sans-serif'
     ctx.textBaseline = 'alphabetic'
     ctx.fillText('net_rx / net_tx µs', 4, y0 + 12)
@@ -292,12 +294,13 @@ export function NetView({
   socketsRef.current = sockets
   netRef.current = net
   yZoomRef.current = yZoom
+  const ink = useTraceInk()
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, tr, sockets, net, view0, view1, follow, yZoom)
-  }, [tr, sockets, net, view0, view1, follow, canvasRef, yZoom])
+    paint(canvas, ink, tr, sockets, net, view0, view1, follow, yZoom)
+  }, [ink, tr, sockets, net, view0, view1, follow, canvasRef, yZoom])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -305,6 +308,7 @@ export function NetView({
     const ro = new ResizeObserver(() => {
       paint(
         canvas,
+        ink,
         tr,
         socketsRef.current,
         netRef.current,
@@ -316,7 +320,7 @@ export function NetView({
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [tr, view0, view1, follow, canvasRef])
+  }, [ink, tr, view0, view1, follow, canvasRef])
 
   return (
     <>
@@ -353,7 +357,7 @@ export function NetView({
         <canvas
           ref={canvasRef}
           className={cn(
-            'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40',
+            'w-full touch-none select-none rounded border border-border/60 bg-slate-950/40 light:bg-muted/40',
             boxZoomArmed ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing',
           )}
           {...canvasProps}

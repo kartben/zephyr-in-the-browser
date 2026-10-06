@@ -56,6 +56,7 @@ import {
   yZoomSvgTransform,
   type YZoom,
 } from '@/components/traceChart'
+import { useTraceInk, type TraceInk } from '@/components/traceInk'
 
 const LABEL_W = 108
 const PAD = 8
@@ -71,15 +72,8 @@ const SNAP_PX = 10
 export const QUEUES_TOP_H = TOP_H
 export const QUEUES_BOTTOM_AXIS_H = BOTTOM_AXIS_H
 
-const AXIS_STROKE = 'rgba(148, 163, 184, 0.55)'
-const AXIS_FILL = 'rgba(203, 213, 225, 0.95)'
-const GRID_STROKE = 'rgba(148, 163, 184, 0.14)'
 const AREA_FILL = 'rgba(96, 165, 250, 0.35)'
-const LINE_STROKE = 'rgba(147, 197, 253, 0.95)'
 const CAP_STROKE = 'rgba(56, 189, 248, 0.55)'
-const DOT_FILL = 'rgba(147, 197, 253, 0.55)'
-const DOT_STROKE = 'rgba(147, 197, 253, 0.35)'
-const HANDOFF_STROKE = 'rgba(147, 197, 253, 0.8)'
 /** Skip a mark if it lands within this many CSS pixels of the previous drawn one. */
 const MARK_MIN_GAP_PX = 6
 
@@ -202,11 +196,12 @@ function nearestMark(marks: TransitionMark[], ts: number, maxDeltaNs: number): T
   return best
 }
 
-function styleAxis(g: Selection<SVGGElement, unknown, null, undefined>): void {
-  g.select('.domain').attr('stroke', AXIS_STROKE).attr('stroke-width', 1)
-  g.selectAll('.tick line').attr('stroke', AXIS_STROKE)
+function styleAxis(g: Selection<SVGGElement, unknown, null, undefined>, ink: TraceInk): void {
+  const stroke = ink.label(0.55)
+  g.select('.domain').attr('stroke', stroke).attr('stroke-width', 1)
+  g.selectAll('.tick line').attr('stroke', stroke)
   g.selectAll('.tick text')
-    .attr('fill', AXIS_FILL)
+    .attr('fill', ink.soft(0.95))
     .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
     .attr('font-size', '10px')
 }
@@ -218,6 +213,7 @@ function clearDomSelection(): void {
 
 function renderChart(
   svg: SVGSVGElement,
+  ink: TraceInk,
   _tr: Trace,
   queues: QueueSeries[],
   events: QueueChartEvent[],
@@ -246,10 +242,8 @@ function renderChart(
   if (frame.empty()) frame = root.append('g').attr('class', 'frame')
 
   let bg = frame.select<SVGRectElement>('rect.chart-bg')
-  if (bg.empty()) {
-    bg = frame.append('rect').attr('class', 'chart-bg').attr('fill', 'rgba(2, 6, 23, 0.35)')
-  }
-  bg.attr('width', cssW).attr('height', cssH)
+  if (bg.empty()) bg = frame.append('rect').attr('class', 'chart-bg')
+  bg.attr('width', cssW).attr('height', cssH).attr('fill', ink.backdrop(0.35))
 
   let defs = frame.select<SVGDefsElement>('defs')
   if (defs.empty()) defs = frame.append('defs')
@@ -277,11 +271,11 @@ function renderChart(
   if (follow) {
     badge
       .attr('x', Math.max(LABEL_W, cssW - 32))
-      .attr('fill', 'rgba(34, 197, 94, 0.95)')
+      .attr('fill', ink.live(0.95))
       .attr('text-anchor', 'start')
       .text('LIVE')
   } else {
-    badge.attr('x', 4).attr('fill', 'rgba(148, 163, 184, 0.7)').attr('text-anchor', 'start').text('t →')
+    badge.attr('x', 4).attr('fill', ink.label(0.7)).attr('text-anchor', 'start').text('t →')
   }
 
   let empty = frame.select<SVGTextElement>('text.empty')
@@ -290,11 +284,14 @@ function renderChart(
       empty = frame
         .append('text')
         .attr('class', 'empty')
-        .attr('fill', 'rgba(148, 163, 184, 0.8)')
         .attr('font-size', '11px')
         .attr('font-family', 'ui-sans-serif, system-ui, sans-serif')
     }
-    empty.attr('x', LABEL_W).attr('y', TOP_H + 28).text('No queue put/get exits in this trace yet.')
+    empty
+      .attr('x', LABEL_W)
+      .attr('y', TOP_H + 28)
+      .attr('fill', ink.label(0.8))
+      .text('No queue put/get exits in this trace yet.')
   } else if (!empty.empty()) {
     empty.remove()
   }
@@ -315,7 +312,7 @@ function renderChart(
     .attr('x2', (t) => xScale(t))
     .attr('y1', TOP_H)
     .attr('y2', plotBottom)
-    .attr('stroke', GRID_STROKE)
+    .attr('stroke', ink.label(0.14))
     .attr('stroke-width', 1)
 
   const layouts: RowLayout[] = queues.map((queue, row) => {
@@ -375,14 +372,14 @@ function renderChart(
       .attr('y', d.y0)
       .attr('width', cssW)
       .attr('height', ROW_H)
-      .attr('fill', i % 2 === 0 ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.2)')
+      .attr('fill', ink.shade(i % 2 === 0 ? 0.35 : 0.2))
 
     const name = queueLabel(d.queue)
     const trimmed = name.length > 12 ? `${name.slice(0, 11)}…` : name
     g.select<SVGTextElement>('text.row-name')
       .attr('x', 4)
       .attr('y', d.y0 + 14)
-      .attr('fill', 'rgba(226, 232, 240, 0.95)')
+      .attr('fill', ink.text(0.95))
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '11px')
       .text(trimmed)
@@ -390,7 +387,7 @@ function renderChart(
     g.select<SVGTextElement>('text.row-kind')
       .attr('x', 4)
       .attr('y', d.y0 + 26)
-      .attr('fill', 'rgba(148, 163, 184, 0.85)')
+      .attr('fill', ink.label(0.85))
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '9px')
       .text(d.queue.kind)
@@ -398,7 +395,7 @@ function renderChart(
     g.select<SVGTextElement>('text.row-drops')
       .attr('x', 4)
       .attr('y', d.y0 + 38)
-      .attr('fill', 'rgba(148, 163, 184, 0.85)')
+      .attr('fill', ink.label(0.85))
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '9px')
       .text(`${d.queue.drops} drop${d.queue.drops === 1 ? '' : 's'}`)
@@ -414,7 +411,7 @@ function renderChart(
     yG.selectAll('.tick line').attr('stroke', 'none')
     yG
       .selectAll('.tick text')
-      .attr('fill', 'rgba(100, 116, 139, 0.9)')
+      .attr('fill', ink.dim(0.9))
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '9px')
       .attr('text-anchor', 'start')
@@ -434,7 +431,7 @@ function renderChart(
       .attr('x', LABEL_W + plotW - 2)
       .attr('y', hasCap ? d.yScale(d.queue.cap!) - 2 : 0)
       .attr('text-anchor', 'end')
-      .attr('fill', hasCap ? 'rgba(125, 211, 252, 0.8)' : 'none')
+      .attr('fill', hasCap ? ink.queue(0.8) : 'none')
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-size', '9px')
       .text(
@@ -453,7 +450,7 @@ function renderChart(
     g.select<SVGPathElement>('path.depth-line')
       .attr('d', depthLine(d.points) ?? '')
       .attr('fill', 'none')
-      .attr('stroke', LINE_STROKE)
+      .attr('stroke', ink.depth(0.95))
       .attr('stroke-width', 1.5)
       .attr('stroke-linejoin', 'round')
 
@@ -462,7 +459,7 @@ function renderChart(
       .attr('x2', LABEL_W + plotW)
       .attr('y1', d.plotTop + d.plotH)
       .attr('y2', d.plotTop + d.plotH)
-      .attr('stroke', 'rgba(148, 163, 184, 0.25)')
+      .attr('stroke', ink.label(0.25))
       .attr('stroke-width', 1)
 
     g.select<SVGGElement>('g.marks')
@@ -488,8 +485,8 @@ function renderChart(
       .attr('cx', (m) => xScale(m.ts))
       .attr('cy', (m) => d.yScale(m.depth))
       .attr('r', (m) => (m.handoff ? 2.2 : 1.6))
-      .attr('fill', (m) => (m.handoff ? 'none' : DOT_FILL))
-      .attr('stroke', (m) => (m.handoff ? HANDOFF_STROKE : DOT_STROKE))
+      .attr('fill', (m) => (m.handoff ? 'none' : ink.depth(0.55)))
+      .attr('stroke', (m) => (m.handoff ? ink.depth(0.8) : ink.depth(0.35)))
       .attr('stroke-width', 0.75)
   })
 
@@ -502,7 +499,7 @@ function renderChart(
     .tickPadding(6)
     .tickFormat((t) => fmtAxisTime(Number(t), step))
   xAxisG.attr('transform', `translate(0,${plotBottom + 4})`).call(xAxis)
-  styleAxis(xAxisG)
+  styleAxis(xAxisG, ink)
   // Drop the old edge-left / edge-right clones — ticks already cover the range.
   frame.selectAll('text.edge-left, text.edge-right').remove()
 
@@ -521,7 +518,7 @@ function renderChart(
       .attr('x2', hover.x)
       .attr('y1', TOP_H)
       .attr('y2', plotBottom)
-      .attr('stroke', 'rgba(226, 232, 240, 0.55)')
+      .attr('stroke', ink.text(0.55))
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', '3 3')
     if (row) {
@@ -633,12 +630,14 @@ export function QueuesView({
   const [hover, setHover] = useState<HoverTip | null>(null)
   const hoverRef = useRef<HoverTip | null>(null)
   hoverRef.current = hover
+  const ink = useTraceInk()
 
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
     layoutsRef.current = renderChart(
       svg,
+      ink,
       tr,
       queues,
       chartEvents,
@@ -648,7 +647,7 @@ export function QueuesView({
       hover,
       yZoom,
     )
-  }, [tr, queues, chartEvents, view0, view1, follow, svgRef, hover, yZoom])
+  }, [ink, tr, queues, chartEvents, view0, view1, follow, svgRef, hover, yZoom])
 
   useEffect(() => {
     const host = hostRef.current
@@ -657,6 +656,7 @@ export function QueuesView({
     const ro = new ResizeObserver(() => {
       layoutsRef.current = renderChart(
         svg,
+        ink,
         tr,
         queuesRef.current,
         eventsRef.current,
@@ -669,7 +669,7 @@ export function QueuesView({
     })
     ro.observe(host)
     return () => ro.disconnect()
-  }, [tr, view0, view1, follow, svgRef])
+  }, [ink, tr, view0, view1, follow, svgRef])
 
   const resolveHover = useCallback(
     (clientX: number, clientY: number, target: SVGSVGElement): HoverTip | null => {
@@ -770,8 +770,8 @@ export function QueuesView({
             ref={svgRef}
             className={
               boxZoomArmed
-                ? 'block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40'
-                : 'block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 active:cursor-grabbing'
+                ? 'block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 light:bg-muted/40'
+                : 'block w-full cursor-crosshair touch-none select-none rounded border border-border/60 bg-slate-950/40 light:bg-muted/40 active:cursor-grabbing'
             }
             style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
             {...surfaceProps}

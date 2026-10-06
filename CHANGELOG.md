@@ -42,6 +42,7 @@ via the help dialog (?).
 - **Fixed:** The guest reads the ADXL345 at its real scale, not four times too high.
 - **Fixed:** Cortex-A53 samples boot without an "xlat tables low" warning.
 - **Fixed:** Trace's IPC graph keeps your zoom as new routes appear.
+- **Fixed:** Trace charts are readable in light mode.
 
 ## [0.5.0] - 2026-07-31
 

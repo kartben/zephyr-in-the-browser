@@ -23,6 +23,7 @@ import {
   type RefObject,
 } from 'react'
 import { applyYZoomTransform, xAt, type YZoom } from '@/components/traceChart'
+import { useTraceInk, type TraceInk } from '@/components/traceInk'
 import { deviceLabel, type ElfDeviceNames } from '@/debug/elfDevices'
 import {
   fmtTime,
@@ -53,8 +54,11 @@ const ROW_H = 26
 
 const COL_SUSPEND = 'rgba(248, 180, 90, 0.85)'
 const COL_RESUME = 'rgba(52, 211, 153, 0.85)'
-/** A device that returned -ENOSYS/-ENOTSUP/-EALREADY: visited, not suspended. */
-const COL_SKIPPED = 'rgba(148, 163, 184, 0.35)'
+/**
+ * A device that returned -ENOSYS/-ENOTSUP/-EALREADY: visited, not suspended.
+ * Neutral, so it is the label ink, and follows the scheme like one.
+ */
+const SKIPPED_ALPHA = 0.35
 
 type DeviceRow = { dev: number; label: string }
 
@@ -73,6 +77,7 @@ function deviceRows(walks: PmDeviceWalk[], names: ElfDeviceNames | null): Device
 
 function paint(
   canvas: HTMLCanvasElement,
+  ink: TraceInk,
   walks: PmDeviceWalk[],
   rows: DeviceRow[],
   view0: number,
@@ -101,12 +106,12 @@ function paint(
   ctx.clip()
   applyYZoomTransform(ctx, AXIS_H, cssH, yZoom)
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
+  ctx.fillStyle = ink.shade(0.45)
   ctx.fillRect(POWER_LABEL_W, AXIS_H, plotW, rows.length * ROW_H)
 
   rows.forEach((row, i) => {
     const y = AXIS_H + i * ROW_H
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.95)'
+    ctx.fillStyle = ink.label(0.95)
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.fillText(row.label.slice(0, 20), PAD, y + ROW_H / 2)
@@ -120,7 +125,11 @@ function paint(
         // "the walk visited it and moved on" is information worth seeing.
         const w = Math.max(2, x1 - x0)
         ctx.fillStyle =
-          action.ret !== 0 ? COL_SKIPPED : walk.kind === 'suspend' ? COL_SUSPEND : COL_RESUME
+          action.ret !== 0
+            ? ink.label(SKIPPED_ALPHA)
+            : walk.kind === 'suspend'
+              ? COL_SUSPEND
+              : COL_RESUME
         ctx.fillRect(x0, y + 5, w, ROW_H - 12)
       }
     }
@@ -128,7 +137,7 @@ function paint(
   ctx.restore()
 
   // Axis last, unclipped, so the walk cannot draw over it.
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.75)'
+  ctx.fillStyle = ink.label(0.75)
   ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
   ctx.textBaseline = 'middle'
   ctx.fillText('device pm', PAD, AXIS_H / 2)
@@ -185,19 +194,21 @@ export function PowerView({
     [timelines, deviceNames, eventCount],
   )
 
+  const ink = useTraceInk()
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, walks, rows, view0, view1, yZoom)
-  }, [walks, rows, view0, view1, yZoom, canvasRef])
+    paint(canvas, ink, walks, rows, view0, view1, yZoom)
+  }, [ink, walks, rows, view0, view1, yZoom, canvasRef])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => paint(canvas, walks, rows, view0, view1, yZoom))
+    const ro = new ResizeObserver(() => paint(canvas, ink, walks, rows, view0, view1, yZoom))
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [walks, rows, view0, view1, yZoom, canvasRef])
+  }, [ink, walks, rows, view0, view1, yZoom, canvasRef])
 
   return (
     <div className="flex flex-col gap-2">
@@ -238,7 +249,10 @@ export function PowerView({
               resume
             </span>
             <span className="inline-flex items-center gap-1">
-              <i className="inline-block size-2 rounded-sm" style={{ background: COL_SKIPPED }} />
+              <i
+                className="inline-block size-2 rounded-sm"
+                style={{ background: `rgb(var(--trace-label) / ${SKIPPED_ALPHA})` }}
+              />
               no PM support
             </span>
           </div>
@@ -325,7 +339,7 @@ function CpuSummary({
         so the two views teach each other. The unfilled remainder is ACTIVE — it
         needs no colour, exactly as in the band.
       */}
-      <div className="mx-1 flex h-2 overflow-hidden rounded-sm bg-slate-900/60">
+      <div className="mx-1 flex h-2 overflow-hidden rounded-sm bg-slate-900/60 light:bg-slate-300/60">
         {rows.map((row) => {
           const ns = stats.byTuple.get(tupleKey(cpu, row.state, row.substateId)) ?? 0
           if (ns <= 0) return null
@@ -362,7 +376,7 @@ function CpuSummary({
                       background: never
                         ? 'transparent'
                         : pmFill(rank, rankCount, row.state).fill,
-                      boxShadow: never ? 'inset 0 0 0 1px rgba(148,163,184,0.35)' : undefined,
+                      boxShadow: never ? 'inset 0 0 0 1px rgb(var(--trace-label) / 0.35)' : undefined,
                     }}
                   />
                 </td>
