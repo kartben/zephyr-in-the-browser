@@ -60,13 +60,7 @@ export function revealDockRow(key: string, deviceClass?: DeviceClass): void {
   const state = getState()
   if (state.devices[key]?.windowed !== true) showDock()
   if (state.devices[key]?.hidden) setHidden(key, false)
-  if (
-    deviceClass &&
-    getState().view === 'classes' &&
-    (getState().groups[deviceClass]?.collapsed ?? false)
-  ) {
-    setGroupCollapsed(deviceClass, false)
-  }
+  if (deviceClass && getState().view === 'classes') setGroupCollapsed(deviceClass, false)
   setExpanded(key, true)
   pulseDockKey(key)
 }

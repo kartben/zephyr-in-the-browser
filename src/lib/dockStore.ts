@@ -9,9 +9,9 @@
  * that way back, so this store persists all of it — while still letting each
  * sample drive what opens by default: a per-selection *seed* supplies the
  * default expansion, and only explicit user choices are stored as overrides.
- * Changing selection clears the expansion overrides (the new sample speaks),
- * but keeps visibility, pop-out, section, and tab choices, which are about the
- * user's screen rather than the running program.
+ * Changing selection clears the expansion and group-fold overrides (the new
+ * sample speaks), but keeps visibility, pop-out, section, and tab choices,
+ * which are about the user's screen rather than the running program.
  */
 
 import type { PanelKind } from '@/boards'
@@ -60,6 +60,8 @@ export interface DockSeed {
   primary: PanelKind[]
   /** A user ELF with no devicetree: expand everything discoverable. */
   expandAll: boolean
+  /** Fold every class group, primary ones included (GuestSample.foldDock). */
+  foldGroups?: boolean
 }
 
 export interface DockState {
@@ -143,7 +145,11 @@ function load(): DockState {
       seededFor: typeof parsed.seededFor === 'string' ? parsed.seededFor : '',
       seed:
         parsed.seed && Array.isArray(parsed.seed.primary)
-          ? { primary: parsed.seed.primary, expandAll: parsed.seed.expandAll === true }
+          ? {
+              primary: parsed.seed.primary,
+              expandAll: parsed.seed.expandAll === true,
+              foldGroups: parsed.seed.foldGroups === true,
+            }
           : base.seed,
       devices,
       groups,
@@ -309,33 +315,43 @@ export function getTab(deviceKey: string, allowed: readonly string[], fallback: 
   return tabIn(state, deviceKey, allowed, fallback)
 }
 
-export function toggleGroup(deviceClass: DeviceClass): void {
-  const collapsed = !(state.groups[deviceClass]?.collapsed ?? false)
-  set({ ...state, groups: { ...state.groups, [deviceClass]: { collapsed } } })
+/**
+ * Whether a class group is folded. Groups start folded, so the dock opens as a
+ * short list of classes with a live summary each, not every card at once. The
+ * exception is a group holding a device the sample is about (a seeded primary
+ * panel kind): Blinky opens on its LEDs, an LVGL sample on its display.
+ * `panelKinds` are the kinds of the devices in the group.
+ */
+export function groupCollapsedIn(
+  current: DockState,
+  deviceClass: DeviceClass,
+  panelKinds: readonly (PanelKind | undefined)[],
+): boolean {
+  const override = current.groups[deviceClass]?.collapsed
+  if (override !== undefined) return override
+  if (current.seed.foldGroups) return true
+  if (current.seed.expandAll) return false
+  return !panelKinds.some((kind) => kind !== undefined && current.seed.primary.includes(kind))
 }
 
-/** Force a class group's collapsed state (revealDockRow expands without toggle). */
+/** Record an explicit fold or unfold of a class group. */
 export function setGroupCollapsed(deviceClass: DeviceClass, collapsed: boolean): void {
-  const current = state.groups[deviceClass]?.collapsed ?? false
-  if (current === collapsed) return
+  if (state.groups[deviceClass]?.collapsed === collapsed) return
   set({ ...state, groups: { ...state.groups, [deviceClass]: { collapsed } } })
-}
-
-export function groupCollapsed(deviceClass: DeviceClass): boolean {
-  return state.groups[deviceClass]?.collapsed ?? false
 }
 
 /**
  * Install the expansion defaults for the current board/sample selection.
  * Same selection (a reload): user overrides stay. New selection: expansion
- * overrides are cleared so the new sample's defaults speak; visibility,
- * pop-out, section, and tab choices persist — they are about the user's
- * screen, not the guest.
+ * and group-fold overrides are cleared so the new sample's defaults speak;
+ * visibility, pop-out, section, and tab choices persist: they are about the
+ * user's screen, not the guest.
  */
 export function seedForSelection(selection: string, seed: DockSeed): void {
   if (state.seededFor === selection) {
     const same =
       state.seed.expandAll === seed.expandAll &&
+      (state.seed.foldGroups ?? false) === (seed.foldGroups ?? false) &&
       state.seed.primary.length === seed.primary.length &&
       state.seed.primary.every((kind, i) => seed.primary[i] === kind)
     if (!same) set({ ...state, seed })
@@ -346,7 +362,7 @@ export function seedForSelection(selection: string, seed: DockSeed): void {
     const { expanded: _cleared, ...kept } = value
     if (Object.keys(kept).length > 0) devices[key] = kept
   }
-  set({ ...state, seededFor: selection, seed, devices })
+  set({ ...state, seededFor: selection, seed, devices, groups: {} })
 }
 
 /** The Panels menu's "Reset layout": dock state and every saved float box. */

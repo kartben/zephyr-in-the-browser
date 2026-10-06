@@ -55,7 +55,8 @@ describe('revealPanelKind', () => {
     }
     publishInventory(inventory)
     revealPanelKind('led')
-    expect(calls).toEqual(['showDock', 'setExpanded led0 true'])
+    // Groups fold by default, so the reveal unfolds this one even untouched.
+    expect(calls).toEqual(['showDock', 'setGroupCollapsed led false', 'setExpanded led0 true'])
   })
 
   it('does nothing for a kind this board has no row for', () => {

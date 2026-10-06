@@ -45,6 +45,7 @@ import { LiveBoardHome } from '@/components/LiveBoardHome'
 import { set as setLiveImage, type LiveImage } from '@/liveImage'
 import {
   getBoard,
+  getSample,
   sampleSourceAsset,
   samplePrimaryPanels,
   type PanelKind,
@@ -114,6 +115,7 @@ export default function App() {
     return samplePrimaryPanels(getBoard(boardId), sampleId)
   })()
   const expandAllPanels = customImage !== null && !deviceTree?.insights
+  const foldGroups = customImage === null && getSample(getBoard(boardId), sampleId).foldDock === true
   useEffect(() => {
     // A Live board session has no guest: Trace and Debug are the point, and
     // there is no device inventory.
@@ -125,7 +127,7 @@ export default function App() {
       customImage !== null
         ? `custom:${customImage.name}:${deviceTree?.name ?? ''}`
         : `${boardId}:${sampleId}`,
-      { primary: [...primaryPanels], expandAll: expandAllPanels },
+      { primary: [...primaryPanels], expandAll: expandAllPanels, foldGroups },
     )
     // primaryPanels is derived from exactly these inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps

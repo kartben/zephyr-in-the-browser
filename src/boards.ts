@@ -85,6 +85,13 @@ export interface GuestSample {
    */
   primaryPanels?: PanelKind[]
   /**
+   * Start every dock class group folded, the primary ones included. For a
+   * showcase like the shell, which is about every bridge at once: opening all
+   * of their groups buried the dock. Primary cards still open expanded once
+   * their group is unfolded.
+   */
+  foldDock?: boolean
+  /**
    * Default URL for the Network panel's "Talk to the guest" GET tool.
    * dumb_http_server listens on :8080; the full http_server sample on :80.
    */
@@ -772,6 +779,9 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
       'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `auxdisplay` (LCD, VFD, 7-segment), `gpio`, `hostaudio` and `dmic`',
     zephyrSample: 'samples/subsys/shell/shell_module',
     primaryPanels: ['i2c', 'spi', 'auxdisplay', 'gpio', 'audio'],
+    // The landing sample: a short list of classes reads better than five open
+    // groups of cards.
+    foldDock: true,
   },
   {
     // The display sample against the browser's SSD1306 instead of ramfb: the
