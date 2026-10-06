@@ -144,6 +144,8 @@ const {
   revisit,
   skip,
   startDemo,
+  closeIntro,
+  openIntro,
 } = await import('@/tours/store')
 
 /** Two steps on the same address, plus one of its own. */
@@ -1468,6 +1470,45 @@ describe('the mock replay', () => {
     expect(await beats(4, skip)).toEqual(['Main waits', 'nothing', 'nothing', 'nothing'])
     expect(getSnapshot()).toMatchObject({ finished: true, completed: false })
     ac.abort()
+  })
+
+  describe('behind the intro card', () => {
+    const WITH_INTRO = LIFECYCLE.replace('---\n\n## Main waits', '---\n\nAn intro.\n\n## Main waits')
+
+    it('holds once the first card is up, and plays on from Start', async () => {
+      const ac = await replay(WITH_INTRO)
+      expect(getSnapshot().intro).toBe('first')
+      expect(await beats(3)).toEqual(['Main waits', 'Main waits', 'Main waits'])
+      closeIntro()
+      expect(getSnapshot().intro).toBe(null)
+      expect(await beats(2)).toEqual(['your turn: 2', 'A press arrives'])
+      ac.abort()
+    })
+
+    it('opens again over the card the reader is on, and holds the replay there', async () => {
+      const ac = await replay(WITH_INTRO)
+      closeIntro()
+      await beats(1)
+      openIntro()
+      expect(getSnapshot().intro).toBe('again')
+      expect(await beats(2)).toEqual(['Main waits', 'Main waits'])
+      ac.abort()
+    })
+
+    it('goes when the reader leaves the tour', async () => {
+      const ac = await replay(WITH_INTRO)
+      skip()
+      expect(getSnapshot().intro).toBe(null)
+      ac.abort()
+    })
+
+    it('is not there for a tour with no intro, and cannot be opened', async () => {
+      const ac = await replay(LIFECYCLE)
+      expect(getSnapshot().intro).toBe(null)
+      openIntro()
+      expect(getSnapshot().intro).toBe(null)
+      ac.abort()
+    })
   })
 
   it('starts where a `?step=` link starts the real tour', async () => {
