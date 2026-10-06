@@ -101,6 +101,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Changed",
+        "text": "Trace's Queues tab is now IPC, with graph filters."
+      },
+      {
+        "tag": "Changed",
         "text": "Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI)."
       },
       {

@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { IpcFilterBar } from '@/components/queueGraph/IpcFilterBar'
 import { QueueGraphCanvas } from '@/components/queueGraph/QueueGraphCanvas'
+import { filterIpcGraph } from '@/components/queueGraph/filter'
 import { validateQueueGraphLayout } from '@/components/queueGraph/geometry'
 import {
   layoutSemanticGraph,
   type QueueGraphLayout,
 } from '@/components/queueGraph/layout'
-import { flowActionColor, type FlowAction } from '@/components/queueGraph/model'
+import { buildSemanticGraph, flowActionColor, type FlowAction } from '@/components/queueGraph/model'
+import * as ipcUi from '@/lib/ipcUi'
 import {
-  queueGraphLargeCapacityMock,
-  queueGraphMock,
-  queueGraphRoutingStressMock,
+  queueGraphLargeCapacityMockSpecs,
+  queueGraphMockSpecs,
+  queueGraphRoutingStressMockSpecs,
 } from './queueGraphMockData'
 
 function LegendItem({ action, label }: { action: FlowAction; label: string }) {
@@ -25,16 +28,20 @@ export function QueueGraphMock() {
   const [scenario, setScenario] = useState<'typical' | 'large' | 'routing'>('typical')
   const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const graph =
+  const specs =
     scenario === 'routing'
-      ? queueGraphRoutingStressMock
+      ? queueGraphRoutingStressMockSpecs
       : scenario === 'large'
-        ? queueGraphLargeCapacityMock
-        : queueGraphMock
+        ? queueGraphLargeCapacityMockSpecs
+        : queueGraphMockSpecs
+  const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
+  const filtered = useMemo(() => filterIpcGraph(specs.nodes, specs.flows, filter), [specs, filter])
+  const graph = useMemo(() => buildSemanticGraph(filtered.nodes, filtered.flows), [filtered])
 
   useEffect(() => {
     let current = true
-    setLayout(null)
+    // Keep the last layout up while the next one runs, as the live graph does:
+    // unmounting the canvas would drop the keyboard focus Escape needs.
     setError(null)
     layoutSemanticGraph(graph)
       .then((next) => {
@@ -135,18 +142,25 @@ export function QueueGraphMock() {
         </div>
 
         <section className="overflow-auto rounded-2xl border border-slate-800 bg-[#080d18] shadow-2xl shadow-black/30">
+          <IpcFilterBar nodes={specs.nodes} filter={filter} focused={filtered.focused} />
           {error ? (
             <div className="p-8 text-sm text-rose-300">{error}</div>
           ) : layout ? (
-            <QueueGraphCanvas layout={layout} ariaLabel="Synthetic Zephyr data-flow topology" />
+            <QueueGraphCanvas
+              layout={layout}
+              ariaLabel="Synthetic Zephyr data-flow topology"
+              focusedNodeId={filtered.focused ? filter.focus : null}
+              onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}
+              onClearFocus={() => ipcUi.setIpcFocus(null)}
+            />
           ) : (
             <div className="grid h-96 place-items-center text-sm text-slate-500">Computing layout…</div>
           )}
         </section>
 
         <footer className="flex flex-wrap justify-between gap-3 text-[11px] text-slate-500">
-          <span>Hover a route to isolate its endpoints.</span>
-          <span>Mock data only · live CTF integration intentionally deferred.</span>
+          <span>Hover a route to isolate its endpoints; click a node to focus on it.</span>
+          <span>Mock data only.</span>
         </footer>
       </div>
     </main>
