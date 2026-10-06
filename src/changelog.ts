@@ -105,7 +105,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
-        "text": "Trace Timeline names what a blocked thread waits on."
+        "text": "Trace Timeline shows thread priorities and what blocked threads wait on."
       },
       {
         "tag": "Changed",

@@ -618,11 +618,13 @@ export class TraceReader {
  * Thread ids for Gantt lanes: Zephyr priority ascending (lower = higher
  * priority; negative = cooperative), unknown prio last. Ties break by
  * thread id only — never by busy time, so live follow does not reshuffle.
+ * `priorities` stands in where the trace never logged one, as for threads
+ * created at run time.
  */
-export function laneOrder(tr: Trace): number[] {
+export function laneOrder(tr: Trace, priorities?: ReadonlyMap<number, number>): number[] {
   return [...tr.threads.keys()].sort((a, b) => {
-    const pa = tr.threads.get(a)?.prio
-    const pb = tr.threads.get(b)?.prio
+    const pa = threadPrio(tr, a, priorities)
+    const pb = threadPrio(tr, b, priorities)
     const aKnown = pa != null
     const bKnown = pb != null
     if (aKnown && bKnown && pa !== pb) return pa - pb
@@ -632,8 +634,8 @@ export function laneOrder(tr: Trace): number[] {
 }
 
 /** Lanes worth painting: non-dead state somewhere in the trace. */
-export function visibleLanes(tr: Trace): number[] {
-  return laneOrder(tr).filter((tid) => {
+export function visibleLanes(tr: Trace, priorities?: ReadonlyMap<number, number>): number[] {
+  return laneOrder(tr, priorities).filter((tid) => {
     const segs = tr.states.get(tid)
     return segs != null && segs.some(([, , st]) => st !== 'dead')
   })
@@ -643,9 +645,16 @@ export function threadLabel(tr: Trace, tid: number): string {
   return tr.threads.get(tid)?.name || '(unnamed)'
 }
 
-/** Scheduler priority from CTF, or null when never reported. */
-export function threadPrio(tr: Trace, tid: number): number | null {
-  return tr.threads.get(tid)?.prio ?? null
+/**
+ * Scheduler priority from CTF, else from `priorities` (what the debugger read
+ * for a thread the trace never gave one), or null.
+ */
+export function threadPrio(
+  tr: Trace,
+  tid: number,
+  priorities?: ReadonlyMap<number, number>,
+): number | null {
+  return tr.threads.get(tid)?.prio ?? priorities?.get(tid) ?? null
 }
 
 export function fmtTime(ns: number): string {

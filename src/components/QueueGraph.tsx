@@ -146,6 +146,7 @@ export function QueueGraph({
   flowEvents,
   eventCount,
   sync = null,
+  priorities,
 }: {
   tr: Trace
   queues: QueueSeries[]
@@ -153,6 +154,8 @@ export function QueueGraph({
   eventCount: number
   /** Semaphores, mutexes and condvars, when the tab is open. */
   sync?: LiveSync | null
+  /** Priorities the debugger read, for threads that never logged one. */
+  priorities?: ReadonlyMap<number, number>
 }) {
   const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const live = useMemo(
@@ -184,7 +187,7 @@ export function QueueGraph({
     () => new Map<number, DisplayedDepthEnvelope>(),
   )
   const nodeState = useMemo(() => {
-    const state = liveQueueNodeState(tr, queues)
+    const state = liveQueueNodeState(tr, queues, priorities)
     for (const [id, update] of syncView?.nodeState ?? []) {
       state.set(id, { ...state.get(id), ...update })
     }
@@ -196,7 +199,7 @@ export function QueueGraph({
       node.batchSequence = envelope.sequence
     }
     return state
-  }, [tr, queues, eventCount, depthEnvelopes, syncView])
+  }, [tr, queues, eventCount, depthEnvelopes, syncView, priorities])
   const [clock, setClock] = useState(() => performance.now())
   const [packets, setPackets] = useState<QueueGraphPacket[]>([])
   const lastIndexRef = useRef(-1)

@@ -51,6 +51,11 @@ export interface ThreadInfo {
    * since `base` is first). From DWARF or inferred as T_USER_OPTIONS − ptr.
    */
   pendedOnOff: number | null
+  /**
+   * Byte offset of `orig_prio` inside `struct k_thread`, on kernels that keep
+   * there the priority a mutex owner had before a waiter lent it one.
+   */
+  origPrioOff: number | null
 }
 
 const NEED = [
@@ -209,9 +214,11 @@ export function parseThreadInfoFromElf(elf: Uint8Array): ThreadInfo | null {
 
   let stackInfoOff: number | null = null
   let pendedOnOff: number | null = null
+  let origPrioOff: number | null = null
   try {
     const kMembers = dwarfStructMembers(elf, 'k_thread')
     if (kMembers.stack_info !== undefined) stackInfoOff = kMembers.stack_info
+    if (kMembers.orig_prio !== undefined) origPrioOff = kMembers.orig_prio
   } catch {
     /* ignore */
   }
@@ -241,6 +248,7 @@ export function parseThreadInfoFromElf(elf: Uint8Array): ThreadInfo | null {
     offsets,
     stackInfoOff,
     pendedOnOff,
+    origPrioOff,
   }
 }
 

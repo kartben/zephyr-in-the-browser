@@ -64,7 +64,7 @@ export interface SyncRoute {
 /** A thread running at the priority of a thread waiting on a mutex it holds. */
 export interface InheritedPriority {
   priority: number
-  /** Its own priority, when the trace has shown it. */
+  /** Its own priority, when the trace or the debugger has shown it. */
   base: number | null
 }
 
@@ -116,7 +116,15 @@ interface MutableObject extends SyncObject {
   learnedFrom: number | 'unknown' | null | undefined
 }
 
-export function reconstructSync(tr: Trace): SyncState {
+export interface SyncOptions {
+  /**
+   * Each thread's own priority, read by the debugger at the last stop. A
+   * thread created at run time logs none before its first loan.
+   */
+  priorities?: ReadonlyMap<number, number>
+}
+
+export function reconstructSync(tr: Trace, options: SyncOptions = {}): SyncState {
   const objects = new Map<string, MutableObject>()
   const routes = new Map<string, SyncRoute>()
   const inherited = new Map<number, InheritedPriority>()
@@ -191,7 +199,10 @@ export function reconstructSync(tr: Trace): SyncState {
       (threadDoing(actor).blockingOn !== null || waitsOnMutexOf(actor, target))
     const held = inherited.get(target)
     if (lent) {
-      const base = held ? held.base : before
+      // A loan only ever makes a thread more urgent, so an own priority no
+      // less urgent than the loan belongs to an earlier thread at this address.
+      const own = options.priorities?.get(target)
+      const base = held ? held.base : (before ?? (own !== undefined && own > prio ? own : null))
       if (base !== null && prio === base) inherited.delete(target)
       else inherited.set(target, { priority: prio, base })
       return
@@ -199,10 +210,11 @@ export function reconstructSync(tr: Trace): SyncState {
     const restoring =
       actor === target && threadDoing(target).releasing?.startsWith('mutex:') === true
     if (restoring && held) {
-      // A thread created at run time logs no priority of its own, so its
-      // boost has no base: a restore that lowers its priority gives the boost
-      // back. Whether its other mutexes have waiters says nothing, since a
-      // waiter only lends a priority higher than the owner's.
+      // A thread created at run time logs no priority of its own, so unless
+      // the debugger read it, its boost has no base: a restore that lowers its
+      // priority gives the boost back. Whether its other mutexes have waiters
+      // says nothing, since a waiter only lends a priority higher than the
+      // owner's.
       const back = held.base === null ? prio > held.priority : prio === held.base
       if (back) inherited.delete(target)
       else inherited.set(target, { priority: prio, base: held.base })

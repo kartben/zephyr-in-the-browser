@@ -22,6 +22,7 @@ function thread(name: string, prio: number, addr: number): ZephyrThread {
     pendedOn: null,
     waitingOn: null,
     objectCore: true,
+    origPrio: null,
   }
 }
 

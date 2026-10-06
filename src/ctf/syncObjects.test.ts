@@ -203,6 +203,58 @@ describe('reconstructSync: mutexes', () => {
     expect(replay(events, released).inherited.has(STORAGE)).toBe(false)
   })
 
+  it('takes the base the trace never showed from the debugger', () => {
+    const events: Ev[] = [
+      [100, 'thread_switched_in', { thread_id: STORAGE }],
+      ...lock(110, BUS),
+      ...switchTo(120, STORAGE, AGG),
+      [131, 'mutex_lock_blocking', { id: BUS, timeout: FOREVER }],
+      prio(132, STORAGE, -2),
+      ...switchTo(134, AGG, STORAGE),
+    ]
+    const read = (own: number) =>
+      reconstructSync(trace(events), { priorities: new Map([[STORAGE, own]]) })
+    expect(read(-1).inherited.get(STORAGE)).toEqual({ priority: -2, base: -1 })
+    // Not less urgent than the loan: a reading of some other thread.
+    expect(read(-2).inherited.get(STORAGE)).toEqual({ priority: -2, base: null })
+  })
+
+  it('keeps the loan a mutex still owes once the debugger gave the base', () => {
+    // Philosopher 4 (own priority 0) takes its second fork while philosopher
+    // 3 (-1) waits for its first, then philosopher 5 (-2) waits for the second.
+    // Giving the second back restores the priority it was taken at, -1, which
+    // only the base tells apart from the end of the loan.
+    const [P3, P4, P5, FORK4, FORK5] = [0x30, 0x40, 0x50, 0x4400, 0x5500]
+    const events: Ev[] = [
+      [100, 'thread_switched_in', { thread_id: P4 }],
+      ...lock(110, FORK4),
+      ...switchTo(120, P4, P3),
+      [121, 'mutex_lock_blocking', { id: FORK4, timeout: FOREVER }],
+      prio(122, P4, -1),
+      ...switchTo(123, P3, P4),
+      ...lock(130, FORK5),
+      ...switchTo(140, P4, P5),
+      [141, 'mutex_lock_blocking', { id: FORK5, timeout: FOREVER }],
+      prio(142, P4, -2),
+      ...switchTo(143, P5, P4),
+      [150, 'mutex_unlock_enter', { id: FORK5 }],
+      prio(151, P4, -1),
+      [152, 'thread_sched_ready', { thread_id: P5 }],
+      [153, 'mutex_unlock_exit', { id: FORK5, ret: 0 }],
+    ]
+    const released: Ev[] = [
+      [160, 'mutex_unlock_enter', { id: FORK4 }],
+      prio(161, P4, 0),
+      [162, 'thread_sched_ready', { thread_id: P3 }],
+    ]
+    const read = (...parts: Ev[][]) =>
+      reconstructSync(trace(parts.flat()), { priorities: new Map([[P4, 0]]) })
+    expect(read(events).inherited.get(P4)).toEqual({ priority: -1, base: 0 })
+    expect(read(events, released).inherited.has(P4)).toBe(false)
+    // Without the base, giving the second fork back looks like the end of it.
+    expect(replay(events).inherited.has(P4)).toBe(false)
+  })
+
   it('gives the lent priority back even when another mutex the owner holds has a waiter', () => {
     // Philosopher 4 holds both its forks; philosopher 3 (lower priority) waits
     // on one and lends nothing, philosopher 5 (higher) waits on the other.

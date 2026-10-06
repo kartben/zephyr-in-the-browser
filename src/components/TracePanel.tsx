@@ -119,7 +119,7 @@ import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { TRACE_TABS, TRACE_TAB_LABELS, type TraceTab } from '@/lib/traceTabs'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
-import type { ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
+import { ownThreadPriorities, type ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import { ProbeSection } from '@/components/ProbeSection'
 import {
   STAGE_TRACE_KEY,
@@ -286,6 +286,8 @@ type TimelineGeomOpts = {
   metrics: LaneMetrics
   /** Off hides the CPU section even when the guest has PM events. */
   showCpu?: boolean
+  /** Where the trace has no priority for a thread, what the debugger read. */
+  priorities: ReadonlyMap<number, number>
 }
 
 function timelineGeom({
@@ -294,8 +296,9 @@ function timelineGeom({
   queueCount,
   metrics,
   showCpu = true,
+  priorities,
 }: TimelineGeomOpts): TimelineGeom {
-  const lanes = visibleLanes(tr)
+  const lanes = visibleLanes(tr, priorities)
   const hasIsr = tr.isrSpans.length > 0 || tr.isrOpenStart != null
   const showQueues = showMsgq && queueCount > 0
   const threadBlockRows = lanes.length + (hasIsr ? 1 : 0)
@@ -653,9 +656,18 @@ function resolveMsgqHover(
   metrics: LaneMetrics,
   /** Max |Δt| in raw CTF ns for snapping to a flow event. */
   maxDeltaNs: number,
+  /** Must match what paint() used, or the thread rows are in another order. */
+  priorities: ReadonlyMap<number, number>,
 ): MsgqHover | null {
   if (!playhead || !showMsgq) return null
-  const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics, showCpu })
+  const geom = timelineGeom({
+    tr,
+    showMsgq,
+    queueCount: queueLanes.length,
+    metrics,
+    showCpu,
+    priorities,
+  })
   const overQueue =
     geom.showQueues &&
     playhead.y >= geom.queueTop &&
@@ -753,6 +765,8 @@ type TimelinePaint = {
   }
   /** Absent when the toggle is off; the section then does not exist at all. */
   cpu?: CpuPaint
+  /** What the debugger read, for threads that never logged a priority. */
+  priorities: ReadonlyMap<number, number>
 }
 
 function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
@@ -767,6 +781,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
     queueCount: queueLanes.length,
     metrics,
     showCpu: p.cpu != null,
+    priorities: p.priorities,
   })
   const { lanes, hasIsr, lanesTop, laneH, msgqLaneH, showQueues, queueTop, contentBottom } = geom
   const cssH = Math.max(120, contentBottom + 8)
@@ -821,7 +836,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
   lanes.forEach((tid, row) => {
     const y = lanesTop + row * laneH
     const label = threadLabel(tr, tid)
-    const prio = threadPrio(tr, tid)
+    const prio = threadPrio(tr, tid, p.priorities)
     const selected = selectedLane === tid
     ctx.fillStyle = selected ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.95)'
     ctx.font = `${selected ? '600 ' : ''}11px ui-monospace, SFMono-Regular, Menlo, monospace`
@@ -1084,9 +1099,18 @@ function hitTestMsgqEdge(
   msgqEvents: QueueFlowEvent[],
   queueLanes: MsgqSwimLane[],
   metrics: LaneMetrics,
+  /** Must match what paint() used, or the thread rows are in another order. */
+  priorities: ReadonlyMap<number, number>,
 ): number | null {
   if (!showMsgq || queueLanes.length === 0) return null
-  const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics, showCpu })
+  const geom = timelineGeom({
+    tr,
+    showMsgq,
+    queueCount: queueLanes.length,
+    metrics,
+    showCpu,
+    priorities,
+  })
   if (!geom.showQueues) return null
   const plotW = plotWidth(cssW, LABEL_W, PAD)
   const span = Math.max(1, view1 - view0)
@@ -1250,6 +1274,12 @@ export function TraceBody() {
     hostGdb.getSnapshot,
   )
   const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
+  // Threads created at run time never log their priority; the debugger reads
+  // it at every stop.
+  const priorities = useMemo(
+    () => ownThreadPriorities(gdbSnap.threads, gdbSnap.objects),
+    [gdbSnap.threads, gdbSnap.objects],
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1265,7 +1295,7 @@ export function TraceBody() {
               : 'No Trace events yet. Pick a traced app, or switch to Live board in the top bar to stream from a real board.'}
         </p>
       ) : (
-        <TracePanelBody snap={snap} objectCores={gdbSnap.objects} />
+        <TracePanelBody snap={snap} objectCores={gdbSnap.objects} priorities={priorities} />
       )}
     </div>
   )
@@ -1274,9 +1304,12 @@ export function TraceBody() {
 function TracePanelBody({
   snap,
   objectCores,
+  priorities,
 }: {
   snap: ReturnType<typeof getSnapshot>
   objectCores: ObjectCoreSnapshot | null
+  /** Each thread's own priority, as the debugger read it at the last stop. */
+  priorities: ReadonlyMap<number, number>
 }) {
   /** Pinned to the live edge until a pan/zoom detaches the view. */
   const [follow, setFollow] = useState(true)
@@ -1397,9 +1430,11 @@ function TracePanelBody({
   // only rebuilt while it is open.
   const liveSync = useMemo(
     () =>
-      tr && tab === 'queues' ? { state: reconstructSync(tr), names: ipcMetadata.names } : null,
+      tr && tab === 'queues'
+        ? { state: reconstructSync(tr, { priorities }), names: ipcMetadata.names }
+        : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, snap.revision, tab, ipcMetadata],
+    [tr, snap.revision, tab, ipcMetadata, priorities],
   )
   const queueLanes = useMemo(
     () => msgqSwimLanes(msgqEvents, queueSeries),
@@ -1426,8 +1461,9 @@ function TracePanelBody({
       msgqEvents,
       laneMetrics,
       maxDeltaNs,
+      priorities,
     )
-  }, [playhead, tr, view, showMsgq, cpuPaint, queueLanes, msgqEvents, laneMetrics, yZoom])
+  }, [playhead, tr, view, showMsgq, cpuPaint, queueLanes, msgqEvents, laneMetrics, yZoom, priorities])
   const snapTs = useMemo(() => {
     const idx = msgqHover?.eventIndex ?? selectedEdge
     if (idx == null) return null
@@ -1471,6 +1507,7 @@ function TracePanelBody({
             selectedEdge,
           },
           cpu: cpuPaint,
+          priorities,
         }
       : null
   const paintArgsRef = useRef(paintArgs)
@@ -1571,9 +1608,9 @@ function TracePanelBody({
     [tr, view, setFollow],
   )
 
-  const lanes = tr ? visibleLanes(tr) : []
+  const lanes = tr ? visibleLanes(tr, priorities) : []
   const lane = selectedLane ?? lanes[0] ?? null
-  const lanePrio = tr && lane !== null ? threadPrio(tr, lane) : null
+  const lanePrio = tr && lane !== null ? threadPrio(tr, lane, priorities) : null
   // Info strip follows the playhead when scrubbing; otherwise the right edge
   // (live edge when following) — same role as the Python viewer's cursor.
   const probeTs = playhead?.ts ?? view?.t1 ?? tr?.t1 ?? 0
@@ -1675,6 +1712,7 @@ function TracePanelBody({
         queueCount: queueLanes.length,
         metrics: laneMetrics,
         showCpu: true,
+        priorities,
       })
       const row = Math.floor((baseY - geom.cpuTop) / geom.cpuLaneH)
       if (baseY >= geom.cpuTop && row >= 0 && row < geom.cpus.length) {
@@ -1732,12 +1770,12 @@ function TracePanelBody({
       const cssH = canvasRef.current?.clientHeight ?? 120
       const { plotTop, plotBottom } = plotBandForTab('schedule', cssH)
       const baseY = screenYToBase(playhead.y, plotTop, plotBottom, yZoom)
-      const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics: laneMetrics, showCpu: cpuPaint != null })
+      const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics: laneMetrics, showCpu: cpuPaint != null, priorities })
       const row = Math.floor((baseY - geom.lanesTop) / geom.laneH)
       if (row >= 0 && row < geom.lanes.length) {
         const tid = geom.lanes[row]!
         const full = threadLabel(tr, tid)
-        const prio = threadPrio(tr, tid)
+        const prio = threadPrio(tr, tid, priorities)
         lines.push(prio != null ? `${full} · prio ${prio}` : full)
       }
     }
@@ -1941,6 +1979,7 @@ function TracePanelBody({
         msgqEvents,
         queueLanes,
         laneMetrics,
+        priorities,
       )
       if (hit != null) {
         setSelectedEdge((prev) => (prev === hit ? null : hit))
@@ -1951,7 +1990,7 @@ function TracePanelBody({
     }
     // Tap on a lane label selects it and opens Debug → Threads.
     if (x < LABEL_W && y >= AXIS_H) {
-      const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics: laneMetrics, showCpu: cpuPaint != null })
+      const geom = timelineGeom({ tr, showMsgq, queueCount: queueLanes.length, metrics: laneMetrics, showCpu: cpuPaint != null, priorities })
       const row = Math.floor((y - geom.lanesTop) / geom.laneH)
       if (row >= 0 && row < geom.lanes.length) selectLane(geom.lanes[row]!)
     }
@@ -2209,6 +2248,7 @@ function TracePanelBody({
           boxZoomArmed={boxZoomArmed}
           yZoom={yZoom}
           sync={liveSync}
+          priorities={priorities}
         />
       ) : tab === 'net' && view ? (
         <div className="flex flex-col gap-1">
