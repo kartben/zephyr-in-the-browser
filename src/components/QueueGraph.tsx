@@ -16,7 +16,7 @@ import {
   type FlowAction,
   type SemanticGraph,
 } from '@/components/queueGraph/model'
-import { layoutSemanticGraph, type QueueGraphLayout } from '@/components/queueGraph/layout'
+import { useElementSize, useFittedLayout } from '@/components/queueGraph/useFittedLayout'
 import {
   buildLiveQueueGraph,
   liveEdgeId,
@@ -42,8 +42,6 @@ const OCCUPANCY_ENVELOPE_MS = 420
 const OCCUPANCY_CLEANUP_MS = OCCUPANCY_ENVELOPE_MS + 40
 const MAX_PACKETS_PER_BURST = 3
 const MAX_LIVE_PACKETS = 48
-/** Layouts kept by topology, so clearing a filter puts the graph back at once. */
-const LAYOUT_CACHE_SIZE = 8
 
 type EdgeActivityState = {
   count: number
@@ -177,7 +175,9 @@ export function QueueGraph({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [live.topologyKey],
   )
-  const layoutCacheRef = useRef(new Map<string, QueueGraphLayout>())
+  const frameRef = useRef<HTMLDivElement>(null)
+  const frameSize = useElementSize(frameRef)
+  const { layout, error: layoutError } = useFittedLayout(layoutRequest, frameSize)
   const [depthEnvelopes, setDepthEnvelopes] = useState(
     () => new Map<number, DisplayedDepthEnvelope>(),
   )
@@ -195,8 +195,6 @@ export function QueueGraph({
     }
     return state
   }, [tr, queues, eventCount, depthEnvelopes, syncView])
-  const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
-  const [layoutError, setLayoutError] = useState<string | null>(null)
   const [clock, setClock] = useState(() => performance.now())
   const [packets, setPackets] = useState<QueueGraphPacket[]>([])
   const lastIndexRef = useRef(-1)
@@ -209,30 +207,6 @@ export function QueueGraph({
   } | null>(null)
   const occupancyTimeoutRef = useRef<number | undefined>(undefined)
   const occupancySequenceRef = useRef(0)
-
-  useEffect(() => {
-    setLayoutError(null)
-    const cache = layoutCacheRef.current
-    const cached = cache.get(layoutRequest.key)
-    if (cached) {
-      setLayout(cached)
-      return
-    }
-    let current = true
-    layoutSemanticGraph(layoutRequest.graph)
-      .then((next) => {
-        cache.set(layoutRequest.key, next)
-        if (cache.size > LAYOUT_CACHE_SIZE) cache.delete(cache.keys().next().value!)
-        if (current) setLayout(next)
-      })
-      .catch((reason: unknown) => {
-        if (!current) return
-        setLayoutError(reason instanceof Error ? reason.message : String(reason))
-      })
-    return () => {
-      current = false
-    }
-  }, [layoutRequest])
 
   useEffect(() => {
     const depths = new Map(
@@ -400,9 +374,11 @@ export function QueueGraph({
         focused={live.focused}
         privateCount={live.privateCount}
       />
-      <div>
+      {/* The canvas's own height, measured even before there is a layout to
+          draw, so the first one can already pick the direction that fits. */}
+      <div ref={frameRef} className="h-[clamp(16rem,42vh,28rem)] min-h-64">
         {empty ? (
-          <div className="grid h-32 place-items-center gap-2 px-6 text-center text-sm text-slate-500">
+          <div className="grid h-full place-items-center gap-2 px-6 text-center text-sm text-slate-500">
             <span>
               Nothing in the graph matches this filter.{' '}
               <button
@@ -415,7 +391,7 @@ export function QueueGraph({
             </span>
           </div>
         ) : layoutError ? (
-          <div className="grid h-32 place-items-center px-6 text-sm text-rose-300">
+          <div className="grid h-full place-items-center px-6 text-sm text-rose-300">
             Could not lay out IPC topology: {layoutError}
           </div>
         ) : layout ? (
@@ -430,7 +406,7 @@ export function QueueGraph({
             onClearFocus={() => ipcUi.setIpcFocus(null)}
           />
         ) : (
-          <div className="grid h-32 place-items-center text-sm text-slate-500">
+          <div className="grid h-full place-items-center text-sm text-slate-500">
             Computing IPC layout…
           </div>
         )}

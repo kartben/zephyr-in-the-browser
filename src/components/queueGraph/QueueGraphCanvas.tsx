@@ -209,6 +209,10 @@ function fitLabel(label: string): string {
 function ActorShape({ node }: { node: LayoutNode }) {
   if (node.kind !== 'thread' && node.kind !== 'isr') return null
   const isr = node.kind === 'isr'
+  // "priority 3 (inherited, base 9)" is too long for one line of the card:
+  // the part in brackets gets its own, in the colour of the mutex lending it.
+  const [, detail = node.detail ?? (isr ? 'interrupt context' : 'thread'), note] =
+    /^(.*) \((.*)\)$/.exec(node.detail ?? '') ?? []
   const fill = isr ? ISR_FILL : THREAD_FILL
   const stroke = isr ? ISR_STROKE : THREAD_STROKE
   return (
@@ -233,30 +237,77 @@ function ActorShape({ node }: { node: LayoutNode }) {
       )}
       <text
         x={35}
-        y={node.height / 2 - 7}
+        y={node.height / 2 - (note ? 11 : 7)}
         fill={TEXT}
         fontSize={13}
         fontWeight={650}
       >
         {node.label}
       </text>
-      <text x={35} y={node.height / 2 + 11} fill={MUTED} fontSize={9.5}>
-        {node.detail ?? (isr ? 'interrupt context' : 'thread')}
+      <text x={35} y={node.height / 2 + (note ? 5 : 11)} fill={MUTED} fontSize={9.5}>
+        {detail}
+      </text>
+      {note && (
+        <text x={35} y={node.height / 2 + 18} fill={SYNC_STYLE.mutex.tint} fontSize={9.5}>
+          {note}
+        </text>
+      )}
+    </>
+  )
+}
+
+/**
+ * A queue's box, laid along the way the graph runs: tail where its entries
+ * arrive and head where its exits leave, left to right or top to bottom.
+ */
+function queueFrame(node: DisplayLayoutNode, vertical: boolean) {
+  const trackStart = vertical ? 48 : 24
+  const trackLength = vertical ? node.height - 74 : node.width - 48
+  const trackX = vertical ? node.width / 2 - 12 : trackStart
+  const trackY = vertical ? trackStart : node.height / 2 - 2
+  return {
+    trackLength,
+    /** A run of the track, from `start` along it for `length`, 24 across. */
+    cell: (start: number, length: number) =>
+      vertical
+        ? { x: trackX, y: trackY + start, width: 24, height: length }
+        : { x: trackX + start, y: trackY, width: length, height: 24 },
+    /** Where the title and the kind line go. */
+    title: { x: vertical ? 14 : 18, y: vertical ? 22 : 24 },
+    info: vertical
+      ? { x: 14, y: 37, anchor: 'start' as const }
+      : { x: node.width - 18, y: 24, anchor: 'end' as const },
+    tail: vertical
+      ? { x: trackX + 32, y: trackY + 9, anchor: 'start' as const }
+      : { x: 18, y: node.height - 12, anchor: 'start' as const },
+    head: vertical
+      ? { x: trackX + 32, y: trackY + trackLength - 2, anchor: 'start' as const }
+      : { x: node.width - 18, y: node.height - 12, anchor: 'end' as const },
+  }
+}
+
+function QueueLabels({ frame }: { frame: ReturnType<typeof queueFrame> }) {
+  return (
+    <>
+      <text x={frame.tail.x} y={frame.tail.y} textAnchor={frame.tail.anchor} fill={MUTED} fontSize={8.5}>
+        TAIL
+      </text>
+      <text x={frame.head.x} y={frame.head.y} textAnchor={frame.head.anchor} fill={MUTED} fontSize={8.5}>
+        HEAD
       </text>
     </>
   )
 }
 
-function MsgqShape({ node }: { node: DisplayLayoutNode }) {
+function MsgqShape({ node, vertical }: { node: DisplayLayoutNode; vertical: boolean }) {
   if (node.kind !== 'msgq') return null
   const cap = Math.max(1, node.capacity ?? 1)
   const showExactSlots = node.capacity != null && node.capacity <= 10
   const visibleSlots = showExactSlots ? cap : 0
   const gap = 4
-  const trackX = 24
-  const trackY = node.height / 2 - 2
-  const trackW = node.width - 48
-  const slotW = showExactSlots ? (trackW - gap * (visibleSlots - 1)) / visibleSlots : 0
+  const frame = queueFrame(node, vertical)
+  const trackLength = frame.trackLength
+  const slotLength = showExactSlots ? (trackLength - gap * (visibleSlots - 1)) / visibleSlots : 0
   const fillFraction = capacityFillFraction(node.depth, cap)
   const batchMax = Math.max(node.depth, node.batchMaxDepth ?? node.depth)
   const batchFillFraction = capacityFillFraction(batchMax, cap)
@@ -271,10 +322,10 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
         stroke={OBJECT_STROKE}
         strokeWidth={1.4}
       />
-      <text x={18} y={24} fill={TEXT} fontSize={13} fontWeight={700}>
+      <text x={frame.title.x} y={frame.title.y} fill={TEXT} fontSize={13} fontWeight={700}>
         {node.label}
       </text>
-      <text x={node.width - 18} y={24} textAnchor="end" fill={MUTED} fontSize={9.5}>
+      <text x={frame.info.x} y={frame.info.y} textAnchor={frame.info.anchor} fill={MUTED} fontSize={9.5}>
         msgq · {compactCapacity(node.depth, node.capacity)}
       </text>
       {showExactSlots ? (
@@ -284,10 +335,7 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
           return (
             <rect
               key={`${index}:${inBatch ? node.batchSequence : 'steady'}`}
-              x={trackX + index * (slotW + gap)}
-              y={trackY}
-              width={slotW}
-              height={24}
+              {...frame.cell(index * (slotLength + gap), slotLength)}
               rx={4}
               fill={filled || inBatch ? '#38bdf8' : '#09111f'}
               fillOpacity={filled ? 0.62 : inBatch ? 0.3 : 1}
@@ -308,10 +356,7 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
       ) : (
         <>
           <rect
-            x={trackX}
-            y={trackY}
-            width={trackW}
-            height={24}
+            {...frame.cell(0, trackLength)}
             rx={6}
             fill="#09111f"
             stroke="#27364d"
@@ -320,11 +365,8 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
           {batchFillFraction > fillFraction && (
             <rect
               key={`batch:${node.batchSequence}`}
-              x={trackX}
-              y={trackY}
-              width={Math.max(1, trackW * batchFillFraction)}
-              height={24}
-              rx={Math.min(6, Math.max(0.5, (trackW * batchFillFraction) / 2))}
+              {...frame.cell(0, Math.max(1, trackLength * batchFillFraction))}
+              rx={Math.min(6, Math.max(0.5, (trackLength * batchFillFraction) / 2))}
               fill="#38bdf8"
               fillOpacity={0.3}
               stroke="#7dd3fc"
@@ -340,11 +382,8 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
           )}
           {fillFraction > 0 && (
             <rect
-              x={trackX}
-              y={trackY}
-              width={Math.max(1, trackW * fillFraction)}
-              height={24}
-              rx={Math.min(6, Math.max(0.5, (trackW * fillFraction) / 2))}
+              {...frame.cell(0, Math.max(1, trackLength * fillFraction))}
+              rx={Math.min(6, Math.max(0.5, (trackLength * fillFraction) / 2))}
               fill="#38bdf8"
               fillOpacity={0.62}
               stroke="#7dd3fc"
@@ -353,21 +392,24 @@ function MsgqShape({ node }: { node: DisplayLayoutNode }) {
           )}
         </>
       )}
-      <text x={18} y={node.height - 12} fill={MUTED} fontSize={8.5}>
-        TAIL
-      </text>
-      <text x={node.width - 18} y={node.height - 12} textAnchor="end" fill={MUTED} fontSize={8.5}>
-        HEAD
-      </text>
+      <QueueLabels frame={frame} />
     </>
   )
 }
 
-function FifoShape({ node }: { node: DisplayLayoutNode }) {
+function FifoShape({ node, vertical }: { node: DisplayLayoutNode; vertical: boolean }) {
   if (node.kind !== 'fifo' && node.kind !== 'queue') return null
-  const itemCount = Math.min(5, Math.max(1, node.depth))
-  const startX = 58
-  const centerY = node.height / 2 + 6
+  const frame = queueFrame(node, vertical)
+  const itemCount = Math.min(vertical ? 4 : 5, Math.max(1, node.depth))
+  const pitch = vertical ? 26 : 29
+  // The items sit on the track's centre line.
+  const line = vertical
+    ? { x1: node.width / 2, y1: 50, x2: node.width / 2, y2: node.height - 20 }
+    : { x1: 42, y1: node.height / 2 + 6, x2: node.width - 42, y2: node.height / 2 + 6 }
+  const item = (index: number) =>
+    vertical
+      ? { cx: node.width / 2, cy: 62 + index * pitch }
+      : { cx: 58 + index * pitch, cy: node.height / 2 + 6 }
   return (
     <>
       <rect
@@ -378,28 +420,23 @@ function FifoShape({ node }: { node: DisplayLayoutNode }) {
         stroke={OBJECT_STROKE}
         strokeWidth={1.4}
       />
-      <text x={18} y={24} fill={TEXT} fontSize={13} fontWeight={700}>
+      <text x={frame.title.x} y={frame.title.y} fill={TEXT} fontSize={13} fontWeight={700}>
         {node.label}
       </text>
-      <text x={node.width - 18} y={24} textAnchor="end" fill={MUTED} fontSize={9.5}>
+      <text x={frame.info.x} y={frame.info.y} textAnchor={frame.info.anchor} fill={MUTED} fontSize={9.5}>
         {node.kind} · depth {node.depth}
       </text>
-      <line x1={42} y1={centerY} x2={node.width - 42} y2={centerY} stroke="#334155" strokeWidth={2} />
+      <line {...line} stroke="#334155" strokeWidth={2} />
       {Array.from({ length: itemCount }, (_, index) => {
-        const x = startX + index * 29
+        const { cx, cy } = item(index)
         return (
           <g key={index}>
-            <circle cx={x} cy={centerY} r={10} fill="#172b3d" stroke="#7dd3fc" strokeWidth={1} />
-            <circle cx={x} cy={centerY} r={3} fill="#7dd3fc" fillOpacity={0.75} />
+            <circle cx={cx} cy={cy} r={10} fill="#172b3d" stroke="#7dd3fc" strokeWidth={1} />
+            <circle cx={cx} cy={cy} r={3} fill="#7dd3fc" fillOpacity={0.75} />
           </g>
         )
       })}
-      <text x={18} y={node.height - 12} fill={MUTED} fontSize={8.5}>
-        TAIL
-      </text>
-      <text x={node.width - 18} y={node.height - 12} textAnchor="end" fill={MUTED} fontSize={8.5}>
-        HEAD
-      </text>
+      <QueueLabels frame={frame} />
     </>
   )
 }
@@ -581,12 +618,15 @@ function NodeView({
   active,
   focused,
   clickable,
+  vertical,
 }: {
   node: DisplayLayoutNode
   actionByEdge: Map<string, FlowAction>
   active: boolean
   focused: boolean
   clickable: boolean
+  /** The graph runs top to bottom. */
+  vertical: boolean
 }) {
   return (
     <g
@@ -609,8 +649,8 @@ function NodeView({
         />
       )}
       <ActorShape node={node} />
-      <MsgqShape node={node} />
-      <FifoShape node={node} />
+      <MsgqShape node={node} vertical={vertical} />
+      <FifoShape node={node} vertical={vertical} />
       <VerticalStackShape node={node} />
       <SyncShape node={node} />
       {node.ports.map((port) => {
@@ -1091,6 +1131,7 @@ export function QueueGraphCanvas({
                 active={highlightedNodes == null || highlightedNodes.has(node.id)}
                 focused={node.id === focusedNodeId}
                 clickable={onNodeClick != null}
+                vertical={layout.direction === 'DOWN'}
               />
             ))}
           </g>

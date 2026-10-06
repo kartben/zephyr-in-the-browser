@@ -40,59 +40,90 @@ export interface LayoutEdge extends SemanticEdge {
   points: ElkPoint[]
 }
 
+/**
+ * Which way the graph runs: left to right, or top to bottom. The model puts
+ * entries on the west and exits on the east; top to bottom turns those into
+ * north and south. A stack's top stays its top either way.
+ */
+export type GraphDirection = 'RIGHT' | 'DOWN'
+
 export interface QueueGraphLayout {
   width: number
   height: number
   nodes: LayoutNode[]
   edges: LayoutEdge[]
+  direction: GraphDirection
 }
 
-function maxPortsOnSide(node: SemanticNode): number {
+const DOWN_SIDE: Record<SemanticPort['side'], SemanticPort['side']> = {
+  WEST: 'NORTH',
+  EAST: 'SOUTH',
+  NORTH: 'NORTH',
+  SOUTH: 'SOUTH',
+}
+
+function sideFor(port: SemanticPort, direction: GraphDirection): SemanticPort['side'] {
+  return direction === 'DOWN' ? DOWN_SIDE[port.side] : port.side
+}
+
+/** Room the ports on one side need, along that side. */
+function portExtent(node: SemanticNode, direction: GraphDirection, horizontal: boolean): number {
   const counts = new Map<SemanticPort['side'], number>()
-  for (const port of node.ports) counts.set(port.side, (counts.get(port.side) ?? 0) + 1)
-  return Math.max(1, ...counts.values())
+  for (const port of node.ports) {
+    const side = sideFor(port, direction)
+    if ((side === 'NORTH' || side === 'SOUTH') === horizontal) {
+      counts.set(side, (counts.get(side) ?? 0) + 1)
+    }
+  }
+  return Math.max(1, ...counts.values()) * PORT_PITCH + 30
 }
 
-function nodeSize(node: SemanticNode): { width: number; height: number } {
-  const pitchExtent = maxPortsOnSide(node) * PORT_PITCH + 30
+function nodeSize(node: SemanticNode, direction: GraphDirection): { width: number; height: number } {
+  const across = portExtent(node, direction, true)
+  const down = portExtent(node, direction, false)
+  const vertical = direction === 'DOWN'
   if (isActorNode(node)) {
-    return { width: 142, height: Math.max(62, pitchExtent) }
+    return { width: Math.max(142, across), height: Math.max(62, down) }
   }
   if (node.kind === 'stack') {
-    return { width: Math.max(166, pitchExtent), height: 150 }
+    return { width: Math.max(166, across), height: 150 }
   }
   if (node.kind === 'lifo') {
-    return { width: Math.max(156, pitchExtent), height: 138 }
+    return { width: Math.max(156, across), height: 138 }
   }
   if (node.kind === 'msgq') {
-    return { width: 238, height: Math.max(104, pitchExtent) }
+    return vertical
+      ? { width: Math.max(150, across), height: 190 }
+      : { width: 238, height: Math.max(104, down) }
   }
   if (node.kind === 'mutex' || node.kind === 'condvar' || node.kind === 'sem') {
-    return { width: 176, height: Math.max(48, pitchExtent) }
+    return { width: Math.max(176, across), height: Math.max(48, down) }
   }
-  return { width: 210, height: Math.max(96, pitchExtent) }
+  return vertical
+    ? { width: Math.max(150, across), height: 170 }
+    : { width: 210, height: Math.max(96, down) }
 }
 
-function elkPort(port: SemanticPort): ElkPort {
+function elkPort(port: SemanticPort, direction: GraphDirection): ElkPort {
   return {
     id: port.id,
     width: PORT_SIZE,
     height: PORT_SIZE,
     layoutOptions: {
-      'elk.port.side': port.side,
+      'elk.port.side': sideFor(port, direction),
       'elk.port.index': String(port.order),
       'elk.port.borderOffset': '0',
     },
   }
 }
 
-function elkNode(node: SemanticNode): ElkNode {
-  const size = nodeSize(node)
+function elkNode(node: SemanticNode, direction: GraphDirection): ElkNode {
+  const size = nodeSize(node, direction)
   return {
     id: node.id,
     width: size.width,
     height: size.height,
-    ports: node.ports.map(elkPort),
+    ports: node.ports.map((port) => elkPort(port, direction)),
     layoutOptions: {
       'elk.portConstraints': 'FIXED_ORDER',
       'elk.spacing.portPort': String(PORT_PITCH - PORT_SIZE),
@@ -125,14 +156,17 @@ function loadElk(): Promise<ElkInstance> {
   return elkPromise
 }
 
-export async function layoutSemanticGraph(graph: SemanticGraph): Promise<QueueGraphLayout> {
+export async function layoutSemanticGraph(
+  graph: SemanticGraph,
+  direction: GraphDirection = 'RIGHT',
+): Promise<QueueGraphLayout> {
   const root: ElkNode = {
     id: 'root',
-    children: graph.nodes.map(elkNode),
+    children: graph.nodes.map((node) => elkNode(node, direction)),
     edges: graph.edges.map(elkEdge),
     layoutOptions: {
       'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
+      'elk.direction': direction,
       'elk.edgeRouting': 'ORTHOGONAL',
       'elk.padding': '[top=46,left=46,bottom=46,right=46]',
       'elk.spacing.nodeNode': '46',
@@ -196,5 +230,6 @@ export async function layoutSemanticGraph(graph: SemanticGraph): Promise<QueueGr
     height: result.height ?? 1,
     nodes,
     edges,
+    direction,
   }
 }
