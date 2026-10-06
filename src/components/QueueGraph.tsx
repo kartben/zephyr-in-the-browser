@@ -406,6 +406,7 @@ export function QueueGraph({
             focusedNodeId={live.focused ? filter.focus : null}
             onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}
             onClearFocus={() => ipcUi.setIpcFocus(null)}
+            fitKey={filter}
           />
         ) : (
           <div className="grid h-full place-items-center text-sm text-slate-500">

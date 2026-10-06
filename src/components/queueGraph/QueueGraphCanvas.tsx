@@ -20,6 +20,7 @@ import {
 } from '@/components/queueGraph/model'
 import {
   fitGraphCamera,
+  followGraphCamera,
   resizeGraphCamera,
   zoomGraphCamera,
   type GraphCamera,
@@ -816,6 +817,7 @@ export function QueueGraphCanvas({
   focusedNodeId = null,
   onNodeClick,
   onClearFocus,
+  fitKey,
 }: {
   layout: QueueGraphLayout
   nodeState?: ReadonlyMap<string, QueueGraphNodeState>
@@ -829,6 +831,11 @@ export function QueueGraphCanvas({
   onNodeClick?: (nodeId: string) => void
   /** Escape was pressed in the graph while it is focused on a node. */
   onClearFocus?: () => void
+  /**
+   * A new value fits the next layout to the view, whatever the user zoomed
+   * to: a new filter is a new set of nodes to look at.
+   */
+  fitKey?: unknown
 }) {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
   const [viewport, setViewport] = useState<GraphViewportSize>({ width: 0, height: 0 })
@@ -838,6 +845,8 @@ export function QueueGraphCanvas({
   const svgRef = useRef<SVGSVGElement>(null)
   const previousViewportRef = useRef<GraphViewportSize | null>(null)
   const previousLayoutRef = useRef(layout)
+  /** The user zoomed or panned since the graph was last fitted. */
+  const adjustedRef = useRef(false)
   const dragRef = useRef<{
     pointerId: number
     x: number
@@ -887,15 +896,26 @@ export function QueueGraphCanvas({
     return () => observer.disconnect()
   }, [])
 
+  // Before the camera effect, so a layout that comes with the new key is fitted.
+  useEffect(() => {
+    adjustedRef.current = false
+  }, [fitKey])
+
   useEffect(() => {
     if (viewport.width === 0 || viewport.height === 0) return
     const previousViewport = previousViewportRef.current
-    const layoutChanged = previousLayoutRef.current !== layout
+    const previousLayout = previousLayoutRef.current
     setCamera((current) => {
-      if (!current || !previousViewport || layoutChanged) {
-        return fitGraphCamera(layout, viewport)
-      }
-      return resizeGraphCamera(current, previousViewport, viewport)
+      if (!current || !previousViewport) return fitGraphCamera(layout, viewport)
+      const resized = resizeGraphCamera(current, previousViewport, viewport)
+      if (previousLayout === layout) return resized
+      // A route or an object the trace has just shown, or the picture
+      // turning, lays the graph out again. A user who zoomed in keeps what
+      // they were looking at; otherwise the new layout is fitted.
+      const followed = adjustedRef.current
+        ? followGraphCamera(resized, previousLayout.nodes, layout.nodes, viewport)
+        : null
+      return followed ?? fitGraphCamera(layout, viewport)
     })
     previousViewportRef.current = viewport
     previousLayoutRef.current = layout
@@ -909,6 +929,7 @@ export function QueueGraphCanvas({
 
   const zoomAt = useCallback(
     (factor: number, pivot = { x: viewport.width / 2, y: viewport.height / 2 }) => {
+      adjustedRef.current = true
       setCamera((current) =>
         current
           ? zoomGraphCamera(current, factor, pivot, minScale, MAX_SCALE)
@@ -920,6 +941,7 @@ export function QueueGraphCanvas({
 
   const fitAll = useCallback(() => {
     if (viewport.width === 0 || viewport.height === 0) return
+    adjustedRef.current = false
     setCamera(fitGraphCamera(layout, viewport))
   }, [layout, viewport])
 
@@ -1004,6 +1026,7 @@ export function QueueGraphCanvas({
           const dy = event.clientY - drag.y
           drag.x = event.clientX
           drag.y = event.clientY
+          if (dx !== 0 || dy !== 0) adjustedRef.current = true
           setCamera((current) =>
             current ? { ...current, x: current.x + dx, y: current.y + dy } : current,
           )
