@@ -48,6 +48,7 @@ import {
   type Trace,
 } from '@/ctf'
 import { QueueGraph } from '@/components/QueueGraph'
+import type { LiveSync } from '@/components/queueGraph/live'
 import {
   formatGuestTime,
   screenYToBase,
@@ -585,6 +586,7 @@ export function QueuesView({
   overlay,
   boxZoomArmed = false,
   yZoom = null,
+  sync = null,
 }: {
   tr: Trace
   /** Shared reconstruction used by the timeline, synoptic, and depth chart. */
@@ -605,6 +607,8 @@ export function QueuesView({
   boxZoomArmed?: boolean
   /** Vertical viewport from rectangle zoom. */
   yZoom?: YZoom | null
+  /** Semaphores, mutexes and condvars, drawn in the graph only. */
+  sync?: LiveSync | null
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const layoutsRef = useRef<RowLayout[]>([])
@@ -746,12 +750,13 @@ export function QueuesView({
 
   return (
     <div className="flex flex-col gap-2">
-      {queues.length > 0 && (
+      {(queues.length > 0 || (sync?.state.objects.size ?? 0) > 0) && (
         <QueueGraph
           tr={tr}
           queues={queues}
           flowEvents={flowEvents}
           eventCount={eventCount}
+          sync={sync}
         />
       )}
       <div className="flex flex-col gap-1">

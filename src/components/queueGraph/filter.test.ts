@@ -111,6 +111,42 @@ describe('filterIpcGraph', () => {
   })
 })
 
+describe('filterIpcGraph: objects only one actor uses', () => {
+  const syncNodes: FlowNodeSpec[] = [
+    { id: 'thread:3', kind: 'thread', label: 'aggregator' },
+    { id: 'thread:5', kind: 'thread', label: 'storage' },
+    { id: 'sync:mutex:1', kind: 'mutex', label: 'bus_mutex' },
+    { id: 'sync:mutex:2', kind: 'mutex', label: 'agg_mutex' },
+    { id: 'sync:sem:3', kind: 'sem', label: 'unused_sem' },
+  ]
+  const syncFlows: FlowSpec[] = [
+    { id: 'l1', actorId: 'thread:3', objectId: 'sync:mutex:1', action: 'lock', side: 'in' },
+    { id: 'l2', actorId: 'thread:5', objectId: 'sync:mutex:1', action: 'lock', side: 'out' },
+    { id: 'l3', actorId: 'thread:3', objectId: 'sync:mutex:2', action: 'lock', side: 'in' },
+  ]
+  const labels = (filter: Partial<IpcFilter>) =>
+    filterIpcGraph(syncNodes, syncFlows, { ...NO_IPC_FILTER, ...filter }).nodes.map(
+      (node) => node.label,
+    )
+
+  it('hides them by default, and counts them', () => {
+    expect(labels({})).toEqual(['aggregator', 'storage', 'bus_mutex'])
+    expect(filterIpcGraph(syncNodes, syncFlows, NO_IPC_FILTER).privateCount).toBe(2)
+  })
+
+  it('shows them when asked to, by the chip, a focus or a name', () => {
+    expect(labels({ showPrivate: true })).toEqual(syncNodes.map((node) => node.label))
+    expect(labels({ focus: 'sync:mutex:2' })).toEqual(['aggregator', 'agg_mutex'])
+    expect(labels({ query: 'agg_' })).toEqual(['aggregator', 'agg_mutex'])
+  })
+
+  it('leaves queues with one actor alone: a queue filling up is news', () => {
+    const result = filterIpcGraph(nodes, flows, NO_IPC_FILTER)
+    expect(result.nodes.map((node) => node.label)).toContain('keys')
+    expect(result.privateCount).toBe(0)
+  })
+})
+
 describe('ipcKindCounts', () => {
   it('counts objects per kind, skipping actors', () => {
     expect([...ipcKindCounts(nodes)]).toEqual([

@@ -12,8 +12,52 @@ import * as ipcUi from '@/lib/ipcUi'
 import {
   queueGraphLargeCapacityMockSpecs,
   queueGraphMockSpecs,
+  queueGraphPhilosophersMockSpecs,
   queueGraphRoutingStressMockSpecs,
+  queueGraphSensorPipelineMockSpecs,
+  queueGraphSensorPipelineMockState,
 } from './queueGraphMockData'
+
+type Scenario = 'typical' | 'large' | 'routing' | 'pipeline' | 'philosophers'
+
+const SCENARIOS: Array<{ id: Scenario; label: string; on: string; specs: typeof queueGraphMockSpecs }> = [
+  { id: 'typical', label: 'Typical capacity', on: 'bg-slate-700 text-slate-100', specs: queueGraphMockSpecs },
+  {
+    id: 'large',
+    label: 'Large-capacity stress',
+    on: 'bg-violet-500/25 text-violet-200',
+    specs: queueGraphLargeCapacityMockSpecs,
+  },
+  {
+    id: 'routing',
+    label: 'Routing stress · 3×',
+    on: 'bg-sky-500/25 text-sky-200',
+    specs: queueGraphRoutingStressMockSpecs,
+  },
+  {
+    id: 'pipeline',
+    label: 'Sensor pipeline',
+    on: 'bg-emerald-500/20 text-emerald-200',
+    specs: queueGraphSensorPipelineMockSpecs,
+  },
+  {
+    id: 'philosophers',
+    label: 'Philosophers',
+    on: 'bg-amber-500/20 text-amber-200',
+    specs: queueGraphPhilosophersMockSpecs,
+  },
+]
+
+const SCENARIO_NOTES: Record<Scenario, string> = {
+  typical:
+    'Small capacities show exact slots; large capacities use a continuous proportional gauge. Exact values remain available in each object tooltip.',
+  large:
+    'Small capacities show exact slots; large capacities use a continuous proportional gauge. Exact values remain available in each object tooltip.',
+  routing: 'Routing stress: 19 nodes, 25 flows, mixed object semantics, long edges, and feedback cycles.',
+  pipeline:
+    'The tracing_pipeline sample where part 3 of its tour stops: storage holds bus_mutex at the priority the waiting aggregator lent it.',
+  philosophers: 'Five philosophers and their forks: a ring of mutexes, with no data flow to rank them.',
+}
 
 function LegendItem({ action, label }: { action: FlowAction; label: string }) {
   return (
@@ -25,15 +69,11 @@ function LegendItem({ action, label }: { action: FlowAction; label: string }) {
 }
 
 export function QueueGraphMock() {
-  const [scenario, setScenario] = useState<'typical' | 'large' | 'routing'>('typical')
+  const [scenario, setScenario] = useState<Scenario>('typical')
   const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const specs =
-    scenario === 'routing'
-      ? queueGraphRoutingStressMockSpecs
-      : scenario === 'large'
-        ? queueGraphLargeCapacityMockSpecs
-        : queueGraphMockSpecs
+  const specs = SCENARIOS.find((s) => s.id === scenario)!.specs
+  const liveState = scenario === 'pipeline' ? queueGraphSensorPipelineMockState : null
   const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const filtered = useMemo(() => filterIpcGraph(specs.nodes, specs.flows, filter), [specs, filter])
   const graph = useMemo(() => buildSemanticGraph(filtered.nodes, filtered.flows), [filtered])
@@ -90,64 +130,44 @@ export function QueueGraphMock() {
         </header>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-slate-500">
-            {scenario === 'routing'
-              ? 'Routing stress: 19 nodes, 25 flows, mixed object semantics, long edges, and feedback cycles.'
-              : 'Small capacities show exact slots; large capacities use a continuous proportional gauge. Exact values remain available in each object tooltip.'}
-          </p>
+          <p className="text-[11px] text-slate-500">{SCENARIO_NOTES[scenario]}</p>
           <div
-            className="flex rounded-lg border border-slate-800 bg-slate-900/70 p-1 text-[11px]"
+            className="flex flex-wrap rounded-lg border border-slate-800 bg-slate-900/70 p-1 text-[11px]"
             aria-label="Mock scenario"
           >
-            <button
-              type="button"
-              data-testid="capacity-typical"
-              aria-pressed={scenario === 'typical'}
-              className={
-                scenario === 'typical'
-                  ? 'rounded-md bg-slate-700 px-3 py-1.5 text-slate-100'
-                  : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
-              }
-              onClick={() => setScenario('typical')}
-            >
-              Typical capacity
-            </button>
-            <button
-              type="button"
-              data-testid="capacity-large"
-              aria-pressed={scenario === 'large'}
-              className={
-                scenario === 'large'
-                  ? 'rounded-md bg-violet-500/25 px-3 py-1.5 text-violet-200'
-                  : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
-              }
-              onClick={() => setScenario('large')}
-            >
-              Large-capacity stress
-            </button>
-            <button
-              type="button"
-              data-testid="routing-stress"
-              aria-pressed={scenario === 'routing'}
-              className={
-                scenario === 'routing'
-                  ? 'rounded-md bg-sky-500/25 px-3 py-1.5 text-sky-200'
-                  : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
-              }
-              onClick={() => setScenario('routing')}
-            >
-              Routing stress · 3×
-            </button>
+            {SCENARIOS.map(({ id, label, on }) => (
+              <button
+                key={id}
+                type="button"
+                data-testid={`scenario-${id}`}
+                aria-pressed={scenario === id}
+                className={
+                  scenario === id
+                    ? `rounded-md px-3 py-1.5 ${on}`
+                    : 'rounded-md px-3 py-1.5 text-slate-400 hover:text-slate-200'
+                }
+                onClick={() => setScenario(id)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
         <section className="overflow-auto rounded-2xl border border-slate-800 bg-[#080d18] shadow-2xl shadow-black/30">
-          <IpcFilterBar nodes={specs.nodes} filter={filter} focused={filtered.focused} />
+          <IpcFilterBar
+            nodes={specs.nodes}
+            filter={filter}
+            focused={filtered.focused}
+            privateCount={filtered.privateCount}
+          />
           {error ? (
             <div className="p-8 text-sm text-rose-300">{error}</div>
           ) : layout ? (
             <QueueGraphCanvas
               layout={layout}
+              nodeState={liveState?.nodeState}
+              edgeState={liveState?.edgeState}
               ariaLabel="Synthetic Zephyr data-flow topology"
               focusedNodeId={filtered.focused ? filter.focus : null}
               onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}

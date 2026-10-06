@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyCpuPower } from '@/ctf'
 import type { QueueSeries, Trace } from '@/ctf'
+import { reconstructSync } from '@/ctf/syncObjects'
 import { NO_IPC_FILTER } from '@/lib/ipcUi'
 import {
   buildLiveQueueGraph,
@@ -8,6 +9,9 @@ import {
   liveFlowAction,
   liveObjectNodeId,
   liveQueueNodeState,
+  liveSyncEdgeId,
+  liveSyncNodeId,
+  liveSyncView,
   liveThreadNodeId,
   queueDepthEnvelope,
 } from './live'
@@ -174,5 +178,91 @@ describe('live queue graph adapter', () => {
     ]
 
     expect(queueDepthEnvelope(queue, 100, 3)).toBeNull()
+  })
+
+  describe('with semaphores, mutexes and condvars', () => {
+    const AGG = 0x10
+    const STORAGE = 0x20
+    const BUS = 0x5000
+    const AGG_MUTEX = 0x6000
+
+    /** Storage holds the bus; the aggregator waits for it and lends storage its priority. */
+    function busTrace(): Trace {
+      const tr = trace()
+      tr.threads = new Map([
+        [AGG, { name: 'aggregator', prio: 3, stackBase: null, stackSize: null }],
+        [STORAGE, { name: 'storage', prio: 3, stackBase: null, stackSize: null }],
+      ])
+      tr.events = [
+        { ts: 1, eid: 0, name: 'thread_switched_in', fields: { thread_id: AGG } },
+        { ts: 2, eid: 1, name: 'mutex_lock_enter', fields: { id: AGG_MUTEX } },
+        { ts: 3, eid: 2, name: 'mutex_lock_exit', fields: { id: AGG_MUTEX, ret: 0 } },
+        { ts: 4, eid: 3, name: 'thread_switched_out', fields: { thread_id: AGG } },
+        { ts: 4, eid: 4, name: 'thread_switched_in', fields: { thread_id: STORAGE } },
+        { ts: 5, eid: 5, name: 'thread_sched_priority_set', fields: { thread_id: STORAGE, prio: 9 } },
+        { ts: 6, eid: 6, name: 'mutex_lock_enter', fields: { id: BUS } },
+        { ts: 7, eid: 7, name: 'mutex_lock_exit', fields: { id: BUS, ret: 0 } },
+        { ts: 8, eid: 8, name: 'thread_switched_out', fields: { thread_id: STORAGE } },
+        { ts: 8, eid: 9, name: 'thread_switched_in', fields: { thread_id: AGG } },
+        { ts: 9, eid: 10, name: 'mutex_lock_enter', fields: { id: BUS } },
+        { ts: 10, eid: 11, name: 'mutex_lock_blocking', fields: { id: BUS } },
+        { ts: 11, eid: 12, name: 'thread_sched_priority_set', fields: { thread_id: STORAGE, prio: 3 } },
+      ]
+      return tr
+    }
+    const names = new Map([
+      [BUS, 'bus_mutex'],
+      [AGG_MUTEX, 'agg_mutex'],
+    ])
+    const lockEdge = (threadId: number, objectId: number) =>
+      liveSyncEdgeId({ kind: 'mutex', objectId, actor: { kind: 'thread', threadId }, op: 'lock' })
+
+    it('adds the objects and their routes, and hides what one thread alone uses', () => {
+      const tr = busTrace()
+      const live = buildLiveQueueGraph(tr, [], [], NO_IPC_FILTER, {
+        state: reconstructSync(tr),
+        names,
+      })
+      expect(live.nodes.map((node) => node.label)).toEqual([
+        'aggregator',
+        'storage',
+        'agg_mutex',
+        'bus_mutex',
+      ])
+      expect(live.graph.nodes.map((node) => node.id)).toEqual([
+        liveThreadNodeId(AGG),
+        liveThreadNodeId(STORAGE),
+        liveSyncNodeId('mutex', BUS),
+      ])
+      expect(live.privateCount).toBe(1)
+      expect(live.graph.edges.map((edge) => edge.id)).toEqual([
+        lockEdge(STORAGE, BUS),
+        lockEdge(AGG, BUS),
+      ])
+      expect(live.flows.every((flow) => flow.side === 'in')).toBe(true)
+    })
+
+    it('shows who holds the bus, who waits for it, and the priority lent', () => {
+      const tr = busTrace()
+      const view = liveSyncView(tr, { state: reconstructSync(tr), names })
+      expect(view.nodeState.get(liveSyncNodeId('mutex', BUS))).toMatchObject({
+        label: 'bus_mutex',
+        owner: 'storage',
+        lockDepth: 1,
+        waiterLabels: ['aggregator'],
+        mutexLabel: null,
+      })
+      expect(view.nodeState.get(liveSyncNodeId('mutex', AGG_MUTEX))).toMatchObject({
+        owner: 'aggregator',
+        waiterLabels: [],
+      })
+      expect(view.edgeState.get(lockEdge(STORAGE, BUS))).toBe('holds')
+      expect(view.edgeState.get(lockEdge(AGG, BUS))).toBe('waits')
+      expect(view.edgeState.get(lockEdge(AGG, AGG_MUTEX))).toBe('holds')
+      expect(view.nodeState.get(liveThreadNodeId(STORAGE))).toEqual({
+        detail: 'priority 3 (inherited, base 9)',
+      })
+      expect(view.nodeState.has(liveThreadNodeId(AGG))).toBe(false)
+    })
   })
 })

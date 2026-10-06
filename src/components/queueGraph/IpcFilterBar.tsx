@@ -2,11 +2,13 @@ import { Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import * as ipcUi from '@/lib/ipcUi'
 import { ipcKindCounts } from './filter'
-import type { FlowNodeSpec } from './model'
+import { isSyncKind, type FlowNodeSpec } from './model'
+import { SYNC_STYLE } from './QueueGraphCanvas'
 
 /**
  * The IPC graph's filter row: a name filter, one chip per object kind present,
- * and the focus, when there is one, as a chip that lets go of it.
+ * a chip for the locks and signals only one thread uses, and the focus, when
+ * there is one, as a chip that lets go of it.
  *
  * Kind chips only show when there are two kinds or more: a lone chip could only
  * hide the whole graph.
@@ -15,12 +17,15 @@ export function IpcFilterBar({
   nodes,
   filter,
   focused,
+  privateCount = 0,
 }: {
   /** Every node before the filter. */
   nodes: FlowNodeSpec[]
   filter: ipcUi.IpcFilter
   /** The focus names a node that is in the graph. */
   focused: boolean
+  /** Semaphores, mutexes and condvars only one thread or ISR uses. */
+  privateCount?: number
 }) {
   const kinds = [...ipcKindCounts(nodes)]
   const focusLabel = focused ? nodes.find((node) => node.id === filter.focus)?.label : undefined
@@ -57,16 +62,44 @@ export function IpcFilterBar({
               title={hidden ? `Show ${kind} objects` : `Hide ${kind} objects`}
               onClick={() => ipcUi.toggleIpcKind(kind)}
               className={cn(
-                'rounded-full border px-2 py-0.5 font-mono tabular-nums touch-manipulation',
+                'flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono tabular-nums touch-manipulation',
                 hidden
                   ? 'border-border/40 text-slate-500 line-through'
                   : 'border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700/70',
               )}
             >
+              {isSyncKind(kind) && (
+                <span
+                  className="size-1.5 rounded-full"
+                  style={{ backgroundColor: SYNC_STYLE[kind].stroke }}
+                  aria-hidden
+                />
+              )}
               {kind} {count}
             </button>
           )
         })}
+      {privateCount > 0 && (
+        <button
+          type="button"
+          aria-pressed={filter.showPrivate}
+          title={
+            filter.showPrivate
+              ? 'Hide the semaphores, mutexes and condvars only one thread uses'
+              : 'Show the semaphores, mutexes and condvars only one thread uses'
+          }
+          onClick={ipcUi.toggleIpcPrivate}
+          className={cn(
+            'rounded-full border px-2 py-0.5 font-mono tabular-nums touch-manipulation',
+            filter.showPrivate
+              ? 'border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700/70'
+              : 'border-dashed border-slate-600 text-slate-400 hover:text-slate-200',
+          )}
+        >
+          {filter.showPrivate ? '' : '+'}
+          {privateCount} private
+        </button>
+      )}
       {focusLabel !== undefined && (
         <button
           type="button"

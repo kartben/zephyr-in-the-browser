@@ -67,6 +67,9 @@ function nodeSize(node: SemanticNode): { width: number; height: number } {
   if (node.kind === 'msgq') {
     return { width: 238, height: Math.max(104, pitchExtent) }
   }
+  if (node.kind === 'mutex' || node.kind === 'condvar' || node.kind === 'sem') {
+    return { width: 176, height: Math.max(48, pitchExtent) }
+  }
   return { width: 210, height: Math.max(96, pitchExtent) }
 }
 

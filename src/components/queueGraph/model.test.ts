@@ -60,4 +60,56 @@ describe('buildSemanticGraph', () => {
       action: 'put',
     })
   })
+
+  it('gives semaphores and condvars an entry and an exit like a queue', () => {
+    const graph = buildSemanticGraph(
+      [
+        nodes[0]!,
+        { id: 'sem', kind: 'sem', label: 'ready' },
+        { id: 'cv', kind: 'condvar', label: 'frame_cond' },
+      ],
+      [
+        { id: 'give', actorId: 't', objectId: 'sem', action: 'give' },
+        { id: 'take', actorId: 't', objectId: 'sem', action: 'take' },
+        { id: 'signal', actorId: 't', objectId: 'cv', action: 'signal' },
+        { id: 'wait', actorId: 't', objectId: 'cv', action: 'wait' },
+      ],
+    )
+    expect(graph.edges.map((edge) => [edge.id, edge.sourceNodeId, edge.targetNodeId])).toEqual([
+      ['give', 't', 'sem'],
+      ['take', 'sem', 't'],
+      ['signal', 't', 'cv'],
+      ['wait', 'cv', 't'],
+    ])
+    expect(graph.nodes.find((node) => node.id === 'sem')?.ports.map((port) => port.side)).toEqual([
+      'WEST',
+      'EAST',
+    ])
+  })
+
+  it('runs a lock into or out of the mutex as its side says, and records the object end', () => {
+    const graph = buildSemanticGraph(
+      [nodes[0]!, { id: 'u', kind: 'thread', label: 'storage' }, { id: 'm', kind: 'mutex', label: 'bus' }],
+      [
+        { id: 'in', actorId: 't', objectId: 'm', action: 'lock', side: 'in' },
+        { id: 'out', actorId: 'u', objectId: 'm', action: 'lock', side: 'out' },
+      ],
+    )
+    expect(graph.edges).toMatchObject([
+      { id: 'in', sourceNodeId: 't', targetNodeId: 'm', objectNodeId: 'm' },
+      { id: 'out', sourceNodeId: 'm', targetNodeId: 'u', objectNodeId: 'm' },
+    ])
+  })
+
+  it('refuses an action an object does not have', () => {
+    expect(() =>
+      buildSemanticGraph(nodes, [{ id: 'x', actorId: 't', objectId: 'q', action: 'lock' }]),
+    ).toThrow('lock is not valid for a msgq')
+    expect(() =>
+      buildSemanticGraph(
+        [nodes[0]!, { id: 'sem', kind: 'sem', label: 's' }],
+        [{ id: 'x', actorId: 't', objectId: 'sem', action: 'lock' }],
+      ),
+    ).toThrow('lock is not valid for a sem')
+  })
 })

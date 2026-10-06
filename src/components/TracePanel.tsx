@@ -83,6 +83,7 @@ import {
   type ThreadState,
   type Trace,
 } from '@/ctf'
+import { reconstructSync } from '@/ctf/syncObjects'
 import {
   dtRankCount,
   dtRankOf,
@@ -250,8 +251,9 @@ function ipcObjectMetadata(objects: ObjectCoreSnapshot | null): IpcObjectMetadat
     if (!names.has(o.addr)) names.set(o.addr, o.name)
   }
 
+  // Object cores name what symbols cannot, such as one fork in an array of them.
   for (const type of objects?.types ?? []) {
-    if (!['MSGQ', 'FIFO', 'LIFO', 'STCK'].includes(type.code)) continue
+    if (!['MSGQ', 'FIFO', 'LIFO', 'STCK', 'SEM4', 'MUTX', 'COND'].includes(type.code)) continue
     for (const object of type.objects) {
       names.set(object.addr, object.name)
       if (object.capacity != null && object.capacity > 0) {
@@ -1390,6 +1392,14 @@ function TracePanelBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tr, msgqEvents, snap.revision, ipcMetadata, tab],
   )
+  // Semaphores, mutexes and condvars only show in the IPC graph, so they are
+  // only rebuilt while it is open.
+  const liveSync = useMemo(
+    () =>
+      tr && tab === 'queues' ? { state: reconstructSync(tr), names: ipcMetadata.names } : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tr, snap.revision, tab, ipcMetadata],
+  )
   const queueLanes = useMemo(
     () => msgqSwimLanes(msgqEvents, queueSeries),
     [msgqEvents, queueSeries],
@@ -2194,6 +2204,7 @@ function TracePanelBody({
           overlay={boxZoomOverlay}
           boxZoomArmed={boxZoomArmed}
           yZoom={yZoom}
+          sync={liveSync}
         />
       ) : tab === 'net' && view ? (
         <div className="flex flex-col gap-1">

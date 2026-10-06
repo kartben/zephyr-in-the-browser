@@ -1,6 +1,24 @@
-export type DataObjectKind = 'msgq' | 'fifo' | 'queue' | 'lifo' | 'stack'
+export type QueueObjectKind = 'msgq' | 'fifo' | 'queue' | 'lifo' | 'stack'
 
-export type FlowAction = 'put' | 'put-front' | 'get' | 'push' | 'pop'
+export type SyncObjectKind = 'sem' | 'mutex' | 'condvar'
+
+export type DataObjectKind = QueueObjectKind | SyncObjectKind
+
+/**
+ * give and signal make something available and take and wait wait for it, as
+ * put and get do; lock is a mutex's, which its users both take and give back.
+ */
+export type FlowAction =
+  | 'put'
+  | 'put-front'
+  | 'get'
+  | 'push'
+  | 'pop'
+  | 'give'
+  | 'take'
+  | 'signal'
+  | 'wait'
+  | 'lock'
 
 export type PortSide = 'NORTH' | 'EAST' | 'SOUTH' | 'WEST'
 
@@ -12,6 +30,8 @@ export type PortRole =
   | 'head-out'
   | 'top-in'
   | 'top-out'
+  | 'object-in'
+  | 'object-out'
 
 export interface ActorNodeSpec {
   id: string
@@ -22,19 +42,31 @@ export interface ActorNodeSpec {
 
 export interface DataObjectNodeSpec {
   id: string
-  kind: DataObjectKind
+  kind: QueueObjectKind
   label: string
   depth: number
   capacity: number | null
 }
 
-export type FlowNodeSpec = ActorNodeSpec | DataObjectNodeSpec
+export interface SyncObjectNodeSpec {
+  id: string
+  kind: SyncObjectKind
+  label: string
+}
+
+export type FlowNodeSpec = ActorNodeSpec | DataObjectNodeSpec | SyncObjectNodeSpec
 
 export interface FlowSpec {
   id: string
   actorId: string
   objectId: string
   action: FlowAction
+  /**
+   * lock: whether the actor sits before the mutex ('in') or after it ('out').
+   * A lock has no direction of its own; this one lets the layout put the mutex
+   * between its users.
+   */
+  side?: 'in' | 'out'
 }
 
 export interface SemanticPort {
@@ -58,6 +90,8 @@ export interface SemanticEdge {
   sourcePortId: string
   targetNodeId: string
   targetPortId: string
+  /** The object's end of the edge, whichever way the edge runs. */
+  objectNodeId: string
 }
 
 export interface SemanticGraph {
@@ -69,6 +103,25 @@ export function isActorNode(
   node: FlowNodeSpec,
 ): node is ActorNodeSpec {
   return node.kind === 'thread' || node.kind === 'isr'
+}
+
+export function isSyncKind(kind: FlowNodeSpec['kind']): kind is SyncObjectKind {
+  return kind === 'sem' || kind === 'mutex' || kind === 'condvar'
+}
+
+export function isSyncNode(node: FlowNodeSpec): node is SyncObjectNodeSpec {
+  return isSyncKind(node.kind)
+}
+
+/** Actions that move something from the actor to the object. */
+export function isWriteAction(action: FlowAction): boolean {
+  return (
+    action === 'put' ||
+    action === 'put-front' ||
+    action === 'push' ||
+    action === 'give' ||
+    action === 'signal'
+  )
 }
 
 function groupPortsBySide(ports: SemanticPort[]): Map<PortSide, SemanticPort[]> {
@@ -87,7 +140,26 @@ type ObjectEndpoint = {
   direction: 'in' | 'out'
 }
 
-function objectEndpoint(kind: DataObjectKind, action: FlowAction): ObjectEndpoint {
+function objectEndpoint(
+  kind: DataObjectKind,
+  action: FlowAction,
+  side: FlowSpec['side'],
+): ObjectEndpoint {
+  if (isSyncKind(kind)) {
+    if (action === 'give' || action === 'signal') {
+      return { side: 'WEST', role: 'object-in', direction: 'in' }
+    }
+    if (action === 'take' || action === 'wait') {
+      return { side: 'EAST', role: 'object-out', direction: 'out' }
+    }
+    if (action === 'lock' && kind === 'mutex') {
+      return side === 'out'
+        ? { side: 'EAST', role: 'object-out', direction: 'out' }
+        : { side: 'WEST', role: 'object-in', direction: 'in' }
+    }
+    throw new Error(`${action} is not valid for a ${kind}`)
+  }
+
   if (kind === 'stack') {
     if (action === 'push') return { side: 'NORTH', role: 'top-in', direction: 'in' }
     if (action === 'pop') return { side: 'NORTH', role: 'top-out', direction: 'out' }
@@ -132,7 +204,7 @@ export function buildSemanticGraph(nodeSpecs: FlowNodeSpec[], flowSpecs: FlowSpe
     if (!actor || !isActorNode(actor)) throw new Error(`Missing actor ${flow.actorId}`)
     if (!object || isActorNode(object)) throw new Error(`Missing data object ${flow.objectId}`)
 
-    const endpoint = objectEndpoint(object.kind, flow.action)
+    const endpoint = objectEndpoint(object.kind, flow.action, flow.side)
     const writes = endpoint.direction === 'in'
     const actorPort: SemanticPort = {
       id: portId(actor.id, flow.id),
@@ -160,6 +232,7 @@ export function buildSemanticGraph(nodeSpecs: FlowNodeSpec[], flowSpecs: FlowSpe
       sourcePortId: writes ? actorPort.id : objectPort.id,
       targetNodeId: writes ? object.id : actor.id,
       targetPortId: writes ? objectPort.id : actorPort.id,
+      objectNodeId: object.id,
     })
   }
 
@@ -172,10 +245,12 @@ export function buildSemanticGraph(nodeSpecs: FlowNodeSpec[], flowSpecs: FlowSpe
             'tail-in': 0,
             'head-in': 0,
             'top-in': 0,
+            'object-in': 0,
             'actor-in': 0,
             'actor-out': 1,
             'head-out': 1,
             'top-out': 1,
+            'object-out': 1,
           }
           return roleOrder[a.role] - roleOrder[b.role] || a.edgeId.localeCompare(b.edgeId)
         })
@@ -200,11 +275,24 @@ export function flowActionLabel(action: FlowAction): string {
       return 'push'
     case 'pop':
       return 'pop'
+    case 'give':
+      return 'give'
+    case 'take':
+      return 'take'
+    case 'signal':
+      return 'signal'
+    case 'wait':
+      return 'wait'
+    case 'lock':
+      return 'lock'
   }
 }
 
 export function flowActionColor(action: FlowAction): string {
   if (action === 'put-front') return '#f9a8d4'
-  if (action === 'get' || action === 'pop') return '#fdba74'
+  if (action === 'lock') return '#94a3b8'
+  if (action === 'get' || action === 'pop' || action === 'take' || action === 'wait') {
+    return '#fdba74'
+  }
   return '#7dd3fc'
 }

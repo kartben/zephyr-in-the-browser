@@ -1,8 +1,14 @@
 import {
   buildSemanticGraph,
+  type FlowAction,
   type FlowNodeSpec,
   type FlowSpec,
 } from '@/components/queueGraph/model'
+import { orientLocks } from '@/components/queueGraph/orient'
+import type {
+  QueueGraphEdgeState,
+  QueueGraphNodeState,
+} from '@/components/queueGraph/QueueGraphCanvas'
 
 function nodesForCapacities(large: boolean): FlowNodeSpec[] {
   return [
@@ -150,3 +156,105 @@ export const queueGraphRoutingStressMock = buildSemanticGraph(
   routingStressNodes,
   routingStressFlows,
 )
+
+const route = (actor: string, action: FlowAction, object: string): FlowSpec => ({
+  id: `route:${actor}-${action}-${object}`,
+  actorId: `thread:${actor}`,
+  objectId: `object:${object}`,
+  action,
+})
+
+/** The tracing_pipeline sample, with its mutexes and its condvar. */
+const sensorPipelineNodes: FlowNodeSpec[] = [
+  { id: 'thread:aggregator', kind: 'thread', label: 'aggregator', detail: 'priority 3' },
+  { id: 'thread:consumer0', kind: 'thread', label: 'consumer0', detail: 'priority 6' },
+  { id: 'thread:consumer1', kind: 'thread', label: 'consumer1', detail: 'priority 6' },
+  { id: 'thread:sensor_imu', kind: 'thread', label: 'sensor_imu', detail: 'priority 8' },
+  { id: 'thread:sensor_press', kind: 'thread', label: 'sensor_press', detail: 'priority 8' },
+  { id: 'thread:sensor_temp', kind: 'thread', label: 'sensor_temp', detail: 'priority 8' },
+  { id: 'thread:storage', kind: 'thread', label: 'storage', detail: 'priority 9' },
+  { id: 'object:sensor_q', kind: 'msgq', label: 'sensor_q', depth: 0, capacity: 16 },
+  { id: 'object:agg_mutex', kind: 'mutex', label: 'agg_mutex' },
+  { id: 'object:frame_mutex', kind: 'mutex', label: 'frame_mutex' },
+  { id: 'object:frame_cond', kind: 'condvar', label: 'frame_cond' },
+  { id: 'object:bus_mutex', kind: 'mutex', label: 'bus_mutex' },
+]
+
+const sensorPipelineFlows: FlowSpec[] = orientLocks(sensorPipelineNodes, [
+  route('sensor_temp', 'put', 'sensor_q'),
+  route('sensor_press', 'put', 'sensor_q'),
+  route('sensor_imu', 'put', 'sensor_q'),
+  route('aggregator', 'get', 'sensor_q'),
+  route('aggregator', 'lock', 'agg_mutex'),
+  route('aggregator', 'lock', 'frame_mutex'),
+  route('aggregator', 'signal', 'frame_cond'),
+  route('consumer0', 'lock', 'frame_mutex'),
+  route('consumer0', 'wait', 'frame_cond'),
+  route('consumer1', 'lock', 'frame_mutex'),
+  route('consumer1', 'wait', 'frame_cond'),
+  route('aggregator', 'lock', 'bus_mutex'),
+  route('storage', 'lock', 'bus_mutex'),
+])
+
+export const queueGraphSensorPipelineMockSpecs: QueueGraphMockSpecs = {
+  nodes: sensorPipelineNodes,
+  flows: sensorPipelineFlows,
+}
+
+/**
+ * The moment part 3 of the sensor pipeline tour stops on: storage holds the
+ * bus at the priority the waiting aggregator lent it, and both consumers wait
+ * for a frame.
+ */
+export const queueGraphSensorPipelineMockState: {
+  nodeState: Map<string, QueueGraphNodeState>
+  edgeState: Map<string, QueueGraphEdgeState>
+} = {
+  nodeState: new Map<string, QueueGraphNodeState>([
+    ['thread:storage', { detail: 'priority 3 (inherited, base 9)' }],
+    ['object:sensor_q', { depth: 2 }],
+    ['object:agg_mutex', { owner: null, waiterLabels: [] }],
+    ['object:frame_mutex', { owner: null, waiterLabels: [] }],
+    ['object:frame_cond', { waiterLabels: ['consumer0', 'consumer1'], mutexLabel: 'frame_mutex' }],
+    ['object:bus_mutex', { owner: 'storage', lockDepth: 1, waiterLabels: ['aggregator'] }],
+  ]),
+  edgeState: new Map<string, QueueGraphEdgeState>([
+    ['route:storage-lock-bus_mutex', 'holds'],
+    ['route:aggregator-lock-bus_mutex', 'waits'],
+    ['route:consumer0-wait-frame_cond', 'waits'],
+    ['route:consumer1-wait-frame_cond', 'waits'],
+  ]),
+}
+
+/** Five philosophers, each taking the forks on either side: a ring of mutexes. */
+const philosopherNames = Array.from({ length: 5 }, (_, index) => `philosopher_${index}`)
+const philosophersNodes: FlowNodeSpec[] = [
+  ...philosopherNames.map(
+    (name, index): FlowNodeSpec => ({
+      id: `thread:${name}`,
+      kind: 'thread',
+      label: name,
+      detail: `priority ${index}`,
+    }),
+  ),
+  ...philosopherNames.map(
+    (_, index): FlowNodeSpec => ({
+      id: `object:fork_${index}`,
+      kind: 'mutex',
+      label: `fork_objs[${index}]`,
+    }),
+  ),
+]
+
+const philosophersFlows: FlowSpec[] = orientLocks(
+  philosophersNodes,
+  philosopherNames.flatMap((name, index) => [
+    route(name, 'lock', `fork_${index}`),
+    route(name, 'lock', `fork_${(index + 1) % philosopherNames.length}`),
+  ]),
+)
+
+export const queueGraphPhilosophersMockSpecs: QueueGraphMockSpecs = {
+  nodes: philosophersNodes,
+  flows: philosophersFlows,
+}

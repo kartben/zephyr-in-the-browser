@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { queueGraphMock, queueGraphRoutingStressMock } from '@/mocks/queueGraphMockData'
+import {
+  queueGraphMock,
+  queueGraphPhilosophersMockSpecs,
+  queueGraphRoutingStressMock,
+  queueGraphSensorPipelineMockSpecs,
+} from '@/mocks/queueGraphMockData'
 import { validateQueueGraphLayout } from './geometry'
 import { layoutSemanticGraph } from './layout'
 import { buildSemanticGraph, type FlowNodeSpec, type FlowSpec } from './model'
@@ -43,6 +48,27 @@ describe('layoutSemanticGraph', () => {
 
     expect(layout.nodes).toHaveLength(19)
     expect(layout.edges).toHaveLength(25)
+    expect(validateQueueGraphLayout(layout)).toEqual([])
+  })
+
+  it('puts each mutex of the sensor pipeline between the threads that share it', async () => {
+    const { nodes, flows } = queueGraphSensorPipelineMockSpecs
+    const layout = await layoutSemanticGraph(buildSemanticGraph(nodes, flows))
+    const x = (id: string) => layout.nodes.find((node) => node.id === id)!.x
+
+    expect(validateQueueGraphLayout(layout)).toEqual([])
+    for (const mutex of ['object:bus_mutex', 'object:frame_mutex']) {
+      expect(x('thread:aggregator')).toBeLessThan(x(mutex))
+    }
+    expect(x('object:bus_mutex')).toBeLessThan(x('thread:storage'))
+    expect(x('object:frame_mutex')).toBeLessThan(x('thread:consumer0'))
+  })
+
+  it('lays out a ring of philosophers and forks without geometry violations', async () => {
+    const { nodes, flows } = queueGraphPhilosophersMockSpecs
+    const layout = await layoutSemanticGraph(buildSemanticGraph(nodes, flows))
+
+    expect(layout.edges).toHaveLength(10)
     expect(validateQueueGraphLayout(layout)).toEqual([])
   })
 })

@@ -1,21 +1,33 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { IpcFilterBar } from '@/components/queueGraph/IpcFilterBar'
 import {
+  HOLD_COLOR,
   QueueGraphCanvas,
+  SYNC_STYLE,
+  WAIT_COLOR,
   type QueueGraphEdgeActivity,
+  type QueueGraphEdgeState,
   type QueueGraphPacket,
 } from '@/components/queueGraph/QueueGraphCanvas'
-import { isActorNode } from '@/components/queueGraph/model'
+import {
+  flowActionColor,
+  flowActionLabel,
+  isActorNode,
+  type FlowAction,
+  type SemanticGraph,
+} from '@/components/queueGraph/model'
 import { layoutSemanticGraph, type QueueGraphLayout } from '@/components/queueGraph/layout'
 import {
   buildLiveQueueGraph,
   liveEdgeId,
   liveObjectNodeId,
   liveQueueNodeState,
+  liveSyncView,
   queueDepthEnvelope,
+  type LiveSync,
   type QueueDepthEnvelope,
 } from '@/components/queueGraph/live'
-import { flowActionColor } from '@/components/queueGraph/model'
+import { cn } from '@/lib/utils'
 import { advanceFlowCursor, type QueueFlowEvent } from '@/ctf/queueGraph'
 import type { QueueSeries, Trace } from '@/ctf'
 import * as ipcUi from '@/lib/ipcUi'
@@ -62,13 +74,70 @@ function countLabel(shown: number, total: number, word: string): string {
   return shown === total ? plural(total, word) : `${shown} of ${plural(total, word)}`
 }
 
-function LegendItem({ color, label }: { color: string; label: string }) {
+type LegendEntry = {
+  color: string
+  label: string
+  dashed?: boolean
+  thick?: boolean
+  /** A node kind, drawn as a small pill in its colours rather than as a route. */
+  fill?: string
+}
+
+function LegendItem({ color, label, dashed = false, thick = false, fill }: LegendEntry) {
   return (
     <span className="flex items-center gap-1.5 whitespace-nowrap">
-      <span className="h-0.5 w-5 rounded-full" style={{ backgroundColor: color }} />
+      {fill ? (
+        <span
+          className="h-2.5 w-4 rounded-full border"
+          style={{ borderColor: color, backgroundColor: fill }}
+        />
+      ) : (
+        <span
+          className={cn('w-5 rounded-full', thick ? 'h-1' : 'h-0.5')}
+          style={
+            dashed
+              ? { backgroundImage: `repeating-linear-gradient(90deg, ${color} 0 5px, transparent 5px 8px)` }
+              : { backgroundColor: color }
+          }
+        />
+      )}
       {label}
     </span>
   )
+}
+
+const IN_ACTIONS: FlowAction[] = ['put', 'push', 'give', 'signal']
+const OUT_ACTIONS: FlowAction[] = ['get', 'pop', 'take', 'wait']
+
+/** One legend entry per colour and line style the graph draws now, and none for the rest. */
+function legendItems(
+  graph: SemanticGraph,
+  edgeState: ReadonlyMap<string, QueueGraphEdgeState> | undefined,
+): LegendEntry[] {
+  // A route drawn as held or waiting no longer shows its action's colour.
+  const present = new Set(
+    graph.edges.filter((edge) => !edgeState?.get(edge.id)).map((edge) => edge.action),
+  )
+  const states = new Set(graph.edges.map((edge) => edgeState?.get(edge.id)))
+  const items: LegendEntry[] = []
+  const ins = IN_ACTIONS.filter((action) => present.has(action))
+  if (ins.length > 0) items.push({ color: flowActionColor('put'), label: ins.map(flowActionLabel).join(' / ') })
+  if (present.has('put-front')) items.push({ color: flowActionColor('put-front'), label: 'put front' })
+  const outs = OUT_ACTIONS.filter((action) => present.has(action))
+  if (outs.length > 0) items.push({ color: flowActionColor('get'), label: outs.map(flowActionLabel).join(' / ') })
+  if (present.has('lock')) items.push({ color: flowActionColor('lock'), label: 'lock' })
+  if (states.has('holds')) items.push({ color: HOLD_COLOR, label: 'holds', thick: true })
+  if (states.has('waits')) items.push({ color: WAIT_COLOR, label: 'waits', dashed: true })
+  const kinds = new Set(graph.nodes.map((node) => node.kind))
+  if (kinds.has('thread')) items.push({ color: '#60a5fa', fill: '#10203a', label: 'thread' })
+  if (kinds.has('isr')) items.push({ color: '#c084fc', fill: '#241338', label: 'ISR' })
+  for (const kind of ['mutex', 'sem', 'condvar'] as const) {
+    if (kinds.has(kind)) {
+      const style = SYNC_STYLE[kind]
+      items.push({ color: style.stroke, fill: style.fill, label: style.name })
+    }
+  }
+  return items
 }
 
 export function QueueGraph({
@@ -76,16 +145,23 @@ export function QueueGraph({
   queues,
   flowEvents,
   eventCount,
+  sync = null,
 }: {
   tr: Trace
   queues: QueueSeries[]
   flowEvents: QueueFlowEvent[]
   eventCount: number
+  /** Semaphores, mutexes and condvars, when the tab is open. */
+  sync?: LiveSync | null
 }) {
   const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const live = useMemo(
-    () => buildLiveQueueGraph(tr, queues, flowEvents, filter),
-    [tr, queues, flowEvents, eventCount, filter],
+    () => buildLiveQueueGraph(tr, queues, flowEvents, filter, sync),
+    [tr, queues, flowEvents, eventCount, filter, sync],
+  )
+  const syncView = useMemo(
+    () => (sync ? liveSyncView(tr, sync) : null),
+    [tr, sync, eventCount],
   )
   const layoutRequest = useMemo(
     () => ({ key: live.topologyKey, graph: live.graph }),
@@ -98,6 +174,9 @@ export function QueueGraph({
   )
   const nodeState = useMemo(() => {
     const state = liveQueueNodeState(tr, queues)
+    for (const [id, update] of syncView?.nodeState ?? []) {
+      state.set(id, { ...state.get(id), ...update })
+    }
     for (const [queueId, envelope] of depthEnvelopes) {
       const node = state.get(liveObjectNodeId(queueId))
       if (!node) continue
@@ -106,7 +185,7 @@ export function QueueGraph({
       node.batchSequence = envelope.sequence
     }
     return state
-  }, [tr, queues, eventCount, depthEnvelopes])
+  }, [tr, queues, eventCount, depthEnvelopes, syncView])
   const [layout, setLayout] = useState<QueueGraphLayout | null>(null)
   const [layoutError, setLayoutError] = useState<string | null>(null)
   const [clock, setClock] = useState(() => performance.now())
@@ -301,14 +380,17 @@ export function QueueGraph({
           {countLabel(live.graph.edges.length, live.flows.length, 'route')}
         </span>
         <span className="flex flex-wrap items-center gap-3">
-          <LegendItem color={flowActionColor('put')} label="put / push" />
-          <LegendItem color={flowActionColor('put-front')} label="put front" />
-          <LegendItem color={flowActionColor('get')} label="get / pop" />
-          <LegendItem color="#60a5fa" label="thread" />
-          <LegendItem color="#c084fc" label="ISR" />
+          {legendItems(live.graph, syncView?.edgeState).map((item) => (
+            <LegendItem key={item.label} {...item} />
+          ))}
         </span>
       </div>
-      <IpcFilterBar nodes={live.nodes} filter={filter} focused={live.focused} />
+      <IpcFilterBar
+        nodes={live.nodes}
+        filter={filter}
+        focused={live.focused}
+        privateCount={live.privateCount}
+      />
       <div>
         {empty ? (
           <div className="grid h-32 place-items-center gap-2 px-6 text-center text-sm text-slate-500">
@@ -332,6 +414,7 @@ export function QueueGraph({
             layout={layout}
             nodeState={nodeState}
             edgeActivity={edgeActivity}
+            edgeState={syncView?.edgeState}
             packets={packets}
             focusedNodeId={live.focused ? filter.focus : null}
             onNodeClick={(nodeId) => ipcUi.setIpcFocus(filter.focus === nodeId ? null : nodeId)}
