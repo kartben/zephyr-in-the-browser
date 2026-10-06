@@ -52,6 +52,7 @@ when:
   - first
 highlight: /"store_begin"/ + 2
 threads: storage, aggregator, consumer*
+look: trace.ipc.bus_mutex
 ```
 
 `storage` has finished its flush and is about to unlock the bus. The thread
@@ -61,6 +62,10 @@ is **priority inheritance**, and every `k_mutex` does it.
 
 That way, nothing below priority 3 can run ahead of `storage` while the
 aggregator waits for it.
+
+**Trace → IPC** draws the same from the trace: the aggregator's dashed route
+waits on `bus_mutex`, the bold one is `storage` holding it, and `storage`
+reads "priority 3 (inherited, base 9)".
 
 ## Back to priority 9
 

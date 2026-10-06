@@ -28,6 +28,7 @@ import {
 } from '@/tours/anchors'
 import { expressionNames, type ExpressionNames } from '@/tours/expr'
 import { stripDtsProvenance } from '@/dts/provenance'
+import { traceTabTourName } from '@/lib/traceTabs'
 import { resolveHighlightSpecs, type HighlightSpec, type TourDoc, type TourStep } from '@/tours/parse'
 import { predicateIdentifiers } from '@/tours/predicate'
 
@@ -364,6 +365,15 @@ function checkExpressions(step: TourStep, ctx: CheckContext, check: StepCheck): 
     }
   }
   if (step.objects?.focus) written.push([`objects: focus: ${step.objects.focus}`, step.objects.focus])
+  for (const look of step.look) {
+    // The graph names an array element after its array, so the array is the symbol.
+    if (look.kind === 'trace' && look.focus) {
+      written.push([
+        `look: trace.${traceTabTourName(look.tab)}.${look.focus}`,
+        look.focus.replace(/\[\d+\]$/, ''),
+      ])
+    }
+  }
 
   const named: Array<[label: string, names: ExpressionNames]> = []
   for (const [label, expr] of written) {

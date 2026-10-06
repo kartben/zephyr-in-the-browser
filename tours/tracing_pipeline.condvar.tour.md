@@ -32,6 +32,7 @@ at: main.c:/k_mutex_lock\(&frame_mutex/ | main.c:172
 when: first
 highlight: /while \(published_frame.seq == last_seen\)/ + 2
 threads: aggregator, consumer*
+look: trace.ipc.frame_cond
 ```
 
 The aggregator is about to write the first frame to `published_frame`, where
@@ -40,6 +41,9 @@ the consumers read it.
 In the thread list, both consumers are waiting on `frame_cond`, a **condition
 variable**: a place where threads sleep until another thread tells them that
 some shared data has changed. Here, that data is `published_frame`.
+
+**Trace → IPC** shows them waiting too, and the mutex they gave up to wait,
+`frame_mutex`.
 
 ## One broadcast wakes both
 
