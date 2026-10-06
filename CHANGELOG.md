@@ -41,6 +41,7 @@ via the help dialog (?).
 - **Fixed:** Trace Timeline no longer marks a thread blocked for waking another.
 - **Fixed:** The guest reads the ADXL345 at its real scale, not four times too high.
 - **Fixed:** Cortex-A53 samples boot without an "xlat tables low" warning.
+- **Fixed:** Trace's IPC graph keeps your zoom as new routes appear.
 
 ## [0.5.0] - 2026-07-31
 

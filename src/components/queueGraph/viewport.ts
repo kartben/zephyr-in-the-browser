@@ -11,6 +11,15 @@ export interface GraphViewportSize {
   height: number
 }
 
+/** A node's box, in graph layout units. */
+export interface GraphNodeBox {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const FIT_PADDING = 28
 
 export function fitGraphCamera(
@@ -56,5 +65,41 @@ export function resizeGraphCamera(
     ...camera,
     x: camera.x + (next.width - previous.width) / 2,
     y: camera.y + (next.height - previous.height) / 2,
+  }
+}
+
+/**
+ * Carry the camera over to a new layout of the graph, so that what the user
+ * zoomed in on stays in view: the node nearest the middle of the view, of
+ * those in both layouts, keeps its place on screen, at the same scale. Null
+ * when the layouts share no node.
+ */
+export function followGraphCamera(
+  camera: GraphCamera,
+  previous: readonly GraphNodeBox[],
+  next: readonly GraphNodeBox[],
+  viewport: GraphViewportSize,
+): GraphCamera | null {
+  const middle = {
+    x: (viewport.width / 2 - camera.x) / camera.scale,
+    y: (viewport.height / 2 - camera.y) / camera.scale,
+  }
+  const center = (box: GraphNodeBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 })
+  const nextById = new Map(next.map((box) => [box.id, box]))
+  let anchor: { from: GraphNodeBox; to: GraphNodeBox; distance: number } | null = null
+  for (const from of previous) {
+    const to = nextById.get(from.id)
+    if (!to) continue
+    const c = center(from)
+    const distance = Math.hypot(c.x - middle.x, c.y - middle.y)
+    if (!anchor || distance < anchor.distance) anchor = { from, to, distance }
+  }
+  if (!anchor) return null
+  const from = center(anchor.from)
+  const to = center(anchor.to)
+  return {
+    x: camera.x + (from.x - to.x) * camera.scale,
+    y: camera.y + (from.y - to.y) * camera.scale,
+    scale: camera.scale,
   }
 }

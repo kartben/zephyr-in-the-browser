@@ -162,6 +162,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "Cortex-A53 samples boot without an \"xlat tables low\" warning."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Trace's IPC graph keeps your zoom as new routes appear."
       }
     ]
   },
