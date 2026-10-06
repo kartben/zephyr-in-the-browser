@@ -13,7 +13,7 @@ export type TraceTab = (typeof TRACE_TABS)[number]
 
 export const TRACE_TAB_LABELS: Record<TraceTab, string> = {
   schedule: 'Timeline',
-  queues: 'Queues',
+  queues: 'IPC',
   zbus: 'zbus',
   net: 'Networking',
   power: 'Power',
@@ -21,10 +21,10 @@ export const TRACE_TAB_LABELS: Record<TraceTab, string> = {
 
 /**
  * Where a tour's name for a tab is not its id. The Timeline was the schedule
- * view before it had a label, and stored layouts still say so; a tour should
- * not have to know that.
+ * view before it had a label, and IPC was Queues before it drew more than
+ * queues; stored layouts still say so, and a tour should not have to know that.
  */
-const TOUR_NAMES: Partial<Record<TraceTab, string>> = { schedule: 'timeline' }
+const TOUR_NAMES: Partial<Record<TraceTab, string>> = { schedule: 'timeline', queues: 'ipc' }
 
 /** What a tour writes after `trace.` to open a tab. */
 export function traceTabTourName(tab: TraceTab): string {

@@ -116,12 +116,12 @@ export interface ObjectsSpec {
 /**
  * One `look:` target: a view to put in front of the reader when the step fires.
  *
- *     look: trace.queues          a Trace tab
+ *     look: trace.ipc             a Trace tab
  *     look: debug.objects         a Debug section
  *     look: dock.gpio             a device dock row, the same as `panel: gpio`
  *
  * `panel:` can only name a row. A step about a queue filling up wants the
- * Queues tab inside Trace, and a reader left on the Timeline would not know
+ * IPC tab inside Trace, and a reader left on the Timeline would not know
  * that is where to look.
  */
 export type LookSpec =
@@ -673,7 +673,7 @@ export function parseLook(raw: string): LookSpec | null {
 /**
  * Parse `look:`, one target or a list.
  *
- *     look: trace.queues
+ *     look: trace.ipc
  *     look:
  *       - trace.timeline
  *       - debug.objects

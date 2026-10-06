@@ -139,7 +139,7 @@ memory:
   note: the copy this callback reads
 threads: main, subscriber_task_id, sysworkq
 look:
-  - trace.queues
+  - trace.ipc
 ```
 
 Before telling anyone, the dispatcher copied the message into a buffer from
@@ -149,7 +149,7 @@ listener's work item. The system work queue outranks everything here, so it
 ran the callback at once, while `main` is still in its publish: `message` is
 that buffer, not the channel's message.
 
-On the traced build, **Trace → Queues** shows what zbus built for these
+On the traced build, **Trace → IPC** shows what zbus built for these
 observers, under the names it gave them: the subscriber's queue, this
 listener's FIFO, and the pool the message buffers come from.
 

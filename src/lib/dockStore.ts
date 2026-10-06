@@ -49,7 +49,7 @@ export interface DockDeviceState {
   /** Open state of a body's internal disclosures (Network's sections). */
   sections?: Record<string, boolean>
   /**
-   * Selected body tab (Debug inspect tabs, Trace Timeline/Queues/Net).
+   * Selected body tab (Debug inspect tabs, Trace Timeline/IPC/Net).
    * User screen preference — survives sample switches like hidden/windowed.
    */
   tab?: string

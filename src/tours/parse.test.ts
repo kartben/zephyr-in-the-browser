@@ -536,7 +536,7 @@ describe('look and panel', () => {
   const step = (block: string) => parseTour(`## Step\n\n\`\`\`tour\nat: main\n${block}\n\`\`\`\n\nProse.\n`)
 
   it('takes one target or a list, in the order written', () => {
-    expect(step('look: trace.queues').steps[0]!.look).toEqual([{ kind: 'trace', tab: 'queues' }])
+    expect(step('look: trace.ipc').steps[0]!.look).toEqual([{ kind: 'trace', tab: 'queues' }])
     const doc = step('look:\n  - trace.net\n  - debug.objects\n  - dock.gpio')
     expect(doc.problems).toEqual([])
     expect(doc.steps[0]!.look).toEqual([
@@ -620,7 +620,7 @@ describe('directive keys', () => {
   })
 
   it('reports it even on a step dropped for having no anchor', () => {
-    const doc = parseTour('## Step\n\n```tour\nlok: trace.queues\n```\n\nProse.\n')
+    const doc = parseTour('## Step\n\n```tour\nlok: trace.ipc\n```\n\nProse.\n')
     expect(doc.problems.some((p) => p.includes('`lok:`'))).toBe(true)
   })
 

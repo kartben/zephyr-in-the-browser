@@ -51,7 +51,7 @@ when:
   - $arg0 == readings
   - _kernel as u32 == 0
 threads: sensor, consumer
-look: trace.queues
+look: trace.ipc
 watch:
   - consumer's buffer = _thread_base(k_thread(_k_thread_obj_consumer).base).swap_data as ptr
 objects:
@@ -72,7 +72,7 @@ consumer ready.
 
 The ring is never touched: it stays empty, with R and W where they were. Most
 readings in this lab go this way, because the consumer keeps up. As the lab
-runs, **Trace → Queues** draws each one as a hollow ring on a depth line that
+runs, **Trace → IPC** draws each one as a hollow ring on a depth line that
 stays at 0. A queue only fills when its consumer falls behind.
 
 ## The queue fills up
@@ -81,7 +81,7 @@ stays at 0. A queue only fills when its consumer falls behind.
 at: main.c:sensor_thread/atomic_inc\(&dropped\)/ | main.c:168
 await: Suspend the consumer, then watch the queue fill up.
 do: msgq consumer suspend
-look: trace.queues
+look: trace.ipc
 watch:
   - ticks lost = ticks_lost as u32
 objects:
@@ -100,7 +100,7 @@ kernel tells the two apart with `used_msgs`: 8 of 8 here. The reading
 numbered 1, the oldest, is the next one out.
 
 `ticks lost` counts the timer's readings that met the same full queue. In
-**Trace → Queues**, the depth has climbed to 8 and the drops count up.
+**Trace → IPC**, the depth has climbed to 8 and the drops count up.
 
 ## A thread can wait, an interrupt cannot
 
@@ -159,7 +159,7 @@ await: Slow the consumer to a second per reading, then let it run again.
 do:
   - msgq work 1000
   - msgq consumer resume
-look: trace.queues
+look: trace.ipc
 watch:
   - sensor's reading = _thread_base(k_thread(_k_thread_obj_sensor).base).swap_data as ptr
 objects:
@@ -181,7 +181,7 @@ its `swap_data` points.
 
 That is backpressure: the sensor slows to the consumer's pace and loses
 nothing. The timer, which cannot wait, still loses ticks. In
-**Trace → Queues** the depth holds at 8.
+**Trace → IPC** the depth holds at 8.
 
 ## Priority decides who runs next
 

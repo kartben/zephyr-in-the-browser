@@ -86,10 +86,10 @@ one, handle it, wait again.
 at: main.c:/k_msgq_get\(&sensor_q/ | main.c:207
 when: hits == 9
 stop: no
-look: trace.queues
+look: trace.ipc
 ```
 
-The guest keeps running from here. In **Trace → Queues**, `sensor_q` has three
+The guest keeps running from here. In **Trace → IPC**, `sensor_q` has three
 senders and one receiver. Each sensor puts a reading at its own period (23, 37
 and 53 ms), and the aggregator takes them in the order they arrived.
 

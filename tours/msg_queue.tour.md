@@ -91,7 +91,7 @@ objects:
   type: msgq
   focus: my_msgq
 threads: yes
-look: trace.queues
+look: trace.ipc
 ```
 
 All nine are in. The normal ones went in at W, in slots 0 to 5. Each urgent
@@ -107,7 +107,7 @@ The queue could fill because nobody was reading it. In the thread list,
 of `INACTIVE`, -1, which means forever, so it waits for this
 `k_thread_start()`.
 
-On the traced build, **Trace → Queues** draws the same picture: two routes
+On the traced build, **Trace → IPC** draws the same picture: two routes
 into `my_msgq`, put and put front, and none out of it.
 
 ## `K_NO_WAIT` is a timeout of zero ticks
