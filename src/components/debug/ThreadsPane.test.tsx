@@ -79,6 +79,18 @@ describe('ThreadsPane', () => {
     expect(html).toContain('bg-primary/10')
   })
 
+  it('gives a tour card one line per thread: name, priority, state, no addresses', () => {
+    const waiting = { ...thread('aggregator', 3, 0x200), state: 2 }
+    const html = renderToStaticMarkup(
+      <ThreadsPane snap={{ ...snap, threads: [waiting] }} compact onPeek={() => {}} />,
+    )
+    expect(names(html)).toEqual(['aggregator'])
+    expect(html).toContain('prio 3')
+    expect(html).not.toContain('tcb ')
+    expect(html).not.toContain('cycles')
+    expect(html).not.toContain('max-h-')
+  })
+
   it('says which names matched no thread', () => {
     const html = renderToStaticMarkup(
       <ThreadsPane snap={snap} only={['aggregator', 'storage']} onPeek={() => {}} />,

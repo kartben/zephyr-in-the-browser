@@ -12,6 +12,7 @@ export function ThreadsPane({
   onPeek,
   onStack,
   only = [],
+  compact = false,
 }: {
   snap: debug.DebugSnapshot
   onPeek: (addrHex: string, length?: number) => void
@@ -19,6 +20,13 @@ export function ThreadsPane({
   onStack?: (tcbAddr: number) => void
   /** A tour step's `threads:` names: list only these. Empty lists every thread. */
   only?: readonly string[]
+  /**
+   * One line per thread (name, priority, state and what it waits on), for a
+   * tour card: the sentence above it is about who waits on what, and the
+   * stack, cycles and addresses would push it a screen down. No scroller of
+   * its own either, since the card's body already scrolls.
+   */
+  compact?: boolean
 }) {
   const focus = useSyncExternalStore(debugUi.subscribe, debugUi.getSnapshot, debugUi.getSnapshot)
   const listRef = useRef<HTMLUListElement>(null)
@@ -86,7 +94,14 @@ export function ThreadsPane({
   return (
     <div className="space-y-1.5" aria-busy={stale || undefined}>
       {(stale || threads.some((thread) => thread.objectCore)) && (
-        <div className="flex items-center justify-between px-1 text-[9px] uppercase tracking-wide text-foreground/40">
+        <div
+          className={cn(
+            'flex items-center justify-between px-1',
+            compact
+              ? 'text-[11px] text-muted-foreground'
+              : 'text-[9px] uppercase tracking-wide text-foreground/40',
+          )}
+        >
           <span>{stale ? 'Reading the kernel…' : 'Live from the kernel'}</span>
           <span className="font-mono tabular-nums">
             {threads.length === snap.threads.length
@@ -98,13 +113,73 @@ export function ThreadsPane({
       <ul
         ref={listRef}
         className={cn(
-          'max-h-[min(24rem,55vh)] space-y-1 overflow-auto px-0.5 transition-opacity',
+          'px-0.5 transition-opacity',
+          compact ? 'space-y-0.5' : 'max-h-[min(24rem,55vh)] space-y-1 overflow-auto',
           stale && 'opacity-50',
         )}
       >
         {threads.map((t) => {
           const current = t.current && !stale
           const status = describeThreadStatus(t)
+          if (compact) {
+            return (
+              <li
+                key={t.addr}
+                data-thread-addr={t.addr}
+                data-thread-name={t.name}
+                className={cn(
+                  'flex items-baseline gap-2 rounded px-2 py-1',
+                  current ? 'bg-primary/10' : 'hover:bg-muted/50',
+                )}
+              >
+                <span
+                  className={cn(
+                    'size-1.5 shrink-0 -translate-y-0.5 self-center rounded-full',
+                    current ? 'bg-primary' : 'bg-muted-foreground',
+                  )}
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  className="min-w-0 shrink truncate text-left text-[13px] font-medium text-foreground"
+                  title={`Peek TCB at 0x${t.addr.toString(16)}`}
+                  onClick={() => onPeek(t.addr.toString(16))}
+                >
+                  {t.name}
+                </button>
+                {t.prio != null && (
+                  <span
+                    className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground"
+                    title="Scheduler priority (negative = cooperative)"
+                  >
+                    prio {t.prio}
+                  </span>
+                )}
+                {status.label && (
+                  <span className="ml-auto min-w-0 truncate text-right text-[12px] text-foreground/90">
+                    {status.label}
+                    {status.detail && (
+                      <>
+                        <span className="text-muted-foreground"> on </span>
+                        {status.detailAddr != null ? (
+                          <button
+                            type="button"
+                            className="font-mono text-primary-text underline-offset-2 hover:underline"
+                            title={`Peek wait object at 0x${status.detailAddr.toString(16)}`}
+                            onClick={() => onPeek(status.detailAddr!.toString(16))}
+                          >
+                            {status.detail}
+                          </button>
+                        ) : (
+                          <span className="font-mono">{status.detail}</span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                )}
+              </li>
+            )
+          }
           const stackAddr = t.stackStart ?? t.sp
           const runtimeStats = objectCoreThreads.find((obj) => obj.addr === t.addr)?.stats
           const totalCycles = runtimeStats?.fields.find(
@@ -227,7 +302,7 @@ export function ThreadsPane({
         })}
       </ul>
       {missing.length > 0 && (
-        <p className="px-1 text-[10.5px] text-foreground/50">
+        <p className={cn('px-1', compact ? 'text-[11px] text-muted-foreground' : 'text-[10.5px] text-foreground/50')}>
           No thread here is named {missing.map((name) => `“${name}”`).join(', ')}.
         </p>
       )}
