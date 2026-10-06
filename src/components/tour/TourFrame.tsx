@@ -5,7 +5,9 @@
  * output, and grows to the stage's height before its body scrolls. Dragging the
  * header lifts it out to wherever the reader wants it, and every edge and
  * corner resizes it, the way a popped-out device window does (PanelFrame).
- * Double-clicking the header sends it home.
+ * Double-clicking the header sends it home. Minimised, only the header shows,
+ * one line the reader can look past; the body stays mounted, so it comes back
+ * scrolled where it was.
  *
  * The box lives in lib/tourLayout.ts, not here: each kind of card mounts its
  * own frame, and the card has to stay put as the tour moves between them.
@@ -30,10 +32,19 @@ type Props = Omit<ComponentProps<'div'>, 'className' | 'style'> & {
   footer: ReactNode
   /** Spacing for the body's own content. */
   bodyClassName?: string
+  /** Show the header alone: the card folded to one line. */
+  minimised?: boolean
   children: ReactNode
 }
 
-export function TourFrame({ header, footer, bodyClassName, children, ...rest }: Props) {
+export function TourFrame({
+  header,
+  footer,
+  bodyClassName,
+  minimised = false,
+  children,
+  ...rest
+}: Props) {
   const layout = useSyncExternalStore(subscribeTourLayout, getTourLayout, getTourLayout)
   const frame = useRef<HTMLDivElement>(null)
 
@@ -101,7 +112,7 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
       ref={frame}
       className={cn(
         'pointer-events-auto relative flex flex-col rounded-lg border border-primary/40 bg-card/95 shadow-xl backdrop-blur',
-        layout ? 'fixed' : 'max-h-full min-h-0 w-full max-w-[34rem]',
+        layout ? 'fixed' : cn('max-h-full min-h-0 max-w-[34rem]', minimised ? 'w-auto' : 'w-full'),
       )}
       style={
         layout
@@ -112,7 +123,7 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
               // Down to the bottom of the window, but never so short that a
               // card left near the bottom could not hold a step: the clamp
               // below lifts it instead.
-              ...(sized
+              ...(sized && !minimised
                 ? { height: layout.h }
                 : { maxHeight: `max(min(30rem, 64vh), calc(100vh - ${layout.y}px - 12px))` }),
             }
@@ -130,7 +141,10 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
           setTourLayout(null)
         }}
         title={layout ? 'Double-click to put the card back' : undefined}
-        className="flex cursor-move touch-none select-none items-center gap-2 border-b border-border px-3 py-2"
+        className={cn(
+          'flex cursor-move touch-none select-none items-center gap-2 px-3 py-2',
+          !minimised && 'border-b border-border',
+        )}
       >
         {header}
       </div>
@@ -138,22 +152,24 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
       <div
         ref={scroller}
         onScroll={measureMore}
-        className={cn('min-h-0 overflow-y-auto', sized && 'flex-1')}
+        className={cn('min-h-0 overflow-y-auto', sized && 'flex-1', minimised && 'hidden')}
       >
         <div ref={content} className={bodyClassName}>
           {children}
         </div>
       </div>
       {/* The body goes on below its edge: say so, rather than leave a cut-off line to hint it. */}
-      {more && (
+      {more && !minimised && (
         <div aria-hidden className="pointer-events-none relative h-0">
           <div className="absolute inset-x-0 bottom-0 h-8 bg-linear-to-t from-card to-transparent" />
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-t border-border px-3 py-2">{footer}</div>
+      {!minimised && (
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">{footer}</div>
+      )}
 
-      {RESIZE_GRIPS.map(({ edge, className }) => {
+      {!minimised && RESIZE_GRIPS.map(({ edge, className }) => {
         const handlers = resizeHandlers(edge)
         return (
           <div
@@ -172,7 +188,10 @@ export function TourFrame({ header, footer, bodyClassName, children, ...rest }: 
       {/* The corner people look for, as on a device window. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-0 right-0 size-3 rounded-br-lg"
+        className={cn(
+          'pointer-events-none absolute bottom-0 right-0 size-3 rounded-br-lg',
+          minimised && 'hidden',
+        )}
         style={{
           background:
             'linear-gradient(135deg, transparent 0 50%, var(--color-border) 50% 60%, transparent 60% 70%, var(--color-border) 70% 80%, transparent 80%)',

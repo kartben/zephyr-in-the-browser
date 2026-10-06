@@ -146,6 +146,8 @@ const {
   startDemo,
   closeIntro,
   openIntro,
+  minimise,
+  restore,
 } = await import('@/tours/store')
 
 /** Two steps on the same address, plus one of its own. */
@@ -742,6 +744,50 @@ describe('ending', () => {
     await walk()
     dismissCompletion()
     expect(getSnapshot()).toMatchObject({ finished: true, completed: false, armed: false })
+  })
+})
+
+/*
+ * Minimising is for looking past the card. It must leave the guest and the
+ * tour exactly where they were: the old X moved on, and a `when: first` stop
+ * the reader closed to read the terminal was gone for good.
+ */
+describe('minimising the card', () => {
+  const STOPS = RUN_ON.replace('stop: no\n', '')
+
+  it('folds the card and touches nothing else', async () => {
+    await loadOnce(STOPS)
+    await pass(0x8000)
+    const shown = getSnapshot().current
+    const before = resumed.length
+    minimise()
+    await settle()
+    expect(getSnapshot().minimised).toBe(shown)
+    expect(getSnapshot().current).toBe(shown)
+    expect(paused).toBe(true)
+    expect(resumed).toHaveLength(before)
+
+    restore()
+    expect(getSnapshot().minimised).toBeNull()
+    expect(getSnapshot().current).toBe(shown)
+  })
+
+  it('lets the next card come up whole', async () => {
+    await loadOnce(STOPS)
+    await pass(0x8000)
+    minimise()
+    next()
+    await settle()
+    await pass(0x9000)
+    const s = getSnapshot()
+    expect(s.current?.step.index).toBe(1)
+    expect(s.minimised).not.toBe(s.current)
+  })
+
+  it('does nothing with no card up', () => {
+    reset()
+    minimise()
+    expect(getSnapshot().minimised).toBeNull()
   })
 })
 

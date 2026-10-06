@@ -39,6 +39,7 @@ via the help dialog (?).
 - **Fixed:** Debug register tooltips name the current function's arguments.
 - **Fixed:** Tour cards keep the stop line in view and name data pointers.
 - **Fixed:** Rereading an earlier tour step no longer strands the paused guest.
+- **Fixed:** A tour card's X minimises it instead of skipping the stop.
 - **Fixed:** An ELF without a devicetree shows the board's buses.
 - **Fixed:** Trace queue depth no longer counts hand-offs to waiting threads.
 - **Fixed:** Trace Timeline no longer marks a thread blocked for waking another.

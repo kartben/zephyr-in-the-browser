@@ -23,6 +23,8 @@ vi.mock('@/tours/store', () => ({
   fetchTour: vi.fn(async () => null),
   openIntro: vi.fn(),
   closeIntro: vi.fn(),
+  minimise: vi.fn(),
+  restore: vi.fn(),
   introReady: (s: TourState) => s.current !== null || s.waiting !== null || s.completed,
 }))
 
@@ -79,6 +81,7 @@ function render(state: Partial<TourState>): string {
     armed: true,
     live: true,
     current: null,
+    minimised: null,
     waiting: null,
     seen: new Set<number>(),
     finished: false,
@@ -212,6 +215,33 @@ describe('TourCard intro', () => {
     expect(html).toContain('data-tour-step="1"')
     expect(html).not.toContain('data-tour-intro')
     expect(html).not.toContain('read the intro again')
+  })
+})
+
+describe('TourCard minimised', () => {
+  const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+
+  it('offers to minimise, where the header used to offer to move on', () => {
+    const html = render({ current: card(1), seen: new Set([0, 1]) })
+    expect(html).toContain('aria-label="Minimise the card"')
+    expect(html).not.toContain('Dismiss')
+  })
+
+  it('folds to one line: the step, its action, and the way back', () => {
+    const shown = card(1)
+    const html = render({ current: shown, minimised: shown, seen: new Set([0, 1]) })
+    expect(html).toContain('data-tour-step="2"')
+    expect(text(html)).toMatch(/2\/3 Main waits/)
+    expect(text(html)).toMatch(/\sContinue\s/)
+    expect(html).toContain('aria-label="Show the card"')
+    expect(html).not.toContain('Minimise the card')
+    expect(html).not.toContain('Leave the tour')
+  })
+
+  it('comes up whole for the next card', () => {
+    const html = render({ current: card(2), minimised: card(1), seen: new Set([0, 1, 2]) })
+    expect(html).toContain('Minimise the card')
+    expect(html).toContain('Leave the tour')
   })
 })
 
