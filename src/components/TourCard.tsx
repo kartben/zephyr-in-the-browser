@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useSyncExternalStore } from 'react'
-import { Bug, GraduationCap, Pause, Redo2, X } from 'lucide-react'
+import { Bug, ChevronDown, ChevronUp, GraduationCap, Pause, Redo2 } from 'lucide-react'
 import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
@@ -31,7 +31,15 @@ import * as debug from '@/debug/control'
 import * as dtsStore from '@/devicetree'
 import { stripDtsProvenance } from '@/dts/provenance'
 import * as debugUi from '@/lib/debugUi'
-import { getSnapshot, next, skip, subscribe, type TourValue } from '@/tours/store'
+import {
+  getSnapshot,
+  minimise,
+  next,
+  restore,
+  skip,
+  subscribe,
+  type TourValue,
+} from '@/tours/store'
 import { resolveHighlightSpecs } from '@/tours/parse'
 import { cn } from '@/lib/utils'
 
@@ -149,6 +157,24 @@ export function TourCard({ board, sampleId }: Props) {
       : null
 
   const startedAtStep = startedAt(state, step.index)
+  const minimised = state.minimised !== null && state.minimised === card
+  // A step read again only goes back to the card it covers: see next().
+  const nextLabel = card.revisit
+    ? 'Back'
+    : check?.retrying
+      ? 'Try again'
+      : paused
+        ? 'Continue'
+        : 'Got it'
+  const pausedPill = paused && (
+    <span
+      className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary"
+      title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
+    >
+      <Pause className="size-2.5" aria-hidden />
+      paused
+    </span>
+  )
 
   // The data-tour-* attributes are what the headless playthrough waits on
   // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
@@ -156,52 +182,79 @@ export function TourCard({ board, sampleId }: Props) {
     <TourFrame
       data-tour-step={step.index + 1}
       data-tour-paused={paused ? '' : undefined}
+      minimised={minimised}
       header={
-        <>
-          <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
-          {state.doc && <TourTitle title={state.doc.title} hasIntro={Boolean(state.doc.intro)} />}
-          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-            {total > 0 ? `${step.index + 1}/${total}` : step.index + 1}
-          </span>
-          <TourOutline
-            steps={state.doc?.steps ?? []}
-            seen={state.seen}
-            currentIndex={step.index}
-          />
-          <div className="ml-auto flex items-center gap-1.5">
-            {paused && (
-              <span
-                className="flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary"
-                title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
-              >
-                <Pause className="size-2.5" aria-hidden />
-                paused
-              </span>
-            )}
-            {state.tourId && (
-              <CopyTourLink
-                boardId={board.id}
-                sampleId={sampleId}
-                tourId={state.tourId}
-                step={step.index + 1}
-              />
-            )}
+        minimised ? (
+          // One line: where the tour is, and its one action.
+          <>
+            <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
+            <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {total > 0 ? `${step.index + 1}/${total}` : step.index + 1}
+            </span>
             <button
               type="button"
-              aria-label="Dismiss"
-              onClick={next}
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              onClick={restore}
+              title="Show the card"
+              className="min-w-0 truncate text-left text-[12px] font-medium text-foreground/80 hover:text-foreground"
             >
-              <X className="size-3.5" aria-hidden />
+              <InlineMarkdown text={step.title} />
             </button>
-          </div>
-        </>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+              {pausedPill}
+              <Button size="sm" onClick={next} className="h-6 px-2 text-[11px]">
+                {nextLabel}
+              </Button>
+              <button
+                type="button"
+                aria-label="Show the card"
+                title="Show the card"
+                onClick={restore}
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown className="size-3.5" aria-hidden />
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
+            {state.doc && <TourTitle title={state.doc.title} hasIntro={Boolean(state.doc.intro)} />}
+            <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {total > 0 ? `${step.index + 1}/${total}` : step.index + 1}
+            </span>
+            <TourOutline
+              steps={state.doc?.steps ?? []}
+              seen={state.seen}
+              currentIndex={step.index}
+            />
+            <div className="ml-auto flex items-center gap-1.5">
+              {pausedPill}
+              {state.tourId && (
+                <CopyTourLink
+                  boardId={board.id}
+                  sampleId={sampleId}
+                  tourId={state.tourId}
+                  step={step.index + 1}
+                />
+              )}
+              {/* Out of the way, not onward: the guest stays where it is. */}
+              <button
+                type="button"
+                aria-label="Minimise the card"
+                title="Minimise the card (Esc). The tour stays on this step."
+                onClick={minimise}
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <ChevronUp className="size-3.5" aria-hidden />
+              </button>
+            </div>
+          </>
+        )
       }
       footer={
         <>
-          {/* A step read again only goes back to the card it covers: see next(). */}
           <Button size="sm" onClick={next} className="h-7 px-3 text-xs">
-            {card.revisit ? 'Back' : check?.retrying ? 'Try again' : paused ? 'Continue' : 'Got it'}
+            {nextLabel}
           </Button>
           {paused && state.live && (
             <Button

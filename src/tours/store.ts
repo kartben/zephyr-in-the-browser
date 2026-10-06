@@ -188,6 +188,12 @@ export interface TourState {
   live: boolean
   current: TourCard | null
   /**
+   * The card the reader minimised to one line, to see what it covered. The
+   * card on screen is minimised while it is this one, so the next card comes
+   * up whole without anything having to reset it.
+   */
+  minimised: TourCard | null
+  /**
    * No card is up, the guest is running, and the step it is running towards
    * has an `await:`: reaching it is the reader's job, so say what to do.
    */
@@ -217,6 +223,7 @@ const EMPTY: TourState = {
   armed: false,
   live: false,
   current: null,
+  minimised: null,
   waiting: null,
   seen: new Set(),
   finished: false,
@@ -1188,6 +1195,19 @@ export function revisit(index: number): void {
   // Never claims a pause: the machine has moved on since, and saying otherwise
   // would be a straight lie about what the reader is looking at.
   publish({ current: { ...runtime.card, paused: false, revisit: { back } } })
+}
+
+/**
+ * Fold the card on screen to one line. Nothing else changes: the guest stays
+ * where it is, and the tour stays on this step.
+ */
+export function minimise(): void {
+  if (state.current) publish({ minimised: state.current })
+}
+
+/** Bring a minimised card back whole. */
+export function restore(): void {
+  publish({ minimised: null })
 }
 
 /** Leave the tour: drop the breakpoints, resume, say nothing more. */

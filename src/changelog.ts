@@ -157,6 +157,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Fixed",
+        "text": "A tour card's X minimises it instead of skipping the stop."
+      },
+      {
+        "tag": "Fixed",
         "text": "An ELF without a devicetree shows the board's buses."
       },
       {

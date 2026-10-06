@@ -141,6 +141,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
     chord: { key: 'x' },
     when: 'idle',
   },
+  {
+    id: 'tour-minimise',
+    category: 'Tour',
+    title: 'Minimise Card',
+    description: 'Fold the tour card to one line',
+    chord: { key: 'Escape' },
+    when: 'idle',
+  },
 
   // Layout
   {
@@ -290,6 +298,7 @@ export function formatChord(chord: KeyChord, mac = isMacPlatform()): string {
 
 function displayKey(key: string): string {
   if (key === ' ') return 'Space'
+  if (key === 'Escape') return 'Esc'
   if (key.length === 1) return key.toUpperCase()
   return key
 }
