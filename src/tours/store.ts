@@ -687,7 +687,7 @@ function waitingOf(runtime: StepRuntime | undefined): TourWaiting | null {
 /**
  * The prompt for the step the guest is running towards (planted, and either
  * not yet fired or retrying), opening what that step points at as well. The
- * reader acts now, and "watch the queue fill" means the Queues tab while it
+ * reader acts now, and "watch the queue fill" means the IPC tab while it
  * fills, not once it has. A retry asks for the same thing again.
  */
 function promptNext(): TourWaiting | null {

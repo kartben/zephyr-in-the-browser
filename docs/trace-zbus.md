@@ -75,7 +75,7 @@ of Zephyr main, with the PM hooks the Power band reads
 The images this site deploys are built from that branch, since images release
 v105, so the tab shows the activity. An image built from Zephyr main gets the
 channels and observers with a note, and no activity; its traced build still
-shows part of zbus in **Queues**: a subscriber's message queue and an async
+shows part of zbus in **IPC**: a subscriber's message queue and an async
 listener's FIFO, under the names zbus gave them.
 
 To see the activity, build the images from a tree with the patch applied:

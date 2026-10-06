@@ -705,7 +705,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   },
   {
     // Stock msgq sample (put + put_front urgent). The `_trace` twin adds CTF
-    // so the Queues pipe graph can show producer/consumer and put_front traffic.
+    // so the IPC graph can show producer/consumer and put_front traffic.
     // https://docs.zephyrproject.org/latest/samples/kernel/msg_queue/README.html
     id: 'msg_queue',
     label: 'Message Queue',
@@ -717,7 +717,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     // interrupt and SW0's interrupt feed one queue, a consumer thread drains
     // it, and the `msgq` shell command changes how each side behaves. Its
     // tour is part 2 of the message-queue lesson; the `_trace` twin adds the
-    // Queues and Timeline views the tour points at.
+    // IPC and Timeline views the tour points at.
     id: 'msgq_lab',
     label: 'Message Queue Lab',
     description: 'A sensor, a timer and SW0 fill one msgq; change it all from the shell',
@@ -726,7 +726,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
   },
   {
     // Stock zbus hello_world: three channels, and a listener, a subscriber and
-    // an async listener on one of them. In the `_trace` twin, Trace → Queues
+    // an async listener on one of them. In the `_trace` twin, Trace → IPC
     // draws the subscriber's msgq and the async listener's FIFO, which zbus
     // creates behind the scenes.
     // https://docs.zephyrproject.org/latest/samples/subsys/zbus/hello_world/README.html
@@ -1110,7 +1110,7 @@ export const BOARDS: Board[] = [
     // goes too: the RISC-V virt SoC does not select HAS_PM either, and the
     // cpu-power-states snippet only carries an A53 overlay, so the sample would
     // build with no state ladder and never suspend. `msgq_lab` and `zbus` are
-    // built for the A53 alone: their tours lean on the traced twin's Queues
+    // built for the A53 alone: their tours lean on the traced twin's IPC
     // view.
     samples: [
       ...CORTEX_A53_SAMPLES_BASE.filter(

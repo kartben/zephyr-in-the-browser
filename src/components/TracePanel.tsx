@@ -1,12 +1,12 @@
 /**
- * Live Zephyr CTF Trace panel — Timeline Gantt + Queues + Networking.
+ * Live Zephyr CTF Trace panel — Timeline Gantt + IPC + Networking.
  *
  * Timeline: thread lanes coloured by run / ready / blocked / sleep / suspended,
  * with a shared live-follow time window (pan / zoom / pinch / Shift-drag box
  * zoom). Optional queue swim lanes line data-passing objects (msgq / fifo /
  * lifo / k_queue / k_stack) under the threads, with dotted put/get connectors
  * from the actor context to each queue rail. Lane groups (THREADS, QUEUES, …)
- * carry small uppercase section headers. Queues: per-object flow graph + depth
+ * carry small uppercase section headers. IPC: per-object flow graph + depth
  * from put/put_front/get exits.
  */
 
@@ -1231,7 +1231,7 @@ function BoxZoomOverlay({
 /** Plot band below the time axis for the active Trace tab. */
 function plotBandForTab(tab: TraceTab, cssH: number): { plotTop: number; plotBottom: number } {
   if (tab === 'queues') {
-    // Queues keeps a bottom time axis — zoom the row band only.
+    // IPC keeps a bottom time axis — zoom the row band only.
     const rowBottom = Math.max(QUEUES_TOP_H + 72, cssH - QUEUES_BOTTOM_AXIS_H)
     return { plotTop: QUEUES_TOP_H, plotBottom: rowBottom }
   }

@@ -475,7 +475,7 @@ at: main
 look:
   - dock.gpio
   - debug.objects
-  - trace.queues
+  - trace.ipc
 \`\`\`
 
 Prose.
@@ -484,7 +484,7 @@ Prose.
     await arm()
     await stopAt(0x8000)
     // This guest writes no trace and its sample does not name Trace, so the
-    // Queues tab has nowhere to open: the card says so instead.
+    // IPC tab has nowhere to open: the card says so instead.
     expect(revealed).toEqual(['gpio', 'stage:debug'])
     expect(getSnapshot().current?.lookNotes).toEqual([
       'This view needs the traced build of this sample.',

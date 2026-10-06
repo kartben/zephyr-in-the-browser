@@ -319,11 +319,11 @@ and `perf` (Simulation). The dock unhides that row, expands it and blinks it,
 so the reader's eye has somewhere to go when the machine stops.
 
 `look:` goes one level further in, to a tab of Trace or a section of Debug. A
-step about a queue filling up wants the Queues tab, and a reader left on the
+step about a queue filling up wants the IPC tab, and a reader left on the
 Timeline would not know that is where to look.
 
 ```yaml
-look: trace.queues
+look: trace.ipc
 ```
 
 ```yaml
@@ -334,7 +334,7 @@ look:
 
 | Target | Opens |
 | --- | --- |
-| `trace.timeline`, `trace.queues`, `trace.zbus`, `trace.net`, `trace.power` | that Trace tab (`trace.zbus` only on an image with zbus) |
+| `trace.timeline`, `trace.ipc`, `trace.zbus`, `trace.net`, `trace.power` | that Trace tab (`trace.zbus` only on an image with zbus) |
 | `debug.breakpoints`, `debug.cpu`, `debug.stack`, `debug.memory`, `debug.threads`, `debug.objects` | that Debug section |
 | `dock.<panel>` | a dock row, the same as `panel:` |
 
@@ -725,7 +725,7 @@ there. A first step with `await:` shows its card from the start, and **Leave
 the tour** works from it as from any card.
 
 The your-turn card also opens what the step points at, its `panel:` and
-`look:`. A step that says "watch the queue fill" wants the Queues tab open
+`look:`. A step that says "watch the queue fill" wants the IPC tab open
 while the queue fills, not once it has. On a build without Trace it carries the
 same one-line note as the step card.
 
