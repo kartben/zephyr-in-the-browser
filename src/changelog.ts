@@ -112,6 +112,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Trace Timeline shows thread priorities and what blocked threads wait on."
       },
       {
+        "tag": "Improved",
+        "text": "Tour cards sit beside the dock and use the full height."
+      },
+      {
         "tag": "Changed",
         "text": "Trace's Queues tab is now IPC, with graph filters."
       },

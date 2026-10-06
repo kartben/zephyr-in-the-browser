@@ -28,6 +28,7 @@ via the help dialog (?).
 - **Improved:** Tours open with their intro; cards move, resize and show only relevant threads.
 - **Improved:** Device dock opens folded to the sample's devices, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
+- **Improved:** Tour cards sit beside the dock and use the full height.
 - **Changed:** Trace's Queues tab is now IPC, with graph filters.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
 - **Changed:** Kernel object lists need an image from current Zephyr main.
