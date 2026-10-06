@@ -587,6 +587,7 @@ export function QueuesView({
   boxZoomArmed = false,
   yZoom = null,
   sync = null,
+  priorities,
 }: {
   tr: Trace
   /** Shared reconstruction used by the timeline, synoptic, and depth chart. */
@@ -609,6 +610,8 @@ export function QueuesView({
   yZoom?: YZoom | null
   /** Semaphores, mutexes and condvars, drawn in the graph only. */
   sync?: LiveSync | null
+  /** Priorities the debugger read, for threads that never logged one. */
+  priorities?: ReadonlyMap<number, number>
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const layoutsRef = useRef<RowLayout[]>([])
@@ -757,6 +760,7 @@ export function QueuesView({
           flowEvents={flowEvents}
           eventCount={eventCount}
           sync={sync}
+          priorities={priorities}
         />
       )}
       <div className="flex flex-col gap-1">

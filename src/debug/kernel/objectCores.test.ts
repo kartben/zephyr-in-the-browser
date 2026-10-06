@@ -4,10 +4,14 @@ import type { ElfTypedSymbol } from '@/debug/elfSymbols'
 import {
   decodeMsgqRing,
   objectCoreMetaFromImage,
+  ownThreadPriorities,
   readMsgqRing,
   readObjectCores,
   type ObjectCoreImage,
+  type ObjectCoreSnapshot,
+  type ZephyrKernelObject,
 } from '@/debug/kernel/objectCores'
+import type { ZephyrThread } from '@/debug/kernel/threads'
 
 function memoryReader(chunks: Map<number, Uint8Array>) {
   return async (addr: number, length: number) => {
@@ -521,5 +525,93 @@ describe('message queue ring', () => {
     expect(faulted).toBeNull()
     // Too short to hold the members: the decoder will not guess at the rest.
     expect(decodeMsgqRing(queueStruct(4).subarray(0, 20), ringMeta(4))).toBeNull()
+  })
+})
+
+describe('ownThreadPriorities', () => {
+  const thread = (
+    addr: number,
+    prio: number | null,
+    origPrio: number | null = null,
+  ): ZephyrThread => ({
+    addr,
+    name: `t${addr}`,
+    entry: null,
+    prio,
+    state: null,
+    current: false,
+    sp: null,
+    stackStart: null,
+    stackSize: null,
+    pendedOn: null,
+    waitingOn: null,
+    objectCore: true,
+    origPrio,
+  })
+  // `taken`: the owner's priority when it took the mutex, on kernels that keep it there.
+  const mutex = (addr: number, owner: number | null, taken?: number): ZephyrKernelObject => ({
+    addr,
+    coreAddr: addr + 0x28,
+    typeAddr: 0x2000,
+    typeId: MUTX,
+    typeCode: 'MUTX',
+    typeName: 'Mutexes',
+    name: `m${addr}`,
+    size: 56,
+    capacity: null,
+    staticObject: true,
+    fields: [
+      owner === null
+        ? { label: 'Owner', value: 'none' }
+        : { label: 'Owner', value: `0x${owner.toString(16)}`, addr: owner },
+      { label: 'Lock depth', value: owner === null ? '0' : '1', num: owner === null ? 0 : 1 },
+      ...(taken === undefined
+        ? []
+        : [{ label: 'Owner base priority', value: String(taken), num: taken }]),
+    ],
+    stats: null,
+  })
+  const snapshot = (objects: ZephyrKernelObject[]): ObjectCoreSnapshot => ({
+    types: [
+      { addr: 0x2000, id: MUTX, code: 'MUTX', name: 'Mutexes', objectSize: 56, objects },
+    ],
+    objectCount: objects.length,
+    statsCount: 0,
+    truncated: false,
+  })
+
+  it('reads a mutex owner on a loan at the priority it kept, its own', () => {
+    // Zephyr main keeps it on the thread: philosopher 4 (own priority -1)
+    // runs at -2 for philosopher 5. Philosopher 3's is stale, as it holds
+    // nothing.
+    const threads = [thread(0x40, -2, -1), thread(0x30, 0, 2)]
+    const objects = snapshot([mutex(0x4400, 0x40), mutex(0x5500, 0x40), mutex(0x3300, null)])
+    expect(ownThreadPriorities(threads, objects)).toEqual(
+      new Map([
+        [0x40, -1],
+        [0x30, 0],
+      ]),
+    )
+  })
+
+  it('reads a thread on a loan at the priority its mutexes kept, before Zephyr main', () => {
+    // Philosopher 4 (own priority 0) took fork 4, then fork 5 while
+    // philosopher 3 lent it -1, and now runs at -2 for philosopher 5.
+    const threads = [thread(0x40, -2), thread(0x30, -1), thread(0x60, null)]
+    const objects = snapshot([
+      mutex(0x4400, 0x40, 0),
+      mutex(0x5500, 0x40, -1),
+      mutex(0x6600, null, 7),
+    ])
+    expect(ownThreadPriorities(threads, objects)).toEqual(
+      new Map([
+        [0x40, 0],
+        [0x30, -1],
+      ]),
+    )
+  })
+
+  it('takes the priority the thread reads without object cores', () => {
+    expect(ownThreadPriorities([thread(0x40, -2)], null)).toEqual(new Map([[0x40, -2]]))
   })
 })

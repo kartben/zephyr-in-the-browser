@@ -22,13 +22,15 @@ import {
 } from '@/debug/elfSymbols'
 import { elfPointerBytes } from '@/debug/elfSections'
 import { isRing, type MsgqRing, type MsgqRingSnapshot } from '@/debug/kernel/msgqRing'
-import type { MemReader } from '@/debug/kernel/threads'
+import type { MemReader, ZephyrThread } from '@/debug/kernel/threads'
 
 export interface ObjectCoreField {
   label: string
   value: string
   /** Optional address behind a pointer-valued field. */
   addr?: number
+  /** The number a numeric field shows, as read. */
+  num?: number
 }
 
 export interface ObjectCoreStats {
@@ -485,7 +487,7 @@ function addNumber(
       ...(value ? { addr: value } : {}),
     })
   } else {
-    fields.push({ label, value: value.toLocaleString() })
+    fields.push({ label, value: value.toLocaleString(), num: value })
   }
 }
 
@@ -1036,4 +1038,33 @@ export function objectCoreWaitObjects(snapshot: ObjectCoreSnapshot) {
 
 export function objectCoreThreadAddresses(snapshot: ObjectCoreSnapshot): number[] {
   return snapshot.types.find((type) => type.code === 'THRD')?.objects.map((o) => o.addr) ?? []
+}
+
+/**
+ * Each thread's own priority, by address: the one it runs at when no waiter
+ * lends it theirs. A mutex owner running on a loan reads the lent priority,
+ * but the kernel kept the one it had before: on the thread since Zephyr's
+ * mutexes chain their loans (`orig_prio`, taken with its first mutex), and
+ * before that on each mutex it holds (`owner_orig_prio`). The first mutex
+ * taken predates any loan when mutexes go back in the reverse order, so the
+ * least urgent of these is the thread's own.
+ */
+export function ownThreadPriorities(
+  threads: readonly ZephyrThread[],
+  objects: ObjectCoreSnapshot | null,
+): Map<number, number> {
+  const own = new Map<number, number>()
+  const byAddr = new Map(threads.map((thread) => [thread.addr, thread]))
+  for (const thread of threads) if (thread.prio !== null) own.set(thread.addr, thread.prio)
+  const mutexes = objects?.types.find((type) => type.code === 'MUTX')?.objects ?? []
+  for (const mutex of mutexes) {
+    const owner = mutex.fields.find((field) => field.label === 'Owner')?.addr
+    if (owner === undefined) continue
+    const taken =
+      byAddr.get(owner)?.origPrio ??
+      mutex.fields.find((field) => field.label === 'Owner base priority')?.num
+    const prio = own.get(owner)
+    if (prio !== undefined && taken != null) own.set(owner, Math.max(prio, taken))
+  }
+  return own
 }

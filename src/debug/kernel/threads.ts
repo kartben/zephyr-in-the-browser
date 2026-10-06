@@ -48,6 +48,11 @@ export interface ZephyrThread {
   waitingOn: { name: string; addr: number; kind: string | null } | null
   /** Thread address came from CONFIG_OBJ_CORE's live thread-type list. */
   objectCore: boolean
+  /**
+   * `orig_prio`, where the kernel keeps it: the priority the thread had when
+   * it took the first mutex it holds, before any waiter lent it one.
+   */
+  origPrio: number | null
 }
 
 export type MemReader = (addr: number, length: number) => Promise<Uint8Array>
@@ -190,6 +195,7 @@ export async function listThreads(
   const spLocOff = off(info, ThreadInfoOffset.T_STACK_PTR)
   const stackInfoOff = info.stackInfoOff
   const pendedOnOff = info.pendedOnOff
+  const origPrioOff = info.origPrioOff
 
   const out: ZephyrThread[] = []
   const seen = new Set<number>()
@@ -229,6 +235,16 @@ export async function listThreads(
         if (prio > 127) prio -= 256
       } catch {
         prio = null
+      }
+    }
+
+    let origPrio: number | null = null
+    if (origPrioOff !== null) {
+      try {
+        origPrio = (await read(node + origPrioOff, 1))[0]!
+        if (origPrio > 127) origPrio -= 256
+      } catch {
+        origPrio = null
       }
     }
 
@@ -312,6 +328,7 @@ export async function listThreads(
       pendedOn,
       waitingOn,
       objectCore: objectCoreThreads.length > 0,
+      origPrio,
     })
 
     if (objectCoreIndex >= 0) {

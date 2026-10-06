@@ -190,9 +190,14 @@ function fixedCapacity(queue: QueueSeries): number | null {
   return queue.kind === 'msgq' || queue.kind === 'stack' ? queue.cap : null
 }
 
+/**
+ * A thread created at run time logs no priority, so the debugger's reading at
+ * the last stop stands in until the trace shows one.
+ */
 export function liveQueueNodeState(
   tr: Trace,
   queues: QueueSeries[],
+  priorities?: ReadonlyMap<number, number>,
 ): Map<string, QueueGraphNodeState> {
   const state = new Map<string, QueueGraphNodeState>()
   for (const queue of queues) {
@@ -203,9 +208,10 @@ export function liveQueueNodeState(
     })
   }
   for (const [threadId, info] of tr.threads) {
+    const prio = info.prio ?? priorities?.get(threadId)
     state.set(liveThreadNodeId(threadId), {
       label: flowThreadLabel(tr, threadId),
-      detail: info.prio == null ? `tid 0x${threadId.toString(16)}` : `priority ${info.prio}`,
+      detail: prio == null ? `tid 0x${threadId.toString(16)}` : `priority ${prio}`,
     })
   }
   state.set(LIVE_ISR_NODE_ID, {
@@ -252,20 +258,16 @@ export function buildLiveQueueGraph(
   const actorSpecs = [...actors.values()].sort((a, b) => a.label.localeCompare(b.label))
 
   const nodes: FlowNodeSpec[] = [
-    ...actorSpecs.map(({ actor, label }): FlowNodeSpec => {
-      const info = actor.kind === 'thread' ? tr.threads.get(actor.threadId) : null
-      return {
+    ...actorSpecs.map(
+      ({ actor, label }): FlowNodeSpec => ({
         id: liveActorNodeId(actor),
         kind: actor.kind,
         label,
-        detail:
-          actor.kind === 'isr'
-            ? 'interrupt context'
-            : info?.prio == null
-              ? `tid 0x${actor.threadId.toString(16)}`
-              : `priority ${info.prio}`,
-      }
-    }),
+        // A thread's priority changes as it runs, so it comes with the rest of
+        // its live state, from liveQueueNodeState.
+        ...(actor.kind === 'isr' ? { detail: 'interrupt context' } : {}),
+      }),
+    ),
     ...queues.map(
       (queue): FlowNodeSpec => ({
         id: liveObjectNodeId(queue.id),

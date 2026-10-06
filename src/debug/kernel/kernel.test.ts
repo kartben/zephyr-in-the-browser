@@ -117,6 +117,7 @@ describe('listThreads', () => {
       ptrBytes: 4,
       stackInfoOff: null,
       pendedOnOff: null,
+      origPrioOff: null,
       offsets: [
         1, // VERSION
         0x64, // K_CURR_THREAD
@@ -172,6 +173,7 @@ describe('listThreads', () => {
       ptrBytes: 4,
       stackInfoOff: null,
       pendedOnOff: null,
+      origPrioOff: null,
       offsets: [
         1,
         0x64,
@@ -227,6 +229,7 @@ describe('listThreads', () => {
       ptrBytes: 4,
       stackInfoOff: null,
       pendedOnOff: 8,
+      origPrioOff: 0x24,
       offsets: [
         1,
         0x64,
@@ -250,6 +253,7 @@ describe('listThreads', () => {
     set(0x2000 + 8, ptr(0x40001000)) // pended_on → uart_sem
     set(0x2000 + 0x20, [0x02]) // PENDING
     set(0x2000 + 0x22, [5])
+    set(0x2000 + 0x24, [0xfe]) // orig_prio -2
     set(0x2000 + 0x28, ptr(0xbbbb))
     set(0x2000 + 0x30, [...'worker'].map((c) => c.charCodeAt(0)).concat([0]))
 
@@ -273,6 +277,7 @@ describe('listThreads', () => {
       name: 'worker',
       pendedOn: 0x40001000,
       waitingOn: { name: 'uart_sem', kind: 'sem' },
+      origPrio: -2,
     })
     expect(describeThreadStatus(threads[0]!)).toMatchObject({
       label: 'waiting',

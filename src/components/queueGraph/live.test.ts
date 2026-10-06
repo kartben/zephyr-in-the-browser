@@ -104,6 +104,29 @@ describe('live queue graph adapter', () => {
     expect(liveFlowAction('lifo', 'get')).toBe('pop')
   })
 
+  it('borrows the priority the debugger read for a thread that never logged one', () => {
+    const tr = trace()
+    tr.threads.set(0x4001eec0, {
+      name: 'Philosopher 1',
+      prio: null,
+      stackBase: null,
+      stackSize: null,
+    })
+    const detail = (priorities?: Map<number, number>) => (tid: number) =>
+      liveQueueNodeState(tr, queues(), priorities).get(liveThreadNodeId(tid))?.detail
+
+    expect(detail()(0x4001eec0)).toBe('tid 0x4001eec0')
+    const read = detail(
+      new Map([
+        [0x4001eec0, 2],
+        [1, 9],
+      ]),
+    )
+    expect(read(0x4001eec0)).toBe('priority 2')
+    // What the trace logged comes first.
+    expect(read(1)).toBe('priority 1')
+  })
+
   it('includes ISR queue operations as a virtual synoptic actor', () => {
     const tr = trace()
     tr.events.push(

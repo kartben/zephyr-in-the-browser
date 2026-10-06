@@ -102,6 +102,15 @@ describe('TraceReader', () => {
     expect(threadPrio(reader.tr, preempt)).toBe(7)
     expect(threadPrio(reader.tr, unknown)).toBeNull()
     expect(laneOrder(reader.tr)).toEqual([coop, preempt, unknown])
+
+    // The debugger read the priority the trace never logged; the trace's own wins.
+    const priorities = new Map([
+      [unknown, 3],
+      [coop, 9],
+    ])
+    expect(threadPrio(reader.tr, unknown, priorities)).toBe(3)
+    expect(threadPrio(reader.tr, coop, priorities)).toBe(-2)
+    expect(laneOrder(reader.tr, priorities)).toEqual([coop, unknown, preempt])
   })
 
   it('keeps equal-prio lane order stable regardless of busy time', () => {
