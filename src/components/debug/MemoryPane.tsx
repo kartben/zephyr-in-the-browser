@@ -523,7 +523,7 @@ export function MemoryPane({
       {here && (
         <p className="flex items-center gap-2 truncate px-0.5 font-mono text-[10px] text-foreground/70">
           {here.typeCode && (
-            <span className="shrink-0 rounded-sm bg-primary/15 px-1 text-[9px] tracking-wide text-primary/90">
+            <span className="shrink-0 rounded-sm bg-primary/15 px-1 text-[9px] tracking-wide text-primary-text/90">
               {here.typeCode.replace(/_+$/, '')}
             </span>
           )}

@@ -45,7 +45,7 @@ export function MemoryBody({
         {compact && onOpenWindow && (
           <button
             onClick={onOpenWindow}
-            className="ml-auto text-[10px] text-primary underline-offset-2 hover:underline"
+            className="ml-auto text-[10px] text-primary-text underline-offset-2 hover:underline"
           >
             Hex editor ⧉
           </button>
@@ -108,7 +108,7 @@ export function SpiFlashBody({
           {compact && onOpenWindow && (
             <button
               onClick={onOpenWindow}
-              className="text-[10px] text-primary underline-offset-2 hover:underline"
+              className="text-[10px] text-primary-text underline-offset-2 hover:underline"
             >
               Hex editor ⧉
             </button>

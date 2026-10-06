@@ -736,7 +736,7 @@ function TrafficRow({ entry }: { entry: CanLogEntry }) {
         title="No node acknowledged the frame. Each failure adds 8 to TEC."
       >
         <span className="text-amber-400">↑</span>
-        <span className="text-primary">{id}</span>
+        <span className="text-primary-text">{id}</span>
         <span className="truncate text-destructive">{data || '(none)'}</span>
         <span className="ml-auto pl-1.5 text-destructive">no ACK · TEC {entry.tec}</span>
       </li>
@@ -761,7 +761,7 @@ function TrafficRow({ entry }: { entry: CanLogEntry }) {
       <span className={entry.local ? 'text-amber-400' : 'text-sky-400'}>
         {entry.local ? '↑' : '↓'}
       </span>
-      <span className={cn(entry.drop === 'filtered' ? 'text-primary/45' : 'text-primary')}>{id}</span>
+      <span className={cn(entry.drop === 'filtered' ? 'text-primary-text/45' : 'text-primary-text')}>{id}</span>
       <span className="text-muted-foreground">[{entry.frame.rtr ? 'r' : entry.frame.data.length}]</span>
       <span className="truncate">{data || '(none)'}</span>
       {entry.drop && <span className="ml-auto pl-1.5">{entry.drop}</span>}

@@ -190,6 +190,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "Thread and object lists no longer pass the last stop off as current."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Accent text, buttons and code colours meet contrast minimums."
       }
     ]
   },

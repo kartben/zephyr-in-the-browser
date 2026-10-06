@@ -118,7 +118,7 @@ function RegisterMapDialog({
       >
         <DialogHeader>
           <DialogTitle className="flex min-w-0 items-baseline gap-2 pr-8">
-            <span className="shrink-0 font-mono text-primary">{locator}</span>
+            <span className="shrink-0 font-mono text-primary-text">{locator}</span>
             <span className="min-w-0 truncate">{chip.name}</span>
           </DialogTitle>
           <DialogDescription>

@@ -48,7 +48,7 @@ function ObjectName({ obj, focused }: { obj: ZephyrKernelObject; focused: boolea
       onClick={() => debugUi.focusDebugObject(obj.addr)}
       title={`Find ${obj.name} in Debug → Objects`}
       className={cn(
-        'min-w-0 shrink-0 basis-1/3 truncate text-left font-mono text-[11px] hover:text-primary',
+        'min-w-0 shrink-0 basis-1/3 truncate text-left font-mono text-[11px] hover:text-primary-text',
         focused ? 'text-foreground' : 'text-muted-foreground',
       )}
     >

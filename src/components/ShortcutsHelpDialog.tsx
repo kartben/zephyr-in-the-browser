@@ -35,7 +35,7 @@ type Group = { category: ShortcutCategory; items: Shortcut[] }
 
 const TAG_CLASS: Record<string, string> = {
   Added: 'bg-success/15 text-success',
-  Improved: 'bg-primary/15 text-primary',
+  Improved: 'bg-primary/15 text-primary-text',
   Fixed: 'bg-warning/15 text-warning',
   Changed: 'bg-secondary text-secondary-foreground',
 }
@@ -207,7 +207,7 @@ function ChangelogReleaseBlock({ release }: { release: ChangelogRelease }) {
         <span
           className={cn(
             'font-mono text-sm font-semibold',
-            unreleased ? 'text-warning' : 'text-primary',
+            unreleased ? 'text-warning' : 'text-primary-text',
           )}
         >
           {unreleased ? 'Unreleased' : `v${release.version}`}

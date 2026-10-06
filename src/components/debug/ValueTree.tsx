@@ -60,7 +60,7 @@ function ValueRow({ view, depth }: { view: ValueView; depth: number }) {
             open && 'rotate-90',
           )}
         />
-        <span className="shrink-0 text-primary/90">{view.name}</span>
+        <span className="shrink-0 text-primary-text/90">{view.name}</span>
         <span className="shrink-0 text-muted-foreground">:</span>
         <span
           className={cn(

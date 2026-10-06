@@ -83,7 +83,7 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
                   )
                 }
               >
-                <code className="font-mono text-[11px] text-primary">
+                <code className="font-mono text-[11px] text-primary-text">
                   0x{chip.address.toString(16).padStart(2, '0')}
                 </code>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
@@ -344,7 +344,7 @@ function TransactionRow({ entry }: { entry: I2cTransaction }) {
       <span className={entry.dir === 'read' ? 'text-sky-400' : 'text-amber-400'}>
         {entry.dir === 'read' ? 'R' : 'W'}
       </span>
-      <span className="text-primary">0x{HEX(entry.address)}</span>
+      <span className="text-primary-text">0x{HEX(entry.address)}</span>
       <span className={cn('truncate', entry.ok ? 'text-foreground' : 'text-destructive')}>
         {shown || '(none)'}
         {elided}

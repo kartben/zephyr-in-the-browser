@@ -34,7 +34,7 @@ export function UartBody({ busKey }: { busKey: string }) {
                 title={`Reveal ${device.label} in the dock`}
                 onClick={() => revealDockRow(device.key, device.deviceClass)}
               >
-                <code className="font-mono text-[11px] text-primary">{slotTag(device)}</code>
+                <code className="font-mono text-[11px] text-primary-text">{slotTag(device)}</code>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                   {device.label}
                 </span>

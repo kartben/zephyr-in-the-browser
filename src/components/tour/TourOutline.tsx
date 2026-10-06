@@ -36,11 +36,13 @@ export function TourOutline({ steps, seen, currentIndex }: Props) {
             aria-current={isCurrent ? 'step' : undefined}
             disabled={!isSeen}
             onClick={() => revisit(step.index)}
+            // Each state at 3:1 or more against the card: the step the tour is
+            // on a pill, steps already shown filled, the rest an outline.
             className={cn(
-              'h-1.5 rounded-full transition-all',
+              'h-1.5 rounded-full transition-all motion-reduce:transition-none',
               isCurrent ? 'w-5 bg-primary' : 'w-1.5',
-              !isCurrent && isSeen && 'bg-primary/50 hover:bg-primary/80',
-              !isSeen && 'bg-muted-foreground/25',
+              !isCurrent && isSeen && 'bg-muted-foreground hover:bg-foreground',
+              !isSeen && 'ring-1 ring-inset ring-muted-foreground',
             )}
           />
         )

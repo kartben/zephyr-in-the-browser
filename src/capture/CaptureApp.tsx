@@ -303,7 +303,7 @@ export function CaptureApp() {
         <Card>
           <TakeHeader spec={plan[phase.index]!} progress={progress(phase.index)} />
           <p className="text-muted-foreground text-sm">Hold still</p>
-          <div className="text-primary py-6 text-center text-7xl font-bold tabular-nums">{phase.left}</div>
+          <div className="text-primary-text py-6 text-center text-7xl font-bold tabular-nums">{phase.left}</div>
         </Card>
       )}
 
@@ -580,7 +580,7 @@ function Recording({ spec, progress, endsAt }: { spec: TakeSpec; progress: strin
   return (
     <Card>
       <TakeHeader spec={spec} progress={progress} />
-      <div className="text-primary py-4 text-center text-5xl font-bold">{gesture ? 'Go!' : `${Math.ceil(left / 1000)} s`}</div>
+      <div className="text-primary-text py-4 text-center text-5xl font-bold">{gesture ? 'Go!' : `${Math.ceil(left / 1000)} s`}</div>
       {gesture && <GestureIcon label={spec.label} />}
       <div className="bg-muted h-2 overflow-hidden rounded">
         <div className="bg-primary h-full" style={{ width: `${(100 * left) / spec.durationMs}%` }} />

@@ -96,7 +96,7 @@ export function DiskBody({
         {compact && dockKey && (
           <button
             onClick={() => setWindowed(dockKey, true)}
-            className="ml-auto text-[10px] text-primary underline-offset-2 hover:underline"
+            className="ml-auto text-[10px] text-primary-text underline-offset-2 hover:underline"
           >
             Hex dump ⧉
           </button>

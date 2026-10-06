@@ -55,7 +55,7 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
                   revealDockRow(`${busLabel}:${chip.cs.toString(16)}`, spiChipClass(chip))
                 }
               >
-                <SpiCsDot cs={chip.cs} showLabel className="text-[11px] text-primary" />
+                <SpiCsDot cs={chip.cs} showLabel className="text-[11px] text-primary-text" />
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                   {chip.name}
                 </span>
@@ -273,7 +273,7 @@ function TransactionRow({ entry }: { entry: SpiTransaction }) {
 
   return (
     <li className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="text-primary">CS{entry.cs}</span>
+      <span className="text-primary-text">CS{entry.cs}</span>
       <span className="text-amber-400">TX</span>
       <span className={cn('truncate', entry.ok ? 'text-foreground' : 'text-destructive')}>
         {tx || '(none)'}

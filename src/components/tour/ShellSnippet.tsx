@@ -161,7 +161,7 @@ export function ShellSnippet({ lines, paused = false }: Props) {
           <Button
             variant="outline"
             size="sm"
-            className="h-6 gap-1 border-primary/50 px-2 text-[11px] text-primary hover:bg-primary/10 [&_svg]:size-3"
+            className="h-6 gap-1 border-primary/50 px-2 text-[11px] text-primary-text hover:bg-primary/10 [&_svg]:size-3"
             disabled={problem !== null || typing}
             title={
               problem !== null

@@ -146,7 +146,7 @@ function ClaimedPinRow({ pin }: { pin: ClaimedPin }) {
         className={cn(
           'py-0.5 pr-2 font-mono text-[10px] tracking-wide',
           pin.direction === 'in' && 'text-foreground',
-          pin.direction === 'out' && 'text-primary',
+          pin.direction === 'out' && 'text-primary-text',
           pin.direction === 'none' && 'text-muted-foreground/50',
         )}
       >
@@ -261,7 +261,7 @@ function ButtonPin({ pin }: { pin: Pin }) {
       className={cn(
         'flex touch-none select-none flex-col items-center gap-0.5 rounded-md border py-1.5 text-[11px] font-medium transition-colors',
         high
-          ? 'border-primary bg-primary text-primary-foreground'
+          ? 'border-primary-solid bg-primary-solid text-primary-foreground'
           : 'border-border bg-secondary text-muted-foreground hover:text-foreground',
       )}
     >

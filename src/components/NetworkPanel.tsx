@@ -116,7 +116,7 @@ export function NetworkBody({ sectionsKey = 'net' }: { sectionsKey?: string }) {
 
         <Disclosure title="Throughput" meta={formatBps(snapshot.txBps)} {...fold('throughput', true)}>
           <div className="space-y-2">
-            <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary" />
+            <ThroughputRow label="TX" hint="guest → browser" bps={snapshot.txBps} history={snapshot.txHistory} className="text-primary-text" />
             <ThroughputRow label="RX" hint="browser → guest" bps={snapshot.rxBps} history={snapshot.rxHistory} className="text-success" />
             <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
               ↑ {snapshot.txPackets} pkts · {formatBytes(snapshot.txBytes)}
@@ -424,9 +424,9 @@ function ThroughputRow({
 const PROTO_TINT: Record<string, string> = {
   ARP: 'text-warning',
   DHCP: 'text-warning',
-  DNS: 'text-primary',
+  DNS: 'text-primary-text',
   ICMP: 'text-success',
-  TCP: 'text-primary',
+  TCP: 'text-primary-text',
   HTTP: 'text-success',
   UDP: 'text-foreground',
   SNTP: 'text-foreground',
@@ -497,7 +497,7 @@ function CaptureSection({ count, version, paused }: { count: number; version: nu
             <span className="shrink-0 tabular-nums text-muted-foreground">
               +{((entry.ts - firstTs) / 1000).toFixed(3)}
             </span>
-            <span className={cn('shrink-0', entry.dir === 'tx' ? 'text-primary' : 'text-success')}>
+            <span className={cn('shrink-0', entry.dir === 'tx' ? 'text-primary-text' : 'text-success')}>
               {entry.dir === 'tx' ? '↑' : '↓'}
             </span>
             <span className={cn('shrink-0 font-semibold', PROTO_TINT[entry.proto] ?? 'text-muted-foreground')}>
