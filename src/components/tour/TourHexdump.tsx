@@ -39,17 +39,17 @@ export function TourHexdump({ memory }: { memory: TourMemory }) {
     <div className="rounded border border-border bg-muted/30">
       <div className="flex items-center gap-1.5 border-b border-border/70 px-2 py-1">
         <MemoryStick className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="font-mono text-[10px] tabular-nums text-foreground/70">
+        <span className="font-mono text-[11px] tabular-nums text-foreground/70">
           {addr === null ? 'n/a' : `0x${addr.toString(16)}`}
           <span className="text-muted-foreground"> +{len}</span>
         </span>
-        {error && <span className="text-[10px] text-destructive">{error}</span>}
+        {error && <span className="text-[11px] text-destructive">{error}</span>}
         {addr !== null && (
           <button
             type="button"
             onClick={openInMem}
             title="Open this address in Debug → Mem"
-            className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary hover:text-foreground"
+            className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
             <SquareArrowOutUpRight className="size-2.5" aria-hidden />
             Mem
@@ -58,14 +58,14 @@ export function TourHexdump({ memory }: { memory: TourMemory }) {
       </div>
 
       <div className="overflow-x-auto px-2 py-1.5">
-        <table className="font-mono text-[10.5px] leading-relaxed tabular-nums">
+        <table className="font-mono text-[11px] leading-relaxed tabular-nums">
           <tbody>
             {Array.from({ length: rows }, (_, row) => {
               const base = row * BYTES_PER_ROW
               const count = Math.min(BYTES_PER_ROW, (bytes?.length ?? len) - base)
               return (
                 <tr key={row}>
-                  <td className="pr-3 text-right text-muted-foreground/70">
+                  <td className="pr-3 text-right text-muted-foreground">
                     {addr === null ? '········' : (addr + base).toString(16).padStart(8, '0')}
                   </td>
                   {Array.from({ length: count }, (_, i) => {
@@ -106,11 +106,11 @@ export function TourHexdump({ memory }: { memory: TourMemory }) {
       </div>
 
       {(note || mark) && (
-        <p className="flex items-center gap-1.5 border-t border-border/70 px-2 py-1 text-[10.5px] text-muted-foreground">
+        <p className="flex items-center gap-1.5 border-t border-border/70 px-2 py-1 text-[11px] text-muted-foreground">
           <span className="size-2 shrink-0 rounded-sm bg-primary/25" aria-hidden />
           {note ?? `bytes ${mark!.start}–${mark!.end - 1}`}
           {mark && note && (
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground/70">
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
               +{mark.start}…+{mark.end - 1}
             </span>
           )}

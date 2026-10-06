@@ -75,7 +75,7 @@ export function startedAt(
 export function StartedAt({ step }: { step: number }) {
   return (
     <p
-      className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80"
+      className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
       title="The steps before this one were skipped. The guest ran here straight from reset, so anything they asked you to do has not happened."
     >
       <SkipForward className="size-3 shrink-0" aria-hidden />

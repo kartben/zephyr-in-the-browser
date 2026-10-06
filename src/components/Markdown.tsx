@@ -14,6 +14,13 @@ import { grammarFor, highlightCode } from '@/lib/highlight'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
 import { TourDiagram } from '@/components/tour/TourDiagram'
 
+/**
+ * How a tour sets reading text: larger than the 10 to 11px chrome around it,
+ * and in its own colour rather than the muted grey of metadata. One class, so
+ * every kind of card reads the same.
+ */
+export const PROSE = 'space-y-2.5 text-[14px] leading-[22px] text-prose'
+
 function Spans({ spans }: { spans: InlineSpan[] }) {
   return (
     <>
@@ -23,7 +30,7 @@ function Spans({ spans }: { spans: InlineSpan[] }) {
             return (
               <code
                 key={i}
-                className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em] text-foreground"
+                className="rounded bg-muted px-1 py-0.5 font-mono text-[0.86em] text-foreground"
               >
                 {span.text}
               </code>

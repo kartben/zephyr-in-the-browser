@@ -13,7 +13,7 @@
 
 import { useMemo, useSyncExternalStore } from 'react'
 import { Bug, GraduationCap, Pause, Redo2, X } from 'lucide-react'
-import { InlineMarkdown, Markdown } from '@/components/Markdown'
+import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
 import { ThreadsPane } from '@/components/debug/ThreadsPane'
 import { CheckResults } from '@/components/tour/CheckResults'
@@ -48,27 +48,27 @@ function Values({ values, live }: { values: TourValue[]; live: boolean }) {
     <dl className="divide-y divide-border/60 overflow-hidden rounded border border-border bg-muted/30">
       {values.map((value) => (
         <div key={`${value.label}:${value.expr}`} className="flex items-baseline gap-2 px-2 py-1.5">
-          <dt className="min-w-0 shrink-0 basis-1/3 truncate text-[11px] text-muted-foreground">
+          <dt className="min-w-0 shrink-0 basis-1/3 truncate text-[12px] text-muted-foreground">
             {value.label}
           </dt>
           <dd className="flex min-w-0 flex-1 items-baseline justify-end gap-2">
             <span
               className={cn(
-                'truncate font-mono text-[11.5px] tabular-nums',
-                value.ok ? 'text-foreground' : 'text-muted-foreground/70',
+                'truncate font-mono text-[12px] tabular-nums',
+                value.ok ? 'text-foreground' : 'text-muted-foreground',
               )}
               title={`${value.expr} as ${value.format}`}
             >
               {value.text}
             </span>
-            <span className="shrink-0 rounded bg-secondary px-1 font-mono text-[9.5px] text-muted-foreground">
+            <span className="shrink-0 rounded bg-secondary px-1 font-mono text-[11px] text-muted-foreground">
               {value.format}
             </span>
           </dd>
         </div>
       ))}
       {!live && (
-        <p className="px-2 py-1 text-[10.5px] text-muted-foreground/80">
+        <p className="px-2 py-1 text-[11px] text-muted-foreground">
           Values come from the running guest. Start a sample to see them.
         </p>
       )}
@@ -167,7 +167,7 @@ export function TourCard({ board, sampleId }: Props) {
           <div className="ml-auto flex items-center gap-1.5">
             {paused && (
               <span
-                className="flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
+                className="flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary"
                 title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
               >
                 <Pause className="size-2.5" aria-hidden />
@@ -228,32 +228,29 @@ export function TourCard({ board, sampleId }: Props) {
     >
       {intro && state.doc && (
         <div data-tour-intro className="space-y-2 border-b border-border/70 pb-2.5">
-          <p className="text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground/80">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             <InlineMarkdown text={state.doc.title} />
           </p>
-          <Markdown
-            body={intro}
-            className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
-          />
+          <Markdown body={intro} className={PROSE} />
         </div>
       )}
 
-      <h2 className="text-sm font-semibold text-foreground">
+      <h2 className="text-base font-semibold leading-snug text-foreground">
         <InlineMarkdown text={step.title} />
       </h2>
 
       {where && (
-        <p className="flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+        <p className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
           <Bug className="size-3 shrink-0" aria-hidden />
           {/* Whose code this is: a stop in the kernel should not read as the sample's. */}
           {provenance && anchor?.file && anchor.line && (
-            <span className="shrink-0 text-muted-foreground/70">{provenance.origin} ·</span>
+            <span className="shrink-0">{provenance.origin} ·</span>
           )}
-          <span className="truncate">{where}</span>
+          <span className="truncate text-foreground/80">{where}</span>
           {anchor?.symbol && anchor.file && (
-            <span className="truncate text-muted-foreground/70">in {anchor.symbol}()</span>
+            <span className="truncate">in {anchor.symbol}()</span>
           )}
-          {card.hits > 1 && <span className="text-muted-foreground/70">· hit {card.hits}</span>}
+          {card.hits > 1 && <span>· hit {card.hits}</span>}
         </p>
       )}
 
@@ -263,11 +260,11 @@ export function TourCard({ board, sampleId }: Props) {
         body={step.body}
         runnable
         paused={paused}
-        className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
+        className={PROSE}
       />
 
       {card.lookNotes.map((note) => (
-        <p key={note} className="text-[11px] text-muted-foreground/80">
+        <p key={note} className="text-[12px] text-muted-foreground">
           {note}
         </p>
       ))}
@@ -292,8 +289,8 @@ export function TourCard({ board, sampleId }: Props) {
               title="Open the CPU registers"
               className="flex items-baseline gap-1.5 rounded border border-border bg-muted/40 px-1.5 py-0.5 hover:border-primary/50"
             >
-              <span className="font-mono text-[10px] text-muted-foreground">{reg.name}</span>
-              <span className="font-mono text-[11px] tabular-nums text-foreground">
+              <span className="font-mono text-[11px] text-muted-foreground">{reg.name}</span>
+              <span className="font-mono text-[12px] tabular-nums text-foreground">
                 {reg.value}
               </span>
             </button>
@@ -333,7 +330,7 @@ export function TourCard({ board, sampleId }: Props) {
       )}
 
       {state.problems.length > 0 && (
-        <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-600 dark:text-amber-400">
+        <ul className="space-y-0.5 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-400">
           {state.problems.map((problem) => (
             <li key={problem}>{problem}</li>
           ))}

@@ -129,12 +129,12 @@ export function SourceSnippet({
   return (
     <div className="overflow-x-auto rounded border border-border bg-muted/40">
       {filename && (
-        <p className="border-b border-border/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+        <p className="border-b border-border/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
           {filename}
         </p>
       )}
       <pre
-        className="hljs w-max min-w-full py-1 font-mono text-[11px] leading-relaxed"
+        className="hljs w-max min-w-full py-1 font-mono text-[12px] leading-[18px]"
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
       >
@@ -145,7 +145,7 @@ export function SourceSnippet({
             return (
               <div
                 key={`fold-${from}`}
-                className="flex select-none px-1 text-muted-foreground/60"
+                className="flex select-none px-1 text-muted-foreground"
                 title={`Lines ${from} to ${to} are not shown`}
               >
                 <span className="sticky left-0 w-10 shrink-0 bg-muted/40 pr-2 text-right">⋯</span>
@@ -173,8 +173,8 @@ export function SourceSnippet({
                   isAnchor
                     ? 'text-primary'
                     : isMarked
-                      ? 'text-amber-600/90 dark:text-amber-400/80'
-                      : 'text-muted-foreground/60',
+                      ? 'text-amber-800 dark:text-amber-400'
+                      : 'text-muted-foreground',
                 )}
                 title={isAnchor ? 'the machine is stopped here' : undefined}
               >

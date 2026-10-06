@@ -64,7 +64,7 @@ function Row({ row }: { row: TourCheckRow }) {
       </code>
       {actual && (
         <span
-          className="block truncate font-mono text-[10.5px] text-muted-foreground"
+          className="block truncate font-mono text-[11px] text-muted-foreground"
           title={actual}
         >
           {actual}
@@ -95,12 +95,12 @@ export function CheckResults({ check, pass, fail, live }: Props) {
         </ul>
       )}
       {line && (
-        <p className="text-[12.5px] leading-relaxed text-foreground">
+        <p className="text-[14px] leading-[22px] text-prose">
           <InlineMarkdown text={line} />
         </p>
       )}
       {!live && (
-        <p className="text-[10.5px] text-muted-foreground/80">
+        <p className="text-[11px] text-muted-foreground">
           Checks read the running guest. Start a sample to see the result.
         </p>
       )}

@@ -93,6 +93,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
+        "text": "Larger, higher-contrast tour text in both themes."
+      },
+      {
+        "tag": "Improved",
         "text": "Blinky tours: a page tour that chains on, and one through the code."
       },
       {
