@@ -210,7 +210,8 @@ function ActorShape({ node }: { node: LayoutNode }) {
   if (node.kind !== 'thread' && node.kind !== 'isr') return null
   const isr = node.kind === 'isr'
   // "priority 3 (inherited, base 9)" is too long for one line of the card:
-  // the part in brackets gets its own, in the colour of the mutex lending it.
+  // the part in brackets gets its own, in the colour of the mutex lending it,
+  // below the others, which stay put as boosts come and go.
   const [, detail = node.detail ?? (isr ? 'interrupt context' : 'thread'), note] =
     /^(.*) \((.*)\)$/.exec(node.detail ?? '') ?? []
   const fill = isr ? ISR_FILL : THREAD_FILL
@@ -237,18 +238,18 @@ function ActorShape({ node }: { node: LayoutNode }) {
       )}
       <text
         x={35}
-        y={node.height / 2 - (note ? 11 : 7)}
+        y={node.height / 2 - 7}
         fill={TEXT}
         fontSize={13}
         fontWeight={650}
       >
         {node.label}
       </text>
-      <text x={35} y={node.height / 2 + (note ? 5 : 11)} fill={MUTED} fontSize={9.5}>
+      <text x={35} y={node.height / 2 + 11} fill={MUTED} fontSize={9.5}>
         {detail}
       </text>
       {note && (
-        <text x={35} y={node.height / 2 + 18} fill={SYNC_STYLE.mutex.tint} fontSize={9.5}>
+        <text x={35} y={node.height / 2 + 23} fill={SYNC_STYLE.mutex.tint} fontSize={8.5}>
           {note}
         </text>
       )}
