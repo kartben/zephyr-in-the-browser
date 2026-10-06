@@ -61,7 +61,11 @@ pass its address to `k_msgq_put()`. The call copies the 12 bytes. Once it
 returns, `r` is the sensor's to reuse, and the next pass of the loop
 overwrites it.
 
+{source}
+
 The thread list shows the other side: `aggregator` is waiting on `sensor_q`.
+
+{threads}
 
 ## Back for the next one
 

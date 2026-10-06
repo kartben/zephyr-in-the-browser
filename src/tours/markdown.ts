@@ -60,7 +60,19 @@ export interface CodeBlock {
   text: string
 }
 
-export type MarkdownBlock = ParagraphBlock | ListBlock | CodeBlock
+/**
+ * A paragraph that is nothing but `{name}`: where one of the card's views goes
+ * in the prose, so a sentence about the thread list can sit right above it.
+ * Which names a step may use is the tour parser's business (cardViewProblems).
+ */
+export interface SlotBlock {
+  kind: 'slot'
+  name: string
+}
+
+export type MarkdownBlock = ParagraphBlock | ListBlock | CodeBlock | SlotBlock
+
+const SLOT_RE = /^\{([a-z]+)\}$/
 
 /**
  * Schemes a link may use.
@@ -233,7 +245,9 @@ export function parseMarkdown(body: string): MarkdownBlock[] {
       collected.push(lines[i].trim())
       i++
     }
-    blocks.push({ kind: 'paragraph', spans: parseInline(collected.join(' ')) })
+    const slot = collected.length === 1 ? SLOT_RE.exec(collected[0]) : null
+    if (slot) blocks.push({ kind: 'slot', name: slot[1] })
+    else blocks.push({ kind: 'paragraph', spans: parseInline(collected.join(' ')) })
   }
 
   return blocks

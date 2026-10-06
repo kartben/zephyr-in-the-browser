@@ -65,6 +65,20 @@ describe('blocks', () => {
     ])
   })
 
+  it('reads a paragraph of only `{name}` as the place for a view', () => {
+    expect(parseMarkdown('Above.\n\n{threads}\n\nBelow.')).toEqual([
+      { kind: 'paragraph', spans: [{ kind: 'text', text: 'Above.' }] },
+      { kind: 'slot', name: 'threads' },
+      { kind: 'paragraph', spans: [{ kind: 'text', text: 'Below.' }] },
+    ])
+  })
+
+  it('leaves braces in running text alone', () => {
+    expect(parseMarkdown('{threads} and more')[0]!.kind).toBe('paragraph')
+    expect(parseMarkdown('a line\n{threads}')[0]!.kind).toBe('paragraph')
+    expect(parseMarkdown('{Threads}')[0]!.kind).toBe('paragraph')
+  })
+
   it('reads bullet lists', () => {
     expect(parseMarkdown('- first\n- `second`')).toEqual([
       {

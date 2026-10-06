@@ -11,7 +11,7 @@
  * Sits over the stage, above the device panels and below the modals.
  */
 
-import { useMemo, useSyncExternalStore } from 'react'
+import { Fragment, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { Bug, ChevronDown, ChevronUp, GraduationCap, Pause, Redo2 } from 'lucide-react'
 import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
@@ -40,7 +40,7 @@ import {
   subscribe,
   type TourValue,
 } from '@/tours/store'
-import { resolveHighlightSpecs } from '@/tours/parse'
+import { CARD_VIEWS, placedViews, resolveHighlightSpecs, type CardView } from '@/tours/parse'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -176,6 +176,57 @@ export function TourCard({ board, sampleId }: Props) {
     </span>
   )
 
+  // What the step shows under its prose, by the directive that asks for it. A
+  // `{name}` line in the body puts one where the prose talks about it.
+  const views: Record<CardView, ReactNode> = {
+    watch: values.length > 0 && <Values values={values} live={state.live} />,
+    check: check && (
+      <CheckResults check={check} pass={step.pass} fail={step.fail} live={state.live} />
+    ),
+    objects: objects && <TourObjects spec={objects} snap={snap} live={state.live} />,
+    memory: memory && <TourHexdump memory={memory} />,
+    registers: registers.length > 0 && (
+      <div className="flex flex-wrap gap-1.5">
+        {registers.map((reg) => (
+          <button
+            key={reg.name}
+            type="button"
+            onClick={() => debugUi.focusDebug('cpu')}
+            title="Open the CPU registers"
+            className="flex items-baseline gap-1.5 rounded border border-border bg-muted/40 px-1.5 py-0.5 hover:border-primary/50"
+          >
+            <span className="font-mono text-[11px] text-muted-foreground">{reg.name}</span>
+            <span className="font-mono text-[12px] tabular-nums text-foreground">{reg.value}</span>
+          </button>
+        ))}
+      </div>
+    ),
+    threads: threads && (
+      <div className="rounded border border-border bg-muted/30 p-1">
+        <ThreadsPane
+          snap={snap}
+          only={step.threadNames}
+          onPeek={() => debugUi.focusDebug('memory')}
+        />
+      </div>
+    ),
+    dts: showSource && dts && dtsLines && dtsRanges.length > 0 && (
+      <SourceSnippet text={dtsLines.join('\n')} filename={dts.name} language="dts" ranges={dtsRanges} />
+    ),
+    source: src && anchor?.line && (
+      <SourceSnippet
+        src={src}
+        line={anchor.line}
+        ranges={card.highlight}
+        // The guest is stopped: names can be read, as VS Code's debug
+        // hover reads them. Not on a step read again, which shows an
+        // older stop than the one the machine is at.
+        inspectable={state.live && snap.gdb && snap.paused && !card.revisit}
+      />
+    ),
+  }
+  const placed = placedViews(step.body)
+
   // The data-tour-* attributes are what the headless playthrough waits on
   // (tools/tour-playthrough.mjs). Steps count from 1, as the card shows them.
   return (
@@ -304,12 +355,7 @@ export function TourCard({ board, sampleId }: Props) {
 
       {startedAtStep !== null && <StartedAt step={startedAtStep} />}
 
-      <Markdown
-        body={step.body}
-        runnable
-        paused={paused}
-        className={PROSE}
-      />
+      <Markdown body={step.body} runnable paused={paused} className={PROSE} slots={views} />
 
       {card.lookNotes.map((note) => (
         <p key={note} className="text-[12px] text-muted-foreground">
@@ -317,64 +363,9 @@ export function TourCard({ board, sampleId }: Props) {
         </p>
       ))}
 
-      {values.length > 0 && <Values values={values} live={state.live} />}
-
-      {check && (
-        <CheckResults check={check} pass={step.pass} fail={step.fail} live={state.live} />
-      )}
-
-      {objects && <TourObjects spec={objects} snap={snap} live={state.live} />}
-
-      {memory && <TourHexdump memory={memory} />}
-
-      {registers.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {registers.map((reg) => (
-            <button
-              key={reg.name}
-              type="button"
-              onClick={() => debugUi.focusDebug('cpu')}
-              title="Open the CPU registers"
-              className="flex items-baseline gap-1.5 rounded border border-border bg-muted/40 px-1.5 py-0.5 hover:border-primary/50"
-            >
-              <span className="font-mono text-[11px] text-muted-foreground">{reg.name}</span>
-              <span className="font-mono text-[12px] tabular-nums text-foreground">
-                {reg.value}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {threads && (
-        <div className="rounded border border-border bg-muted/30 p-1">
-          <ThreadsPane
-            snap={snap}
-            only={step.threadNames}
-            onPeek={() => debugUi.focusDebug('memory')}
-          />
-        </div>
-      )}
-
-      {showSource && dts && dtsLines && dtsRanges.length > 0 && (
-        <SourceSnippet
-          text={dtsLines.join('\n')}
-          filename={dts.name}
-          language="dts"
-          ranges={dtsRanges}
-        />
-      )}
-
-      {src && anchor?.line && (
-        <SourceSnippet
-          src={src}
-          line={anchor.line}
-          ranges={card.highlight}
-          // The guest is stopped: names can be read, as VS Code's debug
-          // hover reads them. Not on a step read again, which shows an
-          // older stop than the one the machine is at.
-          inspectable={state.live && snap.gdb && snap.paused && !card.revisit}
-        />
+      {/* The views the prose did not place, in their usual order. */}
+      {CARD_VIEWS.filter((view) => !placed.has(view)).map((view) =>
+        views[view] ? <Fragment key={view}>{views[view]}</Fragment> : null,
       )}
 
       {state.problems.length > 0 && (

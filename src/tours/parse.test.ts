@@ -373,6 +373,39 @@ describe('ci', () => {
   })
 })
 
+describe('placing views with `{name}`', () => {
+  const tour = (directives: string, body: string, front = '') =>
+    parseTour(
+      `${front}## Stop\n\n\`\`\`tour\nat: main\n${directives}\`\`\`\n\n${body}\n`,
+    )
+
+  it('accepts a view the step has, anywhere in its prose', () => {
+    const doc = tour('threads: yes\n', 'About the code.\n\n{source}\n\nAbout the threads.\n\n{threads}')
+    expect(doc.problems).toEqual([])
+  })
+
+  it('names a view that is not one', () => {
+    expect(tour('', '{thread}').problems[0]).toContain('`{thread}` is not a view')
+  })
+
+  it('says when the step has nothing to place there', () => {
+    expect(tour('', '{threads}').problems[0]).toContain('the step has no `threads:`')
+    expect(tour('', '{watch}').problems[0]).toContain('the step has no `watch:`')
+    expect(tour('', '{source}', '---\nsource: no\n---\n\n').problems[0]).toContain(
+      'the tour has `source: no`',
+    )
+  })
+
+  it('says when a view is placed twice', () => {
+    expect(tour('', '{source}\n\n{source}').problems[0]).toContain('`{source}` is placed twice')
+  })
+
+  it('says a `{name}` in the intro places nothing', () => {
+    const doc = parseTour('Intro.\n\n{source}\n\n## Stop\n\n```tour\nat: main\n```\n\nProse.\n')
+    expect(doc.problems[0]).toContain('intro: `{source}` only places a view in a step')
+  })
+})
+
 describe('shell snippets', () => {
   const step = (fence: string, text: string) =>
     parseTour(
