@@ -9,7 +9,7 @@
  */
 
 import { GraduationCap, Hand } from 'lucide-react'
-import { Markdown } from '@/components/Markdown'
+import { Markdown, PROSE } from '@/components/Markdown'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
 import { TourFrame } from '@/components/tour/TourFrame'
 import { StartedAt } from '@/components/tour/TourLink'
@@ -40,7 +40,7 @@ export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
           </span>
           <TourOutline steps={steps} seen={seen} currentIndex={waiting.index} />
           <span
-            className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary"
+            className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary"
             title="The guest keeps running while you do this"
           >
             <Hand className="size-2.5" aria-hidden />
@@ -66,14 +66,11 @@ export function WaitingCard({ waiting, steps, seen, startedAt = null }: Props) {
       bodyClassName="space-y-2 px-3 py-2.5"
     >
       {startedAt !== null && <StartedAt step={startedAt} />}
-      <Markdown
-        body={waiting.text}
-        className="space-y-2 text-[12.5px] leading-relaxed text-foreground"
-      />
+      <Markdown body={waiting.text} className={PROSE} />
       {/* The guest is running here, so Run types straight away. */}
       {waiting.do.length > 0 && <ShellSnippet lines={waiting.do} />}
       {waiting.notes.map((note) => (
-        <p key={note} className="text-[11px] text-muted-foreground/80">
+        <p key={note} className="text-[12px] text-muted-foreground">
           {note}
         </p>
       ))}

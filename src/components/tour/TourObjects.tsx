@@ -59,7 +59,7 @@ function ObjectName({ obj, focused }: { obj: ZephyrKernelObject; focused: boolea
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded border border-dashed border-border/70 px-2 py-1.5 text-[10.5px] text-muted-foreground">
+    <p className="rounded border border-dashed border-border/70 px-2 py-1.5 text-[11px] text-muted-foreground">
       {children}
     </p>
   )
@@ -99,8 +99,8 @@ export function TourObjects({
           <div key={type.addr} className="border-b border-border/60 last:border-b-0">
             <div className="flex items-center gap-1.5 px-2 py-1">
               <Boxes className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="text-[10.5px] text-muted-foreground">{type.name}</span>
-              <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground/70">
+              <span className="text-[11px] text-muted-foreground">{type.name}</span>
+              <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
                 {type.objects.length}
               </span>
             </div>
@@ -137,7 +137,7 @@ export function TourObjects({
                     <ObjectName obj={obj} focused={focused} />
                     <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-end gap-x-2.5 gap-y-0.5">
                       {obj.fields.length === 0 ? (
-                        <span className="font-mono text-[10.5px] text-muted-foreground/60">
+                        <span className="font-mono text-[11px] text-muted-foreground">
                           0x{obj.addr.toString(16)}
                         </span>
                       ) : (
@@ -145,11 +145,11 @@ export function TourObjects({
                           const thread = nameThread(snap, field.addr)
                           return (
                             <span key={field.label} className="flex items-baseline gap-1">
-                              <span className="text-[10px] text-muted-foreground/70">
+                              <span className="text-[11px] text-muted-foreground">
                                 {field.label}
                               </span>
                               <span
-                                className="font-mono text-[11px] tabular-nums text-foreground"
+                                className="font-mono text-[12px] tabular-nums text-foreground"
                                 title={thread ? field.value : undefined}
                               >
                                 {thread ?? field.value}
@@ -164,7 +164,7 @@ export function TourObjects({
               })}
             </ul>
             {type.objects.length > shown.length && (
-              <p className="border-t border-border/40 px-2 py-1 text-[10px] text-muted-foreground/70">
+              <p className="border-t border-border/40 px-2 py-1 text-[11px] text-muted-foreground">
                 and {type.objects.length - shown.length} more, under Debug → Objects
               </p>
             )}

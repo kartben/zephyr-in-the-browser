@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react'
 import { ArrowRight, GraduationCap, RotateCcw, X } from 'lucide-react'
-import { InlineMarkdown, Markdown } from '@/components/Markdown'
+import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { TourFrame } from '@/components/tour/TourFrame'
 import { Button } from '@/components/ui/button'
 import { getSample, type Board } from '@/boards'
@@ -99,13 +99,10 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
       }
       bodyClassName="space-y-2.5 px-3 py-2.5"
     >
-      <h2 className="text-sm font-semibold text-foreground">
+      <h2 className="text-base font-semibold leading-snug text-foreground">
         <InlineMarkdown text={outro.title} />
       </h2>
-      <Markdown
-        body={outro.body}
-        className="space-y-2 text-[12.5px] leading-relaxed text-muted-foreground"
-      />
+      <Markdown body={outro.body} className={PROSE} />
     </TourFrame>
   )
 }

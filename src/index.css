@@ -11,6 +11,12 @@
   --foreground: oklch(0.92 0.004 286.3);
   --muted: oklch(0.21 0.006 285.9);
   --muted-foreground: oklch(0.65 0.011 286.1);
+  /*
+   * Text meant to be read rather than scanned: a tour's prose. Not the muted
+   * grey, which passes WCAG 2 on the dark card but is only APCA Lc 41 there,
+   * under the floor for any body text; this is Lc 86, near the terminal's own.
+   */
+  --prose: oklch(0.9 0.005 286);
   --card: oklch(0.18 0.005 285.8);
   --border: oklch(0.27 0.007 286);
   --input: oklch(0.27 0.007 286);
@@ -32,6 +38,7 @@
     --foreground: oklch(0.24 0.006 285.9);
     --muted: oklch(0.96 0.002 286.4);
     --muted-foreground: oklch(0.51 0.011 286.1);
+    --prose: oklch(0.38 0.008 286);
     --card: oklch(1 0 0);
     --border: oklch(0.91 0.004 286.3);
     --input: oklch(0.91 0.004 286.3);
@@ -96,6 +103,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-prose: var(--prose);
   --color-card: var(--card);
   --color-border: var(--border);
   --color-input: var(--input);

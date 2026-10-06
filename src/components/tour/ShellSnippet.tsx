@@ -186,7 +186,7 @@ export function ShellSnippet({ lines, paused = false }: Props) {
           {copied ? 'Copied' : 'Copy'}
         </Button>
         {problem !== null && (
-          <span className="min-w-0 truncate text-[10.5px] text-amber-600 dark:text-amber-400">
+          <span className="min-w-0 truncate text-[11px] text-amber-700 dark:text-amber-400">
             {problem}
           </span>
         )}
