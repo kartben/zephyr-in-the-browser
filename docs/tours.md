@@ -311,6 +311,28 @@ most hits away, and with the free ones before the reads:
 
 Everything below is optional, and a step with none of it is just prose.
 
+The views a step asks for show under its prose, in this order: `watch:`,
+`check:`, `objects:`, `memory:`, `registers:`, `threads:`, `dts:`, then the
+source excerpt `at:` stopped in. A sentence about one of them reads best right
+above it, so a body can place any view itself, with a line holding nothing but
+its name in braces:
+
+```markdown
+A sensor thread is about to pass `r` to `k_msgq_put()`.
+
+{source}
+
+The thread list shows the other side: `aggregator` is waiting on `sensor_q`.
+
+{threads}
+```
+
+The names are `{watch}`, `{check}`, `{objects}`, `{memory}`, `{registers}`,
+`{threads}`, `{dts}` and `{source}`. The views a body does not place follow its
+prose as usual. Placing a view the step does not have (`{threads}` with no
+`threads:`), placing one twice, or a `{name}` in the intro or outro fails the
+tour test rather than leaving a gap on the card.
+
 ### `look:` and `panel:`
 
 `panel:` names a row of the device dock: a `PanelKind` from `src/boards.ts`

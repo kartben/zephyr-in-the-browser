@@ -9,6 +9,7 @@
  * labels (tour/TourDiagram.tsx). See src/tours/markdown.ts for the grammar.
  */
 
+import { Fragment, type ReactNode } from 'react'
 import { isRunnableShell, parseMarkdown, type InlineSpan, type MarkdownBlock } from '@/tours/markdown'
 import { grammarFor, highlightCode } from '@/lib/highlight'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
@@ -111,6 +112,9 @@ function Block({ block, runnable, paused }: { block: MarkdownBlock } & RunOption
         return <ShellSnippet lines={block.text.split('\n')} paused={paused} />
       }
       return <CodeBlockView language={block.language} text={block.text} />
+    case 'slot':
+      // Filled by Markdown's `slots`; with none, there is nothing to place.
+      return null
     default:
       return (
         <p>
@@ -136,14 +140,48 @@ export function Markdown({
   className,
   runnable,
   paused,
-}: { body: string; className?: string } & RunOptions) {
+  slots,
+}: {
+  body: string
+  className?: string
+  /** What a `{name}` line places, by name: the card's views. */
+  slots?: Partial<Record<string, ReactNode>>
+} & RunOptions) {
   const blocks = parseMarkdown(body)
   if (blocks.length === 0) return null
-  return (
-    <div className={className}>
-      {blocks.map((block, i) => (
-        <Block key={i} block={block} runnable={runnable} paused={paused} />
-      ))}
-    </div>
-  )
+  if (!slots || !blocks.some((block) => block.kind === 'slot')) {
+    return (
+      <div className={className}>
+        {blocks.map((block, i) => (
+          <Block key={i} block={block} runnable={runnable} paused={paused} />
+        ))}
+      </div>
+    )
+  }
+  // Each run of prose keeps the prose styling, and each placed view sits
+  // between them as itself, not inheriting the prose's size and colour.
+  const parts: ReactNode[] = []
+  let run: Array<{ block: MarkdownBlock; i: number }> = []
+  const flush = () => {
+    if (run.length === 0) return
+    parts.push(
+      <div key={`prose-${run[0]!.i}`} className={className}>
+        {run.map(({ block, i }) => (
+          <Block key={i} block={block} runnable={runnable} paused={paused} />
+        ))}
+      </div>,
+    )
+    run = []
+  }
+  blocks.forEach((block, i) => {
+    if (block.kind !== 'slot') {
+      run.push({ block, i })
+      return
+    }
+    flush()
+    const view = slots[block.name]
+    if (view) parts.push(<Fragment key={`slot-${i}`}>{view}</Fragment>)
+  })
+  flush()
+  return <>{parts}</>
 }

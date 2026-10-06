@@ -1079,6 +1079,77 @@ function snippetProblems(where: string, markdown: string): string[] {
 }
 
 /**
+ * The views a step card shows under its prose, in the order it shows them, by
+ * the directive that asks for each: `source` is the excerpt `at:` stopped in.
+ * A body can place any of them with a `{name}` line of its own; the rest
+ * follow the prose in this order.
+ */
+export const CARD_VIEWS = [
+  'watch',
+  'check',
+  'objects',
+  'memory',
+  'registers',
+  'threads',
+  'dts',
+  'source',
+] as const
+export type CardView = (typeof CARD_VIEWS)[number]
+
+/** The views a step body places itself, with `{name}` lines. */
+export function placedViews(body: string): Set<string> {
+  const placed = new Set<string>()
+  for (const block of parseMarkdown(body)) if (block.kind === 'slot') placed.add(block.name)
+  return placed
+}
+
+/** Which views a step has, so a `{name}` line can say when it would place nothing. */
+function viewsOf(step: TourStep, showSource: boolean): Set<CardView> {
+  const has: Array<[CardView, boolean]> = [
+    ['watch', step.watch.length > 0],
+    ['check', step.check.length > 0],
+    ['objects', step.objects !== null],
+    ['memory', step.memory !== null],
+    ['registers', step.registers.length > 0],
+    ['threads', step.threads],
+    ['dts', showSource && step.dts.length > 0],
+    ['source', showSource],
+  ]
+  return new Set(has.filter(([, on]) => on).map(([view]) => view))
+}
+
+/** Check the `{name}` lines that place a step's views in its prose. */
+function cardViewProblems(where: string, step: TourStep, showSource: boolean): string[] {
+  const problems: string[] = []
+  const has = viewsOf(step, showSource)
+  const placed = new Set<string>()
+  for (const block of parseMarkdown(step.body)) {
+    if (block.kind !== 'slot') continue
+    const name = block.name
+    if (!(CARD_VIEWS as readonly string[]).includes(name)) {
+      problems.push(`${where}: \`{${name}}\` is not a view (${CARD_VIEWS.join(', ')})`)
+    } else if (!has.has(name as CardView)) {
+      problems.push(
+        name === 'source' || name === 'dts'
+          ? `${where}: \`{${name}}\` places nothing: the tour has \`source: no\``
+          : `${where}: \`{${name}}\` places nothing: the step has no \`${name}:\``,
+      )
+    } else if (placed.has(name)) {
+      problems.push(`${where}: \`{${name}}\` is placed twice`)
+    }
+    placed.add(name)
+  }
+  return problems
+}
+
+/** `{name}` lines only mean something in a step: anywhere else they would show as nothing. */
+function straySlotProblems(where: string, markdown: string): string[] {
+  return parseMarkdown(markdown)
+    .filter((block) => block.kind === 'slot')
+    .map((block) => `${where}: \`{${(block as { name: string }).name}}\` only places a view in a step`)
+}
+
+/**
  * Parse a `.tour.md` document.
  *
  * Never throws. A file that is not a tour at all — the dev server answering an
@@ -1157,6 +1228,8 @@ export function parseTour(text: string): TourDoc {
 
   const last = sections[sections.length - 1]
   const outro = last && last.directives === null ? sections.pop()! : null
+  // `source: no` hides guest source / DTS excerpts on the card (tool tours).
+  const showSource = asBool(front.get('source'), true)
   const steps: TourStep[] = []
   for (const { title, directives, body } of sections) {
     const step = buildStep(steps.length, title, (directives ?? []).join('\n'), body.join('\n'), problems)
@@ -1164,6 +1237,7 @@ export function parseTour(text: string): TourDoc {
       steps.push(step)
       const where = `step ${step.index + 1} (“${step.title}”)`
       problems.push(...snippetProblems(where, step.body))
+      problems.push(...cardViewProblems(where, step, showSource))
       // `do:` lines render as the same runnable snippet on the your-turn card.
       for (const problem of parsePlaceholders(step.do.join('\n')).problems) {
         problems.push(`${where}: \`do:\` ${problem}`)
@@ -1172,6 +1246,8 @@ export function parseTour(text: string): TourDoc {
   }
 
   if (fence !== null) problems.push('unclosed code fence')
+  problems.push(...straySlotProblems('intro', intro.join('\n')))
+  if (outro) problems.push(...straySlotProblems('outro', outro.body.join('\n')))
 
   // A tour id: the app's id for its default tour, `<app>.<slug>` for another
   // of its tours. A path or a title is not one.
@@ -1203,8 +1279,7 @@ export function parseTour(text: string): TourDoc {
     title: asScalar(front.get('tour')) ?? asScalar(front.get('title')) ?? 'Guided tour',
     sample: asScalar(front.get('sample')) ?? '',
     intro: intro.join('\n').trim(),
-    // `source: no` hides guest source / DTS excerpts on the card (tool tours).
-    showSource: asBool(front.get('source'), true),
+    showSource,
     sources,
     steps,
     outro: outro && { title: outro.title, body: outro.body.join('\n').trim() },
