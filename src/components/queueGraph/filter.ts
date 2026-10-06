@@ -23,6 +23,12 @@ export interface FilteredIpcGraph {
   focused: boolean
   /** Semaphores, mutexes and condvars only one actor uses, shown or not. */
   privateCount: number
+  /**
+   * The object a tour named, while the trace has nothing of that name yet.
+   * The graph then draws nothing rather than everything else: a step about
+   * one queue should not open onto all the others.
+   */
+  waitingFor: string | null
 }
 
 /**
@@ -54,8 +60,18 @@ export function filterIpcGraph(
       .filter((node) => isSyncNode(node) && (actorsOf.get(node.id)?.size ?? 0) < 2)
       .map((node) => node.id),
   )
+  // A tour's focus by name: the object if the graph has one, else a thread.
+  const named =
+    filter.focus == null && filter.focusName != null
+      ? (nodes.find((node) => !isActorNode(node) && node.label === filter.focusName) ??
+        nodes.find((node) => node.label === filter.focusName))
+      : undefined
+  if (filter.focus == null && filter.focusName != null && !named) {
+    return { nodes: [], flows: [], focused: false, privateCount: privateIds.size, waitingFor: filter.focusName }
+  }
+  const focusId = filter.focus ?? named?.id ?? null
   const asked = (node: FlowNodeSpec) =>
-    node.id === filter.focus || (query !== '' && node.label.toLowerCase().includes(query))
+    node.id === focusId || (query !== '' && node.label.toLowerCase().includes(query))
   let keptNodes = nodes.filter(
     (node) =>
       (isActorNode(node) || !filter.hiddenKinds.has(node.kind)) &&
@@ -64,7 +80,7 @@ export function filterIpcGraph(
   const visible = new Set(keptNodes.map((node) => node.id))
   let keptFlows = flows.filter((flow) => visible.has(flow.actorId) && visible.has(flow.objectId))
 
-  const focus = filter.focus == null ? undefined : keptNodes.find((node) => node.id === filter.focus)
+  const focus = focusId == null ? undefined : keptNodes.find((node) => node.id === focusId)
   if (focus) {
     const objects = new Set<string>()
     if (isActorNode(focus)) {
@@ -99,6 +115,7 @@ export function filterIpcGraph(
     flows: keptFlows,
     focused: focus !== undefined,
     privateCount: privateIds.size,
+    waitingFor: null,
   }
 }
 

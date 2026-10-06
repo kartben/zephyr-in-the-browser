@@ -34,6 +34,8 @@ export interface LiveQueueGraph {
   focused: boolean
   /** Semaphores, mutexes and condvars only one actor uses. */
   privateCount: number
+  /** A tour's focus by name that the trace has no object of yet. */
+  waitingFor: string | null
 }
 
 /** The semaphores, mutexes and condvars of a trace, for the graph. */
@@ -327,5 +329,6 @@ export function buildLiveQueueGraph(
     flows: oriented,
     focused: filtered.focused,
     privateCount: filtered.privateCount,
+    waitingFor: filtered.waitingFor,
   }
 }

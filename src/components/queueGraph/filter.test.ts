@@ -60,6 +60,18 @@ describe('filterIpcGraph', () => {
     expect(result.focused).toBe(true)
   })
 
+  it('focuses on an object a tour named, as soon as the graph has it', () => {
+    expect(run({ focusName: 'sensor_q' })).toEqual(run({ focus: 'object:10' }))
+  })
+
+  it('draws nothing while the object a tour named is not in the trace yet', () => {
+    const result = filterIpcGraph(nodes, flows, { ...NO_IPC_FILTER, focusName: 'frame_cond' })
+    expect(result.nodes).toEqual([])
+    expect(result.flows).toEqual([])
+    expect(result.waitingFor).toBe('frame_cond')
+    expect(filterIpcGraph(nodes, flows, NO_IPC_FILTER).waitingFor).toBeNull()
+  })
+
   it('keeps a focused thread with its objects and whoever else uses them', () => {
     const result = run({ focus: 'thread:3' })
     expect(result.nodes).toEqual([

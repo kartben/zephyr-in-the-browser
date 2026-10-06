@@ -382,7 +382,21 @@ export function QueueGraph({
       {/* The canvas's own height, measured even before there is a layout to
           draw, so the first one can already pick the direction that fits. */}
       <div ref={frameRef} className="h-[clamp(16rem,42vh,28rem)] min-h-64">
-        {empty ? (
+        {empty && live.waitingFor ? (
+          <div className="grid h-full place-items-center gap-2 px-6 text-center text-sm text-slate-400">
+            <span>
+              <span className="font-mono text-slate-200">{live.waitingFor}</span> has no traffic in
+              the trace yet. It shows here once a thread uses it.{' '}
+              <button
+                type="button"
+                className="text-slate-300 underline underline-offset-2 hover:text-slate-100"
+                onClick={ipcUi.clearIpcFilter}
+              >
+                Show everything
+              </button>
+            </span>
+          </div>
+        ) : empty ? (
           <div className="grid h-full place-items-center gap-2 px-6 text-center text-sm text-slate-500">
             <span>
               Nothing in the graph matches this filter.{' '}

@@ -54,6 +54,7 @@ at: main.c:/k_msgq_put\(&sensor_q/ | main.c:154
 when: first
 highlight: /struct sensor_reading r = \{/ + 4
 threads: aggregator, sensor*
+look: trace.ipc.sensor_q
 ```
 
 A sensor thread has filled in `r`, a reading on its own stack, and is about to
@@ -71,6 +72,7 @@ when: first
 highlight: /agg_sum \+= r.value/ + 3
 watch:
   - agg_count = agg_count as u32
+look: trace.ipc.sensor_q
 ```
 
 `k_msgq_get()` returned with the reading copied into the aggregator's own `r`.
@@ -86,7 +88,7 @@ one, handle it, wait again.
 at: main.c:/k_msgq_get\(&sensor_q/ | main.c:207
 when: hits == 9
 stop: no
-look: trace.ipc
+look: trace.ipc.sensor_q
 ```
 
 The guest keeps running from here. In **Trace → IPC**, `sensor_q` has three
