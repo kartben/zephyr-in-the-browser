@@ -221,14 +221,26 @@ export function TourCard({ board, sampleId }: Props) {
         />
       </div>
     ),
+    // Keyed by step, so each one starts with its excerpts folded the way the
+    // step draws them, not the way the reader left the last one.
     dts: showSource && dts && dtsLines && dtsRanges.length > 0 && (
-      <SourceSnippet text={dtsLines.join('\n')} filename={dts.name} language="dts" ranges={dtsRanges} />
+      <SourceSnippet
+        key={step.index}
+        text={dtsLines.join('\n')}
+        filename={dts.name}
+        language="dts"
+        ranges={dtsRanges}
+      />
     ),
     source: src && anchor?.line && (
       <SourceSnippet
+        key={step.index}
         src={src}
         line={anchor.line}
         ranges={card.highlight}
+        // A step read again stopped here once; the machine has moved on.
+        stop={!step.stop ? 'none' : paused ? 'here' : 'earlier'}
+        label={where ?? undefined}
         // The guest is stopped: names can be read, as VS Code's debug
         // hover reads them. Not on a step read again, which shows an
         // older stop than the one the machine is at.

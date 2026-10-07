@@ -515,10 +515,19 @@ entry.
 Line numbers are in the shipped source; patterns are searched in the same text
 an `at:` pattern uses, so a highlight and the code under it cannot disagree. A
 pattern that matches nothing is dropped rather than guessed at — a highlight
-over the wrong lines is worse than none. The excerpt grows to cover whatever is
-marked, up to 40 lines. When the stop and the highlight are too far apart for
-one window, each gets its own few lines of context and the lines between them
-fold into a single `⋯` row, so the line the machine stopped on stays in view.
+over the wrong lines is worse than none. The excerpt shows three lines of
+context either side and grows to cover whatever is marked, up to 24 lines, so
+it never crowds the prose off the card. When the stop and the highlight are too
+far apart for one window, each gets its own few lines of context and the lines
+between them fold into a single `⋯ Show lines 89 to 203` row, so the line the
+machine stopped on stays in view. The reader can open the fold in place, and
+close it again. A line too long for the card fades out at the right edge, and
+the excerpt scrolls sideways to show the rest.
+
+A `stop: no` step has no stop to show: the guest ran on past the line. Its
+excerpt has no `▸`, and starts folded to one quiet row naming the line
+(`Show main.c:207`) that opens on a click, since a step like that is usually
+about what the guest does next, in Trace or a panel.
 
 ### `dts:`
 

@@ -32,6 +32,7 @@ via the help dialog (?).
 - **Improved:** Dock rows and bus lists say each value once.
 - **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
 - **Improved:** Tour cards sit beside the dock, full height, and outline what they name.
+- **Improved:** Shorter code excerpts on tour cards, with folds you can open.
 - **Improved:** Trace hides empty tabs and skips untraced net samples.
 - **Changed:** Trace's Queues tab is now IPC, with graph filters.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
