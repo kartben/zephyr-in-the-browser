@@ -51,6 +51,7 @@ import {
   STATE_LABEL,
   contextSwitchesIn,
   cpuPowerLanes,
+  hasNetEvents,
   decisionsInView,
   depthAt,
   describeState,
@@ -117,7 +118,12 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import { readPowerStates } from '@/dts'
 import { getSnapshot, requestDetailUpdates, subscribe } from '@/hostTrace'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
-import { TRACE_TABS, TRACE_TAB_LABELS, type TraceTab } from '@/lib/traceTabs'
+import {
+  TRACE_TABS,
+  TRACE_TAB_LABELS,
+  visibleTraceTabs,
+  type TraceTab,
+} from '@/lib/traceTabs'
 import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
 import { ownThreadPriorities, type ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
@@ -1305,6 +1311,29 @@ export function TraceBody() {
   )
 }
 
+/**
+ * Whether this trace has shown a network event yet, for the Networking tab.
+ *
+ * Sticky for the trace: the event log keeps only the newest 50k (hostTrace.ts),
+ * and the tab should not vanish from under the reader once the last socket
+ * event scrolls out. Once seen, the log is not scanned again; until then a scan
+ * per published revision stops at the first hit.
+ */
+function useNetSeen(tr: Trace | null, revision: number): boolean {
+  const [seenIn, setSeenIn] = useState<Trace | null>(null)
+  const seen = tr !== null && seenIn === tr
+  const now = useMemo(
+    () => tr !== null && !seen && hasNetEvents(tr),
+    // revision bumps whenever the event ring changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tr, seen, revision],
+  )
+  useEffect(() => {
+    if (now) setSeenIn(tr)
+  }, [now, tr])
+  return seen || now
+}
+
 function TracePanelBody({
   snap,
   objectCores,
@@ -1364,18 +1393,25 @@ function TracePanelBody({
     [dtsTree],
   )
   const dock = useSyncExternalStore(subscribeDock, getState, getState)
-  /** zbus channels and observers from the image; the zbus tab is for images that have some. */
-  const zbusTopology = hostGdb.getZbusTopology()
-  const tabs = TRACE_TABS.filter((id) => id !== 'zbus' || zbusTopology !== null)
-  const storedTab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
-  // A zbus tab left open from another sample falls back to the Timeline.
-  const tab: TraceTab = tabs.includes(storedTab) ? storedTab : 'schedule'
-  const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
   // The tab a tour card on screen is about keeps a mark, even once the reader
   // has picked another: see lib/dockTarget.ts.
   const targets = useSyncExternalStore(subscribeTarget, getDockTargets, getDockTargets)
   const tabTargeted = (id: TraceTab) =>
     targets.some((target) => target.key === STAGE_TRACE_KEY && target.tab === id)
+  const tr = snap.trace
+  /** zbus channels and observers from the image; the zbus tab is for images that have some. */
+  const zbusTopology = hostGdb.getZbusTopology()
+  const hasNet = useNetSeen(tr, snap.revision)
+  const hasPm = tr != null && cpuPowerLanes(tr.cpuPower).length > 0
+  const tabs = visibleTraceTabs(
+    { zbus: zbusTopology !== null, net: hasNet, power: hasPm },
+    tabTargeted,
+  )
+  const storedTab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
+  // A tab left open from another sample, with nothing to show on this one,
+  // falls back to the Timeline.
+  const tab: TraceTab = tabs.includes(storedTab) ? storedTab : 'schedule'
+  const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
 
   useEffect(() => {
     if (tab !== 'queues') return
@@ -1412,8 +1448,6 @@ function TracePanelBody({
     [tab],
   )
 
-  const tr = snap.trace
-  const hasPm = tr != null && cpuPowerLanes(tr.cpuPower).length > 0
   const cpuPaint: CpuPaint | undefined =
     tr && showCpu && hasPm ? { timelines: tr.cpuPower, dt: powerStates } : undefined
   const ipcMetadata = useMemo(() => ipcObjectMetadata(objectCores), [objectCores])

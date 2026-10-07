@@ -30,6 +30,7 @@ via the help dialog (?).
 - **Improved:** Device dock opens folded to the sample's devices, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
 - **Improved:** Tour cards sit beside the dock, full height, and outline what they name.
+- **Improved:** Trace hides empty tabs and skips untraced net samples.
 - **Changed:** Trace's Queues tab is now IPC, with graph filters.
 - **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
 - **Changed:** Kernel object lists need an image from current Zephyr main.

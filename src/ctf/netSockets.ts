@@ -135,6 +135,17 @@ function pushSample(a: Acc, sample: SocketSample) {
 }
 
 /**
+ * Whether the trace holds anything the Networking tab draws: a socket_* event
+ * for the swimlanes or a net_* one for the core strip. Stops at the first.
+ */
+export function hasNetEvents(tr: Trace): boolean {
+  for (const ev of tr.events) {
+    if (ev.name.startsWith('socket_') || ev.name.startsWith('net_')) return true
+  }
+  return false
+}
+
+/**
  * Build one series per socket fd generation seen in the trace.
  * Matches on event **name** (metadata-backed), not hardcoded ids.
  */

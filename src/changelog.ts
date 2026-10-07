@@ -120,6 +120,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Tour cards sit beside the dock, full height, and outline what they name."
       },
       {
+        "tag": "Improved",
+        "text": "Trace hides empty tabs and skips untraced net samples."
+      },
+      {
         "tag": "Changed",
         "text": "Trace's Queues tab is now IPC, with graph filters."
       },

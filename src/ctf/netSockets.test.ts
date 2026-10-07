@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { makeEventDef } from './metadata'
 import {
   formatByteCount,
+  hasNetEvents,
   reconstructNetCore,
   reconstructSockets,
   socketKindLabel,
   socketLabel,
   socketWindowStats,
 } from './netSockets'
-import { TraceReader } from './reader'
+import { TraceReader, type Trace } from './reader'
 
 function encU16(n: number): number[] {
   return [n & 0xff, (n >> 8) & 0xff]
@@ -238,5 +239,19 @@ describe('formatByteCount', () => {
     expect(formatByteCount(12)).toBe('12 B')
     expect(formatByteCount(1200)).toBe('1.20 KB')
     expect(formatByteCount(1_250_000)).toBe('1.25 MB')
+  })
+})
+
+describe('hasNetEvents', () => {
+  const trace = (...names: string[]) =>
+    ({ events: names.map((name, i) => ({ ts: i, eid: i, name, fields: {} })) }) as unknown as Trace
+
+  it('is false for a trace of scheduling alone', () => {
+    expect(hasNetEvents(trace('thread_switched_out', 'thread_switched_in', 'idle'))).toBe(false)
+  })
+
+  it('sees a socket event or a net-core event', () => {
+    expect(hasNetEvents(trace('thread_switched_in', 'socket_init'))).toBe(true)
+    expect(hasNetEvents(trace('net_recv_data_enter'))).toBe(true)
   })
 })

@@ -800,11 +800,14 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
   },
   {
+    // No 'trace' on these net samples: the plain build writes no trace, and
+    // opening Trace on "No Trace events yet" said nothing about the app just
+    // picked. Their `_trace` twins add Trace and Debug (withA53TraceVariants).
     id: 'dhcp',
     label: 'DHCP Client',
     description: 'Acquires an IPv4 lease. Watch it in Network',
     zephyrSample: 'samples/net/dhcpv4_client',
-    primaryPanels: ['net', 'trace'],
+    primaryPanels: ['net'],
   },
   {
     id: 'http_server',
@@ -812,7 +815,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     description:
       'Full HTTP server at http://192.0.2.1/. Use Network; Trace shows sockets / fifo / queue',
     zephyrSample: 'samples/net/sockets/http_server',
-    primaryPanels: ['net', 'led', 'gpio', 'trace'],
+    primaryPanels: ['net', 'led', 'gpio'],
     guestHttpUrl: 'http://192.0.2.1/',
   },
   {
@@ -820,14 +823,14 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     label: 'Echo Server',
     description: 'TCP/UDP echo on port 4242. Ping it from Network',
     zephyrSample: 'samples/net/sockets/echo_server',
-    primaryPanels: ['net', 'trace'],
+    primaryPanels: ['net'],
   },
   {
     id: 'http_get',
     label: 'HTTP GET',
     description: 'DNS + TCP fetch of http://google.com. Watch traffic in Network',
     zephyrSample: 'samples/net/sockets/http_get',
-    primaryPanels: ['net', 'trace'],
+    primaryPanels: ['net'],
   },
   {
     id: 'zperf',
