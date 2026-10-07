@@ -91,6 +91,7 @@ export {
   type QueueSeries,
 } from './queues'
 export {
+  hasNetEvents,
   reconstructSockets,
   reconstructNetCore,
   socketWindowStats,

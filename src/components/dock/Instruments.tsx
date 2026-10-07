@@ -121,6 +121,9 @@ function DebugBadge() {
         ? `${snap.breakpoints.length} bp${snap.breakpoints.length === 1 ? '' : 's'}`
         : 'running'
 
+  // Running is the top bar's green (StatusPill). Paused is the one that wants
+  // the reader's attention, so it takes the warning colour: amber on a
+  // running guest read as something wrong with it.
   return (
     <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
       <span
@@ -131,8 +134,8 @@ function DebugBadge() {
               ? 'bg-destructive/80'
               : 'bg-muted-foreground/50'
             : snap.paused
-              ? 'bg-emerald-500/90'
-              : 'bg-amber-500/80',
+              ? 'bg-warning'
+              : 'bg-success',
         )}
         aria-hidden
       />

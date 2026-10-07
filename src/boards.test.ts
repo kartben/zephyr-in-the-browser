@@ -42,3 +42,29 @@ describe('Magic Wand', () => {
     }
   })
 })
+
+describe('Trace on open', () => {
+  /** Samples whose own prj.conf writes a trace, so they have no `_trace` twin. */
+  const TRACED_ITSELF = new Set(['tracing', 'tracing_pipeline'])
+
+  it('opens only on builds that write a trace', () => {
+    for (const board of BOARDS) {
+      for (const sample of board.samples) {
+        if (!sample.primaryPanels?.includes('trace')) continue
+        const traced = sample.tracedFrom !== undefined || TRACED_ITSELF.has(sample.id)
+        expect(traced, `${board.id}:${sample.id} opens Trace on a build without one`).toBe(true)
+      }
+    }
+  })
+
+  it('still opens on the traced twins of the net samples, beside Network', () => {
+    const a53 = getBoard('qemu_cortex_a53')
+    for (const id of ['dhcp', 'http_server', 'echo_server', 'http_get']) {
+      expect(getSample(a53, id).primaryPanels).not.toContain('trace')
+      const twin = getSample(a53, `${id}_trace`).primaryPanels ?? []
+      expect(twin).toContain('net')
+      expect(twin).toContain('trace')
+      expect(twin).toContain('debug')
+    }
+  })
+})

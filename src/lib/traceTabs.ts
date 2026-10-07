@@ -35,3 +35,31 @@ export function traceTabTourName(tab: TraceTab): string {
 export function traceTabFromTourName(name: string): TraceTab | null {
   return TRACE_TABS.find((tab) => traceTabTourName(tab) === name) ?? null
 }
+
+/** Whether the trace has anything for each tab that only some traces fill. */
+export interface TraceTabData {
+  /** The image declares zbus channels. */
+  zbus: boolean
+  /** A socket_* or net_* event has been seen. */
+  net: boolean
+  /** The CPU power band has a lane. */
+  power: boolean
+}
+
+/**
+ * The tabs the strip shows, in strip order. Timeline and IPC always do; the
+ * others only on a trace that has something for them, the way zbus already
+ * waited for an image with channels. Networking and Power on a blinky trace
+ * were two empty states one click away. A tab a tour card points at shows
+ * anyway (`pinned`), so `look: trace.power` on a guest without power events
+ * opens the tab's own explanation rather than leaving the reader on another.
+ */
+export function visibleTraceTabs(
+  data: TraceTabData,
+  pinned: (tab: TraceTab) => boolean = () => false,
+): TraceTab[] {
+  return TRACE_TABS.filter((tab) => {
+    if (tab === 'schedule' || tab === 'queues') return true
+    return data[tab] || pinned(tab)
+  })
+}

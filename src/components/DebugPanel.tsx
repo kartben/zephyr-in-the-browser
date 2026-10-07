@@ -94,6 +94,14 @@ export function DebugBody() {
 
   /** Frame #0 is the PC itself, so a caller frame is what Step out needs. */
   const canStepOut = snap.stack.length > 1
+  /*
+   * Nothing has stopped yet, so there is nothing to inspect. Five tabs over a
+   * dimmed "No register dump yet." said so the long way round; the section
+   * says it and offers the pause instead. Only before the first stop: after
+   * one, the tabs stay up, greyed, over the last snapshot while the guest runs,
+   * so the next pause can blink what changed (see resume() in hostGdb.ts).
+   */
+  const neverStopped = !snap.paused && !snap.registers
 
   return (
     <>
@@ -169,87 +177,97 @@ export function DebugBody() {
             <BreakpointsPane snap={snap} />
           </section>
 
-          <section>
-            <div className="mb-1.5 flex gap-0.5 px-1">
-              {(
-                [
-                  ['cpu', 'CPU'],
-                  ['stack', 'Stack'],
-                  ['memory', 'Mem'],
-                  ['threads', 'Threads'],
-                  ['objects', 'Objects'],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  title={id === 'objects' ? 'Kernel objects' : undefined}
-                  className={cn(
-                    'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
-                    tab === id
-                      ? 'bg-secondary text-foreground'
-                      : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
-                    tabTargeted(id) && 'dock-tab-target',
-                  )}
-                  onClick={() => setTab(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          {neverStopped ? (
+            <section className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-center">
+              <p className="text-[11px] text-muted-foreground">Running. Pause to read registers.</p>
+              <Button variant="secondary" size="sm" onClick={debug.toggle}>
+                <Pause aria-hidden />
+                Pause
+              </Button>
+            </section>
+          ) : (
+            <section>
+              <div className="mb-1.5 flex gap-0.5 px-1">
+                {(
+                  [
+                    ['cpu', 'CPU'],
+                    ['stack', 'Stack'],
+                    ['memory', 'Mem'],
+                    ['threads', 'Threads'],
+                    ['objects', 'Objects'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    title={id === 'objects' ? 'Kernel objects' : undefined}
+                    className={cn(
+                      'rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide',
+                      tab === id
+                        ? 'bg-secondary text-foreground'
+                        : 'text-foreground/55 hover:bg-muted/60 hover:text-foreground',
+                      tabTargeted(id) && 'dock-tab-target',
+                    )}
+                    onClick={() => setTab(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-            <div
-              className={cn(
-                'transition-opacity',
-                !snap.paused && 'pointer-events-none select-none opacity-45',
-              )}
-              aria-disabled={!snap.paused}
-            >
-              {tab === 'cpu' && (
-                <RegisterGrid
-                  dump={snap.registers}
-                  loading={snap.registersLoading}
-                  onPeek={onPeek}
-                  pcLabel={snap.pcLabel}
-                  formals={snap.regFormals}
-                  arch={snap.regArch}
-                />
-              )}
-              {tab === 'stack' && (
-                <StackPane
-                  snap={snap}
-                  onPeek={onPeek}
-                  seedThread={stackThread}
-                  onSeedConsumed={() => setStackThread(null)}
-                />
-              )}
-              {tab === 'memory' && (
-                <MemoryPane
-                  snap={snap}
-                  seedAddr={peekAddr}
-                  onSeedConsumed={() => setPeekAddr(null)}
-                />
-              )}
-              {tab === 'threads' && (
-                <ThreadsPane
-                  snap={snap}
-                  onPeek={onPeek}
-                  onStack={(addr) => {
-                    if (!snap.paused) return
-                    setStackThread(addr)
-                    setTab('stack')
-                  }}
-                />
-              )}
-              {tab === 'objects' && (
-                <KernelObjectsPane
-                  snap={snap}
-                  onPeek={onPeek}
-                  onThread={(addr) => debugUi.focusDebugThread(addr)}
-                />
-              )}
-            </div>
-          </section>
+              <div
+                className={cn(
+                  'transition-opacity',
+                  !snap.paused && 'pointer-events-none select-none opacity-45',
+                )}
+                aria-disabled={!snap.paused}
+              >
+                {tab === 'cpu' && (
+                  <RegisterGrid
+                    dump={snap.registers}
+                    loading={snap.registersLoading}
+                    onPeek={onPeek}
+                    pcLabel={snap.pcLabel}
+                    formals={snap.regFormals}
+                    arch={snap.regArch}
+                  />
+                )}
+                {tab === 'stack' && (
+                  <StackPane
+                    snap={snap}
+                    onPeek={onPeek}
+                    seedThread={stackThread}
+                    onSeedConsumed={() => setStackThread(null)}
+                  />
+                )}
+                {tab === 'memory' && (
+                  <MemoryPane
+                    snap={snap}
+                    seedAddr={peekAddr}
+                    onSeedConsumed={() => setPeekAddr(null)}
+                  />
+                )}
+                {tab === 'threads' && (
+                  <ThreadsPane
+                    snap={snap}
+                    onPeek={onPeek}
+                    onStack={(addr) => {
+                      if (!snap.paused) return
+                      setStackThread(addr)
+                      setTab('stack')
+                    }}
+                  />
+                )}
+                {tab === 'objects' && (
+                  <KernelObjectsPane
+                    snap={snap}
+                    onPeek={onPeek}
+                    onThread={(addr) => debugUi.focusDebugThread(addr)}
+                  />
+                )}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </>
