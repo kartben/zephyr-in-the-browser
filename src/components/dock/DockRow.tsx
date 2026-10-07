@@ -40,6 +40,18 @@ export function dockRowSecondary(node: DeviceNode, view: DockView): string | und
   return undefined
 }
 
+/**
+ * The secondary text worth showing beside a row's name: none when it only
+ * says the name again. A NIC whose devicetree label is "network" read
+ * "Network Network" under a NETWORK heading. Compared ignoring case and
+ * spacing, and only when both are plain text.
+ */
+export function distinctSecondary(name: ReactNode, secondary: ReactNode): ReactNode {
+  if (typeof name !== 'string' || typeof secondary !== 'string') return secondary
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
+  return norm(name) === norm(secondary) ? undefined : secondary
+}
+
 /** Tooltip for a device row: node name, label, and virtio bus when soft-named. */
 export function dockRowTitle(node: DeviceNode): string {
   const parts = [node.nodeName, node.label]
@@ -74,6 +86,13 @@ export interface DockRowShellProps {
   secondary?: ReactNode
   /** Right-edge live summary, so collapsed never means blind. */
   badge?: ReactNode
+  /**
+   * The body shows the badge's value itself, larger (a device's reading, its
+   * IP, the clock), so the badge steps aside while the body is open rather
+   * than say it twice. Instruments leave it off: Trace's event count and
+   * Debug's stop location are not in their bodies.
+   */
+  bodyRepeatsBadge?: boolean
   /** Small qualifier chip after the name ('not in devicetree'). */
   tag?: ReactNode
   depth?: number
@@ -105,6 +124,7 @@ export function DockRowShell({
   nameClassName,
   secondary,
   badge,
+  bodyRepeatsBadge = false,
   tag,
   depth = 0,
   interactive = true,
@@ -119,6 +139,7 @@ export function DockRowShell({
   const canPopOut = onWindowedChange !== undefined && interactive
   const isWindowed = windowed === true
   const showBody = interactive && !isWindowed && expanded
+  const shownSecondary = distinctSecondary(name, secondary)
   // The tour card on screen is about this row: see lib/dockTarget.ts.
   const isTarget = () => isDockTargetRow(dockKey)
   const targeted = useSyncExternalStore(subscribeTarget, isTarget, isTarget)
@@ -153,16 +174,16 @@ export function DockRowShell({
           <span className={cn('truncate text-xs', nameClassName)} title={nameTitle}>
             {name}
           </span>
-          {secondary && (
+          {shownSecondary && (
             <span className="hidden min-w-0 truncate font-mono text-[10px] leading-none text-muted-foreground/80 sm:inline">
-              {secondary}
+              {shownSecondary}
             </span>
           )}
           {tag}
         </button>
 
         <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
-          {badge}
+          {!(bodyRepeatsBadge && showBody) && badge}
           {canPopOut && (
             <Button
               variant="ghost"
@@ -248,6 +269,9 @@ export const DockDeviceRow = memo(function DockDeviceRow({
           <DeviceBadge node={node} />
         )
       }
+      // A note qualifies the row ('not answering'); a live badge is the value
+      // the open body shows larger.
+      bodyRepeatsBadge={!node.note}
       depth={depth}
       interactive={interactive}
       expanded={expandedChoice}

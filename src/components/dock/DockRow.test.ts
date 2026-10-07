@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dockRowSecondary, dockRowTitle } from './DockRow'
+import { distinctSecondary, dockRowSecondary, dockRowTitle } from './DockRow'
 import type { DeviceNode } from '@/deviceTopology'
 
 function node(partial: Partial<DeviceNode> & Pick<DeviceNode, 'key' | 'nodeName' | 'label'>): DeviceNode {
@@ -61,6 +61,19 @@ describe('dockRowSecondary', () => {
       presence: 'ghost',
     })
     expect(dockRowSecondary(ghost, 'devicetree')).toBe('bosch,bme280')
+  })
+})
+
+describe('distinctSecondary', () => {
+  it('drops a secondary that only says the name again', () => {
+    // The NIC's devicetree label is "network": "Network Network" on the row.
+    expect(distinctSecondary('Network', 'Network')).toBeUndefined()
+    expect(distinctSecondary('Network', ' network ')).toBeUndefined()
+  })
+
+  it('keeps one that adds something', () => {
+    expect(distinctSecondary('TMP112 temperature', 'I²C · 0x48')).toBe('I²C · 0x48')
+    expect(distinctSecondary('Network', undefined)).toBeUndefined()
   })
 })
 

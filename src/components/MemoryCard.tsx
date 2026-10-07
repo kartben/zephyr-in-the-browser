@@ -96,12 +96,12 @@ export function SpiFlashBody({
   return (
     <div className={compact ? 'space-y-1.5 px-3 py-2.5' : 'space-y-2 px-3 py-3'}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        {/* No CS here: the identity line just above wears it, with its live
+            dot, and the row's breadcrumb names it too. */}
         <span className="font-mono text-[10px] text-muted-foreground">
           {formatFlashSize(size)}
           {pageSize ? ` · ${pageSize} B pages` : ''}
           {sectorSize ? ` · ${formatFlashSize(sectorSize)} sectors` : ''}
-          {' · '}
-          CS{chip.cs}
         </span>
         <span className="ml-auto flex items-baseline gap-3">
           <LittlefsBrowserButton chip={chip} />

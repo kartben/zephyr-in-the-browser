@@ -38,14 +38,8 @@ export function UartBody({ busKey }: { busKey: string }) {
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                   {device.label}
                 </span>
-                {device.presence === 'interactive' ? (
-                  <span
-                    className="text-[10px] text-emerald-400"
-                    title="This device is live on the page. Open its row in the dock to use it."
-                  >
-                    live
-                  </span>
-                ) : (
+                {/* Only the exception gets a tag, as on the I²C and SPI rosters. */}
+                {device.presence !== 'interactive' && (
                   <span
                     className="whitespace-nowrap text-[10px] text-muted-foreground"
                     title="The devicetree declares this device, but the page has no controls for it."

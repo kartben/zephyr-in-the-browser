@@ -316,14 +316,17 @@ export const PARTS: readonly PartIdentity[] = [
     id: 'w25q',
     label: 'W25Q SPI NOR',
     manufacturer: 'Winbond',
-    part: 'W25Q80BV',
+    // The part the model is (chips/w25q.ts: its name, endurance figure and the
+    // shell's w25q80jv@0 node). The BV it said here is an older die, and its
+    // datasheet link had gone dead; the product page carries the JV's.
+    part: 'W25Q80JV',
     bus: 'spi',
     compatible: 'jedec,spi-nor',
     defaultAddress: 0,
     addressKind: 'spi-cs',
     kind: 'flash',
     datasheetUrl:
-      'https://www.winbond.com/resource-files/w25q80bv_revh_10022015.pdf',
+      'https://www.winbond.com/hq/product/code-storage-flash-memory/serial-nor-flash/?__locale=en&partNo=W25Q80JV',
     bindingUrl: binding('mtd/jedec%2Cspi-nor.html'),
     summary: '1 MiB JEDEC SPI NOR; hex dump + LittleFS browser.',
   },
