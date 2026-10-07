@@ -62,32 +62,33 @@ export function TryIt({ nodes }: { nodes: readonly DeviceNode[] }) {
       aria-label="Try it"
       className="mx-0.5 mb-1.5 mt-0.5 rounded-md border border-primary/25 bg-primary/[0.05] px-2.5 py-2"
     >
-      <div className="flex items-start gap-1.5">
-        <p className="min-w-0 flex-1 text-[12px] leading-snug text-foreground">
-          <span className="mr-1.5 font-semibold text-primary-text">Try it</span>
-          {splitCode(line).map((part, i) =>
-            i % 2 === 1 ? (
-              <code
-                key={i}
-                className="rounded bg-secondary px-1 py-px font-mono text-[11px] text-foreground"
-              >
-                {part}
-              </code>
-            ) : (
-              part
-            ),
-          )}
-        </p>
+      {/* The label on a line of its own, so the sentence gets the whole width. */}
+      <div className="flex items-center gap-1.5">
+        <p className="text-[11px] font-semibold text-primary-text">Try it</p>
         <button
           type="button"
           aria-label="Hide the Try it hint for this sample"
           title="Hide this hint. The Panels menu brings it back."
           onClick={() => setTryItDismissed(seededFor, true)}
-          className="-mr-1 -mt-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="-mr-1 ml-auto flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <X className="size-3.5" aria-hidden />
         </button>
       </div>
+      <p className="mt-0.5 text-[12px] leading-snug text-foreground">
+        {splitCode(line).map((part, i) =>
+          i % 2 === 1 ? (
+            <code
+              key={i}
+              className="rounded bg-secondary px-1 py-px font-mono text-[11px] text-foreground"
+            >
+              {part}
+            </code>
+          ) : (
+            part
+          ),
+        )}
+      </p>
       {targets.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {targets.map((target) => (
