@@ -49,6 +49,7 @@ via the help dialog (?).
 - **Fixed:** Trace charts are readable in light mode.
 - **Fixed:** Thread and object lists no longer pass the last stop off as current.
 - **Fixed:** Accent text, buttons and code colours meet contrast minimums.
+- **Fixed:** Attach rows pick free slots, Bluetooth errors fold, erase confirms.
 
 ## [0.5.0] - 2026-07-31
 

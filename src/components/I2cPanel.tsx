@@ -5,6 +5,12 @@ import { get as getDeviceTree, subscribe as subscribeDeviceTree } from '@/device
 import { revealDockRow } from '@/lib/dockReveal'
 import { attachUserI2c, detachUserI2c, i2cModel } from '@/virtio'
 import { CHIP_TYPES, chipType, hasDriver } from '@/virtio/devices/registry'
+import {
+  I2C_ADDR_MAX,
+  I2C_ADDR_MIN,
+  i2cSlotFor,
+  suggestI2cAttach,
+} from '@/components/attachDefaults'
 import type { I2cChip, I2cTransaction } from '@/virtio/devices/i2c'
 import { isJhd1313Backlight, isJhd1313Lcd } from '@/virtio/devices/chips/jhd1313'
 import { isHt16k33 } from '@/virtio/devices/chips/ht16k33'
@@ -151,26 +157,39 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
   )
 }
 
-/** The attach control: pick a chip type and an address, put it on the bus. */
+/**
+ * The attach control: pick a chip type and an address, put it on the bus.
+ *
+ * Until the reader picks, the row follows the bus: it offers a type and
+ * address that are free (attachDefaults.ts), and moves on when a chip lands
+ * there. Picking a type pins the type, typing an address pins the address,
+ * and only a typed address is ever called taken or out of range.
+ */
 function AttachRow({ chips }: { chips: number[] }) {
-  const [typeId, setTypeId] = useState(CHIP_TYPES[0].id)
-  const [addr, setAddr] = useState(() => CHIP_TYPES[0].defaultAddress.toString(16))
-  const [secondaryAddr, setSecondaryAddr] = useState(() =>
-    (CHIP_TYPES[0].secondaryAddress ?? 0).toString(16),
-  )
+  // Null means "not chosen": follow the suggestion.
+  const [pickedType, setPickedType] = useState<string | null>(null)
+  const [addrDraft, setAddrDraft] = useState<string | null>(null)
+  const [secondaryDraft, setSecondaryDraft] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const occupied = useMemo(() => new Set(chips), [chips])
+  const suggestion = useMemo(() => suggestI2cAttach(CHIP_TYPES, occupied), [occupied])
+  const typeId = pickedType ?? suggestion?.type.id ?? CHIP_TYPES[0].id
   const type = chipType(typeId)
+  const slot = useMemo(() => (type ? i2cSlotFor(type, occupied) : null), [type, occupied])
+  const addr = addrDraft ?? slot?.address.toString(16) ?? ''
+  const secondaryAddr = secondaryDraft ?? slot?.secondary?.toString(16) ?? ''
+  const edited = addrDraft !== null || secondaryDraft !== null
   const parsed = Number.parseInt(addr, 16)
   const parsedSecondary =
     type?.secondaryAddress !== undefined ? Number.parseInt(secondaryAddr, 16) : undefined
-  const validPrimary = Number.isInteger(parsed) && parsed >= 0x03 && parsed <= 0x77
+  const validPrimary =
+    Number.isInteger(parsed) && parsed >= I2C_ADDR_MIN && parsed <= I2C_ADDR_MAX
   const validSecondary =
     parsedSecondary === undefined ||
     (Number.isInteger(parsedSecondary) &&
-      parsedSecondary >= 0x03 &&
-      parsedSecondary <= 0x77 &&
+      parsedSecondary >= I2C_ADDR_MIN &&
+      parsedSecondary <= I2C_ADDR_MAX &&
       parsedSecondary !== parsed)
   const valid = validPrimary && validSecondary
   const takenPrimary = validPrimary && occupied.has(parsed)
@@ -179,15 +198,11 @@ function AttachRow({ chips }: { chips: number[] }) {
   const taken = takenPrimary || takenSecondary
 
   const onTypeChange = (id: string) => {
-    setTypeId(id)
+    // A new type starts from its own free addresses, not the last one typed.
+    setPickedType(id)
+    setAddrDraft(null)
+    setSecondaryDraft(null)
     setError(null)
-    const t = chipType(id)
-    if (t) {
-      setAddr(t.defaultAddress.toString(16))
-      if (t.secondaryAddress !== undefined) {
-        setSecondaryAddr(t.secondaryAddress.toString(16))
-      }
-    }
   }
 
   const attach = () => {
@@ -195,6 +210,9 @@ function AttachRow({ chips }: { chips: number[] }) {
     try {
       attachUserI2c(type.id, parsed, parsedSecondary)
       setError(null)
+      // Ready for another of the same: the address moves to the next free one.
+      setAddrDraft(null)
+      setSecondaryDraft(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -223,7 +241,7 @@ function AttachRow({ chips }: { chips: number[] }) {
           ariaLabel={secondary ? 'LCD address' : 'Address'}
           value={addr}
           onChange={(v) => {
-            setAddr(v)
+            setAddrDraft(v)
             setError(null)
           }}
         />
@@ -233,7 +251,7 @@ function AttachRow({ chips }: { chips: number[] }) {
             ariaLabel={`${type.secondaryLabel ?? 'secondary'} address`}
             value={secondaryAddr}
             onChange={(v) => {
-              setSecondaryAddr(v)
+              setSecondaryDraft(v)
               setError(null)
             }}
           />
@@ -248,6 +266,8 @@ function AttachRow({ chips }: { chips: number[] }) {
       </div>
       {error ? (
         <p className="text-[10px] text-destructive">{error}</p>
+      ) : !edited && !slot ? (
+        <p className="text-[10px] text-muted-foreground">Every address on this bus is taken.</p>
       ) : taken ? (
         <p className="text-[10px] text-destructive">
           {takenPrimary

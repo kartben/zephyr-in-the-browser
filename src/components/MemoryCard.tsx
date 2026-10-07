@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { cn } from '@/lib/utils'
 import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView, type HexJump, type HexViewRange } from '@/components/HexView'
@@ -50,23 +51,81 @@ export function MemoryBody({
             Hex editor ⧉
           </button>
         )}
-        <button
-          onClick={() => chip.erase()}
-          title="Clear every cell (and any saved contents)"
-          className={
-            compact && onOpenWindow
-              ? 'text-[10px] text-muted-foreground underline-offset-2 hover:underline'
-              : 'ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:underline'
-          }
-        >
-          erase
-        </button>
+        <EraseControl
+          size={size}
+          onErase={() => chip.erase()}
+          className={compact && onOpenWindow ? undefined : 'ml-auto'}
+        />
       </div>
 
       <MemoryStatsView chip={chip} compact={compact} />
 
       {compact ? <HexPreview chip={chip} /> : <HexView chip={chip} />}
     </div>
+  )
+}
+
+/**
+ * The erase link, with a confirm step in place. One click used to wipe the
+ * whole part, saved contents too, and nothing could bring them back; a stray
+ * click beside "Hex editor" was enough. Now the link turns into "Erase all
+ * 8 KiB? Erase · Cancel" on the same line, Cancel holding the focus so Enter
+ * and Escape both back out.
+ */
+export function EraseControl({
+  size,
+  onErase,
+  className,
+}: {
+  size: number
+  onErase: () => void
+  className?: string
+}) {
+  const [confirming, setConfirming] = useState(false)
+
+  if (!confirming) {
+    return (
+      <button
+        onClick={() => setConfirming(true)}
+        title="Clear every cell (and any saved contents)"
+        className={cn(
+          'text-[10px] text-muted-foreground underline-offset-2 hover:underline',
+          className,
+        )}
+      >
+        erase
+      </button>
+    )
+  }
+
+  return (
+    <span
+      role="group"
+      aria-label="Confirm erase"
+      className={cn('flex items-baseline gap-2 text-[10px]', className)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') setConfirming(false)
+      }}
+    >
+      <span className="text-foreground">Erase all {formatFlashSize(size)}?</span>
+      <button
+        onClick={() => {
+          setConfirming(false)
+          onErase()
+        }}
+        title="Clear every cell (and any saved contents). This cannot be undone."
+        className="font-medium text-destructive underline-offset-2 hover:underline"
+      >
+        Erase
+      </button>
+      <button
+        autoFocus
+        onClick={() => setConfirming(false)}
+        className="text-muted-foreground underline-offset-2 hover:underline"
+      >
+        Cancel
+      </button>
+    </span>
   )
 }
 
@@ -113,13 +172,7 @@ export function SpiFlashBody({
               Hex editor ⧉
             </button>
           )}
-          <button
-            onClick={() => chip.erase()}
-            title="Clear every cell (and any saved contents)"
-            className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-          >
-            erase
-          </button>
+          <EraseControl size={size} onErase={() => chip.erase()} />
         </span>
       </div>
 
