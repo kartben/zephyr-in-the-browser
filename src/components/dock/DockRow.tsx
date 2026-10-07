@@ -314,6 +314,44 @@ export function DockStructRow({
   )
 }
 
+/**
+ * The ▤ view's last row: "More on this board", folding away every device the
+ * running sample is not about (lib/dockSections). A disclosure rather than a
+ * heading, and in sentence case, so it does not read as a third level over
+ * the class groups inside it.
+ */
+export function DockFoldRow({
+  label,
+  count,
+  open,
+  onToggle,
+}: {
+  label: string
+  count: number
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="mt-2 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left first:mt-0 hover:bg-secondary/60"
+    >
+      <ChevronRight
+        aria-hidden
+        className={cn(
+          'size-3 shrink-0 text-muted-foreground transition-transform',
+          open && 'rotate-90',
+        )}
+      />
+      <span className="text-[11px] font-medium text-muted-foreground">
+        {label} <span className="tabular-nums">({count})</span>
+      </span>
+    </button>
+  )
+}
+
 export function DockGroupRow({
   label,
   count,

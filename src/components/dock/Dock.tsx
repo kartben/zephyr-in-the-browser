@@ -3,7 +3,9 @@
  * columns. One scrollable body renders the whole device inventory as a flat
  * keyed list in either of two projections — ⌗ nested like the devicetree, ▤
  * grouped by peripheral class — over the *same* row components, so switching
- * views rearranges DOM nodes without remounting a single body.
+ * views rearranges DOM nodes without remounting a single body. The instrument
+ * rows are in that list too: the ▤ view puts the sample's own rows first
+ * (lib/dockSections), Trace among them when the sample names it.
  */
 
 import {
@@ -17,8 +19,13 @@ import {
 import { Boxes, ChevronsLeft, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DtsViewer } from '@/components/DtsViewer'
-import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/DockRow'
-import { DockInstruments } from '@/components/dock/Instruments'
+import {
+  DockDeviceRow,
+  DockFoldRow,
+  DockGroupRow,
+  DockStructRow,
+} from '@/components/dock/DockRow'
+import { InstrumentRow, useInstrumentRows } from '@/components/dock/Instruments'
 import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
 import {
@@ -26,8 +33,11 @@ import {
   demoVisibleNodes,
   flattenSoloGroups,
   usableNodes,
+  type DeviceNode,
   type DockView,
+  type Row,
 } from '@/deviceTopology'
+import { sampleFirst } from '@/lib/dockSections'
 import { get as getDeviceTree } from '@/devicetree'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
@@ -38,8 +48,11 @@ import {
   effectiveExpandedIn,
   getState,
   groupCollapsedIn,
+  leadExpandedIn,
+  moreOpenIn,
   setDrawerOpen,
   setGroupCollapsed,
+  setMoreOpen,
   setOpen,
   setView,
   setWidth,
@@ -64,7 +77,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
   // The ▤ view lists what there is to use (deviceTopology's usableNodes); the
   // ⌗ view, where the devicetree is learnt, keeps every node. `leftOut` is the
   // difference, which the view owns up to on its last line.
-  const shown = useMemo(() => {
+  const listed = useMemo(() => {
     if (state.view !== 'classes') return { inventory, leftOut: 0 }
     const usable = usableNodes(inventory.nodes, state.seed.primary)
     return { inventory: { ...inventory, nodes: usable.nodes }, leftOut: usable.hidden }
@@ -79,68 +92,190 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
   const latestDragWidth = useRef(0)
   const width = dragWidth ?? state.width
 
+  const instruments = useInstrumentRows()
+
   // Row list depends on inventory + dock layout, not on the transient drag
   // width — keep it memoized so resizing the sidebar does not rebuild JSX.
   const rendered = useMemo(() => {
     if (!state.open && !state.drawerOpen) return null as ReactNode[] | null
-    const built = buildRowList(shown.inventory, state.view)
-    const rows = state.view === 'classes' ? flattenSoloGroups(built) : built
     const hidden = new Set(
       Object.entries(state.devices)
         .filter(([, v]) => v.hidden)
         .map(([key]) => key),
     )
-
+    const shown = instruments.filter((row) => row.shown)
     const next: ReactNode[] = []
-    let collapsedClass: string | null = null
-    for (const row of rows) {
-      if (row.kind === 'group') {
-        const members = shown.inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)
-        const collapsed = groupCollapsedIn(
-          state,
-          row.deviceClass,
-          members.map((n) => n.panelKind),
-        )
-        collapsedClass = collapsed ? row.deviceClass : null
-        next.push(
-          <DockGroupRow
-            key={row.key}
-            label={row.label}
-            count={row.count}
-            collapsed={collapsed}
-            onToggle={() => setGroupCollapsed(row.deviceClass, !collapsed)}
-            badge={
-              collapsed ? <GroupBadge deviceClass={row.deviceClass} nodes={members} /> : undefined
-            }
-          />,
-        )
-        continue
-      }
-      if (row.kind === 'struct') {
-        next.push(<DockStructRow key={row.key} name={row.name} depth={row.depth} note={row.note} />)
-        continue
-      }
-      const node = row.node
-      if (state.view === 'classes' && collapsedClass === node.deviceClass) continue
-      if (hidden.has(node.key) || (node.parentKey && hidden.has(node.parentKey))) continue
+
+    const pushInstrument = (key: string) => {
+      const row = shown.find((r) => r.instrument.key === key)
+      if (!row) return
       next.push(
-        <DockDeviceRow
-          key={node.key}
-          node={node}
-          depth={row.depth}
-          view={state.view}
-          windowed={state.devices[node.key]?.windowed === true}
-          expanded={
-            row.solo
-              ? soloExpandedIn(state, node.key, node.deviceClass, node.panelKind)
-              : effectiveExpandedIn(state, node.key, node.panelKind)
-          }
-          soloClass={row.solo ? node.deviceClass : undefined}
+        <InstrumentRow
+          key={key}
+          instrument={row.instrument}
+          windowed={row.windowed}
+          expanded={row.expanded}
         />,
       )
     }
+
+    // Device rows under their class headers (▤) or their tree scaffolding (⌗).
+    const pushRows = (rows: readonly Row[], view: DockView) => {
+      let collapsedClass: string | null = null
+      rows.forEach((row, i) => {
+        if (row.kind === 'group') {
+          // The devices under this header: in the fold, only the ones the
+          // sample did not take to the top, so its badge and default fold
+          // speak for what the group holds.
+          const members: DeviceNode[] = []
+          for (const r of rows.slice(i + 1)) {
+            if (r.kind !== 'device' || r.node.deviceClass !== row.deviceClass) break
+            members.push(r.node)
+          }
+          const collapsed = groupCollapsedIn(
+            state,
+            row.deviceClass,
+            members.map((n) => n.panelKind),
+          )
+          collapsedClass = collapsed ? row.deviceClass : null
+          next.push(
+            <DockGroupRow
+              key={row.key}
+              label={row.label}
+              count={row.count}
+              collapsed={collapsed}
+              onToggle={() => setGroupCollapsed(row.deviceClass, !collapsed)}
+              badge={
+                collapsed ? <GroupBadge deviceClass={row.deviceClass} nodes={members} /> : undefined
+              }
+            />,
+          )
+          return
+        }
+        if (row.kind === 'struct') {
+          next.push(<DockStructRow key={row.key} name={row.name} depth={row.depth} note={row.note} />)
+          return
+        }
+        const node = row.node
+        if (view === 'classes' && collapsedClass === node.deviceClass) return
+        if (hidden.has(node.key) || (node.parentKey && hidden.has(node.parentKey))) return
+        next.push(
+          <DockDeviceRow
+            key={node.key}
+            node={node}
+            depth={row.depth}
+            view={view}
+            windowed={state.devices[node.key]?.windowed === true}
+            expanded={
+              row.solo
+                ? soloExpandedIn(state, node.key, node.deviceClass, node.panelKind)
+                : effectiveExpandedIn(state, node.key, node.panelKind)
+            }
+            soloClass={row.solo ? node.deviceClass : undefined}
+          />,
+        )
+      })
+    }
+
+    // ▤ with a guest: the sample's rows, the other instruments, then the fold,
+    // all from the rows there is something to use on (usableNodes); the rest
+    // are counted on a last line that leads to the devicetree view.
+    if (mode === 'sim' && state.view === 'classes' && inventory.nodes.length > 0) {
+      const layout = sampleFirst(
+        buildRowList(listed.inventory, 'classes'),
+        state.seed.primary,
+        shown.map((row) => ({ key: row.instrument.key, panelKind: row.instrument.panelKind })),
+      )
+      for (const row of layout.lead) {
+        if (row.kind === 'instrument') {
+          pushInstrument(row.key)
+          continue
+        }
+        const node = row.node
+        if (hidden.has(node.key) || (node.parentKey && hidden.has(node.parentKey))) continue
+        next.push(
+          <DockDeviceRow
+            key={node.key}
+            node={node}
+            depth={row.depth}
+            view="classes"
+            windowed={state.devices[node.key]?.windowed === true}
+            expanded={leadExpandedIn(state, node.key, node.panelKind)}
+          />,
+        )
+      }
+      if (layout.instruments.length > 0) {
+        next.push(<SectionHeading key="heading:instruments">Instruments</SectionHeading>)
+        for (const key of layout.instruments) pushInstrument(key)
+      }
+      if (layout.moreCount > 0) {
+        const open = moreOpenIn(state)
+        next.push(
+          <DockFoldRow
+            key="fold:more"
+            label="More on this board"
+            count={layout.moreCount}
+            open={open}
+            onToggle={() => setMoreOpen(!open)}
+          />,
+        )
+        // A class left with one part in the fold loses its header there too.
+        if (open) pushRows(flattenSoloGroups([...layout.more]), 'classes')
+      }
+      // Only while nothing at all is up: a sample whose one thing to use is
+      // an instrument (tracing_pipeline's Trace) has nothing missing.
+      if (listed.inventory.nodes.length === 0 && layout.lead.length === 0) {
+        next.push(
+          <p key="nothing" className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            Nothing here to use yet.
+          </p>,
+        )
+      }
+      if (listed.leftOut > 0) {
+        next.push(
+          <LeftOutLine
+            key="left-out"
+            count={listed.leftOut}
+            more={listed.inventory.nodes.length > 0}
+          />,
+        )
+      }
+      return next
+    }
+
+    // ⌗, a guest still booting, or a Live board with no guest at all: the
+    // instruments, then the devices in the view's own order.
+    if (shown.length > 0) {
+      next.push(<SectionHeading key="heading:instruments">Instruments</SectionHeading>)
+      for (const row of shown) pushInstrument(row.instrument.key)
+    }
+    // Devices come from the guest's devicetree; a Live board session has no
+    // guest, and "waiting for the guest to boot" would be a lie.
+    if (mode !== 'sim') return next
+    next.push(<SectionHeading key="heading:devices">Devices</SectionHeading>)
+    if (inventory.nodes.length === 0) {
+      next.push(
+        <p key="empty" className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          No peripherals yet. Waiting for the guest to boot.
+        </p>,
+      )
+      return next
+    }
+    pushRows(buildRowList(inventory, state.view), state.view)
     return next
-  }, [shown, state.open, state.drawerOpen, state.view, state.devices, state.groups, state.seed])
+  }, [
+    inventory,
+    listed,
+    instruments,
+    mode,
+    state.open,
+    state.drawerOpen,
+    state.view,
+    state.devices,
+    state.groups,
+    state.seed,
+    state.moreOpen,
+  ])
 
   // Two different things share one sidebar: a persistent desktop column, and a
   // drawer that covers the stage on a phone and so starts closed every visit.
@@ -231,38 +366,11 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
-          <DockInstruments />
-          {/* Devices come from the guest's devicetree; a Live board session
-              has no guest, and "waiting for the guest to boot" would be a lie. */}
-          {mode === 'sim' && (
-            <>
-              <SectionHeading>Devices</SectionHeading>
-              {inventory.nodes.length === 0 ? (
-                <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  No peripherals yet. Waiting for the guest to boot.
-                </p>
-              ) : (
-                <>
-                  {shown.inventory.nodes.length === 0 && (
-                    <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                      Nothing here to use yet.
-                    </p>
-                  )}
-                  {rendered}
-                  {shown.leftOut > 0 && (
-                    <LeftOutLine
-                      count={shown.leftOut}
-                      more={shown.inventory.nodes.length > 0}
-                    />
-                  )}
-                </>
-              )}
-              {demo && hiddenInert > 0 && (
-                <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  Other peripherals appear when a Zephyr app is running.
-                </p>
-              )}
-            </>
+          {rendered}
+          {mode === 'sim' && demo && hiddenInert > 0 && (
+            <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              Other peripherals appear when a Zephyr app is running.
+            </p>
           )}
         </div>
       </aside>
@@ -289,10 +397,15 @@ function DockCollapsedTab({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-/** Separates the machine's instruments from the guest's own devices. */
+/**
+ * Separates the machine's instruments from the guest's own devices. Sentence
+ * case at 11px and undimmed, the same voice as the "More on this board" fold
+ * beside it: two quiet labels, under which the class groups are the only
+ * capitals.
+ */
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <p className="px-1.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 first:pt-0.5">
+    <p className="px-1.5 pb-0.5 pt-2.5 text-[11px] font-medium text-muted-foreground first:pt-0.5">
       {children}
     </p>
   )

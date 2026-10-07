@@ -338,7 +338,9 @@ tour test rather than leaving a gap on the card.
 `panel:` names a row of the device dock: a `PanelKind` from `src/boards.ts`
 (`gpio`, `led`, `i2c`, `net`, …), or one of the instruments, `trace`, `debug`
 and `perf` (Simulation). The dock unhides that row, expands it and blinks it,
-so the reader's eye has somewhere to go when the machine stops.
+so the reader's eye has somewhere to go when the machine stops. A device the
+sample does not list in its `primaryPanels` waits in the dock's closed "More on
+this board" fold, and naming it opens the fold too.
 
 `look:` goes one level further in, to a tab of Trace or a section of Debug. A
 step about a queue filling up wants the IPC tab, and a reader left on the

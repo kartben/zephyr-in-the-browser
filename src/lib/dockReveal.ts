@@ -1,10 +1,12 @@
 /**
- * Reveal a dock device row: unhide, expand its class group and the row itself,
- * scroll it into view, and pulse an attention blink on its header.
+ * Reveal a dock device row: unhide, open the fold and class group it sits in,
+ * expand the row itself, scroll it into view, and pulse an attention blink on
+ * its header.
  */
 
 import type { PanelKind } from '@/boards'
 import { usableNodes, type DeviceClass, type DeviceInventory } from '@/deviceTopology'
+import { isLeadNode } from '@/lib/dockSections'
 import {
   STAGE_DEBUG_KEY,
   STAGE_PERF_KEY,
@@ -13,6 +15,7 @@ import {
   setExpanded,
   setGroupCollapsed,
   setHidden,
+  setMoreOpen,
   setView,
   showDock,
 } from '@/lib/dockStore'
@@ -63,9 +66,11 @@ export interface RevealOptions {
 
 /**
  * Bring a dock row — device or instrument — into view and briefly highlight it.
- * `deviceClass` is required in ▤ view so a collapsed class group can open.
  * A row the ▤ view leaves out (nothing to use on it, see usableNodes) is shown
- * in the devicetree view instead, which lists every node.
+ * in the devicetree view instead, which lists every node. In the ▤ view a
+ * device the sample does not lead with sits in the "More on this board" fold
+ * (lib/dockSections), which opens, and so does its class group when
+ * `deviceClass` names it.
  *
  * A row that is popped out is left where it is: PanelFrame stamps the same
  * `data-dock-key` on its floating card, so the blink finds it there.
@@ -79,7 +84,10 @@ export function revealDockRow(
   if (state.devices[key]?.windowed !== true) showDock()
   if (state.devices[key]?.hidden) setHidden(key, false)
   if (state.view === 'classes' && leftOutOfClasses(key)) setView('devicetree')
-  if (deviceClass && getState().view === 'classes') setGroupCollapsed(deviceClass, false)
+  if (getState().view === 'classes' && inMoreFold(key)) {
+    setMoreOpen(true)
+    if (deviceClass) setGroupCollapsed(deviceClass, false)
+  }
   setExpanded(key, true)
   pulseDockKey(key, opts.quiet === true)
 }
@@ -148,6 +156,16 @@ function leftOutOfClasses(key: string): boolean {
 export function subscribeInventory(fn: () => void): () => void {
   inventoryListeners.add(fn)
   return () => inventoryListeners.delete(fn)
+}
+
+/**
+ * Whether the ▤ view keeps this row in its "More on this board" fold: a device
+ * the running sample is not about. Instruments are not inventory nodes, and
+ * never fold.
+ */
+function inMoreFold(key: string): boolean {
+  const node = inventory?.nodes.find((n) => n.key === key)
+  return node !== undefined && !isLeadNode(node, getState().seed.primary)
 }
 
 /**

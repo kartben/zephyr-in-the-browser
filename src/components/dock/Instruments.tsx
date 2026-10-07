@@ -1,5 +1,5 @@
 /**
- * The dock's Instruments section: Simulation, Trace and Debug.
+ * The dock's instruments: Simulation, Trace and Debug.
  *
  * These are attached to the *machine*, not declared by the guest's devicetree,
  * so they are not part of the device inventory — but they are panels in every
@@ -7,10 +7,12 @@
  * bespoke bottom band that no other panel had. Here they are ordinary dock
  * rows: same chrome, same expand-in-place, same pop-out into a window, same
  * persisted visibility. The dockStore keys are the historical STAGE_* ones so
- * an existing user's layout carries over.
+ * an existing user's layout carries over. The dock places their rows: under
+ * an Instruments heading, or among the sample's own rows when the sample
+ * names one (lib/dockSections).
  */
 
-import { useSyncExternalStore, type ReactNode } from 'react'
+import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { Activity, Bug, Gauge } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { DockRowShell } from '@/components/dock/DockRow'
@@ -144,13 +146,20 @@ function DebugBadge() {
   )
 }
 
+const statsAvailable = () => guestStats.getSnapshot().available
+const traceAvailable = () => hostTrace.getSnapshot().available
+const gdbAvailable = () => hostGdb.getSnapshot().available
+
 interface Instrument {
   key: string
   label: string
   icon: LucideIcon
   /** Drives seeded expansion, so a sample's primaryPanels still decide. */
   panelKind: PanelKind
-  /** Live once its bridge is up; the row is listed either way. */
+  /**
+   * Live once its bridge is up; the row is listed either way. A boolean
+   * snapshot, so the dock re-renders when it flips rather than on every tick.
+   */
   useAvailable: () => boolean
   Badge: () => ReactNode
   Body: () => ReactNode
@@ -164,9 +173,7 @@ export const INSTRUMENTS: Instrument[] = [
     label: 'Simulation',
     icon: Gauge,
     panelKind: 'perf',
-    useAvailable: () =>
-      useSyncExternalStore(guestStats.subscribe, guestStats.getSnapshot, guestStats.getSnapshot)
-        .available,
+    useAvailable: () => useSyncExternalStore(guestStats.subscribe, statsAvailable, statsAvailable),
     Badge: SimulationBadge,
     Body: SimulationBody,
     window: { width: 18, height: 14 },
@@ -177,16 +184,12 @@ export const INSTRUMENTS: Instrument[] = [
     icon: Activity,
     panelKind: 'trace',
     useAvailable: () => {
-      const trace = useSyncExternalStore(
-        hostTrace.subscribe,
-        hostTrace.getSnapshot,
-        hostTrace.getSnapshot,
-      )
+      const trace = useSyncExternalStore(hostTrace.subscribe, traceAvailable, traceAvailable)
       const mode = useMode()
       // Live board: the row is the point of the mode, and it must not blink
       // out on a reconnect. Simulator: guest trace only — a bridge kept for
       // network uplink must not summon the panel.
-      return mode === 'live' || trace.available
+      return mode === 'live' || trace
     },
     Badge: TraceBadge,
     Body: TraceBody,
@@ -197,8 +200,7 @@ export const INSTRUMENTS: Instrument[] = [
     label: 'Debug',
     icon: Bug,
     panelKind: 'debug',
-    useAvailable: () =>
-      useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot).available,
+    useAvailable: () => useSyncExternalStore(hostGdb.subscribe, gdbAvailable, gdbAvailable),
     Badge: DebugBadge,
     Body: DebugBody,
     window: { width: 26, height: 30 },
@@ -224,37 +226,40 @@ function useInstrumentState(instrument: Instrument) {
   }
 }
 
-export function DockInstruments() {
-  // Call once per known instrument (fixed list). Hide the whole section —
-  // heading included — when nothing would paint (typical mock/Shell boot).
+export interface InstrumentRowState {
+  instrument: Instrument
+  shown: boolean
+  windowed: boolean
+  expanded: boolean
+}
+
+/**
+ * Every instrument with the state its row needs, in their usual order. The
+ * dock lays the rows out itself, in the same keyed list as the device rows,
+ * so a view flip or a reorder moves the Trace timeline rather than remounting
+ * it.
+ */
+export function useInstrumentRows(): InstrumentRowState[] {
+  // Call once per known instrument (fixed list).
   const perf = useInstrumentState(INSTRUMENTS[0])
   const trace = useInstrumentState(INSTRUMENTS[1])
   const dbg = useInstrumentState(INSTRUMENTS[2])
-  const rows = [
-    { instrument: INSTRUMENTS[0], ...perf },
-    { instrument: INSTRUMENTS[1], ...trace },
-    { instrument: INSTRUMENTS[2], ...dbg },
-  ]
-  if (!rows.some((row) => row.shown)) return null
-
-  return (
-    <>
-      <SectionHeading>Instruments</SectionHeading>
-      {rows.map(({ instrument, shown, windowed, expanded }) =>
-        shown ? (
-          <InstrumentRow
-            key={instrument.key}
-            instrument={instrument}
-            windowed={windowed}
-            expanded={expanded}
-          />
-        ) : null,
-      )}
-    </>
+  return useMemo(
+    () => [
+      { instrument: INSTRUMENTS[0], ...perf },
+      { instrument: INSTRUMENTS[1], ...trace },
+      { instrument: INSTRUMENTS[2], ...dbg },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      perf.shown, perf.windowed, perf.expanded,
+      trace.shown, trace.windowed, trace.expanded,
+      dbg.shown, dbg.windowed, dbg.expanded,
+    ],
   )
 }
 
-function InstrumentRow({
+export function InstrumentRow({
   instrument,
   windowed,
   expanded,
@@ -280,15 +285,6 @@ function InstrumentRow({
     >
       <Body />
     </DockRowShell>
-  )
-}
-
-/** Matches Dock's section label so Instruments can own its own empty-state gate. */
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <p className="px-1.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 first:pt-0.5">
-      {children}
-    </p>
   )
 }
 
