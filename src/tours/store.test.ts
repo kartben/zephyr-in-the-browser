@@ -149,6 +149,7 @@ const {
   openIntro,
   minimise,
   restore,
+  tourInProgress,
 } = await import('@/tours/store')
 
 /** Two steps on the same address, plus one of its own. */
@@ -524,6 +525,28 @@ Prose.
       { label: 'stack', text: '0x20001000 · z_interrupt_stacks+0x1000' },
       { label: 'stopped in', text: 'main+0x4' },
     ])
+  })
+})
+
+describe('a tour on its way', () => {
+  it('is named before its text arrives, and under way until it is left', async () => {
+    reset()
+    const loading = loadFor(`tour-${url++}`)
+    expect(getSnapshot().tourId).toMatch(/^tour-/)
+    expect(getSnapshot().doc).toBeNull()
+    expect(tourInProgress(getSnapshot())).toBe(true)
+    await loading
+    expect(getSnapshot().doc).not.toBeNull()
+    expect(tourInProgress(getSnapshot())).toBe(true)
+    skip()
+    expect(tourInProgress(getSnapshot())).toBe(false)
+  })
+
+  it('is no tour at all when there is no such file', async () => {
+    reset()
+    await loadFor(`missing-${url++}`)
+    expect(getSnapshot().tourId).toBeNull()
+    expect(tourInProgress(getSnapshot())).toBe(false)
   })
 })
 

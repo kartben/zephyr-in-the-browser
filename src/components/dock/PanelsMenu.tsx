@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LayoutGrid, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { sampleForSeed } from '@/boards'
 import { cn } from '@/lib/utils'
 import * as guestStats from '@/guestStats'
 import * as hostGdb from '@/hostGdb'
@@ -27,6 +28,7 @@ import {
   showDock,
   subscribe,
 } from '@/lib/dockStore'
+import { getDismissed, setTryItDismissed, subscribe as subscribeTryIt } from '@/lib/tryIt'
 
 export function PanelsMenu({ boardId }: { boardId: string }) {
   const [open, setOpen] = useState(false)
@@ -77,6 +79,10 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
   const trace = useSyncExternalStore(hostTrace.subscribe, hostTrace.getSnapshot, hostTrace.getSnapshot)
   const gdb = useSyncExternalStore(hostGdb.subscribe, hostGdb.getSnapshot, hostGdb.getSnapshot)
   const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
+  const tryItDismissed = useSyncExternalStore(subscribeTryIt, getDismissed, getDismissed)
+  // The dock's Try it hint is the running sample's: a curated sample has one,
+  // a dropped ELF and a Live board session do not.
+  const hintFor = mode === 'live' || !sampleForSeed(state.seededFor) ? null : state.seededFor
 
   // Live board: no guest, so no device inventory — instruments only. The
   // Trace gate mirrors Instruments.tsx: mode or guest trace, never the bridge
@@ -103,6 +109,17 @@ function PanelsMenuPopover({ boardId }: { boardId: string }) {
       aria-label="Panels"
       className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-card p-2 shadow-xl"
     >
+      {hintFor !== null && (
+        <>
+          <MenuHeading>This sample</MenuHeading>
+          <PanelToggle
+            label="Try it hint"
+            checked={!tryItDismissed.has(hintFor)}
+            onChange={(shown) => setTryItDismissed(hintFor, !shown)}
+          />
+        </>
+      )}
+
       {instruments.length > 0 && (
         <>
           <MenuHeading>Instruments</MenuHeading>

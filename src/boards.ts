@@ -73,6 +73,13 @@ export interface GuestSample {
   /** One line, shown under the label in the picker. */
   description: string
   /**
+   * What to do with the sample, for the dock's Try it hint, when `description`
+   * says what the sample is rather than what to do with it. One line at the
+   * dock's default width: plain words, Zephyr terms welcome, `code` for what
+   * to type. The hint falls back to `description` without it.
+   */
+  tryIt?: string
+  /**
    * Zephyr sample path, relative to the zephyr/ tree — or one of this repo's
    * own apps when it starts with "zephyr-module/".
    */
@@ -150,6 +157,9 @@ export function withA53TraceVariants(samples: GuestSample[]): GuestSample[] {
       id: `${sample.id}_trace`,
       label: `${sample.label} · traced`,
       description: `${sample.description}. Opens Trace and Debug`,
+      // The twin is used the same way. Its hint's chips already say Trace and
+      // Debug, so the hint keeps the base line rather than the suffix above.
+      tryIt: sample.tryIt ?? sample.description,
       primaryPanels: uniquePanels([...(sample.primaryPanels ?? []), 'trace', 'debug']),
       tracedFrom: sample.id,
     })
@@ -285,6 +295,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     id: 'gnss',
     label: 'GNSS',
     description: 'Parses NMEA fixes from the GNSS peripheral over UART',
+    tryIt: 'Edit the GNSS position and watch the terminal',
     zephyrSample: 'samples/drivers/gnss',
     primaryPanels: ['gnss'],
   },
@@ -292,6 +303,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     id: 'shell',
     label: 'Shell',
     description: 'Interactive Zephyr shell, with `gpio` and `hostaudio`',
+    tryIt: 'Type `help` in the terminal, then try `gpio` or `hostaudio`',
     zephyrSample: 'samples/subsys/shell/shell_module',
     // The shell is the interface to the host bridges it advertises. This board
     // has no I2C bus, so no simulated sensors — the sensor cards are A53-only.
@@ -303,6 +315,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     id: 'hsm',
     label: 'State Machine',
     description: 'Hierarchical state machine driven from the shell',
+    tryIt: 'Type `hsm_psicc2 event G` to send the state machine an event',
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
   },
   {
@@ -330,6 +343,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     id: 'http_server',
     label: 'HTTP Server',
     description: 'Serves a page at 192.0.2.1:8080. Fetch it from Network',
+    tryIt: 'In Network, open Talk to the guest and press GET',
     zephyrSample: 'samples/net/sockets/dumb_http_server',
     primaryPanels: ['net'],
     guestHttpUrl: 'http://192.0.2.1:8080/',
@@ -346,6 +360,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     id: 'hello_world',
     label: 'Hello World',
     description: 'Prints one line and stops',
+    tryIt: 'Find its one line in the terminal; Reset prints it again',
     zephyrSample: 'samples/hello_world',
   },
   {
@@ -363,6 +378,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
     id: 'buzzer',
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
+    tryIt: 'Press Enable host sound on the buzzer card to hear it',
     zephyrSample: 'samples/drivers/buzzer/tone',
     primaryPanels: ['buzzer', 'gpio', 'led'],
   },
@@ -391,6 +407,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'gnss',
     label: 'GNSS',
     description: 'Parses NMEA fixes from the GNSS peripheral over UART',
+    tryIt: 'Edit the GNSS position and watch the terminal',
     zephyrSample: 'samples/drivers/gnss',
     primaryPanels: ['gnss'],
   },
@@ -398,6 +415,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'display',
     label: 'Display',
     description: 'Draws Zephyr’s display test pattern on the Display peripheral',
+    tryIt: 'Watch the Display: the bottom-left square cycles through greys',
     zephyrSample: 'samples/drivers/display',
     primaryPanels: ['display'],
   },
@@ -419,6 +437,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'accel_chart',
     label: 'Accelerometer Chart',
     description: 'Device accelerometer traced live on an LVGL chart',
+    tryIt: 'Drag the ADXL345 Accel X slider; the Display charts it',
     // Fork under zephyr-module/apps: circular update + smaller ramfb so the
     // emulated A53 can keep the trace moving in wall-clock time.
     zephyrSample: 'zephyr-module/apps/accelerometer_chart',
@@ -440,6 +459,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'lsm6dso',
     label: 'LSM6DSO IMU',
     description: 'Accel + gyro with sensor_attr_set sampling rate, over I²C',
+    tryIt: 'Drag the LSM6DSO sliders and watch the terminal',
     zephyrSample: 'samples/sensor/lsm6dso',
     primaryPanels: ['sensor', 'i2c'],
   },
@@ -447,6 +467,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'lps22hh',
     label: 'LPS22HH Pressure',
     description: 'Pressure and temperature from an ST barometer, over I²C',
+    tryIt: 'Drag Pressure on the LPS22HH card and watch the terminal',
     zephyrSample: 'samples/sensor/lps22hh',
     primaryPanels: ['sensor', 'i2c'],
   },
@@ -454,6 +475,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'ina219',
     label: 'INA219 Power',
     description: 'Bus voltage, current and power from an INA219, over I²C',
+    tryIt: 'Drag Current on the INA219 card and watch the terminal',
     zephyrSample: 'samples/sensor/ina219',
     primaryPanels: ['sensor', 'i2c'],
   },
@@ -461,6 +483,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'isl29035',
     label: 'ISL29035 Light',
     description: 'Ambient light in lux from an ISL29035, over I²C',
+    tryIt: 'Drag Ambient light on the ISL29035 card and watch the terminal',
     zephyrSample: 'samples/sensor/isl29035',
     primaryPanels: ['sensor', 'i2c'],
   },
@@ -471,6 +494,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'eeprom',
     label: 'EEPROM',
     description: 'Boot counter that survives reloads in the simulated AT24',
+    tryIt: 'Press Reset to count a boot; erase on the EEPROM card clears it',
     zephyrSample: 'samples/drivers/eeprom',
     primaryPanels: ['i2c'],
   },
@@ -491,6 +515,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'littlefs',
     label: 'LittleFS',
     description: 'Boot counter on LittleFS over SPI NOR; survives reload',
+    tryIt: 'Press Reset to count a boot; browse /lfs from Filesystem',
     zephyrSample: 'samples/subsys/fs/littlefs',
     primaryPanels: ['spi'],
   },
@@ -503,6 +528,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'virtio_blk',
     label: 'Disk',
     description: 'Formats a FAT volume on a block disk. Browse it from the disk peripheral',
+    tryIt: 'Press Filesystem on the Disk card to browse the FAT volume',
     zephyrSample: 'zephyr-module/apps/virtio_blk_fs',
     primaryPanels: ['disk'],
     // Slot 6 of the virtio-mmio array — 0-5 are net, gpu, gpio, tablet, i2c
@@ -524,6 +550,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'rtc',
     label: 'RTC',
     description: 'Set and read date/time on a PCF8523, over I²C',
+    tryIt: 'Set a new time on the PCF8523 card and watch the terminal',
     zephyrSample: 'samples/drivers/rtc',
     primaryPanels: ['i2c'],
   },
@@ -664,6 +691,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'fuel_gauge',
     label: 'Fuel gauge',
     description: 'Polls SoC % and voltage on a MAX17048; battery card in the dock',
+    tryIt: 'Drag State of charge on the MAX17048 card and watch the terminal',
     zephyrSample: 'samples/drivers/fuel_gauge',
     primaryPanels: ['fuel-gauge', 'i2c'],
   },
@@ -671,6 +699,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'philosophers',
     label: 'Philosophers',
     description: 'Dining philosophers, animated in-place over VT100',
+    tryIt: 'Watch six philosophers share forks (mutexes) in the terminal',
     zephyrSample: 'samples/philosophers',
   },
   {
@@ -683,6 +712,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'pm_latency',
     label: 'Power states',
     description: 'CPU drops through runtime-idle, suspend-to-idle and standby',
+    tryIt: 'Watch the terminal: the CPU steps down through 3 sleep states',
     zephyrSample: 'samples/subsys/pm/latency',
   },
   {
@@ -691,6 +721,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'tracing',
     label: 'Tracing',
     description: 'Live Trace schedule: thread lanes like Zephyr’s trace viewer',
+    tryIt: 'Open Trace → Timeline: thread_a and thread_b take turns',
     zephyrSample: 'samples/subsys/tracing/basic',
     primaryPanels: ['trace'],
   },
@@ -700,6 +731,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'tracing_pipeline',
     label: 'Tracing Pipeline',
     description: 'Sensor pipeline with msgq/mutex/condvar. Richer Trace schedule story',
+    tryIt: 'Open Trace → IPC to see who waits on the msgq and the mutex',
     zephyrSample: 'samples/subsys/tracing/pipeline',
     primaryPanels: ['trace'],
   },
@@ -710,6 +742,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'msg_queue',
     label: 'Message Queue',
     description: 'Producer/consumer msgq with urgent put_front',
+    tryIt: 'Watch the terminal: urgent put_front messages jump the queue',
     zephyrSample: 'samples/kernel/msg_queue',
   },
   {
@@ -721,6 +754,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'msgq_lab',
     label: 'Message Queue Lab',
     description: 'A sensor, a timer and SW0 fill one msgq; change it all from the shell',
+    tryIt: 'Press SW0, then type `msgq stat` in the terminal',
     zephyrSample: 'zephyr-module/apps/msgq_lab',
     primaryPanels: ['keys'],
   },
@@ -733,6 +767,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'zbus',
     label: 'zbus Hello World',
     description: 'One channel, three observers: listener, subscriber, async listener',
+    tryIt: 'Watch the terminal: one message reaches all three observers',
     zephyrSample: 'samples/subsys/zbus/hello_world',
   },
   {
@@ -750,6 +785,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'buzzer',
     label: 'Buzzer',
     description: 'Drives a gpio-buzzer; the dock shakes and vibrates',
+    tryIt: 'Press Enable host sound on the buzzer card to hear it',
     zephyrSample: 'samples/drivers/buzzer/tone',
     primaryPanels: ['buzzer', 'gpio', 'led'],
   },
@@ -777,6 +813,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     label: 'Shell',
     description:
       'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc`, `flash`, `fs`, `auxdisplay` (LCD, VFD, 7-segment), `gpio`, `hostaudio` and `dmic`',
+    tryIt: 'Type `help` in the terminal, then try `sensor` or `i2c`',
     zephyrSample: 'samples/subsys/shell/shell_module',
     primaryPanels: ['i2c', 'spi', 'auxdisplay', 'gpio', 'audio'],
     // The landing sample: a short list of classes reads better than five open
@@ -797,6 +834,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'hsm',
     label: 'State Machine',
     description: 'Hierarchical state machine driven from the shell',
+    tryIt: 'Type `hsm_psicc2 event G` to send the state machine an event',
     zephyrSample: 'samples/subsys/smf/hsm_psicc2',
   },
   {
@@ -814,6 +852,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     label: 'HTTP Server',
     description:
       'Full HTTP server at http://192.0.2.1/. Use Network; Trace shows sockets / fifo / queue',
+    tryIt: 'In Network, open Talk to the guest, then Browser; try LED on',
     zephyrSample: 'samples/net/sockets/http_server',
     primaryPanels: ['net', 'led', 'gpio'],
     guestHttpUrl: 'http://192.0.2.1/',
@@ -822,6 +861,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'echo_server',
     label: 'Echo Server',
     description: 'TCP/UDP echo on port 4242. Ping it from Network',
+    tryIt: 'In Network, open Talk to the guest and press TCP or UDP',
     zephyrSample: 'samples/net/sockets/echo_server',
     primaryPanels: ['net'],
   },
@@ -836,6 +876,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'zperf',
     label: 'zperf',
     description: 'iperf2-style throughput benchmark. Charts in Network',
+    tryIt: 'Type `zperf udp upload 192.0.2.2 5001`; Network charts it',
     zephyrSample: 'samples/net/zperf',
     primaryPanels: ['net'],
   },
@@ -843,6 +884,7 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     id: 'hello_world',
     label: 'Hello World',
     description: 'Prints one line and stops',
+    tryIt: 'Find its one line in the terminal; Reset prints it again',
     zephyrSample: 'samples/hello_world',
   },
 ]
@@ -1193,6 +1235,7 @@ export const BOARDS: Board[] = [
         id: 'hello_world',
         label: 'Hello World',
         description: 'Prints one line and stops',
+        tryIt: 'Find its one line in the terminal; Reset prints it again',
         zephyrSample: 'samples/hello_world',
       },
       {
@@ -1207,12 +1250,14 @@ export const BOARDS: Board[] = [
       {
         // sw0 on GPIO9 is in the stock board devicetree, so this one needs no
         // overlay at all. Interrupt-driven, unlike the Cortex-M3's polled
-        // gpio-keys: the modelled controller has a real IRQ line.
+        // gpio-keys: the modelled controller has a real IRQ line. The board
+        // devicetree labels sw0 "User SW1", which is what its key says.
         id: 'basic_button',
         label: 'Button',
         description: 'Press SW0 in the device dock',
+        tryIt: 'Press User SW1 under Keys; the terminal logs each press',
         zephyrSample: 'samples/basic/button',
-        primaryPanels: ['gpio'],
+        primaryPanels: ['keys', 'gpio'],
       },
       {
         // Its own entry rather than the A53's: this board has no SPI bus, no
@@ -1221,6 +1266,7 @@ export const BOARDS: Board[] = [
         label: 'Shell',
         description:
           'Interactive Zephyr shell, with `i2c`, `sensor`, `rtc` and `eeprom` over the SoC’s own I²C bus',
+        tryIt: 'Type `help` in the terminal, then try `sensor` or `i2c`',
         zephyrSample: 'samples/subsys/shell/shell_module',
         primaryPanels: ['i2c'],
       },
@@ -1242,6 +1288,7 @@ export const BOARDS: Board[] = [
         id: 'deep_sleep',
         label: 'Deep sleep',
         description: 'Powers down and reboots on the RTC timer; the wake takes a while',
+        tryIt: 'Watch the power card power down; the reboot takes a while',
         zephyrSample: 'samples/boards/espressif/deep_sleep',
         primaryPanels: ['perf'],
       },
@@ -1338,6 +1385,7 @@ export const BOARDS: Board[] = [
         id: 'hello_world',
         label: 'Hello World',
         description: 'Prints one line and stops',
+        tryIt: 'Find its one line in the terminal; Reset prints it again',
         zephyrSample: 'samples/hello_world',
       },
       {
@@ -1351,17 +1399,19 @@ export const BOARDS: Board[] = [
       },
       {
         // sw0 is the BOOT button on GPIO0, already in the stock board
-        // devicetree, so this one needs no overlay at all.
+        // devicetree, so this one needs no overlay at all. Its key says so.
         id: 'basic_button',
         label: 'Button',
         description: 'Press SW0 in the device dock',
+        tryIt: 'Press BOOT Button under Keys; the terminal logs each press',
         zephyrSample: 'samples/basic/button',
-        primaryPanels: ['gpio'],
+        primaryPanels: ['keys', 'gpio'],
       },
       {
         id: 'shell',
         label: 'Shell',
         description: 'Interactive Zephyr shell on the ESP32’s UART0',
+        tryIt: 'Type `help` in the terminal; Tab lists the commands',
         zephyrSample: 'samples/subsys/shell/shell_module',
       },
       {
