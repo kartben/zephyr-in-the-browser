@@ -755,7 +755,7 @@ says what, in one line of Markdown:
 
 ```yaml
 at: button_input_cb | main.c:/static void button_input_cb/ | main.c:20
-await: Press **SW0** in **GPIO Keys**.
+await: Press **SW0** in **Buttons**.
 ```
 
 When the card before is dismissed and this is the step the tour now waits on,
@@ -1105,7 +1105,7 @@ ci: press sw0
 
 | Action | Does |
 | --- | --- |
-| `press <key>` | holds a **GPIO Keys** button down for 200 ms; `sw0` finds `SW0` or `Browser SW0`, or else the key the `sw0` alias points at (`User SW1` on the ESP32-C3) |
+| `press <key>` | holds a button in the dock's **Buttons** row (`gpio-keys`) down for 200 ms; `sw0` finds `SW0` or `Browser SW0`, or else the key the `sw0` alias points at (`User SW1` on the ESP32-C3) |
 | `type <line>` | types one line into the terminal, placeholders filled in as on a Run button |
 | `wait <duration>` | waits before the next action: `500ms`, `2s`, up to 10 s |
 

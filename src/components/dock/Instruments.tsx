@@ -19,6 +19,7 @@ import { DockRowShell } from '@/components/dock/DockRow'
 import { PanelFrame } from '@/components/PanelFrame'
 import { SimulationBadge, SimulationBody } from '@/components/SimulationPanel'
 import { compactHex } from '@/debug/hexFormat'
+import { countOf, traceCounts } from '@/components/dock/countText'
 import { cn } from '@/lib/utils'
 import type { PanelKind } from '@/boards'
 import * as debug from '@/debug/control'
@@ -77,9 +78,12 @@ function TraceBadge() {
         )}
         aria-hidden
       />
-      <span className="min-w-0 truncate">
+      <span
+        className="min-w-0 truncate"
+        title={live ? `${snap.eventCount.toLocaleString('en-US')} events` : undefined}
+      >
         {live
-          ? `${snap.eventCount} evt · ${snap.threadCount} thr${fromBoard ? ' · board' : ''}`
+          ? `${traceCounts(snap.eventCount, snap.threadCount)}${fromBoard ? ' · board' : ''}`
           : waitingOnBoard
             ? 'waiting for board'
             : mode === 'live'
@@ -120,7 +124,7 @@ function DebugBadge() {
     : snap.paused
       ? (snap.pcLabel ?? (snap.pc ? compactHex(snap.pc) : 'paused'))
       : snap.breakpoints.length > 0
-        ? `${snap.breakpoints.length} bp${snap.breakpoints.length === 1 ? '' : 's'}`
+        ? countOf(snap.breakpoints.length, 'breakpoint')
         : 'running'
 
   // Running is the top bar's green (StatusPill). Paused is the one that wants

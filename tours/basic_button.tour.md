@@ -6,7 +6,7 @@ sample: samples/basic/button
 This is Zephyr's button sample. It waits for a key event, then prints and
 lights an LED.
 
-Watch **GPIO Keys** in the **device dock**. You will press the button after
+Watch **Buttons** in the **device dock**. You will press the button after
 the sample starts waiting.
 
 ## The button comes from the board
@@ -39,7 +39,7 @@ return.
 `INPUT_CALLBACK_DEFINE` registered `button_input_cb` at **build** time. The
 **input** subsystem calls it when a key event arrives.
 
-Continue, then press the button in **GPIO Keys**.
+Continue, then press the button in the dock's **Buttons** row.
 
 ## A press is an input event
 

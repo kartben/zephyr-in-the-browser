@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
 import { LevelDot } from '@/components/LevelDot'
-import { formatGpioFlags } from '@/lib/gpioFlags'
+import { formatGpioFlags, gpioFlagMacros } from '@/lib/gpioFlags'
 import { revealDockRow } from '@/lib/dockReveal'
 import {
   claimedPinsToken,
@@ -24,12 +24,17 @@ import {
  * card is a claimed-pin table (docs/gpio-controller.md Proposal B).
  */
 
+/**
+ * Where a claimed pin's "used by" link goes, and the plain word it says after
+ * the pin's label: one button, one LED, as the dock's Buttons and LEDs rows
+ * name them.
+ */
 const CONSUMER_ROW: Record<
   PinConsumerKind,
   { key: string; deviceClass: 'keys' | 'led' | 'buzzer' | 'stepper' | 'auxdisplay'; kind: string }
 > = {
-  keys: { key: 'gpio-keys', deviceClass: 'keys', kind: 'keys' },
-  leds: { key: 'gpio-leds', deviceClass: 'led', kind: 'leds' },
+  keys: { key: 'gpio-keys', deviceClass: 'keys', kind: 'button' },
+  leds: { key: 'gpio-leds', deviceClass: 'led', kind: 'LED' },
   buzzer: { key: 'buzzer', deviceClass: 'buzzer', kind: 'buzzer' },
   stepper: { key: 'stepper', deviceClass: 'stepper', kind: 'stepper' },
   'seven-seg': { key: 'seven-seg', deviceClass: 'auxdisplay', kind: '7-seg' },
@@ -105,7 +110,12 @@ export function GpioBody() {
             <th className="pb-1 pr-2 font-medium">#</th>
             <th className="pb-1 pr-2 font-medium">dir</th>
             <th className="pb-1 pr-2 font-medium" aria-label="Level" />
-            <th className="pb-1 pr-2 font-medium">flags</th>
+            <th
+              className="pb-1 pr-2 font-medium"
+              title="Which level counts as on (pressed, lit), from the pin's devicetree flags"
+            >
+              active
+            </th>
             <th className="pb-1 font-medium">used by</th>
           </tr>
         </thead>
@@ -189,7 +199,10 @@ function ClaimedPinRow({ pin }: { pin: ClaimedPin }) {
           <LevelDot high={pin.direction !== 'none' && high} />
         )}
       </td>
-      <td className="py-0.5 pr-2 font-mono text-[10px] text-muted-foreground">
+      <td
+        className="py-0.5 pr-2 font-mono text-[10px] text-muted-foreground"
+        title={pin.flags !== undefined ? gpioFlagMacros(pin.flags) : undefined}
+      >
         {pin.flags !== undefined ? formatGpioFlags(pin.flags) : '—'}
       </td>
       <td className="max-w-[9rem] py-0.5">

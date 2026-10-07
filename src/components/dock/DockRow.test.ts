@@ -52,6 +52,20 @@ describe('dockRowSecondary', () => {
     expect(dockRowSecondary(chip, 'devicetree')).toBeUndefined()
   })
 
+  it('shows the compatible when the label only says the node name again', () => {
+    // `leds`, labelled "LEDs" in the ▤ view: the ⌗ row says gpio-leds instead.
+    const leds = node({
+      key: 'gpio-leds',
+      nodeName: 'leds',
+      label: 'LEDs',
+      compatible: 'gpio-leds',
+      deviceClass: 'led',
+    })
+    expect(dockRowSecondary(leds, 'devicetree')).toBe('gpio-leds')
+    const keys = { ...leds, key: 'gpio-keys', nodeName: 'keys', label: 'Buttons', compatible: 'gpio-keys' }
+    expect(dockRowSecondary(keys, 'devicetree')).toBe('Buttons')
+  })
+
   it('falls back to compatible for uncatalogued nodes without a distinct label', () => {
     const ghost = node({
       key: 'i2c0:76',

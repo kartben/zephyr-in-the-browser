@@ -62,6 +62,7 @@ import { PwmLedsBadge, PwmLedsBody } from '@/components/PwmLedsPanel'
 import { RtcBadge, RtcBody } from '@/components/RtcCard'
 import { SensorBody } from '@/components/SensorCard'
 import { PartIdentityStrip } from '@/components/PartIdentityStrip'
+import { countOf, pinsUsed } from '@/components/dock/countText'
 import { cn } from '@/lib/utils'
 import type { DeviceClass, DeviceNode, BodyKind } from '@/deviceTopology'
 import * as hostAudio from '@/hostAudio'
@@ -742,13 +743,14 @@ function NetBadge() {
   )
 }
 
+/** How many of the controller's pins the devicetree hands to a driver. */
 function GpioControllerBadge() {
   useSyncExternalStore(hostGpio.subscribe, hostGpio.claimedPinsToken, () => '')
   const claimed = hostGpio.getClaimedPins().length
   const ngpios = hostGpio.getNgpios()
   return (
     <Mono>
-      {claimed} / {ngpios}
+      {pinsUsed(claimed, ngpios)}
     </Mono>
   )
 }
@@ -762,7 +764,7 @@ function GpioKeysBadge() {
   if (buttons.length === 0) return null
   return (
     <Mono>
-      {buttons.length} {buttons.length === 1 ? 'btn' : 'btns'}
+      {countOf(buttons.length, 'button')}
     </Mono>
   )
 }

@@ -30,6 +30,7 @@ via the help dialog (?).
 - **Improved:** Tour cards move, resize, and list only relevant threads, one per line.
 - **Improved:** Device dock leads with the sample's devices and folds the rest, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Improved:** Dock rows and bus lists say each value once.
+- **Improved:** Dock labels in plain words, devicetree names beside them.
 - **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
 - **Improved:** Tour cards sit beside the dock, full height, and outline what they name.
 - **Improved:** Shorter code excerpts on tour cards, with folds you can open.

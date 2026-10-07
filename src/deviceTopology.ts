@@ -149,8 +149,10 @@ export interface DeviceNode {
    * the bus — the NAK/bus-error demo, visible.
    */
   presence: 'interactive' | 'inert' | 'ghost'
-  /** Short annotation ('→ terminal', 'no page model', 'NAK: detached'). */
+  /** Short annotation ('in the terminal', 'no panel', 'NAK: detached'). */
   note?: string
+  /** Tooltip on {@link note}: what it means, and the devicetree term behind it. */
+  noteTitle?: string
   /** Small qualifier chip ('not in devicetree' for an attached-but-undeclared part). */
   tag?: string
   body?: BodyKind
@@ -211,7 +213,8 @@ export type Row =
 export const CLASS_LABELS: Record<DeviceClass, string> = {
   sensor: 'Sensors',
   display: 'Displays',
-  auxdisplay: 'Aux displays',
+  // `auxdisplay` is Zephyr's name for these; the sample gallery tags them "text".
+  auxdisplay: 'Text displays',
   led: 'LEDs',
   pwm: 'PWM',
   dac: 'DAC',
@@ -225,7 +228,7 @@ export const CLASS_LABELS: Record<DeviceClass, string> = {
   power: 'Power',
   watchdog: 'Watchdog',
   gpio: 'GPIO',
-  keys: 'Keys',
+  keys: 'Buttons',
   buzzer: 'Buzzer',
   stepper: 'Stepper',
   gnss: 'GNSS',
@@ -392,7 +395,7 @@ function csCrumb(busLabel: string, cs: number): string {
 
 /**
  * Classes secondary for a bus controller alone. Soft names like `GPIO` next to
- * a row already titled "GPIO LEDs" are noise; keep the virtio label on
+ * a row already titled "LEDs" are noise; keep the virtio label on
  * {@link DeviceNode.busLabel} / the row tooltip instead.
  */
 function softBusCrumb(controllerLabel: string): string | undefined {
@@ -401,6 +404,41 @@ function softBusCrumb(controllerLabel: string): string | undefined {
   // Softened virtio/host bridge with no address/CS: omit from the row.
   return undefined
 }
+
+/**
+ * Classes secondary for a row named in plain words ("Buttons"): the
+ * devicetree compatible it stands for (`gpio-keys`), which is the term the
+ * reader came to learn, then the controller when it has a name of its own.
+ */
+function compatibleCrumb(compatible: string, controllerLabel: string): string {
+  return [compatible, softBusCrumb(controllerLabel)].filter(Boolean).join(' · ')
+}
+
+/**
+ * A devicetree node the page lists but has nothing to drive: an on-chip GPIO
+ * controller or bus the guest never bridges to the page. Only the ⌗ view
+ * shows these, so the note can be short; the tooltip says what it means.
+ */
+const NO_PANEL = {
+  note: 'no panel',
+  noteTitle: 'In the devicetree; this page has no controls for it',
+} as const
+
+/**
+ * The console UART. Its whole output is the terminal, to the dock's left on a
+ * desktop and under the drawer on a phone, so the note names the place. It
+ * used to say "→ terminal", an arrow pointing away from it.
+ */
+const CONSOLE_NOTE = {
+  note: 'in the terminal',
+  noteTitle: 'The chosen zephyr,console: what the guest prints shows in the terminal',
+} as const
+
+/** The virtio tablet: it has no panel, the Display row is where it is used. */
+const TOUCH_NOTE = {
+  note: 'on the Display',
+  noteTitle: 'virtio,input: a click or tap on the Display reaches the guest as a touch',
+} as const
 
 /** Declared I²C children under a bus that is not live yet — same keys/classes as ghosts. */
 function declaredI2cChildren(
@@ -771,7 +809,7 @@ function deriveFromTree(
         deviceClass: 'other',
         path: pathOf(tablet),
         presence: 'inert',
-        note: '→ display touch',
+        ...TOUCH_NOTE,
         crumb: tablet.labels[0],
       })
     }
@@ -819,7 +857,7 @@ function deriveFromTree(
       deviceClass: 'gpio',
       path: ctl.path,
       presence: live ? 'interactive' : 'inert',
-      note: live || ctl.bridged ? undefined : 'no page model',
+      ...(live || ctl.bridged ? {} : NO_PANEL),
       body: live ? 'gpio' : undefined,
       crumb: softBusCrumb(ctl.controllerLabel),
       busLabel: ctl.controllerLabel,
@@ -827,7 +865,7 @@ function deriveFromTree(
     })
   }
 
-  // gpio-keys: Keys-class row — buttons leave the GPIO controller card.
+  // gpio-keys: a Buttons-class row. Buttons leave the GPIO controller card.
   const bridgedKeys = insights.gpioControllers.find(
     (ctl) => ctl.bridged && ctl.buttons.length > 0,
   )
@@ -837,13 +875,13 @@ function deriveFromTree(
     push({
       key: uniqueKey(ids, 'gpio-keys'),
       nodeName: keysNode?.name ?? 'keys',
-      label: 'GPIO Keys',
+      label: 'Buttons',
       compatible: 'gpio-keys',
       deviceClass: 'keys',
       path: keysNode ? pathOf(keysNode) : '/keys',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-keys' : undefined,
-      crumb: softBusCrumb(bridgedKeys.controllerLabel),
+      crumb: compatibleCrumb('gpio-keys', bridgedKeys.controllerLabel),
       busLabel: bridgedKeys.controllerLabel,
       panelKind: live ? 'keys' : undefined,
     })
@@ -860,13 +898,13 @@ function deriveFromTree(
     push({
       key: uniqueKey(ids, 'gpio-leds'),
       nodeName: ledsNode?.name ?? 'leds',
-      label: 'GPIO LEDs',
+      label: 'LEDs',
       compatible: 'gpio-leds',
       deviceClass: 'led',
       path: ledsNode ? pathOf(ledsNode) : '/leds',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-leds' : undefined,
-      crumb: softBusCrumb(bridgedLeds.controllerLabel),
+      crumb: compatibleCrumb('gpio-leds', bridgedLeds.controllerLabel),
       busLabel: bridgedLeds.controllerLabel,
       panelKind: live ? 'led' : undefined,
     })
@@ -999,7 +1037,7 @@ function deriveFromTree(
       deviceClass: 'i2c-bus',
       path: bus.path,
       presence: live ? 'interactive' : 'inert',
-      note: live || bus.bridged ? undefined : 'no page model',
+      ...(live || bus.bridged ? {} : NO_PANEL),
       body: live ? 'i2c' : undefined,
       busLabel: bus.controllerLabel,
       panelKind: live ? 'i2c' : undefined,
@@ -1030,7 +1068,7 @@ function deriveFromTree(
       deviceClass: 'spi-bus',
       path: bus.path,
       presence: live ? 'interactive' : 'inert',
-      note: live || bus.bridged ? undefined : 'no page model',
+      ...(live || bus.bridged ? {} : NO_PANEL),
       body: live ? 'spi' : undefined,
       busLabel: bus.controllerLabel,
       panelKind: live ? 'spi' : undefined,
@@ -1139,7 +1177,7 @@ function deriveFromTree(
       deviceClass: 'uart-bus',
       path: bus.path,
       presence: liveUart ? 'interactive' : 'inert',
-      note: bus.role === 'console' ? '→ terminal' : undefined,
+      ...(bus.role === 'console' ? CONSOLE_NOTE : {}),
       body: liveGnss ? 'uart' : undefined,
       busLabel: bus.controllerLabel,
     })
@@ -1324,7 +1362,7 @@ function deriveFallback(
     deviceClass: 'uart-bus',
     path: `/soc/${names.console.nodeName}`,
     presence: 'inert',
-    note: '→ terminal',
+    ...CONSOLE_NOTE,
   })
 
   {
@@ -1452,13 +1490,13 @@ function deriveFallback(
     nodes.push({
       key: uniqueKey(ids, 'gpio-keys'),
       nodeName: 'keys',
-      label: 'GPIO Keys',
+      label: 'Buttons',
       compatible: 'gpio-keys',
       deviceClass: 'keys',
       path: '/keys',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-keys' : undefined,
-      crumb: softBusCrumb(names.gpio.label),
+      crumb: compatibleCrumb('gpio-keys', names.gpio.label),
       busLabel: names.gpio.label,
       panelKind: live ? 'keys' : undefined,
     })
@@ -1467,13 +1505,13 @@ function deriveFallback(
     nodes.push({
       key: uniqueKey(ids, 'gpio-leds'),
       nodeName: 'leds',
-      label: 'GPIO LEDs',
+      label: 'LEDs',
       compatible: 'gpio-leds',
       deviceClass: 'led',
       path: '/leds',
       presence: live ? 'interactive' : 'inert',
       body: live ? 'gpio-leds' : undefined,
-      crumb: softBusCrumb(names.gpio.label),
+      crumb: compatibleCrumb('gpio-leds', names.gpio.label),
       busLabel: names.gpio.label,
       panelKind: live ? 'led' : undefined,
     })
@@ -1503,7 +1541,7 @@ function deriveFallback(
       deviceClass: 'other',
       path: `/soc/${names.input.nodeName}`,
       presence: 'inert',
-      note: '→ display touch',
+      ...TOUCH_NOTE,
     })
   }
 
@@ -1696,7 +1734,7 @@ const BUS_CLASSES: ReadonlySet<DeviceClass> = new Set(['i2c-bus', 'spi-bus', 'ua
  *   state it is in: the EEPROM sample's bus before a chip is on it.
  * - the parent of any of those, as in the demo dock.
  *
- * Which leaves out every inert row: a node with no page model, a part on a
+ * Which leaves out every inert row: a node with no panel, a part on a
  * bus the page does not bridge, and the console UART, whose whole output is
  * the terminal the page is built around. A UART stays, like any bus, when a
  * live part hangs from it (GNSS, Bluetooth HCI).

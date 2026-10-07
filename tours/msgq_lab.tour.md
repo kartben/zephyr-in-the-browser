@@ -218,7 +218,7 @@ each of these switches in the two threads' lanes.
 
 ```tour
 at: main.c:raise_alarm/atomic_inc\(&alarms_lost\)/ | main.c:247
-await: Suspend the consumer, give the queue a few seconds to fill, then press **SW0** in **GPIO Keys**.
+await: Suspend the consumer, give the queue a few seconds to fill, then press **SW0** in **Buttons**.
 do: msgq consumer suspend
 ci:
   - wait 5s

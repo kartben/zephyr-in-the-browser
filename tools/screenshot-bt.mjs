@@ -20,7 +20,7 @@ page.on('console', (msg) => {
 await page.goto(url, { waitUntil: 'networkidle' })
 await page.waitForTimeout(2000)
 
-const classView = page.getByRole('button', { name: /^Classes$/i }).first()
+const classView = page.getByRole('button', { name: /^By type$/i }).first()
 if (await classView.count()) {
   await classView.click().catch(() => {})
   await page.waitForTimeout(300)
