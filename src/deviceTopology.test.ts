@@ -5,9 +5,17 @@ import { createPca9685 } from '@/virtio/devices/chips/pca9685'
 import { createJhd1313Pair } from '@/virtio/devices/chips/jhd1313'
 import a53Shell from '@/dts/fixtures/qemu_cortex_a53_shell.dts?raw'
 import a53Blinky from '@/dts/fixtures/qemu_cortex_a53_blinky.dts?raw'
+import m3Blinky from '@/dts/fixtures/qemu_cortex_m3_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
 import type { Availability, DeviceInventory, Row } from './deviceTopology'
-import { buildRowList, demoVisibleNodes, deriveDeviceInventory, learnerBusName } from './deviceTopology'
+import {
+  buildRowList,
+  demoVisibleNodes,
+  deriveDeviceInventory,
+  flattenSoloGroups,
+  learnerBusName,
+  usableNodes,
+} from './deviceTopology'
 import type { DeviceNode } from './deviceTopology'
 
 const treeOf = (text: string, name = 'test.dts') => {
@@ -712,5 +720,104 @@ describe('demo dock', () => {
     ])
     expect(nodes.map((n) => n.key)).toEqual(['uart', 'bt'])
     expect(hidden).toBe(0)
+  })
+})
+
+describe('usable rows (the ▤ view)', () => {
+  const keys = (nodes: DeviceNode[]) => nodes.map((n) => n.key)
+
+  it('leaves out nodes with no page model, and an unbridged bus with its parts', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(twoBuses),
+      [fakeSensor(0x48, 'TMP112')],
+      [],
+      ALL,
+      'qemu_cortex_a53',
+    )
+    expect(nodeByKey(inv, 'gpio:soc_gpio').note).toBe('no page model')
+    expect(nodeByKey(inv, 'i2c0').note).toBe('no page model')
+    const { nodes, hidden } = usableNodes(inv.nodes)
+    expect(keys(nodes)).toEqual(['gpio', 'virtio_i2c0', 'virtio_i2c0:48', 'gpio-leds', 'gpio-keys'])
+    // i2c0, the BME280 declared on it, and soc_gpio: all still in the ⌗ view.
+    expect(hidden).toBe(3)
+  })
+
+  it('leaves the console UART to the terminal, and keeps a UART with a live part', () => {
+    const inv = deriveDeviceInventory(treeOf(m3Blinky), [], [], ALL, 'qemu_cortex_m3')
+    expect(nodeByKey(inv, 'uart0').note).toBe('→ terminal')
+    const { nodes, hidden } = usableNodes(inv.nodes)
+    expect(keys(nodes)).not.toContain('uart0')
+    expect(keys(nodes)).toEqual(expect.arrayContaining(['uart1', 'gnss']))
+    expect(hidden).toBe(1)
+  })
+
+  it('drops a live bus with nothing on it, unless the sample is about that bus', () => {
+    const nodes = [
+      node({ key: 'spi2', presence: 'interactive', deviceClass: 'spi-bus', panelKind: 'spi' }),
+      node({ key: 'i2c0', presence: 'interactive', deviceClass: 'i2c-bus', panelKind: 'i2c' }),
+      node({ key: 'i2c0:6a', presence: 'interactive', parentKey: 'i2c0', panelKind: 'sensor' }),
+    ]
+    expect(keys(usableNodes(nodes).nodes)).toEqual(['i2c0', 'i2c0:6a'])
+    expect(keys(usableNodes(nodes, ['spi']).nodes)).toEqual(['spi2', 'i2c0', 'i2c0:6a'])
+  })
+
+  it('keeps a ghost, and the bus to attach it again on', () => {
+    const inv = deriveDeviceInventory(treeOf(twoBuses), [], [], ALL, 'qemu_cortex_a53')
+    expect(nodeByKey(inv, 'virtio_i2c0:48').presence).toBe('ghost')
+    const visible = keys(usableNodes(inv.nodes).nodes)
+    expect(visible).toEqual(expect.arrayContaining(['virtio_i2c0', 'virtio_i2c0:48']))
+  })
+
+  it('lists a bridged row once its runtime is up, or early when the sample is about it', () => {
+    const none = Object.fromEntries(Object.keys(ALL).map((k) => [k, false])) as unknown as Availability
+    const early = deriveDeviceInventory(treeOf(m3Blinky), [], [], none, 'qemu_cortex_m3')
+    const { nodes, hidden } = usableNodes(early.nodes)
+    expect(nodes).toEqual([])
+    expect(hidden).toBe(early.nodes.length)
+
+    const watchdog = node({
+      key: 'wdt0',
+      presence: 'inert',
+      deviceClass: 'watchdog',
+      panelKind: 'watchdog',
+    })
+    expect(usableNodes([watchdog]).nodes).toEqual([])
+    expect(usableNodes([watchdog], ['watchdog']).nodes).toEqual([watchdog])
+  })
+})
+
+describe('flattenSoloGroups', () => {
+  const inv = deriveDeviceInventory(
+    treeOf(a53Shell),
+    A53_SHELL_CHIPS,
+    [],
+    ALL,
+    'qemu_cortex_a53',
+  )
+  const usable = { ...inv, nodes: usableNodes(inv.nodes).nodes }
+
+  it('drops the header of a class of one and marks its row solo', () => {
+    const grouped = buildRowList(usable, 'classes')
+    const rows = flattenSoloGroups(grouped)
+
+    expect(rows.some((row) => row.kind === 'group' && row.count === 1)).toBe(false)
+    expect(rows.some((row) => row.kind === 'group' && row.deviceClass === 'gnss')).toBe(false)
+    const gnss = rows.find((row) => row.kind === 'device' && row.node.key === 'gnss')
+    expect(gnss).toMatchObject({ depth: 0, solo: true })
+
+    // A class of several keeps its header, and its rows are not solo.
+    expect(rows.find((row) => row.kind === 'group' && row.deviceClass === 'sensor')).toMatchObject({
+      count: 7,
+    })
+    const tmp = rows.find((row) => row.kind === 'device' && row.node.key === 'virtio_i2c0:48')
+    expect(tmp).not.toHaveProperty('solo')
+
+    // Every device row survives, in the same order.
+    expect(deviceKeys(rows)).toEqual(deviceKeys(grouped))
+  })
+
+  it('leaves the devicetree view alone', () => {
+    const rows = buildRowList(inv, 'devicetree')
+    expect(flattenSoloGroups(rows)).toBe(rows)
   })
 })

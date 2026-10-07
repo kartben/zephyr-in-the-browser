@@ -21,7 +21,13 @@ import { DockDeviceRow, DockGroupRow, DockStructRow } from '@/components/dock/Do
 import { DockInstruments } from '@/components/dock/Instruments'
 import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
-import { buildRowList, demoVisibleNodes, type DockView } from '@/deviceTopology'
+import {
+  buildRowList,
+  demoVisibleNodes,
+  flattenSoloGroups,
+  usableNodes,
+  type DockView,
+} from '@/deviceTopology'
 import { get as getDeviceTree } from '@/devicetree'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import { useDeviceTree } from '@/hooks/useDeviceTree'
@@ -37,6 +43,7 @@ import {
   setOpen,
   setView,
   setWidth,
+  soloExpandedIn,
   subscribe,
 } from '@/lib/dockStore'
 
@@ -54,6 +61,14 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
       hiddenInert: visible.hidden,
     }
   }, [demo, fullInventory])
+  // The ▤ view lists what there is to use (deviceTopology's usableNodes); the
+  // ⌗ view, where the devicetree is learnt, keeps every node. `leftOut` is the
+  // difference, which the view owns up to on its last line.
+  const shown = useMemo(() => {
+    if (state.view !== 'classes') return { inventory, leftOut: 0 }
+    const usable = usableNodes(inventory.nodes, state.seed.primary)
+    return { inventory: { ...inventory, nodes: usable.nodes }, leftOut: usable.hidden }
+  }, [inventory, state.view, state.seed.primary])
   const desktop = useIsDesktop()
   const mode = useSyncExternalStore(subscribeMode, getMode, getMode)
 
@@ -68,7 +83,8 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
   // width — keep it memoized so resizing the sidebar does not rebuild JSX.
   const rendered = useMemo(() => {
     if (!state.open && !state.drawerOpen) return null as ReactNode[] | null
-    const rows = buildRowList(inventory, state.view)
+    const built = buildRowList(shown.inventory, state.view)
+    const rows = state.view === 'classes' ? flattenSoloGroups(built) : built
     const hidden = new Set(
       Object.entries(state.devices)
         .filter(([, v]) => v.hidden)
@@ -79,7 +95,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
     let collapsedClass: string | null = null
     for (const row of rows) {
       if (row.kind === 'group') {
-        const members = inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)
+        const members = shown.inventory.nodes.filter((n) => n.deviceClass === row.deviceClass)
         const collapsed = groupCollapsedIn(
           state,
           row.deviceClass,
@@ -114,12 +130,17 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
           depth={row.depth}
           view={state.view}
           windowed={state.devices[node.key]?.windowed === true}
-          expanded={effectiveExpandedIn(state, node.key, node.panelKind)}
+          expanded={
+            row.solo
+              ? soloExpandedIn(state, node.key, node.deviceClass, node.panelKind)
+              : effectiveExpandedIn(state, node.key, node.panelKind)
+          }
+          soloClass={row.solo ? node.deviceClass : undefined}
         />,
       )
     }
     return next
-  }, [inventory, state.open, state.drawerOpen, state.view, state.devices, state.groups, state.seed])
+  }, [shown, state.open, state.drawerOpen, state.view, state.devices, state.groups, state.seed])
 
   // Two different things share one sidebar: a persistent desktop column, and a
   // drawer that covers the stage on a phone and so starts closed every visit.
@@ -221,7 +242,20 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
                   No peripherals yet. Waiting for the guest to boot.
                 </p>
               ) : (
-                rendered
+                <>
+                  {shown.inventory.nodes.length === 0 && (
+                    <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                      Nothing here to use yet.
+                    </p>
+                  )}
+                  {rendered}
+                  {shown.leftOut > 0 && (
+                    <LeftOutLine
+                      count={shown.leftOut}
+                      more={shown.inventory.nodes.length > 0}
+                    />
+                  )}
+                </>
               )}
               {demo && hiddenInert > 0 && (
                 <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -261,6 +295,25 @@ function SectionHeading({ children }: { children: ReactNode }) {
     <p className="px-1.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 first:pt-0.5">
       {children}
     </p>
+  )
+}
+
+/**
+ * The ▤ view's last line: it leaves out rows with nothing to use, and says so,
+ * so that a reader who knows the board is there does not think the page lost
+ * it. It is also the way to them: the devicetree view lists every node.
+ */
+function LeftOutLine({ count, more }: { count: number; more: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => setView('devicetree')}
+      title="Switch to the devicetree view, which lists every node, usable or not"
+      className="mt-1 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+    >
+      <ListTree className="size-3 shrink-0" aria-hidden />
+      {`${count}${more ? ' more' : ''} in the devicetree view`}
+    </button>
   )
 }
 

@@ -16,8 +16,8 @@ import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DeviceBadge, DeviceBody, deviceIcon } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
-import type { DeviceNode, DockView } from '@/deviceTopology'
-import { setExpanded, setWindowed } from '@/lib/dockStore'
+import type { DeviceClass, DeviceNode, DockView } from '@/deviceTopology'
+import { setExpanded, setSoloExpanded, setWindowed } from '@/lib/dockStore'
 import { isDockTargetRow, subscribe as subscribeTarget } from '@/lib/dockTarget'
 
 /**
@@ -204,6 +204,7 @@ export const DockDeviceRow = memo(function DockDeviceRow({
   view,
   windowed,
   expanded: expandedChoice,
+  soloClass,
 }: {
   node: DeviceNode
   depth: number
@@ -211,6 +212,8 @@ export const DockDeviceRow = memo(function DockDeviceRow({
   windowed: boolean
   /** The store's effective expansion; the row itself decides if a body shows. */
   expanded: boolean
+  /** Set when the row stands alone for its class, with no group header above it. */
+  soloClass?: DeviceClass
 }) {
   const interactive = node.presence === 'interactive'
 
@@ -251,7 +254,11 @@ export const DockDeviceRow = memo(function DockDeviceRow({
       depth={depth}
       interactive={interactive}
       expanded={expandedChoice}
-      onToggle={() => setExpanded(node.key, !expandedChoice)}
+      onToggle={() =>
+        soloClass
+          ? setSoloExpanded(node.key, soloClass, !expandedChoice)
+          : setExpanded(node.key, !expandedChoice)
+      }
       windowed={windowed}
       onWindowedChange={(next) => setWindowed(node.key, next)}
       windowLabel={node.label}

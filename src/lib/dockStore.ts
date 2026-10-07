@@ -341,6 +341,39 @@ export function setGroupCollapsed(deviceClass: DeviceClass, collapsed: boolean):
 }
 
 /**
+ * Whether a row that stands alone for its class is open. The ▤ view drops the
+ * header of a class with one member (deviceTopology's flattenSoloGroups), so
+ * the row answers for both: its own choice wins, and failing that it opens
+ * exactly when its body showed under the header it replaced. That keeps the
+ * seed's rules whole: a sample's own part opens, foldGroups still folds it,
+ * and a class the reader folded stays folded when a part leaves it alone.
+ */
+export function soloExpandedIn(
+  current: DockState,
+  key: string,
+  deviceClass: DeviceClass,
+  panelKind?: PanelKind,
+): boolean {
+  const override = current.devices[key]?.expanded
+  if (override !== undefined) return override
+  return (
+    effectiveExpandedIn(current, key, panelKind) &&
+    !groupCollapsedIn(current, deviceClass, [panelKind])
+  )
+}
+
+/**
+ * Open or close a row that stands alone for its class. Opening it unfolds the
+ * class too, as revealDockRow does: when a second part of the kind turns up
+ * (a chip attached on the bus) and the header comes back, it comes back open,
+ * instead of folding away the card the reader had just opened.
+ */
+export function setSoloExpanded(key: string, deviceClass: DeviceClass, expanded: boolean): void {
+  if (expanded) setGroupCollapsed(deviceClass, false)
+  setExpanded(key, expanded)
+}
+
+/**
  * Install the expansion defaults for the current board/sample selection.
  * Same selection (a reload): user overrides stay. New selection: expansion
  * and group-fold overrides are cleared so the new sample's defaults speak;

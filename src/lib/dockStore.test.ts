@@ -242,6 +242,44 @@ describe('seeding and expansion precedence', () => {
   })
 })
 
+describe('a row that stands alone for its class', () => {
+  it('opens exactly when its body showed under the header it replaced', () => {
+    dock.seedForSelection('a53:blinky', { primary: ['led'], expandAll: false })
+    const state = () => dock.getState()
+    // The sample's own part opens; anything else stays a line.
+    expect(dock.soloExpandedIn(state(), 'gpio-leds', 'led', 'led')).toBe(true)
+    expect(dock.soloExpandedIn(state(), 'virtio_i2c0:53', 'sensor', 'sensor')).toBe(false)
+
+    // A class the reader folded stays folded with one member left in it.
+    dock.setGroupCollapsed('led', true)
+    expect(dock.soloExpandedIn(state(), 'gpio-leds', 'led', 'led')).toBe(false)
+    // The row's own choice wins.
+    dock.setExpanded('gpio-leds', true)
+    expect(dock.soloExpandedIn(state(), 'gpio-leds', 'led', 'led')).toBe(true)
+
+    // foldDock's short list stays short.
+    dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false, foldGroups: true })
+    expect(dock.soloExpandedIn(state(), 'virtio_i2c0', 'i2c-bus', 'i2c')).toBe(false)
+  })
+
+  it('opening it unfolds its class, so a header that comes back is open', () => {
+    dock.seedForSelection('c3:lsm6dso', { primary: [], expandAll: false })
+    const state = () => dock.getState()
+    expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor'])).toBe(true)
+
+    dock.setSoloExpanded('i2c0:6a', 'sensor', true)
+    expect(dock.soloExpandedIn(state(), 'i2c0:6a', 'sensor', 'sensor')).toBe(true)
+    // A second sensor attached: the header is back, open, card and all.
+    expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor', 'sensor'])).toBe(false)
+    expect(dock.effectiveExpandedIn(state(), 'i2c0:6a', 'sensor')).toBe(true)
+
+    // Closing the row closes the row, not its class.
+    dock.setSoloExpanded('i2c0:6a', 'sensor', false)
+    expect(dock.soloExpandedIn(state(), 'i2c0:6a', 'sensor', 'sensor')).toBe(false)
+    expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor', 'sensor'])).toBe(false)
+  })
+})
+
 describe('legacy panel-layout key migration', () => {
   it('moves geometry to the new per-bus keys and drops perf', () => {
     savePanelLayout('sensor:48', { floating: true, rect: { x: 1, y: 2, w: 300, h: 200 } })

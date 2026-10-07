@@ -4,7 +4,7 @@
  */
 
 import type { PanelKind } from '@/boards'
-import type { DeviceClass, DeviceInventory } from '@/deviceTopology'
+import { usableNodes, type DeviceClass, type DeviceInventory } from '@/deviceTopology'
 import {
   STAGE_DEBUG_KEY,
   STAGE_PERF_KEY,
@@ -13,6 +13,7 @@ import {
   setExpanded,
   setGroupCollapsed,
   setHidden,
+  setView,
   showDock,
 } from '@/lib/dockStore'
 
@@ -63,6 +64,8 @@ export interface RevealOptions {
 /**
  * Bring a dock row — device or instrument — into view and briefly highlight it.
  * `deviceClass` is required in ▤ view so a collapsed class group can open.
+ * A row the ▤ view leaves out (nothing to use on it, see usableNodes) is shown
+ * in the devicetree view instead, which lists every node.
  *
  * A row that is popped out is left where it is: PanelFrame stamps the same
  * `data-dock-key` on its floating card, so the blink finds it there.
@@ -75,6 +78,7 @@ export function revealDockRow(
   const state = getState()
   if (state.devices[key]?.windowed !== true) showDock()
   if (state.devices[key]?.hidden) setHidden(key, false)
+  if (state.view === 'classes' && leftOutOfClasses(key)) setView('devicetree')
   if (deviceClass && getState().view === 'classes') setGroupCollapsed(deviceClass, false)
   setExpanded(key, true)
   pulseDockKey(key, opts.quiet === true)
@@ -132,6 +136,13 @@ export function publishInventory(next: DeviceInventory): void {
 
 export function getInventory(): DeviceInventory | null {
   return inventory
+}
+
+/** Whether `key` is a device row the ▤ view does not list. */
+function leftOutOfClasses(key: string): boolean {
+  const nodes = inventory?.nodes
+  if (!nodes || !nodes.some((node) => node.key === key)) return false
+  return !usableNodes(nodes, getState().seed.primary).nodes.some((node) => node.key === key)
 }
 
 export function subscribeInventory(fn: () => void): () => void {
