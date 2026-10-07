@@ -89,14 +89,10 @@ export function I2cBody({ busLabel = 'virtio_i2c0' }: { busLabel?: string } = {}
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                   {chip.name}
                 </span>
-                {hasDriver(chip.address) ? (
-                  <span
-                    className="text-[10px] text-emerald-400"
-                    title="The devicetree declares this chip, so the app can use it."
-                  >
-                    in devicetree
-                  </span>
-                ) : (
+                {/* Only the exception gets a tag. "in devicetree" on every
+                    chip the sample declares said the same thing eleven times
+                    over on the A53 shell, and hid the one that differed. */}
+                {!hasDriver(chip.address) && (
                   <span
                     className="whitespace-nowrap text-[10px] text-muted-foreground"
                     title="This chip answers on the bus, but the devicetree does not declare it. The app ignores it."

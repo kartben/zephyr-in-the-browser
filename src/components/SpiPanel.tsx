@@ -59,14 +59,8 @@ export function SpiBody({ busLabel = 'virtio_spi0' }: { busLabel?: string } = {}
                 <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                   {chip.name}
                 </span>
-                {hasSpiDriver(chip.cs) ? (
-                  <span
-                    className="text-[10px] text-emerald-400"
-                    title="The devicetree declares this chip, so the app can use it."
-                  >
-                    in devicetree
-                  </span>
-                ) : (
+                {/* Only the exception gets a tag, as on the I²C roster. */}
+                {!hasSpiDriver(chip.cs) && (
                   <span
                     className="whitespace-nowrap text-[10px] text-muted-foreground"
                     title="This chip answers on the bus, but the devicetree does not declare it. The app ignores it."

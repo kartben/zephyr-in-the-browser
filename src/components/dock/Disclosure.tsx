@@ -1,8 +1,10 @@
 /**
  * A body-internal fold: chevron, title, an optional right-aligned meta value
- * that keeps reading while closed (an IP, a frame count). Open state belongs
- * to the caller — Network persists its set in dockStore, so the sections a
- * user keeps open survive reloads and pop-outs alike.
+ * that keeps reading while closed (an IP, a frame count). Open, the section
+ * shows that value itself, larger, so the meta steps aside rather than say it
+ * twice. Open state belongs to the caller: Network persists its set in
+ * dockStore, so the sections a user keeps open survive reloads and pop-outs
+ * alike.
  */
 
 import type { ReactNode } from 'react'
@@ -38,7 +40,7 @@ export function Disclosure({
           )}
         />
         <span className="text-xs font-medium">{title}</span>
-        {meta !== undefined && (
+        {meta !== undefined && !open && (
           <span className="ml-auto flex min-w-0 items-center gap-1.5 pl-2 font-mono text-[10px] tabular-nums text-muted-foreground">
             {meta}
           </span>

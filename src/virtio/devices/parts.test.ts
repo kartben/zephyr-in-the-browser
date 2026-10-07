@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CHIP_TYPES } from './registry'
 import { SPI_CHIP_TYPES } from './spiRegistry'
 import { PARTS, partByCompatible, partById, partCompatible } from './parts'
+import { w25qDecl } from './chips/w25q'
 
 describe('PARTS catalog', () => {
   it('covers every I²C attach type', () => {
@@ -23,6 +24,11 @@ describe('PARTS catalog', () => {
       expect(part!.bus).toBe('spi')
       expect(part!.datasheetUrl, `${type.id} needs a datasheet`).toBeTruthy()
     }
+  })
+
+  it('names the flash the model is, so the card and its row agree', () => {
+    // The row shows the model's name, the identity strip the catalog's part.
+    expect(w25qDecl.name.split(' ')[0]).toBe(partById('w25q')!.part)
   })
 
   it('leaves the SPI loopback out of the catalog', () => {

@@ -113,6 +113,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
+        "text": "Dock rows and bus lists say each value once."
+      },
+      {
+        "tag": "Improved",
         "text": "Trace Timeline shows thread priorities and what blocked threads wait on."
       },
       {
