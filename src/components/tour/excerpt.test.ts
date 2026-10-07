@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONTEXT, MAX_LINES, excerptWindow } from '@/components/tour/excerpt'
+import { CONTEXT, MAX_LINES, excerptRows, excerptWindow } from '@/components/tour/excerpt'
 
 const lines = (e: ReturnType<typeof excerptWindow>) =>
   Array.from({ length: e.end - e.start + 1 }, (_, i) => e.start + i).filter((n) => e.marked(n))
@@ -60,7 +60,7 @@ describe('excerptWindow', () => {
   it('clamps to the file and ignores a backwards range', () => {
     const e = excerptWindow(8, 2, [{ start: 6, end: 3 }])
     expect(e.start).toBe(1)
-    expect(e.end).toBe(7)
+    expect(e.end).toBe(2 + CONTEXT)
     expect(lines(e)).toEqual([])
   })
 
@@ -70,5 +70,52 @@ describe('excerptWindow', () => {
     expect(e.end).toBe(43 + CONTEXT)
     expect(lines(e)).toEqual([40, 41, 42, 43])
     expect(e.marked(39)).toBe(false)
+  })
+
+  it('keeps a stop and a far one-line highlight to a few lines each', () => {
+    // The sensor pipeline's first step: K_MSGQ_DEFINE on 85, the stop on 207.
+    const e = excerptWindow(332, 207, [{ start: 85, end: 85 }])
+    expect(e.runs).toEqual([
+      { start: 85 - CONTEXT, end: 85 + CONTEXT },
+      { start: 207 - CONTEXT, end: 207 + CONTEXT },
+    ])
+  })
+
+  it('shares one window only while it fits the ceiling', () => {
+    // From the highlight's first line of context to the stop's last.
+    const furthest = 60 + 2 * CONTEXT + 1 - MAX_LINES
+    const fits = excerptWindow(200, 60, [{ start: furthest, end: furthest }])
+    expect(fits.runs).toEqual([{ start: furthest - CONTEXT, end: 60 + CONTEXT }])
+    expect(fits.end - fits.start + 1).toBe(MAX_LINES)
+    expect(excerptWindow(200, 60, [{ start: furthest - 1, end: furthest - 1 }]).runs).toHaveLength(2)
+  })
+})
+
+describe('excerptRows', () => {
+  const runs = [
+    { start: 82, end: 88 },
+    { start: 204, end: 210 },
+  ]
+  const kinds = (rows: ReturnType<typeof excerptRows>) =>
+    rows.map((row) =>
+      row.kind === 'line' ? row.line : `fold ${row.from}-${row.to}${row.open ? ' open' : ''}`,
+    )
+
+  it('puts one fold row between two runs', () => {
+    expect(kinds(excerptRows(runs))).toEqual([
+      82, 83, 84, 85, 86, 87, 88, 'fold 89-203', 204, 205, 206, 207, 208, 209, 210,
+    ])
+  })
+
+  it('keeps an opened fold row above the lines it held', () => {
+    const rows = kinds(excerptRows(runs, new Set([89])))
+    expect(rows.slice(6, 10)).toEqual([88, 'fold 89-203 open', 89, 90])
+    expect(rows).toHaveLength(7 + 1 + 115 + 7)
+    expect(rows[rows.length - 1]).toBe(210)
+  })
+
+  it('draws one run with no fold, and nothing for no runs', () => {
+    expect(kinds(excerptRows([{ start: 5, end: 7 }]))).toEqual([5, 6, 7])
+    expect(excerptRows([])).toEqual([])
   })
 })

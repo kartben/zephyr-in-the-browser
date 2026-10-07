@@ -12,11 +12,18 @@ export interface LineRange {
   end: number
 }
 
-/** Lines of context either side of what is being shown. */
-export const CONTEXT = 5
+/**
+ * Lines of context either side of what is being shown. Three is enough to see
+ * the statement a line sits in, and the card is short on height: every line
+ * here pushes the prose and the Continue button further down.
+ */
+export const CONTEXT = 3
 
-/** Ceiling on the excerpt, so one bad highlight cannot swallow the card. */
-export const MAX_LINES = 40
+/**
+ * Ceiling on the excerpt, so one bad highlight cannot swallow the card: about
+ * what fits under a step's prose on a laptop screen without the card scrolling.
+ */
+export const MAX_LINES = 24
 
 /** A gap shorter than this is shown rather than folded: the marker saves nothing. */
 const MIN_FOLD = 3
@@ -107,4 +114,32 @@ export function excerptWindow(
     budget -= size
   }
   return excerpt(runs.sort((a, b) => a.start - b.start), marked)
+}
+
+/** One row of an excerpt as drawn: a source line, or the fold between two runs. */
+export type ExcerptRow =
+  | { kind: 'line'; line: number }
+  /** Lines `from` to `to` (inclusive) between two runs; `open` once the reader unfolded them. */
+  | { kind: 'fold'; from: number; to: number; open: boolean }
+
+/**
+ * The rows to draw for `runs`, in file order. Each gap between two runs is one
+ * fold row; a fold whose first line is in `open` keeps its row (the reader
+ * folds it back from there) and is followed by the lines it held.
+ */
+export function excerptRows(runs: LineRange[], open: ReadonlySet<number> = new Set()): ExcerptRow[] {
+  const rows: ExcerptRow[] = []
+  const lines = (from: number, to: number) => {
+    for (let line = from; line <= to; line++) rows.push({ kind: 'line', line })
+  }
+  runs.forEach((run, k) => {
+    const prev = runs[k - 1]
+    if (prev && run.start > prev.end + 1) {
+      const fold = { from: prev.end + 1, to: run.start - 1 }
+      rows.push({ kind: 'fold', ...fold, open: open.has(fold.from) })
+      if (open.has(fold.from)) lines(fold.from, fold.to)
+    }
+    lines(run.start, run.end)
+  })
+  return rows
 }

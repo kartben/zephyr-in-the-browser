@@ -129,6 +129,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
+        "text": "Shorter code excerpts on tour cards, with folds you can open."
+      },
+      {
+        "tag": "Improved",
         "text": "Trace hides empty tabs and skips untraced net samples."
       },
       {

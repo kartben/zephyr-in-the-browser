@@ -38,6 +38,15 @@ vi.mock('@/debug/control', () => ({
 
 vi.mock('@/devicetree', () => ({ subscribe: () => () => {}, get: () => null }))
 
+// The excerpt fetches its file; here it only shows what the card told it.
+vi.mock('@/components/SourceSnippet', async () => {
+  const { createElement } = await import('react')
+  return {
+    SourceSnippet: (props: { stop?: string; label?: string }) =>
+      createElement('div', { 'data-snippet': props.stop ?? 'here', 'data-label': props.label }),
+  }
+})
+
 const { TourCard } = await import('./TourCard')
 
 const doc = parseTour(
@@ -50,7 +59,7 @@ const doc = parseTour(
   ].join('\n'),
 )
 
-const board = { id: 'qemu_cortex_a53', samples: [] } as unknown as Board
+const board = { id: 'qemu_cortex_a53', zephyrTarget: 'qemu_cortex_a53', samples: [] } as unknown as Board
 
 function card(index: number): TourCardState {
   const step = doc.steps[index]!
@@ -282,5 +291,28 @@ describe('TourCard on a step read again', () => {
     expect(text(html)).toMatch(/\sBack\s/)
     expect(text(html)).not.toMatch(/Try again|Continue|Got it/)
     expect(html).not.toContain('data-tour-paused')
+  })
+})
+
+describe('TourCard source excerpt', () => {
+  /** A card stopped in main.c, with the file shipped. */
+  const inMain = (index: number): TourCardState => ({
+    ...card(index),
+    anchor: { addr: 0x1000, via: 'line', file: '/src/main.c', line: 42, symbol: 'main' },
+    source: 'main.c',
+  })
+  const snippet = (html: string) => /<div data-snippet="([^"]*)" data-label="([^"]*)"/.exec(html)?.slice(1)
+
+  it('marks the stop on a step the guest is paused on', () => {
+    expect(snippet(render({ current: inMain(1), seen: new Set([0, 1]) }))).toEqual(['here', 'main.c:42'])
+  })
+
+  it('claims no stop on a `stop: no` step, whose guest runs on', () => {
+    expect(snippet(render({ current: inMain(0), seen: new Set([0]) }))).toEqual(['none', 'main.c:42'])
+  })
+
+  it('puts the stop in the past on a paused step read again', () => {
+    const again = { ...inMain(1), paused: false, revisit: { back: card(2) } }
+    expect(snippet(render({ current: again, seen: new Set([0, 1, 2]) }))).toEqual(['earlier', 'main.c:42'])
   })
 })
