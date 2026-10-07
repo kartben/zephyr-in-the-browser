@@ -381,7 +381,9 @@ export function QueueGraph({
       />
       {/* The canvas's own height, measured even before there is a layout to
           draw, so the first one can already pick the direction that fits. */}
-      <div ref={frameRef} className="h-[clamp(16rem,42vh,28rem)] min-h-64">
+      {/* The canvas's own ground, so its empty and waiting states read the
+          same as a drawn graph in both themes, not as grey over the card. */}
+      <div ref={frameRef} className="h-[clamp(16rem,42vh,28rem)] min-h-64 bg-[#080d18]">
         {empty && live.waitingFor ? (
           <div className="grid h-full place-items-center gap-2 px-6 text-center text-sm text-slate-400">
             <span>

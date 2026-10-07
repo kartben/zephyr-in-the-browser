@@ -37,6 +37,7 @@ objects:
   type: msgq
   focus: sensor_q
   view: list
+look: trace.ipc.sensor_q
 ```
 
 The readings travel through `sensor_q`, a **message queue**. `K_MSGQ_DEFINE`
