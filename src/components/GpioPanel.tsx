@@ -1,8 +1,11 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Lamp, LAMP_ROW } from '@/components/Lamp'
 import { LevelDot } from '@/components/LevelDot'
 import { formatGpioFlags, gpioFlagMacros } from '@/lib/gpioFlags'
 import { revealDockRow } from '@/lib/dockReveal'
+import { pinDisplayName } from '@/lib/pinLabel'
 import {
   claimedPinsToken,
   getButtons,
@@ -55,7 +58,7 @@ export function GpioKeysBody() {
 
   return (
     <div className="px-3 py-3">
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {buttons.map((pin) => (
           <ButtonPin key={pin.id} pin={pin} />
         ))}
@@ -79,7 +82,7 @@ export function GpioLedsBody() {
 
   return (
     <div className="px-3 py-3">
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className={LAMP_ROW}>
         {leds.map((pin) => (
           <LedPin key={pin.id} pin={pin} />
         ))}
@@ -166,7 +169,7 @@ function ClaimedPinRow({ pin }: { pin: ClaimedPin }) {
         {pressable ? (
           <button
             type="button"
-            aria-label={`Drive pin ${pin.id} (${pin.consumer?.label ?? 'input'})`}
+            aria-label={`Drive pin ${pin.id} (${pin.consumer ? consumerName(pin.consumer) : 'input'})`}
             aria-pressed={high}
             className="touch-none rounded p-0.5"
             onPointerDown={(e) => {
@@ -216,38 +219,61 @@ function ClaimedPinRow({ pin }: { pin: ClaimedPin }) {
   )
 }
 
+/**
+ * A key's or an LED's name as the dock's Buttons and LEDs rows show it
+ * (SW0, not Host SW0), so the table and the row agree. Other consumers keep
+ * their label: it names a part ("7-segment LED DIG1"), not the host.
+ */
+function consumerName(consumer: NonNullable<ClaimedPin['consumer']>): string {
+  return consumer.kind === 'keys' || consumer.kind === 'leds'
+    ? pinDisplayName(consumer.label)
+    : consumer.label
+}
+
 function UsedByButton({
   consumer,
 }: {
   consumer: NonNullable<ClaimedPin['consumer']>
 }) {
   const target = CONSUMER_ROW[consumer.kind]
+  const name = consumerName(consumer)
   return (
     <button
       type="button"
-      aria-label={`Reveal ${target.kind} ${consumer.label}`}
+      aria-label={`Reveal ${target.kind} ${name}`}
       title={`Reveal ${consumer.label}`}
       onClick={() => revealDockRow(target.key, target.deviceClass)}
       className="flex max-w-full items-center gap-1 truncate text-left font-mono text-[10px] text-muted-foreground hover:text-foreground"
     >
-      <span className="truncate font-medium text-foreground">{consumer.label}</span>
+      <span className="truncate font-medium text-foreground">{name}</span>
       <span className="shrink-0 opacity-80">· {target.kind}</span>
     </button>
   )
 }
 
+/**
+ * A `gpio-keys` key, drawn as a key: raised on a ledge while it rests, sunk
+ * and filled while held, with its name and a quiet "press" under it. It is
+ * momentary like the real one, down for as long as the pointer (or Space or
+ * Enter) is, so the guest sees a press of whatever length the reader gives
+ * it. It used to be the grey tile the LED shares, with a bare 0 or 1 that
+ * read as a counter; the state is in `aria-pressed` and the "pressed" hint.
+ */
 function ButtonPin({ pin }: { pin: Pin }) {
   const high = useSyncExternalStore(
     subscribe,
     useCallback(() => isPressed(pin.id), [pin.id]),
     () => false,
   )
+  const name = pinDisplayName(pin.label)
 
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
       aria-pressed={high}
-      aria-label={`${pin.label} (pin ${pin.id})`}
+      aria-label={`${name} (pin ${pin.id})`}
+      title={`${pin.label} (pin ${pin.id}): press and hold`}
       onPointerDown={(e) => {
         setPressed(pin.id, true)
         try {
@@ -272,18 +298,24 @@ function ButtonPin({ pin }: { pin: Pin }) {
         }
       }}
       className={cn(
-        'flex touch-none select-none flex-col items-center gap-0.5 rounded-md border py-1.5 text-[11px] font-medium transition-colors',
+        // The ledge is a hard shadow rather than a thicker border, so a press
+        // sinks the key onto it without moving anything around it.
+        'h-auto min-h-10 min-w-[4.5rem] touch-none select-none flex-col gap-0 px-3 py-1 leading-tight',
+        'transition-[translate,box-shadow,background-color,border-color,color] duration-75',
         high
-          ? 'border-primary-solid bg-primary-solid text-primary-foreground'
-          : 'border-border bg-secondary text-muted-foreground hover:text-foreground',
+          ? 'translate-y-0.5 border-primary-solid bg-primary-solid text-primary-foreground shadow-none hover:bg-primary-solid'
+          : 'border-muted-foreground/50 bg-secondary text-foreground shadow-[0_2px_0_0_color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)] hover:border-muted-foreground hover:bg-secondary',
       )}
     >
-      <span>{pin.label}</span>
-      <span className="font-mono text-[10px] tabular-nums opacity-80">{high ? '1' : '0'}</span>
-    </button>
+      <span className="text-xs font-medium">{name}</span>
+      <span className={cn('text-[11px] font-normal', high ? 'text-primary-foreground' : 'text-muted-foreground')}>
+        {high ? 'pressed' : 'press'}
+      </span>
+    </Button>
   )
 }
 
+/** A `gpio-leds` LED, drawn as a lamp (see Lamp). */
 function LedPin({ pin }: { pin: Pin }) {
   const high = useSyncExternalStore(
     subscribe,
@@ -292,20 +324,10 @@ function LedPin({ pin }: { pin: Pin }) {
   )
 
   return (
-    <div
-      className="flex flex-col items-center gap-1 rounded-md border border-border bg-secondary py-1.5 text-center text-[11px] text-muted-foreground"
+    <Lamp
+      lit={high}
+      name={pinDisplayName(pin.label)}
       title={`${pin.label} (pin ${pin.id}) ${high ? 'on' : 'off'}`}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'size-3 rounded-full border transition-colors',
-          high
-            ? 'border-primary bg-primary shadow-[0_0_6px_1px_var(--color-primary)]'
-            : 'border-border bg-transparent',
-        )}
-      />
-      <span className="w-full px-0.5 leading-tight">{pin.label}</span>
-    </div>
+    />
   )
 }

@@ -64,6 +64,7 @@ import { SensorBody } from '@/components/SensorCard'
 import { PartIdentityStrip } from '@/components/PartIdentityStrip'
 import { countOf, pinsUsed } from '@/components/dock/countText'
 import { cn } from '@/lib/utils'
+import { pinDisplayName } from '@/lib/pinLabel'
 import type { DeviceClass, DeviceNode, BodyKind } from '@/deviceTopology'
 import * as hostAudio from '@/hostAudio'
 import * as hostBuzzer from '@/hostBuzzer'
@@ -787,7 +788,7 @@ function GpioLedsBadge() {
       {leds.slice(0, 4).map((pin) => (
         <span
           key={pin.id}
-          title={pin.label}
+          title={pinDisplayName(pin.label)}
           className={cn(
             'size-[7px] rounded-full',
             hostGpio.isOutputHigh(pin.id)
