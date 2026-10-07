@@ -9,12 +9,20 @@ import type { DeviceInventory, DeviceNode } from '@/deviceTopology'
 
 const calls: string[] = []
 const view = { current: 'classes' }
+/** What the sample is about: the fold holds every other device row. */
+let primary: string[] = []
 
 vi.mock('@/lib/dockStore', () => ({
   STAGE_DEBUG_KEY: 'stage:debug',
   STAGE_PERF_KEY: 'stage:perf',
   STAGE_TRACE_KEY: 'stage:trace',
-  getState: () => ({ view: view.current, devices: {}, groups: {}, seed: { primary: [] } }),
+  getState: () => ({
+    view: view.current,
+    devices: {},
+    groups: {},
+    seed: { primary, expandAll: false },
+  }),
+  setMoreOpen: (open: boolean) => calls.push(`setMoreOpen ${open}`),
   setExpanded: (key: string, expanded: boolean) => calls.push(`setExpanded ${key} ${expanded}`),
   setGroupCollapsed: (group: string, collapsed: boolean) =>
     calls.push(`setGroupCollapsed ${group} ${collapsed}`),
@@ -35,6 +43,7 @@ function node(key: string, presence: DeviceNode['presence']): DeviceNode {
 beforeEach(() => {
   calls.length = 0
   view.current = 'classes'
+  primary = []
   vi.stubGlobal('requestAnimationFrame', () => 0)
 })
 
@@ -61,8 +70,21 @@ describe('revealPanelKind', () => {
     }
     publishInventory(inventory)
     revealPanelKind('led')
-    // Groups fold by default, so the reveal unfolds this one even untouched.
-    expect(calls).toEqual(['showDock', 'setGroupCollapsed led false', 'setExpanded led0 true'])
+    // A row the sample is not about sits in the closed "More on this board"
+    // fold, inside a class group that is folded too: the reveal opens both.
+    expect(calls).toEqual([
+      'showDock',
+      'setMoreOpen true',
+      'setGroupCollapsed led false',
+      'setExpanded led0 true',
+    ])
+  })
+
+  it('leaves the fold alone for a row the sample leads with', () => {
+    primary = ['led']
+    publishInventory({ source: 'devicetree', nodes: [node('led0', 'interactive')] })
+    revealPanelKind('led')
+    expect(calls).toEqual(['showDock', 'setExpanded led0 true'])
   })
 
   it('does nothing for a kind this board has no row for', () => {
@@ -91,10 +113,16 @@ describe('revealDockRow', () => {
     revealDockRow('uart1', 'uart-bus')
     expect(calls).toEqual(['showDock', 'setView devicetree', 'setExpanded uart1 true'])
 
-    // A row it does list is revealed where it is.
+    // A row it does list is revealed where it is: with no sample to lead
+    // with, that is the "More on this board" fold, which opens.
     calls.length = 0
     view.current = 'classes'
     revealDockRow('led0', 'led')
-    expect(calls).toEqual(['showDock', 'setGroupCollapsed led false', 'setExpanded led0 true'])
+    expect(calls).toEqual([
+      'showDock',
+      'setMoreOpen true',
+      'setGroupCollapsed led false',
+      'setExpanded led0 true',
+    ])
   })
 })

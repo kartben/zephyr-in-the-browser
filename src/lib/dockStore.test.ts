@@ -229,6 +229,21 @@ describe('seeding and expansion precedence', () => {
     expect(dock.groupCollapsedIn(dock.getState(), 'sensor', ['sensor'])).toBe(false)
   })
 
+  it('foldGroups folds the rows a sample leads with, until the user opens one', () => {
+    // The ▤ view lifts them out of their groups, so the fold moves onto them.
+    dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false, foldGroups: true })
+    expect(dock.leadExpandedIn(dock.getState(), 'virtio_i2c0', 'i2c')).toBe(false)
+    dock.setExpanded('virtio_i2c0', true)
+    expect(dock.leadExpandedIn(dock.getState(), 'virtio_i2c0', 'i2c')).toBe(true)
+
+    // Without foldGroups a lead row follows the ordinary seed.
+    dock.seedForSelection('a53:blinky', { primary: ['led'], expandAll: false })
+    expect(dock.leadExpandedIn(dock.getState(), 'gpio-leds', 'led')).toBe(true)
+    expect(dock.leadExpandedIn(dock.getState(), 'gpio-leds', 'led')).toBe(
+      dock.effectiveExpanded('gpio-leds', 'led'),
+    )
+  })
+
   it('effectiveExpandedIn is pure over an explicit state', () => {
     const state = dock.getState()
     const seeded = {
@@ -277,6 +292,36 @@ describe('a row that stands alone for its class', () => {
     dock.setSoloExpanded('i2c0:6a', 'sensor', false)
     expect(dock.soloExpandedIn(state(), 'i2c0:6a', 'sensor', 'sensor')).toBe(false)
     expect(dock.groupCollapsedIn(state(), 'sensor', ['sensor', 'sensor'])).toBe(false)
+  })
+})
+
+describe('the "More on this board" fold', () => {
+  it('starts closed, and open only when everything is to be shown', () => {
+    dock.seedForSelection('a53:blinky', { primary: ['led'], expandAll: false })
+    expect(dock.moreOpenIn(dock.getState())).toBe(false)
+    dock.seedForSelection('custom:blob.elf', { primary: [], expandAll: true })
+    expect(dock.moreOpenIn(dock.getState())).toBe(true)
+  })
+
+  it('is remembered for the sample, and forgotten when the sample changes', () => {
+    dock.seedForSelection('a53:blinky', { primary: ['led'], expandAll: false })
+    dock.setMoreOpen(true)
+    dock.reloadFromStorage()
+    expect(dock.moreOpenIn(dock.getState())).toBe(true)
+
+    // A reload of the same sample keeps it, like the class groups.
+    dock.seedForSelection('a53:blinky', { primary: ['led'], expandAll: false })
+    expect(dock.moreOpenIn(dock.getState())).toBe(true)
+
+    dock.seedForSelection('a53:shell', { primary: ['i2c'], expandAll: false })
+    expect(dock.moreOpenIn(dock.getState())).toBe(false)
+  })
+
+  it('closes again on Reset layout', () => {
+    dock.seedForSelection('a53:blinky', { primary: ['led'], expandAll: false })
+    dock.setMoreOpen(true)
+    dock.resetLayout()
+    expect(dock.moreOpenIn(dock.getState())).toBe(false)
   })
 })
 

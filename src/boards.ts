@@ -79,16 +79,16 @@ export interface GuestSample {
   zephyrSample: string
   /**
    * Panels this sample is *about* — expanded on boot so the relevant bridge is
-   * in view immediately. Every other available panel starts collapsed, since it
-   * is incidental to what the sample demonstrates. Omit for samples that only
-   * speak over the terminal.
+   * in view immediately, and listed first in the dock's ▤ view, in this order
+   * (lib/dockSections). Every other available panel starts collapsed in a
+   * "More on this board" fold, since it is incidental to what the sample
+   * demonstrates. Omit for samples that only speak over the terminal.
    */
   primaryPanels?: PanelKind[]
   /**
-   * Start every dock class group folded, the primary ones included. For a
-   * showcase like the shell, which is about every bridge at once: opening all
-   * of their groups buried the dock. Primary cards still open expanded once
-   * their group is unfolded.
+   * Start the sample's own dock rows folded to one line each, and every class
+   * group with them. For a showcase like the shell, which is about every
+   * bridge at once: expanding all of their cards buried the dock.
    */
   foldDock?: boolean
   /**

@@ -44,8 +44,8 @@ when: first
 look: debug.threads
 ```
 
-Every stop in a tour is a breakpoint. **Debug**, under Instruments at the top
-of the device dock, shows where the guest is paused: the call stack, the CPU
+Every stop in a tour is a breakpoint. **Debug**, under Instruments in the
+device dock, shows where the guest is paused: the call stack, the CPU
 registers, memory, and the threads.
 
 Blinky's code runs in one thread, `main`. It is about to sleep for a second,

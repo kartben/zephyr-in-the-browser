@@ -27,7 +27,7 @@ via the help dialog (?).
 - **Improved:** Blinky tours: a page tour that chains on, and one through the code.
 - **Improved:** Tours open on an intro card listing their stops.
 - **Improved:** Tour cards move, resize, and list only relevant threads, one per line.
-- **Improved:** Device dock opens folded to the sample's devices, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
+- **Improved:** Device dock leads with the sample's devices and folds the rest, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
 - **Improved:** Dock rows and bus lists say each value once.
 - **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
 - **Improved:** Tour cards sit beside the dock, full height, and outline what they name.

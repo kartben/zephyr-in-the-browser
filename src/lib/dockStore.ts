@@ -9,9 +9,9 @@
  * that way back, so this store persists all of it — while still letting each
  * sample drive what opens by default: a per-selection *seed* supplies the
  * default expansion, and only explicit user choices are stored as overrides.
- * Changing selection clears the expansion and group-fold overrides (the new
- * sample speaks), but keeps visibility, pop-out, section, and tab choices,
- * which are about the user's screen rather than the running program.
+ * Changing selection clears the expansion and fold overrides (the new sample
+ * speaks), but keeps visibility, pop-out, section, and tab choices, which are
+ * about the user's screen rather than the running program.
  */
 
 import type { PanelKind } from '@/boards'
@@ -81,6 +81,12 @@ export interface DockState {
   seed: DockSeed
   devices: Record<string, DockDeviceState>
   groups: Partial<Record<DeviceClass, { collapsed: boolean }>>
+  /**
+   * The ▤ view's "More on this board" fold (lib/dockSections): the user's
+   * last open or close, absent to follow the seed. A fold like the class
+   * groups, so it is cleared with them when the sample changes.
+   */
+  moreOpen?: boolean
 }
 
 function defaults(): DockState {
@@ -153,6 +159,7 @@ function load(): DockState {
           : base.seed,
       devices,
       groups,
+      moreOpen: typeof parsed.moreOpen === 'boolean' ? parsed.moreOpen : undefined,
     }
   } catch {
     return defaults()
@@ -209,6 +216,17 @@ export function effectiveExpandedIn(
 
 export function effectiveExpanded(key: string, panelKind?: PanelKind): boolean {
   return effectiveExpandedIn(state, key, panelKind)
+}
+
+/**
+ * The default of a row the ▤ view leads with (lib/dockSections). Leading rows
+ * have no class group around them any more, so a foldDock sample, which folds
+ * every group, folds these instead: one line each, the short list the shell
+ * wants. Otherwise, and once the user opens one, the ordinary rule applies.
+ */
+export function leadExpandedIn(current: DockState, key: string, panelKind?: PanelKind): boolean {
+  if (current.seed.foldGroups && current.devices[key]?.expanded === undefined) return false
+  return effectiveExpandedIn(current, key, panelKind)
 }
 
 export function setView(view: DockView): void {
@@ -374,9 +392,24 @@ export function setSoloExpanded(key: string, deviceClass: DeviceClass, expanded:
 }
 
 /**
+ * Whether the ▤ view's "More on this board" fold is open. Closed, so the dock
+ * opens on the sample and not the board; open for an ELF with no devicetree,
+ * where nothing says what the program is about and everything is shown.
+ */
+export function moreOpenIn(current: DockState): boolean {
+  return current.moreOpen ?? current.seed.expandAll
+}
+
+/** Record an explicit open or close of the "More on this board" fold. */
+export function setMoreOpen(open: boolean): void {
+  if (state.moreOpen === open) return
+  set({ ...state, moreOpen: open })
+}
+
+/**
  * Install the expansion defaults for the current board/sample selection.
  * Same selection (a reload): user overrides stay. New selection: expansion
- * and group-fold overrides are cleared so the new sample's defaults speak;
+ * and fold overrides are cleared so the new sample's defaults speak;
  * visibility, pop-out, section, and tab choices persist: they are about the
  * user's screen, not the guest.
  */
@@ -395,7 +428,7 @@ export function seedForSelection(selection: string, seed: DockSeed): void {
     const { expanded: _cleared, ...kept } = value
     if (Object.keys(kept).length > 0) devices[key] = kept
   }
-  set({ ...state, seededFor: selection, seed, devices, groups: {} })
+  set({ ...state, seededFor: selection, seed, devices, groups: {}, moreOpen: undefined })
 }
 
 /** The Panels menu's "Reset layout": dock state and every saved float box. */
