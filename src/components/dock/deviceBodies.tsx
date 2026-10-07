@@ -711,7 +711,7 @@ function GnssBadge() {
 
 function BluetoothBadge() {
   const snap = useSyncExternalStore(hostBt.subscribe, hostBt.getSnapshot, hostBt.getSnapshot)
-  return <Mono>{snap.phase}</Mono>
+  return <Mono className={cn(snap.phase === 'error' && 'text-destructive')}>{snap.phase}</Mono>
 }
 
 function NetBadge() {

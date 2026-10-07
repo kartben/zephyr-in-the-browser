@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Disclosure } from '@/components/dock/Disclosure'
 import {
   CheckControl,
   ControlRow,
@@ -39,6 +40,28 @@ function phaseLabel(phase: BtSnapshot['phase']): string {
   }
 }
 
+/**
+ * One line that says why the controller failed, out of whatever it threw.
+ *
+ * A Bumble failure is usually a Python traceback, a screenful of frames
+ * whose last line (`zipfile.BadZipFile: File is not a zip file`) is the
+ * only part a reader acts on. That line, without the module path, is the
+ * cause; anything else is its first line. The whole text stays one click
+ * away under Details.
+ */
+export function btErrorSummary(detail: string): string {
+  const lines = detail
+    .split('\n')
+    .map((line) => line.trim())
+    // Python 3.11+ underlines the failing expression with ^ and ~ rows.
+    .filter((line) => line !== '' && !/^[\^~\s]+$/.test(line))
+  if (lines.length === 0) return 'no reason given'
+  if (!/Traceback \(most recent call last\)/.test(detail)) return lines[0]
+  const last = lines[lines.length - 1]
+  // `zipfile.BadZipFile: msg` -> `BadZipFile: msg`; a bare message stays.
+  return last.replace(/^(?:[A-Za-z_]\w*\.)+(?=[A-Za-z_]\w*(?::|$))/, '')
+}
+
 /** Dock / window body for the in-page Bumble HCI controller + LocalLink peers. */
 export function BluetoothBody() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
@@ -65,27 +88,31 @@ export function BluetoothView({ snap, live }: { snap: BtSnapshot; live: boolean 
       {live && (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded bg-muted px-1.5 py-0.5 font-medium">{phaseLabel(snap.phase)}</span>
+            <span
+              className={cn(
+                'rounded px-1.5 py-0.5 font-medium',
+                snap.phase === 'error'
+                  ? 'border border-destructive/40 bg-destructive/10 text-destructive'
+                  : 'bg-muted',
+              )}
+            >
+              {phaseLabel(snap.phase)}
+            </span>
             {snap.controllerName && (
               <span className="font-mono text-[11px] text-muted-foreground">{snap.controllerName}</span>
             )}
           </div>
-          {snap.detail && <p className="text-muted-foreground">{snap.detail}</p>}
+          {snap.phase === 'error' ? (
+            <ControllerError detail={snap.detail} />
+          ) : (
+            snap.detail && <p className="text-muted-foreground">{snap.detail}</p>
+          )}
           <dl className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px]">
             <dt className="text-muted-foreground">Host → controller</dt>
             <dd>{snap.rxPackets} pkts</dd>
             <dt className="text-muted-foreground">Controller → host</dt>
             <dd>{snap.txPackets} pkts</dd>
           </dl>
-          {snap.phase === 'error' && (
-            <button
-              type="button"
-              className="rounded border border-border bg-background px-2 py-1 text-[11px] hover:bg-muted"
-              onClick={() => void startController()}
-            >
-              Retry controller
-            </button>
-          )}
           {snap.phase === 'idle' && (
             <button
               type="button"
@@ -122,6 +149,40 @@ export function BluetoothView({ snap, live }: { snap: BtSnapshot; live: boolean 
             </>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A failed controller: the cause in one line, Retry as the thing to do, and
+ * the full text (a Python traceback, often) folded under Details for whoever
+ * reports or debugs it. Printed raw, the traceback ran a screen high and
+ * pushed Retry out of sight.
+ */
+function ControllerError({ detail }: { detail: string }) {
+  const [open, setOpen] = useState(false)
+  const summary = btErrorSummary(detail)
+
+  return (
+    <div className="space-y-2">
+      <p className="break-words">
+        <span className="text-muted-foreground">Bumble did not start: </span>
+        {summary}
+      </p>
+      <button
+        type="button"
+        className="rounded-md bg-primary-solid px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary-solid-hover"
+        onClick={() => void startController()}
+      >
+        Retry
+      </button>
+      {detail.trim() !== '' && detail.trim() !== summary && (
+        <Disclosure title="Details" open={open} onToggle={() => setOpen((v) => !v)}>
+          <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[10px] leading-snug whitespace-pre text-muted-foreground">
+            {detail}
+          </pre>
+        </Disclosure>
       )}
     </div>
   )

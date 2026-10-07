@@ -12,6 +12,7 @@ import { isWs2812 } from '@/virtio/devices/chips/ws2812'
 import { isPt6314 } from '@/virtio/devices/chips/pt6314'
 import { isTmc50xx } from '@/virtio/devices/chips/tmc50xx'
 import { SPI_CHIP_TYPES, spiChipType } from '@/virtio/devices/spiRegistry'
+import { SPI_CS_MAX, spiCsFor, suggestSpiAttach } from '@/components/attachDefaults'
 import type { DeviceClass } from '@/deviceTopology'
 
 /**
@@ -176,22 +177,33 @@ function hasSpiDriver(cs: number): boolean {
 
 const SPI_TYPES = SPI_CHIP_TYPES
 
+/**
+ * The I²C attach row's manners on SPI: until the reader picks, it offers a type
+ * and chip select that are free, and only a typed CS is ever called taken.
+ */
 function AttachRow({ chips }: { chips: number[] }) {
-  const [typeId, setTypeId] = useState(SPI_TYPES[0].id)
-  const [csText, setCsText] = useState(() => String(SPI_TYPES[0].defaultCs))
+  // Null means "not chosen": follow the suggestion.
+  const [pickedType, setPickedType] = useState<string | null>(null)
+  const [csDraft, setCsDraft] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const occupied = useMemo(() => new Set(chips), [chips])
-  const type = spiChipType(typeId) ?? SPI_TYPES[0]
+  const suggestion = useMemo(() => suggestSpiAttach(SPI_TYPES, occupied), [occupied])
+  const type =
+    (pickedType !== null ? spiChipType(pickedType) : suggestion?.type) ?? SPI_TYPES[0]
+  const freeCs = useMemo(() => spiCsFor(type, occupied), [type, occupied])
+  const csText = csDraft ?? (freeCs === null ? '' : String(freeCs))
+  const edited = csDraft !== null
   const parsed = Number.parseInt(csText, 10)
-  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 255
+  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= SPI_CS_MAX
   const taken = valid && occupied.has(parsed)
 
   const onTypeChange = (id: string) => {
     const t = spiChipType(id)
     if (!t) return
-    setTypeId(t.id)
-    setCsText(String(t.defaultCs))
+    // A new type starts from its own free line, not the last one typed.
+    setPickedType(t.id)
+    setCsDraft(null)
     setError(null)
   }
 
@@ -200,6 +212,8 @@ function AttachRow({ chips }: { chips: number[] }) {
     try {
       attachUserSpi(type.id, parsed)
       setError(null)
+      // Ready for another: the CS moves to the next free line.
+      setCsDraft(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -210,7 +224,7 @@ function AttachRow({ chips }: { chips: number[] }) {
       <span className="text-[11px] font-medium text-muted-foreground">Attach</span>
       <div className="flex flex-wrap items-center gap-1.5">
         <select
-          value={typeId}
+          value={type.id}
           aria-label="Chip type"
           onChange={(e) => onTypeChange(e.target.value)}
           className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-[11px] text-foreground outline-none"
@@ -227,7 +241,7 @@ function AttachRow({ chips }: { chips: number[] }) {
             aria-label="Chip select"
             value={csText}
             onChange={(e) => {
-              setCsText(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))
+              setCsDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))
               setError(null)
             }}
             className="w-7 bg-transparent py-1 font-mono text-[11px] text-foreground outline-none"
@@ -243,6 +257,8 @@ function AttachRow({ chips }: { chips: number[] }) {
       </div>
       {error ? (
         <p className="text-[10px] text-destructive">{error}</p>
+      ) : !edited && freeCs === null ? (
+        <p className="text-[10px] text-muted-foreground">Every chip select on this bus is taken.</p>
       ) : taken ? (
         <p className="text-[10px] text-destructive">CS{parsed} is already taken.</p>
       ) : valid ? (

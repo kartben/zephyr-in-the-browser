@@ -202,6 +202,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Fixed",
         "text": "Accent text, buttons and code colours meet contrast minimums."
+      },
+      {
+        "tag": "Fixed",
+        "text": "Attach rows pick free slots, Bluetooth errors fold, erase confirms."
       }
     ]
   },
