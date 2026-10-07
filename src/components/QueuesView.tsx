@@ -26,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -48,6 +49,7 @@ import {
   type Trace,
 } from '@/ctf'
 import { QueueGraph } from '@/components/QueueGraph'
+import * as ipcUi from '@/lib/ipcUi'
 import type { LiveSync } from '@/components/queueGraph/live'
 import {
   formatGuestTime,
@@ -612,6 +614,9 @@ export function QueuesView({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const layoutsRef = useRef<RowLayout[]>([])
+  // A tour can point at an object before anything has used it: the graph
+  // then says what it is waiting for, rather than not being there at all.
+  const ipcFilter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const yZoomRef = useRef(yZoom)
   yZoomRef.current = yZoom
 
@@ -753,7 +758,9 @@ export function QueuesView({
 
   return (
     <div className="flex flex-col gap-2">
-      {(queues.length > 0 || (sync?.state.objects.size ?? 0) > 0) && (
+      {(queues.length > 0 ||
+        (sync?.state.objects.size ?? 0) > 0 ||
+        ipcFilter.focusName !== null) && (
         <QueueGraph
           tr={tr}
           queues={queues}
