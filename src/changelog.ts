@@ -117,6 +117,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
+        "text": "Dock keys look pressable, and LEDs glow like lamps."
+      },
+      {
+        "tag": "Improved",
         "text": "Dock rows and bus lists say each value once."
       },
       {

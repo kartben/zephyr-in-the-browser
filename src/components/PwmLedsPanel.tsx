@@ -1,8 +1,8 @@
 /**
  * Dock body for a `pwm-leds` group.
  *
- * Same cell chrome as {@link GpioLedsBody} (dot + label in a bordered
- * secondary tile). Brightness is the *perceived* lamp under PWM: a short
+ * The same lamp as {@link GpioLedsBody} (components/Lamp), not a tile that
+ * looks pressable. Brightness is the *perceived* lamp under PWM: a short
  * exponential persistence of the channel's square wave (see
  * {@link integrateLedPersistence}), so a ~50 Hz period breathes while
  * kilohertz PWM looks like a steady glow. Labels come from the running
@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useReducer, useRef } from 'react'
+import { LAMP_CELL, LAMP_OFF, LAMP_ON, LAMP_ROW } from '@/components/Lamp'
 import {
   integrateLedPersistence,
   ledGlowOpacity,
@@ -52,10 +53,8 @@ function useChip(chip: PwmChip) {
 /** Cap catch-up after a backgrounded tab so one frame does not integrate seconds. */
 const MAX_INTEGRATE_NS = 50_000_000
 
-const DOT_OFF =
-  'size-3 rounded-full border border-border bg-transparent'
-const DOT_ON =
-  'size-3 rounded-full border border-primary bg-primary shadow-[0_0_6px_1px_var(--color-primary)]'
+const DOT_OFF = LAMP_OFF
+const DOT_ON = LAMP_ON
 
 function applyDotStyle(el: HTMLElement, perceived: number) {
   const lit = ledIsLit(perceived)
@@ -146,12 +145,12 @@ export function PwmLedsBody({
 
   return (
     <div ref={rootRef} className="px-3 py-3">
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className={LAMP_ROW}>
         {leds.map((led) => (
           <div
             key={`${led.channel}:${led.label}`}
             data-pwm-led-cell
-            className="flex flex-col items-center gap-1 rounded-md border border-border bg-secondary py-1.5 text-[11px] text-muted-foreground"
+            className={LAMP_CELL}
             title={`${led.label} (CH${led.channel})`}
           >
             <span
@@ -159,9 +158,7 @@ export function PwmLedsBody({
               data-pwm-led-dot
               className={DOT_OFF}
             />
-            <span className="max-w-full truncate px-0.5 text-center leading-tight">
-              {led.label}
-            </span>
+            <span className="truncate text-foreground">{led.label}</span>
           </div>
         ))}
       </div>
