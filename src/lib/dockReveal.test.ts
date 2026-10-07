@@ -8,20 +8,25 @@ import type { DeviceInventory, DeviceNode } from '@/deviceTopology'
  */
 
 const calls: string[] = []
+const view = { current: 'classes' }
 
 vi.mock('@/lib/dockStore', () => ({
   STAGE_DEBUG_KEY: 'stage:debug',
   STAGE_PERF_KEY: 'stage:perf',
   STAGE_TRACE_KEY: 'stage:trace',
-  getState: () => ({ view: 'classes', devices: {}, groups: {} }),
+  getState: () => ({ view: view.current, devices: {}, groups: {}, seed: { primary: [] } }),
   setExpanded: (key: string, expanded: boolean) => calls.push(`setExpanded ${key} ${expanded}`),
   setGroupCollapsed: (group: string, collapsed: boolean) =>
     calls.push(`setGroupCollapsed ${group} ${collapsed}`),
   setHidden: (key: string, hidden: boolean) => calls.push(`setHidden ${key} ${hidden}`),
+  setView: (next: string) => {
+    view.current = next
+    calls.push(`setView ${next}`)
+  },
   showDock: () => calls.push('showDock'),
 }))
 
-const { publishInventory, revealPanelKind } = await import('@/lib/dockReveal')
+const { publishInventory, revealDockRow, revealPanelKind } = await import('@/lib/dockReveal')
 
 function node(key: string, presence: DeviceNode['presence']): DeviceNode {
   return { key, nodeName: key, label: key, deviceClass: 'led', path: `/${key}`, presence, panelKind: 'led' }
@@ -29,6 +34,7 @@ function node(key: string, presence: DeviceNode['presence']): DeviceNode {
 
 beforeEach(() => {
   calls.length = 0
+  view.current = 'classes'
   vi.stubGlobal('requestAnimationFrame', () => 0)
 })
 
@@ -63,5 +69,32 @@ describe('revealPanelKind', () => {
     publishInventory({ source: 'devicetree', nodes: [] })
     revealPanelKind('can')
     expect(calls).toEqual([])
+  })
+})
+
+describe('revealDockRow', () => {
+  it('shows a row the ▤ view leaves out in the devicetree view', () => {
+    publishInventory({
+      source: 'devicetree',
+      nodes: [
+        {
+          key: 'uart1',
+          nodeName: 'uart@4000d000',
+          label: 'uart1',
+          deviceClass: 'uart-bus',
+          path: '/soc/uart@4000d000',
+          presence: 'inert',
+        },
+        node('led0', 'interactive'),
+      ],
+    })
+    revealDockRow('uart1', 'uart-bus')
+    expect(calls).toEqual(['showDock', 'setView devicetree', 'setExpanded uart1 true'])
+
+    // A row it does list is revealed where it is.
+    calls.length = 0
+    view.current = 'classes'
+    revealDockRow('led0', 'led')
+    expect(calls).toEqual(['showDock', 'setGroupCollapsed led false', 'setExpanded led0 true'])
   })
 })

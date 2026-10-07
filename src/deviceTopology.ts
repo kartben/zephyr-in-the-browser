@@ -193,7 +193,16 @@ export interface DeviceInventory {
 }
 
 export type Row =
-  | { kind: 'device'; node: DeviceNode; depth: number }
+  | {
+      kind: 'device'
+      node: DeviceNode
+      depth: number
+      /**
+       * ▤ view: the only member of its class, listed without the group header
+       * it would otherwise sit under (see flattenSoloGroups).
+       */
+      solo?: boolean
+    }
   /** ⌗-view structural scaffolding: the root and shared ancestors like `soc`. */
   | { kind: 'struct'; key: string; name: string; depth: number; note?: string }
   /** ▤-view group header. */
@@ -1640,19 +1649,95 @@ export function buildRowList(inventory: DeviceInventory, view: DockView): Row[] 
  * the list jumping) but the demo dock does not paint them.
  */
 export function demoVisibleNodes(nodes: DeviceNode[]): { nodes: DeviceNode[]; hidden: number } {
+  return keepWithAncestors(nodes, (node) => node.presence === 'interactive')
+}
+
+/**
+ * The nodes `keep` picks, and every node they hang from, in their original
+ * order: a chip that stays keeps the bus its breadcrumb names.
+ */
+function keepWithAncestors(
+  nodes: DeviceNode[],
+  keep: (node: DeviceNode) => boolean,
+): { nodes: DeviceNode[]; hidden: number } {
   const byKey = new Map(nodes.map((node) => [node.key, node]))
-  const keep = new Set<string>()
+  const kept = new Set<string>()
   for (const node of nodes) {
-    if (node.presence !== 'interactive') continue
-    keep.add(node.key)
+    if (!keep(node)) continue
+    kept.add(node.key)
     let parent = node.parentKey
     while (parent) {
-      keep.add(parent)
+      kept.add(parent)
       parent = byKey.get(parent)?.parentKey
     }
   }
-  const visible = nodes.filter((node) => keep.has(node.key))
+  const visible = nodes.filter((node) => kept.has(node.key))
   return { nodes: visible, hidden: nodes.length - visible.length }
+}
+
+/** Classes whose controller rows are there for the parts on them. */
+const BUS_CLASSES: ReadonlySet<DeviceClass> = new Set(['i2c-bus', 'spi-bus', 'uart-bus'])
+
+/**
+ * What the ▤ view lists: the rows there is something to use or look at, out
+ * of everything the devicetree declares. The ⌗ view keeps every node, because
+ * that is where the devicetree is learnt; this view is where it is used, and a
+ * Cortex-M3 sample's button sat under three UARTs and seven GPIO controllers
+ * the page has no model for.
+ *
+ * A row stays when it is:
+ * - live (interactive), unless it is a bus: a bus is there for the parts on
+ *   it, and stays only for them. A live bus with nothing on it (the ESP32-C3's
+ *   SPI bus under an I²C sample) has nothing to show but "0 chips", and its
+ *   attach picker is still there in the ⌗ view.
+ * - a ghost: a declared part nothing answers for, which is the bus error the
+ *   sample's driver is now reporting. Its bus stays too, to attach it again.
+ * - a row the sample is about (`about`, its primary panel kinds), whatever
+ *   state it is in: the EEPROM sample's bus before a chip is on it.
+ * - the parent of any of those, as in the demo dock.
+ *
+ * Which leaves out every inert row: a node with no page model, a part on a
+ * bus the page does not bridge, and the console UART, whose whole output is
+ * the terminal the page is built around. A UART stays, like any bus, when a
+ * live part hangs from it (GNSS, Bluetooth HCI).
+ *
+ * A bridged row that is still waiting for its runtime (early boot) is inert
+ * too, so it joins the list when its bridge comes up rather than sitting there
+ * dead. `hidden` is how many rows the ⌗ view has that this one does not.
+ */
+export function usableNodes(
+  nodes: DeviceNode[],
+  about: readonly PanelKind[] = [],
+): { nodes: DeviceNode[]; hidden: number } {
+  return keepWithAncestors(nodes, (node) => {
+    if (node.panelKind !== undefined && about.includes(node.panelKind)) return true
+    if (node.presence === 'ghost') return true
+    return node.presence === 'interactive' && !BUS_CLASSES.has(node.deviceClass)
+  })
+}
+
+/**
+ * A pass over the ▤ view's rows: a class with a single member loses its
+ * header. "SENSORS 1" above one accelerometer is a level to open on the way
+ * to it, and its count says nothing the row does not; the device row has its
+ * own chevron and its own live badge, so it can stand for its class.
+ *
+ * The member is marked `solo`, because folding that class is now the row's
+ * job (dockStore's soloExpandedIn). Classes of two or more keep their header.
+ */
+export function flattenSoloGroups(rows: Row[]): Row[] {
+  const solo = new Set<DeviceClass>()
+  for (const row of rows) {
+    if (row.kind === 'group' && row.count === 1) solo.add(row.deviceClass)
+  }
+  if (solo.size === 0) return rows
+  const out: Row[] = []
+  for (const row of rows) {
+    if (row.kind === 'group' && solo.has(row.deviceClass)) continue
+    if (row.kind === 'device' && solo.has(row.node.deviceClass)) out.push({ ...row, solo: true })
+    else out.push(row)
+  }
+  return out
 }
 
 function devicetreeRows(inventory: DeviceInventory): Row[] {
