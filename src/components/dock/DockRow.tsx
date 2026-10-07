@@ -1,8 +1,8 @@
 /**
  * One row of the dock, in either view: a header line (indent guides, icon,
  * name, live badge, pop-out control) and — for interactive rows — the device's
- * body, expanded in place. Inert rows document topology (`→ terminal`); ghost
- * rows document absence (a declared chip nothing answers for).
+ * body, expanded in place. Inert rows document topology (`in the terminal`);
+ * ghost rows document absence (a declared chip nothing answers for).
  *
  * Rows are rendered as one flat keyed list under a single parent, so flipping
  * the dock's view moves these nodes instead of remounting them — sliders,
@@ -30,11 +30,13 @@ import { isDockTargetRow, subscribe as subscribeTarget } from '@/lib/dockTarget'
  * expanded chip bodies — repeating `ti,tmp112` on every ⌗ row was noise and
  * doubled up the moment a part opened. Catalogued parts (`partId`) therefore
  * leave compatible off the row; uncatalogued / inert nodes still show it when
- * there is no better label.
+ * there is no better label. A label that only says the node name again, in
+ * other capitals ("LEDs" on `leds`), is not a better one: the row shows
+ * `gpio-leds` instead.
  */
 export function dockRowSecondary(node: DeviceNode, view: DockView): string | undefined {
   if (view === 'classes') return node.crumb
-  if (node.label && node.label !== node.nodeName) return node.label
+  if (node.label && distinctSecondary(node.nodeName, node.label)) return node.label
   if (node.partId) return undefined
   if (node.compatible && node.compatible !== node.nodeName) return node.compatible
   return undefined
@@ -261,6 +263,7 @@ export const DockDeviceRow = memo(function DockDeviceRow({
       badge={
         node.note ? (
           <span
+            title={node.noteTitle}
             className={cn(
               'font-mono text-[10px]',
               node.presence === 'ghost' ? 'text-destructive/80' : 'text-muted-foreground',

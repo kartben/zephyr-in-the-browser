@@ -393,7 +393,7 @@ const CORTEX_M3_SAMPLES: GuestSample[] = [
   },
   {
     // A polled gpio-keys button (SW0, pin 0) drives the input subsystem, which
-    // lights led0 (pin 4) — click SW0 in the Keys panel to press it.
+    // lights led0 (pin 4). Press SW0 in the dock's Buttons row.
     id: 'basic_button',
     label: 'Button',
     description: 'Press SW0 in the dock; the input subsystem lights an LED',
@@ -1255,7 +1255,7 @@ export const BOARDS: Board[] = [
         id: 'basic_button',
         label: 'Button',
         description: 'Press SW0 in the device dock',
-        tryIt: 'Press User SW1 under Keys; the terminal logs each press',
+        tryIt: 'Press User SW1 under Buttons; the terminal logs each press',
         zephyrSample: 'samples/basic/button',
         primaryPanels: ['keys', 'gpio'],
       },
@@ -1403,7 +1403,7 @@ export const BOARDS: Board[] = [
         id: 'basic_button',
         label: 'Button',
         description: 'Press SW0 in the device dock',
-        tryIt: 'Press BOOT Button under Keys; the terminal logs each press',
+        tryIt: 'Press BOOT Button under Buttons; the terminal logs each press',
         zephyrSample: 'samples/basic/button',
         primaryPanels: ['keys', 'gpio'],
       },

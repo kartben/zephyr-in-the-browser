@@ -166,7 +166,7 @@ describe('tryItTargets', () => {
     const sample = getSample(getBoard('qemu_cortex_m3'), 'basic_button')
     const targets = tryIt.tryItTargets(kinds(sample), nodes)
     expect(targets.map((t) => t.kind)).toEqual(['keys', 'led', 'gpio'])
-    expect(targets.map((t) => t.node?.label)).toEqual(['GPIO Keys', 'GPIO LEDs', 'GPIO'])
+    expect(targets.map((t) => t.node?.label)).toEqual(['Buttons', 'LEDs', 'GPIO'])
     for (const target of targets) {
       const node = nodes.find((n) => n.key === target.key)
       expect(node?.presence).toBe('interactive')

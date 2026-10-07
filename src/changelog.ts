@@ -121,6 +121,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Improved",
+        "text": "Dock labels in plain words, devicetree names beside them."
+      },
+      {
+        "tag": "Improved",
         "text": "Trace Timeline shows thread priorities and what blocked threads wait on."
       },
       {

@@ -242,10 +242,10 @@ that the peripheral surfaces read:
   `zephyr,gpio-step-dir-stepper-ctrl` on the bridged controller (STEP/DIR edges
   observed; shaft dial + position/velocity — no new QEMU device), or an okay
   `adi,tmc50xx` on virtio-spi (SPI datagram motion sim; dial + Registers),
-- a GPIO Keys dock row when the tree has okay `gpio-keys` on the bridged
-  controller (Keys class — buttons leave the controller card),
-- a GPIO LEDs dock row when the tree has okay `gpio-leds` on the bridged
-  controller (LED-class sibling — same split as gpio-buzzer),
+- a Buttons dock row when the tree has okay `gpio-keys` on the bridged
+  controller (Buttons class: buttons leave the controller card),
+- an LEDs dock row when the tree has okay `gpio-leds` on the bridged
+  controller (LED-class sibling, the same split as gpio-buzzer),
 - a claimed-pin table on the GPIO controller card (dir + level + DT flags +
   `used by` → reveal; see [gpio-controller.md](gpio-controller.md)),
 - a PWM LEDs dock row when the tree has okay `pwm-leds` children whose

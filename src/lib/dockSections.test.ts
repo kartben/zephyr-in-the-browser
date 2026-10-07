@@ -29,7 +29,7 @@ const group = (deviceClass: DeviceNode['deviceClass'], count: number): Row => ({
 /** The Cortex-M3 Button sample's ▤ rows, in class order, as the dock built them. */
 const uart0 = node({ key: 'uart0', deviceClass: 'uart-bus', presence: 'inert' })
 const leds = node({ key: 'gpio-leds', deviceClass: 'led', panelKind: 'led' })
-const gpio0 = node({ key: 'gpio:gpio0', deviceClass: 'gpio', presence: 'inert', note: 'no page model' })
+const gpio0 = node({ key: 'gpio:gpio0', deviceClass: 'gpio', presence: 'inert', note: 'no panel' })
 const gpio = node({ key: 'gpio', deviceClass: 'gpio', panelKind: 'gpio' })
 const keys = node({ key: 'gpio-keys', deviceClass: 'keys', panelKind: 'keys' })
 const bt = node({ key: 'bluetooth', deviceClass: 'bluetooth', presence: 'inert' })

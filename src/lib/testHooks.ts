@@ -89,7 +89,7 @@ export interface TourStateSummary {
 }
 
 export interface TestHooks {
-  /** A momentary press of a GPIO Keys button, by label or devicetree alias (`sw0`). */
+  /** A momentary press of a `gpio-keys` button, by label or devicetree alias (`sw0`). */
   pressKey(label: string, holdMs?: number): Promise<TestResult>
   /** Type shell lines into the terminal, as a tour card's Run button would. */
   typeLines(lines: readonly string[]): Promise<TestResult>
@@ -108,7 +108,7 @@ declare global {
 }
 
 /**
- * The GPIO Keys button a name picks out, or null.
+ * The `gpio-keys` button a name picks out, or null.
  *
  * Labels come from the guest's devicetree (`label = "Browser SW0"` on the
  * A53), or are the fallback `SW0` to `SW3`. So a name matches a whole label or

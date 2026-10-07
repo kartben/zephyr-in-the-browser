@@ -95,7 +95,7 @@ const browser = await puppeteer.launch({
 
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll('button')].find((b) =>
-      /Classes|Peripheral classes/i.test(b.getAttribute('aria-label') || b.textContent || ''),
+      /^By type$/i.test(b.textContent?.trim() || ''),
     )
     btn?.click()
   })

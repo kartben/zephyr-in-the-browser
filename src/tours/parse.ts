@@ -139,7 +139,7 @@ export type LookSpec =
  * One `ci:` action: something the headless playthrough does for the reader so
  * the guest reaches this step.
  *
- *     press sw0               a momentary press of a GPIO Keys button
+ *     press sw0               a momentary press of a `gpio-keys` button
  *     type kernel uptime      one line into the terminal, as Run types it
  *     wait 500ms              a pause before the next action
  *
@@ -861,8 +861,8 @@ const CI_DURATION = /^(\d+(?:\.\d+)?)\s*(ms|s)$/i
 /**
  * Parse one `ci:` action: `press <key>`, `type <line>` or `wait <duration>`.
  *
- * A key is a GPIO Keys button as the dock labels it, matched without case, or
- * the devicetree alias that points at it, so `press sw0` finds SW0, and the
+ * A key is a `gpio-keys` button as the dock labels it, matched without case,
+ * or the devicetree alias that points at it, so `press sw0` finds SW0, and the
  * ESP32-C3's User SW1 too. Which keys exist depends on the board, so that part
  * is left to the playthrough, which fails with the keys it did find.
  */

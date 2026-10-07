@@ -38,7 +38,7 @@ const PANEL_TAGS: Record<PanelKind, string> = {
   gnss: 'GNSS',
   sensor: 'sensors',
   gpio: 'GPIO',
-  keys: 'keys',
+  keys: 'buttons',
   buzzer: 'buzzer',
   stepper: 'stepper',
   audio: 'audio',

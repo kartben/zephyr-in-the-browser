@@ -9,6 +9,7 @@ import m3Blinky from '@/dts/fixtures/qemu_cortex_m3_blinky.dts?raw'
 import twoBuses from '@/dts/fixtures/two_i2c_buses.dts?raw'
 import type { Availability, DeviceInventory, Row } from './deviceTopology'
 import {
+  CLASS_LABELS,
   buildRowList,
   demoVisibleNodes,
   deriveDeviceInventory,
@@ -193,7 +194,9 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(uart?.body).toBe('uart')
     expect(uart?.busLabel).toBe('uart1')
 
-    expect(nodeByKey(inv, 'uart0').note).toBe('→ terminal')
+    // Not "→ terminal": the terminal is to the dock's left, so it pointed away.
+    expect(nodeByKey(inv, 'uart0').note).toBe('in the terminal')
+    expect(nodeByKey(inv, 'uart0').noteTitle).toContain('zephyr,console')
     expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
     expect(nodeByKey(inv, 'uart0').presence).toBe('inert')
     expect(nodeByKey(inv, 'display').presence).toBe('interactive')
@@ -244,7 +247,8 @@ describe('deriveDeviceInventory from a devicetree', () => {
 
     const onChip = nodeByKey(inv, 'i2c0')
     expect(onChip.presence).toBe('inert')
-    expect(onChip.note).toBe('no page model')
+    expect(onChip.note).toBe('no panel')
+    expect(onChip.noteTitle).toBe('In the devicetree; this page has no controls for it')
     const bme = nodeByKey(inv, 'i2c0:76')
     expect(bme.presence).toBe('inert')
     expect(bme.parentKey).toBe('i2c0')
@@ -259,7 +263,10 @@ describe('deriveDeviceInventory from a devicetree', () => {
 
     // Two GPIO controllers: the bridged one is live, the on-chip one inert.
     expect(nodeByKey(inv, 'gpio').presence).toBe('interactive')
-    expect(nodeByKey(inv, 'gpio:soc_gpio').note).toBe('no page model')
+    expect(nodeByKey(inv, 'gpio:soc_gpio').note).toBe('no panel')
+    // The bridged one drives a panel, so it has no note to explain.
+    expect(nodeByKey(inv, 'gpio').note).toBeUndefined()
+    expect(nodeByKey(inv, 'gpio').noteTitle).toBeUndefined()
   })
 
   it('lists bridged surfaces as inert until the runtime exposes them', () => {
@@ -454,13 +461,14 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(leds.deviceClass).toBe('led')
     expect(leds.compatible).toBe('gpio-leds')
     expect(leds.panelKind).toBe('led')
-    expect(leds.label).toBe('GPIO LEDs')
-    expect(leds.crumb).toBeUndefined()
+    // Plain words first, the devicetree compatible beside them.
+    expect(leds.label).toBe('LEDs')
+    expect(leds.crumb).toBe('gpio-leds')
     expect(leds.busLabel).toBe('virtio_gpio0')
     expect(nodeByKey(inv, 'gpio').body).toBe('gpio')
   })
 
-  it('emits a gpio-keys dock row in the Keys class', () => {
+  it('emits a gpio-keys dock row in the Buttons class', () => {
     const inv = deriveDeviceInventory(
       treeOf(a53Blinky),
       [],
@@ -474,9 +482,46 @@ describe('deriveDeviceInventory from a devicetree', () => {
     expect(keys.deviceClass).toBe('keys')
     expect(keys.compatible).toBe('gpio-keys')
     expect(keys.panelKind).toBe('keys')
-    expect(keys.label).toBe('GPIO Keys')
-    expect(keys.crumb).toBeUndefined()
+    expect(keys.label).toBe('Buttons')
+    expect(keys.crumb).toBe('gpio-keys')
+    expect(CLASS_LABELS[keys.deviceClass]).toBe('Buttons')
     expect(keys.busLabel).toBe('virtio_gpio0')
+  })
+
+  it('names the controller after the compatible when it has a name of its own', () => {
+    // The ESP32's SoC controller is bridged as it is, so its label is not a
+    // softened virtio one and it is worth saying which controller it is.
+    const inv = deriveDeviceInventory(
+      treeOf(`
+        /dts-v1/;
+        / {
+          model = "Espressif ESP32-DevkitC PROCPU";
+          soc {
+            gpio0: gpio@3ff44000 {
+              compatible = "espressif,esp32-gpio";
+              gpio-controller;
+              #gpio-cells = <2>;
+              ngpios = <32>;
+              status = "okay";
+            };
+          };
+          buttons {
+            compatible = "gpio-keys";
+            button_0: button_0 {
+              gpios = <&gpio0 0 17>; // GPIO_PULL_UP | GPIO_ACTIVE_LOW
+              label = "BOOT Button";
+            };
+          };
+        };
+      `),
+      [],
+      [],
+      ALL,
+      'esp32_devkitc',
+    )
+    const keys = nodeByKey(inv, 'gpio-keys')
+    expect(keys.label).toBe('Buttons')
+    expect(keys.crumb).toBe('gpio-keys · gpio0')
   })
 
   it('emits a pwm-leds dock row alongside the PCA9685 PWM chip', () => {
@@ -567,6 +612,11 @@ describe('deriveDeviceInventory fallback (no devicetree)', () => {
     expect(nodeByKey(inv, 'uart0').deviceClass).toBe('uart-bus')
     expect(nodeByKey(inv, 'display').presence).toBe('interactive')
     expect(nodeByKey(inv, 'display').body).toBe('display')
+    // The tablet has no panel of its own: it says where it is used.
+    expect(nodeByKey(inv, 'input').note).toBe('on the Display')
+    expect(nodeByKey(inv, 'uart0').note).toBe('in the terminal')
+    expect(nodeByKey(inv, 'gpio-keys')).toMatchObject({ label: 'Buttons', crumb: 'gpio-keys' })
+    expect(nodeByKey(inv, 'gpio-leds')).toMatchObject({ label: 'LEDs', crumb: 'gpio-leds' })
   })
 
   it('ghosts a detached declared chip exactly like the devicetree path', () => {
@@ -680,6 +730,10 @@ describe('buildRowList', () => {
     expect(uarts).toMatchObject({ label: 'UART buses', count: 2 })
     // GNSS stays its own class; it only nests under the UART in ⌗ view.
     expect(rows.some((row) => row.kind === 'group' && row.deviceClass === 'gnss')).toBe(true)
+
+    // Plain words for the classes a learner has no name for yet.
+    expect(CLASS_LABELS.keys).toBe('Buttons')
+    expect(CLASS_LABELS.auxdisplay).toBe('Text displays')
   })
 
   it('nests an unbridged bus’s slots under it inside the bus group', () => {
@@ -726,7 +780,7 @@ describe('demo dock', () => {
 describe('usable rows (the ▤ view)', () => {
   const keys = (nodes: DeviceNode[]) => nodes.map((n) => n.key)
 
-  it('leaves out nodes with no page model, and an unbridged bus with its parts', () => {
+  it('leaves out nodes with no panel, and an unbridged bus with its parts', () => {
     const inv = deriveDeviceInventory(
       treeOf(twoBuses),
       [fakeSensor(0x48, 'TMP112')],
@@ -734,8 +788,8 @@ describe('usable rows (the ▤ view)', () => {
       ALL,
       'qemu_cortex_a53',
     )
-    expect(nodeByKey(inv, 'gpio:soc_gpio').note).toBe('no page model')
-    expect(nodeByKey(inv, 'i2c0').note).toBe('no page model')
+    expect(nodeByKey(inv, 'gpio:soc_gpio').note).toBe('no panel')
+    expect(nodeByKey(inv, 'i2c0').note).toBe('no panel')
     const { nodes, hidden } = usableNodes(inv.nodes)
     expect(keys(nodes)).toEqual(['gpio', 'virtio_i2c0', 'virtio_i2c0:48', 'gpio-leds', 'gpio-keys'])
     // i2c0, the BME280 declared on it, and soc_gpio: all still in the ⌗ view.
@@ -744,7 +798,7 @@ describe('usable rows (the ▤ view)', () => {
 
   it('leaves the console UART to the terminal, and keeps a UART with a live part', () => {
     const inv = deriveDeviceInventory(treeOf(m3Blinky), [], [], ALL, 'qemu_cortex_m3')
-    expect(nodeByKey(inv, 'uart0').note).toBe('→ terminal')
+    expect(nodeByKey(inv, 'uart0').note).toBe('in the terminal')
     const { nodes, hidden } = usableNodes(inv.nodes)
     expect(keys(nodes)).not.toContain('uart0')
     expect(keys(nodes)).toEqual(expect.arrayContaining(['uart1', 'gnss']))

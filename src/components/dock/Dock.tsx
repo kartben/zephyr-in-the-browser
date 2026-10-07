@@ -432,17 +432,29 @@ function LeftOutLine({ count, more }: { count: number; more: boolean }) {
   )
 }
 
-/** ⌗ / ▤ — two arrangements of the same rows. */
+/**
+ * ⌗ / ▤: two arrangements of the same rows. Named for what each one does,
+ * "By type" and "Devicetree"; they used to read "Classes" and "Tree", which
+ * said nothing to someone who had not met either word in Zephyr yet.
+ */
 function ViewSwitch({ view }: { view: DockView }) {
   return (
     <span className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Dock view">
-      <ViewButton active={view === 'classes'} onClick={() => setView('classes')} label="Peripheral classes">
+      <ViewButton
+        active={view === 'classes'}
+        onClick={() => setView('classes')}
+        label="Group devices by type, the sample's own first"
+      >
         <Boxes className="size-3" aria-hidden />
-        Classes
+        By type
       </ViewButton>
-      <ViewButton active={view === 'devicetree'} onClick={() => setView('devicetree')} label="Devicetree">
+      <ViewButton
+        active={view === 'devicetree'}
+        onClick={() => setView('devicetree')}
+        label="Nest every node as the devicetree does"
+      >
         <ListTree className="size-3" aria-hidden />
-        Tree
+        Devicetree
       </ViewButton>
     </span>
   )
@@ -466,7 +478,7 @@ function ViewButton({
       title={label}
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1 px-1.5 py-0.5 text-[10px]',
+        'flex items-center gap-1 px-1.5 py-0.5 text-[11px]',
         active ? 'bg-primary/15 font-semibold text-primary-text' : 'text-muted-foreground hover:text-foreground',
       )}
     >
