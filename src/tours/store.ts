@@ -485,8 +485,14 @@ export async function loadFor(
   opts: { startIndex?: number } = {},
 ): Promise<void> {
   sourceUrl = sourceFor ?? null
+  // Say which tour is coming before its text has arrived, so what stands aside
+  // for a tour (the dock's Try it hint) does not flash up while it loads.
+  publish({ tourId })
   const doc = await fetchTour(tourId)
-  if (!doc) return
+  if (!doc) {
+    if (state.tourId === tourId && state.doc === null) publish({ tourId: null })
+    return
+  }
   // Started now, awaited when arming: a fetch must not hold up the attach
   // hook below, which has to be in place before the stub opens.
   shipped = sourceFor ? fetchIndex(sourceFor('index.json')) : Promise.resolve(null)
@@ -1229,6 +1235,18 @@ export function skip(): void {
  */
 export function introReady(s: TourState): boolean {
   return s.current !== null || s.waiting !== null || s.completed
+}
+
+/**
+ * A tour is under way: there is one, tours are on, and the reader has neither
+ * finished it nor left it (skip() finishes it too). Its cards are the guidance
+ * while this holds, so the dock's Try it hint stands aside until it does not.
+ * A tour still loading counts: loadFor names it (`tourId`) before its `doc`.
+ */
+export function tourInProgress(
+  s: Pick<TourState, 'enabled' | 'doc' | 'tourId' | 'finished'>,
+): boolean {
+  return s.enabled && !s.finished && (s.doc !== null || s.tourId !== null)
 }
 
 /**

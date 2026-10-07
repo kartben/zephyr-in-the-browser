@@ -26,6 +26,7 @@ import {
   DockStructRow,
 } from '@/components/dock/DockRow'
 import { InstrumentRow, useInstrumentRows } from '@/components/dock/Instruments'
+import { TryIt } from '@/components/dock/TryIt'
 import { GroupBadge } from '@/components/dock/deviceBodies'
 import { cn } from '@/lib/utils'
 import {
@@ -366,6 +367,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+          <TryIt nodes={inventory.nodes} />
           {rendered}
           {mode === 'sim' && demo && hiddenInert > 0 && (
             <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">

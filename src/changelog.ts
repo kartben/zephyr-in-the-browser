@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "The dock says what to try with each sample."
+      },
+      {
+        "tag": "Added",
         "text": "Hover a variable in tour code to see its value."
       },
       {
