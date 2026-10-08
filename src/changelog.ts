@@ -21,67 +21,19 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
-        "text": "Pipe uart1 to a real USB serial port, with Web Serial."
+        "text": "Tours gallery with many new tours, several per sample, and step links."
       },
       {
         "tag": "Added",
-        "text": "The dock says what to try with each sample."
+        "text": "Tours run shell commands, check your work, draw diagrams and show live values."
       },
       {
         "tag": "Added",
-        "text": "Hover a variable in tour code to see its value."
+        "text": "ESP32 and ESP32-C3 boards; Magic Wand, Watchdog and Message Queue Lab samples."
       },
       {
         "tag": "Added",
-        "text": "Tours run shell commands, give you tasks, check your work and chain onward."
-      },
-      {
-        "tag": "Added",
-        "text": "Tours stop on guest state, show kernel code and open Trace or Debug views."
-      },
-      {
-        "tag": "Added",
-        "text": "Tours draw a message queue as a ring, with read and write pointers."
-      },
-      {
-        "tag": "Added",
-        "text": "Tours can draw diagrams, like the sensor pipeline map."
-      },
-      {
-        "tag": "Added",
-        "text": "Several tours per sample, and links straight to a tour step."
-      },
-      {
-        "tag": "Added",
-        "text": "Guided tours get their own gallery section, plus Button, message queue, sensor pipeline, zbus and state machine tours."
-      },
-      {
-        "tag": "Added",
-        "text": "Message Queue Lab sample and tour, driven from the shell."
-      },
-      {
-        "tag": "Added",
-        "text": "zbus tab in Trace, and CPU sleep states in the Power tab."
-      },
-      {
-        "tag": "Added",
-        "text": "Trace IPC shows mutexes, semaphores and condvars, and who holds them."
-      },
-      {
-        "tag": "Added",
-        "text": "ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep."
-      },
-      {
-        "tag": "Added",
-        "text": "ESP32 DevKitC board (Xtensa), with blinky, button and a shell."
-      },
-      {
-        "tag": "Added",
-        "text": "Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown."
-      },
-      {
-        "tag": "Added",
-        "text": "Magic Wand TinyML sample on Cortex-A53, with replayable gestures and a capture page."
+        "text": "Trace IPC tab shows who holds locks, plus zbus and CPU sleep states."
       },
       {
         "tag": "Added",
@@ -89,143 +41,23 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Help button with keyboard shortcuts and this changelog."
+        "text": "Pipe uart1 to a real USB serial port, with Web Serial."
       },
       {
         "tag": "Added",
-        "text": "More menu on phones for Parts and Samples."
+        "text": "Help button with shortcuts and this changelog; More menu on phones."
       },
       {
         "tag": "Improved",
-        "text": "Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download."
-      },
-      {
-        "tag": "Improved",
-        "text": "Larger, higher-contrast tour text in both themes."
-      },
-      {
-        "tag": "Improved",
-        "text": "Blinky tours: a page tour that chains on, and one through the code."
-      },
-      {
-        "tag": "Improved",
-        "text": "Tours open on an intro card listing their stops."
-      },
-      {
-        "tag": "Improved",
-        "text": "Tour cards move, resize, and list only relevant threads, one per line."
-      },
-      {
-        "tag": "Improved",
-        "text": "Device dock leads with the sample's devices and folds the rest, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed."
-      },
-      {
-        "tag": "Improved",
-        "text": "Dock keys look pressable, and LEDs glow like lamps."
-      },
-      {
-        "tag": "Improved",
-        "text": "Dock rows and bus lists say each value once."
-      },
-      {
-        "tag": "Improved",
-        "text": "Dock labels in plain words, devicetree names beside them."
-      },
-      {
-        "tag": "Improved",
-        "text": "Trace Timeline shows thread priorities and what blocked threads wait on."
-      },
-      {
-        "tag": "Improved",
-        "text": "Tour cards sit beside the dock, full height, and outline what they name."
-      },
-      {
-        "tag": "Improved",
-        "text": "Shorter code excerpts on tour cards, with folds you can open."
-      },
-      {
-        "tag": "Improved",
-        "text": "Trace hides empty tabs and skips untraced net samples."
+        "text": "Device dock suggests what to try and leads with the sample's devices."
       },
       {
         "tag": "Changed",
-        "text": "Trace's Queues tab is now IPC, with graph filters."
-      },
-      {
-        "tag": "Changed",
-        "text": "Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI)."
-      },
-      {
-        "tag": "Changed",
-        "text": "Kernel object lists need an image from current Zephyr main."
-      },
-      {
-        "tag": "Changed",
-        "text": "Retired the old gateway and probe packages; use the desktop bridge."
+        "text": "Faster guests, half the download; needs Chrome or Edge 137, Firefox 153 or Safari 27."
       },
       {
         "tag": "Fixed",
-        "text": "Resuming from a breakpoint no longer stops on it again."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Debug names the right functions and callers, even at a function's start, and Cortex-M breakpoints hit."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Debug register tooltips name the current function's arguments."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Tour cards keep the stop line in view and name data pointers."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Rereading an earlier tour step no longer strands the paused guest."
-      },
-      {
-        "tag": "Fixed",
-        "text": "A tour card's X minimises it instead of skipping the stop."
-      },
-      {
-        "tag": "Fixed",
-        "text": "An ELF without a devicetree shows the board's buses."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Trace queue depth no longer counts hand-offs to waiting threads."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Trace Timeline no longer marks a thread blocked for waking another."
-      },
-      {
-        "tag": "Fixed",
-        "text": "The guest reads the ADXL345 at its real scale, not four times too high."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Cortex-A53 samples boot without an \"xlat tables low\" warning."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Trace's IPC graph keeps your zoom as new routes appear."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Trace charts are readable in light mode."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Thread and object lists no longer pass the last stop off as current."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Accent text, buttons and code colours meet contrast minimums."
-      },
-      {
-        "tag": "Fixed",
-        "text": "Attach rows pick free slots, Bluetooth errors fold, erase confirms."
+        "text": "Debug call stacks and breakpoints, ADXL345 scale, and colour contrast."
       }
     ]
   },
