@@ -26,6 +26,17 @@ const MODULES = import.meta.glob('/tours/*.tour.md', {
   import: 'default',
 }) as Record<string, () => Promise<string>>
 
+/**
+ * Which tours point at Trace, worked out from each file at build time
+ * (src/tours/traits.ts) so the page knows before it boots without loading
+ * every tour.
+ */
+const NEEDS_TRACE = import.meta.glob('/tours/*.tour.md', {
+  query: '?needs-trace',
+  import: 'default',
+  eager: true,
+}) as Record<string, boolean>
+
 function idOf(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1).replace('.tour.md', '')
 }
@@ -36,6 +47,23 @@ function idOf(path: string): string {
  */
 export function baseSampleId(sampleId: string): string {
   return sampleId.replace(/_trace$/, '')
+}
+
+/** True when a step of this tour points at Trace, so it runs on a traced build. */
+export function tourNeedsTrace(tourId: string): boolean {
+  return NEEDS_TRACE[`/tours/${tourId}.tour.md`] === true
+}
+
+/**
+ * The build of this sample that writes a trace on this board: the sample
+ * itself when it is a traced twin or traces in its own configuration, else its
+ * `_trace` twin, or null when the board has neither.
+ */
+export function tracedBuildOf(board: Board, sampleId: string): string | null {
+  const sample = board.samples.find((s) => s.id === sampleId)
+  if (sampleId.endsWith('_trace') || sample?.primaryPanels?.includes('trace')) return sampleId
+  const twin = `${baseSampleId(sampleId)}_trace`
+  return board.samples.some((s) => s.id === twin) ? twin : null
 }
 
 /** Every tour id, from the files themselves: `<app>` and `<app>.<slug>`. */
@@ -54,16 +82,35 @@ export function toursForApp(sampleId: string, ids: readonly string[] = tourIds()
 }
 
 /**
- * The tour a sample runs when the link names none: `tours/<app>.tour.md`, or
- * its first other tour when it has no such file.
+ * The tours this board can run for a sample. A tour that points at Trace
+ * needs a traced build of it, and a board without one (qemu_riscv32 has no
+ * `_trace` twins) does not offer that tour at all: half a tour whose Trace
+ * steps show nothing is not worth starting.
  */
-export function defaultTourFor(sampleId: string, ids?: readonly string[]): string | null {
-  return toursForApp(sampleId, ids)[0] ?? null
+export function toursOn(board: Board, sampleId: string, ids?: readonly string[]): string[] {
+  return toursOffered(sampleId, tracedBuildOf(board, sampleId) !== null, ids)
 }
 
-/** True when this sample has any tour, from the files alone: no list to keep in step. */
-export function hasTour(sampleId: string): boolean {
-  return defaultTourFor(sampleId) !== null
+/** {@link toursOn} for a caller that knows already whether a traced build exists. */
+export function toursOffered(sampleId: string, traced: boolean, ids?: readonly string[]): string[] {
+  return toursForApp(sampleId, ids).filter((id) => traced || !tourNeedsTrace(id))
+}
+
+/**
+ * The tour a sample runs on this board when the link names none:
+ * `tours/<app>.tour.md`, or its first other tour when it has no such file.
+ */
+export function defaultTourFor(
+  board: Board,
+  sampleId: string,
+  ids?: readonly string[],
+): string | null {
+  return toursOn(board, sampleId, ids)[0] ?? null
+}
+
+/** True when this sample has a tour on this board, from the files alone. */
+export function hasTour(board: Board, sampleId: string): boolean {
+  return defaultTourFor(board, sampleId) !== null
 }
 
 /**
@@ -75,27 +122,41 @@ export function hasTour(sampleId: string): boolean {
  * on a sample that says nothing.
  */
 export function tourToRun(
+  board: Board,
   sampleId: string,
   asked: string | null,
   ids?: readonly string[],
 ): string | null {
   if (asked === NO_TOUR) return null
-  const tours = toursForApp(sampleId, ids)
+  const tours = toursOn(board, sampleId, ids)
   if (asked !== null && tours.includes(asked)) return asked
   return tours[0] ?? null
+}
+
+/**
+ * The build a tour runs on: the sample's traced build when the tour points at
+ * Trace, so no Trace step lands on a guest that cannot show it. Any other tour,
+ * or none, runs on the sample asked for.
+ */
+export function sampleForTour(board: Board, sampleId: string, tourId: string | null): string {
+  if (tourId === null || !tourNeedsTrace(tourId)) return sampleId
+  return tracedBuildOf(board, sampleId) ?? sampleId
 }
 
 /**
  * The app a tour's `next:` runs as on this board, or null when the board does
  * not offer it.
  *
- * A tour id names its app. A reader on a traced twin stays on one when the
- * board has it: the tour they just finished may have pointed them at Trace,
- * and they chose the build that has it.
+ * A tour id names its app. A tour that points at Trace runs on the app's
+ * traced build, and the board does not offer it when there is none. Any other
+ * tour keeps a reader on a traced twin on one when the board has it: the tour
+ * they just finished may have pointed them at Trace, and they chose the build
+ * that has it.
  */
 export function nextSampleId(board: Board, sampleId: string, tourId: string): string | null {
   const app = appOfTour(tourId)
   const offered = (id: string) => board.samples.some((s) => s.id === id)
+  if (tourNeedsTrace(tourId)) return offered(app) ? tracedBuildOf(board, app) : null
   if (sampleId.endsWith('_trace') && offered(`${app}_trace`)) return `${app}_trace`
   return offered(app) ? app : null
 }
