@@ -16,8 +16,8 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
-    "version": "Unreleased",
-    "date": null,
+    "version": "0.6.0",
+    "date": "2026-10-08",
     "items": [
       {
         "tag": "Added",
