@@ -147,6 +147,7 @@ export function QueueGraph({
   eventCount,
   sync = null,
   priorities,
+  replay = false,
 }: {
   tr: Trace
   queues: QueueSeries[]
@@ -156,6 +157,8 @@ export function QueueGraph({
   sync?: LiveSync | null
   /** Priorities the debugger read, for threads that never logged one. */
   priorities?: ReadonlyMap<number, number>
+  /** Drawing a recording being replayed, not the running guest. */
+  replay?: boolean
 }) {
   const filter = useSyncExternalStore(ipcUi.subscribe, ipcUi.getSnapshot, ipcUi.getSnapshot)
   const live = useMemo(
@@ -203,6 +206,8 @@ export function QueueGraph({
   const [clock, setClock] = useState(() => performance.now())
   const [packets, setPackets] = useState<QueueGraphPacket[]>([])
   const lastIndexRef = useRef(-1)
+  /** The trace `lastIndexRef` indexes. A replay seeking back starts a new one. */
+  const flowTraceRef = useRef(tr)
   const activityRef = useRef(new Map<string, EdgeActivityState>())
   const packetSequenceRef = useRef(0)
   const packetTimeoutsRef = useRef<number[]>([])
@@ -255,6 +260,11 @@ export function QueueGraph({
   }, [eventCount, queues, tr.t1])
 
   useEffect(() => {
+    if (flowTraceRef.current !== tr) {
+      // Indices into another trace's log say nothing about this one's.
+      flowTraceRef.current = tr
+      lastIndexRef.current = -1
+    }
     const advanced = advanceFlowCursor(live.flow, lastIndexRef.current)
     lastIndexRef.current = advanced.nextIndex
     const now = performance.now()
@@ -305,7 +315,7 @@ export function QueueGraph({
       packetTimeoutsRef.current.push(timeout)
     }
     setClock(now)
-  }, [eventCount, live.flow])
+  }, [eventCount, live.flow, tr])
 
   useEffect(() => {
     const now = performance.now()
@@ -364,7 +374,7 @@ export function QueueGraph({
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 bg-slate-900/50 px-3 py-2 text-[10px] text-slate-400">
         <span className="font-medium uppercase tracking-[0.12em] text-slate-300">
-          Live IPC topology · {countLabel(shownObjectCount, objectCount, 'object')} ·{' '}
+          {replay ? 'Replayed' : 'Live'} IPC topology · {countLabel(shownObjectCount, objectCount, 'object')} ·{' '}
           {countLabel(live.graph.edges.length, live.flows.length, 'route')}
         </span>
         <span className="flex flex-wrap items-center gap-3">

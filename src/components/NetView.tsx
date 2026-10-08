@@ -46,7 +46,8 @@ function paint(
   net: NetCoreSeries[],
   view0: number,
   view1: number,
-  follow: boolean,
+  /** The follow badge's word, or null when not following. */
+  edge: string | null,
   yZoom: YZoom | null,
 ) {
   const dpr = window.devicePixelRatio || 1
@@ -100,9 +101,10 @@ function paint(
   const rightLbl = fmtTime(view1)
   ctx.fillText(leftLbl, LABEL_W, 26)
   ctx.fillText(rightLbl, LABEL_W + plotW - ctx.measureText(rightLbl).width, 26)
-  if (follow) {
+  if (edge !== null) {
     ctx.fillStyle = ink.live(0.95)
-    ctx.fillText('LIVE', Math.max(LABEL_W, cssW - 32), 12)
+    // Right-aligned 8 px in: where LIVE always sat, whatever the word.
+    ctx.fillText(edge, Math.max(LABEL_W, cssW - 8 - ctx.measureText(edge).width), 12)
   }
 
   if (sockets.length === 0) {
@@ -253,6 +255,7 @@ export function NetView({
   view0,
   view1,
   follow,
+  edgeLabel = 'LIVE',
   eventCount,
   canvasRef,
   canvasProps,
@@ -264,6 +267,8 @@ export function NetView({
   view0: number
   view1: number
   follow: boolean
+  /** What the follow badge says: LIVE, or REPLAY over a recording. */
+  edgeLabel?: string
   eventCount: number
   canvasRef: RefObject<HTMLCanvasElement | null>
   canvasProps?: CanvasHTMLAttributes<HTMLCanvasElement>
@@ -295,12 +300,13 @@ export function NetView({
   netRef.current = net
   yZoomRef.current = yZoom
   const ink = useTraceInk()
+  const edge = follow ? edgeLabel : null
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    paint(canvas, ink, tr, sockets, net, view0, view1, follow, yZoom)
-  }, [ink, tr, sockets, net, view0, view1, follow, canvasRef, yZoom])
+    paint(canvas, ink, tr, sockets, net, view0, view1, edge, yZoom)
+  }, [ink, tr, sockets, net, view0, view1, edge, canvasRef, yZoom])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -314,13 +320,13 @@ export function NetView({
         netRef.current,
         view0,
         view1,
-        follow,
+        edge,
         yZoomRef.current,
       )
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [ink, tr, view0, view1, follow, canvasRef])
+  }, [ink, tr, view0, view1, edge, canvasRef])
 
   return (
     <>

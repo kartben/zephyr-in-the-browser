@@ -7,6 +7,7 @@ import { InstrumentWindows } from '@/components/dock/Instruments'
 import { DropOverlay } from '@/components/DropOverlay'
 import { DtsPromptDialog } from '@/components/DtsPromptDialog'
 import { ShortcutsHelpDialog } from '@/components/ShortcutsHelpDialog'
+import { TraceReplayDialog } from '@/components/TraceReplayDialog'
 import { TourCard } from '@/components/TourCard'
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { registerCommand } from '@/lib/commands'
@@ -596,6 +597,7 @@ export default function App() {
       />
 
       <ShortcutsHelpDialog />
+      <TraceReplayDialog />
     </div>
   )
 }

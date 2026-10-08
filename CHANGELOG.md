@@ -5,6 +5,8 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Trace recording with slowed-down replay and a scrubber.
+
 ## [0.6.0] - 2026-10-08
 
 - **Added:** Tours gallery with many new tours, several per sample, and step links.
