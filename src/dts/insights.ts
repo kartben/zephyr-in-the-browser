@@ -82,6 +82,8 @@ export interface UartBus {
   path: string
   compatible: string
   role?: 'console' | 'gnss' | 'bluetooth'
+  /** `current-speed`: the baud a real port piped to it should start at. */
+  currentSpeed?: number
   slots: UartSlot[]
 }
 
@@ -464,11 +466,13 @@ function collectUartBuses(doc: DtsDocument): UartBus[] {
     if (consoleNode === node) role = 'console'
     else if (slots.some((s) => s.chipId === 'gnss')) role = 'gnss'
     else if (slots.some((s) => s.chipId === 'bluetooth')) role = 'bluetooth'
+    const currentSpeed = numberProp(node, 'current-speed')
     buses.push({
       controllerLabel: labelOf(node),
       path: pathOf(node),
       compatible: compatibles(node)[0] ?? '',
       role,
+      ...(currentSpeed ? { currentSpeed } : {}),
       slots,
     })
   })

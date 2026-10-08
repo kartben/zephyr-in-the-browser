@@ -3,6 +3,9 @@ import { sampleDtsAsset } from '@/boards'
 import { getPhase, loadSampleDts, markAbsent } from '@/devicetree'
 import { get as getGuestImage } from '@/guestImage'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
+import { attach as attachHostUart, detach as detachHostUart } from '@/hostUart'
+import { hostUartNodeName } from '@/deviceTopology'
+import { createFakeUartModule } from '@/serial/testing/fakeUartModule'
 import { attachMockDemo as attachHostBtDemo, detach as detachHostBt } from '@/hostBt'
 import { attach as attachHostNet, detach as detachHostNet } from '@/hostNet'
 import { createFakeNetModule } from '@/net/testing/fakeModule'
@@ -154,6 +157,14 @@ export function createMockBackend(): PtyBackend {
       // the real path, so the panel shows an authentic DHCP handshake, pings
       // and HTTP flows.
       if (board.peripherals?.hostNet) startFakeNetwork(disposers)
+
+      // A uart1 whose guest echoes what it hears, so the serial-port pipe can
+      // be tried with a real adapter and no emulator. Before GNSS, which
+      // sends its fix through it.
+      if (board.peripherals?.hostUart) {
+        attachHostUart(createFakeUartModule({ echo: true }).module, hostUartNodeName(board.id))
+        disposers.push(() => detachHostUart())
+      }
 
       // Stub GNSS so UART-bus nesting (GNSS under uart1) is visible on mock.
       if (board.peripherals?.gnss) {

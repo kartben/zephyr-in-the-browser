@@ -65,6 +65,15 @@ export const GDB_ARGS = ['-chardev', 'browser,id=gdb0', '-gdb', 'chardev:gdb0']
  */
 export const HCI_ARGS = ['-chardev', 'browser,id=hci0']
 
+/**
+ * The board's second UART on a two-way browser chardev, so the page can pipe
+ * it to a real serial port (src/hostUart.ts). Each machine hands uart1 to
+ * `qemu_browser_gnss_chardev()`, which returns `id=uart1` when it exists; an
+ * older emulator just leaves this chardev unconnected. Appended only on boards
+ * with the `hostUart` peripheral.
+ */
+export const UART1_ARGS = ['-chardev', 'browser,id=uart1']
+
 /** A prebuilt guest image. Produced by tools/build-zephyr-image.sh. */
 export interface GuestSample {
   /** Also the artifact basename, so it must stay in step with the build script. */
@@ -256,6 +265,13 @@ export interface Board {
      * Needs `-semihosting` on the argv; the Trace dock row follows it.
      */
     hostTrace?: boolean
+    /**
+     * uart1 on the browser `uart1` chardev (UART1_ARGS), pipeable to a real
+     * serial port through Web Serial, and fed the simulated GNSS fix
+     * otherwise. Needs the emulator's `uart1` slot; the page falls back to
+     * the receive-only GNSS feed without it. See src/hostUart.ts.
+     */
+    hostUart?: boolean
     /**
      * Bluetooth HCI over the browser `hci0` chardev + in-page Bumble
      * controller. Needs the emulator `"hci"` feature and a guest with
@@ -961,6 +977,7 @@ export const BOARDS: Board[] = [
     kernelFsPath: '/pack/zephyr.elf',
     peripherals: {
       gnss: true,
+      hostUart: true,
       hostGpio: true,
       hostAudio: true,
       hostMic: true,
@@ -1062,6 +1079,7 @@ export const BOARDS: Board[] = [
     kernelFsPath: '/pack/zephyr.elf',
     peripherals: {
       gnss: true,
+      hostUart: true,
       hostGpio: true,
       hostAudio: true,
       hostMic: true,
@@ -1138,6 +1156,7 @@ export const BOARDS: Board[] = [
     kernelFsPath: '/pack/zephyr.elf',
     peripherals: {
       gnss: true,
+      hostUart: true,
       hostGpio: true,
       hostAudio: true,
       hostMic: true,

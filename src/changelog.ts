@@ -21,6 +21,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     "items": [
       {
         "tag": "Added",
+        "text": "Pipe uart1 to a real USB serial port, with Web Serial."
+      },
+      {
+        "tag": "Added",
         "text": "The dock says what to try with each sample."
       },
       {

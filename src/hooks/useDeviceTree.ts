@@ -28,6 +28,7 @@ import * as hostWatchdog from '@/hostWatchdog'
 import * as hostInput from '@/hostInput'
 import * as hostMic from '@/hostMic'
 import * as hostNet from '@/hostNet'
+import * as hostUart from '@/hostUart'
 import { publishInventory } from '@/lib/dockReveal'
 import { pruneFollows } from '@/lib/followStore'
 import { i2cModel, isBound, spiModel, subscribeBinds } from '@/virtio'
@@ -77,6 +78,7 @@ function deriveShared(
     avail.watchdog,
     avail.display,
     avail.input,
+    avail.uartPipe,
   ]
   if (cache && cache.key.length === key.length && cache.key.every((v, i) => v === key[i])) {
     return cache.value
@@ -137,6 +139,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   )
   const watchdog = useSyncExternalStore(hostWatchdog.subscribe, hostWatchdog.available, () => false)
   const gnss = useSyncExternalStore(hostGnss.subscribe, hostGnss.available, () => false)
+  const uartPipe = useSyncExternalStore(hostUart.subscribe, hostUart.available, () => false)
   const bluetooth = useSyncExternalStore(hostBt.subscribe, hostBt.available, () => false)
   const gpio = useSyncExternalStore(hostGpio.subscribe, hostGpio.available, () => false)
   const audio = useSyncExternalStore(
@@ -177,7 +180,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
   const inventory = useMemo(() => {
     const avail: Availability = {
       gnss, bluetooth, gpio, audio, mic, net, i2c, spi, can, power, watchdog, display, input,
-      disk,
+      disk, uartPipe,
     }
     return deriveShared(tree, chips, spiChips, avail, boardId, phase)
   }, [
@@ -198,6 +201,7 @@ export function useDeviceTree(boardId: string): DeviceInventory {
     display,
     input,
     disk,
+    uartPipe,
     boardId,
     phase,
   ])

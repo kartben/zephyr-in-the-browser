@@ -1,6 +1,7 @@
 /** Browser end of the NMEA-over-UART GNSS bridge. */
 
 import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
+import * as hostUart from '@/hostUart'
 
 export interface GnssFix {
   latitude: number
@@ -142,10 +143,13 @@ function sentence(body: string) {
   return `$${body}*${checksum(body)}\r\n`
 }
 
-/** Emit one standards-compliant GGA/RMC fix over the emulated UART. */
+/**
+ * Emit one standards-compliant GGA/RMC fix over the emulated UART. A real
+ * serial port piped to uart1 (src/hostUart.ts) takes its place on the wire.
+ */
 function transmit() {
   const write = exports?._qemu_browser_gnss_feed_byte
-  if (!write) return
+  if (!write || hostUart.isPiped()) return
 
   const now = new Date()
   const time =
@@ -169,6 +173,9 @@ function transmit() {
       `GPRMC,${time},A,${latitude},${northSouth},${longitude},${eastWest},${knots.toFixed(1)},${fix.bearing.toFixed(1)},${date},,,A`,
     )
 
+  // Through the two-way uart1 slot when the emulator has one; the old
+  // receive-only feed otherwise.
+  if (hostUart.feedSimulated(payload)) return
   for (let index = 0; index < payload.length; index += 1) write(payload.charCodeAt(index))
 }
 

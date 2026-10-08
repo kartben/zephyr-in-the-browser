@@ -357,3 +357,39 @@ here whose *device* is entirely off-the-shelf on both sides — the patch adds
 plumbing, not hardware. The primary button is reported as `BTN_TOUCH` rather
 than `BTN_LEFT`, which is what Zephyr's touch consumers read; the secondary and
 middle buttons and the wheel pass through for anything that wants them.
+
+## Real serial ports: uart1 over Web Serial
+
+On the Cortex-M3, Cortex-A53 and RISC-V boards, uart1 can be piped to a USB
+serial adapter plugged into your computer, through the browser's
+[Web Serial API](https://developer.mozilla.org/docs/Web/API/Web_Serial_API)
+(Chrome and Edge on the desktop, Chrome on Android, Firefox 151+). Bytes the
+adapter receives reach the guest's uart1, and bytes the guest sends on uart1
+go out of the adapter. A real GNSS receiver can stand in for the simulated
+one, or the guest can talk to a modem, a sensor or another board.
+
+Open the uart1 card in the dock and, under **Pipe to a real serial port**,
+pick **Choose a port…**; the GNSS card has the same shortcut ("Have a real
+receiver? Pipe uart1 to it…"). The baud rate starts at the devicetree's
+`current-speed` for that UART. The line is 8N1, with no flow control. While
+a port owns uart1, the simulated GNSS fix stays off the wire.
+
+The choice survives an emulator restart. The page saves the port's USB vendor
+and product IDs, the baud rate and the **Reconnect after restart** setting
+under `zephyr.serial` in localStorage. After the reload,
+`navigator.serial.getPorts()` returns the ports the page was already granted,
+so the matching one reopens without the picker. If it is unplugged, the card
+waits for it and reopens it when it comes back. It only does this when the
+guest's devicetree enables uart1, so a sample that never uses it does not hold
+the port. Web Serial exposes no serial numbers, so of two identical adapters
+the first one wins. **Disconnect** closes the port and forgets it.
+
+On the emulator side, the page passes `-chardev browser,id=uart1`, and
+`qemu_browser_gnss_chardev()` gives uart1 to that two-way ring instead of the
+one-way NMEA feed
+(`tools/*-patches/*-chardev-add-a-two-way-browser-uart1-slot.patch`). The
+same patch refills a browser chardev as soon as the guest reads its UART's
+data register, instead of on the next 20 ms tick, so the guest can take
+bytes at a real port's rate. [`src/hostUart.ts`](../src/hostUart.ts) is the
+page end. An emulator built before the patch still boots with the extra
+chardev; the card just does not offer the pipe.
