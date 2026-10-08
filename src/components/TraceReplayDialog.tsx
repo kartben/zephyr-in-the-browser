@@ -136,11 +136,15 @@ function ReplayContent({ recording }: { recording: TraceRecording }) {
       : recording.reason === 'ended'
         ? ' · the trace stream ended while recording'
         : ''
-  const guestWaiting = recording.pausedGuest && run.available && run.paused
+  const guestPaused = run.available && run.paused
 
   return (
     <DialogContent
       className="max-h-[92vh] w-[96vw] max-w-6xl gap-0 overflow-hidden p-0"
+      // Nothing behind the replay follows its cursor: the device panels, the
+      // terminal and the live Trace show the machine as it is now. Drained of
+      // colour, a lit LED there cannot pass for one in the replayed moment.
+      overlayClassName="backdrop-grayscale"
       onKeyDown={onKeyDown}
     >
       <DialogHeader className="border-b border-border pr-12">
@@ -251,17 +255,13 @@ function ReplayContent({ recording }: { recording: TraceRecording }) {
       </div>
 
       <DialogFooter className="justify-between">
-        {guestWaiting ? (
-          <span className="text-[11px] text-muted-foreground">
-            The guest is paused where the recording stopped.
-          </span>
-        ) : (
-          <span className="hidden text-[11px] text-muted-foreground sm:inline">
-            Space plays and pauses; comma and period step one event.
-          </span>
-        )}
+        <span className="text-[11px] text-muted-foreground">
+          {guestPaused
+            ? 'The grayed-out panels behind are paused where recording stopped; they don’t follow the replay.'
+            : 'The grayed-out panels behind are still running; they don’t follow the replay.'}
+        </span>
         <span className="flex items-center gap-2">
-          {guestWaiting && (
+          {guestPaused && (
             <Button variant="ghost" size="sm" onClick={debug.resume}>
               Resume guest
             </Button>
