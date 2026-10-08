@@ -54,9 +54,22 @@ vi.mock('@/lib/debugUi', () => ({
     calls.push(`focusDebug ${section}${quiet(opts)}`),
 }))
 
+/** The IPC filter's name and focus, and who listens for them to change. */
+let ipcFilter: { focusName: string | null; focus: string | null } = { focusName: null, focus: null }
+const ipcListeners = new Set<() => void>()
+function setIpcFilter(next: typeof ipcFilter) {
+  ipcFilter = next
+  for (const fn of [...ipcListeners]) fn()
+}
+
 vi.mock('@/lib/ipcUi', () => ({
   focusIpcObject: (name: string) => calls.push(`focusIpcObject ${name}`),
   clearIpcFilter: () => calls.push('clearIpcFilter'),
+  getSnapshot: () => ipcFilter,
+  subscribe: (fn: () => void) => {
+    ipcListeners.add(fn)
+    return () => ipcListeners.delete(fn)
+  },
 }))
 
 const { BLINK_AFTER_MS, NO_TRACE_NOTE, focusLook, focusStep, lookNotes, lookTargets, pointAt } =
@@ -196,9 +209,12 @@ describe('pointAt', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+    ipcFilter = { focusName: null, focus: null }
+    ipcListeners.clear()
   })
 
   const ipc = step('trace', [{ kind: 'trace', tab: 'queues' }])
+  const sensorQ = step(null, [{ kind: 'trace', tab: 'queues', focus: 'sensor_q' }])
 
   it('rings what the step points at as its card lands, and blinks it once the card is up', () => {
     pointAt(ipc)
@@ -230,6 +246,50 @@ describe('pointAt', () => {
     expect(getDockTargets()).toEqual([{ key: 'stage:debug', tab: 'threads' }])
     vi.advanceTimersByTime(BLINK_AFTER_MS)
     expect(calls).toEqual(['blinkDockRow stage:debug'])
+  })
+
+  it('rings an IPC object with no traffic yet, but does not blink it', () => {
+    ipcFilter = { focusName: 'sensor_q', focus: null }
+    pointAt(sensorQ)
+    expect(getDockTargets()).toEqual([{ key: 'stage:trace', tab: 'queues' }])
+    vi.advanceTimersByTime(10_000)
+    expect(calls).toEqual([])
+  })
+
+  it('blinks the IPC object once it turns up while the card is still there', () => {
+    ipcFilter = { focusName: 'sensor_q', focus: null }
+    pointAt(sensorQ)
+    vi.advanceTimersByTime(BLINK_AFTER_MS)
+    setIpcFilter({ focusName: null, focus: 'object:1' })
+    expect(calls).toEqual(['blinkDockRow stage:trace'])
+    setIpcFilter({ focusName: null, focus: 'object:2' })
+    expect(calls).toEqual(['blinkDockRow stage:trace'])
+  })
+
+  it('does not blink when the reader clears the filter, or after the card goes', () => {
+    ipcFilter = { focusName: 'sensor_q', focus: null }
+    pointAt(sensorQ)
+    vi.advanceTimersByTime(BLINK_AFTER_MS)
+    setIpcFilter({ focusName: null, focus: null })
+    setIpcFilter({ focusName: null, focus: 'object:1' })
+    ipcFilter = { focusName: 'sensor_q', focus: null }
+    const undo = pointAt(sensorQ)
+    vi.advanceTimersByTime(BLINK_AFTER_MS)
+    undo()
+    setIpcFilter({ focusName: null, focus: 'object:1' })
+    expect(calls).toEqual([])
+  })
+
+  it('still blinks the rest of a step whose IPC object has no traffic yet', () => {
+    ipcFilter = { focusName: 'sensor_q', focus: null }
+    pointAt(step('led', [{ kind: 'trace', tab: 'queues', focus: 'sensor_q' }]))
+    vi.advanceTimersByTime(BLINK_AFTER_MS)
+    expect(calls).toEqual(['blinkDockRow gpio-leds'])
+    ipcFilter = { focusName: 'sensor_q', focus: null }
+    calls.length = 0
+    pointAt(step(null, [{ kind: 'trace', tab: 'schedule' }, { kind: 'trace', tab: 'queues', focus: 'sensor_q' }]))
+    vi.advanceTimersByTime(BLINK_AFTER_MS)
+    expect(calls).toEqual(['blinkDockRow stage:trace'])
   })
 
   it('rings nothing for a card that points at nothing, or for no card', () => {
