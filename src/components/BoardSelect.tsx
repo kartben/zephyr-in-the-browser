@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import {
   Select,
   SelectContent,
@@ -20,11 +21,12 @@ export function BoardSelect({
   boardId: string
   onBoardChange: (id: string) => void
 }) {
+  const { t } = useTranslation()
   const board = BOARDS.find((b) => b.id === boardId)
   return (
     <div className="flex shrink-0 items-center gap-2">
       <label className="hidden text-xs text-muted-foreground xl:inline" htmlFor="board-select">
-        Board
+        {t('board.label')}
       </label>
       <Select value={boardId} onValueChange={onBoardChange}>
         {/*
@@ -34,7 +36,7 @@ export function BoardSelect({
         <SelectTrigger
           id="board-select"
           className="w-[4.5rem] px-2 sm:w-[11.5rem] sm:px-3"
-          aria-label="Board"
+          aria-label={t('board.label')}
           title={board?.label}
         >
           {/* Explicit, not <SelectValue />: the items are two-line and would
@@ -44,7 +46,7 @@ export function BoardSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectLabel>Board</SelectLabel>
+            <SelectLabel>{t('board.label')}</SelectLabel>
             {BOARDS.map((b) => (
               <SelectItem key={b.id} value={b.id}>
                 <span className="flex flex-col items-start">

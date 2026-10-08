@@ -6,6 +6,7 @@
 
 import { Box, Cable } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { SessionMode } from '@/lib/modeStore'
 
@@ -16,29 +17,30 @@ export function ModeSwitch({
   mode: SessionMode
   onModeChange: (mode: SessionMode) => void
 }) {
+  const { t } = useTranslation()
   return (
     <span
       className="flex shrink-0 overflow-hidden rounded-md border border-border"
       role="group"
-      aria-label="Session mode"
+      aria-label={t('mode.group')}
     >
       <ModeButton
         active={mode === 'sim'}
         onClick={() => onModeChange('sim')}
-        label="Simulator"
-        title="Run Zephyr apps in the Simulator"
+        label={t('mode.sim')}
+        title={t('mode.simTitle')}
       >
         <Box className="size-3.5" aria-hidden />
-        <span className="hidden sm:inline">Simulator</span>
+        <span className="hidden sm:inline">{t('mode.sim')}</span>
       </ModeButton>
       <ModeButton
         active={mode === 'live'}
         onClick={() => onModeChange('live')}
-        label="Live board"
-        title="Stream and debug a real board through the desktop bridge"
+        label={t('mode.live')}
+        title={t('mode.liveTitle')}
       >
         <Cable className="size-3.5" aria-hidden />
-        <span className="hidden sm:inline">Live board</span>
+        <span className="hidden sm:inline">{t('mode.live')}</span>
       </ModeButton>
     </span>
   )

@@ -18,6 +18,7 @@
 
 import { Fragment, useState, useSyncExternalStore } from 'react'
 import { Check, Copy, Play } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import * as debug from '@/debug/control'
 import * as terminal from '@/lib/terminalInput'
@@ -84,6 +85,7 @@ export async function continueAndRun(
 }
 
 export function ShellSnippet({ lines, paused = false }: Props) {
+  const { t } = useTranslation()
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
   const ready = useSyncExternalStore(terminal.subscribe, terminal.canType, terminal.canType)
   const [typing, setTyping] = useState(false)
@@ -99,7 +101,11 @@ export function ShellSnippet({ lines, paused = false }: Props) {
   )
   const problem =
     resolved.flatMap((line) => line.errors)[0] ??
-    (commands.length === 0 ? 'Nothing to run' : !ready ? 'No terminal to type into' : null)
+    (commands.length === 0
+      ? t('tour.shell.nothing')
+      : !ready
+        ? t('tour.shell.noTerminal')
+        : null)
   const shown = resolved.map((line) => line.pieces.map((piece) => piece.text).join('')).join('\n')
 
   const run = () => {
@@ -167,13 +173,13 @@ export function ShellSnippet({ lines, paused = false }: Props) {
               problem !== null
                 ? undefined
                 : paused
-                  ? 'Resume the guest, then type this into the terminal'
-                  : 'Type this into the terminal'
+                  ? t('tour.shell.continueRunTitle')
+                  : t('tour.shell.runTitle')
             }
             onClick={run}
           >
             <Play aria-hidden />
-            {paused ? 'Continue and run' : 'Run'}
+            {paused ? t('tour.shell.continueRun') : t('tour.shell.run')}
           </Button>
         </span>
         <Button
@@ -183,7 +189,7 @@ export function ShellSnippet({ lines, paused = false }: Props) {
           onClick={copy}
         >
           {copied ? <Check className="text-success" aria-hidden /> : <Copy aria-hidden />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? t('tour.shell.copied') : t('tour.shell.copy')}
         </Button>
         {problem !== null && (
           <span className="min-w-0 truncate text-[11px] text-amber-700 dark:text-amber-400">

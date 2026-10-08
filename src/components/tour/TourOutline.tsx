@@ -7,6 +7,7 @@
  * clickable, to read a note again without rewinding anything.
  */
 
+import { useTranslation } from 'react-i18next'
 import { revisit } from '@/tours/store'
 import type { TourStep } from '@/tours/parse'
 import { cn } from '@/lib/utils'
@@ -18,14 +19,15 @@ interface Props {
 }
 
 export function TourOutline({ steps, seen, currentIndex }: Props) {
+  const { t } = useTranslation()
   if (steps.length < 2) return null
 
   return (
-    <div className="flex items-center gap-1" role="list" aria-label="Tour steps">
+    <div className="flex items-center gap-1" role="list" aria-label={t('tour.outline.label')}>
       {steps.map((step) => {
         const isCurrent = step.index === currentIndex
         const isSeen = seen.has(step.index)
-        const label = `Step ${step.index + 1}: ${step.title}`
+        const label = t('tour.outline.step', { step: step.index + 1, title: step.title })
         return (
           <button
             key={step.index}

@@ -14,5 +14,7 @@ export default defineConfig({
     // .tsx too, so a component's rendered output can be asserted against —
     // HexView renders the bytes a user reads, which is worth pinning.
     include: ['src/**/*.test.{ts,tsx}'],
+    // Components read their strings through i18next: set it up, in English.
+    setupFiles: ['src/i18n/index.ts'],
   },
 })

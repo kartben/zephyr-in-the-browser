@@ -19,6 +19,7 @@
  */
 
 import { Boxes } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { MsgqRing } from '@/components/tour/MsgqRing'
 import * as debugUi from '@/lib/debugUi'
 import type * as debug from '@/debug/control'
@@ -74,21 +75,22 @@ export function TourObjects({
   snap: debug.DebugSnapshot
   live: boolean
 }) {
+  const { t } = useTranslation()
   if (!live) {
-    return <Note>Kernel objects are read from the running guest. Start a sample to see them.</Note>
+    return <Note>{t('tour.objects.notLive')}</Note>
   }
   if (!snap.objectCores) {
-    return <Note>This build does not keep an inventory of its kernel objects.</Note>
+    return <Note>{t('tour.objects.noInventory')}</Note>
   }
   if (!snap.objects) {
-    return <Note>{snap.objectsError ?? 'Asking the kernel what it has…'}</Note>
+    return <Note>{snap.objectsError ?? t('tour.objects.asking')}</Note>
   }
 
   const groups = snap.objects.types.filter(
     (type) => type.objects.length > 0 && (spec.types.length === 0 || spec.types.includes(type.code)),
   )
   if (groups.length === 0) {
-    return <Note>The kernel has none of these yet.</Note>
+    return <Note>{t('tour.objects.none')}</Note>
   }
 
   // Last stop's objects while this stop's walk runs: dimmed, not passed off as current.
@@ -96,7 +98,7 @@ export function TourObjects({
   return (
     <div
       aria-busy={stale || undefined}
-      title={stale ? 'Reading the kernel…' : undefined}
+      title={stale ? t('tour.objects.reading') : undefined}
       className={cn(
         'overflow-hidden rounded border border-border bg-muted/30 transition-opacity',
         stale && 'opacity-50',

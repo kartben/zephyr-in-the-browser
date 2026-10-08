@@ -27,9 +27,10 @@ import * as debug from '@/debug/control'
 import * as gdb from '@/hostGdb'
 import { normalizeAddr, patternFile, resolveAnchor, type ResolvedAnchor } from '@/tours/anchors'
 import { evalAddress, evalWatch, type TourTarget } from '@/tours/expr'
-import { loadTourSource } from '@/tours/catalog'
+import { currentLanguage } from '@/i18n'
+import { loadLocalizedTour } from '@/tours/translations'
 import { focusStep, lookNotes } from '@/tours/look'
-import { parseTour, resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
+import { resolveHighlightSpecs, type TourDoc, type TourStep } from '@/tours/parse'
 import { evalPredicate, predicateIdentifiers } from '@/tours/predicate'
 import {
   parseSourceIndex,
@@ -428,16 +429,18 @@ function stopTarget(stop: gdb.StopContext): TourTarget {
 const cache = new Map<string, TourDoc | null>()
 
 /**
- * Parse a tour, by tour id. Never throws: no such tour file, and a document
- * with no steps, both read as "no tour here".
+ * Parse a tour, by tour id, in the page's language when it has a translation
+ * there (src/tours/translations.ts). Never throws: no such tour file, and a
+ * document with no steps, both read as "no tour here".
  */
 export async function fetchTour(tourId: string): Promise<TourDoc | null> {
-  const cached = cache.get(tourId)
+  const lang = currentLanguage()
+  const key = `${lang}:${tourId}`
+  const cached = cache.get(key)
   if (cached !== undefined) return cached
-  const text = await loadTourSource(tourId)
-  const parsed = text === null ? null : parseTour(text)
+  const parsed = await loadLocalizedTour(tourId, lang)
   const doc = parsed && parsed.steps.length > 0 ? parsed : null
-  cache.set(tourId, doc)
+  cache.set(key, doc)
   return doc
 }
 

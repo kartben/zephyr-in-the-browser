@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FileUp } from 'lucide-react'
 
 /**
@@ -13,6 +14,7 @@ import { FileUp } from 'lucide-react'
  * `zephyr.dts` together is the expected power move.
  */
 export function DropOverlay({ onFiles }: { onFiles: (files: File[]) => void }) {
+  const { t } = useTranslation()
   const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
@@ -63,12 +65,8 @@ export function DropOverlay({ onFiles }: { onFiles: (files: File[]) => void }) {
     <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-8">
       <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-primary px-10 py-8 text-center">
         <FileUp className="size-7 text-primary" aria-hidden />
-        <p className="text-sm font-medium">Drop an ELF to boot it</p>
-        <p className="max-w-xs text-xs text-muted-foreground">
-          Replaces this board’s stock app. Keep the board selector matching the
-          build. Drop the build’s zephyr.dts with it and the device dock follows
-          the devicetree.
-        </p>
+        <p className="text-sm font-medium">{t('drop.title')}</p>
+        <p className="max-w-xs text-xs text-muted-foreground">{t('drop.body')}</p>
       </div>
     </div>
   )

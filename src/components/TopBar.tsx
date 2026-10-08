@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   AppWindow,
   Cable,
@@ -80,6 +81,7 @@ export function TopBar({
   customImage,
   onClearImage,
 }: Props) {
+  const { t } = useTranslation()
   /*
    * Three groups, in falling order of how often they are touched: what to run,
    * the reference/layout tools, and the machine's state. Everything between the
@@ -104,8 +106,8 @@ export function TopBar({
           fits once the bar has room (`lg+`).
         */}
         <h1 className="truncate text-sm font-semibold tracking-tight">
-          <span className="lg:hidden">Zephyr</span>
-          <span className="hidden lg:inline">Zephyr in the Browser</span>
+          <span className="lg:hidden">{t('app.shortName')}</span>
+          <span className="hidden lg:inline">{t('app.name')}</span>
         </h1>
       </div>
 
@@ -161,14 +163,12 @@ export function TopBar({
             className="shrink-0"
             onClick={onRestart}
             disabled={status === 'loading'}
-            title={
-              hardRestart
-                ? 'Reset the MCU. The guest reboots; wiring and flash stay'
-                : 'Restart the guest'
-            }
+            title={hardRestart ? t('topBar.resetTitle') : t('topBar.restartTitle')}
           >
             {hardRestart ? <RefreshCw aria-hidden /> : <RotateCcw aria-hidden />}
-            <span className="hidden sm:inline">{hardRestart ? 'Reset' : 'Restart'}</span>
+            <span className="hidden sm:inline">
+              {hardRestart ? t('topBar.reset') : t('topBar.restart')}
+            </span>
           </Button>
         )}
       </div>
@@ -182,16 +182,17 @@ export function TopBar({
  * RunningDtsButton is — connection state is the bridge client's business.
  */
 function LiveStatusPill() {
+  const { t } = useTranslation()
   const snap = useSyncExternalStore(bridge.subscribe, bridge.getSnapshot, bridge.getSnapshot)
   const streaming = snap.phase === 'connected' && snap.serial?.phase === 'streaming'
   const label =
     snap.phase === 'connected'
-      ? 'Connected'
+      ? t('liveStatus.connected')
       : snap.phase === 'connecting'
-        ? 'Connecting'
+        ? t('liveStatus.connecting')
         : snap.phase === 'error'
-          ? 'Error'
-          : 'Bridge off'
+          ? t('liveStatus.error')
+          : t('liveStatus.off')
   const dot =
     snap.phase === 'connected'
       ? 'bg-success'
@@ -212,7 +213,7 @@ function LiveStatusPill() {
       {detail && (
         <span
           className="hidden max-w-[22ch] truncate font-mono text-muted-foreground lg:inline"
-          aria-label="status detail"
+          aria-label={t('topBar.statusDetail')}
         >
           {detail}
         </span>
@@ -226,14 +227,15 @@ function LiveStatusPill() {
  * always-available page chrome, including on Live board.
  */
 function HelpButton() {
+  const { t } = useTranslation()
   const chord = formatChord({ key: '?' }, isMacPlatform())
   return (
     <Button
       variant="ghost"
       size="icon"
       className="size-8 shrink-0"
-      aria-label="Help"
-      title={`Help (${chord})`}
+      aria-label={t('topBar.help')}
+      title={t('topBar.helpTitle', { chord })}
       onClick={() => toggleHelp()}
     >
       <CircleHelp className="size-4" />
@@ -253,6 +255,7 @@ function MobileDockToggle() {
  * Samples stay as their own control; Parts is the discovery gap this closes.
  */
 function MoreToolsMenu() {
+  const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const [partsOpen, setPartsOpen] = useState(false)
   const [dtsOpen, setDtsOpen] = useState(false)
@@ -285,9 +288,9 @@ function MoreToolsMenu() {
         variant="ghost"
         size="icon"
         className={cn('size-8 shrink-0', menuOpen && 'bg-secondary')}
-        aria-label="More"
+        aria-label={t('topBar.more')}
         aria-expanded={menuOpen}
-        title="More"
+        title={t('topBar.more')}
         onClick={() => setMenuOpen((o) => !o)}
       >
         <Ellipsis className="size-4" />
@@ -308,7 +311,7 @@ function MoreToolsMenu() {
             }}
           >
             <AppWindow className="size-3.5 text-muted-foreground" aria-hidden />
-            Samples
+            {t('topBar.samples')}
           </button>
           <button
             type="button"
@@ -320,7 +323,7 @@ function MoreToolsMenu() {
             }}
           >
             <Cable className="size-3.5 text-muted-foreground" aria-hidden />
-            Parts
+            {t('topBar.parts')}
           </button>
           {deviceTree && (
             <button
@@ -333,7 +336,7 @@ function MoreToolsMenu() {
               }}
             >
               <FileCode2 className="size-3.5 text-muted-foreground" aria-hidden />
-              Devicetree
+              {t('topBar.devicetree')}
             </button>
           )}
           {canClear && (
@@ -347,7 +350,7 @@ function MoreToolsMenu() {
               }}
             >
               <Unplug className="size-3.5 text-muted-foreground" aria-hidden />
-              Clear attached parts
+              {t('topBar.clearParts')}
             </button>
           )}
         </div>
@@ -358,7 +361,7 @@ function MoreToolsMenu() {
         <DtsViewer
           open={dtsOpen}
           onOpenChange={setDtsOpen}
-          title={`${deviceTree.name}: running build`}
+          title={t('topBar.runningBuild', { name: deviceTree.name })}
           load={dtsLoad}
         />
       )}
@@ -372,6 +375,7 @@ function MoreToolsMenu() {
  * devicetree store's business, and the button simply is not there when none is.
  */
 function RunningDtsButton() {
+  const { t } = useTranslation()
   const deviceTree = useSyncExternalStore(subscribeDeviceTree, getDeviceTree, () => null)
   const [open, setOpen] = useState(false)
   const load = useCallback(() => Promise.resolve(getDeviceTree()?.text ?? null), [])
@@ -384,8 +388,8 @@ function RunningDtsButton() {
         variant="ghost"
         size="icon"
         className="size-8 shrink-0"
-        aria-label="View the running build's devicetree"
-        title={`Devicetree: ${deviceTree.name}`}
+        aria-label={t('topBar.viewDevicetree')}
+        title={t('topBar.devicetreeTitle', { name: deviceTree.name })}
         onClick={() => setOpen(true)}
       >
         <FileCode2 className="size-4" />
@@ -393,7 +397,7 @@ function RunningDtsButton() {
       <DtsViewer
         open={open}
         onOpenChange={setOpen}
-        title={`${deviceTree.name}: running build`}
+        title={t('topBar.runningBuild', { name: deviceTree.name })}
         load={load}
       />
     </>

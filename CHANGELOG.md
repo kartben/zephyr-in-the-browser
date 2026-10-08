@@ -8,6 +8,7 @@ via the help dialog (?).
 - **Added:** Trace recording with slowed-down replay and a scrubber.
 - **Added:** Kite Rush sample: a mouse-flown arcade game that saves high scores.
 - **Added:** ZMS sample, and a flash view of its keys and history.
+- **Added:** Language picker in Settings, with French page and Blinky tour.
 - **Fixed:** IPC queue depths stay right past 50,000 trace events.
 
 ## [0.6.0] - 2026-10-08

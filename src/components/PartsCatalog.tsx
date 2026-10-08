@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Activity,
   BatteryCharging,
@@ -103,6 +104,7 @@ interface PartsCatalogProps {
 }
 
 export function PartsCatalog({ labeled = false, open: openProp, onOpenChange }: PartsCatalogProps = {}) {
+  const { t } = useTranslation()
   const searchRef = useRef<HTMLInputElement>(null)
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const controlled = onOpenChange !== undefined
@@ -146,27 +148,25 @@ export function PartsCatalog({ labeled = false, open: openProp, onOpenChange }: 
                 ? 'h-8 shrink-0 gap-1.5 px-2 text-muted-foreground'
                 : 'size-8 shrink-0 text-muted-foreground'
             }
-            aria-label="Supported parts"
-            title="Supported parts"
+            aria-label={t('parts.title')}
+            title={t('parts.title')}
           >
             <Cable className="size-3.5" aria-hidden />
-            {labeled && <span className="text-sm">Parts</span>}
+            {labeled && <span className="text-sm">{t('parts.button')}</span>}
           </Button>
         </DialogTrigger>
       )}
 
       <DialogContent className="h-[min(85vh,42rem)] max-w-xl">
         <DialogHeader>
-          <DialogTitle>Supported parts</DialogTitle>
+          <DialogTitle>{t('parts.title')}</DialogTitle>
           {/* The columns already say manufacturer / compatible / datasheet. */}
-          <DialogDescription>
-            Chips you can attach on I²C and SPI while the guest runs.
-          </DialogDescription>
+          <DialogDescription>{t('parts.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="shrink-0 px-5 pb-3">
           <label className="relative block">
-            <span className="sr-only">Search parts</span>
+            <span className="sr-only">{t('parts.search')}</span>
             <Search
               className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
               aria-hidden
@@ -176,7 +176,7 @@ export function PartsCatalog({ labeled = false, open: openProp, onOpenChange }: 
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by part, vendor, compatible…"
+              placeholder={t('parts.searchPlaceholder')}
               autoComplete="off"
               className={cn(
                 'h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm',
@@ -189,7 +189,7 @@ export function PartsCatalog({ labeled = false, open: openProp, onOpenChange }: 
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 py-2">
           {catalog.length === 0 ? (
             <p className="flex h-full items-center justify-center px-3 text-center text-xs text-muted-foreground">
-              No parts match “{query.trim()}”.
+              {t('parts.noMatch', { query: query.trim() })}
             </p>
           ) : (
             grouped.map(([kind, parts]) => (

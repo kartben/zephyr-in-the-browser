@@ -72,7 +72,7 @@ vi.mock('@/lib/ipcUi', () => ({
   },
 }))
 
-const { BLINK_AFTER_MS, NO_TRACE_NOTE, focusLook, focusStep, lookNotes, lookTargets, pointAt } =
+const { BLINK_AFTER_MS, focusLook, focusStep, lookNotes, lookTargets, pointAt } =
   await import('@/tours/look')
 
 function step(panel: TourStep['panel'], look: LookSpec[]): Pick<TourStep, 'panel' | 'look'> {
@@ -306,7 +306,9 @@ describe('pointAt', () => {
 
 describe('lookNotes', () => {
   it('says once that the view needs the traced build', () => {
-    expect(lookNotes(step('trace', [{ kind: 'trace', tab: 'queues' }]))).toEqual([NO_TRACE_NOTE])
+    expect(lookNotes(step('trace', [{ kind: 'trace', tab: 'queues' }]))).toEqual([
+      'This view needs the traced build of this sample.',
+    ])
   })
 
   it('says nothing when Trace is there, or not asked for', () => {

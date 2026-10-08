@@ -8,6 +8,7 @@
  */
 
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, Link2, SkipForward } from 'lucide-react'
 import { tourLink } from '@/lib/selectionParams'
 import type { TourState } from '@/tours/store'
@@ -22,6 +23,7 @@ interface LinkProps {
 
 /** Copies a link that opens this tour at this step, on this board and app. */
 export function CopyTourLink({ boardId, sampleId, tourId, step }: LinkProps) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const copy = () => {
     const url = tourLink(`${location.origin}${location.pathname}`, {
@@ -43,8 +45,8 @@ export function CopyTourLink({ boardId, sampleId, tourId, step }: LinkProps) {
   return (
     <button
       type="button"
-      aria-label={copied ? 'Link copied' : 'Copy a link to this step'}
-      title={copied ? 'Link copied' : 'Copy a link that opens this tour at this step'}
+      aria-label={copied ? t('tour.link.copied') : t('tour.link.copy')}
+      title={copied ? t('tour.link.copied') : t('tour.link.copyTitle')}
       onClick={copy}
       className="rounded p-0.5 text-muted-foreground hover:text-foreground"
     >
@@ -73,13 +75,14 @@ export function startedAt(
 
 /** Says that a link started the tour at `step` (counted from 1), skipping the ones before. */
 export function StartedAt({ step }: { step: number }) {
+  const { t } = useTranslation()
   return (
     <p
       className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
-      title="The steps before this one were skipped. The guest ran here straight from reset, so anything they asked you to do has not happened."
+      title={t('tour.link.startedAtTitle')}
     >
       <SkipForward className="size-3 shrink-0" aria-hidden />
-      Started at step {step}
+      {t('tour.link.startedAt', { step })}
     </p>
   )
 }

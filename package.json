@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "tour:check": "vitest run src/tours/images.test.ts",
     "gen:changelog": "node scripts/gen-changelog.mjs",
+    "i18n:status": "node scripts/i18n-status.mjs",
     "docs:fetch": "node tools/fetch-docs.mjs",
     "vendor:bumble": "tools/vendor-bumble.sh",
     "build:libsbc": "bash tools/build-libsbc-wasm.sh"
@@ -31,10 +32,12 @@
     "d3-shape": "^3.2.0",
     "elkjs": "^0.12.0",
     "highlight.js": "^11.11.1",
+    "i18next": "^26.4.2",
     "lucide-react": "^1.25.0",
     "mermaid": "^11.17.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-i18next": "^17.0.16",
     "tailwind-merge": "^3.6.0",
     "xterm-pty": "^0.12.0"
   },

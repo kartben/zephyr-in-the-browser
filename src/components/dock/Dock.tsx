@@ -17,6 +17,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Boxes, ChevronsLeft, ChevronsRight, FileCode2, ListTree } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { DtsViewer } from '@/components/DtsViewer'
 import {
@@ -65,6 +66,7 @@ const REM = 16
 const clampWidth = (w: number) => Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, w))
 
 export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolean }) {
+  const { t } = useTranslation()
   const state = useSyncExternalStore(subscribe, getState, getState)
   const fullInventory = useDeviceTree(boardId)
   const { inventory, hiddenInert } = useMemo(() => {
@@ -206,7 +208,9 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
         )
       }
       if (layout.instruments.length > 0) {
-        next.push(<SectionHeading key="heading:instruments">Instruments</SectionHeading>)
+        next.push(
+          <SectionHeading key="heading:instruments">{t('dock.instruments')}</SectionHeading>,
+        )
         for (const key of layout.instruments) pushInstrument(key)
       }
       if (layout.moreCount > 0) {
@@ -214,7 +218,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
         next.push(
           <DockFoldRow
             key="fold:more"
-            label="More on this board"
+            label={t('dock.more')}
             count={layout.moreCount}
             open={open}
             onToggle={() => setMoreOpen(!open)}
@@ -228,7 +232,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
       if (listed.inventory.nodes.length === 0 && layout.lead.length === 0) {
         next.push(
           <p key="nothing" className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-            Nothing here to use yet.
+            {t('dock.nothing')}
           </p>,
         )
       }
@@ -247,17 +251,19 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
     // ⌗, a guest still booting, or a Live board with no guest at all: the
     // instruments, then the devices in the view's own order.
     if (shown.length > 0) {
-      next.push(<SectionHeading key="heading:instruments">Instruments</SectionHeading>)
+      next.push(
+        <SectionHeading key="heading:instruments">{t('dock.instruments')}</SectionHeading>,
+      )
       for (const row of shown) pushInstrument(row.instrument.key)
     }
     // Devices come from the guest's devicetree; a Live board session has no
     // guest, and "waiting for the guest to boot" would be a lie.
     if (mode !== 'sim') return next
-    next.push(<SectionHeading key="heading:devices">Devices</SectionHeading>)
+    next.push(<SectionHeading key="heading:devices">{t('dock.devices')}</SectionHeading>)
     if (inventory.nodes.length === 0) {
       next.push(
         <p key="empty" className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          No peripherals yet. Waiting for the guest to boot.
+          {t('dock.noPeripherals')}
         </p>,
       )
       return next
@@ -276,6 +282,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
     state.groups,
     state.seed,
     state.moreOpen,
+    t,
   ])
 
   // Two different things share one sidebar: a persistent desktop column, and a
@@ -307,7 +314,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
         />
       )}
       <aside
-        aria-label="Devices"
+        aria-label={t('dock.label')}
         className={cn(
           'flex flex-col border-l border-border bg-card',
           desktop
@@ -321,7 +328,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Resize the device dock"
+            aria-label={t('dock.resize')}
             className="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize touch-none hover:bg-primary/30"
             onPointerDown={(e) => {
               dragging.current = true
@@ -357,8 +364,8 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
               variant="ghost"
               size="icon"
               className="size-6"
-              aria-label="Collapse the device dock"
-              title="Collapse the device dock"
+              aria-label={t('dock.collapse')}
+              title={t('dock.collapse')}
               onClick={hide}
             >
               <ChevronsRight className="size-3.5" />
@@ -371,7 +378,7 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
           {rendered}
           {mode === 'sim' && demo && hiddenInert > 0 && (
             <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              Other peripherals appear when a Zephyr app is running.
+              {t('dock.appearLater')}
             </p>
           )}
         </div>
@@ -382,11 +389,12 @@ export function Dock({ boardId, demo = false }: { boardId: string; demo?: boolea
 
 /** Slim right-edge control: collapse is reversible without the top bar. */
 function DockCollapsedTab({ onOpen }: { onOpen: () => void }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
-      aria-label="Show the device dock"
-      title="Show the device dock"
+      aria-label={t('dock.show')}
+      title={t('dock.show')}
       onClick={onOpen}
       className={cn(
         'flex h-full w-7 shrink-0 flex-col items-center justify-center',
@@ -419,15 +427,16 @@ function SectionHeading({ children }: { children: ReactNode }) {
  * it. It is also the way to them: the devicetree view lists every node.
  */
 function LeftOutLine({ count, more }: { count: number; more: boolean }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
       onClick={() => setView('devicetree')}
-      title="Switch to the devicetree view, which lists every node, usable or not"
+      title={t('dock.leftOutTitle')}
       className="mt-1 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
     >
       <ListTree className="size-3 shrink-0" aria-hidden />
-      {`${count}${more ? ' more' : ''} in the devicetree view`}
+      {more ? t('dock.leftOutMore', { count }) : t('dock.leftOut', { count })}
     </button>
   )
 }
@@ -438,23 +447,28 @@ function LeftOutLine({ count, more }: { count: number; more: boolean }) {
  * said nothing to someone who had not met either word in Zephyr yet.
  */
 function ViewSwitch({ view }: { view: DockView }) {
+  const { t } = useTranslation()
   return (
-    <span className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Dock view">
+    <span
+      className="flex overflow-hidden rounded-md border border-border"
+      role="group"
+      aria-label={t('dock.view')}
+    >
       <ViewButton
         active={view === 'classes'}
         onClick={() => setView('classes')}
-        label="Group devices by type, the sample's own first"
+        label={t('dock.byTypeTitle')}
       >
         <Boxes className="size-3" aria-hidden />
-        By type
+        {t('dock.byType')}
       </ViewButton>
       <ViewButton
         active={view === 'devicetree'}
         onClick={() => setView('devicetree')}
-        label="Nest every node as the devicetree does"
+        label={t('dock.devicetreeTitle')}
       >
         <ListTree className="size-3" aria-hidden />
-        Devicetree
+        {t('dock.devicetree')}
       </ViewButton>
     </span>
   )
@@ -489,6 +503,7 @@ function ViewButton({
 
 /** Opens the running build's devicetree in the full-fidelity viewer. */
 function RunningTreeButton() {
+  const { t } = useTranslation()
   const [open, setDialogOpen] = useState(false)
   const load = useCallback(() => Promise.resolve(getDeviceTree()?.text ?? null), [])
   const tree = getDeviceTree()
@@ -499,8 +514,8 @@ function RunningTreeButton() {
         variant="ghost"
         size="icon"
         className="size-6"
-        aria-label="View the full devicetree"
-        title={`Devicetree: ${tree.name}`}
+        aria-label={t('dock.viewTree')}
+        title={t('topBar.devicetreeTitle', { name: tree.name })}
         onClick={() => setDialogOpen(true)}
       >
         <FileCode2 className="size-3.5" />
@@ -508,7 +523,7 @@ function RunningTreeButton() {
       <DtsViewer
         open={open}
         onOpenChange={setDialogOpen}
-        title={`${tree.name} · running build`}
+        title={t('topBar.runningBuild', { name: tree.name })}
         load={load}
       />
     </>

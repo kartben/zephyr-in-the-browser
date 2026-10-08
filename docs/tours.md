@@ -945,6 +945,23 @@ and **Run it again** take the tour from the top.
 and appends `&tour=`; `tools/fetch-docs.mjs` passes each sample's default tour.
 See [sample-docs.md](sample-docs.md).
 
+## Tours in other languages
+
+A translation of `tours/<tour id>.tour.md` is `tours/<lang>/<tour id>.tour.md`,
+such as `tours/fr/blinky.tour.md`. The page runs it when the reader's language
+is `<lang>` (see [i18n.md](i18n.md) for how that is chosen), and the English
+tour when there is none.
+
+Only the words are translated: the title, the introduction, the headings and
+prose, and the reader-facing lines of a ```` ```tour ```` block (`await:`,
+`pass:`, `fail:`, a `memory:` note, a `watch:` label). Every stage direction
+stays as the English file has it, and `npm test` fails on a translation that
+stops anywhere else or reads anything else (`src/tours/translations.ts`). So a
+translation needs no `tour:check` of its own, and a `?step=` link means the
+same stop in every language. Changing where an English tour stops means making
+the same change in its translations; [i18n.md](i18n.md#translating-a-tour) has
+the details.
+
 ## How it runs
 
 1. The page loads the tour from its own bundle as the emulator starts.
@@ -1153,6 +1170,7 @@ is inspected from outside, so anything that runs can be toured, shell included.
 | | |
 | --- | --- |
 | The tours | `tours/*.tour.md` |
+| Translations | `tours/<lang>/*.tour.md`, `src/tours/translations.ts` |
 | Tour ids and links | `src/tours/tourId.ts`, `src/tours/catalog.ts`, `src/lib/selectionParams.ts` |
 | File format | `src/tours/parse.ts` |
 | Anchors | `src/tours/anchors.ts`, `src/tours/cfunction.ts`, `src/debug/dwarfLines.ts` |

@@ -345,7 +345,15 @@ async function playStep(page, step, info, opts, reloaded) {
 
 async function runTour(browser, tour, opts) {
   const board = getBoard(opts.board)
-  const params = new URLSearchParams({ board: board.id, app: tour.app, backend: 'qemu', test: '1' })
+  // English whatever the machine's locale: NEXT_BUTTON reads the English labels,
+  // and the tour played is the one as written (translations stop where it does).
+  const params = new URLSearchParams({
+    board: board.id,
+    app: tour.app,
+    backend: 'qemu',
+    test: '1',
+    lang: 'en',
+  })
   // A second tour of a sample is picked by ?tour=; the default one by the app alone.
   if (tour.id !== tour.app) params.set('tour', tour.id)
   const url = `http://127.0.0.1:${opts.port}/?${params}`

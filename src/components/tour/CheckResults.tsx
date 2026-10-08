@@ -9,6 +9,7 @@
  */
 
 import { CircleAlert, CircleCheck, CircleDashed } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { InlineMarkdown } from '@/components/Markdown'
 import { cn } from '@/lib/utils'
 import type { TourCheck, TourCheckRow } from '@/tours/store'
@@ -33,29 +34,32 @@ const TONES = {
   passed: {
     attr: 'pass',
     Icon: CircleCheck,
-    title: 'Passed',
+    title: 'tour.check.passed',
     box: 'border-emerald-500/40 bg-emerald-500/5',
     head: 'text-emerald-700 dark:text-emerald-400',
   },
   failed: {
     attr: 'fail',
     Icon: CircleAlert,
-    title: 'Not yet',
+    title: 'tour.check.failed',
     box: 'border-amber-500/40 bg-amber-500/5',
     head: 'text-amber-700 dark:text-amber-400',
   },
   unknown: {
     attr: 'unread',
     Icon: CircleDashed,
-    title: 'Not checked',
+    title: 'tour.check.unknown',
     box: 'border-border bg-muted/30',
     head: 'text-muted-foreground',
   },
 } as const
 
 function Row({ row }: { row: TourCheckRow }) {
+  const { t } = useTranslation()
   const actual = row.values
-    .map((side) => (side.ok ? `${side.expr} is ${side.text}` : `${side.expr}: ${side.text}`))
+    .map((side) =>
+      side.ok ? t('tour.check.value', { expr: side.expr, value: side.text }) : `${side.expr}: ${side.text}`,
+    )
     .join(', ')
   return (
     <li className="min-w-0">
@@ -75,6 +79,7 @@ function Row({ row }: { row: TourCheckRow }) {
 }
 
 export function CheckResults({ check, pass, fail, live }: Props) {
+  const { t } = useTranslation()
   const { attr, Icon, title, box, head } = TONES[check.outcome]
   const passed = check.outcome === 'passed'
   const rows = passed ? [] : check.rows.filter((row) => row.pass !== true)
@@ -85,7 +90,7 @@ export function CheckResults({ check, pass, fail, live }: Props) {
     <div data-tour-check={attr} className={cn('space-y-1.5 rounded border px-2 py-1.5', box)}>
       <p className={cn('flex items-center gap-1.5 text-[11.5px] font-medium', head)}>
         <Icon className="size-3.5 shrink-0" aria-hidden />
-        {title}
+        {t(title)}
       </p>
       {rows.length > 0 && (
         <ul className="space-y-1">
@@ -100,9 +105,7 @@ export function CheckResults({ check, pass, fail, live }: Props) {
         </p>
       )}
       {!live && (
-        <p className="text-[11px] text-muted-foreground">
-          Checks read the running guest. Start a sample to see the result.
-        </p>
+        <p className="text-[11px] text-muted-foreground">{t('tour.check.notLive')}</p>
       )}
     </div>
   )

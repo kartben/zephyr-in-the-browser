@@ -1,0 +1,284 @@
+{
+  "app": {
+    "name": "Zephyr in the Browser",
+    "shortName": "Zephyr"
+  },
+  "topBar": {
+    "restart": "Restart",
+    "restartTitle": "Restart the guest",
+    "reset": "Reset",
+    "resetTitle": "Reset the MCU. The guest reboots; wiring and flash stay",
+    "help": "Help",
+    "helpTitle": "Help ({{chord}})",
+    "more": "More",
+    "samples": "Samples",
+    "parts": "Parts",
+    "devicetree": "Devicetree",
+    "clearParts": "Clear attached parts",
+    "viewDevicetree": "View the running build's devicetree",
+    "devicetreeTitle": "Devicetree: {{name}}",
+    "runningBuild": "{{name}}: running build",
+    "statusDetail": "status detail"
+  },
+  "status": {
+    "idle": "Idle",
+    "loading": "Loading",
+    "running": "Running",
+    "exited": "Exited",
+    "error": "Error"
+  },
+  "liveStatus": {
+    "connected": "Connected",
+    "connecting": "Connecting",
+    "error": "Error",
+    "off": "Bridge off"
+  },
+  "mode": {
+    "group": "Session mode",
+    "sim": "Simulator",
+    "simTitle": "Run Zephyr apps in the Simulator",
+    "live": "Live board",
+    "liveTitle": "Stream and debug a real board through the desktop bridge"
+  },
+  "board": {
+    "label": "Board"
+  },
+  "machine": {
+    "pause": "Pause the machine",
+    "resume": "Resume the machine",
+    "registers": "CPU registers"
+  },
+  "drop": {
+    "title": "Drop an ELF to boot it",
+    "body": "Replaces this board’s stock app. Keep the board selector matching the build. Drop the build’s zephyr.dts with it and the device dock follows the devicetree."
+  },
+  "dock": {
+    "label": "Devices",
+    "instruments": "Instruments",
+    "devices": "Devices",
+    "more": "More on this board",
+    "nothing": "Nothing here to use yet.",
+    "noPeripherals": "No peripherals yet. Waiting for the guest to boot.",
+    "appearLater": "Other peripherals appear when a Zephyr app is running.",
+    "resize": "Resize the device dock",
+    "collapse": "Collapse the device dock",
+    "show": "Show the device dock",
+    "view": "Dock view",
+    "byType": "By type",
+    "byTypeTitle": "Group devices by type, the sample's own first",
+    "devicetree": "Devicetree",
+    "devicetreeTitle": "Nest every node as the devicetree does",
+    "leftOut_one": "{{count}} in the devicetree view",
+    "leftOut_other": "{{count}} in the devicetree view",
+    "leftOutMore_one": "{{count}} more in the devicetree view",
+    "leftOutMore_other": "{{count}} more in the devicetree view",
+    "leftOutTitle": "Switch to the devicetree view, which lists every node, usable or not",
+    "viewTree": "View the full devicetree"
+  },
+  "parts": {
+    "button": "Parts",
+    "title": "Supported parts",
+    "description": "Chips you can attach on I²C and SPI while the guest runs.",
+    "search": "Search parts",
+    "searchPlaceholder": "Search by part, vendor, compatible…",
+    "noMatch": "No parts match “{{query}}”."
+  },
+  "settings": {
+    "title": "Settings",
+    "dismiss": "Dismiss settings",
+    "language": {
+      "title": "Language",
+      "label": "Page language",
+      "browser": "Browser default ({{name}})",
+      "reloads": "Changing the language reloads the page and restarts the guest.",
+      "fromLink": "This link asks for <code>?lang={{lang}}</code>. Picking a language here replaces it.",
+      "contribute": "Help translate"
+    },
+    "bridge": {
+      "title": "Desktop bridge",
+      "howTo": "How to install and run the bridge",
+      "intro": "The desktop bridge is a small program you run on your own machine. In Live board mode it streams traces from a real board and connects Debug to your GDB server. In Simulator mode it can carry the guest's network (Bridge network).",
+      "install": "Install it with Go {{version}} or newer:",
+      "run": "Then start it and paste the URL it prints:",
+      "notes": "Full notes in <link>docs/bridge.md</link>.",
+      "use": "Use desktop bridge",
+      "url": "Bridge WebSocket URL",
+      "invalidUrl": "not a ws:// or wss:// URL",
+      "setByQuery": "Set by <code>?{{param}}=</code>. Remove it to edit here.",
+      "state": "Bridge {{phase}}",
+      "phase": {
+        "idle": "idle",
+        "connecting": "connecting",
+        "connected": "connected",
+        "error": "error",
+        "closed": "closed"
+      },
+      "feature": {
+        "tracing": "tracing",
+        "network": "network",
+        "debug": "debug"
+      },
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "retry": "Retry",
+      "streaming": "Streaming from {{path}}",
+      "liveHint": "Board traces show in Live board mode. Use the switch in the top bar."
+    }
+  },
+  "gallery": {
+    "trigger": "Choose the Zephyr app to boot",
+    "title": "Zephyr app to boot",
+    "description": "Prebuilt samples for {{board}}.",
+    "search": "Search samples",
+    "searchPlaceholder": "Search samples…",
+    "noTracing": "No samples with tracing on this board.",
+    "noTracedMatch": "No traced samples match “{{query}}”.",
+    "noMatch": "No samples match “{{query}}”.",
+    "guidedSection": "Guided tours",
+    "bringYourOwn": "Or bring your own build. Any Zephyr ELF for this board boots as-is.",
+    "loadElf": "Load your own ELF…",
+    "backToBuiltIn": "Go back to a built-in app",
+    "guided": "guided",
+    "guidedTitle_one": "Carries a guided tour: it stops and explains itself as it runs",
+    "guidedTitle_other": "Carries {{count}} guided tours: each stops and explains the sample as it runs",
+    "tourCount_one": "{{count}} tour",
+    "tourCount_other": "{{count}} tours",
+    "embedsTracing": "tracing",
+    "embedsTracingTitle": "This sample embeds tracing in its own configuration",
+    "toursOf": "Tours of {{title}}",
+    "tourRunning": "This tour is running",
+    "bootWithTour": "Boot the app with this tour",
+    "docs": "Docs",
+    "docsTitle": "Official docs (docs.zephyrproject.org)",
+    "source": "Source",
+    "sourceTitle": "Source on GitHub",
+    "tracing": "Tracing",
+    "tracingOn": "Showing samples with tracing. Turn off to see every sample.",
+    "tracingOff": "Show only samples with a tracing build. Choosing one opens Trace and Debug."
+  },
+  "help": {
+    "title": "Help",
+    "description": "Keyboard shortcuts and what is new in Zephyr in the Browser.",
+    "sections": "Help sections",
+    "shortcuts": "Shortcuts",
+    "changelog": "Changelog",
+    "press": "Press <help/> or <alt/> anytime to open this list.",
+    "unreleased": "Unreleased",
+    "fullChangelog": "Full changelog on GitHub"
+  },
+  "shortcuts": {
+    "categories": {
+      "General": "General",
+      "Run": "Run",
+      "Tour": "Tour",
+      "Layout": "Layout",
+      "Session": "Session",
+      "Network": "Network"
+    },
+    "items": {
+      "help": { "title": "Help", "description": "Shortcuts and changelog" },
+      "run-toggle": { "title": "Pause / Resume", "description": "Toggle guest execution" },
+      "step-over": { "title": "Step Over", "description": "Next line, skip calls" },
+      "step-into": { "title": "Step Into", "description": "Enter next call" },
+      "step-out": { "title": "Step Out", "description": "Leave current function" },
+      "restart": { "title": "Restart", "description": "Restart or reset guest" },
+      "tour-continue": { "title": "Continue", "description": "Resume past tour stop" },
+      "tour-step": { "title": "Step", "description": "Single-step at stop" },
+      "tour-leave": { "title": "Leave Tour", "description": "Drop tour breakpoints" },
+      "tour-minimise": { "title": "Minimise Card", "description": "Fold the tour card to one line" },
+      "toggle-dock": { "title": "Device Dock", "description": "Show or hide the dock" },
+      "toggle-debug": { "title": "Debug", "description": "Expand the Debug row" },
+      "toggle-trace": { "title": "Trace", "description": "Expand the Trace row" },
+      "reset-layout": { "title": "Reset Layout", "description": "Restore the default dock" },
+      "open-samples": { "title": "Open Samples", "description": "Choose board and app" },
+      "open-settings": { "title": "Open Settings", "description": "Desktop bridge and uplink" },
+      "net-capture-toggle": { "title": "Pause Capture", "description": "Pause or resume capture" },
+      "net-export-pcap": { "title": "Export PCAP", "description": "Download capture file" }
+    }
+  },
+  "tour": {
+    "leave": "Leave the tour",
+    "leaveTitle": "Drop the tour's breakpoints and let the sample run",
+    "continue": "Continue",
+    "gotIt": "Got it",
+    "back": "Back",
+    "tryAgain": "Try again",
+    "paused": "paused",
+    "pausedOnLine": "The guest is paused on this line",
+    "pausedTitle": "The guest is paused",
+    "showCard": "Show the card",
+    "minimise": "Minimise the card",
+    "minimiseTitle": "Minimise the card (Esc). The tour stays on this step.",
+    "step": "Step",
+    "stepTitle": "Step one instruction, without leaving the step",
+    "resumesGuest": "resumes the guest",
+    "inFunction": "in {{name}}()",
+    "hit": "hit {{count}}",
+    "openRegisters": "Open the CPU registers",
+    "valuesNotLive": "Values come from the running guest. Start a sample to see them.",
+    "noTrace": "This view needs the traced build of this sample.",
+    "putBack": "Double-click to put the card back",
+    "openInMem": "Open this address in Debug → Mem",
+    "intro": {
+      "readAgain": "{{title}}: read the intro again",
+      "stops_one": "{{count}} stop",
+      "stops_other": "{{count}} stops",
+      "map_one": "In this tour, {{count}} stop",
+      "map_other": "In this tour, {{count}} stops",
+      "mapFrom_one": "In this tour, {{count}} stop, from stop {{from}}",
+      "mapFrom_other": "In this tour, {{count}} stops, from stop {{from}}",
+      "start": "Start",
+      "startAt": "Start at stop {{step}}",
+      "waiting": "Waiting for the first stop",
+      "pausedAtFirst": "The guest is paused at the first stop"
+    },
+    "complete": {
+      "title": "Tour complete",
+      "close": "Close",
+      "next": "Next: {{title}}",
+      "nextTitle": "Open {{app}} and start its tour",
+      "again": "Run it again",
+      "againTitle": "Restart the sample and take the tour from the top"
+    },
+    "waiting": {
+      "yourTurn": "your turn",
+      "yourTurnTitle": "The guest keeps running while you do this",
+      "picksUp": "The tour picks up at the next stop."
+    },
+    "outline": {
+      "label": "Tour steps",
+      "step": "Step {{step}}: {{title}}"
+    },
+    "link": {
+      "copy": "Copy a link to this step",
+      "copyTitle": "Copy a link that opens this tour at this step",
+      "copied": "Link copied",
+      "startedAt": "Started at step {{step}}",
+      "startedAtTitle": "The steps before this one were skipped. The guest ran here straight from reset, so anything they asked you to do has not happened."
+    },
+    "check": {
+      "passed": "Passed",
+      "failed": "Not yet",
+      "unknown": "Not checked",
+      "value": "{{expr}} is {{value}}",
+      "notLive": "Checks read the running guest. Start a sample to see the result."
+    },
+    "shell": {
+      "nothing": "Nothing to run",
+      "noTerminal": "No terminal to type into",
+      "run": "Run",
+      "runTitle": "Type this into the terminal",
+      "continueRun": "Continue and run",
+      "continueRunTitle": "Resume the guest, then type this into the terminal",
+      "copy": "Copy",
+      "copied": "Copied"
+    },
+    "objects": {
+      "notLive": "Kernel objects are read from the running guest. Start a sample to see them.",
+      "noInventory": "This build does not keep an inventory of its kernel objects.",
+      "asking": "Asking the kernel what it has…",
+      "none": "The kernel has none of these yet.",
+      "reading": "Reading the kernel…"
+    }
+  }
+}

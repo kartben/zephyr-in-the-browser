@@ -1,0 +1,291 @@
+{
+  "app": {
+    "name": "Zephyr in the Browser",
+    "shortName": "Zephyr"
+  },
+  "topBar": {
+    "restart": "Redémarrer",
+    "restartTitle": "Redémarrer l'invité",
+    "reset": "Réinitialiser",
+    "resetTitle": "Réinitialiser le MCU. L'invité redémarre ; le câblage et la flash restent",
+    "help": "Aide",
+    "helpTitle": "Aide ({{chord}})",
+    "more": "Plus",
+    "samples": "Exemples",
+    "parts": "Composants",
+    "devicetree": "Devicetree",
+    "clearParts": "Retirer les composants ajoutés",
+    "viewDevicetree": "Voir le devicetree du build en cours",
+    "devicetreeTitle": "Devicetree : {{name}}",
+    "runningBuild": "{{name}} : build en cours",
+    "statusDetail": "détail de l'état"
+  },
+  "status": {
+    "idle": "Inactif",
+    "loading": "Chargement",
+    "running": "En marche",
+    "exited": "Terminé",
+    "error": "Erreur"
+  },
+  "liveStatus": {
+    "connected": "Connecté",
+    "connecting": "Connexion",
+    "error": "Erreur",
+    "off": "Pont désactivé"
+  },
+  "mode": {
+    "group": "Mode de session",
+    "sim": "Simulateur",
+    "simTitle": "Exécuter des applications Zephyr dans le simulateur",
+    "live": "Carte réelle",
+    "liveTitle": "Suivre et déboguer une vraie carte via le pont de bureau"
+  },
+  "board": {
+    "label": "Carte"
+  },
+  "machine": {
+    "pause": "Mettre la machine en pause",
+    "resume": "Relancer la machine",
+    "registers": "Registres du CPU"
+  },
+  "drop": {
+    "title": "Déposez un ELF pour le démarrer",
+    "body": "Remplace l'application d'origine de cette carte. Gardez le sélecteur de carte assorti au build. Déposez aussi le zephyr.dts du build et le dock des périphériques suivra son devicetree."
+  },
+  "dock": {
+    "label": "Périphériques",
+    "instruments": "Instruments",
+    "devices": "Périphériques",
+    "more": "Autres sur cette carte",
+    "nothing": "Rien à utiliser ici pour l'instant.",
+    "noPeripherals": "Pas encore de périphériques. En attente du démarrage de l'invité.",
+    "appearLater": "Les autres périphériques apparaissent quand une application Zephyr tourne.",
+    "resize": "Redimensionner le dock des périphériques",
+    "collapse": "Replier le dock des périphériques",
+    "show": "Afficher le dock des périphériques",
+    "view": "Vue du dock",
+    "byType": "Par type",
+    "byTypeTitle": "Grouper les périphériques par type, ceux de l'exemple en premier",
+    "devicetree": "Devicetree",
+    "devicetreeTitle": "Imbriquer chaque nœud comme le fait le devicetree",
+    "leftOut_one": "{{count}} dans la vue devicetree",
+    "leftOut_many": "{{count}} dans la vue devicetree",
+    "leftOut_other": "{{count}} dans la vue devicetree",
+    "leftOutMore_one": "{{count}} autre dans la vue devicetree",
+    "leftOutMore_many": "{{count}} autres dans la vue devicetree",
+    "leftOutMore_other": "{{count}} autres dans la vue devicetree",
+    "leftOutTitle": "Passer à la vue devicetree, qui liste chaque nœud, utilisable ou non",
+    "viewTree": "Voir le devicetree complet"
+  },
+  "parts": {
+    "button": "Composants",
+    "title": "Composants pris en charge",
+    "description": "Puces que vous pouvez brancher sur I²C et SPI pendant que l'invité tourne.",
+    "search": "Rechercher des composants",
+    "searchPlaceholder": "Rechercher par composant, fabricant, compatible…",
+    "noMatch": "Aucun composant ne correspond à « {{query}} »."
+  },
+  "settings": {
+    "title": "Réglages",
+    "dismiss": "Fermer les réglages",
+    "language": {
+      "title": "Langue",
+      "label": "Langue de la page",
+      "browser": "Langue du navigateur ({{name}})",
+      "reloads": "Changer de langue recharge la page et redémarre l'invité.",
+      "fromLink": "Ce lien demande <code>?lang={{lang}}</code>. Choisir une langue ici le remplace.",
+      "contribute": "Aider à traduire"
+    },
+    "bridge": {
+      "title": "Pont de bureau",
+      "howTo": "Comment installer et lancer le pont",
+      "intro": "Le pont de bureau est un petit programme que vous lancez sur votre propre machine. En mode Carte réelle, il diffuse les traces d'une vraie carte et relie Debug à votre serveur GDB. En mode Simulateur, il peut transporter le réseau de l'invité (Bridge network).",
+      "install": "Installez-le avec Go {{version}} ou plus récent :",
+      "run": "Puis lancez-le et collez l'URL qu'il affiche :",
+      "notes": "Notes complètes (en anglais) dans <link>docs/bridge.md</link>.",
+      "use": "Utiliser le pont de bureau",
+      "url": "URL WebSocket du pont",
+      "invalidUrl": "pas une URL ws:// ou wss://",
+      "setByQuery": "Défini par <code>?{{param}}=</code>. Retirez-le pour le modifier ici.",
+      "state": "Pont {{phase}}",
+      "phase": {
+        "idle": "inactif",
+        "connecting": "en connexion",
+        "connected": "connecté",
+        "error": "en erreur",
+        "closed": "fermé"
+      },
+      "feature": {
+        "tracing": "traçage",
+        "network": "réseau",
+        "debug": "débogage"
+      },
+      "connect": "Connecter",
+      "disconnect": "Déconnecter",
+      "retry": "Réessayer",
+      "streaming": "Diffusion depuis {{path}}",
+      "liveHint": "Les traces de la carte s'affichent en mode Carte réelle. Utilisez l'interrupteur de la barre du haut."
+    }
+  },
+  "gallery": {
+    "trigger": "Choisir l'application Zephyr à démarrer",
+    "title": "Application Zephyr à démarrer",
+    "description": "Exemples précompilés pour {{board}}.",
+    "search": "Rechercher des exemples",
+    "searchPlaceholder": "Rechercher des exemples…",
+    "noTracing": "Aucun exemple avec traçage sur cette carte.",
+    "noTracedMatch": "Aucun exemple avec traçage ne correspond à « {{query}} ».",
+    "noMatch": "Aucun exemple ne correspond à « {{query}} ».",
+    "guidedSection": "Visites guidées",
+    "bringYourOwn": "Ou apportez votre propre build. Tout ELF Zephyr pour cette carte démarre tel quel.",
+    "loadElf": "Charger votre propre ELF…",
+    "backToBuiltIn": "Revenir à une application intégrée",
+    "guided": "visite",
+    "guidedTitle_one": "Propose une visite guidée : l'exemple s'arrête et s'explique pendant qu'il tourne",
+    "guidedTitle_many": "Propose {{count}} visites guidées : chacune arrête l'exemple et l'explique pendant qu'il tourne",
+    "guidedTitle_other": "Propose {{count}} visites guidées : chacune arrête l'exemple et l'explique pendant qu'il tourne",
+    "tourCount_one": "{{count}} visite",
+    "tourCount_many": "{{count}} visites",
+    "tourCount_other": "{{count}} visites",
+    "embedsTracing": "traçage",
+    "embedsTracingTitle": "Cet exemple active le traçage dans sa propre configuration",
+    "toursOf": "Visites de {{title}}",
+    "tourRunning": "Cette visite est en cours",
+    "bootWithTour": "Démarrer l'application avec cette visite",
+    "docs": "Documentation",
+    "docsTitle": "Documentation officielle (docs.zephyrproject.org)",
+    "source": "Source",
+    "sourceTitle": "Source sur GitHub",
+    "tracing": "Traçage",
+    "tracingOn": "Seuls les exemples avec traçage sont affichés. Désactivez pour tous les voir.",
+    "tracingOff": "N'afficher que les exemples qui ont un build avec traçage. En choisir un ouvre Trace et Debug."
+  },
+  "help": {
+    "title": "Aide",
+    "description": "Raccourcis clavier et nouveautés de Zephyr in the Browser.",
+    "sections": "Sections de l'aide",
+    "shortcuts": "Raccourcis",
+    "changelog": "Nouveautés",
+    "press": "Appuyez sur <help/> ou <alt/> à tout moment pour ouvrir cette liste.",
+    "unreleased": "Non publié",
+    "fullChangelog": "Historique complet sur GitHub"
+  },
+  "shortcuts": {
+    "categories": {
+      "General": "Général",
+      "Run": "Exécution",
+      "Tour": "Visite",
+      "Layout": "Disposition",
+      "Session": "Session",
+      "Network": "Réseau"
+    },
+    "items": {
+      "help": { "title": "Aide", "description": "Raccourcis et nouveautés" },
+      "run-toggle": { "title": "Pause / Reprise", "description": "Suspendre ou relancer l'invité" },
+      "step-over": { "title": "Pas à pas principal", "description": "Ligne suivante, sans entrer" },
+      "step-into": { "title": "Pas à pas détaillé", "description": "Entrer dans l'appel suivant" },
+      "step-out": { "title": "Pas à pas sortant", "description": "Sortir de la fonction" },
+      "restart": { "title": "Redémarrer", "description": "Redémarrer ou réinitialiser" },
+      "tour-continue": { "title": "Continuer", "description": "Repartir après l'arrêt" },
+      "tour-step": { "title": "Pas", "description": "Une instruction à l'arrêt" },
+      "tour-leave": { "title": "Quitter la visite", "description": "Retirer ses points d'arrêt" },
+      "tour-minimise": { "title": "Réduire la fiche", "description": "Replier la fiche sur une ligne" },
+      "toggle-dock": { "title": "Dock", "description": "Afficher ou masquer le dock" },
+      "toggle-debug": { "title": "Debug", "description": "Déplier la ligne Debug" },
+      "toggle-trace": { "title": "Trace", "description": "Déplier la ligne Trace" },
+      "reset-layout": { "title": "Disposition par défaut", "description": "Rétablir le dock d'origine" },
+      "open-samples": { "title": "Ouvrir les exemples", "description": "Choisir carte et application" },
+      "open-settings": { "title": "Ouvrir les réglages", "description": "Pont de bureau et réseau" },
+      "net-capture-toggle": { "title": "Suspendre la capture", "description": "Suspendre ou reprendre" },
+      "net-export-pcap": { "title": "Exporter en PCAP", "description": "Télécharger la capture" }
+    }
+  },
+  "tour": {
+    "leave": "Quitter la visite",
+    "leaveTitle": "Retirer les points d'arrêt de la visite et laisser tourner l'exemple",
+    "continue": "Continuer",
+    "gotIt": "Compris",
+    "back": "Retour",
+    "tryAgain": "Réessayer",
+    "paused": "en pause",
+    "pausedOnLine": "L'invité est en pause sur cette ligne",
+    "pausedTitle": "L'invité est en pause",
+    "showCard": "Afficher la fiche",
+    "minimise": "Réduire la fiche",
+    "minimiseTitle": "Réduire la fiche (Échap). La visite reste à cette étape.",
+    "step": "Pas",
+    "stepTitle": "Exécuter une instruction, sans quitter l'étape",
+    "resumesGuest": "relance l'invité",
+    "inFunction": "dans {{name}}()",
+    "hit": "passage {{count}}",
+    "openRegisters": "Ouvrir les registres du CPU",
+    "valuesNotLive": "Les valeurs viennent de l'invité en cours d'exécution. Lancez un exemple pour les voir.",
+    "noTrace": "Cette vue a besoin du build avec traçage de cet exemple.",
+    "putBack": "Double-cliquez pour remettre la fiche en place",
+    "openInMem": "Ouvrir cette adresse dans Debug → Mem",
+    "intro": {
+      "readAgain": "{{title}} : relire l'introduction",
+      "stops_one": "{{count}} arrêt",
+      "stops_many": "{{count}} arrêts",
+      "stops_other": "{{count}} arrêts",
+      "map_one": "Dans cette visite, {{count}} arrêt",
+      "map_many": "Dans cette visite, {{count}} arrêts",
+      "map_other": "Dans cette visite, {{count}} arrêts",
+      "mapFrom_one": "Dans cette visite, {{count}} arrêt, à partir de l'arrêt {{from}}",
+      "mapFrom_many": "Dans cette visite, {{count}} arrêts, à partir de l'arrêt {{from}}",
+      "mapFrom_other": "Dans cette visite, {{count}} arrêts, à partir de l'arrêt {{from}}",
+      "start": "Commencer",
+      "startAt": "Commencer à l'arrêt {{step}}",
+      "waiting": "En attente du premier arrêt",
+      "pausedAtFirst": "L'invité est en pause au premier arrêt"
+    },
+    "complete": {
+      "title": "Visite terminée",
+      "close": "Fermer",
+      "next": "Suivante : {{title}}",
+      "nextTitle": "Ouvrir {{app}} et commencer sa visite",
+      "again": "Recommencer",
+      "againTitle": "Redémarrer l'exemple et reprendre la visite depuis le début"
+    },
+    "waiting": {
+      "yourTurn": "à vous",
+      "yourTurnTitle": "L'invité continue de tourner pendant que vous faites ceci",
+      "picksUp": "La visite reprend au prochain arrêt."
+    },
+    "outline": {
+      "label": "Étapes de la visite",
+      "step": "Étape {{step}} : {{title}}"
+    },
+    "link": {
+      "copy": "Copier un lien vers cette étape",
+      "copyTitle": "Copier un lien qui ouvre cette visite à cette étape",
+      "copied": "Lien copié",
+      "startedAt": "Commencée à l'étape {{step}}",
+      "startedAtTitle": "Les étapes précédentes ont été sautées. L'invité est arrivé ici directement depuis la réinitialisation, donc ce qu'elles vous demandaient de faire n'a pas eu lieu."
+    },
+    "check": {
+      "passed": "Réussi",
+      "failed": "Pas encore",
+      "unknown": "Non vérifié",
+      "value": "{{expr}} vaut {{value}}",
+      "notLive": "Les vérifications lisent l'invité en cours d'exécution. Lancez un exemple pour voir le résultat."
+    },
+    "shell": {
+      "nothing": "Rien à exécuter",
+      "noTerminal": "Aucun terminal où taper",
+      "run": "Exécuter",
+      "runTitle": "Taper ceci dans le terminal",
+      "continueRun": "Continuer et exécuter",
+      "continueRunTitle": "Relancer l'invité, puis taper ceci dans le terminal",
+      "copy": "Copier",
+      "copied": "Copié"
+    },
+    "objects": {
+      "notLive": "Les objets du noyau sont lus dans l'invité en cours d'exécution. Lancez un exemple pour les voir.",
+      "noInventory": "Ce build ne tient pas l'inventaire de ses objets noyau.",
+      "asking": "Interrogation du noyau…",
+      "none": "Le noyau n'en a encore aucun.",
+      "reading": "Lecture du noyau…"
+    }
+  }
+}

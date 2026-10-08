@@ -1,13 +1,6 @@
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { BackendStatus } from '@/backends'
-
-const LABELS: Record<BackendStatus, string> = {
-  idle: 'Idle',
-  loading: 'Loading',
-  running: 'Running',
-  exited: 'Exited',
-  error: 'Error',
-}
 
 const DOT: Record<BackendStatus, string> = {
   idle: 'bg-muted-foreground',
@@ -18,6 +11,7 @@ const DOT: Record<BackendStatus, string> = {
 }
 
 export function StatusPill({ status, detail }: { status: BackendStatus; detail?: string }) {
+  const { t } = useTranslation()
   return (
     <span
       className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-2 py-1 text-xs sm:px-2.5"
@@ -26,11 +20,11 @@ export function StatusPill({ status, detail }: { status: BackendStatus; detail?:
     >
       <span className={cn('size-1.5 rounded-full', DOT[status])} />
       {/* On a phone the dot alone carries it; the label is in the aria name. */}
-      <span className="sr-only sm:not-sr-only sm:font-medium">{LABELS[status]}</span>
+      <span className="sr-only sm:not-sr-only sm:font-medium">{t(`status.${status}`)}</span>
       {detail && (
         <span
           className="hidden max-w-[22ch] truncate text-muted-foreground lg:inline"
-          aria-label="status detail"
+          aria-label={t('topBar.statusDetail')}
         >
           {detail}
         </span>
