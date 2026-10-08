@@ -93,19 +93,6 @@
       var h1 = body.querySelector('h1')
       if (h1) h1.insertAdjacentElement('afterend', btn)
     }
-
-    // Provenance: these pages are point-in-time snapshots of the live docs.
-    if (cfg.canonical) {
-      var note = document.createElement('p')
-      note.className = 'zsim-mirror-note'
-      note.innerHTML =
-        'Snapshot of the official Zephyr documentation, mirrored ' +
-        cfg.mirrored +
-        ' &mdash; <a href="' +
-        cfg.canonical +
-        '">view the live page</a>.'
-      body.insertBefore(note, body.firstChild)
-    }
   }
 
   if (document.readyState === 'loading') {
