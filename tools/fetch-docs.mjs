@@ -67,13 +67,13 @@ for (const line of readFileSync(path.join(repoRoot, 'tools', 'samples.manifest')
 }
 
 /**
- * The board the widget boots by default. Cortex-M3 matches the app's own
- * default board where the sample supports it (and is where the shell's
- * host-GPIO bridge lives); graphics-heavy samples only exist on the A53.
- * The emulator's top bar still lets the user switch afterwards.
+ * The board the widget boots by default: the Cortex-A53, the app's own
+ * default board (DEFAULT_BOARD_ID in src/boards.ts), wherever the sample
+ * runs on it, else the first board the manifest lists it for. The
+ * emulator's top bar still lets the user switch afterwards.
  */
 function defaultBoard(boards) {
-  return boards.includes('qemu_cortex_m3') ? 'qemu_cortex_m3' : boards[0]
+  return boards.includes('qemu_cortex_a53') ? 'qemu_cortex_a53' : boards[0]
 }
 
 /** Every tour id: a file in tours/ without `.tour.md`, `<app>` or `<app>.<slug>`. */
