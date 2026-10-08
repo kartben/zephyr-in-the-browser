@@ -14,7 +14,7 @@ const WIDGET = readFileSync(resolve(process.cwd(), 'tools/docs-widget/widget.js'
 /** Where the widget's button points on a page configured with `cfg`. */
 function runHref(cfg: Record<string, unknown>): string {
   const made: Array<Record<string, unknown>> = []
-  const body = { querySelector: () => null, insertBefore: () => {}, firstChild: null }
+  const body = { querySelector: () => null }
   const document = {
     readyState: 'complete',
     body,

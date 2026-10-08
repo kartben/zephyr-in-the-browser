@@ -17,14 +17,6 @@
   color: #fff !important;
 }
 
-.zsim-mirror-note {
-  font-size: 0.85em;
-  opacity: 0.75;
-  border-left: 3px solid #7929d2;
-  padding: 0.35em 0.8em;
-  margin: 0 0 1.2em;
-}
-
 /* --- near-fullscreen dialog ---------------------------------------------- */
 
 .zsim-dialog {

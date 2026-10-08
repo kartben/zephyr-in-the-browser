@@ -226,8 +226,6 @@ function injectionFor(samplePath, entry, title) {
     ...(tour ? { tour } : {}),
     title,
     simRoot: `${toSiteRoot}/`,
-    canonical: `${DOCS_BASE}${samplePath}/README.html`,
-    mirrored: MIRROR_DATE,
   }
   return [
     '<!-- zephyr-in-the-browser: run-in-simulator widget -->',
