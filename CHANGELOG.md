@@ -3,6 +3,8 @@
 All notable changes to this project are documented here. Also viewable in-app
 via the help dialog (?).
 
+## Unreleased
+
 ## [0.6.0] - 2026-10-08
 
 - **Added:** Tours gallery with many new tours, several per sample, and step links.
