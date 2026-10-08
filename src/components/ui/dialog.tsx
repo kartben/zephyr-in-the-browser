@@ -11,15 +11,18 @@ function DialogContent({
   className,
   children,
   showOverlay = true,
+  overlayClassName,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   /** Dimmed backdrop. Set false for non-modal floating panels. */
   showOverlay?: boolean
+  /** Extra classes for the backdrop, over the default dimming. */
+  overlayClassName?: string
 }) {
   return (
     <DialogPrimitive.Portal>
       {showOverlay && (
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60" />
+        <DialogPrimitive.Overlay className={cn('fixed inset-0 z-50 bg-black/60', overlayClassName)} />
       )}
       <DialogPrimitive.Content
         className={cn(
