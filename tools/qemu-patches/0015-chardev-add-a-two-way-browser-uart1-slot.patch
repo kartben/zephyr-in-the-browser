@@ -1,0 +1,225 @@
+diff --git a/chardev/char-browser.c b/chardev/char-browser.c
+index 9e71feb..5c0533c 100644
+--- a/chardev/char-browser.c
++++ b/chardev/char-browser.c
+@@ -76,6 +76,7 @@ DECLARE_INSTANCE_CHECKER(BrowserChardev, BROWSER_CHARDEV, TYPE_CHARDEV_BROWSER)
+ static BrowserChardev *browser_mon;
+ static BrowserChardev *browser_gdb;
+ static BrowserChardev *browser_hci;
++static BrowserChardev *browser_uart1;
+ 
+ /* Frontend -> page: output waiting to be read out of the heap. */
+ static int browser_chr_write(Chardev *chr, const uint8_t *buf, int len)
+@@ -102,16 +103,40 @@ static int browser_chr_write(Chardev *chr, const uint8_t *buf, int len)
+     return len;
+ }
+ 
+-/* Page -> frontend, on QEMU's thread. */
+-static void browser_chr_drain(void *opaque)
++/*
++ * Page -> frontend, as much as the frontend has room for. QEMU's thread only,
++ * under the BQL: the drain timer and chr_accept_input both get here, and the
++ * lock is what keeps in_tail single-writer between them.
++ */
++static void browser_chr_pump(BrowserChardev *s)
+ {
+-    BrowserChardev *s = opaque;
+     Chardev *chr = CHARDEV(s);
+     uint32_t head = qatomic_read(&s->in_head);
+     uint32_t tail = s->in_tail;
+ 
+     smp_rmb();
+ 
++    while (tail != head) {
++        uint8_t byte;
++        int can = qemu_chr_be_can_write(chr);
++
++        if (can <= 0) {
++            break; /* frontend is busy; accept_input or the next tick resumes */
++        }
++        byte = s->in_buf[tail % BROWSER_IN_SIZE];
++        qemu_chr_be_write(chr, &byte, 1);
++        tail++;
++    }
++
++    qatomic_set(&s->in_tail, tail);
++}
++
++/* Deferred events, then page -> frontend, on QEMU's thread. */
++static void browser_chr_drain(void *opaque)
++{
++    BrowserChardev *s = opaque;
++    Chardev *chr = CHARDEV(s);
++
+     if (s->pending_open) {
+         s->pending_open = false;
+         if (!chr->be_open) {
+@@ -125,19 +150,7 @@ static void browser_chr_drain(void *opaque)
+         }
+     }
+ 
+-    while (tail != head) {
+-        uint8_t byte;
+-        int can = qemu_chr_be_can_write(chr);
+-
+-        if (can <= 0) {
+-            break; /* frontend is busy; the next tick tries again */
+-        }
+-        byte = s->in_buf[tail % BROWSER_IN_SIZE];
+-        qemu_chr_be_write(chr, &byte, 1);
+-        tail++;
+-    }
+-
+-    qatomic_set(&s->in_tail, tail);
++    browser_chr_pump(s);
+     timer_mod(s->timer,
+               qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + BROWSER_POLL_MS);
+ }
+@@ -175,6 +188,18 @@ static void browser_chr_open(Chardev *chr, ChardevBackend *backend,
+             return;
+         }
+         browser_hci = s;
++    } else if (strcmp(label, "uart1") == 0) {
++        /*
++         * Always open: a UART has no notion of a client attaching. The board
++         * puts it on its second UART (qemu_browser_gnss_chardev()), and the
++         * page pipes it to a real serial port or feeds it the simulated fix.
++         */
++        *be_opened = true;
++        if (browser_uart1 != NULL && browser_uart1 != s) {
++            error_setg(errp, "browser chardev id=uart1 already claimed");
++            return;
++        }
++        browser_uart1 = s;
+     } else {
+         /* Working chardev, but the page has no exports for this id. */
+         *be_opened = true;
+@@ -202,6 +227,20 @@ static void browser_chr_finalize(Object *obj)
+     if (browser_hci == s) {
+         browser_hci = NULL;
+     }
++    if (browser_uart1 == s) {
++        browser_uart1 = NULL;
++    }
++}
++
++/*
++ * The frontend made room: the guest read its data register. Refill it now
++ * instead of at the next tick, which hands a UART only one FIFO's worth per
++ * 20 ms: 800 bytes a second through a 16-byte PL011, and 50 through a 16550
++ * with its FIFO off. A real serial port at 115200 baud needs over 11000.
++ */
++static void browser_chr_accept_input(Chardev *chr)
++{
++    browser_chr_pump(BROWSER_CHARDEV(chr));
+ }
+ 
+ /*
+@@ -384,12 +423,49 @@ void qemu_browser_hci_set_read_index(unsigned int value)
+     browser_set_read_index(browser_hci, value);
+ }
+ 
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_uart1_feed(int value)
++{
++    return browser_feed(browser_uart1, value);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void *qemu_browser_uart1_ring(void)
++{
++    return browser_ring(browser_uart1);
++}
++
++EMSCRIPTEN_KEEPALIVE
++int qemu_browser_uart1_ring_size(void)
++{
++    return browser_ring_size(browser_uart1);
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_uart1_write_index(void)
++{
++    return browser_write_index(browser_uart1);
++}
++
++EMSCRIPTEN_KEEPALIVE
++unsigned int qemu_browser_uart1_read_index(void)
++{
++    return browser_read_index(browser_uart1);
++}
++
++EMSCRIPTEN_KEEPALIVE
++void qemu_browser_uart1_set_read_index(unsigned int value)
++{
++    browser_set_read_index(browser_uart1, value);
++}
++
+ static void char_browser_class_init(ObjectClass *oc, const void *data)
+ {
+     ChardevClass *cc = CHARDEV_CLASS(oc);
+ 
+     cc->open = browser_chr_open;
+     cc->chr_write = browser_chr_write;
++    cc->chr_accept_input = browser_chr_accept_input;
+ }
+ 
+ static const TypeInfo char_browser_type_info = {
+diff --git a/hw/misc/qemu-browser-gnss.c b/hw/misc/qemu-browser-gnss.c
+index 3d04eed..fc4ad99 100644
+--- a/hw/misc/qemu-browser-gnss.c
++++ b/hw/misc/qemu-browser-gnss.c
+@@ -90,11 +90,24 @@ static void browser_gnss_drain(void *opaque)
+ Chardev *qemu_browser_gnss_chardev(void)
+ {
+     BrowserGnssState *s = &browser_gnss;
++    Chardev *uart1;
+ 
+     if (s->chr) {
+         return s->chr;
+     }
+ 
++    /*
++     * `-chardev browser,id=uart1` asks for the UART itself instead of this
++     * one-way NMEA feed: a two-way ring the page pipes to a real serial port,
++     * and feeds the simulated fix through when no port is connected. The
++     * one-way feed above stays inert then (no s->chr): the page that asked for
++     * uart1 sends its fix down uart1.
++     */
++    uart1 = qemu_chr_find("uart1");
++    if (uart1) {
++        return uart1;
++    }
++
+     s->chr = qemu_chr_new("browser-gnss", "null", NULL);
+     s->timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, browser_gnss_drain, s);
+     timer_mod(s->timer,
+diff --git a/include/chardev/char-browser.h b/include/chardev/char-browser.h
+index 36def58..33883b4 100644
+--- a/include/chardev/char-browser.h
++++ b/include/chardev/char-browser.h
+@@ -4,7 +4,8 @@
+  * Declared in a header only because QEMU builds with -Wmissing-prototypes;
+  * nothing inside QEMU calls any of these. See chardev/char-browser.c.
+  *
+- * Named slots: mon0 (QMP), gdb0 (gdbstub), hci0 (Bluetooth H:4).
++ * Named slots: mon0 (QMP), gdb0 (gdbstub), hci0 (Bluetooth H:4), uart1 (the
++ * board's second UART).
+  * gdb_attach/detach request OPENED/CLOSED on the QEMU-thread drain timer
+  * so the stub does not freeze
+  * the guest at boot and events are not raised from the browser thread.
+@@ -52,4 +53,14 @@ unsigned int qemu_browser_hci_write_index(void);
+ unsigned int qemu_browser_hci_read_index(void);
+ void qemu_browser_hci_set_read_index(unsigned int value);
+ 
++/** Queue one byte from the page towards the second UART (id=uart1). */
++int qemu_browser_uart1_feed(int value);
++
++/** The uart1 output ring: base pointer, size, and its free-running indices. */
++void *qemu_browser_uart1_ring(void);
++int qemu_browser_uart1_ring_size(void);
++unsigned int qemu_browser_uart1_write_index(void);
++unsigned int qemu_browser_uart1_read_index(void);
++void qemu_browser_uart1_set_read_index(unsigned int value);
++
+ #endif /* CHARDEV_CHAR_BROWSER_H */
