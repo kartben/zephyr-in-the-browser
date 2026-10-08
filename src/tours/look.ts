@@ -133,23 +133,53 @@ export function lookTargets(step: Pick<TourStep, 'panel' | 'look'>): DockTarget[
 }
 
 /**
+ * Whether all the step points at in Trace is an IPC object the graph has no
+ * node for yet: the row then only says the object has no traffic, which is
+ * worth reading but not worth a blink. The graph turns a name into a focus as
+ * soon as the object shows up, so a name still pending is one it has not seen.
+ */
+function traceWaiting(step: Pick<TourStep, 'panel' | 'look'>): boolean {
+  const traces = looksOf(step).filter(needsTrace)
+  const pending = ipcUi.getSnapshot().focusName
+  return (
+    traces.length > 0 &&
+    traces.every((look) => look.kind === 'trace' && look.focus != null && look.focus === pending)
+  )
+}
+
+/**
  * Point the dock at what the card on screen is about.
  *
  * The rows the step names keep a ring for as long as its card is up, folded
  * to one line or not, and blink once the card has landed: the card is the
  * what, the dock is the where, and the ring is how the eye gets from one to
- * the other. Call it as a card lands, with its step, or with null when no
- * step's card is up. It returns what undoes it, for when that card goes.
+ * the other. Trace waiting on an object with no traffic yet keeps its ring
+ * but blinks only once the object turns up, if the card is still there.
+ * Call it as a card lands, with its step, or with null when no step's card is
+ * up. It returns what undoes it, for when that card goes.
  */
 export function pointAt(step: Pick<TourStep, 'panel' | 'look'> | null): () => void {
   const targets = step ? lookTargets(step) : []
   setDockTargets(targets)
-  if (targets.length === 0) return () => {}
+  if (!step || targets.length === 0) return () => {}
+  let unsubscribe = () => {}
   const timer = setTimeout(() => {
-    for (const key of new Set(targets.map((target) => target.key))) blinkDockRow(key)
+    const waiting = traceWaiting(step)
+    for (const key of new Set(targets.map((target) => target.key))) {
+      if (!(waiting && key === STAGE_TRACE_KEY)) blinkDockRow(key)
+    }
+    if (!waiting) return
+    unsubscribe = ipcUi.subscribe(() => {
+      const filter = ipcUi.getSnapshot()
+      if (filter.focusName !== null) return
+      unsubscribe()
+      // Found, not the reader clearing the filter with "Show everything".
+      if (filter.focus !== null) blinkDockRow(STAGE_TRACE_KEY)
+    })
   }, BLINK_AFTER_MS)
   return () => {
     clearTimeout(timer)
+    unsubscribe()
     setDockTargets([])
   }
 }
