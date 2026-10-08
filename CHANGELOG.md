@@ -5,58 +5,16 @@ via the help dialog (?).
 
 ## Unreleased
 
-- **Added:** Pipe uart1 to a real USB serial port, with Web Serial.
-- **Added:** The dock says what to try with each sample.
-- **Added:** Hover a variable in tour code to see its value.
-- **Added:** Tours run shell commands, give you tasks, check your work and chain onward.
-- **Added:** Tours stop on guest state, show kernel code and open Trace or Debug views.
-- **Added:** Tours draw a message queue as a ring, with read and write pointers.
-- **Added:** Tours can draw diagrams, like the sensor pipeline map.
-- **Added:** Several tours per sample, and links straight to a tour step.
-- **Added:** Guided tours get their own gallery section, plus Button, message queue, sensor pipeline, zbus and state machine tours.
-- **Added:** Message Queue Lab sample and tour, driven from the shell.
-- **Added:** zbus tab in Trace, and CPU sleep states in the Power tab.
-- **Added:** Trace IPC shows mutexes, semaphores and condvars, and who holds them.
-- **Added:** ESP32-C3 DevKitC board with GPIO, I²C, SPI flash, CAN and sleep.
-- **Added:** ESP32 DevKitC board (Xtensa), with blinky, button and a shell.
-- **Added:** Watchdog sample on ESP32-C3, Cortex-M3 and RISC-V, with a live countdown.
-- **Added:** Magic Wand TinyML sample on Cortex-A53, with replayable gestures and a capture page.
+- **Added:** Tours gallery with many new tours, several per sample, and step links.
+- **Added:** Tours run shell commands, check your work, draw diagrams and show live values.
+- **Added:** ESP32 and ESP32-C3 boards; Magic Wand, Watchdog and Message Queue Lab samples.
+- **Added:** Trace IPC tab shows who holds locks, plus zbus and CPU sleep states.
 - **Added:** Simulator and Live board modes, with Debug over the desktop bridge.
-- **Added:** Help button with keyboard shortcuts and this changelog.
-- **Added:** More menu on phones for Parts and Samples.
-- **Improved:** Emulator switches coroutines with JSPI, not Asyncify: faster guests, half the download.
-- **Improved:** Larger, higher-contrast tour text in both themes.
-- **Improved:** Blinky tours: a page tour that chains on, and one through the code.
-- **Improved:** Tours open on an intro card listing their stops.
-- **Improved:** Tour cards move, resize, and list only relevant threads, one per line.
-- **Improved:** Device dock leads with the sample's devices and folds the rest, says I²C/SPI, lists only usable parts, and leaves an edge tab when collapsed.
-- **Improved:** Dock keys look pressable, and LEDs glow like lamps.
-- **Improved:** Dock rows and bus lists say each value once.
-- **Improved:** Dock labels in plain words, devicetree names beside them.
-- **Improved:** Trace Timeline shows thread priorities and what blocked threads wait on.
-- **Improved:** Tour cards sit beside the dock, full height, and outline what they name.
-- **Improved:** Shorter code excerpts on tour cards, with folds you can open.
-- **Improved:** Trace hides empty tabs and skips untraced net samples.
-- **Changed:** Trace's Queues tab is now IPC, with graph filters.
-- **Changed:** Needs Chrome or Edge 137, Firefox 153 or Safari 27 (JSPI).
-- **Changed:** Kernel object lists need an image from current Zephyr main.
-- **Changed:** Retired the old gateway and probe packages; use the desktop bridge.
-- **Fixed:** Resuming from a breakpoint no longer stops on it again.
-- **Fixed:** Debug names the right functions and callers, even at a function's start, and Cortex-M breakpoints hit.
-- **Fixed:** Debug register tooltips name the current function's arguments.
-- **Fixed:** Tour cards keep the stop line in view and name data pointers.
-- **Fixed:** Rereading an earlier tour step no longer strands the paused guest.
-- **Fixed:** A tour card's X minimises it instead of skipping the stop.
-- **Fixed:** An ELF without a devicetree shows the board's buses.
-- **Fixed:** Trace queue depth no longer counts hand-offs to waiting threads.
-- **Fixed:** Trace Timeline no longer marks a thread blocked for waking another.
-- **Fixed:** The guest reads the ADXL345 at its real scale, not four times too high.
-- **Fixed:** Cortex-A53 samples boot without an "xlat tables low" warning.
-- **Fixed:** Trace's IPC graph keeps your zoom as new routes appear.
-- **Fixed:** Trace charts are readable in light mode.
-- **Fixed:** Thread and object lists no longer pass the last stop off as current.
-- **Fixed:** Accent text, buttons and code colours meet contrast minimums.
-- **Fixed:** Attach rows pick free slots, Bluetooth errors fold, erase confirms.
+- **Added:** Pipe uart1 to a real USB serial port, with Web Serial.
+- **Added:** Help button with shortcuts and this changelog; More menu on phones.
+- **Improved:** Device dock suggests what to try and leads with the sample's devices.
+- **Changed:** Faster guests, half the download; needs Chrome or Edge 137, Firefox 153 or Safari 27.
+- **Fixed:** Debug call stacks and breakpoints, ADXL345 scale, and colour contrast.
 
 ## [0.5.0] - 2026-07-31
 
