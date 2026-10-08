@@ -221,7 +221,8 @@ function renderChart(
   events: QueueChartEvent[],
   view0: number,
   view1: number,
-  follow: boolean,
+  /** The follow badge's word, or null when not following. */
+  edge: string | null,
   hover: HoverTip | null,
   yZoom: YZoom | null,
 ): RowLayout[] {
@@ -270,12 +271,13 @@ function renderChart(
       .attr('font-size', '10px')
       .attr('y', 12)
   }
-  if (follow) {
+  if (edge !== null) {
+    // Right-aligned 8 px in, where LIVE always sat: 10 px monospace is 6 px a glyph.
     badge
-      .attr('x', Math.max(LABEL_W, cssW - 32))
+      .attr('x', Math.max(LABEL_W, cssW - 8 - edge.length * 6))
       .attr('fill', ink.live(0.95))
       .attr('text-anchor', 'start')
-      .text('LIVE')
+      .text(edge)
   } else {
     badge.attr('x', 4).attr('fill', ink.label(0.7)).attr('text-anchor', 'start').text('t →')
   }
@@ -578,6 +580,7 @@ export function QueuesView({
   view0,
   view1,
   follow,
+  edgeLabel = 'LIVE',
   eventCount,
   svgRef,
   surfaceProps,
@@ -596,6 +599,8 @@ export function QueuesView({
   view0: number
   view1: number
   follow: boolean
+  /** What the follow badge says: LIVE, or REPLAY over a recording. */
+  edgeLabel?: string
   eventCount: number
   svgRef: RefObject<SVGSVGElement | null>
   surfaceProps?: SVGAttributes<SVGSVGElement>
@@ -636,6 +641,7 @@ export function QueuesView({
   const hoverRef = useRef<HoverTip | null>(null)
   hoverRef.current = hover
   const ink = useTraceInk()
+  const edge = follow ? edgeLabel : null
 
   useEffect(() => {
     const svg = svgRef.current
@@ -648,11 +654,11 @@ export function QueuesView({
       chartEvents,
       view0,
       view1,
-      follow,
+      edge,
       hover,
       yZoom,
     )
-  }, [ink, tr, queues, chartEvents, view0, view1, follow, svgRef, hover, yZoom])
+  }, [ink, tr, queues, chartEvents, view0, view1, edge, svgRef, hover, yZoom])
 
   useEffect(() => {
     const host = hostRef.current
@@ -667,14 +673,14 @@ export function QueuesView({
         eventsRef.current,
         view0,
         view1,
-        follow,
+        edge,
         hoverRef.current,
         yZoomRef.current,
       )
     })
     ro.observe(host)
     return () => ro.disconnect()
-  }, [ink, tr, view0, view1, follow, svgRef])
+  }, [ink, tr, view0, view1, edge, svgRef])
 
   const resolveHover = useCallback(
     (clientX: number, clientY: number, target: SVGSVGElement): HoverTip | null => {
@@ -768,6 +774,7 @@ export function QueuesView({
           eventCount={eventCount}
           sync={sync}
           priorities={priorities}
+          replay={edgeLabel !== 'LIVE'}
         />
       )}
       <div className="flex flex-col gap-1">

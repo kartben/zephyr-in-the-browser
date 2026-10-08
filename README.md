@@ -104,6 +104,10 @@ single-threaded sleepers like `blinky` and `basic_button`, albeit not at
 wall-clock speed), but a few multi-threaded ones stall; Cortex-A53 is the focus
 for new work ([docs/focus.md](docs/focus.md)).
 
+The live Trace keeps the newest 50,000 events. To look further back, press
+**Rec** in its tab strip: **Stop** pauses the guest and opens a replay with the
+same Timeline and IPC tabs, which you can play slowed down or scrub through.
+
 ---
 
 Working on the emulator itself? [`docs/`](docs/) covers the internals: QEMU,

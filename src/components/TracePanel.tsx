@@ -128,6 +128,7 @@ import * as debugUi from '@/lib/debugUi'
 import * as hostGdb from '@/hostGdb'
 import { ownThreadPriorities, type ObjectCoreSnapshot } from '@/debug/kernel/objectCores'
 import { ProbeSection } from '@/components/ProbeSection'
+import { TraceRecordControls } from '@/components/TraceRecordControls'
 import {
   STAGE_TRACE_KEY,
   getState,
@@ -757,6 +758,8 @@ type TimelinePaint = {
   view0: number
   view1: number
   follow: boolean
+  /** The follow badge: LIVE, or REPLAY over a recording. */
+  edgeLabel: string
   selectedLane: number | null
   playheadTs: number | null
   metrics: LaneMetrics
@@ -779,7 +782,7 @@ type TimelinePaint = {
 }
 
 function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
-  const { tr, view0, view1, follow, selectedLane, playheadTs, metrics, yZoom, ink } = p
+  const { tr, view0, view1, follow, edgeLabel, selectedLane, playheadTs, metrics, yZoom, ink } = p
   const { show: showMsgq, events: msgqEvents, lanes: queueLanes, hover } = p.msgq
   const { snapTs, selectedEdge } = p.msgq
   const dpr = window.devicePixelRatio || 1
@@ -819,6 +822,7 @@ function paint(canvas: HTMLCanvasElement, p: TimelinePaint) {
     view1,
     t0: tr.t0,
     follow,
+    edgeLabel,
   })
 
   // Vertical box-zoom magnifies the lane stack below the time axis.
@@ -1305,7 +1309,12 @@ export function TraceBody() {
               : 'No Trace events yet. Pick a traced app, or switch to Live board in the top bar to stream from a real board.'}
         </p>
       ) : (
-        <TracePanelBody snap={snap} objectCores={gdbSnap.objects} priorities={priorities} />
+        <TracePanelBody
+          snap={snap}
+          objectCores={gdbSnap.objects}
+          priorities={priorities}
+          tabStripEnd={<TraceRecordControls />}
+        />
       )}
     </div>
   )
@@ -1334,15 +1343,35 @@ function useNetSeen(tr: Trace | null, revision: number): boolean {
   return seen || now
 }
 
-function TracePanelBody({
+/**
+ * What a Trace body needs when it draws a recording being replayed rather than
+ * the live stream (TraceReplayDialog). The replay's trace takes `snap`'s place,
+ * and its cursor is the edge that follow mode pins to.
+ */
+export interface TraceBodyReplay {
+  /** As hostTrace.requestDetailUpdates, for the replay's own cadence. */
+  requestDetailUpdates: () => () => void
+  /** The replay's tab, kept apart from the live panel's. */
+  tab: TraceTab
+  setTab: (tab: TraceTab) => void
+  /** Bumped when the transport moves the cursor, to pin the view back on it. */
+  followNonce: number
+}
+
+export function TracePanelBody({
   snap,
   objectCores,
   priorities,
+  replay,
+  tabStripEnd,
 }: {
   snap: ReturnType<typeof getSnapshot>
   objectCores: ObjectCoreSnapshot | null
   /** Each thread's own priority, as the debugger read it at the last stop. */
   priorities: ReadonlyMap<number, number>
+  replay?: TraceBodyReplay
+  /** Controls at the right end of the tab strip. */
+  tabStripEnd?: ReactNode
 }) {
   /** Pinned to the live edge until a pan/zoom detaches the view. */
   const [follow, setFollow] = useState(true)
@@ -1396,8 +1425,9 @@ function TracePanelBody({
   // The tab a tour card on screen is about keeps a mark, even once the reader
   // has picked another: see lib/dockTarget.ts.
   const targets = useSyncExternalStore(subscribeTarget, getDockTargets, getDockTargets)
+  // Tours point at the live panel, not at a replay of it.
   const tabTargeted = (id: TraceTab) =>
-    targets.some((target) => target.key === STAGE_TRACE_KEY && target.tab === id)
+    !replay && targets.some((target) => target.key === STAGE_TRACE_KEY && target.tab === id)
   const tr = snap.trace
   /** zbus channels and observers from the image; the zbus tab is for images that have some. */
   const zbusTopology = hostGdb.getZbusTopology()
@@ -1407,16 +1437,26 @@ function TracePanelBody({
     { zbus: zbusTopology !== null, net: hasNet, power: hasPm },
     tabTargeted,
   )
-  const storedTab = tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab
+  const storedTab = replay
+    ? replay.tab
+    : (tabIn(dock, STAGE_TRACE_KEY, TRACE_TABS, 'schedule') as TraceTab)
   // A tab left open from another sample, with nothing to show on this one,
   // falls back to the Timeline.
   const tab: TraceTab = tabs.includes(storedTab) ? storedTab : 'schedule'
-  const setTab = (id: TraceTab) => setStoredTab(STAGE_TRACE_KEY, id)
+  const setTab = (id: TraceTab) => (replay ? replay.setTab(id) : setStoredTab(STAGE_TRACE_KEY, id))
 
+  const requestDetail = replay?.requestDetailUpdates ?? requestDetailUpdates
   useEffect(() => {
     if (tab !== 'queues') return
-    return requestDetailUpdates()
-  }, [tab])
+    return requestDetail()
+  }, [tab, requestDetail])
+  /** The follow badge on each chart's time axis. */
+  const edgeLabel = replay ? 'REPLAY' : 'LIVE'
+  // A seek or a restart from the replay's transport means "show me there".
+  const followNonce = replay?.followNonce
+  useEffect(() => {
+    if (followNonce !== undefined) setFollow(true)
+  }, [followNonce])
   const followRef = useRef(follow)
   followRef.current = follow
   const gutterW =
@@ -1520,7 +1560,8 @@ function TracePanelBody({
   }, [showMsgq])
 
   useEffect(() => {
-    if (!tr || tr.events.length === 0) return
+    // A replay can hold time past its fork before the first record arrives.
+    if (!tr || (tr.events.length === 0 && tr.t1 <= tr.t0)) return
     if (follow) {
       setView(livePinnedView(tr, liveWindowNs))
     }
@@ -1538,6 +1579,7 @@ function TracePanelBody({
           view0: view.t0,
           view1: view.t1,
           follow,
+          edgeLabel,
           selectedLane,
           playheadTs: playhead?.ts ?? null,
           metrics: laneMetrics,
@@ -1631,7 +1673,7 @@ function TracePanelBody({
   )
 
   const fitAll = useCallback(() => {
-    if (!tr || tr.events.length === 0) return
+    if (!tr || (tr.events.length === 0 && tr.t1 <= tr.t0)) return
     setFollow(false)
     setYZoom(null)
     setView({ t0: tr.t0, t1: Math.max(tr.t0 + MIN_WINDOW_NS, tr.t1) })
@@ -2187,6 +2229,13 @@ function TracePanelBody({
    * without a jump-to-live button. `extras` is those two controls; everything
    * else is written once.
    */
+  const followTitle = replay
+    ? follow
+      ? 'Following the replay'
+      : 'Jump to the replay position'
+    : follow
+      ? 'Following the live edge'
+      : 'Jump to the live edge'
   const chartToolbarWith = (extras?: ReactNode) => (
     <div className="flex items-center gap-0.5 px-0.5">
       <button
@@ -2220,8 +2269,8 @@ function TracePanelBody({
       </button>
       <button
         type="button"
-        title={follow ? 'Following the live edge' : 'Jump to the live edge'}
-        aria-label={follow ? 'Following the live edge' : 'Jump to the live edge'}
+        title={followTitle}
+        aria-label={followTitle}
         aria-pressed={follow}
         onClick={jumpLive}
         className={cn(
@@ -2259,7 +2308,7 @@ function TracePanelBody({
 
   return (
     <div className="flex flex-col gap-2 px-2 pb-2 pt-1">
-      <div className="flex gap-0.5 px-0.5">
+      <div className="flex flex-wrap items-center gap-0.5 px-0.5">
         {tabs.map((id) => (
           <button
             key={id}
@@ -2276,6 +2325,7 @@ function TracePanelBody({
             {TRACE_TAB_LABELS[id]}
           </button>
         ))}
+        {tabStripEnd && <div className="ml-auto flex min-w-0 items-center">{tabStripEnd}</div>}
       </div>
 
       {tab === 'queues' && view ? (
@@ -2286,6 +2336,7 @@ function TracePanelBody({
           view0={view.t0}
           view1={view.t1}
           follow={follow}
+          edgeLabel={edgeLabel}
           eventCount={snap.revision}
           svgRef={queuesSvgRef}
           surfaceProps={canvasHandlers}
@@ -2304,6 +2355,7 @@ function TracePanelBody({
             view0={view.t0}
             view1={view.t1}
             follow={follow}
+            edgeLabel={edgeLabel}
             eventCount={snap.revision}
             canvasRef={netCanvasRef}
             canvasProps={canvasHandlers}

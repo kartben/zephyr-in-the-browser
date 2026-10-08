@@ -73,6 +73,8 @@ export function paintCanvasTimeAxis(
     view1: number
     t0: number
     follow: boolean
+    /** What the follow badge says: LIVE, or REPLAY over a recording. */
+    edgeLabel?: string
     /** Y of the axis baseline. */
     baselineY?: number
   },
@@ -85,6 +87,7 @@ export function paintCanvasTimeAxis(
     view1,
     t0,
     follow,
+    edgeLabel = 'LIVE',
     baselineY = 18,
   } = opts
   const plotW = plotWidth(cssW, labelW, pad)
@@ -98,8 +101,9 @@ export function paintCanvasTimeAxis(
   let labelLimit = cssW
   if (follow) {
     ctx.fillStyle = ink.live(0.95)
-    const liveX = Math.max(labelW, cssW - 32)
-    ctx.fillText('LIVE', liveX, 12)
+    // Right-aligned 8 px in: where LIVE always sat, whatever the word.
+    const liveX = Math.max(labelW, cssW - 8 - ctx.measureText(edgeLabel).width)
+    ctx.fillText(edgeLabel, liveX, 12)
     labelLimit = liveX - 4
   } else {
     ctx.fillStyle = ink.label(0.7)

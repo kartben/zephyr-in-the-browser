@@ -192,6 +192,18 @@ export class TraceReader {
   netAddressWidth: NetAddressWidth | null = null
 
   private buf = new Uint8Array(0)
+  /** Stream offset of `buf[0]`: every byte before it has been decoded or skipped. */
+  private base = 0
+  /**
+   * Called after each record with the stream offset just past it, for an index
+   * from timestamps to bytes (see tracePlayback.ts). Offsets count from this
+   * reader's first fed byte.
+   */
+  onRecord: ((end: number, ts: number) => void) | null = null
+  /** A fork keeps its origin as t0, rather than taking the first event's. */
+  private anchored = false
+  /** Timestamp of the newest record decoded, or of the fork point before one. */
+  private newest = 0
   private fakeTs = 0
   private prevRaw: number | null = null
   private tsOff = 0
@@ -440,8 +452,9 @@ export class TraceReader {
   private consume(ts: number, eid: number, name: string, fields: Record<string, string | number>) {
     const tr = this.tr
     tr.events.push({ ts, eid, name, fields })
-    if (tr.events.length === 1) tr.t0 = ts
+    if (tr.events.length === 1 && !this.anchored) tr.t0 = ts
     tr.t1 = ts
+    this.newest = ts
 
     const tidRaw = fields.thread_id
     const tid = typeof tidRaw === 'number' ? tidRaw : null
@@ -591,10 +604,12 @@ export class TraceReader {
       const { fields } = decodeFields(edef, data, off + hsz, view)
       off += rec
       this.consume(ts, eid, edef.name, fields)
+      this.onRecord?.(this.base + off, ts)
       this.desync = false
       neu++
     }
     this.buf = data.subarray(off)
+    this.base += off
     return neu
   }
 
@@ -611,6 +626,84 @@ export class TraceReader {
     this.addProvisional()
     this.pm.seal(this.tr.t1)
     return neu
+  }
+
+  /**
+   * Bytes fed but not decoded yet: the start of a record still being written.
+   * A copy, so a recording can begin with them and stay record-aligned.
+   */
+  get pendingBytes(): Uint8Array {
+    return this.buf.slice()
+  }
+
+  /**
+   * A reader that carries on from where this one stands, with an empty trace.
+   *
+   * It keeps the table, the clock epoch, thread names and priorities, and what
+   * every thread is doing, so a stream that resumes mid-flight decodes as it
+   * would have here: the producer that was blocked is still blocked, rather
+   * than unknown until its next switch. Each open state, ISR and run segment
+   * restarts at this reader's newest timestamp, which becomes the fork's t0.
+   * CPU power states start closed. Bytes held back for an incomplete record are
+   * not carried over: feed {@link pendingBytes} first.
+   */
+  fork(): TraceReader {
+    const r = new TraceReader(this.defs, this.hasTs)
+    const tr = this.tr
+    const at = tr.t1
+    r.synced = this.synced
+    r.netAddressWidth = this.netAddressWidth
+    r.fakeTs = this.fakeTs
+    r.prevRaw = this.prevRaw
+    r.tsOff = this.tsOff
+    r.curTid = this.curTid
+    r.segStart = this.segStart === null ? null : Math.max(this.segStart, at)
+    r.isrDepth = this.isrDepth
+    r.running = this.running
+    r.pends = this.pends
+    r.nextWait = this.nextWait && { ...this.nextWait }
+    for (const [tid, [state, since, reason, object]] of this.stCur) {
+      r.stCur.set(tid, [state, Math.max(since, at), reason, object])
+    }
+    for (const [tid, [state, reason, object]] of this.stHint) r.stHint.set(tid, [state, reason, object])
+    for (const [tid, cv] of this.condvarWaits) r.condvarWaits.set(tid, cv)
+    for (const [tid, info] of tr.threads) r.tr.threads.set(tid, { ...info })
+    r.tr.isrOpenStart = tr.isrOpenStart === null ? null : Math.max(tr.isrOpenStart, at)
+    // A fork of a fork is how a replay starts over: the same place again.
+    if (tr.events.length > 0 || this.anchored) {
+      r.anchored = true
+      r.newest = at
+      r.tr.t0 = at
+      r.tr.t1 = at
+      r.addProvisional()
+    }
+    return r
+  }
+
+  /**
+   * Where this reader was forked (its t0 for good), or null when it was not
+   * forked from a reader that had decoded anything.
+   */
+  get forkedAt(): number | null {
+    return this.anchored ? this.tr.t0 : null
+  }
+
+  /**
+   * Set the trace's newest time to `ts`, as if nothing were logged after the
+   * newest record: every thread holds its state up to there, as do an open ISR
+   * and power state. A replay calls this so its timeline moves at the playback
+   * rate instead of jumping from one record to the next. `ts` can go back down
+   * as far as the newest record, not past it, and records fed afterwards must
+   * not be older than it.
+   */
+  extendTo(ts: number): void {
+    const tr = this.tr
+    if (ts === tr.t1 || ts < this.newest || (tr.events.length === 0 && !this.anchored)) return
+    this.dropProvisional()
+    this.pm.unseal()
+    tr.t1 = ts
+    this.addProvisional()
+    this.pm.seal(ts)
   }
 }
 

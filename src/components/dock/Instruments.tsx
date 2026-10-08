@@ -20,6 +20,7 @@ import { PanelFrame } from '@/components/PanelFrame'
 import { SimulationBadge, SimulationBody } from '@/components/SimulationPanel'
 import { compactHex } from '@/debug/hexFormat'
 import { countOf, traceCounts } from '@/components/dock/countText'
+import { compactCount } from '@/components/queueGraph/display'
 import { cn } from '@/lib/utils'
 import type { PanelKind } from '@/boards'
 import * as debug from '@/debug/control'
@@ -28,6 +29,7 @@ import * as hostGdb from '@/hostGdb'
 import * as hostTrace from '@/hostTrace'
 import * as liveDebug from '@/debug/liveDebug'
 import * as bridgeClient from '@/probe/client'
+import * as traceRecorder from '@/traceRecorder'
 import { getMode, subscribe as subscribeMode } from '@/lib/modeStore'
 import {
   STAGE_DEBUG_KEY,
@@ -63,6 +65,11 @@ function TraceBadge() {
     bridgeClient.getSnapshot,
     bridgeClient.getSnapshot,
   )
+  const rec = useSyncExternalStore(
+    traceRecorder.subscribe,
+    traceRecorder.getSnapshot,
+    traceRecorder.getSnapshot,
+  )
   const mode = useMode()
   const live = snap.eventCount > 0
   const fromBoard = snap.source === 'probe' || snap.source === 'bridge' || snap.path === 'bridge'
@@ -74,7 +81,13 @@ function TraceBadge() {
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          live ? 'bg-amber-500/80' : waitingOnBoard ? 'bg-sky-500/80' : 'bg-muted-foreground/50',
+          rec.recording
+            ? 'animate-pulse bg-destructive'
+            : live
+              ? 'bg-amber-500/80'
+              : waitingOnBoard
+                ? 'bg-sky-500/80'
+                : 'bg-muted-foreground/50',
         )}
         aria-hidden
       />
@@ -82,13 +95,15 @@ function TraceBadge() {
         className="min-w-0 truncate"
         title={live ? `${snap.eventCount.toLocaleString('en-US')} events` : undefined}
       >
-        {live
-          ? `${traceCounts(snap.eventCount, snap.threadCount)}${fromBoard ? ' · board' : ''}`
-          : waitingOnBoard
-            ? 'waiting for board'
-            : mode === 'live'
-              ? 'bridge off'
-              : 'no events'}
+        {rec.recording
+          ? `recording · ${compactCount(rec.events)} ${rec.events === 1 ? 'event' : 'events'}`
+          : live
+            ? `${traceCounts(snap.eventCount, snap.threadCount)}${fromBoard ? ' · board' : ''}`
+            : waitingOnBoard
+              ? 'waiting for board'
+              : mode === 'live'
+                ? 'bridge off'
+                : 'no events'}
       </span>
     </span>
   )

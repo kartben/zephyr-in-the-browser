@@ -16,6 +16,16 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    "version": "Unreleased",
+    "date": null,
+    "items": [
+      {
+        "tag": "Added",
+        "text": "Trace recording with slowed-down replay and a scrubber."
+      }
+    ]
+  },
+  {
     "version": "0.6.0",
     "date": "2026-10-08",
     "items": [

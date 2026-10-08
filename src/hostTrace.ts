@@ -28,10 +28,55 @@ const DETAIL_POLL_MS = 200
 /** Rendering a high-rate trace faster than this is not perceptibly smoother. */
 const UI_UPDATE_MS = 500
 const DETAIL_UI_UPDATE_MS = 200
-/** Cap retained events so a long-running sample cannot unbounded-grow the heap. */
-const MAX_EVENTS = 50_000
+/**
+ * Cap retained events so a long-running sample cannot unbounded-grow the heap.
+ *
+ * The heap is the smaller half of it: a decoded event is about 200 bytes, so
+ * 50k is ~10 MB. The larger half is time. The IPC graph, the queue lanes and
+ * the depth, sync, network and zbus views are rebuilt from the whole log on
+ * every publication, and on the browser main thread, where the guest's own
+ * semihost writes are proxied too. That rebuild is ~60 ms at 50k and several
+ * hundred at 500k, so a bigger live log makes both the page and the guest
+ * stutter. A longer look is what traceRecorder.ts is for: it keeps the raw CTF
+ * (~25 bytes an event) and decodes it only to replay, with the guest paused.
+ */
+export const MAX_EVENTS = 50_000
 /** Trim in batches instead of allocating a 50k-element copy every poll. */
 const TRIM_BATCH = 5_000
+
+/**
+ * Drop the oldest events once the log is a batch past {@link MAX_EVENTS}.
+ *
+ * Only the event log needs an exact cap. State timelines are indexed for live
+ * drawing, and rebuilding them from a truncated CTF stream would be both slower
+ * and less accurate. Batching the splice avoids a 50k copy on every high-rate
+ * poll.
+ */
+export function trimEventLog(tr: Trace) {
+  if (tr.events.length > MAX_EVENTS + TRIM_BATCH) {
+    tr.events.splice(0, tr.events.length - MAX_EVENTS)
+  }
+}
+
+/**
+ * Sees every byte the live decoder is fed, from the moment it is opened. A
+ * recording is one; see traceRecorder.ts.
+ */
+export interface TraceTap {
+  /** `chunk` is only valid during the call: copy what you keep. */
+  bytes(chunk: Uint8Array, events: number): void
+  /** The decoder went away (a new guest, the board stream ended); no more bytes. */
+  end(): void
+}
+
+/** Where a tap's bytes carry on from. */
+export interface TraceTapStart {
+  /** A decoder positioned where the live one was when the tap opened: never feed it. */
+  origin: TraceReader
+  /** The start of a record the live decoder was still waiting on: the tap's first bytes. */
+  pending: Uint8Array
+  source: TraceSource
+}
 
 interface EmscriptenFS {
   analyzePath?: (path: string) => { exists: boolean; object?: { contents?: Uint8Array; usedBytes?: number } }
@@ -92,6 +137,7 @@ let publishTimer: ReturnType<typeof setTimeout> | undefined
 let detailUpdateLeases = 0
 /** When set, CTF comes from the probe bridge instead of the guest FS. */
 let externalLabel: string | null = null
+let tap: TraceTap | null = null
 const listeners = new Set<() => void>()
 
 function pollMs(): number {
@@ -129,13 +175,7 @@ function publish() {
   }
   const tr = reader.tr
   // Drop oldest events if the guest runs forever — keep the live edge useful.
-  if (tr.events.length > MAX_EVENTS + TRIM_BATCH) {
-    // Only the event log needs an exact cap. State timelines are indexed for
-    // live drawing, and rebuilding them from a truncated CTF stream would be
-    // both slower and less accurate. Batch the splice to avoid a 50k copy on
-    // every high-rate poll.
-    tr.events.splice(0, tr.events.length - MAX_EVENTS)
-  }
+  trimEventLog(tr)
   snapshot = {
     available: tr.events.length > 0 || path !== null || externalLabel !== null,
     following: path !== null || externalLabel !== null,
@@ -170,6 +210,20 @@ function requestPublish() {
     lastPublishAt = performance.now()
     publish()
   }, updateMs - elapsed)
+}
+
+/** Decode `chunk` live, and hand it to an open tap. Returns the new event count. */
+function feed(chunk: Uint8Array): number {
+  const n = reader!.feed(chunk)
+  tap?.bytes(chunk, n)
+  return n
+}
+
+/** The live decoder is being replaced: whatever was tapping it has ended. */
+function endTap() {
+  const t = tap
+  tap = null
+  t?.end()
 }
 
 function findTraceFile(fs: EmscriptenFS): string | null {
@@ -269,7 +323,7 @@ function sample() {
 
   const chunk = readNewBytes(fs, path!)
   if (chunk && chunk.length) {
-    if (reader.feed(chunk) > 0) {
+    if (feed(chunk) > 0) {
       // eventCount is capped, so revision is the live UI signal. Coalescing
       // it prevents a busy tracing sample from repainting React and canvas for
       // every filesystem poll.
@@ -303,6 +357,7 @@ export function detach() {
   mod = null
   // Keep an external (probe) session across guest detach/reattach.
   if (!externalLabel) {
+    endTap()
     reader = null
     offset = 0
     path = null
@@ -325,6 +380,7 @@ export function detach() {
  * Resets retained events so a new board session starts clean.
  */
 export function beginExternal(label = 'probe') {
+  endTap()
   externalLabel = label
   path = null
   offset = 0
@@ -337,6 +393,7 @@ export function beginExternal(label = 'probe') {
     // reader is still empty (defs arrived before any CTF).
     if (externalLabel !== label) return
     if (!reader || reader.tr.events.length === 0) {
+      endTap()
       reader = new TraceReader(defs, true, true)
       publish()
     }
@@ -349,7 +406,7 @@ export function feedExternal(bytes: Uint8Array) {
   if (!reader) {
     reader = new TraceReader(defs, true, true)
   }
-  if (bytes.length && reader.feed(bytes) > 0) {
+  if (bytes.length && feed(bytes) > 0) {
     requestPublish()
   } else if (!snapshot.available) {
     publish()
@@ -359,6 +416,7 @@ export function feedExternal(bytes: Uint8Array) {
 /** Leave probe mode; guest FS polling can resume on the next sample(). */
 export function endExternal() {
   if (!externalLabel) return
+  endTap()
   externalLabel = null
   reader = null
   revision = 0
@@ -382,6 +440,23 @@ export function endExternal() {
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
+}
+
+/**
+ * Hand every byte the live decoder is fed from now on to `next`, until
+ * {@link closeTap} or the decoder goes away. Null with no decoder yet to tap.
+ * One tap at a time: opening another ends the first.
+ */
+export function openTap(next: TraceTap): TraceTapStart | null {
+  if (!reader) return null
+  endTap()
+  tap = next
+  return { origin: reader.fork(), pending: reader.pendingBytes, source: currentSource() }
+}
+
+/** Stop handing bytes to `t`, without telling it. A no-op once another tap has opened. */
+export function closeTap(t: TraceTap) {
+  if (tap === t) tap = null
 }
 
 export function getSnapshot(): TraceSnapshot {
@@ -419,7 +494,7 @@ export function debugFeed(bytes: Uint8Array) {
   path = path ?? './tracing.bin'
   // Keep the test/demo hook synchronous; only the real filesystem follower
   // needs UI coalescing.
-  if (reader.feed(bytes) > 0) {
+  if (feed(bytes) > 0) {
     revision++
     lastPublishAt = performance.now()
   }
