@@ -127,6 +127,11 @@ export interface Availability {
   display: boolean
   input: boolean
   disk: boolean
+  /**
+   * The emulator has the two-way uart1 slot, so the board's uart1 can be piped
+   * to a real serial port (src/hostUart.ts). Optional: off unless said.
+   */
+  uartPipe?: boolean
 }
 
 export interface DeviceNode {
@@ -172,6 +177,11 @@ export interface DeviceNode {
   pwmLeds?: Array<{ channel: number; label: string }>
   /** Controller label scoping an 'i2c'/'spi'/'uart' body's roster/traffic. */
   busLabel?: string
+  /**
+   * On a 'uart' body: this UART can be piped to a real serial port
+   * (src/hostUart.ts), starting at the devicetree's `current-speed` if any.
+   */
+  uartPipe?: { baudRate?: number }
   /** Chip select this part sits on, for rows under a SPI bus — drives the CS dot. */
   spiCs?: number
   /** The status slot a 'watchdog' body follows, from src/hostWatchdog.ts. */
@@ -704,6 +714,8 @@ function deriveFromTree(
   chips: readonly I2cChip[],
   spiChips: readonly SpiChip[],
   avail: Availability,
+  /** Node name of the UART the page can pipe to a real port, when it can. */
+  pipeNode: string | null = null,
 ): DeviceNode[] {
   const ids: Ids = { used: new Set() }
   const nodes: DeviceNode[] = []
@@ -1168,7 +1180,10 @@ function deriveFromTree(
       bus.role === 'bluetooth' &&
       avail.bluetooth &&
       bus.slots.some((s) => s.chipId === 'bluetooth')
-    const liveUart = liveGnss || liveBt
+    // Matched by node name: the M3 enables uart2 as well, and only uart1 is
+    // wired to the pipe.
+    const pipeable = pipeNode !== null && busNode?.name === pipeNode
+    const liveUart = liveGnss || liveBt || pipeable
     push({
       key: busKey,
       nodeName: busNode?.name ?? bus.controllerLabel,
@@ -1178,8 +1193,11 @@ function deriveFromTree(
       path: bus.path,
       presence: liveUart ? 'interactive' : 'inert',
       ...(bus.role === 'console' ? CONSOLE_NOTE : {}),
-      body: liveGnss ? 'uart' : undefined,
+      body: liveGnss || pipeable ? 'uart' : undefined,
       busLabel: bus.controllerLabel,
+      ...(pipeable
+        ? { uartPipe: bus.currentSpeed ? { baudRate: bus.currentSpeed } : {} }
+        : {}),
     })
 
     for (const slot of bus.slots) {
@@ -1339,6 +1357,23 @@ const M3_FALLBACK: FallbackNames = {
   gpio: { nodeName: 'gpio@40061000', compatible: 'qemu,host-gpio', label: 'host_gpio' },
 }
 
+/**
+ * Devicetree node name of the board's uart1, the UART the emulator wires to
+ * the browser (`qemu_browser_gnss_chardev()`), and so the one a real serial
+ * port can be piped to. Null on boards without one.
+ */
+export function hostUartNodeName(boardId: string): string | null {
+  const names =
+    boardId === 'qemu_cortex_m3'
+      ? M3_FALLBACK
+      : boardId === 'qemu_riscv32'
+        ? RISCV32_FALLBACK
+        : boardId === 'qemu_cortex_a53'
+          ? A53_FALLBACK
+          : null
+  return names?.gnssUart.nodeName ?? null
+}
+
 function deriveFallback(
   boardId: string,
   chips: readonly I2cChip[],
@@ -1367,6 +1402,7 @@ function deriveFallback(
 
   {
     const live = avail.gnss
+    const pipeable = avail.uartPipe === true && hostUartNodeName(boardId) !== null
     const uartKey = uniqueKey(ids, names.gnssUart.label ?? names.gnssUart.nodeName)
     nodes.push({
       key: uartKey,
@@ -1375,9 +1411,10 @@ function deriveFallback(
       compatible: names.gnssUart.compatible,
       deviceClass: 'uart-bus',
       path: `/soc/${names.gnssUart.nodeName}`,
-      presence: live ? 'interactive' : 'inert',
-      body: live ? 'uart' : undefined,
+      presence: live || pipeable ? 'interactive' : 'inert',
+      body: live || pipeable ? 'uart' : undefined,
       busLabel: names.gnssUart.label ?? names.gnssUart.nodeName,
+      ...(pipeable ? { uartPipe: {} } : {}),
     })
     nodes.push({
       key: uniqueKey(ids, 'gnss'),
@@ -1657,7 +1694,14 @@ export function deriveDeviceInventory(
 ): DeviceInventory {
   if (tree?.doc && tree.insights) {
     return {
-      nodes: deriveFromTree(tree.doc, tree.insights, chips, spiChips, avail),
+      nodes: deriveFromTree(
+        tree.doc,
+        tree.insights,
+        chips,
+        spiChips,
+        avail,
+        avail.uartPipe ? hostUartNodeName(boardId) : null,
+      ),
       source: 'devicetree',
       rootName: tree.insights.model,
       treeName: tree.name,

@@ -1,7 +1,7 @@
 /**
- * Shared drain/feed for QEMU's browser chardev rings (monitor or gdb).
+ * Shared drain/feed for QEMU's browser chardev rings (monitor, gdb, hci, uart1).
  *
- * Both channels export the same six symbols with a different prefix. The page
+ * Every slot exports the same six symbols with a different prefix. The page
  * never holds a Chardev pointer — only these free-running ring indices.
  */
 
@@ -15,16 +15,11 @@ export interface ChardevExports {
   HEAPU8?: Uint8Array
 }
 
-export type ChardevSlot = 'monitor' | 'gdb' | 'hci'
+export type ChardevSlot = 'monitor' | 'gdb' | 'hci' | 'uart1'
 
 /** Bind the six exports for a named slot from an Emscripten Module. */
 export function bindChardev(mod: Record<string, unknown>, slot: ChardevSlot): ChardevExports {
-  const prefix =
-    slot === 'monitor'
-      ? '_qemu_browser_monitor_'
-      : slot === 'gdb'
-        ? '_qemu_browser_gdb_'
-        : '_qemu_browser_hci_'
+  const prefix = `_qemu_browser_${slot}_`
   return {
     feed: mod[`${prefix}feed`] as ChardevExports['feed'],
     ring: mod[`${prefix}ring`] as ChardevExports['ring'],
@@ -55,6 +50,19 @@ export function feedBytes(ch: ChardevExports, bytes: Uint8Array | string): boole
     if (feed(bytes[i]!) < 0) return false
   }
   return true
+}
+
+/**
+ * Write as many bytes as the page→QEMU ring has room for and say how many went
+ * in. Callers keep the rest and retry, rather than lose them as feedBytes does.
+ */
+export function feedSome(ch: ChardevExports, bytes: Uint8Array): number {
+  const feed = ch.feed
+  if (!feed) return 0
+  for (let i = 0; i < bytes.length; i++) {
+    if (feed(bytes[i]!) < 0) return i
+  }
+  return bytes.length
 }
 
 /** Drain newly written bytes from the QEMU→page ring. */

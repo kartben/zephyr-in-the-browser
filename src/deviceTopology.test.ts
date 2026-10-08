@@ -14,6 +14,7 @@ import {
   demoVisibleNodes,
   deriveDeviceInventory,
   flattenSoloGroups,
+  hostUartNodeName,
   learnerBusName,
   usableNodes,
 } from './deviceTopology'
@@ -873,5 +874,55 @@ describe('flattenSoloGroups', () => {
   it('leaves the devicetree view alone', () => {
     const rows = buildRowList(inv, 'devicetree')
     expect(flattenSoloGroups(rows)).toBe(rows)
+  })
+})
+
+describe('uart1 pipe to a real serial port', () => {
+  it('names the UART each emulated board wires to the browser', () => {
+    expect(hostUartNodeName('qemu_cortex_m3')).toBe('uart@4000d000')
+    expect(hostUartNodeName('qemu_cortex_a53')).toBe('uart@9040000')
+    expect(hostUartNodeName('qemu_riscv32')).toBe('uart@1000b000')
+    expect(hostUartNodeName('esp32c3_devkitc')).toBeNull()
+  })
+
+  it('offers the pipe on uart1, at its devicetree baud, and nowhere else', () => {
+    const inv = deriveDeviceInventory(treeOf(m3Blinky), [], [], { ...ALL, uartPipe: true }, 'qemu_cortex_m3')
+    const uart1 = nodeByKey(inv, 'uart1')
+    expect(uart1.body).toBe('uart')
+    expect(uart1.uartPipe).toEqual({ baudRate: 9600 })
+    expect(nodeByKey(inv, 'uart0').uartPipe).toBeUndefined()
+  })
+
+  it('makes uart1 a live card even with nothing on it', () => {
+    const inv = deriveDeviceInventory(
+      treeOf(m3Blinky),
+      [],
+      [],
+      { ...ALL, gnss: false, uartPipe: true },
+      'qemu_cortex_m3',
+    )
+    expect(nodeByKey(inv, 'uart1')).toMatchObject({ presence: 'interactive', body: 'uart' })
+  })
+
+  it('offers nothing on an emulator without the slot', () => {
+    const inv = deriveDeviceInventory(treeOf(m3Blinky), [], [], { ...ALL, gnss: false }, 'qemu_cortex_m3')
+    expect(nodeByKey(inv, 'uart1').uartPipe).toBeUndefined()
+    expect(nodeByKey(inv, 'uart1').body).toBeUndefined()
+  })
+
+  it('offers the pipe on the fallback inventory too', () => {
+    const inv = deriveDeviceInventory(
+      null,
+      [],
+      [],
+      { ...ALL, gnss: false, uartPipe: true },
+      'qemu_cortex_a53',
+      'absent',
+    )
+    expect(nodeByKey(inv, 'uart1')).toMatchObject({
+      presence: 'interactive',
+      body: 'uart',
+      uartPipe: {},
+    })
   })
 })

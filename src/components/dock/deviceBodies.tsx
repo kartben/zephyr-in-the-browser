@@ -191,7 +191,7 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
     case 'spi':
       return <SpiBody busLabel={node.busLabel} />
     case 'uart':
-      return <UartBody busKey={node.key} />
+      return <UartBody busKey={node.key} pipe={node.uartPipe} />
     case 'can':
       return <CanBody />
     case 'power':
@@ -221,7 +221,7 @@ function renderDeviceBody(node: DeviceNode, variant: 'dock' | 'window') {
     case 'stepper-tmc':
       return <Tmc50xxStepperBody chip={node.chip as Tmc50xxChip} />
     case 'gnss':
-      return <GnssBody />
+      return <GnssBody busKey={node.parentKey} />
     case 'bluetooth':
       return <BluetoothBody />
     case 'speaker':

@@ -19,6 +19,8 @@ describe('computeInsights', () => {
       ['uart0', 'console', []],
       ['uart1', 'gnss', ['gnss']],
     ])
+    // A real port piped to uart1 starts at the rate the guest configured.
+    expect(insights.uartBuses.map((b) => b.currentSpeed)).toEqual([115200, 9600])
 
     expect(insights.i2cBuses).toHaveLength(1)
     const bus = insights.i2cBuses[0]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bindChardev, chardevAvailable, drainBytes, feedBytes } from '@/debug/browserChardev'
+import { bindChardev, chardevAvailable, drainBytes, feedBytes, feedSome } from '@/debug/browserChardev'
 
 describe('bindChardev', () => {
   it('maps snake_case Emscripten exports for the gdb slot', () => {
@@ -65,6 +65,34 @@ describe('bindChardev', () => {
     )
     expect(chardevAvailable(ch)).toBe(true)
     expect(ch.feed).toBe(feed)
+  })
+})
+
+describe('the uart1 slot', () => {
+  it('binds the _qemu_browser_uart1_ exports', () => {
+    const feed = () => 0
+    const ch = bindChardev(
+      {
+        _qemu_browser_uart1_feed: feed,
+        _qemu_browser_uart1_ring: () => 0,
+        _qemu_browser_uart1_ring_size: () => 16,
+        _qemu_browser_uart1_read_index: () => 0,
+        _qemu_browser_uart1_write_index: () => 0,
+        _qemu_browser_uart1_set_read_index: () => {},
+        HEAPU8: new Uint8Array(16),
+      },
+      'uart1',
+    )
+    expect(chardevAvailable(ch)).toBe(true)
+    expect(ch.feed).toBe(feed)
+  })
+
+  it('feedSome stops at a full ring and says how far it got', () => {
+    const fed: number[] = []
+    const ch = { feed: (value: number) => (fed.length < 3 ? (fed.push(value), 0) : -1) }
+    expect(feedSome(ch, new Uint8Array([1, 2, 3, 4, 5]))).toBe(3)
+    expect(fed).toEqual([1, 2, 3])
+    expect(feedSome({}, new Uint8Array([1]))).toBe(0)
   })
 })
 

@@ -1,5 +1,7 @@
 import { attach as attachHostDisplay, detach as detachHostDisplay } from '@/hostDisplay'
 import { attach as attachHostGnss, detach as detachHostGnss } from '@/hostGnss'
+import { attach as attachHostUart, detach as detachHostUart } from '@/hostUart'
+import { hostUartNodeName } from '@/deviceTopology'
 import { attach as attachHostGpio, detach as detachHostGpio } from '@/hostGpio'
 import { attach as attachHostI2c, detach as detachHostI2c } from '@/hostI2c'
 import { attach as attachHostSpi, detach as detachHostSpi } from '@/hostSpi'
@@ -36,6 +38,7 @@ import {
   GDB_ARGS,
   HCI_ARGS,
   MONITOR_ARGS,
+  UART1_ARGS,
   getSample,
   sampleAsset,
   sampleDtsAsset,
@@ -278,6 +281,7 @@ export function createQemuBackend(): PtyBackend {
       // the program, not the machine.
       let args = [...board.args, ...MONITOR_ARGS, ...GDB_ARGS]
       if (board.peripherals?.hostBt) args = [...args, ...HCI_ARGS]
+      if (board.peripherals?.hostUart) args = [...args, ...UART1_ARGS]
       if (sample.extraArgs) args = [...args, ...sample.extraArgs]
 
       /*
@@ -379,6 +383,10 @@ export function createQemuBackend(): PtyBackend {
       // The panel becomes visible once a qemu,ramfb guest configures fw_cfg.
       if (board.peripherals?.ramfb) attachHostDisplay(instance)
       else detachHostDisplay()
+      // Before GNSS: its simulated fix goes out through the uart1 pipe when
+      // the emulator has one.
+      if (board.peripherals?.hostUart) attachHostUart(instance, hostUartNodeName(board.id))
+      else detachHostUart()
       if (board.peripherals?.gnss) attachHostGnss(instance)
       else detachHostGnss()
       // A machine with a virtio bus keeps its GPIO there, even when the build
@@ -436,6 +444,7 @@ export function createQemuBackend(): PtyBackend {
       detachVirtio()
       detachHostDisplay()
       detachHostGnss()
+      detachHostUart()
       detachHostGpio()
       detachHostI2c()
       detachHostSpi()

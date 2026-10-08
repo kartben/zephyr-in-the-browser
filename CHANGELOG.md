@@ -5,6 +5,7 @@ via the help dialog (?).
 
 ## Unreleased
 
+- **Added:** Pipe uart1 to a real USB serial port, with Web Serial.
 - **Added:** The dock says what to try with each sample.
 - **Added:** Hover a variable in tour code to see its value.
 - **Added:** Tours run shell commands, give you tasks, check your work and chain onward.
