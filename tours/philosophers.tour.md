@@ -17,24 +17,22 @@ This tour pauses the sample at six moments while it starts up.
 ## One function, six threads
 
 ```tour
-at: z_impl_k_thread_create
+at: main.c:start_threads/k_thread_create\(/ | main.c:219
 when: first
 threads: yes
-watch:
-  - entry point = $arg3 as code
-  - stack size = $arg2 as dec
+highlight: /k_thread_create\(/ + 2
 ```
 
-This is the first `k_thread_create()` call, inside the kernel. All six
-philosophers run the same entry function, `philosopher()`. The only
-difference between them is the id passed in as an argument.
+`main` is about to create the first philosopher. All six philosophers run the
+same entry function, `philosopher()`. The only difference between them is the
+id passed in as an argument, `INT_TO_POINTER(i)`.
 
 Zephyr doesn't allocate a thread's stack for you. This sample reserves six
 2 KB stacks at build time with `K_THREAD_STACK_ARRAY_DEFINE`, and passes one
 in here.
 
 The thread list only has `main` and `idle` so far. Each thread is created with
-`K_FOREVER`, so it waits for `k_thread_start()`, which comes right after.
+`K_FOREVER`, so it waits for `k_thread_start()`, a few lines down.
 
 ## Started last, runs first
 
@@ -95,18 +93,20 @@ calls `k_mutex_unlock()`, the kernel gives the mutex to the waiting thread.
 ## Priority inheritance, caught in the act
 
 ```tour
-at: z_thread_prio_set
+at: main.c:philosopher/drop\(my_fork2\)/ | main.c:171
 when: first
 threads: yes
 look: trace.ipc.fork_objs[5]
 ```
 
-Philosopher 5 (priority -2) is now waiting on philosopher 4 (priority -1).
+Philosopher 4 has finished eating and is about to put fork 5 down. Look at
+its priority in the thread list: it was created at -1, but now it runs at -2.
+
+Philosopher 5 (priority -2) has been waiting on philosopher 4 all this time.
 If a medium-priority thread got in the way, the high-priority thread would be
 stuck behind a low-priority one. That's called **priority inversion**. To
-prevent it, the kernel lends philosopher 4 the waiter's priority, -2, until it
-unlocks the fork. That happens right here: the thread list still shows -1,
-because the change is about to be made.
+prevent it, the kernel lent philosopher 4 the waiter's priority when
+philosopher 5 blocked, and takes it back as soon as the fork is unlocked.
 
 You didn't have to ask for this. Every `k_mutex` does it.
 
