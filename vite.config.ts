@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin } from 'vite'
 import { frontMatterSources, isShippableSource, shippedPath } from './src/tours/sources'
+import { tourTraits } from './src/tours/traits'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const QEMU_ASSET_DIR = path.join(root, 'public', 'qemu')
@@ -301,6 +302,7 @@ export default defineConfig({
     appVersion(),
     qemuWorktreeAssets(),
     tours(),
+    tourTraits(),
   ],
   resolve: {
     alias: { '@': path.join(root, 'src') },

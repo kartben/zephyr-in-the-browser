@@ -13,7 +13,7 @@ import { registerCommand } from '@/lib/commands'
 import { registerTerminal } from '@/lib/terminalInput'
 import { setSelector } from '@/lib/selection'
 import { carryTour, parseSelection } from '@/lib/selectionParams'
-import { defaultTourFor, tourToRun } from '@/tours/catalog'
+import { defaultTourFor, sampleForTour, tourToRun } from '@/tours/catalog'
 import { loadFor as loadTour, reset as resetTour } from '@/tours/store'
 import { seedForSelection } from '@/lib/dockStore'
 import {
@@ -88,7 +88,7 @@ export default function App() {
   const [askedTour, setAskedTour] = useState(() => readSelection().tour)
   const [startStep, setStartStep] = useState(() => readSelection().step)
   // The tour this sample actually runs, if any.
-  const tourId = tourToRun(sampleId, askedTour)
+  const tourId = tourToRun(getBoard(boardId), sampleId, askedTour)
   const [{ status, detail }, setStatus] = useState<StatusEvent>({ status: 'idle' })
   const [hardRestart, setHardRestart] = useState(false)
   const [nonce, setNonce] = useState(0)
@@ -137,6 +137,18 @@ export default function App() {
   // making them change identity (which would remount the terminal).
   const configRef = useRef({ backendId, boardId, sampleId, askedTour, tourId, startStep })
   configRef.current = { backendId, boardId, sampleId, askedTour, tourId, startStep }
+
+  // A link whose tour points at Trace boots the traced build even when it
+  // names the plain app (parseSelection). The address bar says what runs, so
+  // a copied link matches the page.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    if (!params.has('app') || params.get('app') === sampleId) return
+    params.set('app', sampleId)
+    history.replaceState(history.state, '', `${location.pathname}?${params}${location.hash}`)
+    // Only the first boot came from the link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const backendRef = useRef<PtyBackend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -264,16 +276,20 @@ export default function App() {
    * way the new run starts at the top: a `?step=` is where one link came in.
    */
   const applySelection = useCallback((next: SelectionChange) => {
-    const sampleId = next.sampleId ?? configRef.current.sampleId
+    const boardId = next.boardId ?? configRef.current.boardId
+    const board = getBoard(boardId)
+    const picked = next.sampleId ?? configRef.current.sampleId
     const asked =
       next.tour !== undefined
         ? next.tour
-        : carryTour(configRef.current.askedTour, configRef.current.sampleId, sampleId)
+        : carryTour(configRef.current.askedTour, configRef.current.sampleId, picked)
+    // A tour that points at Trace runs on the traced build, whichever was picked.
+    const sampleId = sampleForTour(board, picked, tourToRun(board, picked, asked))
     // The default tour needs no `?tour=`: a plain link to the app runs it.
-    const tour = asked === defaultTourFor(sampleId) ? null : asked
+    const tour = asked === defaultTourFor(board, sampleId) ? null : asked
     if (backendRef.current?.resetRequiresReload) {
       const params = new URLSearchParams(location.search)
-      params.set('board', next.boardId ?? configRef.current.boardId)
+      params.set('board', boardId)
       params.set('app', sampleId)
       params.set('backend', configRef.current.backendId)
       if (tour === null) params.delete('tour')
@@ -282,8 +298,8 @@ export default function App() {
       location.search = params.toString()
       return
     }
-    if (next.boardId !== undefined) setBoardId(next.boardId)
-    if (next.sampleId !== undefined) setSampleId(next.sampleId)
+    setBoardId(boardId)
+    setSampleId(sampleId)
     setAskedTour(tour)
     setStartStep(null)
   }, [])

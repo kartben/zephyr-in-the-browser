@@ -12,11 +12,18 @@ const OUTRO = { title: 'What you saw', body: 'A message queue is a *ring* of fix
 
 /** Only the app list matters here: where Next can go, and what it is called. */
 function board(...ids: string[]): Board {
-  const labels: Record<string, string> = { msg_queue: 'Message queue', msgq_lab: 'Message queue lab' }
+  const labels: Record<string, string> = {
+    msg_queue: 'Message queue',
+    msgq_lab: 'Message queue lab',
+    msgq_lab_trace: 'Message queue lab · traced',
+  }
   return { samples: ids.map((id) => ({ id, label: labels[id] ?? id })) } as unknown as Board
 }
 
-function render(next: string | null, nextTitle: string | null, on = board('msg_queue', 'msgq_lab')) {
+/** The lab's tour points at Trace, so it runs on the traced twin the A53 builds. */
+const A53 = board('msg_queue', 'msg_queue_trace', 'msgq_lab', 'msgq_lab_trace')
+
+function render(next: string | null, nextTitle: string | null, on = A53) {
   const html = renderToStaticMarkup(
     <CompletionCard board={on} sampleId="msg_queue" outro={OUTRO} next={next} nextTitle={nextTitle} />,
   )
@@ -49,6 +56,11 @@ describe('CompletionCard', () => {
     expect(render('msgq_lab.lost_alarm', 'The lost alarm').text).toContain('Next: The lost alarm')
     // Until that tour has loaded, its app stands in, as for a default tour.
     expect(render('msgq_lab.lost_alarm', null).text).toContain('Next: Message queue lab')
+  })
+
+  it('offers no way on when the next tour needs Trace and this board has no traced build', () => {
+    const { text } = render('msgq_lab', 'Message queues, part 2', board('msg_queue', 'msgq_lab'))
+    expect(text).not.toContain('Next')
   })
 
   it('offers no way on when this board does not have the next app', () => {

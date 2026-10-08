@@ -9,7 +9,7 @@
 
 import { BOARDS, DEFAULT_BOARD_ID, getBoard, getSample } from '@/boards'
 import type { BackendId } from '@/backends/types'
-import { baseSampleId } from '@/tours/catalog'
+import { baseSampleId, sampleForTour, tourToRun } from '@/tours/catalog'
 import { appOfTour, isTourId, NO_TOUR } from '@/tours/tourId'
 
 export interface Selection {
@@ -54,9 +54,11 @@ export function parseSelection(search: string, fallbackBackend: BackendId): Sele
   const app =
     params.get('app') ??
     (tourApp !== null && resolved.samples.some((s) => s.id === tourApp) ? tourApp : null)
+  const asked = getSample(resolved, app ?? resolved.defaultSampleId).id
   return {
     boardId,
-    sampleId: getSample(resolved, app ?? resolved.defaultSampleId).id,
+    // A tour that points at Trace boots the sample's traced build.
+    sampleId: sampleForTour(resolved, asked, tourToRun(resolved, asked, tour)),
     backendId: backend === 'mock' || backend === 'qemu' ? backend : fallbackBackend,
     tour,
     step: readStep(params.get('step')),

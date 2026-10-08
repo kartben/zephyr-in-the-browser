@@ -32,6 +32,17 @@ describe('parseSelection', () => {
     expect(parse('?app=blinky&tour=none').tour).toBe('none')
   })
 
+  it('boots the traced twin when the tour points at Trace', () => {
+    expect(parse('?board=qemu_cortex_a53&app=philosophers').sampleId).toBe('philosophers_trace')
+    expect(parse('?board=qemu_cortex_a53&tour=philosophers').sampleId).toBe('philosophers_trace')
+    expect(parse('?board=qemu_cortex_a53&app=philosophers_trace').sampleId).toBe('philosophers_trace')
+  })
+
+  it('keeps the plain build for a run with no tour, or a board with no twin', () => {
+    expect(parse('?board=qemu_cortex_a53&app=philosophers&tour=none').sampleId).toBe('philosophers')
+    expect(parse('?board=qemu_riscv32&app=philosophers').sampleId).toBe('philosophers')
+  })
+
   it.each(['', 'samples/basic/blinky', 'blinky.', '.msgq', 'a.b.c', '<b>'])(
     'reads tour=%j as no tour named',
     (tour) => {

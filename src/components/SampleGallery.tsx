@@ -127,9 +127,17 @@ export function groupHasTracing(group: SampleGroup): boolean {
   )
 }
 
+/**
+ * The tours a row lists. One that points at Trace needs a traced build, so a
+ * board without one (no twin, no tracing of its own) does not list it.
+ */
+export function groupTours(group: SampleGroup): string[] {
+  return guidedTours(group.base, groupHasTracing(group))
+}
+
 /** True when the base sample (or its twin's base) carries a guided tour. */
 export function groupIsGuided(group: SampleGroup): boolean {
-  return isGuided(group.base)
+  return isGuided(group.base, groupHasTracing(group))
 }
 
 /**
@@ -226,7 +234,7 @@ export function SampleGallery({
   useEffect(() => {
     if (!open) return
     let stale = false
-    const ids = groups.flatMap((group) => guidedTours(group.base))
+    const ids = groups.flatMap(groupTours)
     void Promise.all(ids.map(async (id) => [id, await tourTitle(id)] as const)).then((loaded) => {
       if (stale) return
       const titled = loaded.filter((entry): entry is [string, string] => entry[1] !== null)
@@ -436,8 +444,8 @@ function SampleGroupRow({
 }) {
   const { base, traced, docs } = group
   const tags = sampleTags(group)
-  const guided = isGuided(base)
-  const tours = guidedTours(base)
+  const tours = groupTours(group)
+  const guided = tours.length > 0
   const builtinTraced =
     !traced && (base.primaryPanels?.includes('trace') ?? false)
   const activeBase = customImage === null && sampleId === base.id
