@@ -7,17 +7,17 @@
     "restart": "Redémarrer",
     "restartTitle": "Redémarrer l'invité",
     "reset": "Réinitialiser",
-    "resetTitle": "Réinitialiser le MCU. L'invité redémarre ; le câblage et la flash restent",
+    "resetTitle": "Réinitialiser le MCU. L'invité redémarre ; le câblage et la flash sont conservés",
     "help": "Aide",
     "helpTitle": "Aide ({{chord}})",
-    "more": "Plus",
+    "more": "Plus d'options",
     "samples": "Exemples",
     "parts": "Composants",
     "devicetree": "Devicetree",
-    "clearParts": "Retirer les composants ajoutés",
-    "viewDevicetree": "Voir le devicetree du build en cours",
+    "clearParts": "Retirer les composants branchés",
+    "viewDevicetree": "Voir le devicetree du build en cours d'exécution",
     "devicetreeTitle": "Devicetree : {{name}}",
-    "runningBuild": "{{name}} : build en cours",
+    "runningBuild": "{{name}} : build en cours d'exécution",
     "statusDetail": "détail de l'état"
   },
   "status": {
@@ -29,34 +29,34 @@
   },
   "liveStatus": {
     "connected": "Connecté",
-    "connecting": "Connexion",
+    "connecting": "Connexion…",
     "error": "Erreur",
-    "off": "Pont désactivé"
+    "off": "Passerelle désactivée"
   },
   "mode": {
     "group": "Mode de session",
     "sim": "Simulateur",
-    "simTitle": "Exécuter des applications Zephyr dans le simulateur",
+    "simTitle": "Exécuter des applications Zephyr dans le Simulateur",
     "live": "Carte réelle",
-    "liveTitle": "Suivre et déboguer une vraie carte via le pont de bureau"
+    "liveTitle": "Suivre et déboguer une vraie carte via la passerelle de bureau"
   },
   "board": {
     "label": "Carte"
   },
   "machine": {
     "pause": "Mettre la machine en pause",
-    "resume": "Relancer la machine",
+    "resume": "Reprendre l'exécution",
     "registers": "Registres du CPU"
   },
   "drop": {
     "title": "Déposez un ELF pour le démarrer",
-    "body": "Remplace l'application d'origine de cette carte. Gardez le sélecteur de carte assorti au build. Déposez aussi le zephyr.dts du build et le dock des périphériques suivra son devicetree."
+    "body": "Remplace l'application d'origine de cette carte. Le sélecteur de carte doit correspondre au build. Déposez aussi le zephyr.dts du build et le dock des périphériques suivra son devicetree."
   },
   "dock": {
     "label": "Périphériques",
     "instruments": "Instruments",
     "devices": "Périphériques",
-    "more": "Autres sur cette carte",
+    "more": "Autres éléments de la carte",
     "nothing": "Rien à utiliser ici pour l'instant.",
     "noPeripherals": "Pas encore de périphériques. En attente du démarrage de l'invité.",
     "appearLater": "Les autres périphériques apparaissent quand une application Zephyr tourne.",
@@ -80,7 +80,7 @@
   "parts": {
     "button": "Composants",
     "title": "Composants pris en charge",
-    "description": "Puces que vous pouvez brancher sur I²C et SPI pendant que l'invité tourne.",
+    "description": "Puces que vous pouvez brancher sur les bus I²C et SPI pendant que l'invité tourne.",
     "search": "Rechercher des composants",
     "searchPlaceholder": "Rechercher par composant, fabricant, compatible…",
     "noMatch": "Aucun composant ne correspond à « {{query}} »."
@@ -97,23 +97,23 @@
       "contribute": "Aider à traduire"
     },
     "bridge": {
-      "title": "Pont de bureau",
-      "howTo": "Comment installer et lancer le pont",
-      "intro": "Le pont de bureau est un petit programme que vous lancez sur votre propre machine. En mode Carte réelle, il diffuse les traces d'une vraie carte et relie Debug à votre serveur GDB. En mode Simulateur, il peut transporter le réseau de l'invité (Bridge network).",
-      "install": "Installez-le avec Go {{version}} ou plus récent :",
-      "run": "Puis lancez-le et collez l'URL qu'il affiche :",
+      "title": "Passerelle de bureau",
+      "howTo": "Comment installer et lancer la passerelle",
+      "intro": "La passerelle de bureau est un petit programme que vous lancez sur votre propre machine. En mode Carte réelle, elle diffuse les traces d'une vraie carte et relie Debug à votre serveur GDB. En mode Simulateur, elle peut acheminer le trafic réseau de l'invité (Bridge network).",
+      "install": "Installez-la avec Go {{version}} ou plus récent :",
+      "run": "Puis lancez-la et collez l'URL qu'elle affiche :",
       "notes": "Notes complètes (en anglais) dans <link>docs/bridge.md</link>.",
-      "use": "Utiliser le pont de bureau",
-      "url": "URL WebSocket du pont",
-      "invalidUrl": "pas une URL ws:// ou wss://",
-      "setByQuery": "Défini par <code>?{{param}}=</code>. Retirez-le pour le modifier ici.",
-      "state": "Pont {{phase}}",
+      "use": "Utiliser la passerelle de bureau",
+      "url": "URL WebSocket de la passerelle",
+      "invalidUrl": "URL ws:// ou wss:// attendue",
+      "setByQuery": "Défini par <code>?{{param}}=</code>. Retirez ce paramètre de l'adresse pour modifier ce réglage ici.",
+      "state": "Passerelle {{phase}}",
       "phase": {
-        "idle": "inactif",
-        "connecting": "en connexion",
-        "connected": "connecté",
+        "idle": "inactive",
+        "connecting": "en cours de connexion",
+        "connected": "connectée",
         "error": "en erreur",
-        "closed": "fermé"
+        "closed": "fermée"
       },
       "feature": {
         "tracing": "traçage",
@@ -123,8 +123,8 @@
       "connect": "Connecter",
       "disconnect": "Déconnecter",
       "retry": "Réessayer",
-      "streaming": "Diffusion depuis {{path}}",
-      "liveHint": "Les traces de la carte s'affichent en mode Carte réelle. Utilisez l'interrupteur de la barre du haut."
+      "streaming": "Flux depuis {{path}}",
+      "liveHint": "Les traces de la carte s'affichent en mode Carte réelle. Utilisez le sélecteur de mode de la barre du haut."
     }
   },
   "gallery": {
@@ -137,7 +137,7 @@
     "noTracedMatch": "Aucun exemple avec traçage ne correspond à « {{query}} ».",
     "noMatch": "Aucun exemple ne correspond à « {{query}} ».",
     "guidedSection": "Visites guidées",
-    "bringYourOwn": "Ou apportez votre propre build. Tout ELF Zephyr pour cette carte démarre tel quel.",
+    "bringYourOwn": "Ou utilisez votre propre build. Tout ELF Zephyr pour cette carte démarre tel quel.",
     "loadElf": "Charger votre propre ELF…",
     "backToBuiltIn": "Revenir à une application intégrée",
     "guided": "visite",
@@ -157,7 +157,7 @@
     "source": "Source",
     "sourceTitle": "Source sur GitHub",
     "tracing": "Traçage",
-    "tracingOn": "Seuls les exemples avec traçage sont affichés. Désactivez pour tous les voir.",
+    "tracingOn": "Seuls les exemples avec traçage sont affichés. Désactivez le filtre pour tous les voir.",
     "tracingOff": "N'afficher que les exemples qui ont un build avec traçage. En choisir un ouvre Trace et Debug."
   },
   "help": {
@@ -167,8 +167,8 @@
     "shortcuts": "Raccourcis",
     "changelog": "Nouveautés",
     "press": "Appuyez sur <help/> ou <alt/> à tout moment pour ouvrir cette liste.",
-    "unreleased": "Non publié",
-    "fullChangelog": "Historique complet sur GitHub"
+    "unreleased": "À venir",
+    "fullChangelog": "Toutes les nouveautés sur GitHub"
   },
   "shortcuts": {
     "categories": {
@@ -181,21 +181,21 @@
     },
     "items": {
       "help": { "title": "Aide", "description": "Raccourcis et nouveautés" },
-      "run-toggle": { "title": "Pause / Reprise", "description": "Suspendre ou relancer l'invité" },
-      "step-over": { "title": "Pas à pas principal", "description": "Ligne suivante, sans entrer" },
+      "run-toggle": { "title": "Pause / Reprise", "description": "Suspendre ou reprendre l'exécution" },
+      "step-over": { "title": "Pas à pas principal", "description": "Ligne suivante, sans entrer dans les appels" },
       "step-into": { "title": "Pas à pas détaillé", "description": "Entrer dans l'appel suivant" },
       "step-out": { "title": "Pas à pas sortant", "description": "Sortir de la fonction" },
       "restart": { "title": "Redémarrer", "description": "Redémarrer ou réinitialiser" },
       "tour-continue": { "title": "Continuer", "description": "Repartir après l'arrêt" },
-      "tour-step": { "title": "Pas", "description": "Une instruction à l'arrêt" },
+      "tour-step": { "title": "Pas à pas", "description": "Une instruction à l'arrêt" },
       "tour-leave": { "title": "Quitter la visite", "description": "Retirer ses points d'arrêt" },
       "tour-minimise": { "title": "Réduire la fiche", "description": "Replier la fiche sur une ligne" },
-      "toggle-dock": { "title": "Dock", "description": "Afficher ou masquer le dock" },
+      "toggle-dock": { "title": "Dock des périphériques", "description": "Afficher ou masquer le dock" },
       "toggle-debug": { "title": "Debug", "description": "Déplier la ligne Debug" },
       "toggle-trace": { "title": "Trace", "description": "Déplier la ligne Trace" },
       "reset-layout": { "title": "Disposition par défaut", "description": "Rétablir le dock d'origine" },
       "open-samples": { "title": "Ouvrir les exemples", "description": "Choisir carte et application" },
-      "open-settings": { "title": "Ouvrir les réglages", "description": "Pont de bureau et réseau" },
+      "open-settings": { "title": "Ouvrir les réglages", "description": "Passerelle de bureau et réseau" },
       "net-capture-toggle": { "title": "Suspendre la capture", "description": "Suspendre ou reprendre" },
       "net-export-pcap": { "title": "Exporter en PCAP", "description": "Télécharger la capture" }
     }
@@ -213,14 +213,14 @@
     "showCard": "Afficher la fiche",
     "minimise": "Réduire la fiche",
     "minimiseTitle": "Réduire la fiche (Échap). La visite reste à cette étape.",
-    "step": "Pas",
+    "step": "Pas à pas",
     "stepTitle": "Exécuter une instruction, sans quitter l'étape",
-    "resumesGuest": "relance l'invité",
+    "resumesGuest": "fait repartir l'invité",
     "inFunction": "dans {{name}}()",
     "hit": "passage {{count}}",
     "openRegisters": "Ouvrir les registres du CPU",
     "valuesNotLive": "Les valeurs viennent de l'invité en cours d'exécution. Lancez un exemple pour les voir.",
-    "noTrace": "Cette vue a besoin du build avec traçage de cet exemple.",
+    "noTrace": "Cette vue nécessite le build avec traçage de cet exemple.",
     "putBack": "Double-cliquez pour remettre la fiche en place",
     "openInMem": "Ouvrir cette adresse dans Debug → Mem",
     "intro": {
@@ -260,7 +260,7 @@
       "copy": "Copier un lien vers cette étape",
       "copyTitle": "Copier un lien qui ouvre cette visite à cette étape",
       "copied": "Lien copié",
-      "startedAt": "Commencée à l'étape {{step}}",
+      "startedAt": "Visite commencée à l'étape {{step}}",
       "startedAtTitle": "Les étapes précédentes ont été sautées. L'invité est arrivé ici directement depuis la réinitialisation, donc ce qu'elles vous demandaient de faire n'a pas eu lieu."
     },
     "check": {
@@ -268,21 +268,21 @@
       "failed": "Pas encore",
       "unknown": "Non vérifié",
       "value": "{{expr}} vaut {{value}}",
-      "notLive": "Les vérifications lisent l'invité en cours d'exécution. Lancez un exemple pour voir le résultat."
+      "notLive": "Les vérifications lisent l'état de l'invité en cours d'exécution. Lancez un exemple pour voir le résultat."
     },
     "shell": {
       "nothing": "Rien à exécuter",
-      "noTerminal": "Aucun terminal où taper",
+      "noTerminal": "Aucun terminal disponible",
       "run": "Exécuter",
-      "runTitle": "Taper ceci dans le terminal",
+      "runTitle": "Saisir cette commande dans le terminal",
       "continueRun": "Continuer et exécuter",
-      "continueRunTitle": "Relancer l'invité, puis taper ceci dans le terminal",
+      "continueRunTitle": "Reprendre l'exécution, puis saisir cette commande dans le terminal",
       "copy": "Copier",
       "copied": "Copié"
     },
     "objects": {
       "notLive": "Les objets du noyau sont lus dans l'invité en cours d'exécution. Lancez un exemple pour les voir.",
-      "noInventory": "Ce build ne tient pas l'inventaire de ses objets noyau.",
+      "noInventory": "Ce build ne tient pas l'inventaire de ses objets du noyau.",
       "asking": "Interrogation du noyau…",
       "none": "Le noyau n'en a encore aucun.",
       "reading": "Lecture du noyau…"
