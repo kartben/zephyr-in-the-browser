@@ -13,6 +13,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1559,7 +1560,10 @@ export function TracePanelBody({
     if (!showMsgq) setSelectedEdge(null)
   }, [showMsgq])
 
-  useEffect(() => {
+  // Before paint: a replay seeking back hands over a shorter trace, and one
+  // frame of it inside the old window is a blank strip that flickers while the
+  // scrubber is dragged.
+  useLayoutEffect(() => {
     // A replay can hold time past its fork before the first record arrives.
     if (!tr || (tr.events.length === 0 && tr.t1 <= tr.t0)) return
     if (follow) {
