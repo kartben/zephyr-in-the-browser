@@ -25,7 +25,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         "tag": "Added",
-        "text": "Kite Rush sample: an arcade game flown with the mouse."
+        "text": "Kite Rush sample: a mouse-flown arcade game that saves high scores."
       },
       {
         "tag": "Fixed",

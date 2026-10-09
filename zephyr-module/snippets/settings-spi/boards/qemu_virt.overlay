@@ -1,0 +1,42 @@
+/*
+ * Dedicated W25Q80 for application settings on virtio-spi CS2.
+ *
+ * The page keeps each chip select's image in browser storage, shared by every
+ * sample that uses it: CS0 holds the spi_flash / LittleFS NOR and CS1 the
+ * Bluetooth NVS one (bt-settings-spi). Settings on ZMS get a chip of their
+ * own, so neither format ever reads the other's sectors.
+ */
+
+&virtio_mmio5 {
+	status = "okay";
+};
+
+&virtio_spi0 {
+	status = "okay";
+
+	settings_flash: w25q80jv@2 {
+		compatible = "jedec,spi-nor";
+		reg = <2>;
+		spi-max-frequency = <40000000>;
+		size = <0x800000>; /* 1 MiB */
+		jedec-id = [ef 40 14];
+		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			storage_partition: partition@0 {
+				label = "storage";
+				reg = <0x00000000 0x00010000>;
+			};
+		};
+	};
+};
+
+/ {
+	chosen {
+		zephyr,flash = &settings_flash;
+	};
+};

@@ -49,7 +49,8 @@
 #   esp32-spi .... the ESP32-C3's own GP-SPI2 with the same JEDEC NOR on CS0
 #   virtio-spi ... VIRTIO SPI + a JEDEC NOR on CS0; self-contained alternatives
 #                  on the same bus are pt6314-only, sct2024-only, ws2812-only,
-#                  tmc50xx-only, mcp2515-only, bt-settings-spi
+#                  tmc50xx-only, mcp2515-only, bt-settings-spi (CS1),
+#                  settings-spi (CS2, a ZMS settings chip for app data)
 #   virtio-blk ... a stock QEMU block device (no page-side model)
 #   virtio-gpu ... the display behind virtio-gpu instead of ramfb
 #   oled ......... SSD1306 on the I2C bus, as `zephyr,display` instead of ramfb
@@ -102,7 +103,7 @@ qemu_cortex_a53:gnss:samples/drivers/gnss::gnss
 qemu_cortex_a53:display:samples/drivers/display::ramfb
 qemu_cortex_a53:touch:samples/subsys/input/draw_touch_events::ramfb,virtio-input
 qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf:ramfb,virtio-input
-qemu_cortex_a53:kite_rush:zephyr-module/apps/kite_rush:conf/kite-rush.conf:ramfb,virtio-input
+qemu_cortex_a53:kite_rush:zephyr-module/apps/kite_rush:conf/kite-rush.conf:ramfb,virtio-input,settings-spi
 qemu_cortex_a53:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,adxl345-only,ramfb,accel-display
 qemu_cortex_a53:magic_wand:zephyr-module/apps/magic_wand:conf/magic-wand.conf:virtio-i2c,adxl345-only
 qemu_cortex_a53:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c,lsm6dso-only
