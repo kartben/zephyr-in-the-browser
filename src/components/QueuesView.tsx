@@ -23,6 +23,7 @@ import { area, curveStepAfter, line } from 'd3-shape'
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -225,6 +226,12 @@ function renderChart(
   edge: string | null,
   hover: HoverTip | null,
   yZoom: YZoom | null,
+  /**
+   * This chart's own clip-path id. A fixed one is shared by every chart on the
+   * page, and `url(#…)` takes the first: with a replay open beside the live
+   * panel, the replay's rows were cut to the live chart's narrower width.
+   */
+  clipId: string,
 ): RowLayout[] {
   const cssW = Math.max(1, svg.clientWidth || (svg.parentElement?.clientWidth ?? 320))
   const plotBottom = TOP_H + (queues.length === 0 ? ROW_H : queues.length * ROW_H)
@@ -252,10 +259,11 @@ function renderChart(
   if (defs.empty()) defs = frame.append('defs')
   let clip = defs.select<SVGClipPathElement>('clipPath.y-zoom-clip')
   if (clip.empty()) {
-    clip = defs.append('clipPath').attr('class', 'y-zoom-clip').attr('id', 'queues-y-zoom-clip')
+    clip = defs.append('clipPath').attr('class', 'y-zoom-clip')
     clip.append('rect')
   }
   clip
+    .attr('id', clipId)
     .select('rect')
     .attr('x', 0)
     .attr('y', TOP_H)
@@ -302,7 +310,7 @@ function renderChart(
 
   let zoomG = frame.select<SVGGElement>('g.y-zoom')
   if (zoomG.empty()) zoomG = frame.append('g').attr('class', 'y-zoom')
-  zoomG.attr('clip-path', 'url(#queues-y-zoom-clip)')
+  zoomG.attr('clip-path', `url(#${clipId})`)
   const yxf = yZoomSvgTransform(TOP_H, plotBottom, yZoom)
   zoomG.attr('transform', yxf ?? null)
 
@@ -642,6 +650,7 @@ export function QueuesView({
   hoverRef.current = hover
   const ink = useTraceInk()
   const edge = follow ? edgeLabel : null
+  const clipId = `queues-y-zoom-clip-${useId().replace(/:/g, '')}`
 
   useEffect(() => {
     const svg = svgRef.current
@@ -657,8 +666,9 @@ export function QueuesView({
       edge,
       hover,
       yZoom,
+      clipId,
     )
-  }, [ink, tr, queues, chartEvents, view0, view1, edge, svgRef, hover, yZoom])
+  }, [ink, tr, queues, chartEvents, view0, view1, edge, svgRef, hover, yZoom, clipId])
 
   useEffect(() => {
     const host = hostRef.current
@@ -676,11 +686,12 @@ export function QueuesView({
         edge,
         hoverRef.current,
         yZoomRef.current,
+        clipId,
       )
     })
     ro.observe(host)
     return () => ro.disconnect()
-  }, [ink, tr, view0, view1, edge, svgRef])
+  }, [ink, tr, view0, view1, edge, svgRef, clipId])
 
   const resolveHover = useCallback(
     (clientX: number, clientY: number, target: SVGSVGElement): HoverTip | null => {
