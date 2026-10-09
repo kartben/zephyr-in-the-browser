@@ -6,6 +6,7 @@ via the help dialog (?).
 ## Unreleased
 
 - **Added:** Trace recording with slowed-down replay and a scrubber.
+- **Added:** Kite Rush sample: an arcade game flown with the mouse.
 - **Fixed:** IPC queue depths stay right past 50,000 trace events.
 
 ## [0.6.0] - 2026-10-08

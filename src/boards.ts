@@ -450,6 +450,17 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['display'],
   },
   {
+    // The RC game from kartben/zephyr's samples-input-kite-rush branch, vendored
+    // while it is not upstream. On hardware it flies from a radio over CRSF; here
+    // the virtio tablet is `zephyr,touch`, which the sample flies too.
+    id: 'kite_rush',
+    label: 'Kite Rush',
+    description: 'Arcade game: fly the Zephyr kite through gates over a synthwave sunset',
+    tryIt: 'Click the Display to start; drag to steer, click to roll',
+    zephyrSample: 'zephyr-module/apps/kite_rush',
+    primaryPanels: ['display'],
+  },
+  {
     id: 'accel_chart',
     label: 'Accelerometer Chart',
     description: 'Device accelerometer traced live on an LVGL chart',
@@ -1185,6 +1196,8 @@ export const BOARDS: Board[] = [
           s.id !== 'msgq_lab' &&
           s.id !== 'zbus' &&
           s.id !== 'pm_latency' &&
+          // A 60 fps software rasterizer, built for the A53 alone.
+          s.id !== 'kite_rush' &&
           // Float inference every 40 ms is too much for this board's interpreter.
           s.id !== 'magic_wand',
       ),
