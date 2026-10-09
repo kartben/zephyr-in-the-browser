@@ -24,6 +24,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Trace recording with slowed-down replay and a scrubber."
       },
       {
+        "tag": "Added",
+        "text": "Kite Rush sample: an arcade game flown with the mouse."
+      },
+      {
         "tag": "Fixed",
         "text": "IPC queue depths stay right past 50,000 trace events."
       }

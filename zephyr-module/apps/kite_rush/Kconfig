@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "Kite Rush"
+
+configdefault FPU
+	default y if CPU_HAS_FPU
+
+# Keep the high scores on the storage partition, when the board has one
+DT_STORAGE_PARTITION_OKAY := $(dt_nodelabel_enabled,storage_partition)
+
+configdefault FLASH
+	default y if $(DT_STORAGE_PARTITION_OKAY)
+
+configdefault FLASH_MAP
+	default y if $(DT_STORAGE_PARTITION_OKAY)
+
+configdefault ZMS
+	default y if $(DT_STORAGE_PARTITION_OKAY)
+
+configdefault SETTINGS
+	default y if $(DT_STORAGE_PARTITION_OKAY)
+
+config KITE_RUSH_STRIP_BUFFER_SIZE
+	int "Display strip buffer size in bytes"
+	default 16384
+	help
+	  The game is drawn one row at a time and sent to the display in strips.
+	  The buffer must hold at least one scaled row of the display. Bigger
+	  buffers mean fewer, larger display writes.
+
+config KITE_RUSH_DISPLAY_THREAD
+	bool "Draw the next strip while the previous one is sent"
+	default y
+	help
+	  Hand the strips to a display thread through two buffers, so that the
+	  game draws the next strip while the previous one is transferred. This
+	  pays off with display drivers that sleep during DMA transfers, and
+	  doubles the strip buffer memory.
+
+config KITE_RUSH_SKIP_UNCHANGED_ROWS
+	bool "Only send the rows that changed"
+	default y
+	help
+	  Keep a hash of each row and skip the rows that did not change since
+	  the previous frame. Only applies to displays that keep their own
+	  memory, not to frame buffer displays.
+
+config KITE_RUSH_INTERLACE
+	bool "Interlaced display updates"
+	help
+	  Draw and send the even rows on one frame and the odd rows on the next.
+	  This halves the work per frame on slow display links, at the cost of
+	  combing on fast motion.
+
+config KITE_RUSH_ROTATE_180
+	bool "Turn the picture upside down"
+	help
+	  Draw the game rotated by 180 degrees, and turn the touchscreen
+	  coordinates to match, for a display mounted the other way round.
+
+config KITE_RUSH_MAX_PRIMS
+	int "Maximum number of drawing primitives per frame"
+	default 384
+
+config KITE_RUSH_TARGET_FPS
+	int "Frame rate cap"
+	default 60
+	range 10 60
+
+config KITE_RUSH_INVERT_PITCH
+	bool "Pull the stick back to climb"
+	help
+	  Use the aircraft convention for the pitch stick instead of pushing the
+	  stick up to climb.
+
+config KITE_RUSH_PROFILE
+	bool "Log where the frame time goes"
+	help
+	  Log, along with the frame rate, the average time per frame spent in
+	  the game logic, building the scene, drawing the rows, converting them
+	  for the display and waiting for the display.
+
+config KITE_RUSH_AUTOPLAY
+	bool "Autopilot plays complete games"
+	help
+	  Let the autopilot play full games in a loop, without a pilot. Useful
+	  to check the game on a board without an RC link. Its scores enter the
+	  high score table as BOT.
+
+config KITE_RUSH_RESET_CODE
+	string "Code that clears the high scores"
+	default "ZAP"
+	help
+	  Three letters or digits to enter on the reset screen to clear the
+	  high score table. The reset screen opens from the title screen when
+	  the throttle is at mid-stick, with full left rudder and full up pitch,
+	  for two seconds.
+
+source "Kconfig.zephyr"
