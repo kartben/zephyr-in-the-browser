@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config ZMS_FIXTURES_BUSY
+	bool "Write the busy settings store instead"
+	help
+	  Kite Rush's geometry (16 sectors of 4 KiB) and a few thousand
+	  settings writes, enough to wrap round the store and collect garbage.
+	  A demo image for screenshots, too big to keep as a test fixture.
+
+source "Kconfig.zephyr"

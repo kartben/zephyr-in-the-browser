@@ -4,6 +4,7 @@ import { FlashStatsView } from '@/components/FlashStats'
 import { HexPreview } from '@/components/HexPreview'
 import { HexView, type HexJump, type HexViewRange } from '@/components/HexView'
 import { LittlefsBrowserButton } from '@/components/LittlefsBrowser'
+import { useZmsVolumes, ZmsBrowserButton } from '@/components/ZmsBrowser'
 import { MemoryStatsView } from '@/components/MemoryStats'
 import type { MemoryChip } from '@/virtio/devices/memory/model'
 import { formatFlashSize, type SpiFlashChip } from '@/virtio/devices/flash/model'
@@ -144,6 +145,9 @@ export function SpiFlashBody({
   onOpenWindow?: () => void
 }) {
   const { size, pageSize, sectorSize } = chip.decl
+  const zms = useZmsVolumes(chip)
+  // A chip that holds ZMS and no LittleFS has nothing for the Filesystem view.
+  const showFilesystem = zms.volumes.length === 0 || zms.littlefs
   const [hexJump, setHexJump] = useState<HexJump | null>(null)
   const [hexRange, setHexRange] = useState<HexViewRange | null>(null)
   const onHexViewChange = useCallback((range: HexViewRange) => {
@@ -163,7 +167,8 @@ export function SpiFlashBody({
           {sectorSize ? ` · ${formatFlashSize(sectorSize)} sectors` : ''}
         </span>
         <span className="ml-auto flex items-baseline gap-3">
-          <LittlefsBrowserButton chip={chip} />
+          <ZmsBrowserButton chip={chip} volumes={zms.volumes} />
+          {showFilesystem && <LittlefsBrowserButton chip={chip} />}
           {compact && onOpenWindow && (
             <button
               onClick={onOpenWindow}

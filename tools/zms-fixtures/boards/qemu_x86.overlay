@@ -1,0 +1,17 @@
+/*
+ * Small partitions with 1 KiB erase blocks keep each fixture to 4 KiB, and a
+ * 1-byte write block matches the browser's SPI NOR, where ZMS packs entries
+ * with no padding.
+ */
+&flash_sim0 {
+	erase-block-size = <1024>;
+	write-block-size = <1>;
+};
+
+&storage_partition {
+	reg = <0x00001000 0x00001000>;
+};
+
+&slot1_partition {
+	reg = <0x00021000 0x00001000>;
+};
