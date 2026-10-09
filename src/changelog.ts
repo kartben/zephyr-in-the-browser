@@ -22,6 +22,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         "tag": "Added",
         "text": "Trace recording with slowed-down replay and a scrubber."
+      },
+      {
+        "tag": "Fixed",
+        "text": "IPC queue depths stay right past 50,000 trace events."
       }
     ]
   },

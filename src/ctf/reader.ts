@@ -17,7 +17,15 @@ import {
   type ThreadState,
 } from './types'
 import { decodeFields, type EventDef } from './metadata'
-import { CpuPowerTracker, emptyCpuPower, type CpuPowerTimelines } from './cpuPower'
+import {
+  CpuPowerTracker,
+  cpuPowerAt,
+  cpuPowerMark,
+  emptyCpuPower,
+  type CpuPowerMark,
+  type CpuPowerTimelines,
+} from './cpuPower'
+import { advanceQueueBase, type QueueBase } from './queues'
 import {
   applyNetAddressWidth,
   hasNetAddressField,
@@ -59,8 +67,69 @@ export interface Trace {
   stateStarts: Map<number, number[]>
   /** CPU power states, empty unless the guest has CONFIG_PM. See cpuPower.ts. */
   cpuPower: CpuPowerTimelines
+  /**
+   * The queues as they stood before `events[0]`, once the log no longer starts
+   * with the stream (trimmed, or forked). Absent or null: every object starts
+   * empty. See queues.ts.
+   */
+  queueBase?: QueueBase | null
+  /** Events dropped off the front of `events` so far, folded into `queueBase`. */
+  dropped?: number
   t0: number
   t1: number
+}
+
+/** The reader's own state, apart from its trace: what decoding carries from one record to the next. */
+interface DecoderState {
+  synced: boolean
+  desync: boolean
+  netAddressWidth: NetAddressWidth | null
+  anchored: boolean
+  newest: number
+  fakeTs: number
+  prevRaw: number | null
+  tsOff: number
+  curTid: number | null
+  segStart: number | null
+  isrDepth: number
+  running: number | null
+  pends: boolean
+  stCur: Map<number, [ThreadState, number, string, number | null]>
+  stHint: Map<number, [ThreadState, string, number | null]>
+  nextWait: (WaitTarget & { tid: number }) | null
+  condvarWaits: Map<number, number>
+  pm: CpuPowerTracker
+}
+
+/**
+ * Where a reader stood after one record: enough to decode on from the next,
+ * and to cut its trace back out of the same reader's trace once it has gone
+ * further (the timelines are only ever appended to). A replay takes one every
+ * so often so that going back does not mean decoding from the start; see
+ * {@link TraceReader.checkpointEvery} and {@link TraceReader.fromCheckpoint}.
+ */
+export interface ReaderCheckpoint {
+  /** Stream offset of the next record. */
+  readonly byte: number
+  /** Records decoded before it. */
+  readonly records: number
+  /** The newest record's timestamp. */
+  readonly ts: number
+  readonly state: {
+    decoder: DecoderState
+    threads: Map<number, ThreadInfo>
+    t0: number
+    isrOpenStart: number | null
+    segments: number
+    isrSpans: number
+    states: Map<number, number>
+    power: CpuPowerMark
+    queues: QueueBase
+  }
+}
+
+function copyThreads(threads: Map<number, ThreadInfo>): Map<number, ThreadInfo> {
+  return new Map([...threads].map(([tid, info]) => [tid, { ...info }]))
 }
 
 const SLEEP_ENTERS = new Set([
@@ -200,7 +269,20 @@ export class TraceReader {
    * reader's first fed byte.
    */
   onRecord: ((end: number, ts: number) => void) | null = null
-  /** A fork keeps its origin as t0, rather than taking the first event's. */
+  /** Take a {@link ReaderCheckpoint} every this many records, into `checkpoints`. 0: never. */
+  checkpointEvery = 0
+  readonly checkpoints: ReaderCheckpoint[] = []
+  /** Records decoded, counted from this reader's first fed byte like `base`. */
+  private records = 0
+  /**
+   * The queues as of the last checkpoint, and how many events in (counting the
+   * dropped ones) that was: the next one folds in only what came since.
+   */
+  private queueFold: { state: QueueBase; events: number } | null = null
+  /**
+   * Whether t0 is fixed already, rather than taken from the first event: a
+   * fork's is the fork point, a restored checkpoint's the original's.
+   */
   private anchored = false
   /** Timestamp of the newest record decoded, or of the fork point before one. */
   private newest = 0
@@ -604,7 +686,13 @@ export class TraceReader {
       const { fields } = decodeFields(edef, data, off + hsz, view)
       off += rec
       this.consume(ts, eid, edef.name, fields)
+      this.records++
       this.onRecord?.(this.base + off, ts)
+      // Between records nothing is provisional, so every timeline is exactly
+      // what the stream has said so far.
+      if (this.checkpointEvery > 0 && this.records % this.checkpointEvery === 0) {
+        this.checkpoints.push(this.checkpoint(this.base + off))
+      }
       this.desync = false
       neu++
     }
@@ -642,33 +730,27 @@ export class TraceReader {
    * It keeps the table, the clock epoch, thread names and priorities, and what
    * every thread is doing, so a stream that resumes mid-flight decodes as it
    * would have here: the producer that was blocked is still blocked, rather
-   * than unknown until its next switch. Each open state, ISR and run segment
-   * restarts at this reader's newest timestamp, which becomes the fork's t0.
-   * CPU power states start closed. Bytes held back for an incomplete record are
-   * not carried over: feed {@link pendingBytes} first.
+   * than unknown until its next switch, and a queue holding three messages
+   * still holds three (Trace.queueBase). Each open state, ISR, run segment and
+   * CPU power state restarts at this reader's newest timestamp, which becomes
+   * the fork's t0. Bytes held back for an incomplete record are not carried
+   * over: feed {@link pendingBytes} first.
    */
   fork(): TraceReader {
     const r = new TraceReader(this.defs, this.hasTs)
     const tr = this.tr
     const at = tr.t1
-    r.synced = this.synced
-    r.netAddressWidth = this.netAddressWidth
-    r.fakeTs = this.fakeTs
-    r.prevRaw = this.prevRaw
-    r.tsOff = this.tsOff
-    r.curTid = this.curTid
-    r.segStart = this.segStart === null ? null : Math.max(this.segStart, at)
-    r.isrDepth = this.isrDepth
-    r.running = this.running
-    r.pends = this.pends
-    r.nextWait = this.nextWait && { ...this.nextWait }
-    for (const [tid, [state, since, reason, object]] of this.stCur) {
-      r.stCur.set(tid, [state, Math.max(since, at), reason, object])
-    }
-    for (const [tid, [state, reason, object]] of this.stHint) r.stHint.set(tid, [state, reason, object])
-    for (const [tid, cv] of this.condvarWaits) r.condvarWaits.set(tid, cv)
-    for (const [tid, info] of tr.threads) r.tr.threads.set(tid, { ...info })
+    r.loadDecoder(this.decoderState())
+    for (const st of r.stCur.values()) st[1] = Math.max(st[1], at)
+    r.segStart = r.segStart === null ? null : Math.max(r.segStart, at)
+    r.tr.threads = copyThreads(tr.threads)
     r.tr.isrOpenStart = tr.isrOpenStart === null ? null : Math.max(tr.isrOpenStart, at)
+    // A CPU asleep at the fork stays asleep in it, from the fork on.
+    const power = emptyCpuPower()
+    for (const [cpu, open] of tr.cpuPower.open) power.open.set(cpu, { ...open, since: Math.max(open.since, at) })
+    r.tr.cpuPower = power
+    r.pm = this.pm.copyInto(power)
+    r.tr.queueBase = advanceQueueBase(tr.queueBase, tr.events, at)
     // A fork of a fork is how a replay starts over: the same place again.
     if (tr.events.length > 0 || this.anchored) {
       r.anchored = true
@@ -676,13 +758,133 @@ export class TraceReader {
       r.tr.t0 = at
       r.tr.t1 = at
       r.addProvisional()
+      r.pm.seal(at)
     }
     return r
   }
 
   /**
-   * Where this reader was forked (its t0 for good), or null when it was not
-   * forked from a reader that had decoded anything.
+   * A reader at `cp`, to be fed the stream from `cp.byte` on. Its timelines
+   * are cut from `longer`: the trace of the reader that took `cp`, once it had
+   * decoded further. Its event log starts empty, with the queues as they stood.
+   */
+  static fromCheckpoint(
+    defs: Map<number, EventDef>,
+    hasTs: boolean,
+    cp: ReaderCheckpoint,
+    longer: Trace,
+  ): TraceReader {
+    const s = cp.state
+    const r = new TraceReader(defs, hasTs)
+    r.loadDecoder(s.decoder)
+    r.anchored = true
+    r.base = cp.byte
+    r.records = cp.records
+    const tr = r.tr
+    tr.t0 = s.t0
+    tr.t1 = cp.ts
+    tr.threads = copyThreads(s.threads)
+    tr.isrOpenStart = s.isrOpenStart
+    tr.segments = longer.segments.slice(0, s.segments)
+    tr.isrSpans = longer.isrSpans.slice(0, s.isrSpans)
+    for (const [tid, n] of s.states) {
+      tr.states.set(tid, longer.states.get(tid)?.slice(0, n) ?? [])
+      tr.stateStarts.set(tid, longer.stateStarts.get(tid)?.slice(0, n) ?? [])
+    }
+    tr.cpuPower = cpuPowerAt(longer.cpuPower, s.power)
+    r.pm = s.decoder.pm.copyInto(tr.cpuPower)
+    // Never changed in place: advanceQueueBase makes a new one.
+    tr.queueBase = s.queues
+    r.addProvisional()
+    r.pm.seal(tr.t1)
+    return r
+  }
+
+  private checkpoint(byte: number): ReaderCheckpoint {
+    const tr = this.tr
+    const decoder = this.decoderState()
+    decoder.pm = this.pm.copyInto(emptyCpuPower())
+    return {
+      byte,
+      records: this.records,
+      ts: this.newest,
+      state: {
+        decoder,
+        threads: copyThreads(tr.threads),
+        t0: tr.t0,
+        isrOpenStart: tr.isrOpenStart,
+        segments: tr.segments.length,
+        isrSpans: tr.isrSpans.length,
+        states: new Map([...tr.states].map(([tid, segs]) => [tid, segs.length])),
+        power: cpuPowerMark(tr.cpuPower),
+        queues: this.queuesNow(),
+      },
+    }
+  }
+
+  /** The queues after the newest event, folded on from the last checkpoint where it can be. */
+  private queuesNow(): QueueBase {
+    const tr = this.tr
+    const dropped = tr.dropped ?? 0
+    const fold = this.queueFold
+    // Unless the log dropped events the last fold had not reached, carry on from it.
+    const state =
+      fold && fold.events >= dropped
+        ? advanceQueueBase(fold.state, tr.events.slice(fold.events - dropped), this.newest)
+        : advanceQueueBase(tr.queueBase, tr.events, this.newest)
+    this.queueFold = { state, events: dropped + tr.events.length }
+    return state
+  }
+
+  /** A copy of the decoder's state that shares nothing changed in place, save `pm`: the caller copies that. */
+  private decoderState(): DecoderState {
+    return {
+      synced: this.synced,
+      desync: this.desync,
+      netAddressWidth: this.netAddressWidth,
+      anchored: this.anchored,
+      newest: this.newest,
+      fakeTs: this.fakeTs,
+      prevRaw: this.prevRaw,
+      tsOff: this.tsOff,
+      curTid: this.curTid,
+      segStart: this.segStart,
+      isrDepth: this.isrDepth,
+      running: this.running,
+      pends: this.pends,
+      stCur: new Map([...this.stCur].map(([tid, [st, since, reason, obj]]) => [tid, [st, since, reason, obj]])),
+      stHint: new Map([...this.stHint].map(([tid, [st, reason, obj]]) => [tid, [st, reason, obj]])),
+      nextWait: this.nextWait && { ...this.nextWait },
+      condvarWaits: new Map(this.condvarWaits),
+      pm: this.pm,
+    }
+  }
+
+  /** Take on `s`, copying it so `s` can be loaded again. `pm` is the caller's to set. */
+  private loadDecoder(s: DecoderState) {
+    this.synced = s.synced
+    this.desync = s.desync
+    this.netAddressWidth = s.netAddressWidth
+    this.anchored = s.anchored
+    this.newest = s.newest
+    this.fakeTs = s.fakeTs
+    this.prevRaw = s.prevRaw
+    this.tsOff = s.tsOff
+    this.curTid = s.curTid
+    this.segStart = s.segStart
+    this.isrDepth = s.isrDepth
+    this.running = s.running
+    this.pends = s.pends
+    this.stCur = new Map([...s.stCur].map(([tid, [st, since, reason, obj]]) => [tid, [st, since, reason, obj]]))
+    this.stHint = new Map([...s.stHint].map(([tid, [st, reason, obj]]) => [tid, [st, reason, obj]]))
+    this.nextWait = s.nextWait && { ...s.nextWait }
+    this.condvarWaits = new Map(s.condvarWaits)
+  }
+
+  /**
+   * The t0 this reader was given for good: a fork's fork point, or a restored
+   * checkpoint's original t0. Null for a reader that takes it from its first
+   * event, as a fork of one that had decoded nothing does.
    */
   get forkedAt(): number | null {
     return this.anchored ? this.tr.t0 : null

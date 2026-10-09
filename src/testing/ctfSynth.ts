@@ -62,6 +62,42 @@ export const IDLE_THREAD = { thread_id: 0x3000, name: 'idle' }
 export const MSGQ = 0x8000
 
 /**
+ * A producer and a consumer that keep different paces, so the msgq backs up a
+ * few deep, drains, and the consumer sometimes waits on it empty, making the
+ * next put a hand-off. Fallback table only, like {@link producerConsumer}.
+ */
+export function queueBacklog(rounds: number, startTs = 1_000_000): Uint8Array {
+  const defs = fallbackDefs()
+  const out: number[] = []
+  let ts = startTs
+  let depth = 0
+  const ev = (name: string, values: Record<string, number | string> = {}) => {
+    out.push(...ctfRecord(defs, name, ts, values))
+    ts += 1_000
+  }
+  for (let r = 0; r < rounds; r++) {
+    ev('thread_switched_in', PRODUCER)
+    for (let i = 0; i < [1, 3, 0, 2, 1][r % 5]!; i++) {
+      ev('msgq_put_exit', { id: MSGQ, ret: 0 })
+      depth++
+    }
+    ev('thread_switched_in', CONSUMER)
+    for (let i = 0; i < [2, 1, 1, 2, 2][r % 5]!; i++) {
+      if (depth === 0) {
+        ev('msgq_get_blocking', { id: MSGQ })
+        ev('thread_switched_in', PRODUCER)
+        ev('msgq_put_exit', { id: MSGQ, ret: 0 })
+        ev('thread_switched_in', CONSUMER)
+      } else {
+        depth--
+      }
+      ev('msgq_get_exit', { id: MSGQ, ret: 0 })
+    }
+  }
+  return Uint8Array.from(out)
+}
+
+/**
  * A producer handing a msgq message to a consumer that then blocks on it, with
  * a timer ISR per round: 17 records a round, timestamps 1 µs to 6 µs apart.
  * Uses only the fallback table, so it decodes the way hostTrace.debugFeed does.

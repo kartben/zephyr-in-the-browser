@@ -219,6 +219,23 @@ export class CpuPowerTracker {
     this.open = out.open
   }
 
+  /**
+   * This tracker, writing into `out` from now on. `out` must already hold what
+   * this one has written that should be kept, its `open` map included: a fork
+   * passes empty timelines, a checkpoint a prefix of a longer run's
+   * ({@link cpuPowerMark}). Never while sealed.
+   */
+  copyInto(out: CpuPowerTimelines): CpuPowerTracker {
+    const t = new CpuPowerTracker(out)
+    t.pendingEnter = new Map(this.pendingEnter)
+    t.walk = this.walk && { ...this.walk, actions: this.walk.actions.slice() }
+    t.openAction = this.openAction
+    t.enteredSince = new Map(this.enteredSince)
+    t.inSystemPm = this.inSystemPm
+    t.sawStateSet = this.sawStateSet
+    return t
+  }
+
   /** `name` is the event's TSDL name: the ids differ from one Zephyr to the next. */
   event(ts: number, name: string, fields: Record<string, string | number>): void {
     switch (name) {
@@ -437,6 +454,55 @@ export class CpuPowerTracker {
       this.out.starts.get(cpu)?.pop()
     }
     this.sealed = []
+  }
+}
+
+/**
+ * How far `tl` had got: enough to rebuild it from a run that went further,
+ * since segments, decisions and walks are only ever appended. What is updated
+ * in place (the open states, the statistics, the drop counts) is copied.
+ */
+export interface CpuPowerMark {
+  segs: Map<number, number>
+  decisions: number
+  walks: number
+  open: Map<number, PmOpenState>
+  stats: Map<string, PmTupleStats>
+  dropped: CpuPowerTimelines['dropped']
+}
+
+function copyStats(stats: Map<string, PmTupleStats>): Map<string, PmTupleStats> {
+  return new Map([...stats].map(([key, stat]) => [key, { ...stat, buckets: stat.buckets.slice() }]))
+}
+
+/** Mark where `tl` stands. Never while a tracker has it sealed. */
+export function cpuPowerMark(tl: CpuPowerTimelines): CpuPowerMark {
+  return {
+    segs: new Map([...tl.segs].map(([cpu, segs]) => [cpu, segs.length])),
+    decisions: tl.decisions.length,
+    walks: tl.walks.length,
+    open: new Map(tl.open),
+    stats: copyStats(tl.stats),
+    dropped: { ...tl.dropped },
+  }
+}
+
+/** The timelines as they stood at `mark`, cut from `longer`, a later state of the same run. */
+export function cpuPowerAt(longer: CpuPowerTimelines, mark: CpuPowerMark): CpuPowerTimelines {
+  const segs = new Map<number, PmSeg[]>()
+  const starts = new Map<number, number[]>()
+  for (const [cpu, n] of mark.segs) {
+    segs.set(cpu, longer.segs.get(cpu)!.slice(0, n))
+    starts.set(cpu, longer.starts.get(cpu)!.slice(0, n))
+  }
+  return {
+    segs,
+    starts,
+    open: new Map(mark.open),
+    decisions: longer.decisions.slice(0, mark.decisions),
+    walks: longer.walks.slice(0, mark.walks),
+    stats: copyStats(mark.stats),
+    dropped: { ...mark.dropped },
   }
 }
 

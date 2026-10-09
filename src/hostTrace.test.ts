@@ -6,7 +6,9 @@
 
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { depthAt, fallbackDefs, reconstructQueues, TraceReader } from '@/ctf'
 import * as hostTrace from '@/hostTrace'
+import { MSGQ, queueBacklog } from '@/testing/ctfSynth'
 
 const BUNDLED = readFileSync('public/tracing/metadata', 'utf8')
 
@@ -135,5 +137,21 @@ describe('a live board', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(eventNames()).toEqual(Array.from({ length: 4 }, () => 'thread_sleep_ticks_enter'))
+  })
+})
+
+describe('the live event log', () => {
+  it('keeps queue depths right once its oldest events are dropped', () => {
+    const bytes = queueBacklog(12_000)
+    for (let off = 0; off < bytes.length; off += 65_536) hostTrace.debugFeed(bytes.subarray(off, off + 65_536))
+    const live = hostTrace.getSnapshot().trace!
+    const whole = new TraceReader(fallbackDefs())
+    whole.feed(bytes)
+    expect(live.events.length).toBeLessThan(whole.tr.events.length)
+
+    const truth = reconstructQueues(whole.tr).find((q) => q.id === MSGQ)!.samples
+    const shown = reconstructQueues(live).find((q) => q.id === MSGQ)!.samples
+    expect(shown.length).toBeGreaterThan(1_000)
+    for (const { ts, depth } of shown) expect(depthAt(truth, ts), `at ${ts}`).toBe(depth)
   })
 })

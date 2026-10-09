@@ -24,9 +24,10 @@ import {
 import type { TraceReader } from '@/ctf'
 
 /**
- * Stop by itself here. A replay re-decodes from the start on every seek back,
- * at roughly a million events a second, so this keeps the worst seek about a
- * second long. It is also ~25 MB of CTF.
+ * Stop by itself here. Opening the replay decodes the whole recording once,
+ * which takes a second or two at this size; seeks after that start from the
+ * nearest checkpoint (tracePlayback.ts), so they stay quick however long it
+ * is. It is also ~25 MB of CTF.
  */
 export const MAX_RECORDED_EVENTS = 1_000_000
 /** Belt and braces for a stream of unusually large records. */
