@@ -32,6 +32,7 @@ export {
   windowStats,
   contextSwitchesIn,
   type CtfEvent,
+  type ReaderCheckpoint,
   type Trace,
   type ThreadInfo,
   type StateSeg,
@@ -83,10 +84,13 @@ export {
   type ClassifiedQueueEvent,
 } from './queueKinds'
 export {
+  advanceQueueBase,
+  dropOldestEvents,
   reconstructQueues,
   depthAt,
   queueAxisMax,
   queueLabel,
+  type QueueBase,
   type QueueSample,
   type QueueSeries,
 } from './queues'

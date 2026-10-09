@@ -26,7 +26,7 @@ import {
   isNestedQueueEvent,
   type QueueKind,
 } from './queueKinds'
-import type { Trace } from './reader'
+import type { CtfEvent, Trace } from './reader'
 
 /** Depth after an event at `ts`. */
 export interface QueueSample {
@@ -60,6 +60,28 @@ export interface QueueSeries {
   handoffs: QueueHandoff[]
 }
 
+/**
+ * The queues as they stood just before a trace's retained event log begins.
+ *
+ * Depth is counted from puts and gets, so a log that does not start with the
+ * stream would otherwise restart every object empty: the live log once
+ * hostTrace trims its oldest events, and a recording, which starts from a fork
+ * of the live decoder. Whatever drops events off the front folds them in here
+ * first ({@link dropOldestEvents}, {@link advanceQueueBase}).
+ */
+export interface QueueBase {
+  /** The newest event folded in: the base holds from here on. */
+  ts: number
+  /** Object kinds learned so far; fifo, lifo and stack outrank a nested queue. */
+  kinds: Map<number, QueueKind>
+  objects: Map<number, { kind: QueueKind; depth: number; cap: number | null }>
+  /**
+   * Per object: receivers waiting on it, hand-offs whose get has not been seen,
+   * and gets that returned before their put exited (each one's refill flag).
+   */
+  waiting: Map<number, { receivers: number; sent: number; received: boolean[] }>
+}
+
 type Acc = {
   kind: QueueKind
   depth: number
@@ -68,6 +90,8 @@ type Acc = {
   peak: number
   samples: QueueSample[]
   handoffs: QueueHandoff[]
+  /** Touched in the log, or holding something from before it. */
+  shown: boolean
 }
 
 /** Receivers waiting on one object, and hand-offs with one exit still to come. */
@@ -87,11 +111,12 @@ type Waiting = {
 function ensure(map: Map<number, Acc>, id: number, kind: QueueKind): Acc {
   let q = map.get(id)
   if (!q) {
-    q = { kind, depth: 0, drops: 0, cap: null, peak: 0, samples: [], handoffs: [] }
+    q = { kind, depth: 0, drops: 0, cap: null, peak: 0, samples: [], handoffs: [], shown: true }
     map.set(id, q)
   } else if ((kind === 'fifo' || kind === 'lifo') && q.kind === 'queue') {
     q.kind = kind
   }
+  q.shown = true
   return q
 }
 
@@ -107,20 +132,39 @@ function pushSample(q: Acc, ts: number) {
 }
 
 /**
- * Build one series per data-passing object seen in put/get/purge exits.
- * `nameById` is optional (ELF wait-object names keyed by address).
+ * Replay `events` from `base` (or from empty queues), counting depth the way
+ * {@link reconstructQueues} describes. Indices in the hand-offs are into
+ * `events`; one whose put or get came before them has none.
  */
-export function reconstructQueues(
-  tr: Trace,
-  nameById?: Map<number, string> | null,
-  capacityById?: Map<number, number> | null,
-): QueueSeries[] {
-  const kinds = classifyQueueKinds(tr.events)
+function run(events: readonly CtfEvent[], base: QueueBase | null | undefined) {
+  const kinds = classifyQueueKinds(events, base?.kinds)
   const map = new Map<number, Acc>()
   const waiting = new Map<number, Waiting>()
+  if (base) {
+    for (const [id, start] of base.objects) {
+      const held = start.depth > 0
+      map.set(id, {
+        kind: kinds.get(id) ?? start.kind,
+        depth: start.depth,
+        drops: 0,
+        cap: start.cap,
+        peak: start.depth,
+        samples: held ? [{ ts: base.ts, depth: start.depth }] : [],
+        handoffs: [],
+        shown: held,
+      })
+    }
+    for (const [id, w] of base.waiting) {
+      waiting.set(id, {
+        receivers: w.receivers,
+        sent: Array.from({ length: w.sent }, () => ({ ts: base.ts, putIndex: -1, getIndex: null })),
+        received: w.received.map((refill) => ({ getIndex: -1, refill })),
+      })
+    }
+  }
 
-  for (let i = 0; i < tr.events.length; i++) {
-    const ev = tr.events[i]!
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i]!
     const waitedOn = classifyReceiverBlocking(ev.name, ev.fields)
     if (waitedOn != null) {
       let w = waiting.get(waitedOn)
@@ -157,7 +201,13 @@ export function reconstructQueues(
           // before, so on a msgq this is a get that made room on a full queue
           // and moved this blocked sender's message in. Either way the depth
           // stays where it is.
-          if (!early.refill) q.handoffs.push({ ts: ev.ts, putIndex: i, getIndex: early.getIndex })
+          if (!early.refill) {
+            q.handoffs.push({
+              ts: ev.ts,
+              putIndex: i,
+              getIndex: early.getIndex >= 0 ? early.getIndex : null,
+            })
+          }
           continue
         }
         if (w && w.receivers > w.sent.length) {
@@ -196,9 +246,56 @@ export function reconstructQueues(
       pushSample(q, ev.ts)
     }
   }
+  return { kinds, map, waiting }
+}
+
+/** The queues as `events` leave them, carrying on from `base`, held from `ts`. */
+export function advanceQueueBase(
+  base: QueueBase | null | undefined,
+  events: readonly CtfEvent[],
+  ts: number,
+): QueueBase {
+  const { kinds, map, waiting } = run(events, base)
+  const objects: QueueBase['objects'] = new Map()
+  for (const [id, q] of map) objects.set(id, { kind: q.kind, depth: q.depth, cap: q.cap })
+  const pending: QueueBase['waiting'] = new Map()
+  for (const [id, w] of waiting) {
+    if (w.receivers === 0 && w.sent.length === 0 && w.received.length === 0) continue
+    pending.set(id, {
+      receivers: w.receivers,
+      sent: w.sent.length,
+      received: w.received.map((r) => r.refill),
+    })
+  }
+  return { ts, kinds, objects, waiting: pending }
+}
+
+/**
+ * Drop the oldest `count` events from `tr`'s log, folding them into its
+ * {@link QueueBase} first so depth stays right from the new first event on.
+ */
+export function dropOldestEvents(tr: Trace, count: number) {
+  if (count <= 0) return
+  const dropped = tr.events.splice(0, count)
+  tr.queueBase = advanceQueueBase(tr.queueBase, dropped, dropped.at(-1)!.ts)
+  tr.dropped = (tr.dropped ?? 0) + dropped.length
+}
+
+/**
+ * Build one series per data-passing object seen in put/get/purge exits, or
+ * holding something when the log begins. `nameById` is optional (ELF
+ * wait-object names keyed by address).
+ */
+export function reconstructQueues(
+  tr: Trace,
+  nameById?: Map<number, string> | null,
+  capacityById?: Map<number, number> | null,
+): QueueSeries[] {
+  const { map } = run(tr.events, tr.queueBase)
 
   const out: QueueSeries[] = []
   for (const [id, q] of map) {
+    if (!q.shown) continue
     if (q.samples.length === 0) {
       q.samples.push({ ts: tr.t0, depth: 0 })
     }

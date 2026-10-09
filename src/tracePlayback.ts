@@ -9,17 +9,25 @@
  * (TraceReader.extendTo), so the timeline scrolls at the playback rate
  * instead of hopping from one event to the next.
  *
- * Forward is incremental. Back means decoding again from the start of the
- * recording, at about a million events a second: recordings stop at
- * MAX_RECORDED_EVENTS to keep that under a second.
+ * Forward is incremental. The first pass over the recording also leaves a
+ * decoder checkpoint every CHECKPOINT_EVERY events (TraceReader.checkpointEvery),
+ * so going back, or far ahead, decodes from the nearest one that still leaves
+ * a full 50k event log behind the cursor: at most 75k events, under 0.1 s,
+ * wherever in the recording. Queue depths come back right with it: each
+ * checkpoint carries them (Trace.queueBase).
  */
 
 import { MAX_EVENTS, trimEventLog, type TraceSnapshot } from '@/hostTrace'
-import type { TraceReader } from '@/ctf'
+import { TraceReader, type ReaderCheckpoint, type Trace } from '@/ctf'
 import type { TraceRecording } from '@/traceRecorder'
 
 /** Decode this much between event-log trims, about 10k events. */
 const FEED_CHUNK = 256 * 1024
+/**
+ * Events between checkpoints. Each costs a few kilobytes and one pass over the
+ * event log to fold up the queues, so a million-event recording takes forty.
+ */
+const CHECKPOINT_EVERY = 25_000
 /** Publication cadence while playing: smooth enough to watch the Timeline scroll. */
 const TICK_MS = 100
 /** The IPC graph's packets are timed for the live 200 ms detail cadence. */
@@ -54,11 +62,23 @@ function upperBound(arr: Float64Array, x: number): number {
   return lo
 }
 
+/** Checkpoint spacing and the event log kept behind the cursor; tests shrink both. */
+export interface ReplayOptions {
+  checkpointEvery?: number
+  /** At least this many events stay decoded behind the cursor after a jump, as live keeps. */
+  keepEvents?: number
+}
+
 export class TraceReplay {
   readonly startTs: number
   readonly endTs: number
   readonly total: number
   private readonly rec: TraceRecording
+  /** The whole recording's timelines, which each checkpoint's trace is cut from. */
+  private readonly longest: Trace
+  private readonly checkpoints: readonly ReaderCheckpoint[]
+  private readonly every: number
+  private readonly keep: number
   /** Each decoded record's timestamp, in stream order. */
   private readonly times: Float64Array
   /** The byte offset just past each record, parallel to `times`. */
@@ -76,11 +96,13 @@ export class TraceReplay {
   private snap: ReplaySnapshot
   private readonly listeners = new Set<() => void>()
 
-  constructor(rec: TraceRecording) {
+  constructor(rec: TraceRecording, options: ReplayOptions = {}) {
     this.rec = rec
-    // One pass builds the index from time to bytes and leaves the reader at
-    // the end of the recording, where the replay opens: on the same moment
-    // the live panel showed when recording stopped.
+    this.every = options.checkpointEvery ?? CHECKPOINT_EVERY
+    this.keep = options.keepEvents ?? MAX_EVENTS
+    // One pass builds the index from time to bytes, takes the checkpoints and
+    // leaves the reader at the end of the recording, where the replay opens:
+    // on the same moment the live panel showed when recording stopped.
     const reader = rec.origin.fork()
     const times: number[] = []
     const ends: number[] = []
@@ -88,11 +110,17 @@ export class TraceReplay {
       times.push(ts)
       ends.push(end)
     }
+    reader.checkpointEvery = this.every
     for (let off = 0; off < rec.bytes.length; off += FEED_CHUNK) {
       reader.feed(rec.bytes.subarray(off, off + FEED_CHUNK))
       trimEventLog(reader.tr)
     }
     reader.onRecord = null
+    reader.checkpointEvery = 0
+    this.checkpoints = reader.checkpoints
+    // Only ever appended to past what any checkpoint marks, even while this
+    // reader goes on being the one on screen.
+    this.longest = reader.tr
     this.reader = reader
     this.times = Float64Array.from(times)
     this.ends = Float64Array.from(ends)
@@ -210,12 +238,11 @@ export class TraceReplay {
     const n = upperBound(this.times, ts)
     const byte = n > 0 ? this.ends[n - 1]! : 0
     // Decoding only goes forward: a cursor before the newest decoded record
-    // starts over from the fork. Within the gap after it, extendTo moves the
-    // held time either way.
-    if (byte < this.fed) {
-      this.reader = this.rec.origin.fork()
-      this.fed = 0
-    }
+    // starts over from a checkpoint, as does one further ahead than decoding
+    // from a checkpoint would be. Within the gap after the newest record,
+    // extendTo moves the held time either way.
+    if (byte < this.fed) this.restart(n, true)
+    else if (n - this.position() > this.keep + this.every) this.restart(n, false)
     while (this.fed < byte) {
       const end = Math.min(byte, this.fed + FEED_CHUNK)
       this.reader.feed(this.rec.bytes.subarray(this.fed, end))
@@ -224,6 +251,28 @@ export class TraceReplay {
     }
     this.reader.extendTo(ts)
     this.cursor = ts
+  }
+
+  /**
+   * Decode toward record `n` from the latest checkpoint that still leaves
+   * {@link ReplayOptions.keepEvents} behind it, or from the start. Going
+   * forward, only if that is ahead of the reader already there.
+   */
+  private restart(n: number, back: boolean) {
+    let from: ReaderCheckpoint | null = null
+    for (const cp of this.checkpoints) {
+      if (cp.records > n - this.keep) break
+      from = cp
+    }
+    if (!back && (!from || from.records <= this.position())) return
+    const origin = this.rec.origin
+    if (from) {
+      this.reader = TraceReader.fromCheckpoint(origin.defs, origin.hasTs, from, this.longest)
+      this.fed = from.byte
+    } else {
+      this.reader = origin.fork()
+      this.fed = 0
+    }
   }
 
   /** Recorded events the reader has decoded. */

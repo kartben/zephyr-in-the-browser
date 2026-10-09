@@ -11,7 +11,14 @@
  * shows an empty Trace panel.
  */
 
-import { fallbackDefs, loadEventDefs, TraceReader, type EventDef, type Trace } from '@/ctf'
+import {
+  dropOldestEvents,
+  fallbackDefs,
+  loadEventDefs,
+  TraceReader,
+  type EventDef,
+  type Trace,
+} from '@/ctf'
 import { register as registerPoll, unregister as unregisterPoll } from '@/hostPoll'
 
 const TRACE_PATHS = ['./tracing.bin', '/tracing.bin', 'tracing.bin']
@@ -50,11 +57,11 @@ const TRIM_BATCH = 5_000
  * Only the event log needs an exact cap. State timelines are indexed for live
  * drawing, and rebuilding them from a truncated CTF stream would be both slower
  * and less accurate. Batching the splice avoids a 50k copy on every high-rate
- * poll.
+ * poll. What the dropped events did to queue depths is kept (Trace.queueBase).
  */
 export function trimEventLog(tr: Trace) {
   if (tr.events.length > MAX_EVENTS + TRIM_BATCH) {
-    tr.events.splice(0, tr.events.length - MAX_EVENTS)
+    dropOldestEvents(tr, tr.events.length - MAX_EVENTS)
   }
 }
 

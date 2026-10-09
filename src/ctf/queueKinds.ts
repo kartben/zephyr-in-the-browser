@@ -214,11 +214,14 @@ export function classifyReceiverBlocking(
 /**
  * Scan the trace for object kinds. FIFO/LIFO win over nested queue_* for the
  * same address; msgq and bare queue are assigned from their own prefixes.
+ * `known` carries on from kinds learned before these events, under the same
+ * precedence.
  */
 export function classifyQueueKinds(
   events: Iterable<{ name: string; fields: Record<string, string | number> }>,
+  known?: ReadonlyMap<number, QueueKind>,
 ): Map<number, QueueKind> {
-  const kinds = new Map<number, QueueKind>()
+  const kinds = new Map<number, QueueKind>(known)
   for (const ev of events) {
     const kind = prefixKind(ev.name)
     if (!kind) continue
