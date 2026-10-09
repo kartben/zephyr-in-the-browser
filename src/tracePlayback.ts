@@ -33,8 +33,11 @@ const TICK_MS = 100
 /** The IPC graph's packets are timed for the live 200 ms detail cadence. */
 const DETAIL_TICK_MS = 200
 
-/** Guest time per wall-clock time. Scheduling happens in microseconds, so mostly slower. */
-export const REPLAY_SPEEDS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2] as const
+/**
+ * Guest time per wall-clock time. Scheduling happens in microseconds, so mostly
+ * slower: at 0.001× a millisecond of guest time takes a second to play.
+ */
+export const REPLAY_SPEEDS = [0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2] as const
 
 export interface ReplaySnapshot {
   startTs: number
