@@ -8,6 +8,7 @@
  */
 
 import { MemoryStick, SquareArrowOutUpRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import * as debug from '@/debug/control'
 import * as debugUi from '@/lib/debugUi'
 import type { TourMemory } from '@/tours/store'
@@ -25,6 +26,7 @@ function printable(byte: number): string {
 }
 
 export function TourHexdump({ memory }: { memory: TourMemory }) {
+  const { t } = useTranslation()
   const { addr, bytes, len, mark, note, error } = memory
   const rows = Math.ceil((bytes?.length ?? len) / BYTES_PER_ROW)
   const marked = (offset: number) => mark !== null && offset >= mark.start && offset < mark.end
@@ -48,7 +50,7 @@ export function TourHexdump({ memory }: { memory: TourMemory }) {
           <button
             type="button"
             onClick={openInMem}
-            title="Open this address in Debug → Mem"
+            title={t('tour.openInMem')}
             className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
             <SquareArrowOutUpRight className="size-2.5" aria-hidden />

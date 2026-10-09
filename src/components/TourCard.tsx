@@ -12,6 +12,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Bug, ChevronDown, ChevronUp, GraduationCap, Pause, Redo2 } from 'lucide-react'
 import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { SourceSnippet } from '@/components/SourceSnippet'
@@ -55,6 +56,7 @@ function baseName(path: string): string {
 }
 
 function Values({ values, live }: { values: TourValue[]; live: boolean }) {
+  const { t } = useTranslation()
   return (
     <dl className="divide-y divide-border/60 overflow-hidden rounded border border-border bg-muted/30">
       {values.map((value) => (
@@ -79,15 +81,14 @@ function Values({ values, live }: { values: TourValue[]; live: boolean }) {
         </div>
       ))}
       {!live && (
-        <p className="px-2 py-1 text-[11px] text-muted-foreground">
-          Values come from the running guest. Start a sample to see them.
-        </p>
+        <p className="px-2 py-1 text-[11px] text-muted-foreground">{t('tour.valuesNotLive')}</p>
       )}
     </dl>
   )
 }
 
 export function TourCard({ board, sampleId }: Props) {
+  const { t } = useTranslation()
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
   const dts = useSyncExternalStore(dtsStore.subscribe, dtsStore.get, dtsStore.get)
@@ -170,19 +171,19 @@ export function TourCard({ board, sampleId }: Props) {
   const minimised = state.minimised !== null && state.minimised === card
   // A step read again only goes back to the card it covers: see next().
   const nextLabel = card.revisit
-    ? 'Back'
+    ? t('tour.back')
     : check?.retrying
-      ? 'Try again'
+      ? t('tour.tryAgain')
       : paused
-        ? 'Continue'
-        : 'Got it'
+        ? t('tour.continue')
+        : t('tour.gotIt')
   const pausedPill = paused && (
     <span
       className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary-text"
-      title={showSource ? 'The guest is paused on this line' : 'The guest is paused'}
+      title={showSource ? t('tour.pausedOnLine') : t('tour.pausedTitle')}
     >
       <Pause className="size-2.5" aria-hidden />
-      paused
+      {t('tour.paused')}
     </span>
   )
 
@@ -202,7 +203,7 @@ export function TourCard({ board, sampleId }: Props) {
             key={reg.name}
             type="button"
             onClick={() => debugUi.focusDebug('cpu')}
-            title="Open the CPU registers"
+            title={t('tour.openRegisters')}
             className="flex items-baseline gap-1.5 rounded border border-border bg-muted/40 px-1.5 py-0.5 hover:border-primary/50"
           >
             <span className="font-mono text-[11px] text-muted-foreground">{reg.name}</span>
@@ -268,7 +269,7 @@ export function TourCard({ board, sampleId }: Props) {
             <button
               type="button"
               onClick={restore}
-              title="Show the card"
+              title={t('tour.showCard')}
               className="min-w-0 truncate text-left text-[12px] font-medium text-foreground/80 hover:text-foreground"
             >
               <InlineMarkdown text={step.title} />
@@ -280,8 +281,8 @@ export function TourCard({ board, sampleId }: Props) {
               </Button>
               <button
                 type="button"
-                aria-label="Show the card"
-                title="Show the card"
+                aria-label={t('tour.showCard')}
+                title={t('tour.showCard')}
                 onClick={restore}
                 className="rounded p-0.5 text-muted-foreground hover:text-foreground"
               >
@@ -314,8 +315,8 @@ export function TourCard({ board, sampleId }: Props) {
               {/* Out of the way, not onward: the guest stays where it is. */}
               <button
                 type="button"
-                aria-label="Minimise the card"
-                title="Minimise the card (Esc). The tour stays on this step."
+                aria-label={t('tour.minimise')}
+                title={t('tour.minimiseTitle')}
                 onClick={minimise}
                 className="rounded p-0.5 text-muted-foreground hover:text-foreground"
               >
@@ -335,23 +336,23 @@ export function TourCard({ board, sampleId }: Props) {
               variant="secondary"
               size="sm"
               className="h-7 px-2 text-xs"
-              title="Step one instruction, without leaving the step"
+              title={t('tour.stepTitle')}
               onClick={() => void debug.step()}
             >
               <Redo2 className="size-3" aria-hidden />
-              Step
+              {t('tour.step')}
             </Button>
           )}
           {paused && (
-            <span className="text-[11px] text-muted-foreground">resumes the guest</span>
+            <span className="text-[11px] text-muted-foreground">{t('tour.resumesGuest')}</span>
           )}
           <button
             type="button"
             onClick={skip}
-            title="Drop the tour's breakpoints and let the sample run"
+            title={t('tour.leaveTitle')}
             className="ml-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
-            Leave the tour
+            {t('tour.leave')}
           </button>
         </>
       }
@@ -370,9 +371,9 @@ export function TourCard({ board, sampleId }: Props) {
           )}
           <span className="truncate text-foreground/80">{where}</span>
           {anchor?.symbol && anchor.file && (
-            <span className="truncate">in {anchor.symbol}()</span>
+            <span className="truncate">{t('tour.inFunction', { name: anchor.symbol })}</span>
           )}
-          {card.hits > 1 && <span>· hit {card.hits}</span>}
+          {card.hits > 1 && <span>· {t('tour.hit', { count: card.hits })}</span>}
         </p>
       )}
 

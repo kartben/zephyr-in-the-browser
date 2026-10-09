@@ -32,6 +32,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "ZMS sample, and a flash view of its keys and history."
       },
       {
+        "tag": "Added",
+        "text": "Language picker in Settings, with French page and Blinky tour."
+      },
+      {
         "tag": "Fixed",
         "text": "IPC queue depths stay right past 50,000 trace events."
       }

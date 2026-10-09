@@ -9,6 +9,7 @@
  */
 
 import { GraduationCap, Hand } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Markdown, PROSE } from '@/components/Markdown'
 import { TourTitle } from '@/components/tour/IntroCard'
 import { ShellSnippet } from '@/components/tour/ShellSnippet'
@@ -37,6 +38,7 @@ export function WaitingCard({
   title = null,
   hasIntro = false,
 }: Props) {
+  const { t } = useTranslation()
   const total = steps.length
   return (
     // data-tour-*: the step this card waits on, for the headless playthrough.
@@ -53,25 +55,23 @@ export function WaitingCard({
           <TourOutline steps={steps} seen={seen} currentIndex={waiting.index} />
           <span
             className="ml-auto flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary-text"
-            title="The guest keeps running while you do this"
+            title={t('tour.waiting.yourTurnTitle')}
           >
             <Hand className="size-2.5" aria-hidden />
-            your turn
+            {t('tour.waiting.yourTurn')}
           </span>
         </>
       }
       footer={
         <>
-          <span className="text-[11px] text-muted-foreground">
-            The tour picks up at the next stop.
-          </span>
+          <span className="text-[11px] text-muted-foreground">{t('tour.waiting.picksUp')}</span>
           <button
             type="button"
             onClick={skip}
-            title="Drop the tour's breakpoints and let the sample run"
+            title={t('tour.leaveTitle')}
             className="ml-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
-            Leave the tour
+            {t('tour.leave')}
           </button>
         </>
       }

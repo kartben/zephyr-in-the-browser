@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   ChevronDown,
   ExternalLink,
@@ -196,6 +197,7 @@ export function SampleGallery({
   onLoadElf,
   onClearImage,
 }: Props) {
+  const { t } = useTranslation()
   const fileRef = useRef<HTMLInputElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
@@ -284,7 +286,7 @@ export function SampleGallery({
         <DialogTrigger asChild>
           <button
             type="button"
-            aria-label="Choose the Zephyr app to boot"
+            aria-label={t('gallery.trigger')}
             className={cn(
               'hidden h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-transparent px-2.5 text-sm sm:flex',
               'transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background',
@@ -299,13 +301,13 @@ export function SampleGallery({
 
         <DialogContent className="h-[min(85vh,40rem)] max-w-xl">
           <DialogHeader>
-            <DialogTitle>Zephyr app to boot</DialogTitle>
-            <DialogDescription>Prebuilt samples for {board.label}.</DialogDescription>
+            <DialogTitle>{t('gallery.title')}</DialogTitle>
+            <DialogDescription>{t('gallery.description', { board: board.label })}</DialogDescription>
           </DialogHeader>
 
           <div className="flex shrink-0 items-center gap-3 px-5 pb-3">
             <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Search samples</span>
+              <span className="sr-only">{t('gallery.search')}</span>
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
@@ -315,7 +317,7 @@ export function SampleGallery({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search samples…"
+                placeholder={t('gallery.searchPlaceholder')}
                 autoComplete="off"
                 className={cn(
                   'h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm',
@@ -332,14 +334,14 @@ export function SampleGallery({
             {catalog.length === 0 ? (
               <p className="flex h-full items-center justify-center px-3 text-center text-xs text-muted-foreground">
                 {tracing && !query.trim()
-                  ? 'No samples with tracing on this board.'
+                  ? t('gallery.noTracing')
                   : tracing
-                    ? `No traced samples match “${query.trim()}”.`
-                    : `No samples match “${query.trim()}”.`}
+                    ? t('gallery.noTracedMatch', { query: query.trim() })
+                    : t('gallery.noMatch', { query: query.trim() })}
               </p>
             ) : showGuidedSection ? (
               <>
-                <GallerySection label="Guided tours" />
+                <GallerySection label={t('gallery.guidedSection')} />
                 {guidedCatalog.map((group) => (
                   <SampleGroupRow
                     key={group.base.id}
@@ -383,11 +385,11 @@ export function SampleGallery({
 
           <DialogFooter className="justify-between">
             <span className="text-[11px] text-muted-foreground">
-              Or bring your own build. Any Zephyr ELF for this board boots as-is.
+              {t('gallery.bringYourOwn')}
             </span>
             <Button variant="outline" onClick={() => fileRef.current?.click()}>
               <FileUp aria-hidden />
-              Load your own ELF…
+              {t('gallery.loadElf')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -398,8 +400,8 @@ export function SampleGallery({
           variant="ghost"
           size="icon"
           className="hidden size-6 shrink-0 sm:inline-flex"
-          aria-label="Go back to a built-in app"
-          title="Go back to a built-in app"
+          aria-label={t('gallery.backToBuiltIn')}
+          title={t('gallery.backToBuiltIn')}
           onClick={onClearImage}
         >
           <X className="size-3.5" />
@@ -442,6 +444,7 @@ function SampleGroupRow({
   tracing: boolean
   onSelect: (id: string, tour?: string) => void
 }) {
+  const { t } = useTranslation()
   const { base, traced, docs } = group
   const tags = sampleTags(group)
   const tours = groupTours(group)
@@ -482,22 +485,18 @@ function SampleGroupRow({
           {guided && (
             <span
               className="flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-text"
-              title={
-                tours.length > 1
-                  ? `Carries ${tours.length} guided tours: each stops and explains the sample as it runs`
-                  : 'Carries a guided tour: it stops and explains itself as it runs'
-              }
+              title={t('gallery.guidedTitle', { count: tours.length })}
             >
               <GraduationCap className="size-2.5" aria-hidden />
-              {tours.length > 1 ? `${tours.length} tours` : 'guided'}
+              {tours.length > 1 ? t('gallery.tourCount', { count: tours.length }) : t('gallery.guided')}
             </span>
           )}
           {builtinTraced && (
             <span
               className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
-              title="This sample embeds tracing in its own configuration"
+              title={t('gallery.embedsTracingTitle')}
             >
-              tracing
+              {t('gallery.embedsTracing')}
             </span>
           )}
         </div>
@@ -514,7 +513,7 @@ function SampleGroupRow({
           </div>
         )}
         {tours.length > 0 && (
-          <ul className="mt-1 min-w-0" aria-label={`Tours of ${docs.title}`}>
+          <ul className="mt-1 min-w-0" aria-label={t('gallery.toursOf', { title: docs.title })}>
             {tours.map((id) => {
               const running = active && id === tourId
               return (
@@ -522,7 +521,7 @@ function SampleGroupRow({
                   <button
                     type="button"
                     aria-current={running ? 'true' : undefined}
-                    title={running ? 'This tour is running' : 'Boot the app with this tour'}
+                    title={running ? t('gallery.tourRunning') : t('gallery.bootWithTour')}
                     onClick={(e) => {
                       e.stopPropagation()
                       onSelect(bootId, id)
@@ -549,17 +548,17 @@ function SampleGroupRow({
         {docs.canonicalHref && (
           <RowLink
             href={docs.canonicalHref}
-            title="Official docs (docs.zephyrproject.org)"
+            title={t('gallery.docsTitle')}
             onClick={stop}
           >
             <ExternalLink className="size-3.5" aria-hidden />
-            <span className="sr-only">Docs</span>
+            <span className="sr-only">{t('gallery.docs')}</span>
           </RowLink>
         )}
         {docs.sourceHref && (
-          <RowLink href={docs.sourceHref} title="Source on GitHub" onClick={stop}>
+          <RowLink href={docs.sourceHref} title={t('gallery.sourceTitle')} onClick={stop}>
             <GitBranch className="size-3.5" aria-hidden />
-            <span className="sr-only">Source</span>
+            <span className="sr-only">{t('gallery.source')}</span>
           </RowLink>
         )}
       </span>
@@ -584,21 +583,18 @@ function TracingFilter({
   on: boolean
   onChange: (on: boolean) => void
 }) {
+  const { t } = useTranslation()
   return (
     <span className="flex shrink-0 items-center gap-1.5">
       <span className="text-xs text-muted-foreground" aria-hidden>
-        Tracing
+        {t('gallery.tracing')}
       </span>
       <button
         type="button"
         role="switch"
         aria-checked={on}
-        aria-label="Tracing"
-        title={
-          on
-            ? 'Showing samples with tracing. Turn off to see every sample.'
-            : 'Show only samples with a tracing build. Choosing one opens Trace and Debug.'
-        }
+        aria-label={t('gallery.tracing')}
+        title={on ? t('gallery.tracingOn') : t('gallery.tracingOff')}
         onClick={() => onChange(!on)}
         className={cn(
           'relative h-4 w-7 shrink-0 rounded-full transition-colors',

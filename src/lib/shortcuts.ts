@@ -7,6 +7,8 @@
  * imports.
  */
 
+import type en from '@/locales/en.json'
+
 export type ShortcutCategory =
   | 'General'
   | 'Run'
@@ -24,13 +26,19 @@ export interface KeyChord {
   alt?: boolean
 }
 
+/**
+ * Where a shortcut's words are: `shortcuts.items.<label>` in
+ * src/locales/en.json, a concise `title` (about 2–4 words) and a help blurb
+ * `description` (about 3–5 words). Typed from that file, so a shortcut with
+ * no strings fails typecheck.
+ */
+export type ShortcutLabel = keyof (typeof en)['shortcuts']['items']
+
 export interface Shortcut {
   id: string
   category: ShortcutCategory
-  /** Concise label, about 2–4 words. */
-  title: string
-  /** Help blurb, about 3–5 words. */
-  description: string
+  /** Its title and description in the locale files; two chords for one action share one. */
+  label: ShortcutLabel
   chord: KeyChord
   /**
    * When to honor the chord:
@@ -52,24 +60,23 @@ export const SHORTCUT_CATEGORY_ORDER: readonly ShortcutCategory[] = [
 ] as const
 
 /**
- * The starter set. Add new chords here; wire `onShortcut(id, …)` in bindings.
- * Keep titles and descriptions short — the help dialog is a glance, not a manual.
+ * The starter set. Add new chords here; wire `onShortcut(id, …)` in bindings,
+ * and give the label its words in src/locales/en.json. Keep them short: the
+ * help dialog is a glance, not a manual.
  */
 export const SHORTCUTS: readonly Shortcut[] = [
   // General
   {
     id: 'help',
     category: 'General',
-    title: 'Help',
-    description: 'Shortcuts and changelog',
+    label: 'help',
     chord: { key: '?' },
     when: 'idle',
   },
   {
     id: 'help-alt',
     category: 'General',
-    title: 'Help',
-    description: 'Shortcuts and changelog',
+    label: 'help',
     chord: { key: '/', ctrl: true },
     when: 'app',
   },
@@ -78,40 +85,35 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'run-toggle',
     category: 'Run',
-    title: 'Pause / Resume',
-    description: 'Toggle guest execution',
+    label: 'run-toggle',
     chord: { key: 'F8' },
     when: 'app',
   },
   {
     id: 'step-over',
     category: 'Run',
-    title: 'Step Over',
-    description: 'Next line, skip calls',
+    label: 'step-over',
     chord: { key: 'F10' },
     when: 'app',
   },
   {
     id: 'step-into',
     category: 'Run',
-    title: 'Step Into',
-    description: 'Enter next call',
+    label: 'step-into',
     chord: { key: 'F11' },
     when: 'app',
   },
   {
     id: 'step-out',
     category: 'Run',
-    title: 'Step Out',
-    description: 'Leave current function',
+    label: 'step-out',
     chord: { key: 'F11', shift: true },
     when: 'app',
   },
   {
     id: 'restart',
     category: 'Run',
-    title: 'Restart',
-    description: 'Restart or reset guest',
+    label: 'restart',
     chord: { key: 'r', ctrl: true, shift: true },
     when: 'app',
   },
@@ -120,32 +122,28 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'tour-continue',
     category: 'Tour',
-    title: 'Continue',
-    description: 'Resume past tour stop',
+    label: 'tour-continue',
     chord: { key: 'c' },
     when: 'idle',
   },
   {
     id: 'tour-step',
     category: 'Tour',
-    title: 'Step',
-    description: 'Single-step at stop',
+    label: 'tour-step',
     chord: { key: 's' },
     when: 'idle',
   },
   {
     id: 'tour-leave',
     category: 'Tour',
-    title: 'Leave Tour',
-    description: 'Drop tour breakpoints',
+    label: 'tour-leave',
     chord: { key: 'x' },
     when: 'idle',
   },
   {
     id: 'tour-minimise',
     category: 'Tour',
-    title: 'Minimise Card',
-    description: 'Fold the tour card to one line',
+    label: 'tour-minimise',
     chord: { key: 'Escape' },
     when: 'idle',
   },
@@ -154,32 +152,28 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'toggle-dock',
     category: 'Layout',
-    title: 'Device Dock',
-    description: 'Show or hide the dock',
+    label: 'toggle-dock',
     chord: { key: 'b', ctrl: true },
     when: 'app',
   },
   {
     id: 'toggle-debug',
     category: 'Layout',
-    title: 'Debug',
-    description: 'Expand the Debug row',
+    label: 'toggle-debug',
     chord: { key: 'd', ctrl: true, shift: true },
     when: 'app',
   },
   {
     id: 'toggle-trace',
     category: 'Layout',
-    title: 'Trace',
-    description: 'Expand the Trace row',
+    label: 'toggle-trace',
     chord: { key: 't', ctrl: true, shift: true },
     when: 'app',
   },
   {
     id: 'reset-layout',
     category: 'Layout',
-    title: 'Reset Layout',
-    description: 'Restore the default dock',
+    label: 'reset-layout',
     chord: { key: 'l', ctrl: true, shift: true },
     when: 'app',
   },
@@ -188,16 +182,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'open-samples',
     category: 'Session',
-    title: 'Open Samples',
-    description: 'Choose board and app',
+    label: 'open-samples',
     chord: { key: 'k', ctrl: true },
     when: 'app',
   },
   {
     id: 'open-settings',
     category: 'Session',
-    title: 'Open Settings',
-    description: 'Desktop bridge and uplink',
+    label: 'open-settings',
     chord: { key: ',', ctrl: true },
     when: 'app',
   },
@@ -206,16 +198,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'net-capture-toggle',
     category: 'Network',
-    title: 'Pause Capture',
-    description: 'Pause or resume capture',
+    label: 'net-capture-toggle',
     chord: { key: 'n', ctrl: true, shift: true },
     when: 'app',
   },
   {
     id: 'net-export-pcap',
     category: 'Network',
-    title: 'Export PCAP',
-    description: 'Download capture file',
+    label: 'net-export-pcap',
     chord: { key: 'e', ctrl: true, shift: true },
     when: 'app',
   },
@@ -269,14 +259,14 @@ export function getShortcut(id: string): Shortcut | undefined {
   return byId.get(id)
 }
 
-/** Grouped list for the help dialog; skips duplicate titles in the same category. */
+/** Grouped list for the help dialog; lists a label once per category, whatever its chords. */
 export function shortcutsForHelp(): { category: ShortcutCategory; items: Shortcut[] }[] {
   const seen = new Set<string>()
   const groups = new Map<ShortcutCategory, Shortcut[]>()
   for (const category of SHORTCUT_CATEGORY_ORDER) groups.set(category, [])
 
   for (const shortcut of SHORTCUTS) {
-    const dedupe = `${shortcut.category}:${shortcut.title}`
+    const dedupe = `${shortcut.category}:${shortcut.label}`
     if (seen.has(dedupe)) continue
     seen.add(dedupe)
     groups.get(shortcut.category)!.push(shortcut)

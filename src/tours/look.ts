@@ -7,6 +7,7 @@
  * dockReveal in turn, and knowing whether Trace exists means asking hostTrace.
  */
 
+import i18n from '@/i18n'
 import * as hostTrace from '@/hostTrace'
 import * as debugUi from '@/lib/debugUi'
 import {
@@ -23,7 +24,9 @@ import { getMode } from '@/lib/modeStore'
 import type { LookSpec, TourStep } from '@/tours/parse'
 
 /** The card's line for a step that points at Trace on a guest without it. */
-export const NO_TRACE_NOTE = 'This view needs the traced build of this sample.'
+export function noTraceNote(): string {
+  return i18n.t('tour.noTrace')
+}
 
 /**
  * How long after a card lands the rows it points at blink: long enough for the
@@ -98,7 +101,7 @@ export function focusStep(step: Pick<TourStep, 'panel' | 'look'>): void {
 
 /** What the card should say about views this guest cannot show. */
 export function lookNotes(step: Pick<TourStep, 'panel' | 'look'>): string[] {
-  return looksOf(step).some(needsTrace) && !traceOffered() ? [NO_TRACE_NOTE] : []
+  return looksOf(step).some(needsTrace) && !traceOffered() ? [noTraceNote()] : []
 }
 
 /**

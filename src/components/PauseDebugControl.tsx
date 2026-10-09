@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RegisterGrid } from '@/components/RegisterGrid'
@@ -19,6 +20,7 @@ import { cn } from '@/lib/utils'
 import * as debug from '@/debug/control'
 
 export function PauseDebugControl() {
+  const { t } = useTranslation()
   const snap = useSyncExternalStore(debug.subscribe, debug.getSnapshot, debug.getSnapshot)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement | null>(null)
@@ -58,8 +60,8 @@ export function PauseDebugControl() {
         variant="ghost"
         size="icon"
         className="size-8 shrink-0"
-        aria-label={snap.paused ? 'Resume the machine' : 'Pause the machine'}
-        title={snap.paused ? 'Resume the machine' : 'Pause the machine'}
+        aria-label={snap.paused ? t('machine.resume') : t('machine.pause')}
+        title={snap.paused ? t('machine.resume') : t('machine.pause')}
         aria-pressed={snap.paused}
         onClick={debug.toggle}
       >
@@ -78,9 +80,9 @@ export function PauseDebugControl() {
             'h-8 max-w-[11rem] shrink gap-1 px-1.5 font-mono text-[11px] tabular-nums text-muted-foreground',
             open && 'bg-secondary text-foreground',
           )}
-          aria-label="CPU registers"
+          aria-label={t('machine.registers')}
           aria-expanded={open}
-          title={snap.pc ? `0x${snap.pc}` : 'CPU registers'}
+          title={snap.pc ? `0x${snap.pc}` : t('machine.registers')}
           onClick={() => setOpen((value) => !value)}
         >
           <span className="truncate">{chipLabel}</span>
@@ -90,7 +92,7 @@ export function PauseDebugControl() {
       {open && snap.paused && (
         <div
           role="dialog"
-          aria-label="CPU registers"
+          aria-label={t('machine.registers')}
           className="absolute right-0 top-full z-50 mt-1 w-[22rem] max-w-[min(22rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-card p-2.5 shadow-xl"
         >
           <div className="mb-2 px-1 text-[10px] font-medium uppercase tracking-wide text-foreground/55">

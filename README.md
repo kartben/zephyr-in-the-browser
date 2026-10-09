@@ -108,6 +108,13 @@ The live Trace keeps the newest 50,000 events. To look further back, press
 **Rec** in its tab strip: **Stop** pauses the guest and opens a replay with the
 same Timeline and IPC tabs, which you can play slowed down or scrub through.
 
+## Languages
+
+The page follows your browser's language when it has a translation (English
+and French so far). Pick another under **Settings → Language**, or share a link
+with `?lang=fr`. A new language is one JSON file, and guided tours translate as
+plain Markdown: see [docs/i18n.md](docs/i18n.md).
+
 ---
 
 Working on the emulator itself? [`docs/`](docs/) covers the internals: QEMU,

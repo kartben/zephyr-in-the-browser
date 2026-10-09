@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowRight, GraduationCap, RotateCcw, X } from 'lucide-react'
 import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { TourFrame } from '@/components/tour/TourFrame'
@@ -50,6 +51,7 @@ interface Props {
 }
 
 export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Props) {
+  const { t } = useTranslation()
   // Next stays on this board; with no such app here there is nowhere to go.
   const target = next ? nextSampleId(board, sampleId, next) : null
   const title = target ? (nextTitle ?? getSample(board, target).label) : null
@@ -61,10 +63,10 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
       header={
         <>
           <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="text-[11px] text-muted-foreground">Tour complete</span>
+          <span className="text-[11px] text-muted-foreground">{t('tour.complete.title')}</span>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t('tour.complete.close')}
             onClick={dismissCompletion}
             className="ml-auto rounded p-0.5 text-muted-foreground hover:text-foreground"
           >
@@ -78,10 +80,10 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
             <Button
               size="sm"
               onClick={() => selectSample({ sampleId: target, tourId: next ?? undefined })}
-              title={`Open ${getSample(board, target).label} and start its tour`}
+              title={t('tour.complete.nextTitle', { app: getSample(board, target).label })}
               className="h-7 min-w-0 px-3 text-xs"
             >
-              <span className="truncate">Next: {title}</span>
+              <span className="truncate">{t('tour.complete.next', { title })}</span>
               <ArrowRight className="size-3" aria-hidden />
             </Button>
           )}
@@ -89,11 +91,11 @@ export function CompletionCard({ board, sampleId, outro, next, nextTitle }: Prop
             variant="secondary"
             size="sm"
             onClick={() => runCommand('restart')}
-            title="Restart the sample and take the tour from the top"
+            title={t('tour.complete.againTitle')}
             className="h-7 shrink-0 px-2 text-xs"
           >
             <RotateCcw className="size-3" aria-hidden />
-            Run it again
+            {t('tour.complete.again')}
           </Button>
         </>
       }

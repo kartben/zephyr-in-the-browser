@@ -11,6 +11,7 @@
  */
 
 import { ArrowRight, GraduationCap, LoaderCircle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { InlineMarkdown, Markdown, PROSE } from '@/components/Markdown'
 import { CopyTourLink } from '@/components/tour/TourLink'
 import { TourFrame } from '@/components/tour/TourFrame'
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function IntroCard({ boardId, sampleId, state }: Props) {
+  const { t } = useTranslation()
   const doc = state.doc!
   const again = state.intro === 'again'
   const ready = again || introReady(state)
@@ -45,7 +47,7 @@ export function IntroCard({ boardId, sampleId, state }: Props) {
             <InlineMarkdown text={doc.title} />
           </span>
           <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-            {steps.length} {steps.length === 1 ? 'stop' : 'stops'}
+            {t('tour.intro.stops', { count: steps.length })}
           </span>
           {state.tourId && (
             <div className="ml-auto flex items-center">
@@ -58,7 +60,7 @@ export function IntroCard({ boardId, sampleId, state }: Props) {
         <>
           {again ? (
             <Button size="sm" onClick={closeIntro} className="h-7 px-3 text-xs">
-              Back
+              {t('tour.back')}
             </Button>
           ) : (
             <Button
@@ -70,27 +72,29 @@ export function IntroCard({ boardId, sampleId, state }: Props) {
             >
               {ready ? (
                 <>
-                  {from > 0 ? `Start at stop ${from + 1}` : 'Start'}
+                  {from > 0 ? t('tour.intro.startAt', { step: from + 1 }) : t('tour.intro.start')}
                   <ArrowRight className="size-3" aria-hidden />
                 </>
               ) : (
                 <>
                   <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
-                  Waiting for the first stop
+                  {t('tour.intro.waiting')}
                 </>
               )}
             </Button>
           )}
           {!again && ready && paused && (
-            <span className="text-[11px] text-muted-foreground">The guest is paused at the first stop</span>
+            <span className="text-[11px] text-muted-foreground">
+              {t('tour.intro.pausedAtFirst')}
+            </span>
           )}
           <button
             type="button"
             onClick={skip}
-            title="Drop the tour's breakpoints and let the sample run"
+            title={t('tour.leaveTitle')}
             className="ml-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
-            Leave the tour
+            {t('tour.leave')}
           </button>
         </>
       }
@@ -101,8 +105,9 @@ export function IntroCard({ boardId, sampleId, state }: Props) {
       {steps.length > 0 && (
         <div className="rounded border border-border bg-muted/30 px-3 py-2">
           <p className="mb-1.5 text-[11px] text-muted-foreground">
-            In this tour, {steps.length} {steps.length === 1 ? 'stop' : 'stops'}
-            {from > 0 && `, from stop ${from + 1}`}
+            {from > 0
+              ? t('tour.intro.mapFrom', { count: steps.length, from: from + 1 })
+              : t('tour.intro.map', { count: steps.length })}
           </p>
           <ol className="space-y-1">
             {steps.map((step) => (
@@ -132,6 +137,7 @@ export function IntroCard({ boardId, sampleId, state }: Props) {
  * which part of a series) it belongs to. With an intro, it opens it again.
  */
 export function TourTitle({ title, hasIntro }: { title: string; hasIntro: boolean }) {
+  const { t } = useTranslation()
   const className = 'min-w-0 truncate text-[12px] font-medium text-foreground/80'
   if (!hasIntro) {
     return (
@@ -144,7 +150,7 @@ export function TourTitle({ title, hasIntro }: { title: string; hasIntro: boolea
     <button
       type="button"
       onClick={openIntro}
-      title={`${title}: read the intro again`}
+      title={t('tour.intro.readAgain', { title })}
       className={cn(className, 'text-left hover:text-foreground')}
     >
       <InlineMarkdown text={title} />

@@ -1,5 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+// First, so i18next is set up before any module that uses it (src/i18n/index.ts).
+import { startI18n } from './i18n'
 import App from './App'
 import { detectQemuAssets } from './backends'
 import { claimStashed } from './guestImage'
@@ -27,7 +29,8 @@ installTestHooks()
  * stash untouched, so switching back restores the previous custom-ELF state.
  *
  * The emulator probe rides along for the same reason: the default backend has
- * to be settled before the terminal mounts and starts one.
+ * to be settled before the terminal mounts and starts one. So does the page's
+ * language, whose strings have to be in hand before the first render.
  */
 Promise.all([
   resolveModeConfig().mode === 'live'
@@ -37,6 +40,7 @@ Promise.all([
         else await clearStashedDts()
       }),
   detectQemuAssets(),
+  startI18n(),
 ]).finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

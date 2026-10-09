@@ -22,6 +22,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react'
+import { useTranslation } from 'react-i18next'
 import { clampBox, useDragResize, type ResizeEdge } from '@/hooks/useDragResize'
 import type { PanelBox } from '@/lib/panelLayout'
 import { getTourLayout, setTourLayout, subscribeTourLayout } from '@/lib/tourLayout'
@@ -45,6 +46,7 @@ export function TourFrame({
   children,
   ...rest
 }: Props) {
+  const { t } = useTranslation()
   const layout = useSyncExternalStore(subscribeTourLayout, getTourLayout, getTourLayout)
   const frame = useRef<HTMLDivElement>(null)
 
@@ -140,7 +142,7 @@ export function TourFrame({
           if (event.target instanceof Element && event.target.closest('button')) return
           setTourLayout(null)
         }}
-        title={layout ? 'Double-click to put the card back' : undefined}
+        title={layout ? t('tour.putBack') : undefined}
         className={cn(
           'flex cursor-move touch-none select-none items-center gap-2 px-3 py-2',
           !minimised && 'border-b border-border',

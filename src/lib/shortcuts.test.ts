@@ -95,13 +95,13 @@ describe('shortcutsForHelp', () => {
       'Network',
     ])
     const session = groups.find((g) => g.category === 'Session')!
-    expect(session.items.map((i) => i.title)).toEqual(['Open Samples', 'Open Settings'])
+    expect(session.items.map((i) => i.label)).toEqual(['open-samples', 'open-settings'])
     const layout = groups.find((g) => g.category === 'Layout')!
-    expect(layout.items.map((i) => i.title)).toEqual([
-      'Device Dock',
-      'Debug',
-      'Trace',
-      'Reset Layout',
+    expect(layout.items.map((i) => i.label)).toEqual([
+      'toggle-dock',
+      'toggle-debug',
+      'toggle-trace',
+      'reset-layout',
     ])
   })
 })

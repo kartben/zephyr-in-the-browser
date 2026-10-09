@@ -13,8 +13,9 @@
  */
 
 import type { GuestSample } from '@/boards'
-import { loadTourSource, toursOffered } from '@/tours/catalog'
-import { parseTour } from '@/tours/parse'
+import { currentLanguage } from '@/i18n'
+import { toursOffered } from '@/tours/catalog'
+import { loadLocalizedTour } from '@/tours/translations'
 
 /**
  * The sample's tours by id, its default tour first: what the gallery lists.
@@ -32,13 +33,14 @@ export function isGuided(sample: GuestSample, traced: boolean): boolean {
 const titles = new Map<string, Promise<string | null>>()
 
 /**
- * A tour's title, from its front matter. Parsed once, and only when asked:
- * the gallery asks when it first opens, not while the page boots.
+ * A tour's title, from its front matter, in the page's language when the tour
+ * has a translation there. Parsed once, and only when asked: the gallery asks
+ * when it first opens, not while the page boots.
  */
 export function tourTitle(id: string): Promise<string | null> {
   let title = titles.get(id)
   if (!title) {
-    title = loadTourSource(id).then((text) => (text === null ? null : parseTour(text).title))
+    title = loadLocalizedTour(id, currentLanguage()).then((doc) => doc?.title ?? null)
     titles.set(id, title)
   }
   return title

@@ -4,6 +4,7 @@
  */
 
 import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { Command, Option } from 'lucide-react'
 import {
   Dialog,
@@ -57,6 +58,7 @@ function packColumns(groups: Group[], columns: number): Group[][] {
 }
 
 export function ShortcutsHelpDialog() {
+  const { t } = useTranslation()
   const open = useSyncExternalStore(subscribeHelp, isHelpOpen, () => false)
   const [tab, setTab] = useState<HelpTab>('shortcuts')
 
@@ -77,13 +79,11 @@ export function ShortcutsHelpDialog() {
     <Dialog open={open} onOpenChange={setHelpOpen}>
       <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-5 pb-0 pt-5">
-          <DialogTitle>Help</DialogTitle>
-          <DialogDescription className="sr-only">
-            Keyboard shortcuts and what is new in Zephyr in the Browser.
-          </DialogDescription>
+          <DialogTitle>{t('help.title')}</DialogTitle>
+          <DialogDescription className="sr-only">{t('help.description')}</DialogDescription>
           <div
             role="tablist"
-            aria-label="Help sections"
+            aria-label={t('help.sections')}
             className="mt-3 flex gap-4 text-xs"
           >
             <TabButton
@@ -92,7 +92,7 @@ export function ShortcutsHelpDialog() {
               selected={tab === 'shortcuts'}
               onSelect={() => setTab('shortcuts')}
             >
-              Shortcuts
+              {t('help.shortcuts')}
             </TabButton>
             <TabButton
               id="help-tab-changelog"
@@ -100,7 +100,7 @@ export function ShortcutsHelpDialog() {
               selected={tab === 'changelog'}
               onSelect={() => setTab('changelog')}
             >
-              Changelog
+              {t('help.changelog')}
             </TabButton>
           </div>
         </DialogHeader>
@@ -113,11 +113,13 @@ export function ShortcutsHelpDialog() {
             className="overflow-y-auto px-5 py-3"
           >
             <p className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
-              <span>Press</span>
-              <ChordKbd chord={{ key: '?' }} />
-              <span>or</span>
-              <ChordKbd chord={{ key: '/', ctrl: true }} />
-              <span>anytime to open this list.</span>
+              <Trans
+                i18nKey="help.press"
+                components={{
+                  help: <ChordKbd chord={{ key: '?' }} />,
+                  alt: <ChordKbd chord={{ key: '/', ctrl: true }} />,
+                }}
+              />
             </p>
             <div className="grid items-start gap-x-8 gap-y-3 sm:grid-cols-2">
               {columns.map((column, i) => (
@@ -137,7 +139,7 @@ export function ShortcutsHelpDialog() {
             className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
           >
             <p className="mb-4 text-xs text-muted-foreground">
-              Zephyr in the Browser{' '}
+              {t('app.name')}{' '}
               <span className="font-mono text-foreground/80">v{APP_VERSION}</span>
             </p>
             <div className="space-y-5">
@@ -156,7 +158,7 @@ export function ShortcutsHelpDialog() {
               rel="noopener noreferrer"
               className="text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
-              Full changelog on GitHub
+              {t('help.fullChangelog')}
             </a>
           </DialogFooter>
         )}
@@ -200,6 +202,7 @@ function TabButton({
 }
 
 function ChangelogReleaseBlock({ release }: { release: ChangelogRelease }) {
+  const { t } = useTranslation()
   const unreleased = release.version === 'Unreleased'
   return (
     <section>
@@ -210,7 +213,7 @@ function ChangelogReleaseBlock({ release }: { release: ChangelogRelease }) {
             unreleased ? 'text-warning' : 'text-primary-text',
           )}
         >
-          {unreleased ? 'Unreleased' : `v${release.version}`}
+          {unreleased ? t('help.unreleased') : `v${release.version}`}
         </span>
         {release.date && (
           <span className="text-[11px] text-muted-foreground">{release.date}</span>
@@ -243,18 +246,21 @@ function ChangelogReleaseBlock({ release }: { release: ChangelogRelease }) {
 }
 
 function CategoryBlock({ group }: { group: Group }) {
+  const { t } = useTranslation()
   return (
     <section className="min-w-0">
       <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {group.category}
+        {t(`shortcuts.categories.${group.category}`)}
       </h3>
       <ul className="space-y-1">
         {group.items.map((item) => (
           <li key={item.id} className="flex items-baseline justify-between gap-3 text-xs">
             <span className="min-w-0">
-              <span className="font-medium text-foreground">{item.title}</span>
+              <span className="font-medium text-foreground">
+                {t(`shortcuts.items.${item.label}.title`)}
+              </span>
               <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                {item.description}
+                {t(`shortcuts.items.${item.label}.description`)}
               </span>
             </span>
             <ChordKbd chord={item.chord} />
