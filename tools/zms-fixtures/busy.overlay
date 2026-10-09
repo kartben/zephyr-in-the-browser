@@ -1,0 +1,8 @@
+/* Kite Rush's storage-spi geometry: 4 KiB erase blocks, a 64 KiB partition. */
+&flash_sim0 {
+	erase-block-size = <4096>;
+};
+
+&storage_partition {
+	reg = <0x00001000 0x00010000>;
+};

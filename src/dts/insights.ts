@@ -55,6 +55,16 @@ export interface SpiSlot {
   compatible: string
   chipId?: string
   nodeName: string
+  /** A flash chip's `fixed-partitions`, in address order. */
+  partitions?: FlashPartition[]
+}
+
+/** One child of a flash node's `partitions`. */
+export interface FlashPartition {
+  /** First node label (`storage_partition`), else the node name. */
+  label: string
+  offset: number
+  size: number
 }
 
 export interface SpiBus {
@@ -390,9 +400,37 @@ function spiSlots(bus: DtsNode): SpiSlot[] {
         .map((c) => COMPAT_TO_SPI_CHIP[c])
         .find((id) => id !== undefined),
       nodeName: child.name,
+      ...partitionsOf(child),
     })
   }
   return slots.sort((a, b) => a.cs - b.cs)
+}
+
+/** Cells joined most significant first, for #address-cells = 2 trees. */
+function cellNumber(cells: number[]): number {
+  return cells.reduce((acc, c) => acc * 0x100000000 + c, 0)
+}
+
+/** `reg` of each partition as (offset, size), honouring the parent's cell counts. */
+function partitionsOf(flash: DtsNode): { partitions?: FlashPartition[] } {
+  const node = flash.children.find((c) => c.name === 'partitions')
+  if (!node) return {}
+  const addressCells = numberProp(node, '#address-cells') ?? 1
+  const sizeCells = numberProp(node, '#size-cells') ?? 1
+  const partitions: FlashPartition[] = []
+  for (const child of node.children) {
+    if (!effectivelyOkay(child)) continue
+    const reg = prop(child, 'reg')?.values.find((v) => v.kind === 'cells')
+    if (!reg || reg.kind !== 'cells') continue
+    const cells = reg.cells.map((c) => (c.kind === 'number' ? c.value : NaN))
+    if (cells.length < addressCells + sizeCells || cells.some(Number.isNaN)) continue
+    partitions.push({
+      label: child.labels[0] ?? child.name,
+      offset: cellNumber(cells.slice(0, addressCells)),
+      size: cellNumber(cells.slice(addressCells, addressCells + sizeCells)),
+    })
+  }
+  return partitions.length ? { partitions: partitions.sort((a, b) => a.offset - b.offset) } : {}
 }
 
 function isSpiBus(node: DtsNode): boolean {

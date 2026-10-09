@@ -351,3 +351,41 @@ describe('computeInsights', () => {
     expect(insights.panels.has('display')).toBe(false)
   })
 })
+
+describe('flash partitions', () => {
+  const tree = `/dts-v1/;
+/ {
+	soc {
+		virtio-spi {
+			compatible = "virtio,spi";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			flash@2 {
+				compatible = "jedec,spi-nor";
+				reg = <2>;
+				partitions {
+					compatible = "fixed-partitions";
+					#address-cells = <1>;
+					#size-cells = <1>;
+					boot: partition@10000 { reg = <0x10000 0x8000>; };
+					storage_partition: partition@0 { reg = <0x0 0x10000>; };
+					partition@18000 { reg = <0x18000 0x1000>; status = "disabled"; };
+				};
+			};
+			flash@3 {
+				compatible = "jedec,spi-nor";
+				reg = <3>;
+			};
+		};
+	};
+};`
+
+  it('lists each flash chip’s partitions in address order', () => {
+    const [bus] = insightsOf(tree).spiBuses
+    expect(bus!.slots.find((s) => s.cs === 2)!.partitions).toEqual([
+      { label: 'storage_partition', offset: 0, size: 0x10000 },
+      { label: 'boot', offset: 0x10000, size: 0x8000 },
+    ])
+    expect(bus!.slots.find((s) => s.cs === 3)!.partitions).toBeUndefined()
+  })
+})
