@@ -547,6 +547,16 @@ const CORTEX_A53_SAMPLES_BASE: GuestSample[] = [
     primaryPanels: ['spi'],
   },
   {
+    // Stock sample on the storage-spi NOR (CS2). It ends by erasing its store,
+    // so the flash card's ZMS view is the thing to watch while it runs.
+    id: 'zms',
+    label: 'ZMS',
+    description: 'Writes, rewrites and deletes keys in ZMS, Zephyr’s flash key-value store',
+    tryIt: 'Open ZMS on the flash card, then Reset to watch it fill',
+    zephyrSample: 'samples/subsys/kvss/zms',
+    primaryPanels: ['spi'],
+  },
+  {
     // A FAT volume on a VIRTIO block device — the one virtio device here whose
     // model is stock QEMU rather than the browser bridge, so there is nothing
     // page-side answering the virtqueue. The backing store is the blank raw
@@ -1198,6 +1208,8 @@ export const BOARDS: Board[] = [
           s.id !== 'pm_latency' &&
           // A 60 fps software rasterizer, built for the A53 alone.
           s.id !== 'kite_rush' &&
+          // storage-spi only carries an A53 overlay.
+          s.id !== 'zms' &&
           // Float inference every 40 ms is too much for this board's interpreter.
           s.id !== 'magic_wand',
       ),

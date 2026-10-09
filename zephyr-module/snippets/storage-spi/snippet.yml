@@ -1,12 +1,13 @@
-name: settings-spi
+name: storage-spi
 description: >
   Dedicated browser-persisted W25Q on virtio-spi CS2 as the storage partition,
-  for samples that keep their own settings (Kite Rush's high scores). Kept off
-  CS0 (spi_flash / LittleFS) and CS1 (Bluetooth NVS), since the page persists
-  each chip select's image across samples and the formats would collide.
+  for samples that keep data of their own: ZMS stores, settings (Kite Rush's
+  high scores). Kept off CS0 (spi_flash / LittleFS) and CS1 (Bluetooth NVS),
+  since the page persists each chip select's image across samples and the
+  formats would collide.
 
 append:
-  EXTRA_CONF_FILE: settings-spi.conf
+  EXTRA_CONF_FILE: storage-spi.conf
 
 boards:
   qemu_cortex_a53/qemu_cortex_a53:
