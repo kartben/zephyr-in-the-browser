@@ -150,6 +150,16 @@ the card that drives it — so adding a part is a declaration, not another panel
   is another declaration rather than another panel. Counters and wear persist
   with the sparse image under the same `persistKey`. Click a sector cell to
   jump the hex dump; click a hex byte to plant a value for the guest.
+  A **ZMS** view joins the card when a devicetree partition (or, without
+  one, the whole chip) holds a ZMS store, recognised by the empty ATE with
+  its `0x42` magic that ZMS stamps on every sector it opens
+  ([`zmsBrowse.ts`](../src/lib/zmsBrowse.ts), which mirrors `zms_init()`).
+  It draws each sector's data and entries, lists the keys (settings keys by
+  name, raw ids one toggle away) and every older version still on flash.
+  The `storage-spi` snippet gives a sample its own persisted NOR on CS2 as
+  `storage_partition` (Kite Rush, `samples/subsys/kvss/zms`), away from the
+  CS0 and CS1 images other samples share. Test images come from Zephyr's own
+  ZMS code in [`tools/zms-fixtures`](../tools/zms-fixtures/README.md).
 - **RTC** ([`rtc/model.ts`](../src/virtio/devices/rtc/model.ts)) — a
   bus-agnostic datetime + alarms surface (`getTime` / `setTime` /
   `syncFromBrowser` / `getAlarms`). The first provider is the I²C PCF8523 at

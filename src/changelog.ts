@@ -28,6 +28,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "Kite Rush sample: a mouse-flown arcade game that saves high scores."
       },
       {
+        "tag": "Added",
+        "text": "ZMS sample, and a flash view of its keys and history."
+      },
+      {
         "tag": "Fixed",
         "text": "IPC queue depths stay right past 50,000 trace events."
       }

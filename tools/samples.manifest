@@ -50,7 +50,7 @@
 #   virtio-spi ... VIRTIO SPI + a JEDEC NOR on CS0; self-contained alternatives
 #                  on the same bus are pt6314-only, sct2024-only, ws2812-only,
 #                  tmc50xx-only, mcp2515-only, bt-settings-spi (CS1),
-#                  settings-spi (CS2, a ZMS settings chip for app data)
+#                  storage-spi (CS2, a storage_partition for ZMS and settings)
 #   virtio-blk ... a stock QEMU block device (no page-side model)
 #   virtio-gpu ... the display behind virtio-gpu instead of ramfb
 #   oled ......... SSD1306 on the I2C bus, as `zephyr,display` instead of ramfb
@@ -103,7 +103,7 @@ qemu_cortex_a53:gnss:samples/drivers/gnss::gnss
 qemu_cortex_a53:display:samples/drivers/display::ramfb
 qemu_cortex_a53:touch:samples/subsys/input/draw_touch_events::ramfb,virtio-input
 qemu_cortex_a53:lvgl_music:samples/modules/lvgl/demos:conf/lvgl-music.conf,conf/touch.conf:ramfb,virtio-input
-qemu_cortex_a53:kite_rush:zephyr-module/apps/kite_rush:conf/kite-rush.conf:ramfb,virtio-input,settings-spi
+qemu_cortex_a53:kite_rush:zephyr-module/apps/kite_rush:conf/kite-rush.conf:ramfb,virtio-input,storage-spi
 qemu_cortex_a53:accel_chart:zephyr-module/apps/accelerometer_chart:conf/lvgl-accel.conf:virtio-i2c,adxl345-only,ramfb,accel-display
 qemu_cortex_a53:magic_wand:zephyr-module/apps/magic_wand:conf/magic-wand.conf:virtio-i2c,adxl345-only
 qemu_cortex_a53:lsm6dso:samples/sensor/lsm6dso:conf/lsm6dso.conf:virtio-i2c,lsm6dso-only
@@ -113,6 +113,7 @@ qemu_cortex_a53:isl29035:samples/sensor/isl29035:conf/isl29035.conf:virtio-i2c,i
 qemu_cortex_a53:eeprom:samples/drivers/eeprom:conf/eeprom.conf:virtio-i2c,eeprom-only
 qemu_cortex_a53:spi_flash:samples/drivers/spi_flash:conf/spi-flash.conf:virtio-spi
 qemu_cortex_a53:littlefs:samples/subsys/fs/littlefs:conf/littlefs.conf:virtio-spi
+qemu_cortex_a53:zms:samples/subsys/kvss/zms:conf/zms.conf:storage-spi
 qemu_cortex_a53:virtio_blk:zephyr-module/apps/virtio_blk_fs:conf/virtio-blk.conf:virtio-blk
 qemu_cortex_a53:rtc:samples/drivers/rtc:conf/pcf8523.conf:virtio-i2c,pcf8523-only
 qemu_cortex_a53:auxdisplay:samples/drivers/auxdisplay:conf/jhd1313.conf:virtio-i2c,jhd1313-only
