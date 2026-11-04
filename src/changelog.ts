@@ -32,6 +32,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         "text": "ZMS sample, and a flash view of its keys and history."
       },
       {
+        "tag": "Improved",
+        "text": "Tour code cards now scroll through the whole source file."
+      },
+      {
         "tag": "Fixed",
         "text": "IPC queue depths stay right past 50,000 trace events."
       }

@@ -43,6 +43,11 @@
   --code-type: oklch(0.82 0.09 288);
   --code-string: oklch(0.76 0.15 152);
   --code-number: oklch(0.77 0.15 78);
+  /* The surface code sits on, opaque: pinned lines cover what scrolls under them. */
+  --code-surface: color-mix(in oklch, var(--muted) 40%, var(--card));
+  /* Tints over it: what a tour step points at, and the line the machine is on. */
+  --code-mark: oklch(0.879 0.169 91.6 / 0.1);
+  --code-stop: color-mix(in oklch, var(--primary) 15%, transparent);
   --terminal: oklch(0.13 0.004 285.8);
   --radius: 0.5rem;
 }
@@ -73,6 +78,7 @@
     --code-type: oklch(0.457 0.149 290.9);
     --code-string: oklch(0.5 0.13 152);
     --code-number: oklch(0.52 0.13 60);
+    --code-mark: oklch(0.828 0.189 84.4 / 0.12);
     --terminal: oklch(1 0 0);
   }
 }
@@ -142,6 +148,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-terminal: var(--terminal);
+  --color-code-surface: var(--code-surface);
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -296,6 +303,41 @@
 .dock-tab-target {
   color: var(--color-primary);
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-primary) 55%, transparent);
+}
+
+/*
+ * One row of a source listing. The gutter stays put over the code as it scrolls
+ * sideways, and pins cover the rows under them, so every layer is opaque and the
+ * tint goes on top of the surface rather than letting it show through.
+ */
+.code-row {
+  background: linear-gradient(var(--row-tint, transparent), var(--row-tint, transparent)), var(--code-surface);
+}
+.code-row-mark {
+  --row-tint: var(--code-mark);
+}
+.code-row-stop {
+  --row-tint: var(--code-stop);
+}
+.code-gutter {
+  background: inherit;
+}
+.code-row-flash {
+  animation: code-row-flash 1.1s ease-out;
+}
+@keyframes code-row-flash {
+  0%,
+  35% {
+    box-shadow: inset 0 0 0 1px var(--primary-text);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-row-flash {
+    animation: none;
+  }
 }
 
 /*

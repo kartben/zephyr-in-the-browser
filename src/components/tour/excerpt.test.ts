@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { CONTEXT, MAX_LINES, excerptRows, excerptWindow } from '@/components/tour/excerpt'
+import {
+  CONTEXT,
+  FAR_ROWS,
+  MAX_LINES,
+  MIN_ROWS,
+  PIN_CONTEXT,
+  PIN_HIGHLIGHT,
+  ROW_PX,
+  SKIP_PX,
+  excerptWindow,
+  openingRows,
+  openingScroll,
+  pageScroll,
+  pinBlocks,
+  pinLayout,
+} from '@/components/tour/excerpt'
 
 const lines = (e: ReturnType<typeof excerptWindow>) =>
   Array.from({ length: e.end - e.start + 1 }, (_, i) => e.start + i).filter((n) => e.marked(n))
@@ -91,31 +106,197 @@ describe('excerptWindow', () => {
   })
 })
 
-describe('excerptRows', () => {
-  const runs = [
-    { start: 82, end: 88 },
-    { start: 204, end: 210 },
-  ]
-  const kinds = (rows: ReturnType<typeof excerptRows>) =>
-    rows.map((row) =>
-      row.kind === 'line' ? row.line : `fold ${row.from}-${row.to}${row.open ? ' open' : ''}`,
-    )
-
-  it('puts one fold row between two runs', () => {
-    expect(kinds(excerptRows(runs))).toEqual([
-      82, 83, 84, 85, 86, 87, 88, 'fold 89-203', 204, 205, 206, 207, 208, 209, 210,
+describe('pinBlocks', () => {
+  it('pins the stop and a highlight with the lines around them', () => {
+    expect(pinBlocks(332, 207, [{ start: 85, end: 85 }])).toEqual([
+      { start: 85 - PIN_CONTEXT, end: 85 + PIN_CONTEXT },
+      { start: 207 - PIN_CONTEXT, end: 207 + PIN_CONTEXT },
     ])
   })
 
-  it('keeps an opened fold row above the lines it held', () => {
-    const rows = kinds(excerptRows(runs, new Set([89])))
-    expect(rows.slice(6, 10)).toEqual([88, 'fold 89-203 open', 89, 90])
-    expect(rows).toHaveLength(7 + 1 + 115 + 7)
-    expect(rows[rows.length - 1]).toBe(210)
+  it('keeps a highlight whole, so a struct keeps its closing brace', () => {
+    // The sensor's reading, 144 to 148, and its `};`.
+    expect(pinBlocks(332, 154, [{ start: 144, end: 148 }])[0]).toEqual({
+      start: 144 - PIN_CONTEXT,
+      end: 148 + PIN_CONTEXT,
+    })
   })
 
-  it('draws one run with no fold, and nothing for no runs', () => {
-    expect(kinds(excerptRows([{ start: 5, end: 7 }]))).toEqual([5, 6, 7])
-    expect(excerptRows([])).toEqual([])
+  it('cuts a highlight too long to pin, and still pins the stop past the cut', () => {
+    expect(pinBlocks(1000, 300, [{ start: 1, end: 400 }])).toEqual([
+      { start: 1, end: PIN_HIGHLIGHT + PIN_CONTEXT },
+      { start: 300 - PIN_CONTEXT, end: 300 + PIN_CONTEXT },
+    ])
+  })
+
+  it('makes one block of lines that touch', () => {
+    // 207 with 210 to 213: 206-208 and 209-214.
+    expect(pinBlocks(332, 207, [{ start: 210, end: 213 }])).toEqual([{ start: 206, end: 214 }])
+  })
+
+  it('clamps to the file and ignores a backwards range', () => {
+    expect(pinBlocks(8, 8, [{ start: 6, end: 3 }])).toEqual([{ start: 7, end: 8 }])
+    expect(pinBlocks(8, null)).toEqual([])
+  })
+})
+
+describe('pinLayout', () => {
+  // The sensor pipeline's first step, in a window of 16 rows.
+  const blocks = pinBlocks(332, 207, [{ start: 85, end: 85 }])
+  const view = 16 * ROW_PX
+  const layout = (line: number, viewPx = view) => pinLayout(blocks, (line - 1) * ROW_PX, viewPx, 207)
+  const rows = (stack: { start: number; end: number }[]) => stack.map((b) => `${b.start}-${b.end}`)
+
+  it('pins each block to the edge it left by', () => {
+    const between = layout(120)
+    expect(rows(between.above)).toEqual(['84-86'])
+    expect(rows(between.below)).toEqual(['206-208'])
+
+    expect(rows(layout(1).below)).toEqual(['84-86', '206-208'])
+    expect(rows(layout(1).above)).toEqual([])
+    expect(rows(layout(260).above)).toEqual(['84-86', '206-208'])
+    expect(rows(layout(260).below)).toEqual([])
+  })
+
+  it('leaves a block in the code while it is in view', () => {
+    const on = layout(200)
+    expect(rows(on.above)).toEqual(['84-86'])
+    expect(rows(on.below)).toEqual([])
+    expect(on.above).not.toContainEqual({ start: 206, end: 208 })
+  })
+
+  it('sticks a block exactly where it already is, so it does not jump', () => {
+    // The block's first line reaches the top edge: it reads the same pinned.
+    const at = layout(84)
+    expect(rows(at.above)).toEqual(['84-86'])
+    expect(at.skipAbove).toBe(false)
+    expect(at.topPx).toBe(3 * ROW_PX)
+    expect(rows(layout(83).above)).toEqual([])
+  })
+
+  it('marks the break once the code under the pins has moved on', () => {
+    const on = layout(120)
+    expect(on.skipAbove).toBe(true)
+    expect(on.skipBelow).toBe(true)
+    expect(on.topPx).toBe(3 * ROW_PX + SKIP_PX)
+    expect(on.bottomPx).toBe(3 * ROW_PX + SKIP_PX)
+    // Two blocks count the mark between them too.
+    expect(layout(260).topPx).toBe(6 * ROW_PX + 2 * SKIP_PX)
+  })
+
+  it('always leaves code free to scroll, dropping the furthest and keeping the stop', () => {
+    const tight = layout(300, 8 * ROW_PX)
+    expect(rows(tight.above)).toEqual(['206-208'])
+    expect(tight.topPx).toBeLessThanOrEqual(5 * ROW_PX)
+    // No room for anything: nothing pinned, as in a test with no layout.
+    expect(rows(layout(300, 0).above)).toEqual([])
+  })
+
+  it('holds at most two blocks to an edge', () => {
+    const many = pinBlocks(500, 400, [
+      { start: 10, end: 10 },
+      { start: 50, end: 50 },
+      { start: 90, end: 90 },
+    ])
+    const stuck = pinLayout(many, 450 * ROW_PX, 40 * ROW_PX, 400).above
+    expect(rows(stuck)).toEqual(['89-91', '399-401'])
+  })
+})
+
+describe('pageScroll', () => {
+  const lineCount = 332
+  /** The lines whole and uncovered at one scroll position. */
+  const live = (blocks: { start: number; end: number }[], top: number, view: number) => {
+    const { topPx, bottomPx } = pinLayout(blocks, top, view, 207)
+    const seen: number[] = []
+    for (let n = 1; n <= lineCount; n++) {
+      const y = (n - 1) * ROW_PX
+      if (y >= top + topPx && y + ROW_PX <= top + view - bottomPx) seen.push(n)
+    }
+    return seen
+  }
+
+  const cases = [
+    ['the stop and a far highlight', [{ start: 85, end: 85 }]],
+    ['a highlight next to the stop', [{ start: 210, end: 213 }]],
+    ['no highlight', []],
+  ] as const
+
+  for (const [what, ranges] of cases) {
+    for (const rows of [8, 16, 30]) {
+      it(`reads every line, down and up, with ${what} in ${rows} rows`, () => {
+        const blocks = pinBlocks(lineCount, 207, [...ranges])
+        const view = rows * ROW_PX
+        const maxTop = lineCount * ROW_PX - view
+        for (const direction of [1, -1] as const) {
+          const seen = new Set<number>()
+          let top = direction > 0 ? 0 : maxTop
+          for (let page = 0; page <= lineCount; page++) {
+            live(blocks, top, view).forEach((n) => seen.add(n))
+            if (top === (direction > 0 ? maxTop : 0)) break
+            const next = pageScroll(blocks, top, view, maxTop, direction, 207)
+            expect(direction > 0 ? next > top : next < top).toBe(true)
+            top = next
+          }
+          expect(top).toBe(direction > 0 ? maxTop : 0)
+          const skipped = Array.from({ length: lineCount }, (_, i) => i + 1).filter((n) => !seen.has(n))
+          expect(skipped).toEqual([])
+        }
+      })
+    }
+  }
+})
+
+describe('opening a window', () => {
+  const liveTop = (line: number, ranges: { start: number; end: number }[], viewPx: number) => {
+    const top = openingScroll(332, line, ranges, viewPx)
+    const { topPx, bottomPx } = pinLayout(pinBlocks(332, line, ranges), top, viewPx, line)
+    return { top, topPx, bottomPx, y: (line - 1) * ROW_PX - top }
+  }
+
+  it('opens on the lines the step would have shown, when they share a window', () => {
+    // Stop on 154, the reading from 144: the excerpt was 141 to 157.
+    const ranges = [{ start: 144, end: 148 }]
+    expect(openingRows(332, 154, ranges)).toBe(17)
+    expect(openingScroll(332, 154, ranges, 17 * ROW_PX)).toBe((141 - 1) * ROW_PX)
+  })
+
+  it('gives a bare stop some room to look around', () => {
+    expect(openingRows(332, 207)).toBe(MIN_ROWS)
+    const top = openingScroll(332, 207, [], MIN_ROWS * ROW_PX)
+    expect(top).toBeLessThanOrEqual((207 - 1) * ROW_PX)
+    expect(top + MIN_ROWS * ROW_PX).toBeGreaterThanOrEqual(207 * ROW_PX)
+  })
+
+  it('grows by what the pins take, when the stop and the highlight are far apart', () => {
+    const ranges = [{ start: 85, end: 85 }]
+    expect(openingRows(332, 207, ranges)).toBe(FAR_ROWS + 2 * PIN_CONTEXT)
+    const view = openingRows(332, 207, ranges) * ROW_PX
+    const { top, topPx, bottomPx, y } = liveTop(207, ranges, view)
+    expect(y).toBeGreaterThanOrEqual(topPx)
+    expect(y + ROW_PX).toBeLessThanOrEqual(view - bottomPx)
+    // On a whole line under the pins, rather than half of one.
+    expect((top + topPx) % ROW_PX).toBe(0)
+  })
+
+  it('keeps the far highlight visible at a pin, below the stop as well as above', () => {
+    const ranges = [{ start: 300, end: 300 }]
+    const view = openingRows(332, 50, ranges) * ROW_PX
+    const top = openingScroll(332, 50, ranges, view)
+    expect(pinLayout(pinBlocks(332, 50, ranges), top, view, 50).below).toEqual([{ start: 299, end: 301 }])
+  })
+
+  it('opens on the first highlight when there is no stop in this file', () => {
+    const ranges = [{ start: 40, end: 43 }]
+    const view = openingRows(100, null, ranges) * ROW_PX
+    const top = openingScroll(100, null, ranges, view)
+    expect(top).toBeLessThanOrEqual((40 - 1) * ROW_PX)
+    expect(top + view).toBeGreaterThanOrEqual(43 * ROW_PX)
+  })
+
+  it('stays in the file, and is no taller than a short one', () => {
+    expect(openingRows(5, 2)).toBe(5)
+    expect(openingScroll(5, 2, [], 5 * ROW_PX)).toBe(0)
+    expect(openingScroll(332, 330, [], MIN_ROWS * ROW_PX)).toBe((332 - MIN_ROWS) * ROW_PX)
   })
 })
