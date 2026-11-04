@@ -104,7 +104,9 @@ export function installShortcutBindings(): () => void {
     }),
     onShortcut('tour-minimise', () => {
       // Escape belongs to whatever has focus: a dialog, a menu, the Trace
-      // graph. Only take it from the page itself or from the card.
+      // graph. Only take it from the page itself or from the card, and not from
+      // under a dialog, whose focus can fall back to the page.
+      if (document.querySelector('[role="dialog"]')) return false
       const focus = document.activeElement
       if (focus && focus !== document.body && !focus.closest('[data-tour-step]')) return false
       const state = tours.getSnapshot()

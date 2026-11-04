@@ -204,7 +204,8 @@ function ValuePopover({
     <div
       id="value-hover"
       role="tooltip"
-      className="fixed z-40 max-h-72 w-max min-w-40 max-w-md overflow-auto rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-xl backdrop-blur"
+      // Over a modal dialog too, which turns pointer events off for the page.
+      className="pointer-events-auto fixed z-[60] max-h-72 w-max min-w-40 max-w-md overflow-auto rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-xl backdrop-blur"
       style={style}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
